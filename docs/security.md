@@ -60,40 +60,40 @@ This guarantee is achieved through:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                            UNTRUSTED ZONE                                    │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │                         Sandbox Container                              │  │
-│  │                                                                        │  │
+│                            UNTRUSTED ZONE                                   │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                         Sandbox Container                             │  │
+│  │                                                                       │  │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │  │
 │  │  │ LLM Agent   │  │ Code Files  │  │ git/gh      │  │ Isolated    │   │  │
 │  │  │ (Claude)    │  │ (workspace) │  │ wrappers    │  │ Worktree    │   │  │
 │  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘   │  │
-│  │                                                                        │  │
-│  │  NO: GitHub tokens, Anthropic API keys, SSH keys, cloud credentials    │  │
-│  │  NO: Direct network access (proxy required in private mode)            │  │
-│  │  NO: Git metadata (.git directory shadowed by tmpfs)                   │  │
-│  │  NO: Other agents' workspaces                                          │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                    │                                         │
-│                                    │ HTTP API (authenticated)                │
-│                                    ▼                                         │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                            TRUSTED ZONE                                      │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │                     Gateway Sidecar (Policy Enforcer)                  │  │
-│  │                                                                        │  │
+│  │                                                                       │  │
+│  │  NO: GitHub tokens, Anthropic API keys, SSH keys, cloud credentials   │  │
+│  │  NO: Direct network access (proxy required in private mode)           │  │
+│  │  NO: Git metadata (.git directory shadowed by tmpfs)                  │  │
+│  │  NO: Other agents' workspaces                                         │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                    │                                        │
+│                                    │ HTTP API (authenticated)               │
+│                                    ▼                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                            TRUSTED ZONE                                     │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                     Gateway Sidecar (Policy Enforcer)                 │  │
+│  │                                                                       │  │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │  │
 │  │  │ GITHUB_     │  │ ANTHROPIC_  │  │ HTTPS       │  │ Policy      │   │  │
 │  │  │ TOKEN       │  │ API_KEY     │  │ Proxy       │  │ Engine      │   │  │
 │  │  │ (secure)    │  │ (secure)    │  │ (filtered)  │  │ (validates) │   │  │
 │  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘   │  │
-│  │                                                                        │  │
-│  │  ENFORCES: Branch ownership, merge blocking, domain allowlist          │  │
-│  │  LOGS: All operations with full audit trail                            │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────┘
+│  │                                                                       │  │
+│  │  ENFORCES: Branch ownership, merge blocking, domain allowlist         │  │
+│  │  LOGS: All operations with full audit trail                           │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -104,12 +104,12 @@ This guarantee is achieved through:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Host Machine                                    │
-│                                                                              │
+│                              Host Machine                                   │
+│                                                                             │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                    Isolated Network (internal: true)                  │   │
-│  │                    No external route                                  │   │
-│  │                                                                       │   │
+│  │                    Isolated Network (internal: true)                 │   │
+│  │                    No external route                                 │   │
+│  │                                                                      │   │
 │  │    ┌───────────────────┐                ┌───────────────────────┐    │   │
 │  │    │ Sandbox Container │                │   Gateway Sidecar     │    │   │
 │  │    │                   │◄──REST API────►│                       │    │   │
@@ -126,23 +126,23 @@ This guarantee is achieved through:
 │  │                    External Network (bridge)        │                │   │
 │  │                                                     │                │   │
 │  │                                    ┌────────────────┴──────────────┐ │   │
-│  │                                    │    Gateway Sidecar           │ │   │
-│  │                                    │    (dual-homed)              │ │   │
-│  │                                    │                              │ │   │
-│  │                                    │    ALLOWED:                  │ │   │
-│  │                                    │    - api.anthropic.com       │ │   │
-│  │                                    │    - github.com              │ │   │
-│  │                                    │    - api.github.com          │ │   │
-│  │                                    │    - *.githubusercontent.com │ │   │
-│  │                                    │                              │ │   │
-│  │                                    │    BLOCKED:                  │ │   │
-│  │                                    │    - Everything else         │ │   │
-│  │                                    └──────────────┬───────────────┘ │   │
-│  └───────────────────────────────────────────────────│─────────────────┘   │
-│                                                      │                     │
-│                                                      ▼                     │
-│                                                  Internet                  │
-│                                            (allowlisted only)              │
+│  │                                    │    Gateway Sidecar            │ │   │
+│  │                                    │    (dual-homed)               │ │   │
+│  │                                    │                               │ │   │
+│  │                                    │    ALLOWED:                   │ │   │
+│  │                                    │    - api.anthropic.com        │ │   │
+│  │                                    │    - github.com               │ │   │
+│  │                                    │    - api.github.com           │ │   │
+│  │                                    │    - *.githubusercontent.com  │ │   │
+│  │                                    │                               │ │   │
+│  │                                    │    BLOCKED:                   │ │   │
+│  │                                    │    - Everything else          │ │   │
+│  │                                    └──────────────┬────────────────┘ │   │
+│  └───────────────────────────────────────────────────│──────────────────┘   │
+│                                                      │                      │
+│                                                      ▼                      │
+│                                                  Internet                   │
+│                                            (allowlisted only)               │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
