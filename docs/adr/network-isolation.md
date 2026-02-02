@@ -27,20 +27,20 @@ For truly unsupervised operation, we need infrastructure-level guarantees that t
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                           PUBLIC MODE                                    │
+│                           PUBLIC MODE                                   │
 ├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
+│                                                                         │
 │  ┌─────────────────┐    ANTHROPIC_BASE_URL     ┌─────────────────────┐  │
 │  │  Sandbox        │ ─────────────────────────▶│    Gateway          │  │
 │  │  Container      │   http://gateway:8080     │                     │  │
 │  │                 │   /v1/messages            │  - Inject creds     │──┼──▶ api.anthropic.com
 │  │  Claude Code    │                           │  - Forward request  │  │
 │  └────────┬────────┘                           └─────────────────────┘  │
-│           │                                                              │
-│           │ Direct internet                                              │
-│           ▼                                                              │
-│     npm, pypi, github, web search, etc.                                  │
-│                                                                          │
+│           │                                                             │
+│           │ Direct internet                                             │
+│           ▼                                                             │
+│     npm, pypi, github, web search, etc.                                 │
+│                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -48,9 +48,9 @@ For truly unsupervised operation, we need infrastructure-level guarantees that t
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                          PRIVATE MODE                                    │
+│                          PRIVATE MODE                                   │
 ├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
+│                                                                         │
 │  ┌─────────────────┐    ANTHROPIC_BASE_URL     ┌─────────────────────┐  │
 │  │  Sandbox        │ ─────────────────────────▶│    Gateway          │  │
 │  │  Container      │   http://gateway:8080     │                     │  │
@@ -62,7 +62,7 @@ For truly unsupervised operation, we need infrastructure-level guarantees that t
 │           ▼                                    │  - Audit logging    │  │
 │     ┌─────────────────────────────────────────▶│                     │  │
 │     │  All other traffic                       └─────────────────────┘  │
-│     │                                                                    │
+│     │                                                                   │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -70,13 +70,13 @@ For truly unsupervised operation, we need infrastructure-level guarantees that t
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Host Machine                              │
-│                                                                  │
+│                        Host Machine                             │
+│                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │              egg-isolated (internal: true)                │   │
-│  │              Subnet: 172.30.0.0/24                        │   │
-│  │              Gateway: NONE (no external route)            │   │
-│  │                                                           │   │
+│  │              egg-isolated (internal: true)               │   │
+│  │              Subnet: 172.30.0.0/24                       │   │
+│  │              Gateway: NONE (no external route)           │   │
+│  │                                                          │   │
 │  │    ┌─────────────┐              ┌─────────────────┐      │   │
 │  │    │   Sandbox   │              │  egg-gateway    │      │   │
 │  │    │ 172.30.0.10 │◄────────────►│   172.30.0.2    │      │   │
@@ -86,27 +86,27 @@ For truly unsupervised operation, we need infrastructure-level guarantees that t
 │  │    └─────────────┘              └────────┬────────┘      │   │
 │  │                                          │               │   │
 │  └──────────────────────────────────────────│───────────────┘   │
-│                                             │                    │
+│                                             │                   │
 │  ┌──────────────────────────────────────────│───────────────┐   │
-│  │              egg-external (bridge)        │               │   │
-│  │              Subnet: 172.31.0.0/24        │               │   │
-│  │                                           │               │   │
-│  │                              ┌────────────┴────────┐      │   │
-│  │                              │  egg-gateway        │      │   │
-│  │                              │    172.31.0.2       │      │   │
-│  │                              │                     │      │   │
-│  │                              │  CAN REACH:         │      │   │
-│  │                              │  - api.anthropic.com│      │   │
-│  │                              │  - github.com       │      │   │
-│  │                              │  - api.github.com   │      │   │
-│  │                              │  (via proxy filter) │      │   │
-│  │                              └──────────┬──────────┘      │   │
-│  │                                         │                 │   │
-│  └─────────────────────────────────────────│─────────────────┘   │
-│                                            │                     │
-│                                            ▼                     │
-│                                       Internet                   │
-└──────────────────────────────────────────────────────────────────┘
+│  │              egg-external (bridge)       │               │   │
+│  │              Subnet: 172.31.0.0/24       │               │   │
+│  │                                          │               │   │
+│  │                              ┌───────────┴─────────┐     │   │
+│  │                              │  egg-gateway        │     │   │
+│  │                              │    172.31.0.2       │     │   │
+│  │                              │                     │     │   │
+│  │                              │  CAN REACH:         │     │   │
+│  │                              │  - api.anthropic.com│     │   │
+│  │                              │  - github.com       │     │   │
+│  │                              │  - api.github.com   │     │   │
+│  │                              │  (via proxy filter) │     │   │
+│  │                              └──────────┬──────────┘     │   │
+│  │                                         │                │   │
+│  └─────────────────────────────────────────│────────────────┘   │
+│                                            │                    │
+│                                            ▼                    │
+│                                       Internet                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 **Key property:** Docker's `internal: true` network has no gateway to the outside world. The sandbox physically cannot route packets to the internet—there's no route in its network namespace.
