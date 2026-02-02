@@ -39,7 +39,7 @@ jobs:
           shellcheck sandbox/scripts/* || true
 
       - name: Hadolint
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@v3.3.0
         with:
           dockerfile: gateway/Dockerfile
         continue-on-error: true  # Don't fail if Dockerfile doesn't exist yet
