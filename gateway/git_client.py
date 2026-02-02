@@ -127,10 +127,7 @@ def is_repos_parent_directory(path: str) -> bool:
 
     try:
         real_path = os.path.realpath(path).rstrip("/")
-        return any(
-            real_path == parent_dir.rstrip("/")
-            for parent_dir in _repos_parent_directories
-        )
+        return any(real_path == parent_dir.rstrip("/") for parent_dir in _repos_parent_directories)
     except Exception:
         return False
 

@@ -192,9 +192,7 @@ class SessionManager:
         # Ensure directory exists
         self._persistence_file.parent.mkdir(parents=True, exist_ok=True)
 
-        sessions_data = [
-            session.to_dict_for_persistence() for session in self._sessions.values()
-        ]
+        sessions_data = [session.to_dict_for_persistence() for session in self._sessions.values()]
         data = {
             "version": 1,
             "saved_at": datetime.now(UTC).isoformat(),
@@ -314,10 +312,7 @@ class SessionManager:
 
             session.extend_ttl(self._ttl_hours)
 
-            if (
-                session.session_token
-                and session.session_token not in self._token_to_hash
-            ):
+            if session.session_token and session.session_token not in self._token_to_hash:
                 self._token_to_hash[session.session_token] = token_hash
 
             return SessionValidationResult(
@@ -390,9 +385,7 @@ class SessionManager:
         pruned = 0
         with self._lock:
             expired_hashes = [
-                token_hash
-                for token_hash, session in self._sessions.items()
-                if session.is_expired()
+                token_hash for token_hash, session in self._sessions.items() if session.is_expired()
             ]
 
             for token_hash in expired_hashes:

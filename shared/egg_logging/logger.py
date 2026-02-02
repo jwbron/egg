@@ -6,7 +6,7 @@ Provides JSON-formatted logging with context propagation.
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 _loggers: dict[str, "EggLogger"] = {}
@@ -17,7 +17,7 @@ class JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         log_entry: dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -77,9 +77,7 @@ class EggLogger:
                 handler.setFormatter(JsonFormatter())
             self._logger.addHandler(handler)
 
-    def _log(
-        self, level: int, msg: str, *args: Any, exc_info: bool = False, **kwargs: Any
-    ) -> None:
+    def _log(self, level: int, msg: str, *args: Any, exc_info: bool = False, **kwargs: Any) -> None:
         """Internal log method with extra field support."""
         # Merge context with kwargs
         extra_fields = {**self._context, **kwargs}

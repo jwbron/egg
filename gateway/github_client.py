@@ -393,9 +393,7 @@ class GitHubClient:
         }
 
         cmd = [GH_CLI, *args]
-        logger.debug(
-            "Executing gh command", command_args=args, cwd=str(cwd) if cwd else None
-        )
+        logger.debug("Executing gh command", command_args=args, cwd=str(cwd) if cwd else None)
 
         try:
             result = subprocess.run(
@@ -411,10 +409,7 @@ class GitHubClient:
             success = result.returncode == 0
             if not success:
                 stderr_lower = (result.stderr or "").lower()
-                if (
-                    "rate limit" in stderr_lower
-                    or "api rate limit exceeded" in stderr_lower
-                ):
+                if "rate limit" in stderr_lower or "api rate limit exceeded" in stderr_lower:
                     logger.error(
                         "GitHub rate limit exceeded",
                         command_args=args,

@@ -48,8 +48,7 @@ def validate_config(
             )
     else:
         errors.append(
-            f"Secrets directory not mounted: {secrets_dir}\n"
-            "  Ensure secrets directory is mounted"
+            f"Secrets directory not mounted: {secrets_dir}\n  Ensure secrets directory is mounted"
         )
 
     # Validate Squid configuration (optional - only if using proxy)

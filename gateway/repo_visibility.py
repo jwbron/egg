@@ -104,6 +104,7 @@ class RepoVisibilityChecker:
         # Try to get bot token from token_refresher
         try:
             from .token_refresher import get_bot_token
+
             bot_token, _source = get_bot_token()
             if bot_token:
                 tokens.append((bot_token, "bot"))

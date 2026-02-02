@@ -450,9 +450,7 @@ def git_push():
             details=policy_result.details,
         )
 
-    token_str, auth_mode, token_error = get_token_for_repo(
-        repo, get_auth_mode, get_github_client
-    )
+    token_str, auth_mode, token_error = get_token_for_repo(repo, get_auth_mode, get_github_client)
     if not token_str:
         return make_error(token_error, status_code=503)
 
@@ -771,9 +769,7 @@ def git_fetch():
                 details=priv_result.to_dict(),
             )
 
-    token_str, auth_mode, token_error = get_token_for_repo(
-        repo, get_auth_mode, get_github_client
-    )
+    token_str, auth_mode, token_error = get_token_for_repo(repo, get_auth_mode, get_github_client)
     if not token_str:
         return make_error(token_error, status_code=503)
 
