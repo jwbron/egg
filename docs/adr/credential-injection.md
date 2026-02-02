@@ -31,9 +31,9 @@ With credential injection, **all credentials live in the gateway**.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                           CREDENTIAL FLOW                                │
+│                           CREDENTIAL FLOW                               │
 ├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
+│                                                                         │
 │  ┌─────────────────┐    ANTHROPIC_BASE_URL     ┌─────────────────────┐  │
 │  │  Sandbox        │ ─────────────────────────▶│    Gateway          │  │
 │  │                 │   http://gateway:8080     │                     │  │
@@ -44,7 +44,7 @@ With credential injection, **all credentials live in the gateway**.
 │  └─────────────────┘                           │  Credentials from:  │  │
 │                                                │  ~/.egg/secrets.yaml│  │
 │                                                └─────────────────────┘  │
-│                                                                          │
+│                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -66,7 +66,7 @@ Container                    Gateway                      GitHub
    │                           │                            │
    │  git push                 │                            │
    │ ─────────────────────────▶│                            │
-   │  (via wrapper, no creds)  │  git push (with token)    │
+   │  (via wrapper, no creds)  │  git push (with token)     │
    │                           │ ──────────────────────────▶│
    │                           │                            │
    │  <──────────────────────  │  <─────────────────────────│
