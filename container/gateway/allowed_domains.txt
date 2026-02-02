@@ -1,0 +1,24 @@
+# Allowed domains for network lockdown (private mode)
+# These are the only domains the sandbox container can access through the proxy
+#
+# Format: One domain per line, supports subdomains via .domain.com syntax
+# Lines starting with # are comments
+
+# Anthropic Claude API
+api.anthropic.com
+
+# IMPORTANT: GitHub domains are intentionally NOT in this allowlist.
+# All GitHub/git access MUST go through the gateway sidecar's git/gh wrappers
+# (via REST API at egg-gateway:9847), not directly through the proxy.
+# This ensures policy enforcement (branch ownership, merge blocking, etc.)
+# cannot be bypassed by direct API calls.
+#
+# The gateway sidecar holds the GitHub token and enforces:
+# - Branch ownership policy (agent can only push to owned branches)
+# - Merge blocking (agent cannot merge PRs - human must merge via GitHub UI)
+# - Force push blocking (agent cannot force push)
+# - Audit logging for all operations
+
+# Note: PyPI, npm, and other package managers are intentionally NOT included
+# All dependencies must be pre-installed in the Docker image
+# This prevents supply chain attacks and ensures reproducible builds
