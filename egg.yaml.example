@@ -1,0 +1,49 @@
+# egg.yaml.example - main configuration (no secrets here)
+egg:
+  name: "my-sandbox"
+
+  # Git policies
+  git:
+    branch_prefix: "egg/"  # Branches must start with this
+    protected_branches:
+      - "main"
+      - "master"
+    allow_force_push: false
+    merge_blocking: true  # Gateway has no merge endpoint
+
+  # Authentication (references secrets.yaml)
+  # Supports multiple auth sources, each labeled for traceability
+  auth:
+    sources:
+      - name: "bot-account"
+        type: "github_app"  # or "pat"
+        # Credentials stored in secrets.yaml
+      - name: "personal"
+        type: "pat"
+    # Associate repos with specific auth sources
+    repo_auth:
+      "owner/repo1": "bot-account"
+      "owner/repo2": "personal"
+      "owner/*": "bot-account"  # Wildcard support
+
+  # Repository configuration
+  repositories:
+    # Which repos are allowed (similar to repositories.yaml)
+    allowed:
+      - "owner/repo1"
+      - "owner/repo2"
+      - "owner/*"
+
+  # Audit logging
+  logging:
+    level: "INFO"
+    format: "json"  # or "text"
+    output: "stdout"  # or file path
+    include_request_body: false  # For debugging
+
+  # Container settings (images built and run locally only)
+  container:
+    mounts:
+      - source: "./workspace"
+        target: "/workspace"
+        read_only: false
