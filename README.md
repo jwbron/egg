@@ -25,8 +25,8 @@ Behavioral controls (telling an LLM "don't do X") can be bypassed through prompt
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                                    egg                                       │
-│                                                                              │
+│                                    egg                                      │
+│                                                                             │
 │   ┌───────────────────────────┐          ┌───────────────────────────────┐  │
 │   │      Gateway Sidecar      │          │      Sandbox Container        │  │
 │   │        (Trusted)          │          │        (Untrusted)            │  │
@@ -55,7 +55,7 @@ Behavioral controls (telling an LLM "don't do X") can be bypassed through prompt
 │   │                           │          │  - Git metadata (.git/)       │  │
 │   │                           │          │  - Direct network (private)   │  │
 │   └───────────────────────────┘          └───────────────────────────────┘  │
-│                                                                              │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
