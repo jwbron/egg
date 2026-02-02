@@ -339,7 +339,7 @@ wheels = [
 ]
 
 [[package]]
-name = "egg"
+name = "egg-sandbox"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
