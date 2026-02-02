@@ -87,6 +87,12 @@ egg start --config egg.yaml
 - [Testing Guide](docs/testing.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
+### Architecture Decision Records (ADRs)
+
+- [ADR: Git Isolation Architecture](docs/adr/git-isolation-architecture.md)
+- [ADR: Credential Injection](docs/adr/credential-injection.md)
+- [ADR: Network Isolation](docs/adr/network-isolation.md)
+
 ## Development
 
 ```bash

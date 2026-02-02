@@ -196,3 +196,4 @@ Sessions are stored in `~/.egg/sessions.json` (host-side), surviving gateway res
 
 - [ADR: Git Isolation Architecture](adr/git-isolation-architecture.md)
 - [ADR: Credential Injection](adr/credential-injection.md)
+- [ADR: Network Isolation](adr/network-isolation.md)
