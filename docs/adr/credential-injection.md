@@ -152,3 +152,8 @@ OAuth takes precedence if both OAuth and API key are configured.
 3. **More secure**: Credentials never in container environment
 4. **Unified**: Same approach works for both public and private modes
 5. **Better debugging**: HTTP traffic between container and gateway is inspectable
+
+## Related ADRs
+
+- [ADR: Git Isolation Architecture](git-isolation-architecture.md)
+- [ADR: Network Isolation](network-isolation.md)

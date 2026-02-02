@@ -142,3 +142,8 @@ The chosen approach provides:
 - **Efficient storage** (worktrees share git objects)
 - **Fast workspace creation** (O(1) via git worktree)
 - **Clean crash recovery** (gateway manages all state)
+
+## Related ADRs
+
+- [ADR: Credential Injection](credential-injection.md)
+- [ADR: Network Isolation](network-isolation.md)
