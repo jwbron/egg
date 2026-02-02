@@ -45,10 +45,16 @@ ensure_act() {
             if command -v brew &>/dev/null; then
                 brew install act
             else
-                curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
+                # Install to user-local bin (no sudo required)
+                mkdir -p "$HOME/.local/bin"
+                curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b "$HOME/.local/bin"
+                export PATH="$HOME/.local/bin:$PATH"
             fi
         else
-            curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
+            # Install to user-local bin (no sudo required)
+            mkdir -p "$HOME/.local/bin"
+            curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b "$HOME/.local/bin"
+            export PATH="$HOME/.local/bin:$PATH"
         fi
     fi
 }

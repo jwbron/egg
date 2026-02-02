@@ -56,6 +56,9 @@ disallow_untyped_defs = false
 testpaths = ["tests"]
 addopts = "-v --cov=gateway --cov=shared --cov=cli --cov-report=term-missing"
 
+[tool.hatch.build.targets.wheel]
+packages = ["cli", "gateway", "shared"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
