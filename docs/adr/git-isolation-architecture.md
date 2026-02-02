@@ -45,22 +45,22 @@ All git operations that require metadata access go through the gateway:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Agent Container (Untrusted)                  │
+│                     Agent Container (Untrusted)                 │
 │                                                                 │
 │   The agent runs 'git status', which invokes the git wrapper    │
-│                              │                                   │
-│                              ▼                                   │
+│                              │                                  │
+│                              ▼                                  │
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │  Git Wrapper Script                                     │   │
 │   │  - Intercepts all git commands                          │   │
 │   │  - Cannot bypass (no git metadata = native git fails)   │   │
 │   └─────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-└──────────────────────────────│───────────────────────────────────┘
+│                              │                                  │
+└──────────────────────────────│──────────────────────────────────┘
                                │ HTTP API call
                                ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Gateway Sidecar (Trusted)                    │
+│                     Gateway Sidecar (Trusted)                   │
 │                                                                 │
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │  Request Validation                                     │   │
@@ -68,16 +68,16 @@ All git operations that require metadata access go through the gateway:
 │   │  - Check operation against allowlist                    │   │
 │   │  - Validate flags (block dangerous options)             │   │
 │   └─────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-│                              ▼                                   │
+│                              │                                  │
+│                              ▼                                  │
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │  Policy Enforcement                                     │   │
 │   │  - Branch ownership: only push to agent's own branches  │   │
 │   │  - Protected branches: block direct push to main        │   │
 │   │  - Merge blocking: agents cannot merge PRs              │   │
 │   └─────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-│                              ▼                                   │
+│                              │                                  │
+│                              ▼                                  │
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │  Git Execution                                          │   │
 │   │  - Execute in correct worktree context                  │   │
