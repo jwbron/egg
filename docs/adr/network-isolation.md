@@ -8,7 +8,7 @@
 The egg gateway provides two network modes for sandbox containers:
 
 1. **Public mode** (default): Full internet access, with Anthropic API routed through gateway for credential injection
-2. **Private mode**: Complete network lockdown - only Anthropic API and GitHub are accessible
+2. **Private mode**: Complete network lockdown - only Anthropic API and private GitHub repos are accessible
 
 Private mode provides infrastructure-enforced security guarantees that cannot be bypassed by prompt injection or agent misbehavior.
 

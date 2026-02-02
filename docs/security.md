@@ -167,7 +167,7 @@ This guarantee is achieved through:
 | Mode | Network Access | Use Case |
 |------|----------------|----------|
 | **Public** | Full internet (Anthropic API via gateway for credential injection) | Open source, package installation |
-| **Private** | Anthropic API + GitHub only (strict allowlist) | Confidential code, sensitive data |
+| **Private** | Anthropic API + private GitHub repos only | Confidential code, sensitive data |
 
 ### 3.2 Domain Allowlist (Private Mode)
 

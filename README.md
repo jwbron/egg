@@ -17,7 +17,7 @@ Behavioral controls (telling an LLM "don't do X") can be bypassed through prompt
 | Agent steals credentials | Credentials never enter the sandbox - gateway injects them at request time |
 | Agent pushes to main | Gateway enforces branch policies; agent can only push to `egg/*` branches |
 | Agent merges its own PR | Gateway has no merge endpoint - humans must merge via GitHub UI |
-| Agent exfiltrates code | Private mode locks network to Anthropic API + GitHub only |
+| Agent exfiltrates code | Private mode restricts network to Anthropic API + private GitHub repos only |
 | Agent accesses other workspaces | Each agent gets isolated git worktree; `.git/` is shadowed |
 | Agent bypasses controls via git config | Sandbox has no git metadata - all git ops go through gateway |
 
@@ -88,10 +88,11 @@ The gateway enforces fine-grained policies on every operation:
 | Mode | Network Access | Use Case |
 |------|----------------|----------|
 | **Public** | Full internet + credential-injected API calls | Open source work, package installation |
-| **Private** | Anthropic API + GitHub only (strict allowlist) | Confidential code, sensitive data |
+| **Private** | Anthropic API + private GitHub repos only | Confidential code, sensitive data |
 
 In private mode:
-- All traffic routes through Squid proxy with domain allowlist
+- All traffic routes through Squid proxy with strict domain allowlist
+- Only private GitHub repositories are accessible (public repos blocked)
 - WebSearch, WebFetch tools are blocked
 - No package manager access (dependencies pre-installed in image)
 - Data exfiltration to arbitrary endpoints is impossible
@@ -139,7 +140,7 @@ egg start --config egg.yaml --private
 | Flag | Description |
 |------|-------------|
 | `--config <path>` | Path to egg.yaml config file (default: `./egg.yaml`) |
-| `--private` | Enable private network mode (Anthropic + GitHub only) |
+| `--private` | Enable private mode (Anthropic API + private GitHub repos only) |
 | `--headless` | Run in non-interactive mode (for automation, CI) |
 
 ## Documentation
