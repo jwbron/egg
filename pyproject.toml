@@ -1,0 +1,61 @@
+[project]
+name = "egg"
+version = "0.1.0"
+description = "Sandboxed LLM code execution environment"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.0.0,<4.0.0",
+    "waitress>=3.0.0,<4.0.0",
+    "pyyaml>=6.0,<7.0",
+    "requests>=2.31.0,<3.0.0",
+    "PyJWT>=2.8.0,<3.0.0",
+    "cryptography>=41.0.0,<44.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.8.0",
+    "bandit>=1.7.0",
+    "yamllint>=1.32.0",
+    "pre-commit>=3.6.0",
+]
+
+[project.scripts]
+egg = "cli.main:main"
+
+[tool.uv]
+# Use system Python by default (consistent with james-in-a-box)
+python-preference = "system"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "C4", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=gateway --cov=shared --cov=cli --cov-report=term-missing"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
