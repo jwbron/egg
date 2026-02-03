@@ -224,7 +224,7 @@ class PolicyEngine:
             True if author matches the configured user.
         """
         if isinstance(author, dict):
-            login = author.get("login", "")
+            login = str(author.get("login", ""))
         else:
             login = author
         return login.lower() == configured_user.lower()

@@ -237,7 +237,7 @@ def get_bot_username() -> str:
 
     # Check config file
     config = _load_yaml_config()
-    return config.get("bot_username", DEFAULT_BOT_NAME)
+    return str(config.get("bot_username", DEFAULT_BOT_NAME))
 
 
 def get_github_username() -> str | None:
@@ -273,7 +273,8 @@ def get_writable_repos() -> list[str]:
         List of repo strings in "owner/repo" format.
     """
     config = _load_yaml_config()
-    return config.get("writable_repos", [])
+    repos: list[str] = config.get("writable_repos", [])
+    return repos
 
 
 def get_readable_repos() -> list[str]:
@@ -285,7 +286,8 @@ def get_readable_repos() -> list[str]:
         List of repo strings in "owner/repo" format.
     """
     config = _load_yaml_config()
-    return config.get("readable_repos", [])
+    repos: list[str] = config.get("readable_repos", [])
+    return repos
 
 
 def is_writable_repo(repo: str) -> bool:
@@ -342,7 +344,7 @@ def get_default_reviewer() -> str | None:
     config = _load_yaml_config()
     reviewer = config.get("default_reviewer")
     if reviewer:
-        return reviewer
+        return str(reviewer)
     return get_github_username()
 
 
