@@ -1140,6 +1140,7 @@ def gh_pr_create() -> tuple[Response, int]:
     ctx, error = check_pr_operation_access(repo, "pr_create", "gh_pr_create")
     if error:
         return error
+    assert ctx is not None  # mypy: error case handled above
 
     # Policy check: PR creation may be blocked in user mode
     policy = get_policy_engine()
@@ -1227,6 +1228,7 @@ def gh_pr_comment() -> tuple[Response, int]:
     ctx, error = check_pr_operation_access(repo, "pr_comment", "gh_pr_comment", pr_number)
     if error:
         return error
+    assert ctx is not None  # mypy: error case handled above
 
     # Check if commenting is allowed (allowed on any PR)
     policy = get_policy_engine()
@@ -1298,6 +1300,7 @@ def gh_pr_edit() -> tuple[Response, int]:
     ctx, error = check_pr_operation_access(repo, "pr_edit", "gh_pr_edit", pr_number)
     if error:
         return error
+    assert ctx is not None  # mypy: error case handled above
 
     # Check PR ownership
     policy = get_policy_engine()
@@ -1370,6 +1373,7 @@ def gh_pr_close() -> tuple[Response, int]:
     ctx, error = check_pr_operation_access(repo, "pr_close", "gh_pr_close", pr_number)
     if error:
         return error
+    assert ctx is not None  # mypy: error case handled above
 
     # Check PR ownership
     policy = get_policy_engine()
