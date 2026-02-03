@@ -308,6 +308,60 @@ class TestPolicyEngine:
         assert result.allowed is True
         assert "configured user" in result.reason.lower()
 
+    def test_check_branch_ownership_user_mode_existing_with_configured_user_pr(
+        self, policy_engine, mock_github_client, monkeypatch
+    ):
+        """Test user mode allows existing branch with configured user's PR."""
+        # Mock the configured user
+        monkeypatch.setattr(
+            "gateway.policy.PolicyEngine._get_configured_user",
+            lambda self: "configured-user",
+        )
+
+        mock_github_client.branch_exists.return_value = True
+        mock_github_client.list_prs_for_branch.return_value = [
+            {
+                "number": 456,
+                "author": {"login": "configured-user"},
+                "state": "OPEN",
+                "headRefName": "feature-branch",
+            }
+        ]
+        mock_github_client.get_pr_info.return_value = {
+            "author": {"login": "configured-user"},
+            "state": "OPEN",
+            "headRefName": "feature-branch",
+        }
+
+        result = policy_engine.check_branch_ownership(
+            "owner/repo", "feature-branch", auth_mode="user"
+        )
+        assert result.allowed is True
+        assert result.details.get("auth_mode") == "user"
+        assert result.details.get("reason") == "configured_user_pr"
+        assert result.details.get("configured_user") == "configured-user"
+
+    def test_check_pr_ownership_case_insensitive(
+        self, policy_engine, mock_github_client, monkeypatch
+    ):
+        """Test that configured user matching is case-insensitive."""
+        # Mock with lowercase configured user
+        monkeypatch.setattr(
+            "gateway.policy.PolicyEngine._get_configured_user",
+            lambda self: "configureduser",
+        )
+
+        # PR author has different case
+        mock_github_client.get_pr_info.return_value = {
+            "author": {"login": "ConfiguredUser"},
+            "state": "OPEN",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_ownership("owner/repo", 42)
+        assert result.allowed is True
+        assert "configured user" in result.reason.lower()
+
 
 class TestExtractRepoFromRemote:
     """Tests for extract_repo_from_remote function."""

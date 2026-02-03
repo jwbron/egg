@@ -3,7 +3,6 @@
 Tests the repository configuration for authentication modes.
 """
 
-
 import pytest
 
 from gateway.repo_config import (

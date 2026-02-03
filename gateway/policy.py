@@ -8,9 +8,33 @@ Enforces policies for git/gh operations:
 - PR edit/close: Can only modify owned PRs
 - Merge blocked: No merge operations allowed (human must merge)
 
+Authentication Modes:
+-------------------
+The gateway supports two authentication modes:
+
+**Bot Mode** (default):
+    Operations are attributed to the GitHub App bot identity. The bot can:
+    - Push to egg-prefixed branches (egg/, egg-)
+    - Push to branches with PRs by bot, configured user, or trusted users
+    - Create PRs programmatically
+    - Edit/close PRs owned by bot, configured user, or trusted users
+
+**User Mode**:
+    Operations are attributed to a personal GitHub account (via PAT). The user can:
+    - Push to NEW branches (that don't exist upstream yet)
+    - Push to branches with PRs by bot or configured user
+    - Edit/close PRs owned by bot or configured user
+
+    In user mode, PR creation is BLOCKED - the human must create PRs manually
+    via the GitHub web UI. This ensures the human maintains control over what
+    gets opened in their name.
+
 Configuration:
 - EGG_TRUSTED_USERS: Comma-separated list of GitHub usernames whose branches
   the sandbox is allowed to push to (e.g., "jwbron,octocat")
+- EGG_USER_MODE_GITHUB_USER: GitHub username for user mode operations
+- EGG_AUTH_MODE: Default auth mode ("bot" or "user")
+- EGG_USER_MODE_REPOS: Comma-separated repos that use user mode (e.g., "user/*")
 """
 
 import os
@@ -601,9 +625,7 @@ class PolicyEngine:
                 repo=repo,
                 branch=branch,
             )
-            reason = (
-                f"Could not verify if branch '{branch}' exists (API error). " "Try again later."
-            )
+            reason = f"Could not verify if branch '{branch}' exists (API error). Try again later."
             return PolicyResult(
                 allowed=False,
                 reason=reason,
@@ -671,9 +693,7 @@ class PolicyEngine:
                     pr_number=pr_number,
                     configured_user=configured_user,
                 )
-                reason = (
-                    f"Branch '{branch}' has open PR #{pr_number} " f"owned by '{configured_user}'"
-                )
+                reason = f"Branch '{branch}' has open PR #{pr_number} owned by '{configured_user}'"
                 return PolicyResult(
                     allowed=True,
                     reason=reason,
@@ -699,7 +719,7 @@ class PolicyEngine:
             f"Branch '{branch}' exists but has no open PR owned by "
             f"{self.bot_name} or '{configured_user}'"
         )
-        hint = "Create a PR from this branch on GitHub first, " "or push to a new branch name."
+        hint = "Create a PR from this branch on GitHub first, or push to a new branch name."
         return PolicyResult(
             allowed=False,
             reason=reason,
