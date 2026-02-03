@@ -24,14 +24,35 @@ from typing import ClassVar
 # =============================================================================
 
 
+def _parse_uid_gid(env_var: str, default: int = 1000) -> int:
+    """Parse UID/GID from environment with validation.
+
+    Args:
+        env_var: Environment variable name to read
+        default: Default value if not set
+
+    Returns:
+        Validated UID/GID value
+
+    Raises:
+        ValueError: If value is invalid (0/root or out of range)
+    """
+    value = int(os.environ.get(env_var, str(default)))
+    if value == 0:
+        raise ValueError(f"{env_var} cannot be 0 (root) for security reasons")
+    if value < 1 or value > 65534:
+        raise ValueError(f"{env_var} {value} is out of valid range (1-65534)")
+    return value
+
+
 @dataclass
 class Config:
     """Container configuration from environment variables."""
 
     # Fixed container user - UID/GID adjusted at runtime to match host
     container_user: str = "egg"
-    runtime_uid: int = field(default_factory=lambda: int(os.environ.get("RUNTIME_UID", "1000")))
-    runtime_gid: int = field(default_factory=lambda: int(os.environ.get("RUNTIME_GID", "1000")))
+    runtime_uid: int = field(default_factory=lambda: _parse_uid_gid("RUNTIME_UID"))
+    runtime_gid: int = field(default_factory=lambda: _parse_uid_gid("RUNTIME_GID"))
     quiet: bool = field(default_factory=lambda: os.environ.get("EGG_QUIET", "0") == "1")
 
     # LLM configuration

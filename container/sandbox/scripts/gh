@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 #
 # GitHub CLI wrapper for egg container (Gateway-Managed Architecture)
 #
@@ -111,7 +112,7 @@ resolve_repo_name() {
     fi
 }
 
-# Function to make gateway API call
+# Function to make gateway API call (using array to avoid shell injection)
 call_gateway_api() {
     local endpoint="$1"
     local method="${2:-POST}"
@@ -119,17 +120,14 @@ call_gateway_api() {
     local auth_token
     auth_token=$(get_gateway_auth)
 
-    local cmd="curl -s -X $method"
-    cmd="$cmd -H \"Content-Type: application/json\""
+    local -a curl_args=(-s -X "$method" -H "Content-Type: application/json")
     if [ -n "$auth_token" ]; then
-        cmd="$cmd -H \"Authorization: Bearer $auth_token\""
+        curl_args+=(-H "Authorization: Bearer $auth_token")
     fi
     if [ -n "$data" ]; then
-        cmd="$cmd -d '$data'"
+        curl_args+=(-d "$data")
     fi
-    cmd="$cmd \"${GATEWAY_URL}${endpoint}\""
-
-    eval "$cmd"
+    curl "${curl_args[@]}" "${GATEWAY_URL}${endpoint}"
 }
 
 # Main gh operation handler

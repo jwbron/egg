@@ -7,7 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -36,10 +36,10 @@ class RuntimeConfig:
     gateway_port: int = 9847
     proxy_port: int = 3128
 
-    # Paths
-    config_dir: Path = Path.home() / ".config" / "egg"
-    sharing_dir: Path = Path.home() / ".egg" / "sharing"
-    secrets_dir: Path = Path.home() / ".config" / "egg" / "secrets"
+    # Paths (use field default_factory to evaluate at instantiation, not class definition)
+    config_dir: Path = field(default_factory=lambda: Path.home() / ".config" / "egg")
+    sharing_dir: Path = field(default_factory=lambda: Path.home() / ".egg" / "sharing")
+    secrets_dir: Path = field(default_factory=lambda: Path.home() / ".config" / "egg" / "secrets")
 
 
 def check_docker() -> bool:

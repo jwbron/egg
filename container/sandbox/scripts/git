@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 #
 # Git wrapper for egg container (Gateway-Managed Worktree Architecture)
 #
@@ -101,7 +102,7 @@ resolve_repo_name() {
     fi
 }
 
-# Function to make gateway API call
+# Function to make gateway API call (using array to avoid shell injection)
 call_gateway_api() {
     local endpoint="$1"
     local method="${2:-POST}"
@@ -109,28 +110,19 @@ call_gateway_api() {
     local auth_token
     auth_token=$(get_gateway_auth)
 
-    local auth_header=""
+    local -a curl_args=(-s -X "$method" -H "Content-Type: application/json")
     if [ -n "$auth_token" ]; then
-        auth_header="-H \"Authorization: Bearer $auth_token\""
-    fi
-
-    local cmd="curl -s -X $method"
-    cmd="$cmd -H \"Content-Type: application/json\""
-    if [ -n "$auth_header" ]; then
-        cmd="$cmd $auth_header"
+        curl_args+=(-H "Authorization: Bearer $auth_token")
     fi
     if [ -n "$data" ]; then
-        cmd="$cmd -d '$data'"
+        curl_args+=(-d "$data")
     fi
-    cmd="$cmd \"${GATEWAY_URL}${endpoint}\""
-
-    eval "$cmd"
+    curl "${curl_args[@]}" "${GATEWAY_URL}${endpoint}"
 }
 
-# Function to URL encode a string
+# Function to URL encode a string (safely via stdin to avoid shell injection)
 urlencode() {
-    local string="$1"
-    python3 -c "import urllib.parse; print(urllib.parse.quote('$string', safe=''))"
+    printf '%s' "$1" | python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read(), safe=''))"
 }
 
 # Main git operation handler
@@ -160,7 +152,7 @@ main() {
         status|diff|log|show|branch|stash|tag|describe|shortlog|rev-parse|rev-list|ls-files|ls-tree)
             # Read operations - forward to gateway
             local args_json
-            args_json=$(printf '%s\n' "$@" | python3 -c "import sys, json; print(json.dumps(sys.stdin.read().strip().split('\n') if sys.stdin.read().strip() else []))" 2>/dev/null || echo "[]")
+            args_json=$(printf '%s\n' "$@" | python3 -c "import sys, json; content = sys.stdin.read().strip(); print(json.dumps(content.split('\n') if content else []))" 2>/dev/null || echo "[]")
 
             local response
             response=$(call_gateway_api "/api/v1/git/$repo_name" "POST" "{\"command\": \"$cmd\", \"args\": $args_json, \"cwd\": \"$current_path\"}")
