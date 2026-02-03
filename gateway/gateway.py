@@ -1163,7 +1163,7 @@ def gh_pr_create() -> tuple[Response, int]:
 
     # Execute with consistent error handling
     return execute_pr_operation(
-        operation_name="pr_created",
+        operation_name="pr_create",
         endpoint_name="gh_pr_create",
         repo=repo,
         auth_mode=ctx.auth_mode,
@@ -1252,7 +1252,7 @@ def gh_pr_comment() -> tuple[Response, int]:
 
     # Execute with consistent error handling
     return execute_pr_operation(
-        operation_name="pr_comment_added",
+        operation_name="pr_comment",
         endpoint_name="gh_pr_comment",
         repo=repo,
         auth_mode=ctx.auth_mode,
@@ -1330,7 +1330,7 @@ def gh_pr_edit() -> tuple[Response, int]:
 
     # Execute with consistent error handling
     return execute_pr_operation(
-        operation_name="pr_edited",
+        operation_name="pr_edit",
         endpoint_name="gh_pr_edit",
         repo=repo,
         auth_mode=ctx.auth_mode,
@@ -1395,7 +1395,7 @@ def gh_pr_close() -> tuple[Response, int]:
 
     # Execute with consistent error handling
     return execute_pr_operation(
-        operation_name="pr_closed",
+        operation_name="pr_close",
         endpoint_name="gh_pr_close",
         repo=repo,
         auth_mode=ctx.auth_mode,
