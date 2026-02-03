@@ -232,6 +232,38 @@ class TestBlockedToolsFiltering:
         assert "web_search" not in tool_names
         assert "WebFetch" not in tool_names
 
+    def test_filters_all_blocked_tool_variants(self):
+        """Test that all blocked tool name variants are filtered in private mode."""
+        from gateway.gateway import BLOCKED_TOOLS_PRIVATE_MODE, _filter_blocked_tools
+
+        # Verify the blocked tools set contains expected variants
+        assert "web_search" in BLOCKED_TOOLS_PRIVATE_MODE
+        assert "WebSearch" in BLOCKED_TOOLS_PRIVATE_MODE
+        assert "web_fetch" in BLOCKED_TOOLS_PRIVATE_MODE
+        assert "WebFetch" in BLOCKED_TOOLS_PRIVATE_MODE
+
+        # Test filtering of all variants
+        request_body = json.dumps(
+            {
+                "model": "claude-3-opus-20240229",
+                "tools": [
+                    {"name": "bash", "description": "Run commands"},
+                    {"name": "web_search", "description": "lowercase search"},
+                    {"name": "WebSearch", "description": "CamelCase search"},
+                    {"name": "web_fetch", "description": "lowercase fetch"},
+                    {"name": "WebFetch", "description": "CamelCase fetch"},
+                    {"name": "read_file", "description": "Safe tool"},
+                ],
+                "messages": [{"role": "user", "content": "Hello"}],
+            }
+        ).encode()
+
+        result = _filter_blocked_tools(request_body, "private")
+        result_json = json.loads(result)
+
+        tool_names = [t["name"] for t in result_json["tools"]]
+        assert tool_names == ["bash", "read_file"]  # Only safe tools remain
+
     def test_does_not_filter_in_public_mode(self):
         """Test that tools are not filtered in public mode."""
         from gateway.gateway import _filter_blocked_tools
@@ -472,6 +504,103 @@ class TestProxyAnthropicMessages:
         data = response.get_json()
         assert "error" in data
         assert data["error"]["type"] == "authentication_error"
+
+    def test_streaming_request(self, anthropic_client, mock_anthropic_dependencies):
+        """Test streaming API request with SSE response."""
+        # Create a mock streaming response
+        mock_upstream = MagicMock()
+        mock_upstream.status_code = 200
+        mock_upstream.headers = {
+            "content-type": "text/event-stream",
+            "x-request-id": "stream-123",
+        }
+
+        # Simulate SSE chunks
+        sse_chunks = [
+            b'event: message_start\ndata: {"type": "message_start"}\n\n',
+            b"event: content_block_delta\n"
+            b'data: {"type": "content_block_delta", "delta": {"text": "Hello"}}\n\n',
+            b'event: message_stop\ndata: {"type": "message_stop"}\n\n',
+        ]
+        mock_upstream.iter_bytes.return_value = iter(sse_chunks)
+        mock_upstream.close = MagicMock()
+
+        mock_client = mock_anthropic_dependencies["anthropic_client"].return_value
+        mock_client.build_request.return_value = MagicMock()
+        mock_client.send.return_value = mock_upstream
+
+        response = anthropic_client.post(
+            "/v1/messages",
+            data=json.dumps(
+                {
+                    "model": "claude-3-opus-20240229",
+                    "max_tokens": 1024,
+                    "stream": True,
+                    "messages": [{"role": "user", "content": "Hello"}],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.content_type == "text/event-stream"
+
+        # Verify streaming was used (send was called, not post)
+        mock_client.send.assert_called_once()
+        mock_client.post.assert_not_called()
+
+        # Collect and verify response data
+        response_data = b"".join(response.response)
+        assert b"message_start" in response_data
+        assert b"content_block_delta" in response_data
+        assert b"message_stop" in response_data
+
+    def test_streaming_filters_tools_in_private_mode(
+        self, anthropic_client, mock_anthropic_dependencies
+    ):
+        """Test that streaming requests also filter tools in private mode."""
+        # Configure session to be in private mode
+        mock_session = MagicMock()
+        mock_session.mode = "private"
+        session_mgr = mock_anthropic_dependencies["session_manager"].return_value
+        session_mgr.get_session_by_ip.return_value = mock_session
+
+        # Create mock streaming response
+        mock_upstream = MagicMock()
+        mock_upstream.status_code = 200
+        mock_upstream.headers = {"content-type": "text/event-stream"}
+        mock_upstream.iter_bytes.return_value = iter([b"event: message_stop\ndata: {}\n\n"])
+        mock_upstream.close = MagicMock()
+
+        mock_client = mock_anthropic_dependencies["anthropic_client"].return_value
+        mock_client.build_request.return_value = MagicMock()
+        mock_client.send.return_value = mock_upstream
+
+        response = anthropic_client.post(
+            "/v1/messages",
+            data=json.dumps(
+                {
+                    "model": "claude-3-opus-20240229",
+                    "max_tokens": 1024,
+                    "stream": True,
+                    "tools": [
+                        {"name": "bash", "description": "Run commands"},
+                        {"name": "WebSearch", "description": "Search web"},
+                    ],
+                    "messages": [{"role": "user", "content": "Hello"}],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+
+        # Verify tools were filtered in the request sent to Anthropic
+        build_request_call = mock_client.build_request.call_args
+        sent_body = json.loads(build_request_call.kwargs["content"])
+        tool_names = [t["name"] for t in sent_body.get("tools", [])]
+        assert "bash" in tool_names
+        assert "WebSearch" not in tool_names
 
 
 class TestProxyCountTokens:
