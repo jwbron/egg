@@ -14,7 +14,14 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
 
-  - repo: https://github.com/koalaman/shellcheck-precommit
-    rev: v0.9.0
-    hooks:
-      - id: shellcheck
+# ShellCheck disabled for now - Docker-based hook requires Docker, and
+# local shellcheck isn't available in gateway pre-commit environment.
+# Shell scripts should be validated manually with `shellcheck <file>`.
+# TODO: Re-enable when gateway has shellcheck available (issue #47)
+#  - repo: local
+#    hooks:
+#      - id: shellcheck
+#        name: ShellCheck
+#        entry: shellcheck
+#        language: system
+#        types: [shell]

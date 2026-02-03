@@ -1,0 +1,241 @@
+#!/bin/bash
+#
+# Git wrapper for egg container (Gateway-Managed Worktree Architecture)
+#
+# In this architecture, the container has NO direct access to git metadata.
+# The .git directory is shadowed by a tmpfs mount (appears empty to the container).
+# ALL git operations must route through the gateway sidecar.
+#
+# Security Model:
+# - Gateway holds all git metadata and credentials
+# - Container can only see working directory files
+# - All git operations are validated and executed by gateway
+# - Fails closed if gateway unavailable
+#
+# NOTE: This is a simplified version. Full implementation in Phase 3.
+
+# Real git binary - relocated to hidden path (kept for potential fallback)
+# shellcheck disable=SC2034
+REAL_GIT=/opt/.egg-internal/git
+GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9847}"
+CONTAINER_ID="${CONTAINER_ID:-unknown}"
+CONTAINER_REPOS_DIR="${HOME}/repos"
+# Session token for per-container authentication (required)
+EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-}"
+
+# Function to show gateway unavailable message
+show_gateway_unavailable() {
+    cat >&2 << 'EOF'
+
+================================================================================
+  GATEWAY SIDECAR NOT AVAILABLE
+================================================================================
+
+Git operations require the gateway sidecar, but it is not reachable.
+
+In the gateway-managed worktree architecture:
+- The container has no direct access to git metadata
+- All git operations must route through the gateway
+- The gateway holds credentials and enforces policies
+
+Please ensure the gateway sidecar is running:
+  curl http://egg-gateway:9847/api/v1/health
+
+================================================================================
+
+EOF
+    return 1
+}
+
+# Function to get authentication token for gateway requests
+get_gateway_auth() {
+    if [ -n "$EGG_SESSION_TOKEN" ]; then
+        echo "$EGG_SESSION_TOKEN"
+        return 0
+    fi
+    echo ""
+}
+
+# Function to check if gateway is available
+check_gateway_available() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -s --connect-timeout 2 "${GATEWAY_URL}/api/v1/health" >/dev/null 2>&1
+        return $?
+    fi
+    return 1
+}
+
+# Function to get current repo path
+# shellcheck disable=SC2120
+get_repo_path() {
+    local work_dir="${1:-}"
+    local path
+
+    if [ -n "$work_dir" ]; then
+        if [[ "$work_dir" != /* ]]; then
+            path="$(pwd)/$work_dir"
+        else
+            path="$work_dir"
+        fi
+    else
+        path=$(pwd)
+    fi
+
+    # Normalize path
+    local normalized
+    normalized=$(cd "$path" 2>/dev/null && pwd) || normalized="$path"
+    echo "$normalized"
+}
+
+# Function to resolve repo name from path
+resolve_repo_name() {
+    local full_path="$1"
+
+    # If path starts with CONTAINER_REPOS_DIR, extract repo name
+    if [[ "$full_path" == "$CONTAINER_REPOS_DIR/"* ]]; then
+        local relative="${full_path#"$CONTAINER_REPOS_DIR"/}"
+        # Get first component (repo name)
+        echo "${relative%%/*}"
+    else
+        echo ""
+    fi
+}
+
+# Function to make gateway API call
+call_gateway_api() {
+    local endpoint="$1"
+    local method="${2:-POST}"
+    local data="${3:-}"
+    local auth_token
+    auth_token=$(get_gateway_auth)
+
+    local auth_header=""
+    if [ -n "$auth_token" ]; then
+        auth_header="-H \"Authorization: Bearer $auth_token\""
+    fi
+
+    local cmd="curl -s -X $method"
+    cmd="$cmd -H \"Content-Type: application/json\""
+    if [ -n "$auth_header" ]; then
+        cmd="$cmd $auth_header"
+    fi
+    if [ -n "$data" ]; then
+        cmd="$cmd -d '$data'"
+    fi
+    cmd="$cmd \"${GATEWAY_URL}${endpoint}\""
+
+    eval "$cmd"
+}
+
+# Function to URL encode a string
+urlencode() {
+    local string="$1"
+    python3 -c "import urllib.parse; print(urllib.parse.quote('$string', safe=''))"
+}
+
+# Main git operation handler
+main() {
+    local cmd="${1:-}"
+    shift 2>/dev/null || true
+
+    # Check if gateway is available
+    if ! check_gateway_available; then
+        show_gateway_unavailable
+        exit 1
+    fi
+
+    # Get current directory and repo info
+    local current_path
+    current_path=$(get_repo_path)
+    local repo_name
+    repo_name=$(resolve_repo_name "$current_path")
+
+    if [ -z "$repo_name" ]; then
+        echo "Error: Not in a repository directory ($CONTAINER_REPOS_DIR/<repo>)" >&2
+        exit 1
+    fi
+
+    # Handle various git commands by routing to gateway
+    case "$cmd" in
+        status|diff|log|show|branch|stash|tag|describe|shortlog|rev-parse|rev-list|ls-files|ls-tree)
+            # Read operations - forward to gateway
+            local args_json
+            args_json=$(printf '%s\n' "$@" | python3 -c "import sys, json; print(json.dumps(sys.stdin.read().strip().split('\n') if sys.stdin.read().strip() else []))" 2>/dev/null || echo "[]")
+
+            local response
+            response=$(call_gateway_api "/api/v1/git/$repo_name" "POST" "{\"command\": \"$cmd\", \"args\": $args_json, \"cwd\": \"$current_path\"}")
+
+            # Extract output and return code from response
+            local output return_code
+            output=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('stdout', d.get('output', '')))" 2>/dev/null)
+            return_code=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('return_code', d.get('returncode', 0)))" 2>/dev/null || echo 0)
+
+            echo "$output"
+            exit "$return_code"
+            ;;
+
+        add|commit|reset|checkout|merge|rebase|cherry-pick|revert)
+            # Write operations - forward to gateway
+            local args_json
+            args_json=$(printf '%s\n' "$@" | python3 -c "import sys, json; print(json.dumps([a for a in sys.stdin.read().strip().split('\n') if a]))" 2>/dev/null || echo "[]")
+
+            local response
+            response=$(call_gateway_api "/api/v1/git/$repo_name" "POST" "{\"command\": \"$cmd\", \"args\": $args_json, \"cwd\": \"$current_path\"}")
+
+            local output return_code
+            output=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('stdout', d.get('output', '')))" 2>/dev/null)
+            return_code=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('return_code', d.get('returncode', 0)))" 2>/dev/null || echo 0)
+
+            echo "$output"
+            exit "$return_code"
+            ;;
+
+        push|fetch|pull|remote)
+            # Network operations - must go through gateway
+            local args_json
+            args_json=$(printf '%s\n' "$@" | python3 -c "import sys, json; print(json.dumps([a for a in sys.stdin.read().strip().split('\n') if a]))" 2>/dev/null || echo "[]")
+
+            local response
+            response=$(call_gateway_api "/api/v1/git/$repo_name" "POST" "{\"command\": \"$cmd\", \"args\": $args_json, \"cwd\": \"$current_path\"}")
+
+            local output return_code stderr
+            output=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('stdout', d.get('output', '')))" 2>/dev/null)
+            stderr=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('stderr', ''))" 2>/dev/null)
+            return_code=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('return_code', d.get('returncode', 0)))" 2>/dev/null || echo 0)
+
+            if [ -n "$output" ]; then
+                echo "$output"
+            fi
+            if [ -n "$stderr" ]; then
+                echo "$stderr" >&2
+            fi
+            exit "$return_code"
+            ;;
+
+        clone|init)
+            # Clone/init blocked - repos must be configured via gateway
+            echo "Error: 'git $cmd' is not allowed in the sandboxed environment." >&2
+            echo "Repositories are managed by the gateway sidecar." >&2
+            exit 1
+            ;;
+
+        *)
+            # Unknown command - try forwarding to gateway
+            local args_json
+            args_json=$(printf '%s\n' "$cmd" "$@" | python3 -c "import sys, json; print(json.dumps([a for a in sys.stdin.read().strip().split('\n') if a]))" 2>/dev/null || echo "[]")
+
+            local response
+            response=$(call_gateway_api "/api/v1/git/$repo_name" "POST" "{\"command\": \"$cmd\", \"args\": $args_json, \"cwd\": \"$current_path\"}")
+
+            local output return_code
+            output=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('stdout', d.get('output', '')))" 2>/dev/null)
+            return_code=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('return_code', d.get('returncode', 0)))" 2>/dev/null || echo 0)
+
+            echo "$output"
+            exit "$return_code"
+            ;;
+    esac
+}
+
+# Entry point
+main "$@"

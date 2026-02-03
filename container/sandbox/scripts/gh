@@ -1,0 +1,275 @@
+#!/bin/bash
+#
+# GitHub CLI wrapper for egg container (Gateway-Managed Architecture)
+#
+# All gh operations must route through the gateway sidecar, which:
+# - Holds GitHub credentials securely
+# - Enforces policy (e.g., PR merge blocking, branch ownership)
+# - Audits all operations
+#
+# Security Model:
+# - Container has no direct GitHub token access
+# - Gateway validates and proxies all gh operations
+# - Certain operations (like merge) are blocked
+#
+# NOTE: This is a simplified version. Full implementation in Phase 3.
+
+# Real gh binary - relocated to hidden path (kept for potential fallback)
+# shellcheck disable=SC2034
+REAL_GH=/opt/.egg-internal/gh
+GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9847}"
+CONTAINER_ID="${CONTAINER_ID:-unknown}"
+CONTAINER_REPOS_DIR="${HOME}/repos"
+# Session token for per-container authentication
+EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-}"
+
+# Function to show gateway unavailable message
+show_gateway_unavailable() {
+    cat >&2 << 'EOF'
+
+================================================================================
+  GATEWAY SIDECAR NOT AVAILABLE
+================================================================================
+
+GitHub CLI operations require the gateway sidecar, but it is not reachable.
+
+In the gateway-managed architecture:
+- The container has no direct GitHub token access
+- All gh operations must route through the gateway
+- The gateway holds credentials and enforces policies
+
+Please ensure the gateway sidecar is running:
+  curl http://egg-gateway:9847/api/v1/health
+
+================================================================================
+
+EOF
+    return 1
+}
+
+# Function to show PR merge blocked message
+show_merge_blocked_message() {
+    cat >&2 << 'EOF'
+
+================================================================================
+  PR MERGE BLOCKED
+================================================================================
+
+Merging pull requests is not allowed from the sandboxed environment.
+
+A human must review and merge PRs via the GitHub web interface.
+
+This policy ensures:
+- Human oversight of all code changes
+- Proper review before merging
+- Clear audit trail of approvals
+
+================================================================================
+
+EOF
+    return 1
+}
+
+# Function to get authentication token
+get_gateway_auth() {
+    if [ -n "$EGG_SESSION_TOKEN" ]; then
+        echo "$EGG_SESSION_TOKEN"
+        return 0
+    fi
+    echo ""
+}
+
+# Function to check if gateway is available
+check_gateway_available() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -s --connect-timeout 2 "${GATEWAY_URL}/api/v1/health" >/dev/null 2>&1
+        return $?
+    fi
+    return 1
+}
+
+# Function to get current repo path
+get_repo_path() {
+    local path normalized
+    path=$(pwd)
+    # Normalize path
+    normalized=$(cd "$path" 2>/dev/null && pwd) || normalized="$path"
+    echo "$normalized"
+}
+
+# Function to resolve repo name from path
+resolve_repo_name() {
+    local full_path="$1"
+
+    # If path starts with CONTAINER_REPOS_DIR, extract repo name
+    if [[ "$full_path" == "$CONTAINER_REPOS_DIR/"* ]]; then
+        local relative="${full_path#"$CONTAINER_REPOS_DIR"/}"
+        # Get first component (repo name)
+        echo "${relative%%/*}"
+    else
+        echo ""
+    fi
+}
+
+# Function to make gateway API call
+call_gateway_api() {
+    local endpoint="$1"
+    local method="${2:-POST}"
+    local data="${3:-}"
+    local auth_token
+    auth_token=$(get_gateway_auth)
+
+    local cmd="curl -s -X $method"
+    cmd="$cmd -H \"Content-Type: application/json\""
+    if [ -n "$auth_token" ]; then
+        cmd="$cmd -H \"Authorization: Bearer $auth_token\""
+    fi
+    if [ -n "$data" ]; then
+        cmd="$cmd -d '$data'"
+    fi
+    cmd="$cmd \"${GATEWAY_URL}${endpoint}\""
+
+    eval "$cmd"
+}
+
+# Main gh operation handler
+main() {
+    local cmd="${1:-}"
+    shift 2>/dev/null || true
+
+    # Check if gateway is available
+    if ! check_gateway_available; then
+        show_gateway_unavailable
+        exit 1
+    fi
+
+    # Get current directory and repo info
+    local current_path
+    current_path=$(get_repo_path)
+    local repo_name
+    repo_name=$(resolve_repo_name "$current_path")
+
+    # Handle various gh commands
+    case "$cmd" in
+        pr)
+            local subcmd="${1:-}"
+            shift 2>/dev/null || true
+
+            case "$subcmd" in
+                merge)
+                    # PR merge is blocked
+                    show_merge_blocked_message
+                    exit 1
+                    ;;
+
+                create|view|list|checkout|close|comment|edit|review|diff|checks|ready)
+                    # Allowed PR operations - forward to gateway
+                    local args_json
+                    args_json=$(printf '%s\n' "$@" | python3 -c "import sys, json; print(json.dumps([a for a in sys.stdin.read().strip().split('\n') if a]))" 2>/dev/null || echo "[]")
+
+                    local response
+                    response=$(call_gateway_api "/api/v1/gh" "POST" "{\"command\": [\"pr\", \"$subcmd\"], \"args\": $args_json, \"cwd\": \"$current_path\", \"repo_name\": \"$repo_name\"}")
+
+                    local output return_code stderr
+                    output=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('stdout', d.get('output', '')))" 2>/dev/null)
+                    stderr=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('stderr', ''))" 2>/dev/null)
+                    return_code=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('return_code', d.get('returncode', 0)))" 2>/dev/null || echo 0)
+
+                    if [ -n "$output" ]; then
+                        echo "$output"
+                    fi
+                    if [ -n "$stderr" ]; then
+                        echo "$stderr" >&2
+                    fi
+                    exit "$return_code"
+                    ;;
+
+                *)
+                    # Unknown PR subcommand - try forwarding
+                    local args_json
+                    args_json=$(printf '%s\n' "$subcmd" "$@" | python3 -c "import sys, json; print(json.dumps([a for a in sys.stdin.read().strip().split('\n') if a]))" 2>/dev/null || echo "[]")
+
+                    local response
+                    response=$(call_gateway_api "/api/v1/gh" "POST" "{\"command\": [\"pr\"], \"args\": $args_json, \"cwd\": \"$current_path\", \"repo_name\": \"$repo_name\"}")
+
+                    local output return_code
+                    output=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('stdout', d.get('output', '')))" 2>/dev/null)
+                    return_code=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('return_code', d.get('returncode', 0)))" 2>/dev/null || echo 0)
+
+                    echo "$output"
+                    exit "$return_code"
+                    ;;
+            esac
+            ;;
+
+        issue|repo|release|run|workflow|api|auth|config|gist|label|project)
+            # Other gh commands - forward to gateway
+            local args_json
+            args_json=$(printf '%s\n' "$@" | python3 -c "import sys, json; print(json.dumps([a for a in sys.stdin.read().strip().split('\n') if a]))" 2>/dev/null || echo "[]")
+
+            local response
+            response=$(call_gateway_api "/api/v1/gh" "POST" "{\"command\": [\"$cmd\"], \"args\": $args_json, \"cwd\": \"$current_path\", \"repo_name\": \"$repo_name\"}")
+
+            local output return_code stderr
+            output=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('stdout', d.get('output', '')))" 2>/dev/null)
+            stderr=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('stderr', ''))" 2>/dev/null)
+            return_code=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('return_code', d.get('returncode', 0)))" 2>/dev/null || echo 0)
+
+            if [ -n "$output" ]; then
+                echo "$output"
+            fi
+            if [ -n "$stderr" ]; then
+                echo "$stderr" >&2
+            fi
+            exit "$return_code"
+            ;;
+
+        --version|version)
+            # Version - can respond locally
+            echo "gh version (egg gateway wrapper)"
+            exit 0
+            ;;
+
+        --help|help)
+            # Help - can respond locally with modified output
+            cat << 'EOF'
+gh - GitHub CLI (egg gateway wrapper)
+
+All gh operations route through the egg gateway sidecar for:
+- Credential management (tokens never in container)
+- Policy enforcement (PR merge blocked, etc.)
+- Audit logging
+
+USAGE
+  gh <command> <subcommand> [flags]
+
+CORE COMMANDS
+  pr:       Work with GitHub pull requests
+  issue:    Work with GitHub issues
+  repo:     Work with GitHub repositories
+
+Note: Some operations may be restricted by policy.
+EOF
+            exit 0
+            ;;
+
+        *)
+            # Unknown command - try forwarding to gateway
+            local args_json
+            args_json=$(printf '%s\n' "$cmd" "$@" | python3 -c "import sys, json; print(json.dumps([a for a in sys.stdin.read().strip().split('\n') if a]))" 2>/dev/null || echo "[]")
+
+            local response
+            response=$(call_gateway_api "/api/v1/gh" "POST" "{\"command\": [], \"args\": $args_json, \"cwd\": \"$current_path\", \"repo_name\": \"$repo_name\"}")
+
+            local output return_code
+            output=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('stdout', d.get('output', '')))" 2>/dev/null)
+            return_code=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('return_code', d.get('returncode', 0)))" 2>/dev/null || echo 0)
+
+            echo "$output"
+            exit "$return_code"
+            ;;
+    esac
+}
+
+# Entry point
+main "$@"
