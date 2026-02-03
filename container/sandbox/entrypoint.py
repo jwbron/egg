@@ -68,6 +68,10 @@ class Config:
     def claude_dir(self) -> Path:
         return self.user_home / ".claude"
 
+    @property
+    def beads_dir(self) -> Path:
+        return self.sharing_dir / "beads"
+
 
 # =============================================================================
 # Logging
@@ -195,6 +199,9 @@ def setup_environment(config: Config) -> None:
     # Git editor - use 'true' (no-op) for non-interactive environment
     # This allows git rebase --continue to work without an interactive editor.
     os.environ["GIT_EDITOR"] = "true"
+
+    # Beads task tracker directory (persisted in sharing volume)
+    os.environ["BEADS_DIR"] = str(config.beads_dir)
 
 
 def setup_git(config: Config, logger: Logger) -> None:
@@ -345,7 +352,7 @@ def setup_sharing(config: Config, logger: Logger) -> None:
     tmp_link.symlink_to(config.sharing_dir / "tmp")
 
     # Ensure subdirectories exist
-    subdirs = ["tmp", "notifications", "context", "logs"]
+    subdirs = ["tmp", "notifications", "context", "logs", "beads"]
     for subdir in subdirs:
         (config.sharing_dir / subdir).mkdir(parents=True, exist_ok=True)
 
@@ -356,6 +363,7 @@ def setup_sharing(config: Config, logger: Logger) -> None:
     logger.info("  ~/sharing/notifications/ (async notifications)")
     logger.info("  ~/sharing/context/       (context storage)")
     logger.info("  ~/sharing/logs/          (logs)")
+    logger.info("  ~/sharing/beads/         (beads task tracker)")
     logger.info("  Convenience symlink: ~/tmp -> ~/sharing/tmp")
 
 

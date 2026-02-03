@@ -97,7 +97,18 @@ RUN pip3 install --no-cache-dir \
     # Web frameworks
     flask waitress \
     # Documentation
-    markdown
+    markdown \
+    # Additional testing tools
+    pytest-mock responses faker \
+    # Async utilities
+    aiofiles \
+    # Code generation
+    jinja2
+
+# Install beads llm issue tracker
+# When running as root, the install script puts bd directly in /usr/local/bin
+RUN curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash && \
+    which bd
 
 # Copy egg runtime scripts and tools to /opt/egg-runtime
 # This provides container-resident executables available in PATH
