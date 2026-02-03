@@ -83,11 +83,11 @@ class MockAnthropicHandler(BaseHTTPRequestHandler):
         events = [
             "event: message_start\n"
             'data: {"type": "message_start", "message": {"id": "msg_test"}}\n\n',
-            "event: content_block_start\n" 'data: {"type": "content_block_start", "index": 0}\n\n',
+            'event: content_block_start\ndata: {"type": "content_block_start", "index": 0}\n\n',
             "event: content_block_delta\n"
             'data: {"type": "content_block_delta", '
             '"delta": {"type": "text_delta", "text": "Hello"}}\n\n',
-            "event: content_block_stop\n" 'data: {"type": "content_block_stop", "index": 0}\n\n',
+            'event: content_block_stop\ndata: {"type": "content_block_stop", "index": 0}\n\n',
             'event: message_stop\ndata: {"type": "message_stop"}\n\n',
         ]
 

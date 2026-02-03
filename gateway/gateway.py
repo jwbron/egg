@@ -1977,7 +1977,8 @@ def proxy_anthropic_messages() -> Response | tuple[Response, int]:
 
     # Look up session by IP to determine mode (Claude Code doesn't send session tokens)
     session_manager = get_session_manager()
-    session = session_manager.get_session_by_ip(request.remote_addr)
+    remote_addr = request.remote_addr or ""
+    session = session_manager.get_session_by_ip(remote_addr) if remote_addr else None
     session_mode = session.mode if session else None
     request_body = _filter_blocked_tools(
         request_body, session_mode
