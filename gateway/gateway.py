@@ -30,11 +30,12 @@ import os
 import secrets
 import subprocess
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ParamSpec, TypeVar
 
-from flask import Flask, g, jsonify, request
+from flask import Flask, Response, g, jsonify, request
 from waitress import serve
 
 from shared.egg_logging import get_logger
@@ -77,6 +78,10 @@ from .session_manager import (
 )
 from .worktree_manager import WorktreeManager, startup_cleanup
 
+# Type variables for decorator typing
+P = ParamSpec("P")
+R = TypeVar("R")
+
 logger = get_logger("gateway")
 
 app = Flask(__name__)
@@ -104,11 +109,11 @@ def translate_to_host_path(container_path: str) -> str:
     return container_path
 
 
-def require_session_auth(f):
+def require_session_auth(f: Callable[P, R]) -> Callable[P, R]:
     """Decorator that validates session tokens in request handlers."""
 
     @functools.wraps(f)
-    def decorated(*args, **kwargs):
+    def decorated(*args: P.args, **kwargs: P.kwargs) -> R:
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             logger.warning(
@@ -116,10 +121,10 @@ def require_session_auth(f):
                 endpoint=request.path,
                 source_ip=request.remote_addr,
             )
-            return make_error("Missing or invalid Authorization header", status_code=401)
+            return make_error("Missing or invalid Authorization header", status_code=401)  # type: ignore[return-value]
 
         token = auth_header[7:]
-        source_ip = request.remote_addr
+        source_ip = request.remote_addr or "unknown"
 
         result = validate_session_for_request(token, source_ip)
         if not result.valid:
@@ -130,7 +135,7 @@ def require_session_auth(f):
                 source_ip=source_ip,
                 error=result.error,
             )
-            return make_error(result.error or "Invalid or expired session token", status_code=401)
+            return make_error(result.error or "Invalid or expired session token", status_code=401)  # type: ignore[return-value]
 
         g.session = result.session
         g.session_mode = result.session.mode if result.session else None
@@ -184,11 +189,11 @@ def check_launcher_auth() -> tuple[bool, str]:
     return False, "Invalid launcher authorization token"
 
 
-def require_launcher_auth(f):
+def require_launcher_auth(f: Callable[P, R]) -> Callable[P, R]:
     """Decorator to require launcher authentication for an endpoint."""
 
     @functools.wraps(f)
-    def decorated(*args, **kwargs):
+    def decorated(*args: P.args, **kwargs: P.kwargs) -> R:
         is_valid, error = check_launcher_auth()
         if not is_valid:
             logger.warning(
@@ -197,7 +202,7 @@ def require_launcher_auth(f):
                 error=error,
                 source_ip=request.remote_addr,
             )
-            return make_error(error, status_code=401)
+            return make_error(error, status_code=401)  # type: ignore[return-value]
         return f(*args, **kwargs)
 
     return decorated
@@ -208,7 +213,7 @@ def make_response(
     message: str,
     data: dict[str, Any] | None = None,
     status_code: int = 200,
-):
+) -> tuple[Response, int]:
     """Create a standardized JSON response."""
     response: dict[str, Any] = {"success": success, "message": message}
     if data:
@@ -216,12 +221,14 @@ def make_response(
     return jsonify(response), status_code
 
 
-def make_error(message: str, status_code: int = 400, details: dict[str, Any] | None = None):
+def make_error(
+    message: str, status_code: int = 400, details: dict[str, Any] | None = None
+) -> tuple[Response, int]:
     """Create an error response."""
     return make_response(False, message, details, status_code)
 
 
-def make_success(message: str, data: dict[str, Any] | None = None):
+def make_success(message: str, data: dict[str, Any] | None = None) -> tuple[Response, int]:
     """Create a success response."""
     return make_response(True, message, data, 200)
 
@@ -250,7 +257,7 @@ def audit_log(
 
 
 @app.route("/api/v1/health", methods=["GET"])
-def health_check():
+def health_check() -> Response:
     """Health check endpoint (no auth required)."""
     github = get_github_client()
     token_valid = github.is_token_valid()
@@ -334,7 +341,7 @@ def map_container_path_to_worktree(
 
 @app.route("/api/v1/git/push", methods=["POST"])
 @require_session_auth
-def git_push():
+def git_push() -> tuple[Response, int]:
     """Handle git push requests."""
     data = request.get_json()
     if not data:
@@ -430,7 +437,7 @@ def git_push():
             )
 
     policy = get_policy_engine()
-    policy_result = policy.check_branch_ownership(repo, branch, auth_mode=auth_mode)
+    policy_result = policy.check_branch_ownership(repo, branch)
 
     if not policy_result.allowed:
         audit_log(
@@ -525,7 +532,7 @@ def git_push():
 
 @app.route("/api/v1/git/execute", methods=["POST"])
 @require_session_auth
-def git_execute():
+def git_execute() -> tuple[Response, int]:
     """Execute a git command in the gateway's worktree."""
     data = request.get_json()
     if not data:
@@ -682,7 +689,7 @@ def git_execute():
 
 @app.route("/api/v1/git/fetch", methods=["POST"])
 @require_session_auth
-def git_fetch():
+def git_fetch() -> tuple[Response, int]:
     """Handle git fetch requests."""
     data = request.get_json()
     if not data:
@@ -842,7 +849,7 @@ def git_fetch():
 
 @app.route("/api/v1/gh/execute", methods=["POST"])
 @require_session_auth
-def gh_execute():
+def gh_execute() -> tuple[Response, int]:
     """Execute a generic gh command."""
     data = request.get_json()
     if not data:
@@ -969,9 +976,9 @@ def gh_execute():
 
 @app.route("/api/v1/sessions/create", methods=["POST"])
 @require_launcher_auth
-def session_create():
+def session_create() -> tuple[Response, int]:
     """Create a session with atomic visibility query, filtering, worktree creation."""
-    rate_result = check_registration_rate_limit(request.remote_addr)
+    rate_result = check_registration_rate_limit(request.remote_addr or "unknown")
     if not rate_result.allowed:
         return make_error(
             "Rate limit exceeded for session registration",
@@ -1087,7 +1094,7 @@ def session_create():
 
 @app.route("/api/v1/sessions/<session_token>", methods=["DELETE"])
 @require_launcher_auth
-def session_delete(session_token: str):
+def session_delete(session_token: str) -> tuple[Response, int]:
     """Delete a session."""
     session_manager = get_session_manager()
 
@@ -1119,7 +1126,7 @@ def session_delete(session_token: str):
 
 @app.route("/api/v1/sessions", methods=["GET"])
 @require_launcher_auth
-def sessions_list():
+def sessions_list() -> tuple[Response, int]:
     """List all active sessions."""
     session_manager = get_session_manager()
     sessions = session_manager.list_sessions()
@@ -1131,7 +1138,7 @@ def sessions_list():
 
 @app.route("/api/v1/worktree/create", methods=["POST"])
 @require_launcher_auth
-def worktree_create():
+def worktree_create() -> tuple[Response, int]:
     """Create worktrees for a container."""
     data = request.get_json()
     if not data:
@@ -1184,7 +1191,7 @@ def worktree_create():
 
 @app.route("/api/v1/worktree/delete", methods=["POST"])
 @require_launcher_auth
-def worktree_delete():
+def worktree_delete() -> tuple[Response, int]:
     """Delete worktrees for a container."""
     data = request.get_json()
     if not data:
@@ -1235,7 +1242,7 @@ def worktree_delete():
 
 @app.route("/api/v1/worktree/list", methods=["GET"])
 @require_launcher_auth
-def worktree_list():
+def worktree_list() -> tuple[Response, int]:
     """List all active worktrees."""
     manager = get_worktree_manager()
     worktrees = manager.list_worktrees()

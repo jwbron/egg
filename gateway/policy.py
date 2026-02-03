@@ -92,7 +92,7 @@ class CachedPRInfo:
         return (datetime.now(UTC).timestamp() - self.fetched_at) > 300
 
 
-class BoundedCache(OrderedDict):
+class BoundedCache(OrderedDict[Any, Any]):
     """An OrderedDict with a maximum size that evicts oldest entries."""
 
     def __init__(self, max_size: int):
@@ -163,7 +163,7 @@ class PolicyEngine:
         cache_key = (repo, pr_number)
 
         # Check cache
-        cached = self._pr_cache.get(cache_key)
+        cached: CachedPRInfo | None = self._pr_cache.get(cache_key)
         if cached and not cached.is_stale:
             return cached
 
@@ -192,15 +192,15 @@ class PolicyEngine:
         cache_key = (repo, branch)
 
         # Check cache (2 minute TTL for branch->PR mapping)
-        cached = self._branch_pr_cache.get(cache_key)
-        if cached:
-            pr_numbers, fetched_at = cached
+        cached_branch: tuple[list[int], float] | None = self._branch_pr_cache.get(cache_key)
+        if cached_branch:
+            cached_pr_numbers, fetched_at = cached_branch
             if (datetime.now(UTC).timestamp() - fetched_at) < 120:
-                return pr_numbers
+                return cached_pr_numbers
 
         # Fetch from GitHub
         prs = self.github.list_prs_for_branch(repo, branch, state="open")
-        pr_numbers = [pr.get("number") for pr in prs if pr.get("number")]
+        pr_numbers: list[int] = [pr["number"] for pr in prs if pr.get("number") is not None]
         self._branch_pr_cache[cache_key] = (pr_numbers, datetime.now(UTC).timestamp())
 
         # Also cache individual PR info

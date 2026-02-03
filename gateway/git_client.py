@@ -754,7 +754,7 @@ fi
 """
 
 
-def create_credential_helper(token_str: str, env: dict) -> tuple[str, dict]:
+def create_credential_helper(token_str: str, env: dict[str, str]) -> tuple[str, dict[str, str]]:
     """Create a temporary credential helper script for git authentication.
 
     Creates a GIT_ASKPASS script that provides credentials from environment

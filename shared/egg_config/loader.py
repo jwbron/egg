@@ -36,7 +36,8 @@ def load_yaml(path: Path) -> dict[str, Any]:
     """
     with open(path) as f:
         config = yaml.safe_load(f) or {}
-    return _expand_env_vars(config)
+    result: dict[str, Any] = _expand_env_vars(config)
+    return result
 
 
 def find_config_file(

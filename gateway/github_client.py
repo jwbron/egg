@@ -464,7 +464,8 @@ class GitHubClient:
             return None
 
         try:
-            return json.loads(result.stdout)
+            data: dict[str, Any] = json.loads(result.stdout)
+            return data
         except json.JSONDecodeError:
             logger.error("Failed to parse PR info", stdout=result.stdout[:500])
             return None
@@ -492,7 +493,8 @@ class GitHubClient:
             return []
 
         try:
-            return json.loads(result.stdout)
+            data: list[dict[str, Any]] = json.loads(result.stdout)
+            return data
         except json.JSONDecodeError:
             return []
 

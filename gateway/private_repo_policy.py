@@ -81,7 +81,7 @@ class PrivateRepoPolicy:
     - "public": Only public repos accessible
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the policy engine."""
         pass
 
@@ -342,6 +342,7 @@ def get_private_repo_policy() -> PrivateRepoPolicy:
         with _policy_lock:
             if _policy is None:
                 _policy = PrivateRepoPolicy()
+    assert _policy is not None
     return _policy
 
 

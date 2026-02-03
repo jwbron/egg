@@ -153,7 +153,14 @@ class RepoVisibilityChecker:
                     visibility=visibility,
                     token_source=source,
                 )
-                return visibility
+                # Cast to VisibilityType since we validated it above
+                assert visibility in VALID_VISIBILITIES
+                if visibility == "public":
+                    return "public"
+                elif visibility == "private":
+                    return "private"
+                else:
+                    return "internal"
 
             elif response.status_code == 404:
                 logger.debug(

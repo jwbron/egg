@@ -19,6 +19,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from shared.egg_logging import get_logger
 
@@ -481,9 +482,9 @@ class WorktreeManager:
 
         return False
 
-    def list_worktrees(self) -> list[dict]:
+    def list_worktrees(self) -> list[dict[str, Any]]:
         """List all active worktrees."""
-        worktrees = []
+        worktrees: list[dict[str, Any]] = []
 
         if not self.worktree_base.exists():
             return worktrees
