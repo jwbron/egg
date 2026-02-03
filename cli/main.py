@@ -3,6 +3,15 @@
 import argparse
 import sys
 
+from cli.commands.handlers import (
+    handle_config,
+    handle_exec,
+    handle_logs,
+    handle_start,
+    handle_status,
+    handle_stop,
+)
+
 
 def main() -> int:
     """Main entry point for the egg CLI."""
@@ -18,8 +27,8 @@ def main() -> int:
     start_parser.add_argument(
         "--config",
         type=str,
-        default="./egg.yaml",
-        help="Path to egg.yaml config file",
+        default=None,
+        help="Path to egg.yaml config file (default: auto-discover)",
     )
     start_parser.add_argument(
         "--private",
@@ -64,9 +73,22 @@ def main() -> int:
         parser.print_help()
         return 0
 
-    # Command dispatch (to be implemented)
-    print(f"Command '{args.command}' not yet implemented")
-    return 1
+    # Command dispatch
+    handlers = {
+        "start": handle_start,
+        "stop": handle_stop,
+        "status": handle_status,
+        "exec": handle_exec,
+        "logs": handle_logs,
+        "config": handle_config,
+    }
+
+    handler = handlers.get(args.command)
+    if handler:
+        return handler(args)
+    else:
+        print(f"Unknown command: {args.command}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
