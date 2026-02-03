@@ -66,6 +66,7 @@ from .policy import (
 )
 from .private_repo_policy import check_private_repo_access
 from .rate_limiter import (
+    check_heartbeat_rate_limit,
     check_registration_rate_limit,
     record_failed_lookup,
 )
@@ -971,6 +972,488 @@ def gh_execute() -> tuple[Response, int]:
         )
 
 
+@app.route("/api/v1/gh/pr/create", methods=["POST"])
+@require_session_auth
+def gh_pr_create() -> tuple[Response, int]:
+    """
+    Create a pull request.
+
+    Request body:
+        {
+            "repo": "owner/repo",
+            "title": "PR title",
+            "body": "PR body",
+            "base": "main",
+            "head": "feature-branch"
+        }
+
+    Policy:
+        - Bot mode: allowed (egg can create PRs)
+        - User mode: blocked (user must create PRs manually via GitHub UI)
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    repo = data.get("repo")
+    title = data.get("title")
+    body = data.get("body", "")
+    base = data.get("base", "main")
+    head = data.get("head")
+
+    if not repo:
+        return make_error("Missing repo")
+    if not title:
+        return make_error("Missing title")
+    if not head:
+        return make_error("Missing head branch")
+
+    # Determine auth mode for this repo
+    auth_mode = get_auth_mode(repo)
+
+    # Get session mode from request context (set by @require_session_auth decorator)
+    session_mode = getattr(g, "session_mode", None)
+
+    # Check Private Repo Mode policy (if enabled)
+    repo_info = parse_owner_repo(repo)
+    if repo_info:
+        priv_result = check_private_repo_access(
+            operation="pr_create",
+            owner=repo_info.owner,
+            repo=repo_info.repo,
+            for_write=True,
+            session_mode=session_mode,
+        )
+        if not priv_result.allowed:
+            audit_log(
+                "pr_create_denied_private_mode",
+                "gh_pr_create",
+                success=False,
+                details={
+                    "repo": repo,
+                    "reason": priv_result.reason,
+                    "visibility": priv_result.visibility,
+                    "auth_mode": auth_mode,
+                },
+            )
+            return make_error(
+                priv_result.reason,
+                status_code=403,
+                details=priv_result.to_dict(),
+            )
+
+    # Policy check: PR creation may be blocked in user mode
+    policy = get_policy_engine()
+    policy_result = policy.check_pr_create_allowed(repo, auth_mode=auth_mode)
+    if not policy_result.allowed:
+        audit_log(
+            "pr_create_blocked",
+            "gh_pr_create",
+            success=False,
+            details={
+                "repo": repo,
+                "reason": policy_result.reason,
+                "auth_mode": auth_mode,
+            },
+        )
+        return make_error(
+            policy_result.reason,
+            status_code=403,
+            details=policy_result.details,
+        )
+
+    try:
+        github = get_github_client(mode=auth_mode)
+        args = [
+            "pr",
+            "create",
+            "--repo",
+            repo,
+            "--title",
+            title,
+            "--body",
+            body,
+            "--base",
+            base,
+            "--head",
+            head,
+        ]
+
+        result = github.execute(args, timeout=60, mode=auth_mode)
+
+        if result.success:
+            audit_log(
+                "pr_created",
+                "gh_pr_create",
+                success=True,
+                details={
+                    "repo": repo,
+                    "title": title,
+                    "base": base,
+                    "head": head,
+                    "auth_mode": auth_mode,
+                },
+            )
+            return make_success(
+                "PR created",
+                {"stdout": result.stdout, "stderr": result.stderr, "auth_mode": auth_mode},
+            )
+        else:
+            error_msg = result.stderr or "Unknown error"
+            audit_log(
+                "pr_create_failed",
+                "gh_pr_create",
+                success=False,
+                details={
+                    "repo": repo,
+                    "error": error_msg[:200] if error_msg else "",
+                    "auth_mode": auth_mode,
+                },
+            )
+            return make_error(
+                f"Failed to create PR: {error_msg}",
+                status_code=500,
+                details=result.to_dict(),
+            )
+    except Exception as e:
+        logger.exception("Unexpected error in gh_pr_create")
+        return make_error(f"Internal error: {e}", status_code=500)
+
+
+@app.route("/api/v1/gh/pr/comment", methods=["POST"])
+@require_session_auth
+def gh_pr_comment() -> tuple[Response, int]:
+    """
+    Add a comment to a PR.
+
+    Request body:
+        {
+            "repo": "owner/repo",
+            "pr_number": 123,
+            "body": "Comment text"
+        }
+
+    Policy: Comments are allowed on any PR.
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+    body = data.get("body")
+
+    if not repo:
+        return make_error("Missing repo")
+    if not pr_number:
+        return make_error("Missing pr_number")
+    if not body:
+        return make_error("Missing body")
+
+    # Determine auth mode for this repo
+    auth_mode = get_auth_mode(repo)
+
+    # Get session mode from request context
+    session_mode = getattr(g, "session_mode", None)
+
+    # Check Private Repo Mode policy
+    repo_info = parse_owner_repo(repo)
+    if repo_info:
+        priv_result = check_private_repo_access(
+            operation="pr_comment",
+            owner=repo_info.owner,
+            repo=repo_info.repo,
+            for_write=True,
+            session_mode=session_mode,
+        )
+        if not priv_result.allowed:
+            audit_log(
+                "pr_comment_denied_private_mode",
+                "gh_pr_comment",
+                success=False,
+                details={
+                    "repo": repo,
+                    "pr_number": pr_number,
+                    "reason": priv_result.reason,
+                    "visibility": priv_result.visibility,
+                    "auth_mode": auth_mode,
+                },
+            )
+            return make_error(
+                priv_result.reason,
+                status_code=403,
+                details=priv_result.to_dict(),
+            )
+
+    # Check if commenting is allowed (allowed on any PR)
+    policy = get_policy_engine()
+    policy_result = policy.check_pr_comment_allowed(repo, pr_number)
+
+    if not policy_result.allowed:
+        audit_log(
+            "pr_comment_denied",
+            "gh_pr_comment",
+            success=False,
+            details={
+                "repo": repo,
+                "pr_number": pr_number,
+                "reason": policy_result.reason,
+                "auth_mode": auth_mode,
+            },
+        )
+        return make_error(
+            f"Comment denied: {policy_result.reason}",
+            status_code=403,
+            details=policy_result.details,
+        )
+
+    github = get_github_client(mode=auth_mode)
+    args = [
+        "pr",
+        "comment",
+        str(pr_number),
+        "--repo",
+        repo,
+        "--body",
+        body,
+    ]
+
+    result = github.execute(args, timeout=30, mode=auth_mode)
+
+    if result.success:
+        audit_log(
+            "pr_comment_added",
+            "gh_pr_comment",
+            success=True,
+            details={"repo": repo, "pr_number": pr_number, "auth_mode": auth_mode},
+        )
+        return make_success("Comment added", {"stdout": result.stdout, "auth_mode": auth_mode})
+    else:
+        return make_error(
+            f"Failed to add comment: {result.stderr}",
+            status_code=500,
+            details=result.to_dict(),
+        )
+
+
+@app.route("/api/v1/gh/pr/edit", methods=["POST"])
+@require_session_auth
+def gh_pr_edit() -> tuple[Response, int]:
+    """
+    Edit a PR title or body.
+
+    Request body:
+        {
+            "repo": "owner/repo",
+            "pr_number": 123,
+            "title": "New title",  # optional
+            "body": "New body"      # optional
+        }
+
+    Policy: pr_ownership
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+    title = data.get("title")
+    body = data.get("body")
+
+    if not repo:
+        return make_error("Missing repo")
+    if not pr_number:
+        return make_error("Missing pr_number")
+    if not title and not body:
+        return make_error("Must provide title or body to edit")
+
+    # Determine auth mode for this repo
+    auth_mode = get_auth_mode(repo)
+
+    # Get session mode from request context
+    session_mode = getattr(g, "session_mode", None)
+
+    # Check Private Repo Mode policy
+    repo_info = parse_owner_repo(repo)
+    if repo_info:
+        priv_result = check_private_repo_access(
+            operation="pr_edit",
+            owner=repo_info.owner,
+            repo=repo_info.repo,
+            for_write=True,
+            session_mode=session_mode,
+        )
+        if not priv_result.allowed:
+            audit_log(
+                "pr_edit_denied_private_mode",
+                "gh_pr_edit",
+                success=False,
+                details={
+                    "repo": repo,
+                    "pr_number": pr_number,
+                    "reason": priv_result.reason,
+                    "visibility": priv_result.visibility,
+                    "auth_mode": auth_mode,
+                },
+            )
+            return make_error(
+                priv_result.reason,
+                status_code=403,
+                details=priv_result.to_dict(),
+            )
+
+    # Check PR ownership
+    policy = get_policy_engine()
+    policy_result = policy.check_pr_ownership(repo, pr_number)
+
+    if not policy_result.allowed:
+        audit_log(
+            "pr_edit_denied",
+            "gh_pr_edit",
+            success=False,
+            details={
+                "repo": repo,
+                "pr_number": pr_number,
+                "reason": policy_result.reason,
+                "auth_mode": auth_mode,
+            },
+        )
+        return make_error(
+            f"Edit denied: {policy_result.reason}",
+            status_code=403,
+            details=policy_result.details,
+        )
+
+    github = get_github_client(mode=auth_mode)
+    args = ["pr", "edit", str(pr_number), "--repo", repo]
+    if title:
+        args.extend(["--title", title])
+    if body:
+        args.extend(["--body", body])
+
+    result = github.execute(args, timeout=30, mode=auth_mode)
+
+    if result.success:
+        audit_log(
+            "pr_edited",
+            "gh_pr_edit",
+            success=True,
+            details={"repo": repo, "pr_number": pr_number, "auth_mode": auth_mode},
+        )
+        return make_success("PR edited", {"stdout": result.stdout, "auth_mode": auth_mode})
+    else:
+        return make_error(
+            f"Failed to edit PR: {result.stderr}",
+            status_code=500,
+            details=result.to_dict(),
+        )
+
+
+@app.route("/api/v1/gh/pr/close", methods=["POST"])
+@require_session_auth
+def gh_pr_close() -> tuple[Response, int]:
+    """
+    Close a PR.
+
+    Request body:
+        {
+            "repo": "owner/repo",
+            "pr_number": 123
+        }
+
+    Policy: pr_ownership
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+
+    if not repo:
+        return make_error("Missing repo")
+    if not pr_number:
+        return make_error("Missing pr_number")
+
+    # Determine auth mode for this repo
+    auth_mode = get_auth_mode(repo)
+
+    # Get session mode from request context
+    session_mode = getattr(g, "session_mode", None)
+
+    # Check Private Repo Mode policy
+    repo_info = parse_owner_repo(repo)
+    if repo_info:
+        priv_result = check_private_repo_access(
+            operation="pr_close",
+            owner=repo_info.owner,
+            repo=repo_info.repo,
+            for_write=True,
+            session_mode=session_mode,
+        )
+        if not priv_result.allowed:
+            audit_log(
+                "pr_close_denied_private_mode",
+                "gh_pr_close",
+                success=False,
+                details={
+                    "repo": repo,
+                    "pr_number": pr_number,
+                    "reason": priv_result.reason,
+                    "visibility": priv_result.visibility,
+                    "auth_mode": auth_mode,
+                },
+            )
+            return make_error(
+                priv_result.reason,
+                status_code=403,
+                details=priv_result.to_dict(),
+            )
+
+    # Check PR ownership
+    policy = get_policy_engine()
+    policy_result = policy.check_pr_ownership(repo, pr_number)
+
+    if not policy_result.allowed:
+        audit_log(
+            "pr_close_denied",
+            "gh_pr_close",
+            success=False,
+            details={
+                "repo": repo,
+                "pr_number": pr_number,
+                "reason": policy_result.reason,
+                "auth_mode": auth_mode,
+            },
+        )
+        return make_error(
+            f"Close denied: {policy_result.reason}",
+            status_code=403,
+            details=policy_result.details,
+        )
+
+    github = get_github_client(mode=auth_mode)
+    args = ["pr", "close", str(pr_number), "--repo", repo]
+
+    result = github.execute(args, timeout=30, mode=auth_mode)
+
+    if result.success:
+        audit_log(
+            "pr_closed",
+            "gh_pr_close",
+            success=True,
+            details={"repo": repo, "pr_number": pr_number, "auth_mode": auth_mode},
+        )
+        return make_success("PR closed", {"stdout": result.stdout, "auth_mode": auth_mode})
+    else:
+        return make_error(
+            f"Failed to close PR: {result.stderr}",
+            status_code=500,
+            details=result.to_dict(),
+        )
+
+
 # Session Management Endpoints
 
 
@@ -1122,6 +1605,91 @@ def session_delete(session_token: str) -> tuple[Response, int]:
                         deleted_worktrees.append(repo_dir.name)
 
     return make_success("Session deleted")
+
+
+@app.route("/api/v1/sessions/<session_token>/heartbeat", methods=["POST"])
+@require_launcher_auth
+def session_heartbeat(session_token: str) -> tuple[Response, int]:
+    """
+    Explicit session heartbeat to extend TTL.
+
+    Note: Heartbeats are also triggered implicitly on any successful
+    session-authenticated request. This endpoint exists for edge cases
+    where long-running operations need TTL extension without git/gh activity.
+
+    Args:
+        session_token: The session token
+
+    Auth: Bearer {launcher_secret}
+
+    Rate limit: 100 per hour per session
+    """
+    # Validate the session
+    result = validate_session_for_request(session_token, request.remote_addr)
+    if not result.valid:
+        # Record failed lookup for rate limiting
+        record_failed_lookup(request.remote_addr or "unknown")
+        return make_error(result.error or "Invalid session", status_code=401)
+
+    # Check heartbeat rate limit (100 per hour per session)
+    if result.session:
+        rate_limit = check_heartbeat_rate_limit(result.session.container_id)
+        if not rate_limit.allowed:
+            return make_error(
+                f"Heartbeat rate limit exceeded. Retry after {rate_limit.retry_after_seconds}s",
+                status_code=429,
+            )
+
+    # Session validation already extends TTL, just return success
+    return make_success(
+        "Heartbeat recorded",
+        {
+            "expires_at": result.session.expires_at.isoformat() if result.session else None,
+        },
+    )
+
+
+@app.route("/api/v1/repos/visibility", methods=["GET"])
+@require_launcher_auth
+def repos_visibility() -> tuple[Response, int]:
+    """
+    Query visibility for multiple repositories.
+
+    Used by launcher for informational queries. For atomic session+worktree
+    creation, use POST /api/v1/sessions/create instead.
+
+    Query params:
+        repos: Comma-separated list of owner/repo strings
+
+    Response:
+        {
+            "visibilities": {
+                "owner/repo1": "public",
+                "owner/repo2": "private",
+                "owner/repo3": "internal"
+            }
+        }
+
+    Auth: Bearer {launcher_secret}
+    """
+    repos_param = request.args.get("repos", "")
+    if not repos_param:
+        return make_error("Missing repos query parameter")
+
+    repos = [r.strip() for r in repos_param.split(",") if r.strip()]
+    if not repos:
+        return make_error("No valid repos provided")
+
+    visibilities: dict[str, str | None] = {}
+    for repo in repos:
+        repo_info = parse_owner_repo(repo)
+        if repo_info:
+            visibility = get_repo_visibility(repo_info.owner, repo_info.repo)
+            visibilities[repo] = visibility
+        else:
+            visibilities[repo] = None
+
+    return make_success("Visibility queried", {"visibilities": visibilities})
 
 
 @app.route("/api/v1/sessions", methods=["GET"])

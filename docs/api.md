@@ -93,6 +93,55 @@ End a session and clean up resources.
 }
 ```
 
+#### POST /api/v1/sessions/{token}/heartbeat
+
+Extend session TTL explicitly. Useful for long-running operations.
+
+**Auth:** Bearer {launcher_secret}
+
+**Rate limit:** 100 per hour per session
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Heartbeat recorded",
+  "data": {
+    "expires_at": "2026-02-04T12:00:00Z"
+  }
+}
+```
+
+### Repository Visibility
+
+#### GET /api/v1/repos/visibility
+
+Query visibility for multiple repositories.
+
+**Auth:** Bearer {launcher_secret}
+
+**Query params:**
+- `repos`: Comma-separated list of owner/repo strings
+
+**Request:**
+```bash
+curl "http://egg-gateway:9847/api/v1/repos/visibility?repos=owner/repo1,owner/repo2"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Visibility queried",
+  "data": {
+    "visibilities": {
+      "owner/repo1": "public",
+      "owner/repo2": "private"
+    }
+  }
+}
+```
+
 ### Git Operations
 
 #### POST /api/v1/git/status
@@ -288,6 +337,56 @@ Add a comment to a pull request.
 {
   "comment_id": 456,
   "url": "https://github.com/owner/repo/pull/123#issuecomment-456"
+}
+```
+
+#### POST /api/v1/gh/pr/edit
+
+Edit a PR title or body. Requires PR ownership.
+
+**Request:**
+```json
+{
+  "repo": "owner/repo",
+  "pr_number": 123,
+  "title": "Updated title",
+  "body": "Updated description"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "PR edited",
+  "data": {
+    "stdout": "...",
+    "auth_mode": "bot"
+  }
+}
+```
+
+#### POST /api/v1/gh/pr/close
+
+Close a PR. Requires PR ownership.
+
+**Request:**
+```json
+{
+  "repo": "owner/repo",
+  "pr_number": 123
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "PR closed",
+  "data": {
+    "stdout": "...",
+    "auth_mode": "bot"
+  }
 }
 ```
 
