@@ -176,6 +176,192 @@ class TestPolicyEngine:
         assert result.allowed is False
         assert "human" in result.reason.lower()
 
+    def test_check_branch_ownership_with_auth_mode_bot(self, policy_engine):
+        """Test that auth_mode is included in bot mode result."""
+        result = policy_engine.check_branch_ownership("owner/repo", "egg/feature", auth_mode="bot")
+        assert result.allowed is True
+        assert result.details.get("auth_mode") == "bot"
+
+    def test_check_branch_ownership_user_mode_no_github_client(self, policy_engine):
+        """Test user mode fails without GitHub client for branch check."""
+        # PolicyEngine with no github client
+        policy_engine.github = None
+        result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
+        assert result.allowed is False
+        assert "github client" in result.reason.lower()
+
+    def test_check_branch_ownership_user_mode_new_branch(self, policy_engine, mock_github_client):
+        """Test user mode allows push to new branch."""
+        mock_github_client.branch_exists.return_value = False
+
+        result = policy_engine.check_branch_ownership("owner/repo", "new-feature", auth_mode="user")
+        assert result.allowed is True
+        assert "new branch" in result.reason.lower()
+        assert result.details.get("auth_mode") == "user"
+        assert result.details.get("reason") == "new_branch"
+
+    def test_check_branch_ownership_user_mode_existing_no_pr(
+        self, policy_engine, mock_github_client
+    ):
+        """Test user mode blocks existing branch without authorized PR."""
+        mock_github_client.branch_exists.return_value = True
+        mock_github_client.list_prs_for_branch.return_value = []
+
+        result = policy_engine.check_branch_ownership(
+            "owner/repo", "existing-branch", auth_mode="user"
+        )
+        assert result.allowed is False
+        assert result.details.get("auth_mode") == "user"
+
+    def test_check_branch_ownership_user_mode_existing_with_bot_pr(
+        self, policy_engine, mock_github_client
+    ):
+        """Test user mode allows existing branch with bot PR."""
+        mock_github_client.branch_exists.return_value = True
+        mock_github_client.list_prs_for_branch.return_value = [
+            {
+                "number": 123,
+                "author": {"login": "egg[bot]"},
+                "state": "OPEN",
+                "headRefName": "existing",
+            }
+        ]
+        mock_github_client.get_pr_info.return_value = {
+            "author": {"login": "egg[bot]"},
+            "state": "OPEN",
+            "headRefName": "existing",
+        }
+
+        result = policy_engine.check_branch_ownership(
+            "owner/repo", "existing-branch", auth_mode="user"
+        )
+        assert result.allowed is True
+        assert result.details.get("reason") == "bot_pr"
+
+    def test_check_branch_ownership_user_mode_api_error(self, policy_engine, mock_github_client):
+        """Test user mode fails closed on API error."""
+        mock_github_client.branch_exists.return_value = None  # API error
+
+        result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
+        assert result.allowed is False
+        assert "api error" in result.reason.lower()
+
+    def test_check_pr_ownership_with_auth_mode(self, policy_engine, mock_github_client):
+        """Test that auth_mode is passed through to PR ownership check."""
+        mock_github_client.get_pr_info.return_value = {
+            "author": {"login": "egg[bot]"},
+            "state": "OPEN",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_ownership("owner/repo", 42, auth_mode="user")
+        assert result.allowed is True
+        assert result.details.get("auth_mode") == "user"
+
+    def test_check_branch_ownership_configured_user_pr(
+        self, policy_engine, mock_github_client, monkeypatch
+    ):
+        """Test that configured user's PRs are allowed in bot mode."""
+        # Mock the configured user
+        monkeypatch.setattr(
+            "gateway.policy.PolicyEngine._get_configured_user",
+            lambda self: "configured-user",
+        )
+
+        mock_github_client.list_prs_for_branch.return_value = [
+            {
+                "number": 123,
+                "author": {"login": "configured-user"},
+                "state": "OPEN",
+                "headRefName": "feature",
+            }
+        ]
+        mock_github_client.get_pr_info.return_value = {
+            "author": {"login": "configured-user"},
+            "state": "OPEN",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_branch_ownership(
+            "owner/repo", "feature-branch", auth_mode="bot"
+        )
+        assert result.allowed is True
+        assert result.details.get("reason") == "configured_user_pr"
+
+    def test_check_pr_ownership_configured_user(
+        self, policy_engine, mock_github_client, monkeypatch
+    ):
+        """Test that configured user's PRs are recognized as owned."""
+        # Mock the configured user
+        monkeypatch.setattr(
+            "gateway.policy.PolicyEngine._get_configured_user",
+            lambda self: "configured-user",
+        )
+
+        mock_github_client.get_pr_info.return_value = {
+            "author": {"login": "configured-user"},
+            "state": "OPEN",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_ownership("owner/repo", 42)
+        assert result.allowed is True
+        assert "configured user" in result.reason.lower()
+
+    def test_check_branch_ownership_user_mode_existing_with_configured_user_pr(
+        self, policy_engine, mock_github_client, monkeypatch
+    ):
+        """Test user mode allows existing branch with configured user's PR."""
+        # Mock the configured user
+        monkeypatch.setattr(
+            "gateway.policy.PolicyEngine._get_configured_user",
+            lambda self: "configured-user",
+        )
+
+        mock_github_client.branch_exists.return_value = True
+        mock_github_client.list_prs_for_branch.return_value = [
+            {
+                "number": 456,
+                "author": {"login": "configured-user"},
+                "state": "OPEN",
+                "headRefName": "feature-branch",
+            }
+        ]
+        mock_github_client.get_pr_info.return_value = {
+            "author": {"login": "configured-user"},
+            "state": "OPEN",
+            "headRefName": "feature-branch",
+        }
+
+        result = policy_engine.check_branch_ownership(
+            "owner/repo", "feature-branch", auth_mode="user"
+        )
+        assert result.allowed is True
+        assert result.details.get("auth_mode") == "user"
+        assert result.details.get("reason") == "configured_user_pr"
+        assert result.details.get("configured_user") == "configured-user"
+
+    def test_check_pr_ownership_case_insensitive(
+        self, policy_engine, mock_github_client, monkeypatch
+    ):
+        """Test that configured user matching is case-insensitive."""
+        # Mock with lowercase configured user
+        monkeypatch.setattr(
+            "gateway.policy.PolicyEngine._get_configured_user",
+            lambda self: "configureduser",
+        )
+
+        # PR author has different case
+        mock_github_client.get_pr_info.return_value = {
+            "author": {"login": "ConfiguredUser"},
+            "state": "OPEN",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_ownership("owner/repo", 42)
+        assert result.allowed is True
+        assert "configured user" in result.reason.lower()
+
 
 class TestExtractRepoFromRemote:
     """Tests for extract_repo_from_remote function."""
