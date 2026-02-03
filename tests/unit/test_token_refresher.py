@@ -14,11 +14,6 @@ from gateway.token_refresher import (
     reset_token_refresher,
 )
 
-# Mark for tests that require network mocking (may not work in all environments)
-requires_network_mocking = pytest.mark.skip(
-    reason="Requires network mocking that may not work in sandboxed environments"
-)
-
 
 @pytest.fixture
 def mock_private_key():
@@ -95,7 +90,6 @@ class TestTokenRefresher:
         assert refresher._installation_id == 67890
         assert refresher._max_failures == 5
 
-    @requires_network_mocking
     @patch("gateway.token_refresher.jwt.encode")
     @patch("gateway.token_refresher.requests.post")
     def test_get_token_success(self, mock_post, mock_jwt, mock_private_key, mock_github_response):
@@ -119,7 +113,6 @@ class TestTokenRefresher:
         assert mock_jwt.called
         assert mock_post.called
 
-    @requires_network_mocking
     @patch("gateway.token_refresher.jwt.encode")
     @patch("gateway.token_refresher.requests.post")
     def test_get_token_caches_valid_token(
@@ -148,7 +141,6 @@ class TestTokenRefresher:
         assert mock_post.call_count == 1
         assert token1 == token2
 
-    @requires_network_mocking
     @patch("gateway.token_refresher.jwt.encode")
     @patch("gateway.token_refresher.requests.post")
     def test_get_token_refresh_failure_uses_cache(
@@ -185,7 +177,6 @@ class TestTokenRefresher:
         assert token2 == "ghs_test_token_12345"
         assert refresher.consecutive_failures == 1
 
-    @requires_network_mocking
     @patch("gateway.token_refresher.jwt.encode")
     @patch("gateway.token_refresher.requests.post")
     def test_get_token_max_failures_clears_cache(self, mock_post, mock_jwt, mock_private_key):
@@ -215,7 +206,6 @@ class TestTokenRefresher:
         assert token3 is None
         assert refresher.consecutive_failures == 3
 
-    @requires_network_mocking
     @patch("gateway.token_refresher.jwt.encode")
     @patch("gateway.token_refresher.requests.post")
     def test_get_token_info(self, mock_post, mock_jwt, mock_private_key, mock_github_response):
@@ -239,7 +229,6 @@ class TestTokenRefresher:
         assert info.source == "refresher"
         assert not info.is_expired
 
-    @requires_network_mocking
     @patch("gateway.token_refresher.jwt.encode")
     @patch("gateway.token_refresher.requests.post")
     def test_get_token_info_none_when_no_token(self, mock_post, mock_jwt, mock_private_key):
@@ -260,7 +249,6 @@ class TestTokenRefresher:
 class TestInitializeTokenRefresher:
     """Tests for initialize_token_refresher function."""
 
-    @requires_network_mocking
     @patch("gateway.token_refresher.jwt.encode")
     @patch("gateway.token_refresher.requests.post")
     def test_initialize_from_files(
@@ -283,7 +271,6 @@ class TestInitializeTokenRefresher:
         assert refresher is not None
         assert get_token_refresher() is refresher
 
-    @requires_network_mocking
     @patch("gateway.token_refresher.jwt.encode")
     @patch("gateway.token_refresher.requests.post")
     def test_initialize_from_env(
@@ -329,7 +316,6 @@ class TestInitializeTokenRefresher:
         refresher2 = initialize_token_refresher(config_dir=tmp_path)
         assert refresher2 is None
 
-    @requires_network_mocking
     @patch("gateway.token_refresher.jwt.encode")
     @patch("gateway.token_refresher.requests.post")
     def test_initialize_explicit_params(
@@ -358,7 +344,6 @@ class TestInitializeTokenRefresher:
 class TestGetBotToken:
     """Tests for get_bot_token function."""
 
-    @requires_network_mocking
     @patch("gateway.token_refresher.jwt.encode")
     @patch("gateway.token_refresher.requests.post")
     def test_get_bot_token_from_refresher(
