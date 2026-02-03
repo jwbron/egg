@@ -87,7 +87,7 @@ logger = get_logger("gateway")
 app = Flask(__name__)
 
 # Configuration
-DEFAULT_HOST = os.environ.get("GATEWAY_HOST", "0.0.0.0")
+DEFAULT_HOST = os.environ.get("GATEWAY_HOST", "0.0.0.0")  # nosec B104 - intentional for container
 DEFAULT_PORT = int(os.environ.get("GATEWAY_PORT", "9847"))
 
 # Host home directory for path translation
@@ -1249,7 +1249,7 @@ def worktree_list() -> tuple[Response, int]:
     return make_success("Worktrees listed", {"worktrees": worktrees})
 
 
-def main():
+def main() -> None:
     """Run the gateway server."""
     if os.getuid() == 0:
         print(
@@ -1327,7 +1327,7 @@ def main():
     )
 
     if args.debug:
-        app.run(host=args.host, port=args.port, debug=True)
+        app.run(host=args.host, port=args.port, debug=True)  # nosec B201 - only when explicitly requested
     else:
         serve(app, host=args.host, port=args.port)
 
