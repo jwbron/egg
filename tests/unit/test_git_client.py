@@ -5,9 +5,12 @@ with additional enhancements for coverage.
 """
 
 from gateway.git_client import (
+    BLOCKED_GIT_FLAGS,
     GIT_ALLOWED_COMMANDS,
     get_authenticated_remote_target,
+    is_repos_parent_directory,
     is_ssh_url,
+    normalize_flag,
     ssh_url_to_https,
     validate_git_args,
 )
@@ -237,6 +240,79 @@ class TestValidateGitArgs:
             assert valid, f"stash {subcommand} should be valid: {err}"
 
 
+class TestIsReposParentDirectory:
+    """Tests for repos parent directory detection."""
+
+    def test_repos_parent_detected(self):
+        """The /home/user/repos directory should be detected as a parent."""
+        assert is_repos_parent_directory("/home/user/repos")
+        assert is_repos_parent_directory("/home/user/repos/")
+
+    def test_worktrees_parent_detected(self):
+        """The /home/user/.egg-worktrees directory should be detected as a parent."""
+        assert is_repos_parent_directory("/home/user/.egg-worktrees")
+        assert is_repos_parent_directory("/home/user/.egg-worktrees/")
+
+    def test_legacy_repos_parent_detected(self):
+        """The /repos directory should be detected as a parent."""
+        assert is_repos_parent_directory("/repos")
+        assert is_repos_parent_directory("/repos/")
+
+    def test_actual_repo_not_detected(self):
+        """Paths inside repos should NOT be detected as parent directories."""
+        assert not is_repos_parent_directory("/home/user/repos/myrepo")
+        assert not is_repos_parent_directory("/home/user/repos/some-project/src")
+        assert not is_repos_parent_directory("/home/user/.egg-worktrees/container-123/myrepo")
+
+    def test_empty_path(self):
+        """Empty paths should return False."""
+        assert not is_repos_parent_directory("")
+        assert not is_repos_parent_directory(None)
+
+    def test_unrelated_paths(self):
+        """Unrelated paths should return False."""
+        assert not is_repos_parent_directory("/tmp")
+        assert not is_repos_parent_directory("/home/user")
+        assert not is_repos_parent_directory("/etc/passwd")
+
+
+class TestNormalizeFlag:
+    """Tests for flag normalization."""
+
+    def test_short_flag_normalized(self):
+        """Short flags should be normalized to long form."""
+        assert normalize_flag("-a") == "--all"
+        assert normalize_flag("-v") == "--verbose"
+        assert normalize_flag("-f") == "--force"
+
+    def test_long_flag_unchanged(self):
+        """Long flags should remain unchanged."""
+        assert normalize_flag("--all") == "--all"
+        assert normalize_flag("--verbose") == "--verbose"
+
+    def test_unknown_flag_unchanged(self):
+        """Unknown flags should remain unchanged."""
+        assert normalize_flag("--unknown") == "--unknown"
+        assert normalize_flag("-x") == "-x"
+
+    def test_flag_with_value_normalized(self):
+        """Flags with values should have base normalized."""
+        assert normalize_flag("-n=5") == "--dry-run=5"
+        assert normalize_flag("--depth=5") == "--depth=5"
+
+
+class TestBlockedGitFlags:
+    """Tests for blocked flags configuration."""
+
+    def test_dangerous_flags_blocked(self):
+        """Known dangerous flags should be blocked."""
+        assert "--upload-pack" in BLOCKED_GIT_FLAGS
+        assert "--exec" in BLOCKED_GIT_FLAGS
+        assert "-c" in BLOCKED_GIT_FLAGS
+        assert "--config" in BLOCKED_GIT_FLAGS
+        assert "--receive-pack" in BLOCKED_GIT_FLAGS
+
+
 class TestValidateRepoPath:
     """Tests for validate_repo_path function."""
 
@@ -262,3 +338,18 @@ class TestValidateRepoPath:
 
         valid, err = validate_repo_path("")
         assert not valid
+
+    def test_none_path_rejected(self):
+        """None path should be rejected."""
+        from gateway.git_client import validate_repo_path
+
+        valid, _err = validate_repo_path(None)
+        assert not valid
+
+    def test_outside_allowed_paths_rejected(self):
+        """Paths outside allowed directories should be rejected."""
+        from gateway.git_client import validate_repo_path
+
+        valid, err = validate_repo_path("/tmp/malicious")
+        assert not valid
+        assert "allowed directories" in err.lower()

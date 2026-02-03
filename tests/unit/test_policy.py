@@ -3,12 +3,14 @@
 Tests the PolicyEngine class and policy checking functions.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
 
 from gateway.policy import (
     BoundedCache,
+    CachedPRInfo,
     PolicyEngine,
     PolicyResult,
     extract_branch_from_refspec,
@@ -69,6 +71,34 @@ class TestBoundedCache:
 
         assert "a" in cache
         assert "b" not in cache
+
+
+class TestCachedPRInfo:
+    """Tests for CachedPRInfo class."""
+
+    def test_is_stale_fresh_entry(self):
+        """Test that a fresh entry is not stale."""
+        info = CachedPRInfo(
+            pr_number=1,
+            author="egg",
+            state="OPEN",
+            head_branch="feature",
+            fetched_at=datetime.now(UTC).timestamp(),
+        )
+        assert not info.is_stale
+
+    def test_is_stale_old_entry(self):
+        """Test that an old entry (>5 min) is stale."""
+        # 10 minutes ago
+        old_time = datetime.now(UTC).timestamp() - 600
+        info = CachedPRInfo(
+            pr_number=1,
+            author="egg",
+            state="OPEN",
+            head_branch="feature",
+            fetched_at=old_time,
+        )
+        assert info.is_stale
 
 
 class TestPolicyEngine:
@@ -391,6 +421,11 @@ class TestExtractRepoFromRemote:
         result = extract_repo_from_remote("not-a-valid-url")
         assert result is None
 
+    def test_non_github_url(self):
+        """Test that non-GitHub URLs return None."""
+        result = extract_repo_from_remote("https://gitlab.com/owner/repo.git")
+        assert result is None
+
 
 class TestExtractBranchFromRefspec:
     """Tests for extract_branch_from_refspec function."""
@@ -414,6 +449,12 @@ class TestExtractBranchFromRefspec:
         """Test stripping + force push indicator."""
         result = extract_branch_from_refspec("+feature")
         assert result == "feature"
+
+    def test_full_refspec(self):
+        """Test full refspec with refs/heads/ on both sides."""
+        refspec = "+refs/heads/local:refs/heads/remote"
+        result = extract_branch_from_refspec(refspec)
+        assert result == "remote"
 
     def test_empty_refspec(self):
         """Test empty refspec returns None."""

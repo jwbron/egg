@@ -80,20 +80,32 @@ GH_API_ALLOWED_PATHS = [
     re.compile(r"^repos/[^/]+/[^/]+/pulls/\d+/requested_reviewers$"),
     re.compile(r"^repos/[^/]+/[^/]+/pulls/\d+/files$"),
     re.compile(r"^repos/[^/]+/[^/]+/pulls/\d+/commits$"),
+    re.compile(r"^repos/[^/]+/[^/]+/pulls/comments/\d+$"),  # Specific PR review comment
     # Issue operations
     re.compile(r"^repos/[^/]+/[^/]+/issues$"),
     re.compile(r"^repos/[^/]+/[^/]+/issues/\d+$"),
     re.compile(r"^repos/[^/]+/[^/]+/issues/\d+/comments$"),
     re.compile(r"^repos/[^/]+/[^/]+/issues/\d+/labels$"),
+    re.compile(r"^repos/[^/]+/[^/]+/issues/\d+/events$"),  # Issue events
+    re.compile(r"^repos/[^/]+/[^/]+/issues/\d+/timeline$"),  # Issue timeline
+    re.compile(r"^repos/[^/]+/[^/]+/issues/comments/\d+$"),  # Specific issue comment
+    # Commit operations
+    re.compile(r"^repos/[^/]+/[^/]+/commits$"),
+    re.compile(r"^repos/[^/]+/[^/]+/commits/[a-f0-9]+$"),
+    re.compile(r"^repos/[^/]+/[^/]+/commits/[a-f0-9]+/comments$"),  # Commit comments
+    re.compile(r"^repos/[^/]+/[^/]+/comments/\d+$"),  # Specific commit comment
     # Repository info
     re.compile(r"^repos/[^/]+/[^/]+$"),
     re.compile(r"^repos/[^/]+/[^/]+/branches$"),
     re.compile(r"^repos/[^/]+/[^/]+/branches/[^/]+$"),
-    re.compile(r"^repos/[^/]+/[^/]+/commits$"),
-    re.compile(r"^repos/[^/]+/[^/]+/commits/[a-f0-9]+$"),
     re.compile(r"^repos/[^/]+/[^/]+/contents/.*$"),
     re.compile(r"^repos/[^/]+/[^/]+/git/refs.*$"),
     re.compile(r"^repos/[^/]+/[^/]+/compare/.*$"),
+    # Releases
+    re.compile(r"^repos/[^/]+/[^/]+/releases$"),
+    re.compile(r"^repos/[^/]+/[^/]+/releases/\d+$"),
+    re.compile(r"^repos/[^/]+/[^/]+/releases/latest$"),
+    re.compile(r"^repos/[^/]+/[^/]+/releases/tags/[^/]+$"),
     # User info
     re.compile(r"^user$"),
     re.compile(r"^users/[^/]+$"),
