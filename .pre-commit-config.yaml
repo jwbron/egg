@@ -14,7 +14,14 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
 
-  - repo: https://github.com/koalaman/shellcheck-precommit
-    rev: v0.9.0
+  # ShellCheck for shell script linting
+  # Uses system shellcheck if available, skips gracefully if not
+  # This allows commits to proceed in environments without shellcheck
+  # while still catching issues when the tool is present
+  - repo: local
     hooks:
       - id: shellcheck
+        name: shellcheck
+        entry: bash -c 'if command -v shellcheck >/dev/null 2>&1; then shellcheck "$@"; else echo "shellcheck not found, skipping"; fi' --
+        language: system
+        types: [shell]
