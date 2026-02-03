@@ -17,6 +17,7 @@ import threading
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from shared.egg_logging import get_logger
 
@@ -31,9 +32,9 @@ class RateLimitResult:
     remaining: int
     retry_after_seconds: int | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API response."""
-        result: dict = {
+        result: dict[str, Any] = {
             "allowed": self.allowed,
             "remaining": self.remaining,
         }
@@ -150,7 +151,7 @@ class SlidingWindowRateLimiter:
             self._requests.clear()
             return count
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """Get statistics about rate limiter state."""
         now = datetime.now(UTC)
         cutoff = now - self.window
@@ -222,7 +223,7 @@ def check_heartbeat_rate_limit(session_id: str) -> RateLimitResult:
     return heartbeat_limiter.is_allowed(session_id)
 
 
-def get_all_limiter_stats() -> dict:
+def get_all_limiter_stats() -> dict[str, Any]:
     """Get statistics for all rate limiters."""
     return {
         "registration": registration_limiter.get_stats(),

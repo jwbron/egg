@@ -104,6 +104,7 @@ class RepoVisibilityChecker:
         # Try to get bot token from token_refresher
         try:
             from .token_refresher import get_bot_token
+
             bot_token, _source = get_bot_token()
             if bot_token:
                 tokens.append((bot_token, "bot"))
@@ -152,7 +153,14 @@ class RepoVisibilityChecker:
                     visibility=visibility,
                     token_source=source,
                 )
-                return visibility
+                # Cast to VisibilityType since we validated it above
+                assert visibility in VALID_VISIBILITIES
+                if visibility == "public":
+                    return "public"
+                elif visibility == "private":
+                    return "private"
+                else:
+                    return "internal"
 
             elif response.status_code == 404:
                 logger.debug(

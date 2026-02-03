@@ -108,7 +108,7 @@ def get_error_message(
     repo: str | None = None,
     operation: str | None = None,
     hint: str | None = None,
-    **kwargs,
+    **kwargs: str,
 ) -> str:
     """Get a user-friendly error message for a policy violation.
 
@@ -139,9 +139,9 @@ def format_policy_blocked_response(
     repository: str | None = None,
     visibility: str | None = None,
     hints: list[str] | None = None,
-) -> dict:
+) -> dict[str, object]:
     """Format a standardized policy-blocked response."""
-    response: dict = {
+    response: dict[str, object] = {
         "success": False,
         "error": "PolicyViolation",
         "operation": operation,

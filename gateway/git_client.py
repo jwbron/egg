@@ -127,10 +127,7 @@ def is_repos_parent_directory(path: str) -> bool:
 
     try:
         real_path = os.path.realpath(path).rstrip("/")
-        return any(
-            real_path == parent_dir.rstrip("/")
-            for parent_dir in _repos_parent_directories
-        )
+        return any(real_path == parent_dir.rstrip("/") for parent_dir in _repos_parent_directories)
     except Exception:
         return False
 
@@ -757,7 +754,7 @@ fi
 """
 
 
-def create_credential_helper(token_str: str, env: dict) -> tuple[str, dict]:
+def create_credential_helper(token_str: str, env: dict[str, str]) -> tuple[str, dict[str, str]]:
     """Create a temporary credential helper script for git authentication.
 
     Creates a GIT_ASKPASS script that provides credentials from environment

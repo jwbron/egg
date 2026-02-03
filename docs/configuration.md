@@ -143,15 +143,15 @@ egg start --config egg.yaml
 # Private mode: network locked down
 egg start --config egg.yaml --private
 
-# Headless mode: non-interactive
-egg start --config egg.yaml --headless
+# Prompt mode: non-interactive
+egg start --config egg.yaml -p "your prompt here"
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--config <path>` | Path to egg.yaml (default: `./egg.yaml`) |
 | `--private` | Enable private network mode |
-| `--headless` | Run without interactive terminal |
+| `-p`, `--prompt` | Run with a prompt in non-interactive mode |
 
 ## Environment Variables
 

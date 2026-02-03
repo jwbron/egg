@@ -19,6 +19,8 @@ Endpoints:
     POST /api/v1/gh/pr/close    - Close PR (policy: pr_ownership)
     POST /api/v1/gh/execute     - Generic gh command (policy: filtered)
     GET  /api/v1/health         - Health check (no auth required)
+    POST /v1/messages           - Anthropic API proxy with credential injection
+    POST /v1/messages/count_tokens - Anthropic token counting API proxy
 
 Usage:
     gateway.py [--host HOST] [--port PORT] [--debug]
@@ -26,19 +28,24 @@ Usage:
 
 import argparse
 import functools
+import json
 import os
 import secrets
 import subprocess
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ParamSpec, TypeVar
 
-from flask import Flask, g, jsonify, request
+import httpx
+from flask import Flask, Response, g, jsonify, request, stream_with_context
 from waitress import serve
 
 from shared.egg_logging import get_logger
 
+from .anthropic_credentials import get_credentials_manager
 from .git_client import (
     GIT_ALLOWED_COMMANDS,
     cleanup_credential_helper,
@@ -65,6 +72,7 @@ from .policy import (
 )
 from .private_repo_policy import check_private_repo_access
 from .rate_limiter import (
+    check_heartbeat_rate_limit,
     check_registration_rate_limit,
     record_failed_lookup,
 )
@@ -77,12 +85,16 @@ from .session_manager import (
 )
 from .worktree_manager import WorktreeManager, startup_cleanup
 
+# Type variables for decorator typing
+P = ParamSpec("P")
+R = TypeVar("R")
+
 logger = get_logger("gateway")
 
 app = Flask(__name__)
 
 # Configuration
-DEFAULT_HOST = os.environ.get("GATEWAY_HOST", "0.0.0.0")
+DEFAULT_HOST = os.environ.get("GATEWAY_HOST", "0.0.0.0")  # nosec B104 - intentional for container
 DEFAULT_PORT = int(os.environ.get("GATEWAY_PORT", "9847"))
 
 # Host home directory for path translation
@@ -104,11 +116,11 @@ def translate_to_host_path(container_path: str) -> str:
     return container_path
 
 
-def require_session_auth(f):
+def require_session_auth(f: Callable[P, R]) -> Callable[P, R]:
     """Decorator that validates session tokens in request handlers."""
 
     @functools.wraps(f)
-    def decorated(*args, **kwargs):
+    def decorated(*args: P.args, **kwargs: P.kwargs) -> R:
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             logger.warning(
@@ -116,10 +128,10 @@ def require_session_auth(f):
                 endpoint=request.path,
                 source_ip=request.remote_addr,
             )
-            return make_error("Missing or invalid Authorization header", status_code=401)
+            return make_error("Missing or invalid Authorization header", status_code=401)  # type: ignore[return-value]
 
         token = auth_header[7:]
-        source_ip = request.remote_addr
+        source_ip = request.remote_addr or "unknown"
 
         result = validate_session_for_request(token, source_ip)
         if not result.valid:
@@ -130,7 +142,7 @@ def require_session_auth(f):
                 source_ip=source_ip,
                 error=result.error,
             )
-            return make_error(result.error or "Invalid or expired session token", status_code=401)
+            return make_error(result.error or "Invalid or expired session token", status_code=401)  # type: ignore[return-value]
 
         g.session = result.session
         g.session_mode = result.session.mode if result.session else None
@@ -184,11 +196,11 @@ def check_launcher_auth() -> tuple[bool, str]:
     return False, "Invalid launcher authorization token"
 
 
-def require_launcher_auth(f):
+def require_launcher_auth(f: Callable[P, R]) -> Callable[P, R]:
     """Decorator to require launcher authentication for an endpoint."""
 
     @functools.wraps(f)
-    def decorated(*args, **kwargs):
+    def decorated(*args: P.args, **kwargs: P.kwargs) -> R:
         is_valid, error = check_launcher_auth()
         if not is_valid:
             logger.warning(
@@ -197,7 +209,7 @@ def require_launcher_auth(f):
                 error=error,
                 source_ip=request.remote_addr,
             )
-            return make_error(error, status_code=401)
+            return make_error(error, status_code=401)  # type: ignore[return-value]
         return f(*args, **kwargs)
 
     return decorated
@@ -208,7 +220,7 @@ def make_response(
     message: str,
     data: dict[str, Any] | None = None,
     status_code: int = 200,
-):
+) -> tuple[Response, int]:
     """Create a standardized JSON response."""
     response: dict[str, Any] = {"success": success, "message": message}
     if data:
@@ -216,12 +228,14 @@ def make_response(
     return jsonify(response), status_code
 
 
-def make_error(message: str, status_code: int = 400, details: dict[str, Any] | None = None):
+def make_error(
+    message: str, status_code: int = 400, details: dict[str, Any] | None = None
+) -> tuple[Response, int]:
     """Create an error response."""
     return make_response(False, message, details, status_code)
 
 
-def make_success(message: str, data: dict[str, Any] | None = None):
+def make_success(message: str, data: dict[str, Any] | None = None) -> tuple[Response, int]:
     """Create a success response."""
     return make_response(True, message, data, 200)
 
@@ -249,8 +263,135 @@ def audit_log(
         logger.warning(f"Audit: {event_type}", **log_data)
 
 
+@dataclass
+class PROperationContext:
+    """Context for PR operations after access checks pass."""
+
+    repo: str
+    auth_mode: str
+    session_mode: str | None
+
+
+def check_pr_operation_access(
+    repo: str,
+    operation: str,
+    endpoint_name: str,
+    pr_number: int | None = None,
+) -> tuple[PROperationContext | None, tuple[Response, int] | None]:
+    """
+    Common access checks for PR operations.
+
+    Performs:
+    - Auth mode determination
+    - Session mode extraction
+    - Private repo access policy check
+
+    Returns:
+        (context, None) if access is allowed
+        (None, error_response) if access is denied
+    """
+    auth_mode = get_auth_mode(repo)
+    session_mode = getattr(g, "session_mode", None)
+
+    # Check Private Repo Mode policy
+    repo_info = parse_owner_repo(repo)
+    if repo_info:
+        priv_result = check_private_repo_access(
+            operation=operation,
+            owner=repo_info.owner,
+            repo=repo_info.repo,
+            for_write=True,
+            session_mode=session_mode,
+        )
+        if not priv_result.allowed:
+            details: dict[str, Any] = {
+                "repo": repo,
+                "reason": priv_result.reason,
+                "visibility": priv_result.visibility,
+                "auth_mode": auth_mode,
+            }
+            if pr_number is not None:
+                details["pr_number"] = pr_number
+
+            audit_log(
+                f"{operation}_denied_private_mode",
+                endpoint_name,
+                success=False,
+                details=details,
+            )
+            return None, make_error(
+                priv_result.reason,
+                status_code=403,
+                details=priv_result.to_dict(),
+            )
+
+    return PROperationContext(repo=repo, auth_mode=auth_mode, session_mode=session_mode), None
+
+
+def execute_pr_operation(
+    operation_name: str,
+    endpoint_name: str,
+    repo: str,
+    auth_mode: str,
+    gh_args: list[str],
+    audit_details: dict[str, Any],
+    success_message: str,
+    timeout: int = 30,
+) -> tuple[Response, int]:
+    """
+    Execute a PR operation with consistent error handling and audit logging.
+
+    Args:
+        operation_name: Name of the operation for logging (e.g., "pr_comment")
+        endpoint_name: Flask endpoint name (e.g., "gh_pr_comment")
+        repo: Repository in owner/repo format
+        auth_mode: Authentication mode ("bot" or "user")
+        gh_args: Arguments for gh CLI
+        audit_details: Details to include in audit log
+        success_message: Message to return on success
+        timeout: Timeout for gh command in seconds
+
+    Returns:
+        Flask response tuple
+    """
+    try:
+        github = get_github_client(mode=auth_mode)
+        result = github.execute(gh_args, timeout=timeout, mode=auth_mode)
+
+        if result.success:
+            audit_log(
+                operation_name,
+                endpoint_name,
+                success=True,
+                details=audit_details,
+            )
+            return make_success(
+                success_message,
+                {"stdout": result.stdout, "auth_mode": auth_mode},
+            )
+        else:
+            error_msg = result.stderr or "Unknown error"
+            audit_log(
+                f"{operation_name}_failed",
+                endpoint_name,
+                success=False,
+                details={
+                    **audit_details,
+                    "error": error_msg[:200] if error_msg else "",
+                },
+            )
+            return make_error(
+                f"Failed to {operation_name.replace('_', ' ')}: {error_msg}",
+                status_code=500,
+                details=result.to_dict(),
+            )
+    except Exception as e:
+        logger.exception(f"Unexpected error in {endpoint_name}")
+        return make_error(f"Internal error: {e}", status_code=500)
+
+
 @app.route("/api/v1/health", methods=["GET"])
-def health_check():
+def health_check() -> Response:
     """Health check endpoint (no auth required)."""
     github = get_github_client()
     token_valid = github.is_token_valid()
@@ -334,7 +475,7 @@ def map_container_path_to_worktree(
 
 @app.route("/api/v1/git/push", methods=["POST"])
 @require_session_auth
-def git_push():
+def git_push() -> tuple[Response, int]:
     """Handle git push requests."""
     data = request.get_json()
     if not data:
@@ -450,9 +591,7 @@ def git_push():
             details=policy_result.details,
         )
 
-    token_str, auth_mode, token_error = get_token_for_repo(
-        repo, get_auth_mode, get_github_client
-    )
+    token_str, auth_mode, token_error = get_token_for_repo(repo, get_auth_mode, get_github_client)
     if not token_str:
         return make_error(token_error, status_code=503)
 
@@ -527,7 +666,7 @@ def git_push():
 
 @app.route("/api/v1/git/execute", methods=["POST"])
 @require_session_auth
-def git_execute():
+def git_execute() -> tuple[Response, int]:
     """Execute a git command in the gateway's worktree."""
     data = request.get_json()
     if not data:
@@ -684,7 +823,7 @@ def git_execute():
 
 @app.route("/api/v1/git/fetch", methods=["POST"])
 @require_session_auth
-def git_fetch():
+def git_fetch() -> tuple[Response, int]:
     """Handle git fetch requests."""
     data = request.get_json()
     if not data:
@@ -771,9 +910,7 @@ def git_fetch():
                 details=priv_result.to_dict(),
             )
 
-    token_str, auth_mode, token_error = get_token_for_repo(
-        repo, get_auth_mode, get_github_client
-    )
+    token_str, auth_mode, token_error = get_token_for_repo(repo, get_auth_mode, get_github_client)
     if not token_str:
         return make_error(token_error, status_code=503)
 
@@ -846,7 +983,7 @@ def git_fetch():
 
 @app.route("/api/v1/gh/execute", methods=["POST"])
 @require_session_auth
-def gh_execute():
+def gh_execute() -> tuple[Response, int]:
     """Execute a generic gh command."""
     data = request.get_json()
     if not data:
@@ -968,14 +1105,323 @@ def gh_execute():
         )
 
 
+@app.route("/api/v1/gh/pr/create", methods=["POST"])
+@require_session_auth
+def gh_pr_create() -> tuple[Response, int]:
+    """
+    Create a pull request.
+
+    Request body:
+        {
+            "repo": "owner/repo",
+            "title": "PR title",
+            "body": "PR body",
+            "base": "main",
+            "head": "feature-branch"
+        }
+
+    Policy:
+        - Bot mode: allowed (egg can create PRs)
+        - User mode: blocked (user must create PRs manually via GitHub UI)
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    repo = data.get("repo")
+    title = data.get("title")
+    body = data.get("body", "")
+    base = data.get("base", "main")
+    head = data.get("head")
+
+    if not repo:
+        return make_error("Missing repo")
+    if not title:
+        return make_error("Missing title")
+    if not head:
+        return make_error("Missing head branch")
+
+    # Common access checks (auth mode, session mode, private repo policy)
+    ctx, error = check_pr_operation_access(repo, "pr_create", "gh_pr_create")
+    if error:
+        return error
+    assert ctx is not None  # mypy: error case handled above
+
+    # Policy check: PR creation may be blocked in user mode
+    policy = get_policy_engine()
+    policy_result = policy.check_pr_create_allowed(repo, auth_mode=ctx.auth_mode)
+    if not policy_result.allowed:
+        audit_log(
+            "pr_create_blocked",
+            "gh_pr_create",
+            success=False,
+            details={
+                "repo": repo,
+                "reason": policy_result.reason,
+                "auth_mode": ctx.auth_mode,
+            },
+        )
+        return make_error(
+            policy_result.reason,
+            status_code=403,
+            details=policy_result.details,
+        )
+
+    # Execute with consistent error handling
+    return execute_pr_operation(
+        operation_name="pr_create",
+        endpoint_name="gh_pr_create",
+        repo=repo,
+        auth_mode=ctx.auth_mode,
+        gh_args=[
+            "pr",
+            "create",
+            "--repo",
+            repo,
+            "--title",
+            title,
+            "--body",
+            body,
+            "--base",
+            base,
+            "--head",
+            head,
+        ],
+        audit_details={
+            "repo": repo,
+            "title": title,
+            "base": base,
+            "head": head,
+            "auth_mode": ctx.auth_mode,
+        },
+        success_message="PR created",
+        timeout=60,
+    )
+
+
+@app.route("/api/v1/gh/pr/comment", methods=["POST"])
+@require_session_auth
+def gh_pr_comment() -> tuple[Response, int]:
+    """
+    Add a comment to a PR.
+
+    Request body:
+        {
+            "repo": "owner/repo",
+            "pr_number": 123,
+            "body": "Comment text"
+        }
+
+    Policy: Comments are allowed on any PR.
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+    body = data.get("body")
+
+    if not repo:
+        return make_error("Missing repo")
+    if not pr_number:
+        return make_error("Missing pr_number")
+    if not body:
+        return make_error("Missing body")
+
+    # Common access checks (auth mode, session mode, private repo policy)
+    ctx, error = check_pr_operation_access(repo, "pr_comment", "gh_pr_comment", pr_number)
+    if error:
+        return error
+    assert ctx is not None  # mypy: error case handled above
+
+    # Check if commenting is allowed (allowed on any PR)
+    policy = get_policy_engine()
+    policy_result = policy.check_pr_comment_allowed(repo, pr_number)
+
+    if not policy_result.allowed:
+        audit_log(
+            "pr_comment_denied",
+            "gh_pr_comment",
+            success=False,
+            details={
+                "repo": repo,
+                "pr_number": pr_number,
+                "reason": policy_result.reason,
+                "auth_mode": ctx.auth_mode,
+            },
+        )
+        return make_error(
+            f"Comment denied: {policy_result.reason}",
+            status_code=403,
+            details=policy_result.details,
+        )
+
+    # Execute with consistent error handling
+    return execute_pr_operation(
+        operation_name="pr_comment",
+        endpoint_name="gh_pr_comment",
+        repo=repo,
+        auth_mode=ctx.auth_mode,
+        gh_args=["pr", "comment", str(pr_number), "--repo", repo, "--body", body],
+        audit_details={"repo": repo, "pr_number": pr_number, "auth_mode": ctx.auth_mode},
+        success_message="Comment added",
+    )
+
+
+@app.route("/api/v1/gh/pr/edit", methods=["POST"])
+@require_session_auth
+def gh_pr_edit() -> tuple[Response, int]:
+    """
+    Edit a PR title or body.
+
+    Request body:
+        {
+            "repo": "owner/repo",
+            "pr_number": 123,
+            "title": "New title",  # optional
+            "body": "New body"      # optional
+        }
+
+    Policy: pr_ownership
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+    title = data.get("title")
+    body = data.get("body")
+
+    if not repo:
+        return make_error("Missing repo")
+    if not pr_number:
+        return make_error("Missing pr_number")
+    if not title and not body:
+        return make_error("Must provide title or body to edit")
+
+    # Common access checks (auth mode, session mode, private repo policy)
+    ctx, error = check_pr_operation_access(repo, "pr_edit", "gh_pr_edit", pr_number)
+    if error:
+        return error
+    assert ctx is not None  # mypy: error case handled above
+
+    # Check PR ownership
+    policy = get_policy_engine()
+    policy_result = policy.check_pr_ownership(repo, pr_number, auth_mode=ctx.auth_mode)
+
+    if not policy_result.allowed:
+        audit_log(
+            "pr_edit_denied",
+            "gh_pr_edit",
+            success=False,
+            details={
+                "repo": repo,
+                "pr_number": pr_number,
+                "reason": policy_result.reason,
+                "auth_mode": ctx.auth_mode,
+            },
+        )
+        return make_error(
+            f"Edit denied: {policy_result.reason}",
+            status_code=403,
+            details=policy_result.details,
+        )
+
+    # Build args
+    args = ["pr", "edit", str(pr_number), "--repo", repo]
+    if title:
+        args.extend(["--title", title])
+    if body:
+        args.extend(["--body", body])
+
+    # Execute with consistent error handling
+    return execute_pr_operation(
+        operation_name="pr_edit",
+        endpoint_name="gh_pr_edit",
+        repo=repo,
+        auth_mode=ctx.auth_mode,
+        gh_args=args,
+        audit_details={"repo": repo, "pr_number": pr_number, "auth_mode": ctx.auth_mode},
+        success_message="PR edited",
+    )
+
+
+@app.route("/api/v1/gh/pr/close", methods=["POST"])
+@require_session_auth
+def gh_pr_close() -> tuple[Response, int]:
+    """
+    Close a PR.
+
+    Request body:
+        {
+            "repo": "owner/repo",
+            "pr_number": 123
+        }
+
+    Policy: pr_ownership
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+
+    if not repo:
+        return make_error("Missing repo")
+    if not pr_number:
+        return make_error("Missing pr_number")
+
+    # Common access checks (auth mode, session mode, private repo policy)
+    ctx, error = check_pr_operation_access(repo, "pr_close", "gh_pr_close", pr_number)
+    if error:
+        return error
+    assert ctx is not None  # mypy: error case handled above
+
+    # Check PR ownership
+    policy = get_policy_engine()
+    policy_result = policy.check_pr_ownership(repo, pr_number, auth_mode=ctx.auth_mode)
+
+    if not policy_result.allowed:
+        audit_log(
+            "pr_close_denied",
+            "gh_pr_close",
+            success=False,
+            details={
+                "repo": repo,
+                "pr_number": pr_number,
+                "reason": policy_result.reason,
+                "auth_mode": ctx.auth_mode,
+            },
+        )
+        return make_error(
+            f"Close denied: {policy_result.reason}",
+            status_code=403,
+            details=policy_result.details,
+        )
+
+    # Execute with consistent error handling
+    return execute_pr_operation(
+        operation_name="pr_close",
+        endpoint_name="gh_pr_close",
+        repo=repo,
+        auth_mode=ctx.auth_mode,
+        gh_args=["pr", "close", str(pr_number), "--repo", repo],
+        audit_details={"repo": repo, "pr_number": pr_number, "auth_mode": ctx.auth_mode},
+        success_message="PR closed",
+    )
+
+
 # Session Management Endpoints
 
 
 @app.route("/api/v1/sessions/create", methods=["POST"])
 @require_launcher_auth
-def session_create():
+def session_create() -> tuple[Response, int]:
     """Create a session with atomic visibility query, filtering, worktree creation."""
-    rate_result = check_registration_rate_limit(request.remote_addr)
+    rate_result = check_registration_rate_limit(request.remote_addr or "unknown")
     if not rate_result.allowed:
         return make_error(
             "Rate limit exceeded for session registration",
@@ -1091,7 +1537,7 @@ def session_create():
 
 @app.route("/api/v1/sessions/<session_token>", methods=["DELETE"])
 @require_launcher_auth
-def session_delete(session_token: str):
+def session_delete(session_token: str) -> tuple[Response, int]:
     """Delete a session."""
     session_manager = get_session_manager()
 
@@ -1121,9 +1567,116 @@ def session_delete(session_token: str):
     return make_success("Session deleted")
 
 
+@app.route("/api/v1/sessions/<session_token>/heartbeat", methods=["POST"])
+@require_launcher_auth
+def session_heartbeat(session_token: str) -> tuple[Response, int]:
+    """
+    Explicit session heartbeat to extend TTL.
+
+    Note: Heartbeats are also triggered implicitly on any successful
+    session-authenticated request. This endpoint exists for edge cases
+    where long-running operations need TTL extension without git/gh activity.
+
+    Args:
+        session_token: The session token
+
+    Auth: Bearer {launcher_secret}
+
+    Rate limit: 100 per hour per session
+    """
+    # Validate the session
+    result = validate_session_for_request(session_token, request.remote_addr)
+    if not result.valid:
+        # Record failed lookup for rate limiting
+        record_failed_lookup(request.remote_addr or "unknown")
+        return make_error(result.error or "Invalid session", status_code=401)
+
+    # Check heartbeat rate limit (100 per hour per session)
+    if result.session:
+        rate_limit = check_heartbeat_rate_limit(result.session.container_id)
+        if not rate_limit.allowed:
+            return make_error(
+                f"Heartbeat rate limit exceeded. Retry after {rate_limit.retry_after_seconds}s",
+                status_code=429,
+            )
+
+    # Session validation already extends TTL, just return success
+    return make_success(
+        "Heartbeat recorded",
+        {
+            "expires_at": result.session.expires_at.isoformat() if result.session else None,
+        },
+    )
+
+
+@app.route("/api/v1/repos/visibility", methods=["GET"])
+@require_launcher_auth
+def repos_visibility() -> tuple[Response, int]:
+    """
+    Query visibility for multiple repositories.
+
+    Used by launcher for informational queries. For atomic session+worktree
+    creation, use POST /api/v1/sessions/create instead.
+
+    Query params:
+        repos: Comma-separated list of owner/repo strings
+
+    Response:
+        {
+            "visibilities": {
+                "owner/repo1": {"visibility": "public"},
+                "owner/repo2": {"visibility": "private"},
+                "owner/repo3": {"visibility": null, "error": "invalid_format"}
+            },
+            "errors": ["owner/repo3: invalid format"]  # Only if there are errors
+        }
+
+    Auth: Bearer {launcher_secret}
+    """
+    repos_param = request.args.get("repos", "")
+    if not repos_param:
+        return make_error("Missing repos query parameter")
+
+    repos = [r.strip() for r in repos_param.split(",") if r.strip()]
+    if not repos:
+        return make_error("No valid repos provided")
+
+    visibilities: dict[str, dict[str, Any]] = {}
+    errors: list[str] = []
+
+    for repo in repos:
+        repo_info = parse_owner_repo(repo)
+        if not repo_info:
+            visibilities[repo] = {"visibility": None, "error": "invalid_format"}
+            errors.append(f"{repo}: invalid format (expected owner/repo)")
+            continue
+
+        try:
+            visibility = get_repo_visibility(repo_info.owner, repo_info.repo)
+            if visibility is None:
+                visibilities[repo] = {"visibility": None, "error": "not_found_or_no_access"}
+                errors.append(f"{repo}: repository not found or no access")
+            else:
+                visibilities[repo] = {"visibility": visibility}
+        except Exception as e:
+            visibilities[repo] = {"visibility": None, "error": "api_error"}
+            errors.append(f"{repo}: API error ({type(e).__name__})")
+            logger.warning(
+                "Visibility check failed",
+                repo=repo,
+                error=str(e),
+            )
+
+    response_data: dict[str, Any] = {"visibilities": visibilities}
+    if errors:
+        response_data["errors"] = errors
+
+    return make_success("Visibility queried", response_data)
+
+
 @app.route("/api/v1/sessions", methods=["GET"])
 @require_launcher_auth
-def sessions_list():
+def sessions_list() -> tuple[Response, int]:
     """List all active sessions."""
     session_manager = get_session_manager()
     sessions = session_manager.list_sessions()
@@ -1135,7 +1688,7 @@ def sessions_list():
 
 @app.route("/api/v1/worktree/create", methods=["POST"])
 @require_launcher_auth
-def worktree_create():
+def worktree_create() -> tuple[Response, int]:
     """Create worktrees for a container."""
     data = request.get_json()
     if not data:
@@ -1188,7 +1741,7 @@ def worktree_create():
 
 @app.route("/api/v1/worktree/delete", methods=["POST"])
 @require_launcher_auth
-def worktree_delete():
+def worktree_delete() -> tuple[Response, int]:
     """Delete worktrees for a container."""
     data = request.get_json()
     if not data:
@@ -1239,14 +1792,337 @@ def worktree_delete():
 
 @app.route("/api/v1/worktree/list", methods=["GET"])
 @require_launcher_auth
-def worktree_list():
+def worktree_list() -> tuple[Response, int]:
     """List all active worktrees."""
     manager = get_worktree_manager()
     worktrees = manager.list_worktrees()
     return make_success("Worktrees listed", {"worktrees": worktrees})
 
 
-def main():
+# =============================================================================
+# Anthropic API Proxy Endpoints
+# =============================================================================
+
+# Singleton httpx client with connection pooling for Anthropic API
+_anthropic_client: httpx.Client | None = None
+
+
+def get_anthropic_client() -> httpx.Client:
+    """Get or create the singleton Anthropic API client."""
+    global _anthropic_client
+    if _anthropic_client is None:
+        _anthropic_client = httpx.Client(
+            base_url="https://api.anthropic.com",
+            timeout=httpx.Timeout(120.0, connect=10.0),
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+        )
+    return _anthropic_client
+
+
+# Headers to block - forward everything else for maximum compatibility
+ANTHROPIC_BLOCKED_HEADERS = {
+    "host",
+    "content-length",
+    "transfer-encoding",
+    "authorization",
+    "x-api-key",
+    "connection",
+}
+
+
+def _get_forwarded_headers(request_headers: Any) -> dict[str, str]:
+    """Forward all headers except blocked ones (blocklist approach)."""
+    return {k: v for k, v in request_headers if k.lower() not in ANTHROPIC_BLOCKED_HEADERS}
+
+
+def _filter_response_headers(headers: Any) -> dict[str, str]:
+    """Filter response headers for passthrough."""
+    # Preserve important headers like x-request-id for debugging
+    skip = {"content-encoding", "transfer-encoding", "connection"}
+    return {k: v for k, v in headers.items() if k.lower() not in skip}
+
+
+def _inject_anthropic_credentials(
+    headers: dict[str, str],
+) -> tuple[dict[str, str], tuple[Any, int] | None]:
+    """
+    Inject Anthropic credentials into headers.
+
+    Returns:
+        (headers, None) on success
+        (headers, error_response_tuple) on failure - caller should return this
+    """
+    credentials_manager = get_credentials_manager()
+    cred = credentials_manager.get_credential()
+
+    if cred:
+        # Credential includes header_name (x-api-key or Authorization)
+        # and header_value (raw key or "Bearer <token>")
+        headers[cred.header_name] = cred.header_value
+        return headers, None
+
+    # No gateway-managed credentials - check if client sent auth
+    # This allows OAuth mode where Claude Code manages its own tokens
+    client_auth = headers.get("Authorization")
+    client_api_key = headers.get("x-api-key")
+    if client_auth or client_api_key:
+        return headers, None
+
+    logger.warning(
+        "No Anthropic credentials available for proxy request",
+        has_gateway_cred=False,
+        has_client_auth=bool(client_auth),
+        has_client_api_key=bool(client_api_key),
+    )
+    return headers, (
+        jsonify(
+            {
+                "error": {
+                    "type": "authentication_error",
+                    "message": "No Anthropic credentials available",
+                }
+            }
+        ),
+        401,
+    )
+
+
+# Tools blocked in private mode to prevent data exfiltration
+# These tools route through Anthropic's infrastructure, bypassing container network controls
+BLOCKED_TOOLS_PRIVATE_MODE = {"web_search", "WebSearch", "web_fetch", "WebFetch"}
+
+
+def _filter_blocked_tools(request_body: bytes, session_mode: str | None) -> bytes:
+    """
+    Remove blocked tools from API request when in private mode.
+
+    In private mode, WebSearch and WebFetch bypass container network controls
+    because they're processed by Anthropic's infrastructure. This creates a
+    data exfiltration risk where a compromised agent could encode sensitive
+    data in search queries.
+
+    By filtering these tools at the gateway, we enforce the restriction at
+    the infrastructure level where the container cannot bypass it.
+
+    Args:
+        request_body: Raw JSON request body
+        session_mode: The session's mode ("private" or "public"), or None
+
+    Returns:
+        Modified request body with blocked tools removed (if in private mode),
+        or original body unchanged (if in public mode or on parse error)
+    """
+    if session_mode != "private":
+        return request_body
+
+    try:
+        body = json.loads(request_body)
+        if "tools" not in body:
+            return request_body
+
+        original_tools = body["tools"]
+        filtered_tools = [
+            t for t in original_tools if t.get("name") not in BLOCKED_TOOLS_PRIVATE_MODE
+        ]
+
+        removed_count = len(original_tools) - len(filtered_tools)
+        if removed_count > 0:
+            removed_names = [
+                t.get("name") for t in original_tools if t.get("name") in BLOCKED_TOOLS_PRIVATE_MODE
+            ]
+            logger.info(
+                "Filtered blocked tools in private mode",
+                removed_count=removed_count,
+                removed_tools=removed_names,
+            )
+            body["tools"] = filtered_tools
+            return json.dumps(body).encode()
+
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.warning("Failed to parse request body for tool filtering", error=str(e))
+
+    return request_body
+
+
+def _is_streaming_request(request_body: bytes) -> bool:
+    """
+    Check if request body indicates streaming mode.
+
+    Parses JSON properly to avoid false positives from byte string matching.
+    """
+    try:
+        body_json = json.loads(request_body)
+        return body_json.get("stream", False) is True
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+
+@app.route("/v1/messages", methods=["POST"])
+def proxy_anthropic_messages() -> Response | tuple[Response, int]:
+    """
+    Proxy messages API with credential injection and streaming support.
+
+    This endpoint allows Claude Code to use ANTHROPIC_BASE_URL to route
+    API traffic through the gateway for credential injection.
+
+    Uses IP-based session lookup for mode detection (Claude Code doesn't send session tokens).
+    """
+    # Build headers with injected auth
+    headers = _get_forwarded_headers(request.headers)
+    headers, error = _inject_anthropic_credentials(headers)
+    if error:
+        return error
+
+    request_body = request.get_data()
+
+    # Look up session by IP to determine mode (Claude Code doesn't send session tokens)
+    session_manager = get_session_manager()
+    remote_addr = request.remote_addr or ""
+    session = session_manager.get_session_by_ip(remote_addr) if remote_addr else None
+    session_mode = session.mode if session else None
+    request_body = _filter_blocked_tools(
+        request_body, session_mode
+    )  # Remove web tools in private mode
+    is_streaming = _is_streaming_request(request_body)
+
+    client = get_anthropic_client()
+
+    try:
+        if is_streaming:
+            # Stream SSE response using httpx's send() with stream=True
+            # This gives us direct control over the response lifecycle
+            http_request = client.build_request(
+                "POST",
+                "/v1/messages",
+                headers=headers,
+                content=request_body,
+            )
+            upstream = client.send(http_request, stream=True)
+            response_headers = _filter_response_headers(upstream.headers)
+            # Forward actual Content-Type from upstream (usually text/event-stream)
+            content_type = upstream.headers.get("content-type", "text/event-stream")
+
+            def generate() -> Any:
+                try:
+                    yield from upstream.iter_bytes()
+                finally:
+                    upstream.close()
+
+            return Response(
+                stream_with_context(generate()),
+                status=upstream.status_code,
+                headers=response_headers,
+                content_type=content_type,
+            )
+        else:
+            # Non-streaming: simple request/response
+            response = client.post(
+                "/v1/messages",
+                headers=headers,
+                content=request_body,
+            )
+            return Response(
+                response.content,
+                status=response.status_code,
+                headers=_filter_response_headers(response.headers),
+            )
+
+    except httpx.ConnectError as e:
+        logger.error("Anthropic API connection failed", error=str(e))
+        return jsonify(
+            {
+                "error": {
+                    "type": "api_error",
+                    "message": f"Failed to connect to Anthropic API: {e}",
+                }
+            }
+        ), 502
+
+    except httpx.TimeoutException as e:
+        logger.error("Anthropic API request timed out", error=str(e))
+        return jsonify(
+            {
+                "error": {
+                    "type": "api_error",
+                    "message": f"Anthropic API request timed out: {e}",
+                }
+            }
+        ), 504
+
+    except Exception as e:
+        logger.exception("Anthropic API proxy error")
+        return jsonify(
+            {
+                "error": {
+                    "type": "api_error",
+                    "message": f"Anthropic API proxy error: {e}",
+                }
+            }
+        ), 502
+
+
+@app.route("/v1/messages/count_tokens", methods=["POST"])
+def proxy_count_tokens() -> Response | tuple[Response, int]:
+    """
+    Proxy token counting API (non-streaming).
+
+    This endpoint allows Claude Code to use ANTHROPIC_BASE_URL to route
+    token counting requests through the gateway.
+    """
+    headers = _get_forwarded_headers(request.headers)
+    headers, error = _inject_anthropic_credentials(headers)
+    if error:
+        return error
+
+    client = get_anthropic_client()
+
+    try:
+        response = client.post(
+            "/v1/messages/count_tokens",
+            headers=headers,
+            content=request.get_data(),
+        )
+        return Response(
+            response.content,
+            status=response.status_code,
+            headers=_filter_response_headers(response.headers),
+        )
+
+    except httpx.ConnectError as e:
+        logger.error("Anthropic API connection failed", error=str(e))
+        return jsonify(
+            {
+                "error": {
+                    "type": "api_error",
+                    "message": f"Failed to connect to Anthropic API: {e}",
+                }
+            }
+        ), 502
+
+    except httpx.TimeoutException as e:
+        logger.error("Anthropic API request timed out", error=str(e))
+        return jsonify(
+            {
+                "error": {
+                    "type": "api_error",
+                    "message": f"Anthropic API request timed out: {e}",
+                }
+            }
+        ), 504
+
+    except Exception as e:
+        logger.exception("Anthropic API proxy error")
+        return jsonify(
+            {
+                "error": {
+                    "type": "api_error",
+                    "message": f"Anthropic API proxy error: {e}",
+                }
+            }
+        ), 502
+
+
+def main() -> None:
     """Run the gateway server."""
     if os.getuid() == 0:
         print(
@@ -1324,7 +2200,7 @@ def main():
     )
 
     if args.debug:
-        app.run(host=args.host, port=args.port, debug=True)
+        app.run(host=args.host, port=args.port, debug=True)  # nosec B201 - only when explicitly requested
     else:
         serve(app, host=args.host, port=args.port)
 

@@ -27,9 +27,11 @@ def main() -> int:
         help="Enable private network mode",
     )
     start_parser.add_argument(
-        "--headless",
-        action="store_true",
-        help="Run in non-interactive/headless mode",
+        "-p",
+        "--prompt",
+        type=str,
+        metavar="PROMPT",
+        help="Run with a prompt in non-interactive mode",
     )
 
     # Stop command

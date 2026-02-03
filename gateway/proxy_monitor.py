@@ -10,7 +10,7 @@ import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from shared.egg_logging import get_logger
 
@@ -85,7 +85,7 @@ class ProxyStats:
         }
         logger.warning(f"SECURITY ALERT: {json.dumps(alert)}")
 
-    def get_summary(self) -> dict:
+    def get_summary(self) -> dict[str, Any]:
         """Get summary statistics."""
         total = self.allowed_count + self.blocked_count
         return {
@@ -102,10 +102,11 @@ class ProxyStats:
         }
 
 
-def parse_squid_json_log(line: str) -> dict | None:
+def parse_squid_json_log(line: str) -> dict[str, Any] | None:
     """Parse a JSON log line from Squid."""
     try:
-        return json.loads(line.strip())
+        entry: dict[str, Any] = json.loads(line.strip())
+        return entry
     except json.JSONDecodeError:
         return None
 

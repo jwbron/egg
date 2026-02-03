@@ -31,9 +31,9 @@ With credential injection, **all credentials live in the gateway**.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                           CREDENTIAL FLOW                                │
+│                           CREDENTIAL FLOW                               │
 ├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
+│                                                                         │
 │  ┌─────────────────┐    ANTHROPIC_BASE_URL     ┌─────────────────────┐  │
 │  │  Sandbox        │ ─────────────────────────▶│    Gateway          │  │
 │  │                 │   http://gateway:8080     │                     │  │
@@ -44,7 +44,7 @@ With credential injection, **all credentials live in the gateway**.
 │  └─────────────────┘                           │  Credentials from:  │  │
 │                                                │  ~/.egg/secrets.yaml│  │
 │                                                └─────────────────────┘  │
-│                                                                          │
+│                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -66,7 +66,7 @@ Container                    Gateway                      GitHub
    │                           │                            │
    │  git push                 │                            │
    │ ─────────────────────────▶│                            │
-   │  (via wrapper, no creds)  │  git push (with token)    │
+   │  (via wrapper, no creds)  │  git push (with token)     │
    │                           │ ──────────────────────────▶│
    │                           │                            │
    │  <──────────────────────  │  <─────────────────────────│
@@ -152,3 +152,8 @@ OAuth takes precedence if both OAuth and API key are configured.
 3. **More secure**: Credentials never in container environment
 4. **Unified**: Same approach works for both public and private modes
 5. **Better debugging**: HTTP traffic between container and gateway is inspectable
+
+## Related ADRs
+
+- [ADR: Git Isolation Architecture](git-isolation-architecture.md)
+- [ADR: Network Isolation](network-isolation.md)

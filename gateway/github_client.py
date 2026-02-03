@@ -80,20 +80,32 @@ GH_API_ALLOWED_PATHS = [
     re.compile(r"^repos/[^/]+/[^/]+/pulls/\d+/requested_reviewers$"),
     re.compile(r"^repos/[^/]+/[^/]+/pulls/\d+/files$"),
     re.compile(r"^repos/[^/]+/[^/]+/pulls/\d+/commits$"),
+    re.compile(r"^repos/[^/]+/[^/]+/pulls/comments/\d+$"),  # Specific PR review comment
     # Issue operations
     re.compile(r"^repos/[^/]+/[^/]+/issues$"),
     re.compile(r"^repos/[^/]+/[^/]+/issues/\d+$"),
     re.compile(r"^repos/[^/]+/[^/]+/issues/\d+/comments$"),
     re.compile(r"^repos/[^/]+/[^/]+/issues/\d+/labels$"),
+    re.compile(r"^repos/[^/]+/[^/]+/issues/\d+/events$"),  # Issue events
+    re.compile(r"^repos/[^/]+/[^/]+/issues/\d+/timeline$"),  # Issue timeline
+    re.compile(r"^repos/[^/]+/[^/]+/issues/comments/\d+$"),  # Specific issue comment
+    # Commit operations
+    re.compile(r"^repos/[^/]+/[^/]+/commits$"),
+    re.compile(r"^repos/[^/]+/[^/]+/commits/[a-f0-9]+$"),
+    re.compile(r"^repos/[^/]+/[^/]+/commits/[a-f0-9]+/comments$"),  # Commit comments
+    re.compile(r"^repos/[^/]+/[^/]+/comments/\d+$"),  # Specific commit comment
     # Repository info
     re.compile(r"^repos/[^/]+/[^/]+$"),
     re.compile(r"^repos/[^/]+/[^/]+/branches$"),
     re.compile(r"^repos/[^/]+/[^/]+/branches/[^/]+$"),
-    re.compile(r"^repos/[^/]+/[^/]+/commits$"),
-    re.compile(r"^repos/[^/]+/[^/]+/commits/[a-f0-9]+$"),
     re.compile(r"^repos/[^/]+/[^/]+/contents/.*$"),
     re.compile(r"^repos/[^/]+/[^/]+/git/refs.*$"),
     re.compile(r"^repos/[^/]+/[^/]+/compare/.*$"),
+    # Releases
+    re.compile(r"^repos/[^/]+/[^/]+/releases$"),
+    re.compile(r"^repos/[^/]+/[^/]+/releases/\d+$"),
+    re.compile(r"^repos/[^/]+/[^/]+/releases/latest$"),
+    re.compile(r"^repos/[^/]+/[^/]+/releases/tags/[^/]+$"),
     # User info
     re.compile(r"^user$"),
     re.compile(r"^users/[^/]+$"),
@@ -353,6 +365,73 @@ class GitHubClient:
             token = self.get_token()
             return token.token if token else None
 
+    def is_user_token_valid(self) -> bool:
+        """Check if a user token is configured and non-empty.
+
+        Returns:
+            True if user token is available.
+        """
+        token = self.get_user_token()
+        return token is not None and len(token) > 0
+
+    def get_authenticated_user(self, mode: str = "bot") -> str | None:
+        """Get the GitHub username for the authenticated token.
+
+        Makes an API call to determine the username associated with
+        the current authentication token.
+
+        Args:
+            mode: "bot" or "user" - which token to use
+
+        Returns:
+            GitHub username string, or None if unable to determine.
+        """
+        result = self.execute(["api", "user", "--jq", ".login"], mode=mode)
+        if result.success and result.stdout.strip():
+            return result.stdout.strip()
+
+        logger.warning(
+            "Failed to get authenticated user",
+            mode=mode,
+            stderr=result.stderr[:200] if result.stderr else None,
+        )
+        return None
+
+    def validate_user_mode_config(self) -> tuple[bool, str]:
+        """Validate that user mode is properly configured.
+
+        Checks that:
+        1. User token is available
+        2. User token can authenticate to GitHub
+        3. (Optionally) Token username matches configured github_user
+
+        Returns:
+            Tuple of (is_valid, error_message).
+        """
+        if not self.is_user_token_valid():
+            return False, f"User token not configured. Set {USER_TOKEN_VAR} environment variable."
+
+        # Verify token works by getting authenticated user
+        username = self.get_authenticated_user(mode="user")
+        if not username:
+            return False, "User token is invalid or expired. Unable to authenticate to GitHub."
+
+        # Optionally check if username matches configured user
+        try:
+            from .repo_config import get_user_mode_config
+
+            config = get_user_mode_config()
+            expected_user = config.get("github_user", "")
+            if expected_user and username.lower() != expected_user.lower():
+                return False, (
+                    f"Token username '{username}' does not match configured "
+                    f"github_user '{expected_user}'"
+                )
+        except ImportError:
+            pass  # repo_config not available, skip validation
+
+        return True, ""
+
     def execute(
         self,
         args: list[str],
@@ -393,9 +472,7 @@ class GitHubClient:
         }
 
         cmd = [GH_CLI, *args]
-        logger.debug(
-            "Executing gh command", command_args=args, cwd=str(cwd) if cwd else None
-        )
+        logger.debug("Executing gh command", command_args=args, cwd=str(cwd) if cwd else None)
 
         try:
             result = subprocess.run(
@@ -411,10 +488,7 @@ class GitHubClient:
             success = result.returncode == 0
             if not success:
                 stderr_lower = (result.stderr or "").lower()
-                if (
-                    "rate limit" in stderr_lower
-                    or "api rate limit exceeded" in stderr_lower
-                ):
+                if "rate limit" in stderr_lower or "api rate limit exceeded" in stderr_lower:
                     logger.error(
                         "GitHub rate limit exceeded",
                         command_args=args,
@@ -469,7 +543,8 @@ class GitHubClient:
             return None
 
         try:
-            return json.loads(result.stdout)
+            data: dict[str, Any] = json.loads(result.stdout)
+            return data
         except json.JSONDecodeError:
             logger.error("Failed to parse PR info", stdout=result.stdout[:500])
             return None
@@ -497,7 +572,8 @@ class GitHubClient:
             return []
 
         try:
-            return json.loads(result.stdout)
+            data: list[dict[str, Any]] = json.loads(result.stdout)
+            return data
         except json.JSONDecodeError:
             return []
 

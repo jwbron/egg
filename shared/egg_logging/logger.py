@@ -77,12 +77,14 @@ class EggLogger:
                 handler.setFormatter(JsonFormatter())
             self._logger.addHandler(handler)
 
-    def _log(
-        self, level: int, msg: str, *args: Any, exc_info: bool = False, **kwargs: Any
-    ) -> None:
+    def _log(self, level: int, msg: str, *args: Any, exc_info: bool = False, **kwargs: Any) -> None:
         """Internal log method with extra field support."""
+        import sys
+
         # Merge context with kwargs
         extra_fields = {**self._context, **kwargs}
+        # makeRecord expects exc_info as a tuple or None
+        exc_info_value = sys.exc_info() if exc_info else None
         record = self._logger.makeRecord(
             self._logger.name,
             level,
@@ -90,9 +92,9 @@ class EggLogger:
             0,
             msg,
             args,
-            exc_info=exc_info if exc_info else None,
+            exc_info=exc_info_value,
         )
-        record.extra_fields = extra_fields  # type: ignore
+        record.extra_fields = extra_fields
         self._logger.handle(record)
 
     def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:

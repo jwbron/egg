@@ -21,7 +21,7 @@ import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from shared.egg_logging import get_logger
 
@@ -72,7 +72,7 @@ class Session:
         self.last_seen = datetime.now(UTC)
         self.expires_at = self.last_seen + timedelta(hours=hours)
 
-    def to_dict_for_persistence(self) -> dict:
+    def to_dict_for_persistence(self) -> dict[str, Any]:
         """Convert to dictionary for persistence (excludes raw token)."""
         return {
             "session_token_hash": self.session_token_hash,
@@ -85,7 +85,7 @@ class Session:
         }
 
     @classmethod
-    def from_persistence(cls, data: dict) -> "Session":
+    def from_persistence(cls, data: dict[str, Any]) -> "Session":
         """Create Session from persisted data (no raw token)."""
         return cls(
             session_token=None,
@@ -107,9 +107,9 @@ class SessionValidationResult:
     session: Session | None = None
     error: str | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API response."""
-        result: dict = {"valid": self.valid}
+        result: dict[str, Any] = {"valid": self.valid}
         if self.error:
             result["error"] = self.error
         if self.session:
@@ -192,9 +192,7 @@ class SessionManager:
         # Ensure directory exists
         self._persistence_file.parent.mkdir(parents=True, exist_ok=True)
 
-        sessions_data = [
-            session.to_dict_for_persistence() for session in self._sessions.values()
-        ]
+        sessions_data = [session.to_dict_for_persistence() for session in self._sessions.values()]
         data = {
             "version": 1,
             "saved_at": datetime.now(UTC).isoformat(),
@@ -291,7 +289,8 @@ class SessionManager:
                     container_id=session.container_id,
                 )
                 del self._sessions[token_hash]
-                self._token_to_hash.pop(session.session_token, None)
+                if session.session_token is not None:
+                    self._token_to_hash.pop(session.session_token, None)
                 self._save_to_disk()
                 return SessionValidationResult(
                     valid=False,
@@ -314,10 +313,7 @@ class SessionManager:
 
             session.extend_ttl(self._ttl_hours)
 
-            if (
-                session.session_token
-                and session.session_token not in self._token_to_hash
-            ):
+            if session.session_token and session.session_token not in self._token_to_hash:
                 self._token_to_hash[session.session_token] = token_hash
 
             return SessionValidationResult(
@@ -335,6 +331,17 @@ class SessionManager:
         with self._lock:
             for session in self._sessions.values():
                 if session.container_id == container_id and not session.is_expired():
+                    return session
+        return None
+
+    def get_session_by_ip(self, ip_address: str) -> Session | None:
+        """Get session by container IP address.
+
+        Used by the Anthropic API proxy to look up sessions for incoming requests.
+        """
+        with self._lock:
+            for session in self._sessions.values():
+                if session.container_ip == ip_address and not session.is_expired():
                     return session
         return None
 
@@ -390,9 +397,7 @@ class SessionManager:
         pruned = 0
         with self._lock:
             expired_hashes = [
-                token_hash
-                for token_hash, session in self._sessions.items()
-                if session.is_expired()
+                token_hash for token_hash, session in self._sessions.items() if session.is_expired()
             ]
 
             for token_hash in expired_hashes:
@@ -413,7 +418,7 @@ class SessionManager:
 
         return pruned
 
-    def list_sessions(self) -> list[dict]:
+    def list_sessions(self) -> list[dict[str, Any]]:
         """List all active (non-expired) sessions."""
         with self._lock:
             return [
