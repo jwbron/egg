@@ -1,0 +1,235 @@
+"""Tests for gateway policy module.
+
+Tests the PolicyEngine class and policy checking functions.
+"""
+
+from unittest.mock import MagicMock
+
+import pytest
+
+from gateway.policy import (
+    BoundedCache,
+    PolicyEngine,
+    PolicyResult,
+    extract_branch_from_refspec,
+    extract_repo_from_remote,
+)
+
+
+class TestPolicyResult:
+    """Tests for PolicyResult dataclass."""
+
+    def test_to_dict_allowed(self):
+        """Test to_dict for allowed result."""
+        result = PolicyResult(allowed=True, reason="Test reason")
+        d = result.to_dict()
+        assert d["allowed"] is True
+        assert d["reason"] == "Test reason"
+        assert "details" not in d
+
+    def test_to_dict_denied_with_details(self):
+        """Test to_dict for denied result with details."""
+        result = PolicyResult(
+            allowed=False,
+            reason="Denied",
+            details={"author": "someone"},
+        )
+        d = result.to_dict()
+        assert d["allowed"] is False
+        assert d["details"] == {"author": "someone"}
+
+
+class TestBoundedCache:
+    """Tests for BoundedCache class."""
+
+    def test_respects_max_size(self):
+        """Test that cache respects max size."""
+        cache = BoundedCache(max_size=3)
+        cache["a"] = 1
+        cache["b"] = 2
+        cache["c"] = 3
+        cache["d"] = 4  # Should evict 'a'
+
+        assert len(cache) == 3
+        assert "a" not in cache
+        assert "d" in cache
+
+    def test_updates_move_to_end(self):
+        """Test that updates move items to end."""
+        cache = BoundedCache(max_size=3)
+        cache["a"] = 1
+        cache["b"] = 2
+        cache["c"] = 3
+
+        # Update 'a' - moves it to end
+        cache["a"] = 10
+
+        # Add new item - should evict 'b', not 'a'
+        cache["d"] = 4
+
+        assert "a" in cache
+        assert "b" not in cache
+
+
+class TestPolicyEngine:
+    """Tests for PolicyEngine class."""
+
+    @pytest.fixture
+    def mock_github_client(self):
+        """Create a mock GitHub client."""
+        return MagicMock()
+
+    @pytest.fixture
+    def policy_engine(self, mock_github_client):
+        """Create a PolicyEngine instance for testing."""
+        return PolicyEngine(
+            github_client=mock_github_client,
+            bot_name="egg",
+            branch_prefix="egg/",
+            protected_branches=["main", "master"],
+        )
+
+    def test_check_pr_create_allowed_bot_mode(self, policy_engine):
+        """Test that PR creation is allowed in bot mode."""
+        result = policy_engine.check_pr_create_allowed("owner/repo", auth_mode="bot")
+        assert result.allowed is True
+        assert "bot mode" in result.reason.lower()
+
+    def test_check_pr_create_blocked_user_mode(self, policy_engine):
+        """Test that PR creation is blocked in user mode."""
+        result = policy_engine.check_pr_create_allowed("owner/repo", auth_mode="user")
+        assert result.allowed is False
+        assert "user mode" in result.reason.lower()
+        assert result.details["auth_mode"] == "user"
+
+    def test_check_branch_ownership_protected_branch(self, policy_engine):
+        """Test that protected branches are blocked."""
+        result = policy_engine.check_branch_ownership("owner/repo", "main")
+        assert result.allowed is False
+        assert "protected" in result.reason.lower()
+
+    def test_check_branch_ownership_prefixed_branch(self, policy_engine):
+        """Test that egg-prefixed branches are allowed."""
+        result = policy_engine.check_branch_ownership("owner/repo", "egg/feature-123")
+        assert result.allowed is True
+        assert "prefix" in result.reason.lower()
+
+    def test_check_branch_ownership_egg_dash_prefix(self, policy_engine):
+        """Test that egg- prefixed branches are also allowed."""
+        result = policy_engine.check_branch_ownership("owner/repo", "egg-feature-123")
+        assert result.allowed is True
+
+    def test_check_pr_ownership_bot_author(self, policy_engine, mock_github_client):
+        """Test that bot-authored PRs are owned."""
+        mock_github_client.get_pr_info.return_value = {
+            "author": {"login": "egg[bot]"},
+            "state": "OPEN",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_ownership("owner/repo", 42)
+        assert result.allowed is True
+        assert "owned by" in result.reason.lower()
+
+    def test_check_pr_ownership_not_bot_author(self, policy_engine, mock_github_client):
+        """Test that non-bot authored PRs are not owned."""
+        mock_github_client.get_pr_info.return_value = {
+            "author": {"login": "some-user"},
+            "state": "OPEN",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_ownership("owner/repo", 42)
+        assert result.allowed is False
+        assert "not owned" in result.reason.lower()
+
+    def test_check_pr_ownership_pr_not_found(self, policy_engine, mock_github_client):
+        """Test handling when PR is not found."""
+        mock_github_client.get_pr_info.return_value = None
+
+        result = policy_engine.check_pr_ownership("owner/repo", 999)
+        assert result.allowed is False
+        assert "not found" in result.reason.lower()
+
+    def test_check_pr_comment_allowed(self, policy_engine, mock_github_client):
+        """Test that comments are allowed on any PR."""
+        mock_github_client.get_pr_info.return_value = {
+            "author": {"login": "any-user"},
+            "state": "OPEN",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_comment_allowed("owner/repo", 42)
+        assert result.allowed is True
+        assert "allowed" in result.reason.lower()
+
+    def test_check_pr_comment_pr_not_found(self, policy_engine, mock_github_client):
+        """Test that comment fails when PR doesn't exist."""
+        mock_github_client.get_pr_info.return_value = None
+
+        result = policy_engine.check_pr_comment_allowed("owner/repo", 999)
+        assert result.allowed is False
+
+    def test_check_merge_always_blocked(self, policy_engine):
+        """Test that merge is always blocked."""
+        result = policy_engine.check_merge_allowed("owner/repo", 42)
+        assert result.allowed is False
+        assert "human" in result.reason.lower()
+
+
+class TestExtractRepoFromRemote:
+    """Tests for extract_repo_from_remote function."""
+
+    def test_https_url(self):
+        """Test extracting from HTTPS URL."""
+        result = extract_repo_from_remote("https://github.com/owner/repo.git")
+        assert result == "owner/repo"
+
+    def test_https_url_no_git_suffix(self):
+        """Test extracting from HTTPS URL without .git suffix."""
+        result = extract_repo_from_remote("https://github.com/owner/repo")
+        assert result == "owner/repo"
+
+    def test_ssh_url(self):
+        """Test extracting from SSH URL."""
+        result = extract_repo_from_remote("git@github.com:owner/repo.git")
+        assert result == "owner/repo"
+
+    def test_ssh_url_no_git_suffix(self):
+        """Test extracting from SSH URL without .git suffix."""
+        result = extract_repo_from_remote("git@github.com:owner/repo")
+        assert result == "owner/repo"
+
+    def test_invalid_url(self):
+        """Test that invalid URL returns None."""
+        result = extract_repo_from_remote("not-a-valid-url")
+        assert result is None
+
+
+class TestExtractBranchFromRefspec:
+    """Tests for extract_branch_from_refspec function."""
+
+    def test_simple_branch_name(self):
+        """Test extracting simple branch name."""
+        result = extract_branch_from_refspec("feature-branch")
+        assert result == "feature-branch"
+
+    def test_refs_heads_prefix(self):
+        """Test stripping refs/heads/ prefix."""
+        result = extract_branch_from_refspec("refs/heads/main")
+        assert result == "main"
+
+    def test_local_remote_format(self):
+        """Test local:remote format."""
+        result = extract_branch_from_refspec("local-branch:remote-branch")
+        assert result == "remote-branch"
+
+    def test_force_push_indicator(self):
+        """Test stripping + force push indicator."""
+        result = extract_branch_from_refspec("+feature")
+        assert result == "feature"
+
+    def test_empty_refspec(self):
+        """Test empty refspec returns None."""
+        result = extract_branch_from_refspec("")
+        assert result is None
