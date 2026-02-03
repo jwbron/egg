@@ -141,7 +141,7 @@ egg start --config egg.yaml --private
 |------|-------------|
 | `--config <path>` | Path to egg.yaml config file (default: `./egg.yaml`) |
 | `--private` | Enable private mode (Anthropic API + private GitHub repos only) |
-| `--headless` | Run in non-interactive mode (for automation, CI) |
+| `-p`, `--prompt` | Run with a prompt in non-interactive mode (for automation, CI) |
 
 ## Documentation
 
