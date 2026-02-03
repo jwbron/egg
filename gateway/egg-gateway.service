@@ -1,0 +1,34 @@
+[Unit]
+Description=Gateway Sidecar - Git/GitHub policy enforcement for egg containers
+Documentation=file://%h/repos/egg/gateway/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+Environment=CONTAINER_NAME=egg-gateway
+Environment=IMAGE_NAME=egg-gateway
+# Network lockdown mode: start-gateway.sh manages dual networks (egg-isolated + egg-external)
+
+# Remove any stopped container before starting
+ExecStartPre=-/usr/bin/docker rm -f egg-gateway
+
+# Run container via startup script that generates mounts dynamically
+# This ensures mounts are always current, even if setup.py hasn't been re-run
+ExecStart=%h/repos/egg/gateway/start-gateway.sh
+
+ExecStop=/usr/bin/docker stop egg-gateway
+
+# Restart on failure with exponential backoff
+Restart=on-failure
+RestartSec=10s
+RestartSteps=5
+RestartMaxDelaySec=300s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=egg-gateway
+
+[Install]
+WantedBy=default.target
