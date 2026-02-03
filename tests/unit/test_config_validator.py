@@ -175,11 +175,7 @@ class TestValidateConfig:
         (squid_dir / "squid.conf").write_text("http_port 3128")
         (squid_dir / "squid-allow-all.conf").write_text("acl allow_all src all")
         (squid_dir / "allowed_domains.txt").write_text(
-            "# This is a comment\n"
-            "\n"
-            "api.anthropic.com\n"
-            "# Another comment\n"
-            "api.github.com\n"
+            "# This is a comment\n\napi.anthropic.com\n# Another comment\napi.github.com\n"
         )
         (squid_dir / "squid-ca.pem").write_text("-----BEGIN CERTIFICATE-----\n")
 
