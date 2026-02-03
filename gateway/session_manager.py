@@ -334,6 +334,17 @@ class SessionManager:
                     return session
         return None
 
+    def get_session_by_ip(self, ip_address: str) -> Session | None:
+        """Get session by container IP address.
+
+        Used by the Anthropic API proxy to look up sessions for incoming requests.
+        """
+        with self._lock:
+            for session in self._sessions.values():
+                if session.container_ip == ip_address and not session.is_expired():
+                    return session
+        return None
+
     def delete_session(self, token: str) -> bool:
         """Delete a session by token."""
         token_hash = self._token_to_hash.get(token) or _hash_token(token)

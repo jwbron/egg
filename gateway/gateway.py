@@ -31,6 +31,7 @@ import secrets
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ParamSpec, TypeVar
@@ -66,6 +67,7 @@ from .policy import (
 )
 from .private_repo_policy import check_private_repo_access
 from .rate_limiter import (
+    check_heartbeat_rate_limit,
     check_registration_rate_limit,
     record_failed_lookup,
 )
@@ -254,6 +256,133 @@ def audit_log(
         logger.info(f"Audit: {event_type}", **log_data)
     else:
         logger.warning(f"Audit: {event_type}", **log_data)
+
+
+@dataclass
+class PROperationContext:
+    """Context for PR operations after access checks pass."""
+
+    repo: str
+    auth_mode: str
+    session_mode: str | None
+
+
+def check_pr_operation_access(
+    repo: str,
+    operation: str,
+    endpoint_name: str,
+    pr_number: int | None = None,
+) -> tuple[PROperationContext | None, tuple[Response, int] | None]:
+    """
+    Common access checks for PR operations.
+
+    Performs:
+    - Auth mode determination
+    - Session mode extraction
+    - Private repo access policy check
+
+    Returns:
+        (context, None) if access is allowed
+        (None, error_response) if access is denied
+    """
+    auth_mode = get_auth_mode(repo)
+    session_mode = getattr(g, "session_mode", None)
+
+    # Check Private Repo Mode policy
+    repo_info = parse_owner_repo(repo)
+    if repo_info:
+        priv_result = check_private_repo_access(
+            operation=operation,
+            owner=repo_info.owner,
+            repo=repo_info.repo,
+            for_write=True,
+            session_mode=session_mode,
+        )
+        if not priv_result.allowed:
+            details: dict[str, Any] = {
+                "repo": repo,
+                "reason": priv_result.reason,
+                "visibility": priv_result.visibility,
+                "auth_mode": auth_mode,
+            }
+            if pr_number is not None:
+                details["pr_number"] = pr_number
+
+            audit_log(
+                f"{operation}_denied_private_mode",
+                endpoint_name,
+                success=False,
+                details=details,
+            )
+            return None, make_error(
+                priv_result.reason,
+                status_code=403,
+                details=priv_result.to_dict(),
+            )
+
+    return PROperationContext(repo=repo, auth_mode=auth_mode, session_mode=session_mode), None
+
+
+def execute_pr_operation(
+    operation_name: str,
+    endpoint_name: str,
+    repo: str,
+    auth_mode: str,
+    gh_args: list[str],
+    audit_details: dict[str, Any],
+    success_message: str,
+    timeout: int = 30,
+) -> tuple[Response, int]:
+    """
+    Execute a PR operation with consistent error handling and audit logging.
+
+    Args:
+        operation_name: Name of the operation for logging (e.g., "pr_comment")
+        endpoint_name: Flask endpoint name (e.g., "gh_pr_comment")
+        repo: Repository in owner/repo format
+        auth_mode: Authentication mode ("bot" or "user")
+        gh_args: Arguments for gh CLI
+        audit_details: Details to include in audit log
+        success_message: Message to return on success
+        timeout: Timeout for gh command in seconds
+
+    Returns:
+        Flask response tuple
+    """
+    try:
+        github = get_github_client(mode=auth_mode)
+        result = github.execute(gh_args, timeout=timeout, mode=auth_mode)
+
+        if result.success:
+            audit_log(
+                operation_name,
+                endpoint_name,
+                success=True,
+                details=audit_details,
+            )
+            return make_success(
+                success_message,
+                {"stdout": result.stdout, "auth_mode": auth_mode},
+            )
+        else:
+            error_msg = result.stderr or "Unknown error"
+            audit_log(
+                f"{operation_name}_failed",
+                endpoint_name,
+                success=False,
+                details={
+                    **audit_details,
+                    "error": error_msg[:200] if error_msg else "",
+                },
+            )
+            return make_error(
+                f"Failed to {operation_name.replace('_', ' ')}: {error_msg}",
+                status_code=500,
+                details=result.to_dict(),
+            )
+    except Exception as e:
+        logger.exception(f"Unexpected error in {endpoint_name}")
+        return make_error(f"Internal error: {e}", status_code=500)
 
 
 @app.route("/api/v1/health", methods=["GET"])
@@ -971,6 +1100,315 @@ def gh_execute() -> tuple[Response, int]:
         )
 
 
+@app.route("/api/v1/gh/pr/create", methods=["POST"])
+@require_session_auth
+def gh_pr_create() -> tuple[Response, int]:
+    """
+    Create a pull request.
+
+    Request body:
+        {
+            "repo": "owner/repo",
+            "title": "PR title",
+            "body": "PR body",
+            "base": "main",
+            "head": "feature-branch"
+        }
+
+    Policy:
+        - Bot mode: allowed (egg can create PRs)
+        - User mode: blocked (user must create PRs manually via GitHub UI)
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    repo = data.get("repo")
+    title = data.get("title")
+    body = data.get("body", "")
+    base = data.get("base", "main")
+    head = data.get("head")
+
+    if not repo:
+        return make_error("Missing repo")
+    if not title:
+        return make_error("Missing title")
+    if not head:
+        return make_error("Missing head branch")
+
+    # Common access checks (auth mode, session mode, private repo policy)
+    ctx, error = check_pr_operation_access(repo, "pr_create", "gh_pr_create")
+    if error:
+        return error
+    assert ctx is not None  # mypy: error case handled above
+
+    # Policy check: PR creation may be blocked in user mode
+    policy = get_policy_engine()
+    policy_result = policy.check_pr_create_allowed(repo, auth_mode=ctx.auth_mode)
+    if not policy_result.allowed:
+        audit_log(
+            "pr_create_blocked",
+            "gh_pr_create",
+            success=False,
+            details={
+                "repo": repo,
+                "reason": policy_result.reason,
+                "auth_mode": ctx.auth_mode,
+            },
+        )
+        return make_error(
+            policy_result.reason,
+            status_code=403,
+            details=policy_result.details,
+        )
+
+    # Execute with consistent error handling
+    return execute_pr_operation(
+        operation_name="pr_create",
+        endpoint_name="gh_pr_create",
+        repo=repo,
+        auth_mode=ctx.auth_mode,
+        gh_args=[
+            "pr",
+            "create",
+            "--repo",
+            repo,
+            "--title",
+            title,
+            "--body",
+            body,
+            "--base",
+            base,
+            "--head",
+            head,
+        ],
+        audit_details={
+            "repo": repo,
+            "title": title,
+            "base": base,
+            "head": head,
+            "auth_mode": ctx.auth_mode,
+        },
+        success_message="PR created",
+        timeout=60,
+    )
+
+
+@app.route("/api/v1/gh/pr/comment", methods=["POST"])
+@require_session_auth
+def gh_pr_comment() -> tuple[Response, int]:
+    """
+    Add a comment to a PR.
+
+    Request body:
+        {
+            "repo": "owner/repo",
+            "pr_number": 123,
+            "body": "Comment text"
+        }
+
+    Policy: Comments are allowed on any PR.
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+    body = data.get("body")
+
+    if not repo:
+        return make_error("Missing repo")
+    if not pr_number:
+        return make_error("Missing pr_number")
+    if not body:
+        return make_error("Missing body")
+
+    # Common access checks (auth mode, session mode, private repo policy)
+    ctx, error = check_pr_operation_access(repo, "pr_comment", "gh_pr_comment", pr_number)
+    if error:
+        return error
+    assert ctx is not None  # mypy: error case handled above
+
+    # Check if commenting is allowed (allowed on any PR)
+    policy = get_policy_engine()
+    policy_result = policy.check_pr_comment_allowed(repo, pr_number)
+
+    if not policy_result.allowed:
+        audit_log(
+            "pr_comment_denied",
+            "gh_pr_comment",
+            success=False,
+            details={
+                "repo": repo,
+                "pr_number": pr_number,
+                "reason": policy_result.reason,
+                "auth_mode": ctx.auth_mode,
+            },
+        )
+        return make_error(
+            f"Comment denied: {policy_result.reason}",
+            status_code=403,
+            details=policy_result.details,
+        )
+
+    # Execute with consistent error handling
+    return execute_pr_operation(
+        operation_name="pr_comment",
+        endpoint_name="gh_pr_comment",
+        repo=repo,
+        auth_mode=ctx.auth_mode,
+        gh_args=["pr", "comment", str(pr_number), "--repo", repo, "--body", body],
+        audit_details={"repo": repo, "pr_number": pr_number, "auth_mode": ctx.auth_mode},
+        success_message="Comment added",
+    )
+
+
+@app.route("/api/v1/gh/pr/edit", methods=["POST"])
+@require_session_auth
+def gh_pr_edit() -> tuple[Response, int]:
+    """
+    Edit a PR title or body.
+
+    Request body:
+        {
+            "repo": "owner/repo",
+            "pr_number": 123,
+            "title": "New title",  # optional
+            "body": "New body"      # optional
+        }
+
+    Policy: pr_ownership
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+    title = data.get("title")
+    body = data.get("body")
+
+    if not repo:
+        return make_error("Missing repo")
+    if not pr_number:
+        return make_error("Missing pr_number")
+    if not title and not body:
+        return make_error("Must provide title or body to edit")
+
+    # Common access checks (auth mode, session mode, private repo policy)
+    ctx, error = check_pr_operation_access(repo, "pr_edit", "gh_pr_edit", pr_number)
+    if error:
+        return error
+    assert ctx is not None  # mypy: error case handled above
+
+    # Check PR ownership
+    policy = get_policy_engine()
+    policy_result = policy.check_pr_ownership(repo, pr_number)
+
+    if not policy_result.allowed:
+        audit_log(
+            "pr_edit_denied",
+            "gh_pr_edit",
+            success=False,
+            details={
+                "repo": repo,
+                "pr_number": pr_number,
+                "reason": policy_result.reason,
+                "auth_mode": ctx.auth_mode,
+            },
+        )
+        return make_error(
+            f"Edit denied: {policy_result.reason}",
+            status_code=403,
+            details=policy_result.details,
+        )
+
+    # Build args
+    args = ["pr", "edit", str(pr_number), "--repo", repo]
+    if title:
+        args.extend(["--title", title])
+    if body:
+        args.extend(["--body", body])
+
+    # Execute with consistent error handling
+    return execute_pr_operation(
+        operation_name="pr_edit",
+        endpoint_name="gh_pr_edit",
+        repo=repo,
+        auth_mode=ctx.auth_mode,
+        gh_args=args,
+        audit_details={"repo": repo, "pr_number": pr_number, "auth_mode": ctx.auth_mode},
+        success_message="PR edited",
+    )
+
+
+@app.route("/api/v1/gh/pr/close", methods=["POST"])
+@require_session_auth
+def gh_pr_close() -> tuple[Response, int]:
+    """
+    Close a PR.
+
+    Request body:
+        {
+            "repo": "owner/repo",
+            "pr_number": 123
+        }
+
+    Policy: pr_ownership
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    repo = data.get("repo")
+    pr_number = data.get("pr_number")
+
+    if not repo:
+        return make_error("Missing repo")
+    if not pr_number:
+        return make_error("Missing pr_number")
+
+    # Common access checks (auth mode, session mode, private repo policy)
+    ctx, error = check_pr_operation_access(repo, "pr_close", "gh_pr_close", pr_number)
+    if error:
+        return error
+    assert ctx is not None  # mypy: error case handled above
+
+    # Check PR ownership
+    policy = get_policy_engine()
+    policy_result = policy.check_pr_ownership(repo, pr_number)
+
+    if not policy_result.allowed:
+        audit_log(
+            "pr_close_denied",
+            "gh_pr_close",
+            success=False,
+            details={
+                "repo": repo,
+                "pr_number": pr_number,
+                "reason": policy_result.reason,
+                "auth_mode": ctx.auth_mode,
+            },
+        )
+        return make_error(
+            f"Close denied: {policy_result.reason}",
+            status_code=403,
+            details=policy_result.details,
+        )
+
+    # Execute with consistent error handling
+    return execute_pr_operation(
+        operation_name="pr_close",
+        endpoint_name="gh_pr_close",
+        repo=repo,
+        auth_mode=ctx.auth_mode,
+        gh_args=["pr", "close", str(pr_number), "--repo", repo],
+        audit_details={"repo": repo, "pr_number": pr_number, "auth_mode": ctx.auth_mode},
+        success_message="PR closed",
+    )
+
+
 # Session Management Endpoints
 
 
@@ -1122,6 +1560,113 @@ def session_delete(session_token: str) -> tuple[Response, int]:
                         deleted_worktrees.append(repo_dir.name)
 
     return make_success("Session deleted")
+
+
+@app.route("/api/v1/sessions/<session_token>/heartbeat", methods=["POST"])
+@require_launcher_auth
+def session_heartbeat(session_token: str) -> tuple[Response, int]:
+    """
+    Explicit session heartbeat to extend TTL.
+
+    Note: Heartbeats are also triggered implicitly on any successful
+    session-authenticated request. This endpoint exists for edge cases
+    where long-running operations need TTL extension without git/gh activity.
+
+    Args:
+        session_token: The session token
+
+    Auth: Bearer {launcher_secret}
+
+    Rate limit: 100 per hour per session
+    """
+    # Validate the session
+    result = validate_session_for_request(session_token, request.remote_addr)
+    if not result.valid:
+        # Record failed lookup for rate limiting
+        record_failed_lookup(request.remote_addr or "unknown")
+        return make_error(result.error or "Invalid session", status_code=401)
+
+    # Check heartbeat rate limit (100 per hour per session)
+    if result.session:
+        rate_limit = check_heartbeat_rate_limit(result.session.container_id)
+        if not rate_limit.allowed:
+            return make_error(
+                f"Heartbeat rate limit exceeded. Retry after {rate_limit.retry_after_seconds}s",
+                status_code=429,
+            )
+
+    # Session validation already extends TTL, just return success
+    return make_success(
+        "Heartbeat recorded",
+        {
+            "expires_at": result.session.expires_at.isoformat() if result.session else None,
+        },
+    )
+
+
+@app.route("/api/v1/repos/visibility", methods=["GET"])
+@require_launcher_auth
+def repos_visibility() -> tuple[Response, int]:
+    """
+    Query visibility for multiple repositories.
+
+    Used by launcher for informational queries. For atomic session+worktree
+    creation, use POST /api/v1/sessions/create instead.
+
+    Query params:
+        repos: Comma-separated list of owner/repo strings
+
+    Response:
+        {
+            "visibilities": {
+                "owner/repo1": {"visibility": "public"},
+                "owner/repo2": {"visibility": "private"},
+                "owner/repo3": {"visibility": null, "error": "invalid_format"}
+            },
+            "errors": ["owner/repo3: invalid format"]  # Only if there are errors
+        }
+
+    Auth: Bearer {launcher_secret}
+    """
+    repos_param = request.args.get("repos", "")
+    if not repos_param:
+        return make_error("Missing repos query parameter")
+
+    repos = [r.strip() for r in repos_param.split(",") if r.strip()]
+    if not repos:
+        return make_error("No valid repos provided")
+
+    visibilities: dict[str, dict[str, Any]] = {}
+    errors: list[str] = []
+
+    for repo in repos:
+        repo_info = parse_owner_repo(repo)
+        if not repo_info:
+            visibilities[repo] = {"visibility": None, "error": "invalid_format"}
+            errors.append(f"{repo}: invalid format (expected owner/repo)")
+            continue
+
+        try:
+            visibility = get_repo_visibility(repo_info.owner, repo_info.repo)
+            if visibility is None:
+                visibilities[repo] = {"visibility": None, "error": "not_found_or_no_access"}
+                errors.append(f"{repo}: repository not found or no access")
+            else:
+                visibilities[repo] = {"visibility": visibility}
+        except Exception as e:
+            visibilities[repo] = {"visibility": None, "error": "api_error"}
+            errors.append(f"{repo}: API error ({type(e).__name__})")
+            logger.warning(
+                "Visibility check failed",
+                repo=repo,
+                error=str(e),
+            )
+
+    response_data: dict[str, Any] = {"visibilities": visibilities}
+    if errors:
+        response_data["errors"] = errors
+
+    return make_success("Visibility queried", response_data)
 
 
 @app.route("/api/v1/sessions", methods=["GET"])

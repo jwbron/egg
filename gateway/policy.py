@@ -399,6 +399,41 @@ class PolicyEngine:
             },
         )
 
+    def check_pr_create_allowed(self, repo: str, auth_mode: str = "bot") -> PolicyResult:
+        """
+        Check if PR creation is allowed.
+
+        Policy:
+        - Bot mode: allowed (egg can create PRs)
+        - User mode: blocked (user must create PRs manually via GitHub UI)
+        """
+        if auth_mode == "user":
+            logger.info(
+                "PR creation blocked in user mode",
+                repo=repo,
+                auth_mode=auth_mode,
+            )
+            return PolicyResult(
+                allowed=False,
+                reason="PR creation is not allowed in user mode. Use GitHub UI.",
+                details={
+                    "repo": repo,
+                    "auth_mode": auth_mode,
+                    "hint": "PRs in user mode must be created through GitHub web interface.",
+                },
+            )
+
+        logger.debug(
+            "PR creation allowed",
+            repo=repo,
+            auth_mode=auth_mode,
+        )
+        return PolicyResult(
+            allowed=True,
+            reason="PR creation allowed in bot mode",
+            details={"repo": repo, "auth_mode": auth_mode},
+        )
+
     def check_merge_allowed(self, repo: str, pr_number: int) -> PolicyResult:
         """Check if merge is allowed. Always returns False - human must merge."""
         logger.info(
