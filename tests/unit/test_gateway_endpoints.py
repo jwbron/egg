@@ -651,9 +651,10 @@ class TestReposVisibility:
         assert response.status_code == 200
         data = response.get_json()
         visibilities = data["data"]["visibilities"]
-        assert visibilities["owner/public-repo"] == "public"
-        assert visibilities["owner/private-repo"] == "private"
-        assert visibilities["owner/internal-repo"] == "internal"
+        # Visibility response now includes richer error context
+        assert visibilities["owner/public-repo"]["visibility"] == "public"
+        assert visibilities["owner/private-repo"]["visibility"] == "private"
+        assert visibilities["owner/internal-repo"]["visibility"] == "internal"
 
     def test_missing_repos_param_returns_400(self, client, mock_gateway_dependencies):
         """Test that missing repos param returns 400."""
@@ -676,7 +677,7 @@ class TestReposVisibility:
 
     def test_handles_invalid_repo_format(self, client, mock_gateway_dependencies):
         """Test handling of invalid repo format (no owner/repo)."""
-        # When parse_owner_repo returns None, visibility should be None
+        # When parse_owner_repo returns None, visibility includes error context
         mock_gateway_dependencies["parse_repo"].return_value = None
 
         response = client.get(
@@ -686,7 +687,12 @@ class TestReposVisibility:
 
         assert response.status_code == 200
         data = response.get_json()
-        assert data["data"]["visibilities"]["invalid-format"] is None
+        visibility_info = data["data"]["visibilities"]["invalid-format"]
+        assert visibility_info["visibility"] is None
+        assert visibility_info["error"] == "invalid_format"
+        # Errors list should contain the invalid format error
+        assert "errors" in data["data"]
+        assert any("invalid format" in e for e in data["data"]["errors"])
 
     def test_requires_launcher_auth(self, client, mock_gateway_dependencies):
         """Test that endpoint requires launcher authentication."""
