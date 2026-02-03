@@ -12,8 +12,6 @@ import os
 import tempfile
 from unittest.mock import patch
 
-import pytest
-
 from gateway.git_client import (
     cleanup_credential_helper,
     create_credential_helper,
@@ -265,70 +263,60 @@ class TestGhApiPathValidation:
         assert valid is True
         assert error == ""
 
-    @pytest.mark.xfail(reason="Endpoint not yet in egg's GH_API_ALLOWED_PATHS")
     def test_issue_comment_by_id_allowed(self):
         """Fetching a specific issue/PR comment by ID is allowed."""
         valid, error = validate_gh_api_path("repos/owner/repo/issues/comments/3836710182")
         assert valid is True
         assert error == ""
 
-    @pytest.mark.xfail(reason="Endpoint not yet in egg's GH_API_ALLOWED_PATHS")
     def test_pr_review_comment_by_id_allowed(self):
         """Fetching a specific PR review comment by ID is allowed."""
         valid, error = validate_gh_api_path("repos/owner/repo/pulls/comments/123456789")
         assert valid is True
         assert error == ""
 
-    @pytest.mark.xfail(reason="Endpoint not yet in egg's GH_API_ALLOWED_PATHS")
     def test_issue_events_allowed(self):
         """Issue events endpoint is allowed."""
         valid, error = validate_gh_api_path("repos/owner/repo/issues/123/events")
         assert valid is True
         assert error == ""
 
-    @pytest.mark.xfail(reason="Endpoint not yet in egg's GH_API_ALLOWED_PATHS")
     def test_issue_timeline_allowed(self):
         """Issue timeline endpoint is allowed."""
         valid, error = validate_gh_api_path("repos/owner/repo/issues/123/timeline")
         assert valid is True
         assert error == ""
 
-    @pytest.mark.xfail(reason="Endpoint not yet in egg's GH_API_ALLOWED_PATHS")
     def test_commit_comments_allowed(self):
         """Commit comments endpoint is allowed."""
         valid, error = validate_gh_api_path("repos/owner/repo/commits/abc123def456/comments")
         assert valid is True
         assert error == ""
 
-    @pytest.mark.xfail(reason="Endpoint not yet in egg's GH_API_ALLOWED_PATHS")
     def test_commit_comment_by_id_allowed(self):
         """Fetching a specific commit comment by ID is allowed."""
         valid, error = validate_gh_api_path("repos/owner/repo/comments/987654321")
         assert valid is True
         assert error == ""
 
-    @pytest.mark.xfail(reason="Endpoint not yet in egg's GH_API_ALLOWED_PATHS")
     def test_releases_list_allowed(self):
         """Releases list endpoint is allowed."""
         valid, error = validate_gh_api_path("repos/owner/repo/releases")
         assert valid is True
         assert error == ""
 
-    @pytest.mark.xfail(reason="Endpoint not yet in egg's GH_API_ALLOWED_PATHS")
     def test_release_by_id_allowed(self):
         """Specific release endpoint is allowed."""
         valid, error = validate_gh_api_path("repos/owner/repo/releases/12345")
         assert valid is True
         assert error == ""
 
-    @pytest.mark.xfail(reason="Endpoint not yet in egg's GH_API_ALLOWED_PATHS")
     def test_release_latest_allowed(self):
         """Latest release endpoint is allowed."""
         valid, error = validate_gh_api_path("repos/owner/repo/releases/latest")
         assert valid is True
         assert error == ""
 
-    @pytest.mark.xfail(reason="Endpoint not yet in egg's GH_API_ALLOWED_PATHS")
     def test_release_by_tag_allowed(self):
         """Release by tag endpoint is allowed."""
         valid, error = validate_gh_api_path("repos/owner/repo/releases/tags/v1.0.0")
