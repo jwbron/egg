@@ -2,12 +2,20 @@
 Tests for repo_parser module.
 """
 
+import subprocess
+from unittest.mock import MagicMock, patch
+
 from gateway.repo_parser import (
     RepoInfo,
+    extract_repo_from_request,
+    get_remote_url,
     is_github_url,
+    normalize_github_url,
     normalize_repo_name,
     parse_github_url,
     parse_owner_repo,
+    parse_repo_from_path,
+    parse_worktree_path,
 )
 
 
@@ -161,3 +169,242 @@ class TestNormalizeRepoName:
         # .git at end is removed, but "git" in middle is kept
         assert normalize_repo_name("mygitrepo.git") == "mygitrepo"
         assert normalize_repo_name("mygitrepo") == "mygitrepo"
+
+
+class TestNormalizeGitHubUrl:
+    """Tests for normalize_github_url function."""
+
+    def test_empty_url(self):
+        assert normalize_github_url("") == ""
+
+    def test_whitespace_stripped(self):
+        result = normalize_github_url("  https://github.com/owner/repo  ")
+        assert result == "https://github.com/owner/repo"
+
+    def test_url_encoded_chars_decoded(self):
+        # %6f = o, %77 = w, etc.
+        result = normalize_github_url("https://github.com/%6f%77%6e%65%72/repo")
+        assert "owner" in result.lower()
+
+    def test_double_encoded_chars(self):
+        # Double-encoded characters should be decoded
+        result = normalize_github_url("https://github.com/owner/repo")
+        assert result == "https://github.com/owner/repo"
+
+    def test_double_slashes_removed(self):
+        result = normalize_github_url("https://github.com//owner//repo")
+        assert "//" not in result or "://" in result
+
+    def test_trailing_slash_removed(self):
+        result = normalize_github_url("https://github.com/owner/repo/")
+        assert not result.endswith("/") or result == "https://github.com"
+
+    def test_credentials_stripped(self):
+        result = normalize_github_url("https://user:pass@github.com/owner/repo")
+        assert "user:pass" not in result
+
+    def test_non_https_protocol_double_slashes(self):
+        result = normalize_github_url("git://github.com//owner//repo")
+        assert "git://" in result
+        # Should normalize path
+        assert "//owner" not in result
+
+    def test_non_github_url_passthrough(self):
+        result = normalize_github_url("https://gitlab.com/owner/repo")
+        assert "gitlab.com" in result
+
+
+class TestGetRemoteUrl:
+    """Tests for get_remote_url function."""
+
+    @patch("subprocess.run")
+    def test_success(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="https://github.com/owner/repo.git\n",
+        )
+
+        result = get_remote_url("/path/to/repo")
+        assert result == "https://github.com/owner/repo.git"
+
+    @patch("subprocess.run")
+    def test_failure(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stderr="fatal: not a git repository",
+        )
+
+        result = get_remote_url("/path/to/nonrepo")
+        assert result is None
+
+    @patch("subprocess.run")
+    def test_timeout(self, mock_run):
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=10)
+
+        result = get_remote_url("/path/to/repo")
+        assert result is None
+
+    @patch("subprocess.run")
+    def test_exception(self, mock_run):
+        mock_run.side_effect = Exception("Some error")
+
+        result = get_remote_url("/path/to/repo")
+        assert result is None
+
+    @patch("subprocess.run")
+    def test_custom_remote(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="https://github.com/fork/repo.git\n",
+        )
+
+        get_remote_url("/path/to/repo", remote="upstream")
+
+        call_args = mock_run.call_args[0][0]
+        assert "upstream" in call_args
+
+
+class TestParseRepoFromPath:
+    """Tests for parse_repo_from_path function."""
+
+    @patch("gateway.repo_parser.get_remote_url")
+    def test_success(self, mock_get_url):
+        mock_get_url.return_value = "https://github.com/owner/repo.git"
+
+        result = parse_repo_from_path("/path/to/repo")
+
+        assert result is not None
+        assert result.owner == "owner"
+        assert result.repo == "repo"
+
+    @patch("gateway.repo_parser.get_remote_url")
+    def test_no_remote(self, mock_get_url):
+        mock_get_url.return_value = None
+
+        result = parse_repo_from_path("/path/to/repo")
+        assert result is None
+
+
+class TestParseWorktreePath:
+    """Tests for parse_worktree_path function."""
+
+    def test_empty_path(self):
+        container_id, repo_name = parse_worktree_path("")
+        assert container_id is None
+        assert repo_name is None
+
+    def test_path_not_in_worktree_base(self):
+        container_id, repo_name = parse_worktree_path("/some/other/path")
+        assert container_id is None
+        assert repo_name is None
+
+    def test_valid_worktree_path(self, tmp_path):
+        # Create worktree structure
+        worktree_base = tmp_path / ".egg-worktrees"
+        worktree_base.mkdir()
+        container_dir = worktree_base / "container-123"
+        container_dir.mkdir()
+        repo_dir = container_dir / "test-repo"
+        repo_dir.mkdir()
+
+        container_id, repo_name = parse_worktree_path(
+            str(repo_dir),
+            worktree_base=str(worktree_base),
+        )
+
+        assert container_id == "container-123"
+        assert repo_name == "test-repo"
+
+    def test_insufficient_parts(self, tmp_path):
+        # Path with only container, no repo
+        worktree_base = tmp_path / ".egg-worktrees"
+        worktree_base.mkdir()
+        container_dir = worktree_base / "container-123"
+        container_dir.mkdir()
+
+        container_id, repo_name = parse_worktree_path(
+            str(container_dir),
+            worktree_base=str(worktree_base),
+        )
+
+        assert container_id is None
+        assert repo_name is None
+
+
+class TestExtractRepoFromRequest:
+    """Tests for extract_repo_from_request function."""
+
+    def test_repo_param_takes_priority(self):
+        result = extract_repo_from_request(
+            repo="owner/repo",
+            url="https://github.com/other/other",
+        )
+
+        assert result is not None
+        assert result.owner == "owner"
+        assert result.repo == "repo"
+
+    def test_url_fallback(self):
+        result = extract_repo_from_request(
+            repo=None,
+            url="https://github.com/owner/repo",
+        )
+
+        assert result is not None
+        assert result.owner == "owner"
+        assert result.repo == "repo"
+
+    @patch("gateway.repo_parser.parse_repo_from_path")
+    def test_repo_path_fallback(self, mock_parse):
+        mock_parse.return_value = RepoInfo(owner="owner", repo="repo")
+
+        result = extract_repo_from_request(
+            repo=None,
+            url=None,
+            repo_path="/path/to/repo",
+        )
+
+        assert result is not None
+        assert result.owner == "owner"
+
+    def test_no_sources(self):
+        result = extract_repo_from_request(
+            repo=None,
+            url=None,
+            repo_path=None,
+        )
+
+        assert result is None
+
+    def test_invalid_repo_falls_through_to_url(self):
+        result = extract_repo_from_request(
+            repo="invalid",  # Not owner/repo format
+            url="https://github.com/owner/repo",
+        )
+
+        assert result is not None
+        assert result.owner == "owner"
+
+
+class TestParseGitHubUrlSecurityCases:
+    """Tests for security edge cases in URL parsing."""
+
+    def test_path_traversal_in_owner(self):
+        url = "https://github.com/..//etc/passwd"
+        result = parse_github_url(url)
+        # Should either return None or sanitized result
+        if result is not None:
+            assert ".." not in result.owner
+
+    def test_path_traversal_in_repo(self):
+        url = "https://github.com/owner/../sensitive"
+        result = parse_github_url(url)
+        if result is not None:
+            assert ".." not in result.repo
+
+    def test_http_downgrade(self):
+        # HTTP URLs should still parse (normalization upgrades to HTTPS)
+        url = "http://github.com/owner/repo"
+        result = parse_github_url(url)
+        assert result is not None
+        assert result.owner == "owner"

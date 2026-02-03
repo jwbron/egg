@@ -5,7 +5,14 @@ Tests for user mode validation and token handling.
 
 import pytest
 
-from gateway.github_client import GitHubClient, GitHubResult
+from gateway.github_client import (
+    BLOCKED_GH_COMMANDS,
+    GH_API_ALLOWED_PATHS,
+    READONLY_GH_COMMANDS,
+    GitHubClient,
+    GitHubResult,
+    validate_gh_api_path,
+)
 
 
 class TestValidateUserModeConfig:
@@ -179,3 +186,180 @@ class TestGetAuthenticatedUser:
 
         username = mock_client.get_authenticated_user(mode="user")
         assert username is None
+
+
+class TestValidateGhApiPath:
+    """Tests for validate_gh_api_path function."""
+
+    def test_pr_list_allowed(self):
+        """Test that PR listing is allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/pulls", "GET")
+        assert allowed is True
+        assert msg == ""
+
+    def test_pr_view_allowed(self):
+        """Test that viewing a specific PR is allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/pulls/123", "GET")
+        assert allowed is True
+
+    def test_pr_comments_allowed(self):
+        """Test that PR comments are allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/pulls/123/comments", "GET")
+        assert allowed is True
+
+    def test_pr_comments_post_allowed(self):
+        """Test that POST to PR comments is allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/pulls/123/comments", "POST")
+        assert allowed is True
+
+    def test_issue_list_allowed(self):
+        """Test that issue listing is allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/issues", "GET")
+        assert allowed is True
+
+    def test_issue_view_allowed(self):
+        """Test that viewing a specific issue is allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/issues/456", "GET")
+        assert allowed is True
+
+    def test_issue_comments_allowed(self):
+        """Test that issue comments are allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/issues/123/comments", "GET")
+        assert allowed is True
+
+    def test_repo_view_allowed(self):
+        """Test that repo info is allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo", "GET")
+        assert allowed is True
+
+    def test_branches_allowed(self):
+        """Test that branch listing is allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/branches", "GET")
+        assert allowed is True
+
+    def test_user_info_allowed(self):
+        """Test that user info is allowed."""
+        allowed, msg = validate_gh_api_path("user", "GET")
+        assert allowed is True
+
+    def test_specific_user_allowed(self):
+        """Test that specific user info is allowed."""
+        allowed, msg = validate_gh_api_path("users/testuser", "GET")
+        assert allowed is True
+
+    def test_releases_allowed(self):
+        """Test that releases endpoint is allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/releases", "GET")
+        assert allowed is True
+
+    def test_latest_release_allowed(self):
+        """Test that latest release is allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/releases/latest", "GET")
+        assert allowed is True
+
+    def test_leading_slash_stripped(self):
+        """Test that leading slash is stripped."""
+        allowed, msg = validate_gh_api_path("/repos/owner/repo/pulls", "GET")
+        assert allowed is True
+
+    def test_delete_method_blocked(self):
+        """Test that DELETE method is blocked."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/pulls/123", "DELETE")
+        assert allowed is False
+        assert "DELETE" in msg
+
+    def test_put_method_blocked(self):
+        """Test that PUT method is blocked."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/pulls/123", "PUT")
+        assert allowed is False
+
+    def test_patch_method_allowed(self):
+        """Test that PATCH method is allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/issues/123", "PATCH")
+        assert allowed is True
+
+    def test_unknown_path_blocked(self):
+        """Test that unknown paths are blocked."""
+        allowed, msg = validate_gh_api_path("admin/settings", "GET")
+        assert allowed is False
+        assert "not in allowlist" in msg
+
+    def test_orgs_blocked(self):
+        """Test that org endpoints are blocked."""
+        allowed, msg = validate_gh_api_path("orgs/myorg/members", "GET")
+        assert allowed is False
+
+    def test_pr_review_comments_allowed(self):
+        """Test that PR review comments are allowed."""
+        path = "repos/owner/repo/pulls/123/reviews/456/comments"
+        allowed, msg = validate_gh_api_path(path, "GET")
+        assert allowed is True
+
+    def test_issue_events_allowed(self):
+        """Test that issue events are allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/issues/123/events", "GET")
+        assert allowed is True
+
+    def test_issue_timeline_allowed(self):
+        """Test that issue timeline is allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/issues/123/timeline", "GET")
+        assert allowed is True
+
+    def test_commit_comments_allowed(self):
+        """Test that commit comments are allowed."""
+        allowed, msg = validate_gh_api_path("repos/owner/repo/commits/abc123def/comments", "GET")
+        assert allowed is True
+
+
+class TestGitHubConstants:
+    """Tests for GitHub client constants."""
+
+    def test_readonly_commands_frozen(self):
+        """Test that readonly commands are immutable."""
+        assert isinstance(READONLY_GH_COMMANDS, frozenset)
+
+    def test_blocked_commands_frozen(self):
+        """Test that blocked commands are immutable."""
+        assert isinstance(BLOCKED_GH_COMMANDS, frozenset)
+
+    def test_pr_merge_blocked(self):
+        """Test that pr merge is blocked."""
+        assert "pr merge" in BLOCKED_GH_COMMANDS
+
+    def test_repo_delete_blocked(self):
+        """Test that repo delete is blocked."""
+        assert "repo delete" in BLOCKED_GH_COMMANDS
+
+    def test_pr_view_readonly(self):
+        """Test that pr view is readonly."""
+        assert "pr view" in READONLY_GH_COMMANDS
+
+    def test_api_allowed_paths_has_patterns(self):
+        """Test that API allowed paths has patterns."""
+        assert len(GH_API_ALLOWED_PATHS) > 0
+
+
+class TestGitHubResult:
+    """Tests for GitHubResult dataclass."""
+
+    def test_success_result(self):
+        """Test creating a successful result."""
+        result = GitHubResult(
+            success=True,
+            stdout="output",
+            stderr="",
+            returncode=0,
+        )
+        assert result.success is True
+        assert result.returncode == 0
+
+    def test_failure_result(self):
+        """Test creating a failed result."""
+        result = GitHubResult(
+            success=False,
+            stdout="",
+            stderr="error message",
+            returncode=1,
+        )
+        assert result.success is False
+        assert "error message" in result.stderr

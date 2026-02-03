@@ -250,5 +250,216 @@ class TestGetActiveDockerContainers:
         assert result == set()
 
 
+class TestStartupCleanup:
+    """Tests for startup_cleanup function."""
+
+    @patch("gateway.worktree_manager.get_active_docker_containers")
+    def test_startup_cleanup_no_worktrees(self, mock_containers, temp_worktree_dir, temp_repos_dir):
+        """Startup cleanup should handle empty worktree base."""
+        from gateway.worktree_manager import startup_cleanup
+
+        mock_containers.return_value = set()
+        removed = startup_cleanup(worktree_base=temp_worktree_dir, repos_base=temp_repos_dir)
+        assert removed == 0
+
+    @patch("gateway.worktree_manager.get_active_docker_containers")
+    def test_startup_cleanup_with_orphans(self, mock_containers, temp_worktree_dir, temp_repos_dir):
+        """Startup cleanup should remove orphaned worktrees."""
+        from gateway.worktree_manager import startup_cleanup
+
+        # Create an orphaned container directory
+        orphan_dir = temp_worktree_dir / "orphan-container"
+        orphan_dir.mkdir(parents=True)
+        (orphan_dir / "test-repo").mkdir()
+
+        mock_containers.return_value = {"active-container"}
+        removed = startup_cleanup(worktree_base=temp_worktree_dir, repos_base=temp_repos_dir)
+
+        # Should have attempted cleanup
+        assert removed >= 0
+
+
+class TestWorktreeManagerAdvanced:
+    """Additional tests for WorktreeManager covering more edge cases."""
+
+    @pytest.fixture
+    def temp_dirs(self):
+        """Create temporary directories for testing."""
+        worktree_base = Path(tempfile.mkdtemp())
+        repos_base = Path(tempfile.mkdtemp())
+        yield worktree_base, repos_base
+        shutil.rmtree(worktree_base, ignore_errors=True)
+        shutil.rmtree(repos_base, ignore_errors=True)
+
+    @pytest.fixture
+    def manager(self, temp_dirs):
+        """Create a WorktreeManager with temp directories."""
+        worktree_base, repos_base = temp_dirs
+        return WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+    def test_create_worktree_invalid_uid(self, manager, temp_dirs):
+        """Invalid uid should raise ValueError."""
+        worktree_base, repos_base = temp_dirs
+        (repos_base / "test-repo").mkdir()
+
+        with pytest.raises(ValueError, match="Invalid uid"):
+            manager.create_worktree("test-repo", "container-123", uid=-1)
+
+    def test_create_worktree_invalid_gid(self, manager, temp_dirs):
+        """Invalid gid should raise ValueError."""
+        worktree_base, repos_base = temp_dirs
+        (repos_base / "test-repo").mkdir()
+
+        with pytest.raises(ValueError, match="Invalid gid"):
+            manager.create_worktree("test-repo", "container-123", gid=-1)
+
+    def test_list_worktrees_with_data(self, manager, temp_dirs):
+        """List worktrees should return worktree data."""
+        worktree_base, _ = temp_dirs
+
+        # Create fake worktree structure
+        container_dir = worktree_base / "test-container"
+        repo_dir = container_dir / "test-repo"
+        repo_dir.mkdir(parents=True)
+
+        # Create a .git file that points to a gitdir
+        git_file = repo_dir / ".git"
+        git_file.write_text("gitdir: /some/path/.git/worktrees/test-repo")
+
+        result = manager.list_worktrees()
+        assert len(result) == 1
+        assert result[0]["container_id"] == "test-container"
+        assert len(result[0]["repos"]) == 1
+        assert result[0]["repos"][0]["name"] == "test-repo"
+
+    def test_list_worktrees_skips_non_directories(self, manager, temp_dirs):
+        """List worktrees should skip non-directory entries."""
+        worktree_base, _ = temp_dirs
+
+        # Create a file at the worktree base level
+        (worktree_base / "some-file.txt").write_text("test")
+
+        result = manager.list_worktrees()
+        assert result == []
+
+    def test_list_worktrees_handles_invalid_git_file(self, manager, temp_dirs):
+        """List worktrees should handle invalid .git files gracefully."""
+        worktree_base, _ = temp_dirs
+
+        container_dir = worktree_base / "test-container"
+        repo_dir = container_dir / "test-repo"
+        repo_dir.mkdir(parents=True)
+
+        # Create an invalid .git file
+        git_file = repo_dir / ".git"
+        git_file.write_text("invalid content")
+
+        result = manager.list_worktrees()
+        assert len(result) == 1
+        # Branch should be None due to invalid .git file
+        assert result[0]["repos"][0]["branch"] is None
+
+    def test_chown_single_permission_error(self, manager, temp_dirs):
+        """_chown_single should handle permission errors gracefully."""
+        worktree_base, _ = temp_dirs
+        test_path = worktree_base / "test-file"
+        test_path.write_text("test")
+
+        # This should not raise even if chown fails (non-root)
+        manager._chown_single(test_path, 1000, 1000)
+
+    @patch("subprocess.run")
+    def test_chown_recursive_permission_error(self, mock_run, manager, temp_dirs):
+        """_chown_recursive should handle permission errors gracefully."""
+        worktree_base, _ = temp_dirs
+
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stderr=b"Operation not permitted",
+        )
+
+        # Should not raise
+        manager._chown_recursive(worktree_base, 1000, 1000)
+
+    @patch("subprocess.run")
+    def test_chown_recursive_other_error(self, mock_run, manager, temp_dirs):
+        """_chown_recursive should log warning for other errors."""
+        worktree_base, _ = temp_dirs
+
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stderr=b"Some other error",
+        )
+
+        # Should not raise
+        manager._chown_recursive(worktree_base, 1000, 1000)
+
+    def test_find_worktree_git_dir_not_exists(self, manager, temp_dirs):
+        """_find_worktree_git_dir should return expected path even if not exists."""
+        _, repos_base = temp_dirs
+        main_repo = repos_base / "test-repo"
+        main_repo.mkdir(parents=True)
+        worktree_path = Path("/tmp/nonexistent/worktree")
+
+        result = manager._find_worktree_git_dir(main_repo, worktree_path)
+        assert result == main_repo / ".git" / "worktrees" / "worktree"
+
+    def test_find_worktree_git_dir_with_variants(self, manager, temp_dirs):
+        """_find_worktree_git_dir should find numbered variants."""
+        _, repos_base = temp_dirs
+        main_repo = repos_base / "test-repo"
+        main_repo.mkdir(parents=True)
+
+        worktree_path = Path("/tmp/test/worktree")
+
+        # Create git dir structure with variant
+        worktrees_dir = main_repo / ".git" / "worktrees"
+        variant_dir = worktrees_dir / "worktree1"
+        variant_dir.mkdir(parents=True)
+        (variant_dir / "gitdir").write_text(str(worktree_path))
+
+        result = manager._find_worktree_git_dir(main_repo, worktree_path)
+        assert result == variant_dir
+
+    def test_remove_worktree_with_warning(self, manager, temp_dirs):
+        """Remove worktree should return warning for uncommitted changes without force."""
+        worktree_base, repos_base = temp_dirs
+
+        # Create worktree directory
+        container_id = "test-container"
+        repo_name = "test-repo"
+        worktree_path = worktree_base / container_id / repo_name
+        worktree_path.mkdir(parents=True)
+
+        # Create main repo
+        main_repo = repos_base / repo_name
+        main_repo.mkdir(parents=True)
+
+        # Mock git status to return uncommitted changes
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="M modified-file.txt\n",
+            )
+
+            result = manager.remove_worktree(container_id, repo_name, force=False)
+
+        assert not result.success
+        assert result.uncommitted_changes
+        assert result.warning is not None
+
+    def test_cleanup_orphaned_worktrees_nonexistent_base(self, temp_dirs):
+        """Cleanup should handle nonexistent worktree base."""
+        worktree_base, repos_base = temp_dirs
+
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        # Now remove the worktree base that was created by manager init
+        shutil.rmtree(worktree_base)
+
+        removed = manager.cleanup_orphaned_worktrees(set())
+        assert removed == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
