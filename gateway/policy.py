@@ -113,6 +113,12 @@ class PolicyEngine:
 
     Caches PR info to reduce GitHub API calls.
     Uses bounded caches to prevent unbounded memory growth.
+
+    Supports two authentication modes:
+    - Bot mode: Operations attributed to the GitHub App bot identity
+    - User mode: Operations attributed to a personal GitHub account
+
+    In user mode, the configured user (from repo_config) is treated as an owner.
     """
 
     def __init__(
@@ -132,6 +138,10 @@ class PolicyEngine:
         # Caches
         self._pr_cache: BoundedCache = BoundedCache(MAX_PR_CACHE_SIZE)
         self._branch_pr_cache: BoundedCache = BoundedCache(MAX_BRANCH_PR_CACHE_SIZE)
+
+        # Cached configured user (lazily loaded)
+        self._configured_user: str | None = None
+        self._configured_user_loaded: bool = False
 
     def _is_bot_author(self, author: str | dict[str, Any]) -> bool:
         """Check if author is a bot identity."""
@@ -154,6 +164,46 @@ class PolicyEngine:
         else:
             login = author
         return login.lower() in self.trusted_users
+
+    def _get_configured_user(self) -> str | None:
+        """Get the configured user mode GitHub username.
+
+        Lazily loads and caches the configured user from repo_config.
+
+        Returns:
+            Lowercase GitHub username, or None if not configured.
+        """
+        if not self._configured_user_loaded:
+            try:
+                from .repo_config import get_user_mode_config
+
+                config = get_user_mode_config()
+                github_user = config.get("github_user", "")
+                self._configured_user = github_user.lower() if github_user else None
+            except ImportError:
+                logger.warning("repo_config module not available for configured user lookup")
+                self._configured_user = None
+            self._configured_user_loaded = True
+
+        return self._configured_user
+
+    def _is_configured_user_author(
+        self, author: str | dict[str, Any], configured_user: str
+    ) -> bool:
+        """Check if author matches the configured user.
+
+        Args:
+            author: Author login string or dict with 'login' key
+            configured_user: The configured user's GitHub username
+
+        Returns:
+            True if author matches the configured user.
+        """
+        if isinstance(author, dict):
+            login = author.get("login", "")
+        else:
+            login = author
+        return login.lower() == configured_user.lower()
 
     def _get_pr_info(self, repo: str, pr_number: int) -> CachedPRInfo | None:
         """Get PR info, using cache if available and fresh."""
@@ -218,8 +268,22 @@ class PolicyEngine:
 
         return pr_numbers
 
-    def check_pr_ownership(self, repo: str, pr_number: int) -> PolicyResult:
-        """Check if the current identity owns a PR."""
+    def check_pr_ownership(self, repo: str, pr_number: int, auth_mode: str = "bot") -> PolicyResult:
+        """Check if the current identity owns a PR.
+
+        In both modes, a PR is owned if the author is:
+        - A bot identity, OR
+        - The configured user (user mode user), OR
+        - A trusted user (from EGG_TRUSTED_USERS)
+
+        Args:
+            repo: Repository in "owner/repo" format
+            pr_number: PR number
+            auth_mode: "bot" (default) or "user"
+
+        Returns:
+            PolicyResult indicating if PR is owned.
+        """
         pr_info = self._get_pr_info(repo, pr_number)
 
         if not pr_info:
@@ -237,7 +301,7 @@ class PolicyEngine:
         # Check if PR is owned by bot
         if self._is_bot_author(pr_info.author):
             logger.debug(
-                "PR ownership verified",
+                "PR ownership verified (bot author)",
                 repo=repo,
                 pr_number=pr_number,
                 author=pr_info.author,
@@ -245,7 +309,27 @@ class PolicyEngine:
             return PolicyResult(
                 allowed=True,
                 reason=f"PR is owned by {self.bot_name}",
-                details={"author": pr_info.author},
+                details={"author": pr_info.author, "auth_mode": auth_mode},
+            )
+
+        # Check if PR is owned by the configured user (user mode user)
+        configured_user = self._get_configured_user()
+        if configured_user and self._is_configured_user_author(pr_info.author, configured_user):
+            logger.debug(
+                "PR ownership verified (configured user)",
+                repo=repo,
+                pr_number=pr_number,
+                author=pr_info.author,
+                configured_user=configured_user,
+            )
+            return PolicyResult(
+                allowed=True,
+                reason=f"PR is owned by configured user ({configured_user})",
+                details={
+                    "author": pr_info.author,
+                    "auth_mode": auth_mode,
+                    "configured_user": configured_user,
+                },
             )
 
         # Check if PR is owned by trusted user
@@ -259,19 +343,27 @@ class PolicyEngine:
             return PolicyResult(
                 allowed=True,
                 reason=f"PR is owned by trusted user ({pr_info.author})",
-                details={"author": pr_info.author},
+                details={"author": pr_info.author, "auth_mode": auth_mode},
             )
 
         logger.info(
-            "PR ownership denied",
+            "PR ownership denied - not owned by bot, configured user, or trusted user",
             repo=repo,
             pr_number=pr_number,
             author=pr_info.author,
+            auth_mode=auth_mode,
+        )
+        expected = list(self.bot_identities)
+        if configured_user:
+            expected.append(configured_user)
+        reason = (
+            f"PR #{pr_number} is not owned by {self.bot_name} "
+            f"or configured user (author: {pr_info.author})"
         )
         return PolicyResult(
             allowed=False,
-            reason=f"PR #{pr_number} is not owned by {self.bot_name} (author: {pr_info.author})",
-            details={"author": pr_info.author, "expected": list(self.bot_identities)},
+            reason=reason,
+            details={"author": pr_info.author, "expected": expected, "auth_mode": auth_mode},
         )
 
     def check_pr_comment_allowed(self, repo: str, pr_number: int) -> PolicyResult:
@@ -301,20 +393,37 @@ class PolicyEngine:
             details={"pr_number": pr_number, "author": pr_info.author},
         )
 
-    def check_branch_ownership(self, repo: str, branch: str) -> PolicyResult:
+    def check_branch_ownership(
+        self, repo: str, branch: str, auth_mode: str = "bot"
+    ) -> PolicyResult:
         """
         Check if pushing to a branch is allowed.
 
-        Allowed if:
+        In bot mode, allowed if:
         1. Branch name starts with configured prefix (e.g., egg/, egg-)
-        2. Branch has an open PR authored by bot or trusted user
+        2. Branch has an open PR authored by bot, configured user, or trusted user
+
+        In user mode, allowed if:
+        1. Branch does not exist upstream yet (new branch)
+        2. Branch has an open PR authored by bot or configured user
+
+        Protected branches (main, master) are always blocked regardless of mode.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            branch: Branch name
+            auth_mode: "bot" (default) or "user"
+
+        Returns:
+            PolicyResult indicating if push is allowed.
         """
-        # Block protected branches
+        # SAFETY: Always block pushes to protected branches
         if branch in self.protected_branches:
             logger.warning(
                 "Push to protected branch blocked",
                 repo=repo,
                 branch=branch,
+                auth_mode=auth_mode,
             )
             return PolicyResult(
                 allowed=False,
@@ -322,11 +431,18 @@ class PolicyEngine:
                 details={
                     "branch": branch,
                     "protected_branches": list(self.protected_branches),
+                    "auth_mode": auth_mode,
                     "hint": "Create a feature branch and open a PR instead.",
                 },
             )
 
-        # Check branch prefix
+        configured_user = self._get_configured_user()
+
+        # User mode: Different rules apply
+        if auth_mode == "user":
+            return self._check_branch_ownership_user_mode(repo, branch, configured_user)
+
+        # Bot mode: Check branch prefix first
         if self._is_owned_branch(branch):
             logger.debug(
                 "Branch ownership verified by prefix",
@@ -336,10 +452,10 @@ class PolicyEngine:
             return PolicyResult(
                 allowed=True,
                 reason=f"Branch '{branch}' is owned (prefixed)",
-                details={"branch": branch, "reason": "prefix"},
+                details={"branch": branch, "reason": "prefix", "auth_mode": auth_mode},
             )
 
-        # Check for open PR
+        # Check for open PR by bot, configured user, or trusted user
         pr_numbers = self._get_prs_for_branch(repo, branch)
 
         for pr_number in pr_numbers:
@@ -347,9 +463,10 @@ class PolicyEngine:
             if not pr_info:
                 continue
 
+            # Check bot author
             if self._is_bot_author(pr_info.author):
                 logger.debug(
-                    "Branch ownership verified by PR",
+                    "Branch ownership verified by PR (bot author)",
                     repo=repo,
                     branch=branch,
                     pr_number=pr_number,
@@ -361,9 +478,38 @@ class PolicyEngine:
                         "branch": branch,
                         "pr_number": pr_number,
                         "author": pr_info.author,
+                        "auth_mode": auth_mode,
+                        "reason": "bot_pr",
                     },
                 )
 
+            # Check configured user
+            if configured_user and self._is_configured_user_author(pr_info.author, configured_user):
+                logger.debug(
+                    "Branch push allowed - PR owned by configured user",
+                    repo=repo,
+                    branch=branch,
+                    pr_number=pr_number,
+                    configured_user=configured_user,
+                )
+                reason = (
+                    f"Branch '{branch}' has open PR #{pr_number} "
+                    f"owned by configured user '{pr_info.author}'"
+                )
+                return PolicyResult(
+                    allowed=True,
+                    reason=reason,
+                    details={
+                        "branch": branch,
+                        "pr_number": pr_number,
+                        "author": pr_info.author,
+                        "configured_user": configured_user,
+                        "auth_mode": auth_mode,
+                        "reason": "configured_user_pr",
+                    },
+                )
+
+            # Check trusted user
             if self._is_trusted_author(pr_info.author):
                 logger.debug(
                     "Branch push allowed (trusted user PR)",
@@ -378,17 +524,27 @@ class PolicyEngine:
                         "branch": branch,
                         "pr_number": pr_number,
                         "author": pr_info.author,
+                        "auth_mode": auth_mode,
+                        "reason": "trusted_user_pr",
                     },
                 )
 
         # Not allowed
         logger.info(
-            "Branch push denied",
+            "Branch push denied - not owned by bot, configured user, or trusted user",
             repo=repo,
             branch=branch,
             open_prs=pr_numbers,
+            configured_user=configured_user,
+            trusted_users=list(self.trusted_users) if self.trusted_users else [],
+            auth_mode=auth_mode,
         )
         prefixes = ", ".join(self.branch_prefixes)
+        hint = f"Use '{self.branch_prefixes[0]}' prefix, or create a PR from this branch first"
+        if configured_user:
+            hint += f". Configured user: {configured_user}"
+        if self.trusted_users:
+            hint += f". Trusted users: {', '.join(sorted(self.trusted_users))}"
         return PolicyResult(
             allowed=False,
             reason=f"Branch '{branch}' is not owned. Use prefix ({prefixes}) or create a PR first.",
@@ -396,6 +552,163 @@ class PolicyEngine:
                 "branch": branch,
                 "open_prs": pr_numbers,
                 "allowed_prefixes": list(self.branch_prefixes),
+                "configured_user": configured_user,
+                "auth_mode": auth_mode,
+                "hint": hint,
+            },
+        )
+
+    def _check_branch_ownership_user_mode(
+        self, repo: str, branch: str, configured_user: str | None
+    ) -> PolicyResult:
+        """Check branch ownership in user mode.
+
+        In user mode:
+        1. Allow pushing to NEW branches (don't exist upstream yet)
+        2. Allow pushing to branches with open PR by bot OR configured user
+
+        Args:
+            repo: Repository in "owner/repo" format
+            branch: Branch name
+            configured_user: The configured user's GitHub username (lowercase)
+
+        Returns:
+            PolicyResult for user mode branch check.
+        """
+        if not self.github:
+            logger.warning(
+                "Branch push denied (user mode) - no GitHub client for branch check",
+                repo=repo,
+                branch=branch,
+            )
+            return PolicyResult(
+                allowed=False,
+                reason="Cannot verify branch existence without GitHub client",
+                details={
+                    "branch": branch,
+                    "configured_user": configured_user,
+                    "auth_mode": "user",
+                },
+            )
+
+        # Check if branch exists upstream (use user token for private repos)
+        branch_exists = self.github.branch_exists(repo, branch, mode="user")
+
+        # If we couldn't determine branch existence (API error), fail closed
+        if branch_exists is None:
+            logger.warning(
+                "Branch push denied (user mode) - could not verify branch existence",
+                repo=repo,
+                branch=branch,
+            )
+            reason = (
+                f"Could not verify if branch '{branch}' exists (API error). " "Try again later."
+            )
+            return PolicyResult(
+                allowed=False,
+                reason=reason,
+                details={
+                    "branch": branch,
+                    "configured_user": configured_user,
+                    "auth_mode": "user",
+                    "hint": "Check network connectivity and token permissions.",
+                },
+            )
+
+        # Branch doesn't exist - allow push to new branch
+        if not branch_exists:
+            logger.debug(
+                "Branch push allowed (user mode) - new branch",
+                repo=repo,
+                branch=branch,
+                configured_user=configured_user,
+            )
+            return PolicyResult(
+                allowed=True,
+                reason=f"User mode: push allowed to new branch '{branch}'",
+                details={
+                    "branch": branch,
+                    "configured_user": configured_user,
+                    "auth_mode": "user",
+                    "reason": "new_branch",
+                },
+            )
+
+        # Branch exists - check for open PR by bot or configured user
+        pr_numbers = self._get_prs_for_branch(repo, branch)
+
+        for pr_number in pr_numbers:
+            pr_info = self._get_pr_info(repo, pr_number)
+            if not pr_info:
+                continue
+
+            # Check if PR is owned by bot
+            if self._is_bot_author(pr_info.author):
+                logger.debug(
+                    "Branch push allowed (user mode) - bot PR",
+                    repo=repo,
+                    branch=branch,
+                    pr_number=pr_number,
+                )
+                return PolicyResult(
+                    allowed=True,
+                    reason=f"Branch '{branch}' has open PR #{pr_number} owned by {self.bot_name}",
+                    details={
+                        "branch": branch,
+                        "pr_number": pr_number,
+                        "author": pr_info.author,
+                        "auth_mode": "user",
+                        "reason": "bot_pr",
+                    },
+                )
+
+            # Check if PR is owned by configured user
+            if configured_user and self._is_configured_user_author(pr_info.author, configured_user):
+                logger.debug(
+                    "Branch push allowed (user mode) - configured user PR",
+                    repo=repo,
+                    branch=branch,
+                    pr_number=pr_number,
+                    configured_user=configured_user,
+                )
+                reason = (
+                    f"Branch '{branch}' has open PR #{pr_number} " f"owned by '{configured_user}'"
+                )
+                return PolicyResult(
+                    allowed=True,
+                    reason=reason,
+                    details={
+                        "branch": branch,
+                        "pr_number": pr_number,
+                        "author": pr_info.author,
+                        "configured_user": configured_user,
+                        "auth_mode": "user",
+                        "reason": "configured_user_pr",
+                    },
+                )
+
+        # Branch exists but no PR by bot or configured user
+        logger.info(
+            "Branch push denied (user mode) - no owned PR",
+            repo=repo,
+            branch=branch,
+            configured_user=configured_user,
+            open_prs=pr_numbers,
+        )
+        reason = (
+            f"Branch '{branch}' exists but has no open PR owned by "
+            f"{self.bot_name} or '{configured_user}'"
+        )
+        hint = "Create a PR from this branch on GitHub first, " "or push to a new branch name."
+        return PolicyResult(
+            allowed=False,
+            reason=reason,
+            details={
+                "branch": branch,
+                "open_prs": pr_numbers,
+                "configured_user": configured_user,
+                "auth_mode": "user",
+                "hint": hint,
             },
         )
 

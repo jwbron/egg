@@ -353,6 +353,73 @@ class GitHubClient:
             token = self.get_token()
             return token.token if token else None
 
+    def is_user_token_valid(self) -> bool:
+        """Check if a user token is configured and non-empty.
+
+        Returns:
+            True if user token is available.
+        """
+        token = self.get_user_token()
+        return token is not None and len(token) > 0
+
+    def get_authenticated_user(self, mode: str = "bot") -> str | None:
+        """Get the GitHub username for the authenticated token.
+
+        Makes an API call to determine the username associated with
+        the current authentication token.
+
+        Args:
+            mode: "bot" or "user" - which token to use
+
+        Returns:
+            GitHub username string, or None if unable to determine.
+        """
+        result = self.execute(["api", "user", "--jq", ".login"], mode=mode)
+        if result.success and result.stdout.strip():
+            return result.stdout.strip()
+
+        logger.warning(
+            "Failed to get authenticated user",
+            mode=mode,
+            stderr=result.stderr[:200] if result.stderr else None,
+        )
+        return None
+
+    def validate_user_mode_config(self) -> tuple[bool, str]:
+        """Validate that user mode is properly configured.
+
+        Checks that:
+        1. User token is available
+        2. User token can authenticate to GitHub
+        3. (Optionally) Token username matches configured github_user
+
+        Returns:
+            Tuple of (is_valid, error_message).
+        """
+        if not self.is_user_token_valid():
+            return False, f"User token not configured. Set {USER_TOKEN_VAR} environment variable."
+
+        # Verify token works by getting authenticated user
+        username = self.get_authenticated_user(mode="user")
+        if not username:
+            return False, "User token is invalid or expired. Unable to authenticate to GitHub."
+
+        # Optionally check if username matches configured user
+        try:
+            from .repo_config import get_user_mode_config
+
+            config = get_user_mode_config()
+            expected_user = config.get("github_user", "")
+            if expected_user and username.lower() != expected_user.lower():
+                return False, (
+                    f"Token username '{username}' does not match configured "
+                    f"github_user '{expected_user}'"
+                )
+        except ImportError:
+            pass  # repo_config not available, skip validation
+
+        return True, ""
+
     def execute(
         self,
         args: list[str],

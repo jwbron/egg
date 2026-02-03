@@ -571,7 +571,7 @@ def git_push() -> tuple[Response, int]:
             )
 
     policy = get_policy_engine()
-    policy_result = policy.check_branch_ownership(repo, branch)
+    policy_result = policy.check_branch_ownership(repo, branch, auth_mode=auth_mode)
 
     if not policy_result.allowed:
         audit_log(
@@ -1309,7 +1309,7 @@ def gh_pr_edit() -> tuple[Response, int]:
 
     # Check PR ownership
     policy = get_policy_engine()
-    policy_result = policy.check_pr_ownership(repo, pr_number)
+    policy_result = policy.check_pr_ownership(repo, pr_number, auth_mode=ctx.auth_mode)
 
     if not policy_result.allowed:
         audit_log(
@@ -1382,7 +1382,7 @@ def gh_pr_close() -> tuple[Response, int]:
 
     # Check PR ownership
     policy = get_policy_engine()
-    policy_result = policy.check_pr_ownership(repo, pr_number)
+    policy_result = policy.check_pr_ownership(repo, pr_number, auth_mode=ctx.auth_mode)
 
     if not policy_result.allowed:
         audit_log(
