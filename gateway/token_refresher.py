@@ -19,7 +19,7 @@ from pathlib import Path
 import jwt
 import requests
 
-# Add shared directory to path for jib_logging
+# Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists():
     sys.path.insert(0, str(_shared_path))

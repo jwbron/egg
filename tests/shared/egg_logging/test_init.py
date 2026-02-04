@@ -5,7 +5,7 @@ from egg_logging import (
     BoundLogger,
     ConsoleFormatter,
     ContextScope,
-    JibLogger,
+    EggLogger,
     JsonFormatter,
     LogContext,
     configure_root_logging,
@@ -31,10 +31,10 @@ class TestModuleExports:
         with ContextScope():
             pass
 
-    def test_exports_jib_logger(self):
-        """Test that JibLogger is exported."""
-        assert JibLogger is not None
-        logger = JibLogger("test")
+    def test_exports_egg_logger(self):
+        """Test that EggLogger is exported."""
+        assert EggLogger is not None
+        logger = EggLogger("test")
         assert hasattr(logger, "info")
 
     def test_exports_bound_logger(self):

@@ -3,7 +3,7 @@
 Generate GitHub App installation access token.
 
 This script generates a short-lived (1 hour) installation token from GitHub App
-credentials. Used by the jib launcher to authenticate the container's gh CLI and git push.
+credentials. Used by the egg launcher to authenticate the container's gh CLI and git push.
 
 Usage:
     github-app-token.py [--config-dir DIR]
@@ -14,7 +14,7 @@ Credentials are read from:
     ~/.config/egg/github-app.pem          - Private key file
 
 Output:
-    Prints the installation access token to stdout (for capture by jib script)
+    Prints the installation access token to stdout (for capture by egg script)
     Exit code 0 on success, non-zero on failure
 
 Token expires in 1 hour. Generate fresh token for each container launch.

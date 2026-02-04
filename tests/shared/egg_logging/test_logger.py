@@ -1,15 +1,15 @@
-"""Tests for jib_logging logger module."""
+"""Tests for egg_logging logger module."""
 
 import json
 import logging
 
 import pytest
-from egg_logging import ContextScope, JibLogger, get_logger, set_current_context
+from egg_logging import ContextScope, EggLogger, get_logger, set_current_context
 from egg_logging.logger import BoundLogger, _loggers
 
 
-class TestJibLogger:
-    """Tests for JibLogger class."""
+class TestEggLogger:
+    """Tests for EggLogger class."""
 
     def setup_method(self):
         """Reset state before each test."""
@@ -27,41 +27,41 @@ class TestJibLogger:
 
     def test_creates_logger_with_name(self):
         """Test that logger is created with the given name."""
-        logger = JibLogger("test-service")
+        logger = EggLogger("test-service")
         assert logger.name == "test-service"
 
     def test_default_level_is_info(self):
         """Test that default log level is INFO."""
-        logger = JibLogger("test")
+        logger = EggLogger("test")
         assert logger._logger.level == logging.INFO
 
     def test_accepts_string_level(self):
         """Test that level can be specified as string."""
-        logger = JibLogger("test", level="DEBUG")
+        logger = EggLogger("test", level="DEBUG")
         assert logger._logger.level == logging.DEBUG
 
     def test_accepts_int_level(self):
         """Test that level can be specified as int."""
-        logger = JibLogger("test", level=logging.WARNING)
+        logger = EggLogger("test", level=logging.WARNING)
         assert logger._logger.level == logging.WARNING
 
     def test_detects_container_environment(self, tmp_path, monkeypatch):
         """Test environment detection for container."""
         monkeypatch.setenv("EGG_CONTAINER", "1")
-        logger = JibLogger("test")
+        logger = EggLogger("test")
         assert logger._environment == "container"
 
     def test_detects_gcp_environment(self, monkeypatch):
         """Test environment detection for GCP."""
         monkeypatch.setenv("K_SERVICE", "my-service")
-        logger = JibLogger("test")
+        logger = EggLogger("test")
         assert logger._environment == "gcp"
 
     def test_detects_host_environment(self, monkeypatch):
         """Test environment detection for host (default)."""
         monkeypatch.delenv("K_SERVICE", raising=False)
         monkeypatch.delenv("EGG_CONTAINER", raising=False)
-        logger = JibLogger("test")
+        logger = EggLogger("test")
         # May be "host" or "container" depending on test environment
         assert logger._environment in ("host", "container")
 
@@ -82,7 +82,7 @@ class TestLoggerMethods:
     @pytest.fixture
     def logger(self):
         """Create a test logger."""
-        return JibLogger("test-service")
+        return EggLogger("test-service")
 
     def test_debug_logs_at_debug_level(self, logger, capfd):
         """Test debug method."""
@@ -150,7 +150,7 @@ class TestContextIntegration:
 
     def test_includes_context_from_scope(self, capfd):
         """Test that logger includes context from ContextScope."""
-        logger = JibLogger("test")
+        logger = EggLogger("test")
 
         with ContextScope(task_id="bd-abc123"):
             logger.info("Processing task")
@@ -176,13 +176,13 @@ class TestBoundLogger:
 
     def test_with_context_returns_bound_logger(self):
         """Test that with_context returns a BoundLogger."""
-        logger = JibLogger("test")
+        logger = EggLogger("test")
         bound = logger.with_context(task_id="bd-abc")
         assert isinstance(bound, BoundLogger)
 
     def test_bound_logger_includes_bound_fields(self, capfd):
         """Test that bound logger includes bound fields."""
-        logger = JibLogger("test")
+        logger = EggLogger("test")
         bound = logger.with_context(task_id="bd-abc")
         bound.info("Processing")
 
@@ -191,7 +191,7 @@ class TestBoundLogger:
 
     def test_bound_logger_merges_call_kwargs(self, capfd):
         """Test that bound logger merges call kwargs with bound fields."""
-        logger = JibLogger("test")
+        logger = EggLogger("test")
         bound = logger.with_context(task_id="bd-abc")
         bound.info("Processing", pr_number=42)
 
@@ -200,7 +200,7 @@ class TestBoundLogger:
 
     def test_bound_logger_can_chain_context(self):
         """Test that bound loggers can be chained."""
-        logger = JibLogger("test")
+        logger = EggLogger("test")
         bound1 = logger.with_context(task_id="bd-abc")
         bound2 = bound1.with_context(pr_number=42)
 
@@ -219,9 +219,9 @@ class TestGetLogger:
         _loggers.clear()
 
     def test_returns_jib_logger(self):
-        """Test that get_logger returns a JibLogger."""
+        """Test that get_logger returns a EggLogger."""
         logger = get_logger("test")
-        assert isinstance(logger, JibLogger)
+        assert isinstance(logger, EggLogger)
 
     def test_caches_loggers_by_name(self):
         """Test that loggers are cached by name."""
@@ -256,7 +256,7 @@ class TestFileHandler:
     def test_add_file_handler_creates_file(self, tmp_path):
         """Test that add_file_handler creates the log file."""
         log_file = tmp_path / "test.log"
-        logger = JibLogger("test")
+        logger = EggLogger("test")
         logger.add_file_handler(log_file)
         logger.info("Test message")
 
@@ -265,7 +265,7 @@ class TestFileHandler:
     def test_add_file_handler_writes_json(self, tmp_path):
         """Test that file handler writes JSON."""
         log_file = tmp_path / "test.log"
-        logger = JibLogger("test")
+        logger = EggLogger("test")
         logger.add_file_handler(log_file)
         logger.info("Test message")
 
@@ -276,7 +276,7 @@ class TestFileHandler:
     def test_add_file_handler_creates_parent_dirs(self, tmp_path):
         """Test that add_file_handler creates parent directories."""
         log_file = tmp_path / "subdir" / "deep" / "test.log"
-        logger = JibLogger("test")
+        logger = EggLogger("test")
         logger.add_file_handler(log_file)
         logger.info("Test message")
 

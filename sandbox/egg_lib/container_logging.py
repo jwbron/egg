@@ -72,7 +72,7 @@ def extract_task_id_from_command(command: list[str]) -> str | None:
     - task-20251129-222239
 
     Args:
-        command: Command list passed to jib --exec
+        command: Command list passed to egg --exec
 
     Returns:
         Task ID if found, None otherwise

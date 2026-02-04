@@ -1,5 +1,5 @@
 """
-Log formatters for jib_logging.
+Log formatters for egg_logging.
 
 Provides JSON and console formatters compatible with GCP Cloud Logging.
 """

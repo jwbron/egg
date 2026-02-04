@@ -1,4 +1,4 @@
-"""Docker image management for jib.
+"""Docker image management for egg.
 
 This module handles Docker image building, hash caching,
 Dockerfile creation, and related utilities.
@@ -17,7 +17,7 @@ from .config import EGG_ISOLATED_NETWORK, Config
 from .output import error, get_quiet_mode, info, success, warn
 
 # Label used to store build content hash on Docker image
-BUILD_HASH_LABEL = "org.jib.build-hash"
+BUILD_HASH_LABEL = "org.egg.build-hash"
 
 # Global force rebuild flag (set by --rebuild)
 _force_rebuild = False
@@ -55,7 +55,7 @@ def check_docker_permissions() -> bool:
         print("  then LOG OUT and LOG BACK IN")
         print()
         print("Option 2: Run with sudo (temporary workaround)")
-        print("  sudo $(which jib)")
+        print("  sudo $(which egg)")
         print()
         return False
 
@@ -114,7 +114,7 @@ def check_docker() -> bool:
 def _copy_directory_atomic(src: Path, dest: Path, name: str, quiet: bool = False) -> bool:
     """Copy a directory atomically with retry logic for race conditions.
 
-    When multiple jib --exec instances run simultaneously, they may all try to
+    When multiple egg --exec instances run simultaneously, they may all try to
     update the same build context directories. This function uses atomic operations
     to handle race conditions:
     1. Copy to a temporary directory
@@ -227,7 +227,7 @@ def create_dockerfile() -> None:
 
     # Copy claude-commands directory to config directory
     # Use atomic copy with retry to handle race conditions when multiple
-    # jib --exec instances run simultaneously
+    # egg --exec instances run simultaneously
     commands_src = script_dir / "claude-commands"
     commands_dest = Config.CONFIG_DIR / "claude-commands"
     if commands_src.exists():

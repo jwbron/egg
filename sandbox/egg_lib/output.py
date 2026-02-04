@@ -1,4 +1,4 @@
-"""Output utilities for jib.
+"""Output utilities for egg.
 
 This module provides info/success/warn/error functions that
 integrate with the statusbar in quiet mode.

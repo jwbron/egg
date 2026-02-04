@@ -1,7 +1,7 @@
 """
-Configuration utilities for jib.
+Configuration utilities for egg.
 
-Provides configuration loading from ~/.config/egg/ for both the jib launcher
+Provides configuration loading from ~/.config/egg/ for both the egg launcher
 and the gateway sidecar setup script.
 """
 
@@ -16,7 +16,7 @@ except ImportError:
 
 
 class Config:
-    """Configuration paths for jib."""
+    """Configuration paths for egg."""
 
     # User configuration directory
     USER_CONFIG_DIR = Path.home() / ".config" / "egg"
@@ -71,10 +71,10 @@ def main():
     """CLI entrypoint for setup scripts to get repo paths.
 
     When called from shell, prints one repo path per line.
-    This allows setup.sh to use the same parsing logic as jib.
+    This allows setup.sh to use the same parsing logic as egg.
 
     Usage:
-        python -m jib_config.config  # Print all configured repo paths
+        python -m egg_config.config  # Print all configured repo paths
     """
     for repo_path in get_local_repos():
         print(repo_path)

@@ -1,4 +1,4 @@
-"""CLI argument parsing and entry point for jib.
+"""CLI argument parsing and entry point for egg.
 
 This module contains the main() function and argument parser setup.
 """
@@ -48,7 +48,7 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
         """,
     )
     parser.add_argument(
-        "--setup", action="store_true", help="Run full jib setup (services, config, Docker image)"
+        "--setup", action="store_true", help="Run full egg setup (services, config, Docker image)"
     )
     parser.add_argument("--reset", action="store_true", help="Clear configuration and start over")
     parser.add_argument(
@@ -169,7 +169,7 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
 
     # Handle setup - delegate to setup.py
     if args.setup:
-        info("Delegating to setup.py for complete jib configuration...")
+        info("Delegating to setup.py for complete egg configuration...")
         print()
         if not run_setup_script():
             return 1
