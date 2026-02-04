@@ -42,7 +42,7 @@ Container log persistence and correlation.
 **Container issues:**
 1. Rebuild: `bin/egg --rebuild`
 2. Check Docker: `docker ps`
-3. View logs: `docker logs jib-claude -f`
+3. View logs: `docker logs egg-claude -f`
 
 ## See Also
 - [Setup Guides](../setup/)

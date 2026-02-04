@@ -1,10 +1,10 @@
-# JIB Container Log Persistence
+# Egg Container Log Persistence
 
-This document describes the log persistence and correlation system for JIB containers.
+This document describes the log persistence and correlation system for egg containers.
 
 ## Overview
 
-JIB containers are ephemeral - they're removed after execution completes. To preserve logs for debugging and auditing, the system now:
+Egg containers are ephemeral - they're removed after execution completes. To preserve logs for debugging and auditing, the system now:
 
 1. **Persists container logs** to `~/.egg-sharing/container-logs/`
 2. **Creates correlation links** between task IDs, thread timestamps, and container IDs
@@ -36,17 +36,17 @@ Every container execution is tagged with correlation IDs:
 ```json
 {
   "task_to_container": {
-    "task-20251129-222239": "jib-exec-20251129-222239-12345"
+    "task-20251129-222239": "egg-exec-20251129-222239-12345"
   },
   "thread_to_task": {
     "1764483758.159619": "task-20251129-222239"
   },
   "entries": [
     {
-      "container_id": "jib-exec-20251129-222239-12345",
+      "container_id": "egg-exec-20251129-222239-12345",
       "task_id": "task-20251129-222239",
       "thread_ts": "1764483758.159619",
-      "log_file": "/home/user/.egg-sharing/container-logs/jib-exec-20251129-222239-12345.log",
+      "log_file": "/home/user/.egg-sharing/container-logs/egg-exec-20251129-222239-12345.log",
       "timestamp": "2025-11-29T22:22:39.123456"
     }
   ]
@@ -90,7 +90,7 @@ egg-logs --cleanup --days 30 --dry-run  # Preview what would be removed
 Each container log file contains:
 
 ```
-=== Container: jib-exec-20251129-222239-12345 ===
+=== Container: egg-exec-20251129-222239-12345 ===
 === Saved: 2025-11-29T22:25:00.123456 ===
 === Task ID: task-20251129-222239 ===
 === Thread TS: 1764483758.159619 ===
@@ -112,7 +112,7 @@ When a Slack message triggers a container:
 3. Container is started with correlation environment variables and Docker labels
 4. On container exit, logs are captured via `docker logs` and saved
 5. Log index is updated with correlation mappings
-6. Symlink is created: `task-{id}.log -> jib-exec-{container-id}.log`
+6. Symlink is created: `task-{id}.log -> egg-exec-{container-id}.log`
 
 ## Debugging a Slack Thread
 
@@ -159,7 +159,7 @@ Recommended cleanup policy:
    - Consider encrypting the entire `.egg-sharing` directory
 
 2. **Access Control**:
-   - Logs are readable by the user running jib
+   - Logs are readable by the user running egg
    - Ensure proper file permissions on the `.egg-sharing` directory
    - Avoid sharing logs without sanitization
 
@@ -170,9 +170,9 @@ Recommended cleanup policy:
    ```
 
 4. **Shared Environments**:
-   - **DO NOT** use jib on shared systems without considering log exposure
+   - **DO NOT** use egg on shared systems without considering log exposure
    - Implement log sanitization if logs will be shared (e.g., for debugging)
-   - Consider using separate jib instances for sensitive vs. non-sensitive work
+   - Consider using separate egg instances for sensitive vs. non-sensitive work
 
 5. **Log Retention Policy**:
    - Default: Manual cleanup only

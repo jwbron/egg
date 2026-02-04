@@ -39,8 +39,8 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
   - GitHub PR context tracking
   - Integration with Beads
 
-- **jib-branding.md** - Attribution and identity (IMPORTANT)
-  - Commits/PRs must be attributed to "jib", not "Claude"
+- **egg-branding.md** - Attribution and identity (IMPORTANT)
+  - Commits/PRs must be attributed to "egg", not "Claude"
   - NEVER include "Generated with Claude Code" branding
   - GitHub comment sign-off format
 
@@ -69,7 +69,7 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
 
 The following content has been moved to `docs/reference/` for on-demand access:
 
-- **khan-academy-culture.md** - L3-L4 engineering behavioral standards
+- **culture.md** - L3-L4 engineering behavioral standards
 - **conversation-analysis-criteria.md** - Performance assessment dimensions
 
 See `~/repos/egg/docs/index.md` for navigation to all documentation.
@@ -87,4 +87,4 @@ These rules follow the [LLM Documentation Index Strategy](../../docs/adr/ADR-LLM
 When updating rules:
 - Keep files focused and concise
 - Reference docs instead of duplicating content
-- Rebuild container to apply changes: `./jib`
+- Rebuild container to apply changes: `./egg`

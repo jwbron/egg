@@ -1,5 +1,5 @@
 """
-JibLogger - Structured logging for jib components.
+JibLogger - Structured logging for egg components.
 
 Provides a unified logging interface with JSON output, context propagation,
 and GCP Cloud Logging compatibility.
@@ -17,7 +17,7 @@ from .formatters import ConsoleFormatter, JsonFormatter
 
 
 class JibLogger:
-    """Structured logger for jib components.
+    """Structured logger for egg components.
 
     Provides a logging interface that:
     - Outputs structured JSON for production/file logging

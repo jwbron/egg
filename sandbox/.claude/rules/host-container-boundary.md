@@ -4,13 +4,13 @@
 
 **Host services MUST NOT call Claude or the Anthropic API directly.**
 
-All Claude/LLM operations must go through the jib container using the `jib_exec` mechanism.
+All Claude/LLM operations must go through the egg container using the `egg_exec` mechanism.
 
 ## Why This Matters
 
 The security model relies on a strict boundary between:
 1. **Host services** - Run on the host machine with access to credentials, systemd, etc.
-2. **Container (jib)** - Sandboxed environment where Claude runs with limited access
+2. **Container (egg)** - Sandboxed environment where Claude runs with limited access
 
 If host services call Claude directly:
 - Claude has access to host-level credentials (ANTHROPIC_API_KEY, GITHUB_TOKEN, etc.)
@@ -28,13 +28,13 @@ client = anthropic.Anthropic()
 response = client.messages.create(...)  # SECURITY VIOLATION
 ```
 
-**CORRECT** - Delegate to container via jib_exec:
+**CORRECT** - Delegate to container via egg_exec:
 ```python
 # host-services/something/handler.py
-from jib_exec import jib_exec
+from egg_exec import egg_exec
 
 # Let the container handle Claude interactions
-result = jib_exec(
+result = egg_exec(
     processor="some-processor",
     task_type="categorize_message",
     context={"message": text},
@@ -49,7 +49,7 @@ Host services CAN:
 - Execute shell commands and systemd operations
 - Make HTTP requests to non-Claude APIs
 - Read/write files on the host
-- Call `jib --exec` to delegate work to the container
+- Call `egg --exec` to delegate work to the container
 
 Host services CANNOT:
 - Import `anthropic` or any Claude SDK
@@ -66,5 +66,5 @@ A lint check in `.github/workflows/` or pre-commit hook should verify:
 ## See Also
 
 - `environment.md` - Container capabilities and limitations
-- `host-services/shared/jib_exec.py` - How to delegate to container
+- `host-services/shared/egg_exec.py` - How to delegate to container
 - PR #387 - Example of what NOT to do (reverted)

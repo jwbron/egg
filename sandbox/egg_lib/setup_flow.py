@@ -1,4 +1,4 @@
-"""Interactive setup process for jib.
+"""Interactive setup process for egg.
 
 This module handles the setup flow, including checking host setup,
 running the setup script, and adding standard mounts.
@@ -19,19 +19,19 @@ from .output import error, info, success, warn
 
 
 def get_setup_script_path() -> Path | None:
-    """Find the setup.py script relative to the jib launcher location"""
-    # Try to find setup.py relative to the jib script
-    jib_script = Path(__file__).resolve().parent.parent
+    """Find the setup.py script relative to the egg launcher location"""
+    # Try to find setup.py relative to the egg script
+    egg_script = Path(__file__).resolve().parent.parent
 
-    # jib is at sandbox/jib, setup.py is at repo root
-    repo_root = jib_script.parent
+    # egg is at sandbox/egg, setup.py is at repo root
+    repo_root = egg_script.parent
     setup_script = repo_root / "setup.py"
 
     if setup_script.exists():
         return setup_script
 
-    # Fallback: check ~/khan/egg/setup.py
-    fallback = Path.home() / "khan" / "egg" / "setup.py"
+    # Fallback: check ~/repos/egg/setup.py
+    fallback = Path.home() / "repos" / "egg" / "setup.py"
     if fallback.exists():
         return fallback
 
@@ -39,14 +39,14 @@ def get_setup_script_path() -> Path | None:
 
 
 def run_setup_script() -> bool:
-    """Run the setup.py script to configure jib"""
+    """Run the setup.py script to configure egg"""
     setup_script = get_setup_script_path()
 
     if not setup_script:
         error("Could not find setup.py script")
         print()
         print("Please run setup manually:")
-        print("  cd ~/khan/egg")
+        print("  cd ~/repos/egg")
         print("  ./setup.py")
         return False
 
@@ -96,7 +96,7 @@ def check_host_setup() -> bool:
             issues_found.append(f"Service not installed: {service}")
 
     # Check gateway setup: either systemd service OR containerized gateway (launcher secret file)
-    # The containerized gateway is started on-demand by jib, so we just need the launcher secret
+    # The containerized gateway is started on-demand by egg, so we just need the launcher secret
     launcher_secret = Config.USER_CONFIG_DIR / "launcher-secret"
     gateway_systemd_result = subprocess.run(
         ["systemctl", "--user", "list-unit-files", "gateway.service"],
@@ -137,14 +137,14 @@ def check_host_setup() -> bool:
             warn(config_warning)
             print()
 
-        print("JIB requires host services to be installed for full functionality:")
+        print("Egg requires host services to be installed for full functionality:")
         print("  • Slack integration (notifier and receiver)")
         print("  • Gateway sidecar (git/gh policy enforcement)")
         print("  • Shared directories for notifications and task communication")
         print()
 
         # Auto-run setup.py when config is missing
-        info("Running setup.py to configure jib...")
+        info("Running setup.py to configure egg...")
         print()
         if run_setup_script():
             success("Setup completed!")
@@ -391,7 +391,7 @@ def add_standard_mounts(mount_args: list[str], quiet: bool = False) -> None:
     # Mount shared certs directory for SSL bump CA certificate
     # Gateway writes its CA cert here, container adds it to trust store
     # This enables credential injection via gateway proxy
-    shared_certs_dir = Path.home() / ".jib-shared-certs"
+    shared_certs_dir = Path.home() / ".egg-shared-certs"
     if shared_certs_dir.exists():
         mount_args.extend(["-v", f"{shared_certs_dir}:/shared/certs:ro"])
         if not quiet:

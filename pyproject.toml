@@ -34,7 +34,7 @@ dev = [
 egg = "egg_lib.cli:main"
 
 [tool.uv]
-# Use system Python by default (consistent with james-in-a-box)
+# Use system Python by default (consistent with egg)
 python-preference = "system"
 
 [tool.ruff]

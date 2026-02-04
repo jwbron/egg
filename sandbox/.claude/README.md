@@ -33,8 +33,7 @@ These define how Claude operates within egg.
 - `github-pr-context.md` - PR context tracking
 
 **Quality standards:**
-- `khan-academy.md` - Tech stack and code standards
-- `khan-academy-culture.md` - Engineering culture and competencies
+- `code-standards.md` - Tech stack and code standards
 - `pr-descriptions.md` - PR writing guidelines
 - `test-workflow.md` - Test discovery and execution
 

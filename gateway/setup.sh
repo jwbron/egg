@@ -8,7 +8,7 @@ COMPONENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${COMPONENT_DIR}/.." && pwd)"
 SERVICE_NAME="gateway.service"
 SYSTEMD_DIR="${HOME}/.config/systemd/user"
-CONFIG_DIR="${HOME}/.config/jib"
+CONFIG_DIR="${HOME}/.config/egg"
 # Gateway-only secrets directory - NOT shared with egg containers
 GATEWAY_SECRETS_DIR="${HOME}/.egg-gateway"
 GATEWAY_IMAGE_NAME="egg-gateway"
@@ -52,7 +52,7 @@ ensure_directories() {
 
 generate_launcher_secret() {
     # Generate launcher secret for session management
-    # This authenticates the jib launcher when registering sessions
+    # This authenticates the egg launcher when registering sessions
     LAUNCHER_SECRET_FILE="${CONFIG_DIR}/launcher-secret"
     if [[ ! -f "$LAUNCHER_SECRET_FILE" ]]; then
         echo "Generating launcher secret..."
@@ -241,7 +241,7 @@ print_summary() {
     echo "  - Enforces branch/PR ownership policies"
     echo "  - Blocks merge operations (human must merge via GitHub UI)"
     echo ""
-    echo "The 'jib' command will use this gateway automatically."
+    echo "The 'egg' command will use this gateway automatically."
     echo ""
     echo "Private Mode (optional):"
     echo "  Controls BOTH network access AND repository visibility:"

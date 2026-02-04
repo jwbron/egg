@@ -49,7 +49,7 @@ slack:
   batch_window_seconds: 15
 
 github:
-  username: "jib"
+  username: "egg"
 
 # Other settings
 bot_name: "egg"

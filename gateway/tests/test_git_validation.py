@@ -30,9 +30,9 @@ class TestRepoPathValidation:
         """Valid path under /home/egg/.egg-worktrees/ is accepted."""
         with patch(
             "git_client.os.path.realpath",
-            return_value="/home/egg/.egg-worktrees/jib-123/repo",
+            return_value="/home/egg/.egg-worktrees/egg-123/repo",
         ):
-            valid, error = git_client.validate_repo_path("/home/egg/.egg-worktrees/jib-123/repo")
+            valid, error = git_client.validate_repo_path("/home/egg/.egg-worktrees/egg-123/repo")
             assert valid is True
             assert error == ""
 

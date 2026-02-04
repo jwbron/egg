@@ -12,7 +12,7 @@ from egg_logging.cli import (
 class TestRunWrapper:
     """Tests for _run_wrapper helper function."""
 
-    @patch.object(sys, "argv", ["jib-git", "status"])
+    @patch.object(sys, "argv", ["egg-git", "status"])
     def test_passes_args_to_wrapper(self):
         """Test that arguments are passed to the wrapper."""
         mock_wrapper_class = MagicMock()
@@ -29,7 +29,7 @@ class TestRunWrapper:
         mock_wrapper.run.assert_called_once_with("status")
         assert result == 0
 
-    @patch.object(sys, "argv", ["jib-git", "push", "origin", "main"])
+    @patch.object(sys, "argv", ["egg-git", "push", "origin", "main"])
     def test_passes_multiple_args(self):
         """Test that multiple arguments are passed correctly."""
         mock_wrapper_class = MagicMock()
@@ -45,7 +45,7 @@ class TestRunWrapper:
 
         mock_wrapper.run.assert_called_once_with("push", "origin", "main")
 
-    @patch.object(sys, "argv", ["jib-git", "status"])
+    @patch.object(sys, "argv", ["egg-git", "status"])
     @patch("builtins.print")
     def test_prints_stdout(self, mock_print):
         """Test that stdout is printed."""
@@ -62,7 +62,7 @@ class TestRunWrapper:
 
         mock_print.assert_any_call("command output", end="")
 
-    @patch.object(sys, "argv", ["jib-git", "status"])
+    @patch.object(sys, "argv", ["egg-git", "status"])
     def test_returns_exit_code(self):
         """Test that exit code is returned."""
         mock_wrapper_class = MagicMock()
@@ -78,7 +78,7 @@ class TestRunWrapper:
 
         assert result == 42
 
-    @patch.object(sys, "argv", ["jib-git", "status"])
+    @patch.object(sys, "argv", ["egg-git", "status"])
     @patch.dict("os.environ", {"EGG_LOGGING_PASSTHROUGH": "1"})
     @patch("subprocess.run")
     def test_passthrough_mode(self, mock_subprocess):

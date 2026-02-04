@@ -12,7 +12,7 @@ Container code should NOT import from host-services because:
 
 CORRECT patterns:
     - Import from within sandbox/ (e.g., from llm import run_agent)
-    - Import from sandbox/jib-tasks/analysis/utilities/ for shared utilities
+    - Import from sandbox/egg-tasks/analysis/utilities/ for shared utilities
     - Standard library and pip-installed packages
 
 INCORRECT patterns:
@@ -131,7 +131,7 @@ def main():
 
         print("How to fix:")
         print("  1. If the utility is container-only, move it to sandbox/")
-        print("     (e.g., sandbox/jib-tasks/analysis/utilities/)")
+        print("     (e.g., sandbox/egg-tasks/analysis/utilities/)")
         print("  2. If code needs to be shared, consider if it truly belongs in both places")
         print("  3. Use direct imports from the container-local path")
         print()

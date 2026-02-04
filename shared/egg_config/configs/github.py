@@ -1,5 +1,5 @@
 """
-GitHub configuration for jib services.
+GitHub configuration for egg services.
 
 Consolidates token loading from multiple sources:
 1. Environment variables (highest priority)
@@ -29,14 +29,14 @@ class GitHubConfig(BaseConfig):
         token: Primary GitHub token for API access
         readonly_token: Optional read-only token for public repos
         incognito_token: Optional token for personal account attribution
-        username: GitHub username (for jib identity)
+        username: GitHub username (for egg identity)
         token_expires_at: Token expiration time (for GitHub App tokens)
     """
 
     token: str = ""
     readonly_token: str = ""
     incognito_token: str = ""
-    username: str = "jib"
+    username: str = "egg"
     token_expires_at: datetime | None = None
 
     # Token source tracking (for debugging)
@@ -103,7 +103,7 @@ class GitHubConfig(BaseConfig):
                     "Authorization": f"Bearer {self.token}",
                     "Accept": "application/vnd.github+json",
                     "X-GitHub-Api-Version": "2022-11-28",
-                    "User-Agent": "jib-config/1.0",
+                    "User-Agent": "egg-config/1.0",
                 },
             )
 
@@ -241,4 +241,4 @@ def _get_github_username() -> str:
     """Get GitHub username from repositories.yaml."""
     config_file = Path.home() / ".config" / "egg" / "repositories.yaml"
     config = load_yaml_file(config_file)
-    return config.get("github_username", "jib")
+    return config.get("github_username", "egg")

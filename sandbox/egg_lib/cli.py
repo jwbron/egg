@@ -1,4 +1,4 @@
-"""CLI argument parsing and entry point for jib.
+"""CLI argument parsing and entry point for egg.
 
 This module contains the main() function and argument parser setup.
 """
@@ -27,28 +27,28 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  jib                                      # Run Claude Code (progress bar by default, auto-setup if needed)
-  jib -v                                   # Run in verbose mode (detailed output)
-  jib --time                               # Show startup timing breakdown for debugging
-  jib --setup                              # Run full setup (delegates to setup.py)
-  jib --reset                              # Reset configuration and remove Docker image
-  jib --rebuild                            # Force rebuild Docker image (even if files unchanged)
-  jib --exec <command> [args...]          # Execute command in new ephemeral container
-  jib --timeout 60 --exec <command>       # Execute with custom timeout (60 minutes)
+  egg                                      # Run Claude Code (progress bar by default, auto-setup if needed)
+  egg -v                                   # Run in verbose mode (detailed output)
+  egg --time                               # Show startup timing breakdown for debugging
+  egg --setup                              # Run full setup (delegates to setup.py)
+  egg --reset                              # Reset configuration and remove Docker image
+  egg --rebuild                            # Force rebuild Docker image (even if files unchanged)
+  egg --exec <command> [args...]          # Execute command in new ephemeral container
+  egg --timeout 60 --exec <command>       # Execute with custom timeout (60 minutes)
 
 Network modes:
-  jib --public                             # Public mode: full internet + public repos only (default)
-  jib --private                            # Private mode: network lockdown + private repos only
+  egg --public                             # Public mode: full internet + public repos only (default)
+  egg --private                            # Private mode: network lockdown + private repos only
 
 Note: --exec spawns a new container for each execution (automatic cleanup with --rm)
       Default timeout is 30 minutes, configurable via --timeout
-      If setup is incomplete, jib will prompt to run setup automatically
+      If setup is incomplete, egg will prompt to run setup automatically
       Default shows progress bar; use -v for verbose output
       Use --rebuild if container seems stale (forces fresh Docker build)
         """,
     )
     parser.add_argument(
-        "--setup", action="store_true", help="Run full jib setup (services, config, Docker image)"
+        "--setup", action="store_true", help="Run full egg setup (services, config, Docker image)"
     )
     parser.add_argument("--reset", action="store_true", help="Clear configuration and start over")
     parser.add_argument(
@@ -169,7 +169,7 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
 
     # Handle setup - delegate to setup.py
     if args.setup:
-        info("Delegating to setup.py for complete jib configuration...")
+        info("Delegating to setup.py for complete egg configuration...")
         print()
         if not run_setup_script():
             return 1

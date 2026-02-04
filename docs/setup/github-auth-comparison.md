@@ -62,7 +62,7 @@ See [github-app-setup.md](github-app-setup.md) for detailed instructions.
    - Configures git credential helper
 
 2. **Read-only monitoring** (`github_readonly_token` in `host_config.py`)
-   - For repositories where jib only watches but doesn't write
+   - For repositories where egg only watches but doesn't write
    - Falls back to `GITHUB_TOKEN` if not set
 
 3. **All write operations** (PRs, commits, comments)

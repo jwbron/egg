@@ -1,10 +1,10 @@
 """
-Claude Agent SDK utilities for jib container.
+Claude Agent SDK utilities for egg container.
 
 Provides an interface for running Claude via the Agent SDK,
 with streaming output by default for visibility into long-running tasks.
 
-Note: This module is only available inside the jib container, since Claude
+Note: This module is only available inside the egg container, since Claude
 Agent SDK is only installed there. Do not import this from shared/ or host code.
 
 Usage:

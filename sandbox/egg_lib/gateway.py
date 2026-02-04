@@ -1,4 +1,4 @@
-"""Gateway sidecar management for jib.
+"""Gateway sidecar management for egg.
 
 This module handles the gateway sidecar container that provides
 policy enforcement for git/gh operations.

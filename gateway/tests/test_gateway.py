@@ -228,7 +228,7 @@ class TestGitPush:
             assert data["success"] is False
 
     def test_push_allowed_for_bot_prefixed_branch(self, client, auth_headers):
-        """Push allowed for bot-prefixed branch (egg- or jib-)."""
+        """Push allowed for bot-prefixed branch (egg-)."""
         with (
             patch("subprocess.run") as mock_run,
             patch.object(gateway, "get_policy_engine") as mock_policy,
@@ -244,7 +244,7 @@ class TestGitPush:
                 if "remote" in cmd and "get-url" in cmd:
                     result.stdout = "https://github.com/owner/repo.git\n"
                 elif "branch" in cmd and "--show-current" in cmd:
-                    result.stdout = "jib-feature\n"
+                    result.stdout = "egg-feature\n"
                 elif "push" in cmd:
                     result.stdout = "Everything up-to-date\n"
                 else:
@@ -258,7 +258,7 @@ class TestGitPush:
             mock_engine.check_branch_ownership.return_value = PolicyResult(
                 allowed=True,
                 reason="Branch is owned by egg",
-                details={"branch": "jib-feature"},
+                details={"branch": "egg-feature"},
             )
             mock_policy.return_value = mock_engine
 
@@ -272,7 +272,7 @@ class TestGitPush:
                     {
                         "repo_path": "/home/egg/repos/test-repo",
                         "remote": "origin",
-                        "refspec": "jib-feature",
+                        "refspec": "egg-feature",
                     }
                 ),
                 content_type="application/json",
@@ -396,7 +396,7 @@ class TestGhPrComment:
             assert "denied" in data["message"].lower()
 
     def test_pr_comment_allowed_when_owner(self, client, auth_headers):
-        """PR comment allowed when jib owns the PR."""
+        """PR comment allowed when egg owns the PR."""
         with (
             patch.object(gateway, "get_policy_engine") as mock_policy,
             patch.object(gateway, "get_github_client") as mock_gh,
@@ -405,7 +405,7 @@ class TestGhPrComment:
             mock_engine.check_pr_ownership.return_value = PolicyResult(
                 allowed=True,
                 reason="PR is owned by egg",
-                details={"author": "jib"},
+                details={"author": "egg"},
             )
             mock_policy.return_value = mock_engine
 
@@ -444,7 +444,7 @@ class TestGhPrEdit:
         assert "title or body" in data["message"]
 
     def test_pr_edit_denied_when_not_owner(self, client, auth_headers):
-        """PR edit denied when jib doesn't own the PR."""
+        """PR edit denied when egg doesn't own the PR."""
         with patch.object(gateway, "get_policy_engine") as mock_policy:
             mock_engine = MagicMock()
             mock_engine.check_pr_ownership.return_value = PolicyResult(
@@ -481,7 +481,7 @@ class TestGhPrClose:
         assert "pr_number" in data["message"]
 
     def test_pr_close_denied_when_not_owner(self, client, auth_headers):
-        """PR close denied when jib doesn't own the PR."""
+        """PR close denied when egg doesn't own the PR."""
         with patch.object(gateway, "get_policy_engine") as mock_policy:
             mock_engine = MagicMock()
             mock_engine.check_pr_ownership.return_value = PolicyResult(

@@ -97,7 +97,7 @@ class WorktreeManager:
     Each container gets its own worktree(s), providing:
     - Isolated working directory
     - Separate staging area (index)
-    - Container-specific branch (jib/{container_id}/work)
+    - Container-specific branch (egg/{container_id}/work)
 
     All worktrees share the git object store for efficient storage.
     """
@@ -134,7 +134,7 @@ class WorktreeManager:
 
         Args:
             repo_name: Name of the repository
-            container_id: Container identifier (e.g., 'jib-xxx-yyy')
+            container_id: Container identifier (e.g., 'egg-xxx-yyy')
             base_branch: Branch or ref to base the worktree on (default: HEAD)
             uid: User ID to set ownership to (default: 1000)
             gid: Group ID to set ownership to (default: 1000)
@@ -146,7 +146,7 @@ class WorktreeManager:
             ValueError: If inputs are invalid or repo not found
             RuntimeError: If worktree creation fails
         """
-        # Default to jib user (1000:1000) if not specified
+        # Default to egg user (1000:1000) if not specified
         if uid is None:
             uid = 1000
         if gid is None:
@@ -169,7 +169,7 @@ class WorktreeManager:
 
         # Determine paths
         worktree_path = self.worktree_base / container_id / repo_name
-        branch_name = f"jib/{container_id}/work"
+        branch_name = f"egg/{container_id}/work"
 
         # Create container directory and set ownership immediately
         worktree_path.parent.mkdir(parents=True, exist_ok=True)
@@ -418,7 +418,7 @@ class WorktreeManager:
             container_id: Container identifier
             repo_name: Repository name
             force: If True, remove even with uncommitted changes
-            delete_branch: If True, delete the jib/{container_id}/work branch
+            delete_branch: If True, delete the egg/{container_id}/work branch
 
         Returns:
             WorktreeRemovalResult with operation status
@@ -434,7 +434,7 @@ class WorktreeManager:
 
         worktree_path = self.worktree_base / container_id / repo_name
         main_repo = self.repos_base / repo_name
-        branch_name = f"jib/{container_id}/work"
+        branch_name = f"egg/{container_id}/work"
 
         if not worktree_path.exists():
             result.success = True

@@ -116,7 +116,7 @@ The `bin/` directory contains symlinks for convenient CLI access:
 
 ```
 bin/
-├── jib -> ../sandbox/egg
+├── egg -> ../sandbox/egg
 ├── setup-slack-notifier -> ../host-services/slack/slack-notifier/setup.sh
 ├── view-logs -> script for viewing container logs
 └── ...

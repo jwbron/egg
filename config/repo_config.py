@@ -59,7 +59,7 @@ def _get_config_path() -> Path:
         return host_config
 
     # Try container mount path (when running inside egg container)
-    container_config = Path.home() / "khan" / "egg" / "config" / "repositories.yaml"
+    container_config = Path.home() / "repos" / "egg" / "config" / "repositories.yaml"
     if container_config.exists():
         return container_config
 
@@ -385,7 +385,7 @@ def get_github_token_for_repo(repo: str) -> str | None:
 
     This enables separate tokens with different permission levels:
     - Writable repos: Full access via GitHub App or PAT with write permissions
-    - Readable repos: Read-only PAT for external repos (e.g., khan/webapp)
+    - Readable repos: Read-only PAT for external repos (e.g., org/webapp)
 
     Args:
         repo: Repository in "owner/repo" format

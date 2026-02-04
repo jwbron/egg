@@ -58,7 +58,7 @@ git push origin <branch>
 gh pr create --title "Brief description" --body "..." --base main
 ```
 
-**Commit Attribution**: Author is `jib <jib@khan.org>`. NEVER include "Claude Code" or "Co-Authored-By: Claude".
+**Commit Attribution**: Author is `egg <egg@localhost>`. NEVER include "Claude Code" or "Co-Authored-By: Claude".
 
 **If push/PR fails**: Notify user via Slack with branch name, repo, and summary.
 
@@ -126,6 +126,6 @@ Or file-based: `cat > ~/sharing/notifications/$(date +%Y%m%d-%H%M%S)-topic.md`
 
 Before PR: Tests pass, linters pass, beads updated, no debug code.
 
-**GitHub comments**: Sign with `— Authored by jib`
+**GitHub comments**: Sign with `— Authored by egg`
 
 Think like a **Senior SWE (L3-L4)**: Break down problems, build quality from day one, communicate proactively.

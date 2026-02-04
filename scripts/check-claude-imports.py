@@ -9,7 +9,7 @@ Host services MUST NOT call Claude or the Anthropic API directly because:
 
 CORRECT pattern for host-services:
     - Use jib_exec to delegate to a container-side processor
-    - The processor (in sandbox/jib-tasks/) can import and use claude/anthropic
+    - The processor (in sandbox/egg-tasks/) can import and use claude/anthropic
 
 INCORRECT patterns:
     - Importing 'from claude import ...' in host-services files
@@ -154,7 +154,7 @@ def main():
 
         print("How to fix:")
         print("  1. Remove anthropic from host-services dependencies")
-        print("  2. Create a processor in sandbox/jib-tasks/ for LLM work")
+        print("  2. Create a processor in sandbox/egg-tasks/ for LLM work")
         print("  3. Use jib_exec to delegate to the container-side processor")
         print("  4. See host-services/shared/jib_exec.py for the delegation pattern")
         print()

@@ -1,4 +1,4 @@
-"""Docker image management for jib.
+"""Docker image management for egg.
 
 This module handles Docker image building, hash caching,
 Dockerfile creation, and related utilities.
@@ -17,7 +17,7 @@ from .config import EGG_ISOLATED_NETWORK, Config
 from .output import error, get_quiet_mode, info, success, warn
 
 # Label used to store build content hash on Docker image
-BUILD_HASH_LABEL = "org.jib.build-hash"
+BUILD_HASH_LABEL = "org.egg.build-hash"
 
 # Global force rebuild flag (set by --rebuild)
 _force_rebuild = False
@@ -55,7 +55,7 @@ def check_docker_permissions() -> bool:
         print("  then LOG OUT and LOG BACK IN")
         print()
         print("Option 2: Run with sudo (temporary workaround)")
-        print("  sudo $(which jib)")
+        print("  sudo $(which egg)")
         print()
         return False
 
@@ -114,7 +114,7 @@ def check_docker() -> bool:
 def _copy_directory_atomic(src: Path, dest: Path, name: str, quiet: bool = False) -> bool:
     """Copy a directory atomically with retry logic for race conditions.
 
-    When multiple jib --exec instances run simultaneously, they may all try to
+    When multiple egg --exec instances run simultaneously, they may all try to
     update the same build context directories. This function uses atomic operations
     to handle race conditions:
     1. Copy to a temporary directory
@@ -227,7 +227,7 @@ def create_dockerfile() -> None:
 
     # Copy claude-commands directory to config directory
     # Use atomic copy with retry to handle race conditions when multiple
-    # jib --exec instances run simultaneously
+    # egg --exec instances run simultaneously
     commands_src = script_dir / "claude-commands"
     commands_dest = Config.CONFIG_DIR / "claude-commands"
     if commands_src.exists():
@@ -244,20 +244,20 @@ def create_dockerfile() -> None:
     else:
         warn("claude-rules directory not found, skipping agent rules")
 
-    # Copy jib-runtime directories to build context
+    # Copy egg-runtime directories to build context
     # These provide container-resident executables and processors
     # The bin/ directory contains symlinks to executables (added to PATH in container)
     #
     # Directory structure must match the host layout so path calculations work:
-    # Host:      egg/sandbox/jib-tasks/... + egg/shared/
-    # Container: /opt/jib-runtime/sandbox/jib-tasks/... + /opt/jib-runtime/shared/
+    # Host:      egg/sandbox/egg-tasks/... + egg/shared/
+    # Container: /opt/egg-runtime/sandbox/egg-tasks/... + /opt/egg-runtime/shared/
     #
     # The processors use: Path(__file__).parents[3] / "shared"
-    # From sandbox/jib-tasks/analysis/*.py, this goes up 3 levels to repo root
+    # From sandbox/egg-tasks/analysis/*.py, this goes up 3 levels to repo root
     sandbox_dest = Config.CONFIG_DIR / "sandbox"
     sandbox_dest.mkdir(parents=True, exist_ok=True)
 
-    runtime_dirs = ["bin", "llm", "jib-tasks", "tools", "scripts"]
+    runtime_dirs = ["bin", "llm", "egg-tasks", "tools", "scripts"]
     for dir_name in runtime_dirs:
         src = script_dir / dir_name
         dest = sandbox_dest / dir_name
@@ -267,7 +267,7 @@ def create_dockerfile() -> None:
             warn(f"{dir_name} directory not found, skipping")
 
     # Copy shared directory from repo root to build context (sibling of sandbox)
-    # The jib-tasks processors import shared modules (e.g., jib_logging, notifications)
+    # The egg-tasks processors import shared modules (e.g., egg_logging, notifications)
     # Note: llm module is in sandbox/llm/ (copied via runtime_dirs above)
     repo_root = script_dir.parent  # sandbox's parent is egg
     shared_src = repo_root / "shared"
@@ -427,7 +427,7 @@ def compute_build_hash() -> str:
     - claude-commands/
     - claude-rules/
     - .claude/hooks/
-    - bin/, llm/, jib-tasks/, tools/, scripts/
+    - bin/, llm/, egg-tasks/, tools/, scripts/
     - shared/ (from repo root)
     - pyproject.toml files
     - Host-services files that get copied to container
@@ -462,7 +462,7 @@ def compute_build_hash() -> str:
         "claude-rules",
         "bin",
         "llm",
-        "jib-tasks",
+        "egg-tasks",
         "tools",
         "scripts",
     ]
@@ -644,8 +644,8 @@ def image_exists() -> bool:
     )
 
 
-def ensure_jib_network() -> bool:
-    """Create jib-network Docker network if it doesn't exist.
+def ensure_egg_network() -> bool:
+    """Create egg-network Docker network if it doesn't exist.
 
     Returns:
         True if network exists or was created, False on failure

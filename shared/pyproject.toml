@@ -1,7 +1,7 @@
 [project]
-name = "jib-shared"
+name = "egg-shared"
 version = "0.1.0"
-description = "Shared modules for jib (enrichment, logging, notifications, etc.)"
+description = "Shared modules for egg (enrichment, logging, notifications, etc.)"
 requires-python = ">=3.11"
 dependencies = ["pyyaml>=6.0"]
 

@@ -1,4 +1,4 @@
-"""Startup timing utilities for jib.
+"""Startup timing utilities for egg.
 
 This module provides the StartupTimer class for debugging
 host-side startup performance.

@@ -2,11 +2,11 @@
 CLI tool for configuration validation and health checks.
 
 Usage:
-    jib-config validate              # Validate all configurations
-    jib-config validate --service X  # Validate specific service
-    jib-config health                # Run health checks
-    jib-config show                  # Show current config (secrets masked)
-    jib-config watch                 # Watch for changes (for debugging)
+    egg-config validate              # Validate all configurations
+    egg-config validate --service X  # Validate specific service
+    egg-config health                # Run health checks
+    egg-config show                  # Show current config (secrets masked)
+    egg-config watch                 # Watch for changes (for debugging)
 """
 
 import argparse
@@ -138,7 +138,7 @@ def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
         prog="egg-config",
-        description="Configuration validation and health check tool for jib services.",
+        description="Configuration validation and health check tool for egg services.",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 

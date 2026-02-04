@@ -65,7 +65,7 @@ def load_config() -> dict:
             return yaml.safe_load(f) or {}
 
     # Check container mount path
-    container_config = Path.home() / "khan" / "egg" / "config" / "repositories.yaml"
+    container_config = Path.home() / "repos" / "egg" / "config" / "repositories.yaml"
     if container_config.exists():
         with container_config.open() as f:
             return yaml.safe_load(f) or {}

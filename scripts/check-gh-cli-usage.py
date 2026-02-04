@@ -2,9 +2,9 @@
 """
 Lint check: Ensure gh CLI WRITE operations are not used directly in host-services.
 
-The gh CLI WRITE operations should ONLY be run inside the jib container because:
+The gh CLI WRITE operations should ONLY be run inside the egg container because:
 1. The container has GITHUB_TOKEN (GitHub App token) configured
-2. Actions using gh CLI in the container appear under jib's identity
+2. Actions using gh CLI in the container appear under egg's identity
 3. Running gh CLI on the host uses the human user's gh auth (wrong identity)
 
 IMPORTANT: READ operations (gh run view, gh pr view, gh api GET, etc.) are ALLOWED
@@ -12,7 +12,7 @@ on the host because they don't affect identity - it doesn't matter who reads dat
 
 CORRECT pattern for host-services:
     - Use jib_exec() to delegate WRITE operations to container-side handlers
-    - Container handlers (in sandbox/jib-tasks/) run gh CLI
+    - Container handlers (in sandbox/egg-tasks/) run gh CLI
     - Example: jib_exec("github_pr_create", {...})
 
 INCORRECT pattern:
@@ -55,7 +55,7 @@ import sys
 from pathlib import Path
 
 # gh CLI subcommands that perform WRITE operations (affect identity)
-# These must go through jib container to use jib's identity
+# These must go through egg container to use egg's identity
 WRITE_SUBCOMMANDS = {
     # PR write operations
     ("pr", "create"),
@@ -383,7 +383,7 @@ def main():
     if all_violations:
         print("ERROR: Found forbidden gh CLI WRITE operations in host-services!\n")
         print("=" * 70)
-        print("gh CLI WRITE operations should ONLY run inside the jib container.")
+        print("gh CLI WRITE operations should ONLY run inside the egg container.")
         print("Host services must use jib_exec() to delegate GitHub WRITE operations.")
         print("")
         print("NOTE: READ operations (gh run view, gh pr view, etc.) are allowed")

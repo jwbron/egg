@@ -25,17 +25,17 @@ The egg container provides a sandboxed development environment:
 - **Update Confluence Doc Command** (`sandbox/.claude/commands/update-confluence-doc.md`)
 - **Show Metrics Command** (`sandbox/.claude/commands/show-metrics.md`)
 
-### JIB Container Management System
+### Egg Container Management System
 
 **Purpose**: The core 'egg' command provides the primary interface for starting, managing, and interacting with the sandboxed Docker development environment. Includes container lifecycle management and log viewing.
 
 **Location**:
 - `bin/egg`
-- `host-services/shared/jib_exec.py`
+- `host-services/shared/egg_exec.py`
 - `host-services/shared/__init__.py`
 
 **Components**:
-- **JIB Execution Wrapper** (`host-services/shared/jib_exec.py`)
+- **Egg Execution Wrapper** (`host-services/shared/egg_exec.py`)
 
 ### Docker Development Environment Setup
 
@@ -59,6 +59,6 @@ The egg container provides a sandboxed development environment:
 | Component | Path |
 |-----------|------|
 | Claude Custom Commands | `sandbox/.claude/commands/README.md` |
-| JIB Container Management System | `bin/egg` |
+| Egg Container Management System | `bin/egg` |
 | Docker Development Environment Setup | `bin/docker-setup.py` |
 | Container Directory Communication System | `sandbox/README.md` |

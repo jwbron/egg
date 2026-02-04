@@ -20,8 +20,8 @@ set -o pipefail
 GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9847}"
 SECRET_FILE="${HOME}/.config/egg/session-token"
 OUTPUT_FILE="${HOME}/sharing/gateway-test-results.json"
-REPO_PATH="${HOME}/repos/james-in-a-box"
-TEST_REPO="jwbron/james-in-a-box"
+REPO_PATH="${HOME}/repos/egg"
+TEST_REPO="jwbron/egg"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -302,7 +302,7 @@ test_git_operations() {
         log_pass "Push to egg- branch allowed (dry-run)"
         record_result "git_push_egg_branch" "pass" "Allowed" "$RESP"
     else
-        log_fail "Push to jib- branch rejected"
+        log_fail "Push to egg- branch rejected"
         log_info "$RESP"
         record_result "git_push_jib_branch" "fail" "Rejected" "$RESP"
     fi

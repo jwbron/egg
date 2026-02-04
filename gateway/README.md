@@ -36,18 +36,18 @@ The gateway sidecar holds GitHub credentials and validates all GitHub operations
 
 | Operation | Policy | Check |
 |-----------|--------|-------|
-| `git push` | Branch ownership | Branch has open PR authored by jib, OR branch starts with `jib-` or `jib/` |
-| `gh pr create` | Always allowed | jib can create PRs on any branch it can push to |
-| `gh pr comment` | PR ownership | PR must be authored by jib |
+| `git push` | Branch ownership | Branch has open PR authored by egg, OR branch starts with `egg-` or `egg/` |
+| `gh pr create` | Always allowed | egg can create PRs on any branch it can push to |
+| `gh pr comment` | PR ownership | PR must be authored by egg |
 | `gh pr merge` | **BLOCKED** | No merge endpoint - human must merge via GitHub UI |
-| `gh pr edit` | PR ownership | PR must be authored by jib |
-| `gh pr close` | PR ownership | PR must be authored by jib |
+| `gh pr edit` | PR ownership | PR must be authored by egg |
+| `gh pr close` | PR ownership | PR must be authored by egg |
 
-**Bot variants for ownership check**: `jib`, `jib[bot]`, `app/jib`, `apps/jib`, `egg`, `egg[bot]`, `app/egg`, `apps/egg`
+**Bot variants for ownership check**: `egg`, `egg[bot]`, `app/egg`, `apps/egg`
 
 **Branch ownership definition**:
-- Branch has an open PR where author is a jib variant, OR
-- Branch name starts with `jib-` or `jib/` (allows new branches before PR exists)
+- Branch has an open PR where author is an egg variant, OR
+- Branch name starts with `egg-` or `egg/` (allows new branches before PR exists)
 
 ## API Endpoints
 
@@ -122,7 +122,7 @@ host-services/gateway/
 ### Phase 3: Wrapper Modifications
 - [x] Modify `sandbox/scripts/git` to call gateway for push
 - [x] Modify `sandbox/scripts/gh` to route commands through gateway
-- [x] Update `sandbox/jib` to:
+- [x] Update `sandbox/egg` to:
   - Add `--add-host=host.docker.internal:host-gateway` for Linux
   - Set `GATEWAY_URL` environment variable
 
@@ -135,7 +135,7 @@ host-services/gateway/
 
 1. **No merge capability**: Gateway does not expose a merge endpoint. Human must merge via GitHub UI. This maintains the existing safety model.
 
-2. **Branch ownership**: Branch has an open jib-authored PR OR starts with `jib-` or `jib/`. This allows pushing to new branches before a PR exists.
+2. **Branch ownership**: Branch has an open egg-authored PR OR starts with `egg-` or `egg/`. This allows pushing to new branches before a PR exists.
 
 3. **Token source**: In-memory token refresh via `token_refresher.py`. Tokens are refreshed automatically 15 minutes before expiry.
 
@@ -145,13 +145,13 @@ host-services/gateway/
 # Unit tests
 pytest host-services/gateway/tests/
 
-# Manual test - push (should succeed for jib's branch)
-git push origin jib-test-branch
+# Manual test - push (should succeed for egg's branch)
+git push origin egg-test-branch
 
 # Manual test - push (should fail for main)
 git push origin main  # ERROR: branch not owned by egg
 
-# Manual test - PR comment (should succeed for jib's PR)
+# Manual test - PR comment (should succeed for egg's PR)
 gh pr comment 123 --body "test"
 
 # Manual test - merge blocked

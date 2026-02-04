@@ -11,10 +11,10 @@ Usage:
     python -m jib_logging.cli bd --allow-stale list
 
     # Or via installed entry points (if configured in pyproject.toml)
-    jib-bd --allow-stale list
-    jib-git status
-    jib-gh pr list
-    jib-claude -p "Hello"
+    egg-bd --allow-stale list
+    egg-git status
+    egg-gh pr list
+    egg-claude -p "Hello"
 
 Environment:
     EGG_LOGGING_PASSTHROUGH: Set to "1" to skip logging entirely
@@ -58,28 +58,28 @@ def _run_wrapper(wrapper_class, tool_name: str) -> int:
 
 
 def bd_main() -> int:
-    """Entry point for jib-bd command."""
+    """Entry point for egg-bd command."""
     from .wrappers.bd import BdWrapper
 
     return _run_wrapper(BdWrapper, "bd")
 
 
 def git_main() -> int:
-    """Entry point for jib-git command."""
+    """Entry point for egg-git command."""
     from .wrappers.git import GitWrapper
 
     return _run_wrapper(GitWrapper, "git")
 
 
 def gh_main() -> int:
-    """Entry point for jib-gh command."""
+    """Entry point for egg-gh command."""
     from .wrappers.gh import GhWrapper
 
     return _run_wrapper(GhWrapper, "gh")
 
 
 def claude_main() -> int:
-    """Entry point for jib-claude command."""
+    """Entry point for egg-claude command."""
     from .wrappers.claude import ClaudeWrapper
 
     return _run_wrapper(ClaudeWrapper, "claude")

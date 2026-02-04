@@ -81,7 +81,7 @@ class TestConfig:
 
     def test_config_dir(self):
         """Test cache directory path structure (XDG-compliant)."""
-        # CONFIG_DIR is now $XDG_CACHE_HOME/jib or ~/.cache/jib
+        # CONFIG_DIR is now $XDG_CACHE_HOME/egg or ~/.cache/egg
         assert Config.CONFIG_DIR.name == "egg"
         # Parent is either .cache or custom XDG_CACHE_HOME
         xdg_cache = os.environ.get("XDG_CACHE_HOME")
@@ -276,10 +276,10 @@ class TestGenerateContainerId:
         """Test container ID has expected format."""
         container_id = egg.generate_container_id()
 
-        assert container_id.startswith("jib-")
-        # Format: jib-YYYYMMDD-HHMMSS-PID
+        assert container_id.startswith("egg-")
+        # Format: egg-YYYYMMDD-HHMMSS-PID
         parts = container_id.split("-")
-        assert len(parts) == 4  # jib, date, time, pid
+        assert len(parts) == 4  # egg, date, time, pid
 
     def test_container_id_unique(self):
         """Test that container IDs are unique (within reasonable time)."""
@@ -290,8 +290,8 @@ class TestGenerateContainerId:
         # (at least timestamp or we're generating them too fast)
         # Since we can't guarantee uniqueness in same millisecond,
         # we just verify format is consistent
-        assert id1.startswith("jib-")
-        assert id2.startswith("jib-")
+        assert id1.startswith("egg-")
+        assert id2.startswith("egg-")
 
     def test_container_id_contains_pid(self):
         """Test container ID contains process ID."""

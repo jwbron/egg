@@ -3,9 +3,9 @@
 Lint check: Detect problematic sys.path patterns that may fail in container environments.
 
 This script catches patterns that have historically caused issues when scripts run
-in the jib container and construct sys.path entries incorrectly. The critical issue is:
+in the egg container and construct sys.path entries incorrectly. The critical issue is:
 
-    sys.path.insert(0, str(Path.home() / "khan" / repo_name / "shared"))
+    sys.path.insert(0, str(Path.home() / "repos" / repo_name / "shared"))
                                                  ^^^^^^^^^^
                                                  WRONG: variable repo name
 
@@ -14,14 +14,14 @@ it should NOT construct the path using a user-provided repo_name variable. Inste
 
 CORRECT patterns:
     1. sys.path.insert(0, str(Path(__file__).resolve().parents[N] / "shared"))
-    2. sys.path.insert(0, str(Path.home() / "khan" / "egg" / "shared"))
-    3. sys.path.insert(0, "/opt/jib-runtime/shared")  # Container-specific path
+    2. sys.path.insert(0, str(Path.home() / "repos" / "egg" / "shared"))
+    3. sys.path.insert(0, "/opt/egg-runtime/shared")  # Container-specific path
 
 INCORRECT patterns (flagged by this linter - JIB001):
-    1. sys.path.insert(..., str(Path.home() / "khan" / variable / ...))
-    2. sys.path.append(str(Path.home() / "khan" / variable / ...))
+    1. sys.path.insert(..., str(Path.home() / "repos" / variable / ...))
+    2. sys.path.append(str(Path.home() / "repos" / variable / ...))
 
-NOTE: Using `Path.home() / "khan" / repo_name` for working directories (cwd) is FINE.
+NOTE: Using `Path.home() / "repos" / repo_name` for working directories (cwd) is FINE.
 The issue is specifically when this pattern is used to modify sys.path for imports.
 
 False positive handling:
@@ -40,7 +40,7 @@ import ast
 import sys
 from pathlib import Path
 
-# Directories that are known to exist and are safe to combine with Path.home()/"khan"
+# Directories that are known to exist and are safe to combine with Path.home()/"repos"
 SAFE_SUBDIRECTORIES = {
     "egg",  # This repo itself
 }
@@ -65,7 +65,7 @@ class PathPatternVisitor(ast.NodeVisitor):
         line = self._get_line_text(lineno)
         return f"noqa: {code}" in line or "noqa" in line
 
-    def _is_safe_khan_subdir(self, node: ast.expr) -> bool:
+    def _is_safe_repos_subdir(self, node: ast.expr) -> bool:
         """Check if the node represents a safe subdirectory under ~/repos/."""
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return node.value in SAFE_SUBDIRECTORIES
@@ -110,8 +110,8 @@ class PathPatternVisitor(ast.NodeVisitor):
             return node.func.value.value.id == "sys"
         return False
 
-    def _check_for_dynamic_khan_path(self, node: ast.expr) -> tuple[bool, str | None]:
-        """Check if node contains Path.home() / 'khan' / variable pattern.
+    def _check_for_dynamic_repos_path(self, node: ast.expr) -> tuple[bool, str | None]:
+        """Check if node contains Path.home() / 'repos' / variable pattern.
 
         Returns:
             Tuple of (is_problematic, variable_name)
@@ -123,26 +123,26 @@ class PathPatternVisitor(ast.NodeVisitor):
             and node.func.id == "str"
             and node.args
         ):
-            return self._check_for_dynamic_khan_path(node.args[0])
+            return self._check_for_dynamic_repos_path(node.args[0])
 
         # Check for / chain
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
             parts = self._collect_div_chain(node)
 
-            # Look for Path.home() / "khan" / <variable> pattern
+            # Look for Path.home() / "repos" / <variable> pattern
             if len(parts) >= 3:
                 first = parts[0]
                 if self._is_path_home_call(first):
                     second = parts[1]
-                    if isinstance(second, ast.Constant) and second.value == "khan":
+                    if isinstance(second, ast.Constant) and second.value == "repos":
                         third = parts[2]
-                        if self._is_variable(third) and not self._is_safe_khan_subdir(third):
+                        if self._is_variable(third) and not self._is_safe_repos_subdir(third):
                             return True, self._get_variable_name(third)
 
         return False, None
 
     def visit_Call(self, node: ast.Call) -> None:
-        """Detect sys.path.insert/append with dynamic khan paths."""
+        """Detect sys.path.insert/append with dynamic repos paths."""
         if self._is_sys_path_call(node):
             # Check the path argument (last arg for insert, first arg for append)
             path_arg = None
@@ -153,7 +153,7 @@ class PathPatternVisitor(ast.NodeVisitor):
                     path_arg = node.args[0]
 
             if path_arg:
-                is_problematic, var_name = self._check_for_dynamic_khan_path(path_arg)
+                is_problematic, var_name = self._check_for_dynamic_repos_path(path_arg)
                 if is_problematic and not self._has_noqa(node.lineno):
                     line_text = self._get_line_text(node.lineno)
                     self.violations.append(
@@ -162,7 +162,7 @@ class PathPatternVisitor(ast.NodeVisitor):
                             line_text,
                             f"sys.path modification with dynamic repo path (variable: {var_name})\n"
                             f"         This can cause 'ModuleNotFoundError' when repo_name != 'egg'\n"
-                            f"         Fix: Use explicit path: Path.home() / 'khan' / 'egg' / ...",
+                            f"         Fix: Use explicit path: Path.home() / 'repos' / 'egg' / ...",
                         )
                     )
 
@@ -218,7 +218,7 @@ def main() -> int:
         print("sys.path is modified with a dynamic repo path (e.g., repo_name variable).")
         print()
         print("Example of the bug:")
-        print("  sys.path.insert(0, str(Path.home() / 'khan' / repo_name / 'shared'))")
+        print("  sys.path.insert(0, str(Path.home() / 'repos' / repo_name / 'shared'))")
         print("  # If repo_name='webapp', looks for 'weekly_analyzer' in webapp/shared/")
         print("  # But weekly_analyzer is in egg/shared/!")
         print("=" * 76)
@@ -233,13 +233,13 @@ def main() -> int:
 
         print("How to fix:")
         print("  1. Use explicit path for egg modules:")
-        print("     sys.path.insert(0, str(Path.home() / 'khan' / 'egg' / 'shared'))")
+        print("     sys.path.insert(0, str(Path.home() / 'repos' / 'egg' / 'shared'))")
         print()
         print("  2. Use dynamic discovery relative to script location:")
         print("     sys.path.insert(0, str(Path(__file__).resolve().parents[N] / 'shared'))")
         print()
         print("  3. Use container path for runtime:")
-        print("     sys.path.insert(0, '/opt/jib-runtime/shared')")
+        print("     sys.path.insert(0, '/opt/egg-runtime/shared')")
         print()
         print("  4. To suppress a false positive, add: # noqa: JIB001")
         print()

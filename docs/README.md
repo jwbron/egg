@@ -1,4 +1,4 @@
-# James-in-a-Box Documentation
+# Egg Documentation
 
 Complete documentation for egg: Docker sandbox for Claude Code CLI as an autonomous software engineering agent.
 

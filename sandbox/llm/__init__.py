@@ -1,5 +1,5 @@
 """
-Claude Code interface for jib container.
+Claude Code interface for egg container.
 
 This module provides an interface for running Claude Code agents,
 supporting both API key and OAuth authentication.

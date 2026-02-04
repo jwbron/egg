@@ -79,7 +79,7 @@ These files are installed to `~/.claude/commands/` during Docker image build and
 
 1. Create a new `.md` file in `sandbox/.claude/commands/`
 2. Follow the format of existing commands
-3. Rebuild the Docker image: `./jib --rebuild`
+3. Rebuild the Docker image: `./egg --rebuild`
 4. New command will be available at `~/.claude/commands/<command-name>.md`
 
 ## Command Format

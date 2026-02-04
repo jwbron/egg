@@ -10,7 +10,7 @@ Issue: <JIRA link or "none">
 Test plan:
 <specific steps for reviewers>
 
-Authored-by: jib
+Authored-by: egg
 ```
 
 **Under 500 words total.** Focus on WHAT and WHY, not implementation details.

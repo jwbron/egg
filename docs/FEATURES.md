@@ -41,7 +41,7 @@ Receives incoming Slack DMs via Socket Mode and triggers egg container processin
 **Components:**
 
 - **Remote Control via Slack** (`host-services/slack/slack-receiver/host_command_handler.py`)
-  - Enables jib management through Slack DM commands: /jib status/restart/rebuild/logs and /service list/status/restart/start/stop/logs.
+  - Enables egg management through Slack DM commands: /egg status/restart/rebuild/logs and /service list/status/restart/start/stop/logs.
 - **Slack Thread Context Preservation** (`host-services/slack/slack-receiver/slack-receiver.py`)
   - Maintains full conversation history for Slack threads by fetching all messages and including them in task files with YAML frontmatter.
 - **Slack User Authentication** (`host-services/slack/slack-receiver/slack-receiver.py`)
@@ -158,7 +158,7 @@ Slash command system for common agent operations including task status and metri
 - `sandbox/llm/result.py`
 - `sandbox/llm/claude/`
 
-Claude Code interface providing both interactive and programmatic access to Claude models. Supports API key authentication and OAuth login. All jib-tasks use `from llm import run_agent` for consistent LLM interactions.
+Claude Code interface providing both interactive and programmatic access to Claude models. Supports API key authentication and OAuth login. All egg-tasks use `from llm import run_agent` for consistent LLM interactions.
 
 **Components:**
 
@@ -174,18 +174,18 @@ Claude Code interface providing both interactive and programmatic access to Clau
 
 ## Container Infrastructure
 
-### 17. JIB Container Management System
+### 17. Egg Container Management System
 **Location:**
 - `bin/egg`
 - `bin/view-logs`
-- `host-services/shared/jib_exec.py`
+- `host-services/shared/egg_exec.py`
 - `host-services/shared/__init__.py`
 
 The core 'egg' command provides the primary interface for starting, managing, and interacting with the sandboxed Docker development environment. Includes container lifecycle management, log viewing, and the egg --exec mechanism for host-to-container task execution.
 
 **Components:**
 
-- **JIB Execution Wrapper** (`host-services/shared/jib_exec.py`)
+- **Egg Execution Wrapper** (`host-services/shared/egg_exec.py`)
   - Standardized interface for host services to execute container-side processors via egg --exec, handling path translation, JSON parsing, and timeout management.
 - **Container Log Viewer** (`bin/view-logs`)
   - Provides convenient access to Docker container logs for debugging and monitoring container activity.

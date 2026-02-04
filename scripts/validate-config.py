@@ -2,7 +2,7 @@
 """
 Configuration Validation Script
 
-Validates jib configuration files and tests API connectivity.
+Validates egg configuration files and tests API connectivity.
 
 Usage:
     ./scripts/validate-config.py           # Validate config loads correctly
@@ -283,7 +283,7 @@ def check_slack_app_token(app_token: str, timeout: float = 10.0) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Validate jib configuration files",
+        description="Validate egg configuration files",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

@@ -1,5 +1,5 @@
 """
-StatusBar - Progress display for jib launcher
+StatusBar - Progress display for egg launcher
 
 Provides a single-line status display that updates in place,
 showing current step and overall progress.

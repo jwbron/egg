@@ -1,4 +1,4 @@
-"""Private mode configuration for jib.
+"""Private mode configuration for egg.
 
 This module manages per-container repository visibility modes:
 
@@ -22,7 +22,7 @@ from .output import info
 
 
 class PrivateMode(Enum):
-    """Private mode options for jib.
+    """Private mode options for egg.
 
     PRIVATE: Private repos only, container on isolated network with proxy
     PUBLIC: Public repos only, container on external network (direct internet)

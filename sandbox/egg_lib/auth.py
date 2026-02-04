@@ -1,4 +1,4 @@
-"""Authentication and API key management for jib.
+"""Authentication and API key management for egg.
 
 This module handles Anthropic API keys, GitHub tokens,
 and related authentication utilities.
@@ -70,7 +70,7 @@ def get_github_token() -> str | None:
     - ~/.config/egg/secrets.env (GITHUB_TOKEN=...)
     - ~/.config/egg/github-token (dedicated file)
 
-    This follows the same configuration pattern as other jib secrets
+    This follows the same configuration pattern as other egg secrets
     (Slack tokens, Confluence tokens, etc.) via config/host_config.py.
 
     Returns:

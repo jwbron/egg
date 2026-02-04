@@ -2,7 +2,7 @@
 Policy Engine - Ownership and access control checks.
 
 Enforces policies for git/gh operations:
-- Branch ownership (bot): egg can push to bot-prefixed branches (egg-* or jib-*) OR branches with PRs by egg/configured-user/trusted-user
+- Branch ownership (bot): egg can push to bot-prefixed branches (egg-*) OR branches with PRs by egg/configured-user/trusted-user
 - Branch ownership (user mode): user can push to new branches OR branches with PRs by egg/configured-user
 - PR creation: allowed in bot mode, blocked in user mode (user creates PRs manually)
 - PR comments: egg can comment on any PR
@@ -47,15 +47,8 @@ MAX_PR_CACHE_SIZE = 500
 MAX_BRANCH_PR_CACHE_SIZE = 200
 
 # Bot identity variants that count as "egg" (the bot)
-# Includes both short name (jib) and full GitHub App name (egg) for backward compatibility
 BOT_IDENTITIES = frozenset(
     {
-        # Legacy short name variants (backward compatibility)
-        "jib",
-        "jib[bot]",
-        "app/jib",
-        "apps/jib",
-        # Primary GitHub App name variants
         "egg",
         "egg[bot]",
         "app/egg",
@@ -64,8 +57,7 @@ BOT_IDENTITIES = frozenset(
 )
 
 # Branch prefixes that indicate bot ownership
-# Both egg- and jib- prefixes supported for backward compatibility
-BOT_BRANCH_PREFIXES = ("egg-", "egg/", "jib-", "jib/")
+BOT_BRANCH_PREFIXES = ("egg-", "egg/")
 
 
 # Trusted GitHub users whose branches egg can push to
@@ -333,7 +325,7 @@ class PolicyEngine:
         """
         Check if egg can comment on a PR.
 
-        Jib can comment on ANY PR - this enables collaboration on PRs owned by others.
+        Egg can comment on ANY PR - this enables collaboration on PRs owned by others.
         """
         pr_info = self._get_pr_info(repo, pr_number)
 
@@ -368,7 +360,7 @@ class PolicyEngine:
         Check if the current identity can push to a branch.
 
         In bot mode, egg can push to a branch if:
-        1. Branch name starts with jib- or jib/ (allows pushing before PR exists), OR
+        1. Branch name starts with egg- or egg/ (allows pushing before PR exists), OR
         2. Branch has an open PR authored by egg, OR
         3. Branch has an open PR authored by the configured user, OR
         4. Branch has an open PR authored by a trusted user (from GATEWAY_TRUSTED_USERS)

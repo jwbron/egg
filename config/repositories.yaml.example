@@ -1,9 +1,9 @@
-# Repository Configuration for james-in-a-box (jib)
+# Repository Configuration for egg
 #
-# This is a TEMPLATE file. Copy to ~/.config/jib/repositories.yaml and customize.
+# This is a TEMPLATE file. Copy to ~/.config/egg/repositories.yaml and customize.
 # Or run ./setup.py which will create this file interactively.
 #
-# This file is the SINGLE SOURCE OF TRUTH for which repositories jib has
+# This file is the SINGLE SOURCE OF TRUTH for which repositories egg has
 # read/write access to. All components should import this config rather than
 # hardcoding repository names.
 #
@@ -13,28 +13,28 @@
 # - Claude Rules: Reference this file for up-to-date repo list
 #
 # Access Levels:
-# - writable: jib can respond to comments, push changes, create PRs
-# - readable: jib can sync and analyze but not modify
+# - writable: egg can respond to comments, push changes, create PRs
+# - readable: egg can sync and analyze but not modify
 
 # Your GitHub username (set by setup.py)
 github_username: YOUR_USERNAME
 
 # Bot username - the bot's GitHub identity for filtering out its own comments
 # Comments from this user are ignored (so the bot doesn't respond to itself)
-bot_username: james-in-a-box
+bot_username: egg
 
-# Repositories where jib has WRITE access
-# These are repos where jib can:
+# Repositories where egg has WRITE access
+# These are repos where egg can:
 # - Respond to PR comments
 # - Push code changes
 # - Create PRs via gh CLI
 # - Implement fixes for failed CI checks
 writable_repos:
-  - YOUR_USERNAME/james-in-a-box
+  - YOUR_USERNAME/egg
   # Add more repos as needed:
   # - YOUR_USERNAME/other-repo
 
-# Default reviewer for PRs created by jib (defaults to github_username)
+# Default reviewer for PRs created by egg (defaults to github_username)
 default_reviewer: YOUR_USERNAME
 
 # GitHub sync configuration
@@ -46,13 +46,13 @@ github_sync:
   sync_interval_minutes: 5
 
 # Repositories with read-only access
-# These are repos where jib can:
+# These are repos where egg can:
 # - Sync and analyze PRs, comments, and check failures
 # - Send Slack notifications with feedback/analysis
 # - NOT: Push code, create PRs, post comments, or make any modifications
 #
 # Read-only repos only require a GitHub PAT with read access.
-# jib will monitor these repos and send Slack messages with:
+# egg will monitor these repos and send Slack messages with:
 # - Branch names with proposed changes
 # - Analysis and feedback on code
 # - Comments and suggestions (sent to user, not posted to GitHub)
@@ -75,7 +75,7 @@ readable_repos:
 #     "incognito": Use personal access token with user identity
 repo_settings:
   # Example:
-  # YOUR_USERNAME/james-in-a-box:
+  # YOUR_USERNAME/egg:
   #   restrict_to_configured_users: true
   #   disable_auto_fix: true
   # some-org/external-repo:
@@ -83,7 +83,7 @@ repo_settings:
 
 # Incognito mode configuration (optional)
 # When auth_mode is set to "incognito" for a repo, operations will be
-# attributed to this personal GitHub account instead of the jib bot.
+# attributed to this personal GitHub account instead of the egg bot.
 # This is useful for contributing to external repos where bot accounts
 # may not be appropriate.
 #
@@ -98,7 +98,7 @@ repo_settings:
 #
 # Incognito mode permissions:
 # - CAN push to new branches (that don't exist upstream yet)
-# - CAN push to branches with an open PR owned by jib or the incognito user
+# - CAN push to branches with an open PR owned by egg or the incognito user
 # - CANNOT push to main/master (protected branches)
 # - CANNOT create PRs (you must create PRs manually via GitHub UI)
 # This ensures the human maintains control over what PRs are opened in their name.
@@ -111,7 +111,7 @@ incognito:
 
 # Local repository configuration
 # These are local directories on your machine that will be:
-# 1. Volume-mounted into the jib container
+# 1. Volume-mounted into the egg container
 # 2. Set up with git worktrees for isolated development
 #
 # Each repo gets its own worktree so the agent can work without affecting
@@ -126,7 +126,7 @@ local_repos:
   # These paths will be:
   # - Mounted read-only (the main repo stays clean)
   # - Git metadata mounted read-write (for worktree commits)
-  # - Worktrees created at ~/.jib-worktrees/<container-id>/<repo-name>
+  # - Worktrees created at ~/.egg-worktrees/<container-id>/<repo-name>
   paths: []
 
 # Docker container setup configuration

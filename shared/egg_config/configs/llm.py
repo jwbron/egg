@@ -1,5 +1,5 @@
 """
-LLM provider configuration for jib services.
+LLM provider configuration for egg services.
 
 Supports Claude Code with Anthropic API via API key or OAuth.
 """

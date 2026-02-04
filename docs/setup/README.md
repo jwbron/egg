@@ -16,7 +16,7 @@ This single command handles:
 - Docker image building
 - All component setup
 
-**Note:** You can also run `egg --setup` which delegates to `./setup.py`. If jib detects incomplete setup when you run it, it will prompt to run setup automatically.
+**Note:** You can also run `egg --setup` which delegates to `./setup.py`. If egg detects incomplete setup when you run it, it will prompt to run setup automatically.
 
 ## Setup Requirements
 

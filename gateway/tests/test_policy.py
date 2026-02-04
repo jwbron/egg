@@ -73,27 +73,17 @@ class TestExtractBranchFromRefspec:
 class TestBotIdentities:
     """Tests for bot identity checking."""
 
-    def test_bot_identities_include_legacy_names(self):
-        """Test that legacy jib variants are included for backward compatibility."""
-        assert "jib" in BOT_IDENTITIES
-        assert "jib[bot]" in BOT_IDENTITIES
-        assert "app/jib" in BOT_IDENTITIES
-        assert "apps/jib" in BOT_IDENTITIES
-
-    def test_bot_identities_include_primary_names(self):
-        """Test that primary egg variants are included."""
+    def test_bot_identities_include_egg_variants(self):
+        """Test that egg variants are included."""
         assert "egg" in BOT_IDENTITIES
         assert "egg[bot]" in BOT_IDENTITIES
         assert "app/egg" in BOT_IDENTITIES
         assert "apps/egg" in BOT_IDENTITIES
 
     def test_bot_branch_prefixes(self):
-        """Test that egg- and jib- branch prefixes are supported."""
+        """Test that egg- branch prefixes are supported."""
         assert "egg-" in BOT_BRANCH_PREFIXES
         assert "egg/" in BOT_BRANCH_PREFIXES
-        # jib- prefixes kept for backward compatibility
-        assert "jib-" in BOT_BRANCH_PREFIXES
-        assert "jib/" in BOT_BRANCH_PREFIXES
 
 
 class TestCachedPRInfo:
@@ -102,7 +92,7 @@ class TestCachedPRInfo:
     def test_is_stale_fresh_entry(self):
         info = CachedPRInfo(
             pr_number=1,
-            author="jib",
+            author="egg",
             state="open",
             head_branch="feature",
             fetched_at=datetime.now(UTC).timestamp(),
@@ -114,7 +104,7 @@ class TestCachedPRInfo:
         old_time = datetime.now(UTC).timestamp() - 600
         info = CachedPRInfo(
             pr_number=1,
-            author="jib",
+            author="egg",
             state="open",
             head_branch="feature",
             fetched_at=old_time,
@@ -137,18 +127,6 @@ class TestPolicyEngine:
 
     # Branch ownership tests
 
-    def test_branch_ownership_jib_prefix_dash(self, policy_engine):
-        """jib- prefixed branches are always owned by egg (backward compatibility)."""
-        result = policy_engine.check_branch_ownership("owner/repo", "jib-feature")
-        assert result.allowed
-        assert "bot-prefixed" in result.reason
-
-    def test_branch_ownership_jib_prefix_slash(self, policy_engine):
-        """jib/ prefixed branches are always owned by egg (backward compatibility)."""
-        result = policy_engine.check_branch_ownership("owner/repo", "jib/feature")
-        assert result.allowed
-        assert "bot-prefixed" in result.reason
-
     def test_branch_ownership_egg_prefix_dash(self, policy_engine):
         """egg- prefixed branches are always owned by egg."""
         result = policy_engine.check_branch_ownership("owner/repo", "egg-feature")
@@ -162,14 +140,14 @@ class TestPolicyEngine:
         assert "bot-prefixed" in result.reason
 
     def test_branch_ownership_with_jib_pr(self, policy_engine, mock_github_client):
-        """Branch with open jib-authored PR is owned by egg."""
+        """Branch with open egg-authored PR is owned by egg."""
         # Mock PR list
         mock_github_client.list_prs_for_branch.return_value = [
-            {"number": 123, "author": {"login": "jib"}, "state": "open", "headRefName": "feature"}
+            {"number": 123, "author": {"login": "egg"}, "state": "open", "headRefName": "feature"}
         ]
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "jib"},
+            "author": {"login": "egg"},
             "state": "open",
             "headRefName": "feature",
         }
@@ -187,7 +165,7 @@ class TestPolicyEngine:
         assert "not owned by egg" in result.reason
 
     def test_branch_ownership_other_author_pr(self, policy_engine, mock_github_client):
-        """Branch with PR by non-jib author is not owned by egg."""
+        """Branch with PR by non-egg author is not owned by egg."""
         mock_github_client.list_prs_for_branch.return_value = [
             {"number": 123, "author": {"login": "human"}, "state": "open", "headRefName": "feature"}
         ]
@@ -204,10 +182,10 @@ class TestPolicyEngine:
     # PR ownership tests
 
     def test_pr_ownership_jib_author(self, policy_engine, mock_github_client):
-        """PR authored by jib is owned by egg."""
+        """PR authored by egg is owned by egg."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "jib"},
+            "author": {"login": "egg"},
             "state": "open",
             "headRefName": "feature",
         }
@@ -217,10 +195,10 @@ class TestPolicyEngine:
         assert "owned by egg" in result.reason
 
     def test_pr_ownership_jib_bot_author(self, policy_engine, mock_github_client):
-        """PR authored by jib[bot] is owned by egg."""
+        """PR authored by egg[bot] is owned by egg."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "jib[bot]"},
+            "author": {"login": "egg[bot]"},
             "state": "open",
             "headRefName": "feature",
         }
@@ -229,7 +207,7 @@ class TestPolicyEngine:
         assert result.allowed
 
     def test_pr_ownership_other_author(self, policy_engine, mock_github_client):
-        """PR authored by non-jib, non-configured user is not owned."""
+        """PR authored by non-egg, non-configured user is not owned."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
             "author": {"login": "human"},
@@ -264,7 +242,7 @@ class TestPolicyEngine:
         """Comments are allowed on PRs owned by egg."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "jib"},
+            "author": {"login": "egg"},
             "state": "open",
             "headRefName": "feature",
         }
@@ -396,7 +374,7 @@ class TestTrustedBranchOwners:
     def test_branch_ownership_no_trusted_users_configured(
         self, policy_engine, mock_github_client, monkeypatch
     ):
-        """With no trusted users configured, only jib can push."""
+        """With no trusted users configured, only egg can push."""
         import policy
 
         monkeypatch.setattr(policy, "TRUSTED_BRANCH_OWNERS", frozenset())
@@ -525,7 +503,7 @@ class TestConfiguredUser:
 
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "jib"},
+            "author": {"login": "egg"},
             "state": "open",
             "headRefName": "feature",
         }

@@ -1,10 +1,10 @@
-"""egg_lib - Modular package for the jib container launcher.
+"""egg_lib - Modular package for the egg container launcher.
 
 This package provides the core functionality for running Claude Code
 in an isolated Docker container.
 
 All public symbols are re-exported here for backward compatibility
-with tests that use SourceFileLoader to import the jib module.
+with tests that use SourceFileLoader to import the egg module.
 """
 
 # Auth module exports
@@ -193,5 +193,5 @@ from .timing import (
     _host_timer as _host_timer,
 )
 
-# Version info (matches jib script)
+# Version info (matches egg script)
 __version__ = "1.0.0"

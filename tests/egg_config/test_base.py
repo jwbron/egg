@@ -91,12 +91,12 @@ class TestHealthCheckResult:
         result = HealthCheckResult(
             healthy=True,
             service_name="slack",
-            message="Connected as jib-bot",
+            message="Connected as egg-bot",
             latency_ms=150.5,
         )
         assert result.healthy
         assert result.service_name == "slack"
-        assert result.message == "Connected as jib-bot"
+        assert result.message == "Connected as egg-bot"
         assert result.latency_ms == 150.5
 
     def test_unhealthy_result(self):

@@ -40,7 +40,7 @@ class TestGetConfigPath:
         """Test finding config in ~/repos/egg/config/ (container mount)."""
         monkeypatch.setenv("HOME", str(temp_dir))
 
-        config_path = temp_dir / "khan" / "egg" / "config"
+        config_path = temp_dir / "repos" / "egg" / "config"
         config_path.mkdir(parents=True, exist_ok=True)
 
         config_file = config_path / "repositories.yaml"
@@ -323,10 +323,10 @@ class TestConfigFileFormat:
     def test_valid_config_structure(self, temp_dir):
         """Test valid config file structure."""
         config_content = """
-# GitHub username for jib
+# GitHub username for egg
 github_username: testuser
 
-# Repos where jib has write access
+# Repos where egg has write access
 writable_repos:
   - testuser/repo1
   - testuser/repo2

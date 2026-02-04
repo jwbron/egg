@@ -66,15 +66,15 @@ class TestWorktreeInfo:
     def test_creation(self):
         """WorktreeInfo should be creatable with required fields."""
         info = WorktreeInfo(
-            container_id="jib-123",
+            container_id="egg-123",
             repo_name="myrepo",
-            branch="jib/jib-123/work",
+            branch="egg/egg-123/work",
             worktree_path=Path("/tmp/worktree"),
             git_dir=Path("/tmp/git"),
         )
-        assert info.container_id == "jib-123"
+        assert info.container_id == "egg-123"
         assert info.repo_name == "myrepo"
-        assert info.branch == "jib/jib-123/work"
+        assert info.branch == "egg/egg-123/work"
         assert info.created_at is None  # Optional field
 
 
@@ -207,11 +207,11 @@ class TestGetActiveDockerContainers:
     @patch("subprocess.run")
     def test_returns_container_names(self, mock_run):
         """Should return set of container names."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="container1\ncontainer2\njib-123\n")
+        mock_run.return_value = MagicMock(returncode=0, stdout="container1\ncontainer2\negg-123\n")
 
         result = get_active_docker_containers()
 
-        assert result == {"container1", "container2", "jib-123"}
+        assert result == {"container1", "container2", "egg-123"}
 
     @patch("subprocess.run")
     def test_handles_empty_output(self, mock_run):

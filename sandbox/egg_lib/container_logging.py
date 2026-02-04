@@ -1,4 +1,4 @@
-"""Container log persistence and correlation for jib.
+"""Container log persistence and correlation for egg.
 
 This module handles saving container logs, correlation tracking,
 and log index management.
@@ -25,7 +25,7 @@ def generate_container_id() -> str:
 
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     pid = os.getpid()
-    return f"jib-{timestamp}-{pid}"
+    return f"egg-{timestamp}-{pid}"
 
 
 def get_docker_log_config(container_id: str, task_id: str | None = None) -> list:
@@ -55,11 +55,11 @@ def get_docker_log_config(container_id: str, task_id: str | None = None) -> list
         "max-file=5",
         # Add labels for correlation - these appear in docker inspect
         "--label",
-        f"jib.container_id={container_id}",
+        f"egg.container_id={container_id}",
     ]
 
     if task_id:
-        log_args.extend(["--label", f"jib.task_id={task_id}"])
+        log_args.extend(["--label", f"egg.task_id={task_id}"])
 
     return log_args
 
@@ -72,7 +72,7 @@ def extract_task_id_from_command(command: list[str]) -> str | None:
     - task-20251129-222239
 
     Args:
-        command: Command list passed to jib --exec
+        command: Command list passed to egg --exec
 
     Returns:
         Task ID if found, None otherwise

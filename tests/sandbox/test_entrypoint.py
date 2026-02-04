@@ -211,7 +211,7 @@ class TestSetupEnvironment:
     """Tests for the setup_environment function."""
 
     def test_sets_home_and_user(self, monkeypatch):
-        """Test that HOME and USER are set correctly - always jib."""
+        """Test that HOME and USER are set correctly - always egg."""
         config = entrypoint.Config()
 
         entrypoint.setup_environment(config)
@@ -237,7 +237,7 @@ class TestSetupEnvironment:
         assert os.environ["DISABLE_AUTOUPDATER"] == "1"
 
     def test_updates_path(self, monkeypatch):
-        """Test that PATH is updated with jib runtime scripts and local bin."""
+        """Test that PATH is updated with egg runtime scripts and local bin."""
         monkeypatch.setenv("PATH", "/usr/bin")
         config = entrypoint.Config()
 

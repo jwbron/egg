@@ -23,7 +23,7 @@
 # cannot be bypassed by direct API calls.
 #
 # The gateway sidecar holds the GitHub token and enforces:
-# - Branch ownership policy (bot can only push to jib-owned branches)
+# - Branch ownership policy (bot can only push to egg-owned branches)
 # - Merge blocking (bot cannot merge PRs - human must merge via GitHub UI)
 # - Force push blocking (bot cannot force push)
 # - Audit logging for all operations
