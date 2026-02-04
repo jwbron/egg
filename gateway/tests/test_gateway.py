@@ -995,3 +995,175 @@ class TestRepoExtraction:
             extract_repo_from_gh_command(["repo", "view", "other/repo", "-R", "owner/repo"])
             == "owner/repo"
         )
+
+
+class TestGitHookDisabling:
+    """Tests for git hook disabling (issue #58 security fix).
+
+    Git hooks execute in the gateway (trusted environment), not in the sandbox.
+    A malicious repository could include pre-commit hooks that execute arbitrary
+    code. We disable all hooks by injecting --no-verify for operations that
+    support it.
+    """
+
+    def test_commit_injects_no_verify(self, client, auth_headers):
+        """Commit operations get --no-verify to disable hooks."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="[main abc1234] Test commit",
+                stderr="",
+            )
+
+            response = client.post(
+                "/api/v1/git/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "commit",
+                        "args": ["-m", "Test commit"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # Verify --no-verify was injected into the command
+            call_args = mock_run.call_args[0][0]
+            assert "--no-verify" in call_args
+            # --no-verify should come before user args
+            no_verify_idx = call_args.index("--no-verify")
+            commit_idx = call_args.index("commit")
+            assert no_verify_idx == commit_idx + 1
+
+    def test_merge_injects_no_verify(self, client, auth_headers):
+        """Merge operations get --no-verify to disable hooks."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="Merge made",
+                stderr="",
+            )
+
+            response = client.post(
+                "/api/v1/git/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "merge",
+                        "args": ["feature-branch"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_args = mock_run.call_args[0][0]
+            assert "--no-verify" in call_args
+
+    def test_cherry_pick_injects_no_verify(self, client, auth_headers):
+        """Cherry-pick operations get --no-verify to disable hooks."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="[main abc1234] Cherry-picked",
+                stderr="",
+            )
+
+            response = client.post(
+                "/api/v1/git/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "cherry-pick",
+                        "args": ["abc1234"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_args = mock_run.call_args[0][0]
+            assert "--no-verify" in call_args
+
+    def test_push_includes_no_verify(self, client, auth_headers):
+        """Push operations include --no-verify to disable pre-push hooks."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+            # Configure subprocess.run to return different values based on args
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+
+                if "remote" in cmd and "get-url" in cmd:
+                    result.stdout = "https://github.com/owner/repo.git\n"
+                elif "branch" in cmd and "--show-current" in cmd:
+                    result.stdout = "egg-feature\n"
+                elif "push" in cmd:
+                    result.stdout = "Everything up-to-date\n"
+                    # Verify --no-verify is in the push command
+                    assert "--no-verify" in cmd, "Push command must include --no-verify"
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned by egg",
+                details={"branch": "egg-feature"},
+            )
+            mock_policy.return_value = mock_engine
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg-feature",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+
+    def test_status_does_not_inject_no_verify(self, client, auth_headers):
+        """Status and other safe operations do not get --no-verify."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            response = client.post(
+                "/api/v1/git/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "status",
+                        "args": ["--porcelain"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_args = mock_run.call_args[0][0]
+            # status should NOT have --no-verify (it doesn't support it)
+            assert "--no-verify" not in call_args

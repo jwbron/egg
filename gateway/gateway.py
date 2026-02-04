@@ -536,7 +536,9 @@ def git_push():
             original_url=remote_url,
             https_url=push_target,
         )
-    push_args = ["push"]
+    # SECURITY: Always use --no-verify to prevent pre-push hooks from executing
+    # arbitrary code on the gateway. See issue #58.
+    push_args = ["push", "--no-verify"]
     if force:
         push_args.append("--force")
     push_args.extend([push_target, refspec] if refspec else [push_target])
@@ -732,6 +734,24 @@ def git_execute():
 
     # Map container path to worktree path if container_id is provided
     exec_path = map_container_path_to_worktree(repo_path, container_id, operation)
+
+    # SECURITY: Disable hooks for operations that can trigger them.
+    # Git hooks are scripts in .git/hooks/ that execute automatically during
+    # certain operations. A malicious repo could include hooks that execute
+    # arbitrary code on the gateway (outside the sandbox). By adding --no-verify,
+    # we prevent hook execution entirely. See issue #58.
+    #
+    # Operations that support --no-verify:
+    # - commit: pre-commit, prepare-commit-msg, commit-msg, post-commit
+    # - merge: pre-merge-commit, prepare-commit-msg, commit-msg, post-merge
+    # - cherry-pick: prepare-commit-msg, commit-msg
+    #
+    # Note: checkout/rebase/etc. have hooks but don't support --no-verify.
+    # Those hooks (post-checkout, pre-rebase) run regardless, but are less
+    # commonly used for malicious purposes. The primary attack vector is
+    # pre-commit hooks which are now blocked.
+    if operation in ("commit", "merge", "cherry-pick"):
+        validated_args = ["--no-verify", *validated_args]
 
     # Build command
     cmd = git_cmd(operation, *validated_args)
