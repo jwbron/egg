@@ -116,9 +116,9 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
 
     if quiet_mode:
         # Initialize statusbar with estimated steps for interactive mode
-        # Steps: check docker image, check auth, build image, prepare container,
-        #        create worktrees, configure mounts, configure github, launch
-        init_statusbar(total_steps=8, enabled=True)
+        # Steps: check image, build image, start gateway, prepare container,
+        #        configure mounts, launch Claude
+        init_statusbar(total_steps=6, enabled=True)
 
     # Determine mode from CLI flags (default: public)
     # No persistent state - mode is determined purely from flags each invocation
