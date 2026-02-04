@@ -798,8 +798,8 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
         logger.warn(f"  Could not read /etc/hosts: {e}")
 
     # Show network interfaces and verify container is on expected subnet
-    # Private mode: egg-isolated (172.30.0.x), Public mode: egg-external (172.31.0.x)
-    expected_subnet = "172.30.0." if is_private_mode else "172.31.0."
+    # Private mode: egg-isolated (172.32.0.x), Public mode: egg-external (172.33.0.x)
+    expected_subnet = "172.32.0." if is_private_mode else "172.33.0."
     network_name = "egg-isolated" if is_private_mode else "egg-external"
     found_expected_subnet = False
     container_ip = None
@@ -820,7 +820,7 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
                     logger.info(f"    {line.strip()}")
                     if expected_subnet in line:
                         found_expected_subnet = True
-                        # Extract IP address from line like "inet 172.30.0.5/24 ..."
+                        # Extract IP address from line like "inet 172.32.0.5/24 ..."
                         parts = line.strip().split()
                         for i, part in enumerate(parts):
                             if part == "inet" and i + 1 < len(parts):
@@ -1021,7 +1021,7 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
         network_to_check = "egg-isolated" if is_private_mode else "egg-external"
         logger.error(f"    2. Check both containers are on {network_to_check} network:")
         logger.error(f"       docker network inspect {network_to_check}")
-        expected_ip = "172.30.0.2" if is_private_mode else "172.31.0.2"
+        expected_ip = "172.32.0.2" if is_private_mode else "172.33.0.2"
         logger.error(f"    3. Verify gateway has IP {expected_ip} in {network_to_check} network")
         logger.error("    4. Check /etc/hosts has correct egg-gateway entry")
     elif not api_health_passed:

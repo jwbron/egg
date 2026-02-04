@@ -2,8 +2,8 @@
 
 These tests verify the security properties of the per-container network isolation
 architecture where:
-- Private containers run on egg-isolated network (172.30.0.0/16) with proxy
-- Public containers run on egg-external network (172.31.0.0/16) without proxy
+- Private containers run on egg-isolated network (172.32.0.0/24) with proxy
+- Public containers run on egg-external network (172.33.0.0/24) without proxy
 
 Security properties tested:
 1. Network isolation: Containers cannot reach the other network's gateway IP
@@ -28,8 +28,8 @@ from dataclasses import dataclass
 import pytest
 
 # Gateway IPs on each network
-GATEWAY_ISOLATED_IP = "172.30.0.2"
-GATEWAY_EXTERNAL_IP = "172.31.0.2"
+GATEWAY_ISOLATED_IP = "172.32.0.2"
+GATEWAY_EXTERNAL_IP = "172.33.0.2"
 GATEWAY_PORT = 9848
 
 # Network names
@@ -218,7 +218,7 @@ class TestNetworkIsolation:
         gateway_running: bool,
         external_container: ContainerInfo,
     ) -> None:
-        """Verify container on egg-external cannot reach gateway at 172.30.0.2.
+        """Verify container on egg-external cannot reach gateway at 172.32.0.2.
 
         Security property: Public containers should not be able to communicate
         with the isolated network's gateway IP, preventing them from accessing
@@ -254,7 +254,7 @@ class TestNetworkIsolation:
         gateway_running: bool,
         isolated_container: ContainerInfo,
     ) -> None:
-        """Verify container on egg-isolated CAN reach gateway at 172.30.0.2.
+        """Verify container on egg-isolated CAN reach gateway at 172.32.0.2.
 
         This is the expected behavior - private containers need to access
         the gateway for git/gh operations.
@@ -289,7 +289,7 @@ class TestNetworkIsolation:
         gateway_running: bool,
         external_container: ContainerInfo,
     ) -> None:
-        """Verify container on egg-external CAN reach gateway at 172.31.0.2.
+        """Verify container on egg-external CAN reach gateway at 172.33.0.2.
 
         Public containers need to access the gateway for git/gh operations
         via the external network interface.
@@ -324,7 +324,7 @@ class TestNetworkIsolation:
         gateway_running: bool,
         isolated_container: ContainerInfo,
     ) -> None:
-        """Verify container on egg-isolated cannot reach gateway at 172.31.0.2.
+        """Verify container on egg-isolated cannot reach gateway at 172.33.0.2.
 
         Security property: Private containers should only see the gateway on
         the isolated network, not the external network.
@@ -374,14 +374,14 @@ class TestSessionIPBinding:
         # The actual session creation requires launcher authentication
         # which test containers don't have. We verify the IPs are in different ranges.
 
-        # External network: 172.31.x.x
-        assert external_container.ip.startswith("172.31."), (
-            f"External container IP should be in 172.31.x.x range, got {external_container.ip}"
+        # External network: 172.33.x.x
+        assert external_container.ip.startswith("172.33."), (
+            f"External container IP should be in 172.33.x.x range, got {external_container.ip}"
         )
 
-        # Isolated network: 172.30.x.x
-        assert isolated_container.ip.startswith("172.30."), (
-            f"Isolated container IP should be in 172.30.x.x range, got {isolated_container.ip}"
+        # Isolated network: 172.32.x.x
+        assert isolated_container.ip.startswith("172.32."), (
+            f"Isolated container IP should be in 172.32.x.x range, got {isolated_container.ip}"
         )
 
         # The IP ranges being different means the session_manager's IP verification

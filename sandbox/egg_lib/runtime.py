@@ -58,17 +58,17 @@ from .setup_flow import add_standard_mounts
 from .timing import _host_timer
 
 # Subnet for egg-isolated network (must match docker network creation)
-EGG_ISOLATED_SUBNET = "172.30.0.0/16"
+EGG_ISOLATED_SUBNET = "172.32.0.0/24"
 # Subnet for egg-external network (must match docker network creation)
-EGG_EXTERNAL_SUBNET = "172.31.0.0/16"
+EGG_EXTERNAL_SUBNET = "172.33.0.0/24"
 # Reserved IPs in each subnet
 RESERVED_ISOLATED_IPS = {
-    "172.30.0.1",  # Docker gateway
-    "172.30.0.2",  # egg-gateway sidecar (GATEWAY_ISOLATED_IP)
+    "172.32.0.1",  # Docker gateway
+    "172.32.0.2",  # egg-gateway sidecar (GATEWAY_ISOLATED_IP)
 }
 RESERVED_EXTERNAL_IPS = {
-    "172.31.0.1",  # Docker gateway
-    "172.31.0.2",  # egg-gateway sidecar (GATEWAY_EXTERNAL_IP)
+    "172.33.0.1",  # Docker gateway
+    "172.33.0.2",  # egg-gateway sidecar (GATEWAY_EXTERNAL_IP)
 }
 # Legacy alias for backward compatibility
 RESERVED_IPS = RESERVED_ISOLATED_IPS
@@ -225,7 +225,7 @@ def _allocate_container_ip(network: str = EGG_ISOLATED_NETWORK) -> str | None:
             for container_info in containers.values():
                 ip = container_info.get("IPv4Address", "")
                 if ip:
-                    # Remove CIDR suffix (e.g., "172.30.0.3/16" -> "172.30.0.3")
+                    # Remove CIDR suffix (e.g., "172.32.0.3/24" -> "172.32.0.3")
                     assigned_ips.add(ip.split("/")[0])
 
         # Find next available IP in subnet
