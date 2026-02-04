@@ -17,7 +17,7 @@ CORRECT patterns:
     2. sys.path.insert(0, str(Path.home() / "repos" / "egg" / "shared"))
     3. sys.path.insert(0, "/opt/egg-runtime/shared")  # Container-specific path
 
-INCORRECT patterns (flagged by this linter - JIB001):
+INCORRECT patterns (flagged by this linter - EGG001):
     1. sys.path.insert(..., str(Path.home() / "repos" / variable / ...))
     2. sys.path.append(str(Path.home() / "repos" / variable / ...))
 
@@ -25,7 +25,7 @@ NOTE: Using `Path.home() / "repos" / repo_name` for working directories (cwd) is
 The issue is specifically when this pattern is used to modify sys.path for imports.
 
 False positive handling:
-    - Add `# noqa: JIB001` to suppress specific lines
+    - Add `# noqa: EGG001` to suppress specific lines
     - Safe subdirectories like "egg" are allowlisted
 
 Usage:
@@ -60,7 +60,7 @@ class PathPatternVisitor(ast.NodeVisitor):
             return self.source_lines[lineno - 1].strip()
         return ""
 
-    def _has_noqa(self, lineno: int, code: str = "JIB001") -> bool:
+    def _has_noqa(self, lineno: int, code: str = "EGG001") -> bool:
         """Check if line has noqa comment for this rule."""
         line = self._get_line_text(lineno)
         return f"noqa: {code}" in line or "noqa" in line
@@ -241,7 +241,7 @@ def main() -> int:
         print("  3. Use container path for runtime:")
         print("     sys.path.insert(0, '/opt/egg-runtime/shared')")
         print()
-        print("  4. To suppress a false positive, add: # noqa: JIB001")
+        print("  4. To suppress a false positive, add: # noqa: EGG001")
         print()
 
         return 1

@@ -1,10 +1,10 @@
-# jib_config
+# egg_config
 
 Unified configuration framework for egg services.
 
 ## Overview
 
-`jib_config` provides:
+`egg_config` provides:
 - **Centralized config loading** from environment variables, `secrets.env`, and `config.yaml`
 - **Validation** with clear error messages
 - **Health checks** to verify API connectivity
@@ -13,7 +13,7 @@ Unified configuration framework for egg services.
 ## Quick Start
 
 ```python
-from jib_config import SlackConfig, GitHubConfig
+from egg_config import SlackConfig, GitHubConfig
 
 # Load and validate Slack config
 slack = SlackConfig.from_env()
@@ -117,7 +117,7 @@ This script is automatically run after `setup.py` completes to verify secrets ar
 Each config has a `health_check()` method that tests actual API connectivity:
 
 ```python
-from jib_config import SlackConfig, GitHubConfig, JiraConfig
+from egg_config import SlackConfig, GitHubConfig, JiraConfig
 
 slack = SlackConfig.from_env()
 result = slack.health_check(timeout=10.0)
@@ -156,7 +156,7 @@ print(config.to_dict())
 
 ## Adding a New Config
 
-1. Create `shared/jib_config/configs/myservice.py`:
+1. Create `shared/egg_config/configs/myservice.py`:
 
 ```python
 from dataclasses import dataclass
@@ -191,17 +191,17 @@ class MyServiceConfig(BaseConfig):
         ...
 ```
 
-2. Export from `shared/jib_config/__init__.py`:
+2. Export from `shared/egg_config/__init__.py`:
 
 ```python
 from .configs.myservice import MyServiceConfig
 ```
 
-3. Add tests in `tests/jib_config/test_configs.py`
+3. Add tests in `tests/egg_config/test_configs.py`
 
 ## Testing
 
 ```bash
-# Run all jib_config tests
-python -m pytest tests/jib_config/ -v
+# Run all egg_config tests
+python -m pytest tests/egg_config/ -v
 ```

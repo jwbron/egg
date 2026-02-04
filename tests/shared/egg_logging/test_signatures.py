@@ -1,4 +1,4 @@
-"""Tests for jib_logging signature utilities."""
+"""Tests for egg_logging signature utilities."""
 
 from egg_logging import ContextScope, set_current_context
 from egg_logging.signatures import (

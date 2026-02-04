@@ -11,9 +11,9 @@ IMPORTANT: READ operations (gh run view, gh pr view, gh api GET, etc.) are ALLOW
 on the host because they don't affect identity - it doesn't matter who reads data.
 
 CORRECT pattern for host-services:
-    - Use jib_exec() to delegate WRITE operations to container-side handlers
+    - Use egg_exec() to delegate WRITE operations to container-side handlers
     - Container handlers (in sandbox/egg-tasks/) run gh CLI
-    - Example: jib_exec("github_pr_create", {...})
+    - Example: egg_exec("github_pr_create", {...})
 
 INCORRECT pattern:
     - subprocess.run(["gh", "pr", "create", ...])  # WRITE - creates PR as wrong user
@@ -384,7 +384,7 @@ def main():
         print("ERROR: Found forbidden gh CLI WRITE operations in host-services!\n")
         print("=" * 70)
         print("gh CLI WRITE operations should ONLY run inside the egg container.")
-        print("Host services must use jib_exec() to delegate GitHub WRITE operations.")
+        print("Host services must use egg_exec() to delegate GitHub WRITE operations.")
         print("")
         print("NOTE: READ operations (gh run view, gh pr view, etc.) are allowed")
         print("on the host because they don't affect identity.")
@@ -398,13 +398,13 @@ def main():
             print()
 
         print("How to fix:")
-        print("  1. Import jib_exec: from jib_exec import jib_exec")
-        print("  2. Replace subprocess.run(['gh', 'pr', 'create', ...]) with jib_exec(...)")
+        print("  1. Import egg_exec: from egg_exec import egg_exec")
+        print("  2. Replace subprocess.run(['gh', 'pr', 'create', ...]) with egg_exec(...)")
         print()
-        print("Available jib_exec handlers:")
-        print("  - jib_exec('github_pr_create', {'repo': ..., 'title': ..., ...})")
-        print("  - jib_exec('github_pr_comment', {'repo': ..., 'pr_number': ..., 'body': ...})")
-        print("  - jib_exec('github_pr_close', {'repo': ..., 'pr_number': ...})")
+        print("Available egg_exec handlers:")
+        print("  - egg_exec('github_pr_create', {'repo': ..., 'title': ..., ...})")
+        print("  - egg_exec('github_pr_comment', {'repo': ..., 'pr_number': ..., 'body': ...})")
+        print("  - egg_exec('github_pr_close', {'repo': ..., 'pr_number': ...})")
         print()
         print("See host-services/analysis/feature-analyzer/pr_creator.py for examples.")
         print()

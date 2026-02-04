@@ -1,1 +1,1 @@
-"""Tests for jib_logging module."""
+"""Tests for egg_logging module."""

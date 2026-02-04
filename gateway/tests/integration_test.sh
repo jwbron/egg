@@ -21,7 +21,7 @@ GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9848}"
 SECRET_FILE="${HOME}/.config/egg/session-token"
 OUTPUT_FILE="${HOME}/sharing/gateway-test-results.json"
 REPO_PATH="${HOME}/repos/egg"
-TEST_REPO="jwbron/egg"
+TEST_REPO="owner/egg"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -304,7 +304,7 @@ test_git_operations() {
     else
         log_fail "Push to egg- branch rejected"
         log_info "$RESP"
-        record_result "git_push_jib_branch" "fail" "Rejected" "$RESP"
+        record_result "git_push_egg_branch" "fail" "Rejected" "$RESP"
     fi
 
     log_test "git push --dry-run to main (should check policy)"

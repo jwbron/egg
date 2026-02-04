@@ -1,4 +1,4 @@
-"""Tests for jib_logging context management."""
+"""Tests for egg_logging context management."""
 
 import os
 
