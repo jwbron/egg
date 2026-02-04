@@ -6,7 +6,8 @@ Credentials are read from ~/.config/egg/secrets.env on the host.
 
 Supported credential types:
 - ANTHROPIC_API_KEY: Standard Anthropic API key (x-api-key header)
-- ANTHROPIC_OAUTH_TOKEN: OAuth token from Claude Max subscription (Authorization: Bearer header)
+- CLAUDE_CODE_OAUTH_TOKEN: OAuth token from Claude (Authorization: Bearer header)
+- ANTHROPIC_OAUTH_TOKEN: Legacy OAuth token name (for backward compatibility)
 
 OAuth token takes precedence if both are configured.
 """
@@ -150,7 +151,13 @@ class AnthropicCredentialsManager:
             return
 
         # Check for OAuth token first (takes precedence)
-        oauth_token = secrets.get("ANTHROPIC_OAUTH_TOKEN", "").strip()
+        # Try CLAUDE_CODE_OAUTH_TOKEN first (preferred), then ANTHROPIC_OAUTH_TOKEN (legacy)
+        oauth_token = secrets.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
+        oauth_source = "CLAUDE_CODE_OAUTH_TOKEN"
+        if not oauth_token:
+            oauth_token = secrets.get("ANTHROPIC_OAUTH_TOKEN", "").strip()
+            oauth_source = "ANTHROPIC_OAUTH_TOKEN"
+
         if oauth_token:
             # Validate format
             if len(oauth_token) < 20:
@@ -164,7 +171,8 @@ class AnthropicCredentialsManager:
             )
             logger.info(
                 "Anthropic OAuth token loaded from secrets",
-                token_prefix=oauth_token[:10] + "...",
+                source=oauth_source,
+                token_prefix=oauth_token[:16] + "...",
             )
             return
 
@@ -192,7 +200,7 @@ class AnthropicCredentialsManager:
         logger.warning(
             "No Anthropic credentials found in secrets",
             path=str(self._secrets_path),
-            hint="Add ANTHROPIC_API_KEY or ANTHROPIC_OAUTH_TOKEN to secrets.env",
+            hint="Add ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN to secrets.env",
         )
         self._credential = None
 

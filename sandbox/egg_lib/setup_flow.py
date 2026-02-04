@@ -74,7 +74,7 @@ def _write_secrets_env(secrets_dict: dict[str, str]) -> None:
 
     # Group secrets by category
     categories = {
-        "Anthropic": ["ANTHROPIC_API_KEY"],
+        "Claude Authentication": ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
         "GitHub App": ["GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID"],
         "GitHub Tokens": ["GITHUB_TOKEN", "GITHUB_READONLY_TOKEN", "GITHUB_INCOGNITO_TOKEN"],
     }
@@ -112,40 +112,86 @@ def _create_secrets_config() -> bool:
     updated = False
 
     # --- Anthropic Authentication ---
-    print("Anthropic API Authentication:")
-    print("  egg can authenticate with Claude using either:")
-    print("  1. API Key - Direct API access (requires ANTHROPIC_API_KEY)")
-    print("  2. OAuth - Browser-based login (no key needed)")
+    print("Claude Authentication:")
+    print()
+    print("  Choose how egg authenticates with Claude:")
+    print()
+    print("  1. OAuth Token (Recommended)")
+    print("     - Uses your Claude.ai account")
+    print("     - Get token from: claude.ai/settings → API → OAuth Token")
+    print("     - Format: sk-ant-oat01-...")
+    print()
+    print("  2. API Key")
+    print("     - Direct Anthropic API access")
+    print("     - Requires billing setup at console.anthropic.com")
+    print("     - Format: sk-ant-api03-...")
     print()
 
-    current_key = existing_secrets.get("ANTHROPIC_API_KEY", "")
-    if current_key:
-        masked = f"{current_key[:12]}...{current_key[-4:]}" if len(current_key) > 16 else "***"
+    # Check for existing credentials
+    current_oauth = existing_secrets.get("CLAUDE_CODE_OAUTH_TOKEN", "")
+    current_api_key = existing_secrets.get("ANTHROPIC_API_KEY", "")
+
+    if current_oauth:
+        masked = (
+            f"{current_oauth[:16]}...{current_oauth[-8:]}" if len(current_oauth) > 24 else "***"
+        )
+        info(f"Current OAuth token: {masked}")
+        response = input("Update OAuth token? (yes/no): ").strip().lower()
+        if response != "yes":
+            print("  Keeping existing token.")
+            current_oauth = "KEEP"  # Sentinel to skip prompting
+    elif current_api_key:
+        masked = (
+            f"{current_api_key[:12]}...{current_api_key[-4:]}"
+            if len(current_api_key) > 16
+            else "***"
+        )
         info(f"Current API key: {masked}")
-        response = input("Update API key? (yes/no): ").strip().lower()
+        response = input("Update credentials? (yes/no): ").strip().lower()
         if response != "yes":
             print("  Keeping existing key.")
-        else:
-            current_key = ""  # Clear to prompt for new one
+            current_api_key = "KEEP"  # Sentinel to skip prompting
 
-    if not current_key:
+    # Prompt for new credentials if not keeping existing
+    if current_oauth != "KEEP" and current_api_key != "KEEP":
         print()
-        print("Enter your Anthropic API key (starts with sk-ant-...):")
-        print("  Leave blank to use OAuth instead.")
-        api_key = input("API key: ").strip()
-        if api_key:
-            if api_key.startswith("sk-ant-"):
-                existing_secrets["ANTHROPIC_API_KEY"] = api_key
-                updated = True
-                success("API key saved")
+        choice = input("Choose authentication method [1=OAuth, 2=API Key]: ").strip()
+
+        if choice == "2":
+            # API Key flow
+            print()
+            print("Enter your Anthropic API key (starts with sk-ant-api...):")
+            api_key = input("API key: ").strip()
+            if api_key:
+                if api_key.startswith("sk-ant-"):
+                    existing_secrets["ANTHROPIC_API_KEY"] = api_key
+                    # Remove OAuth token if switching to API key
+                    if "CLAUDE_CODE_OAUTH_TOKEN" in existing_secrets:
+                        del existing_secrets["CLAUDE_CODE_OAUTH_TOKEN"]
+                    updated = True
+                    success("API key saved")
+                else:
+                    warn("Invalid API key format (should start with sk-ant-). Skipping.")
             else:
-                warn("Invalid API key format (should start with sk-ant-). Skipping.")
+                warn("No API key provided.")
         else:
-            info("No API key provided - will use OAuth login")
-            # Remove any existing key if user wants OAuth
-            if "ANTHROPIC_API_KEY" in existing_secrets:
-                del existing_secrets["ANTHROPIC_API_KEY"]
-                updated = True
+            # OAuth flow (default)
+            print()
+            print("Enter your Claude OAuth token (starts with sk-ant-oat01-...):")
+            print("  Get it from: https://claude.ai/settings → API → OAuth Token")
+            oauth_token = input("OAuth token: ").strip()
+            if oauth_token:
+                if oauth_token.startswith("sk-ant-oat"):
+                    existing_secrets["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token
+                    # Remove API key if switching to OAuth
+                    if "ANTHROPIC_API_KEY" in existing_secrets:
+                        del existing_secrets["ANTHROPIC_API_KEY"]
+                    updated = True
+                    success("OAuth token saved")
+                else:
+                    warn("Invalid OAuth token format (should start with sk-ant-oat...). Skipping.")
+            else:
+                warn("No OAuth token provided.")
 
     # --- GitHub App Credentials ---
     print()
@@ -344,9 +390,18 @@ def _create_general_config() -> bool:
     """Create config.yaml with general settings."""
     config_file = Config.USER_CONFIG_DIR / "config.yaml"
 
-    # Check if we should use OAuth or API key based on secrets.env
+    # Determine auth method based on secrets.env
+    # Priority: OAuth token > API key > default to oauth
     existing_secrets = _read_secrets_env()
+    has_oauth_token = bool(existing_secrets.get("CLAUDE_CODE_OAUTH_TOKEN"))
     has_api_key = bool(existing_secrets.get("ANTHROPIC_API_KEY"))
+
+    if has_oauth_token:
+        expected_method = "oauth"
+    elif has_api_key:
+        expected_method = "api_key"
+    else:
+        expected_method = "oauth"  # Default to oauth
 
     # Don't overwrite existing config unless auth method changed
     if config_file.exists():
@@ -354,7 +409,6 @@ def _create_general_config() -> bool:
             with open(config_file) as f:
                 existing_config = yaml.safe_load(f) or {}
             current_method = existing_config.get("anthropic_auth_method", "")
-            expected_method = "api_key" if has_api_key else "oauth"
             if current_method == expected_method:
                 return True
             # Update auth method if it changed
@@ -369,8 +423,8 @@ def _create_general_config() -> bool:
             pass  # Fall through to create new config
 
     config = {
-        # Anthropic authentication method based on whether API key is configured
-        "anthropic_auth_method": "api_key" if has_api_key else "oauth",
+        # Anthropic authentication method based on configured credentials
+        "anthropic_auth_method": expected_method,
     }
 
     Config.USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)

@@ -13,6 +13,32 @@ from .config import Config
 from .output import warn
 
 
+def get_claude_oauth_token() -> str | None:
+    """
+    Get Claude OAuth token from environment or secrets.env.
+
+    Returns:
+        OAuth token string if found, None otherwise.
+    """
+    # Check environment variable first
+    if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        token = os.environ["CLAUDE_CODE_OAUTH_TOKEN"]
+        # Skip placeholder tokens (used internally by gateway)
+        if "PROXY-INJECTED" in token:
+            return None
+        return token
+
+    # Check secrets.env
+    secrets_file = Config.USER_CONFIG_DIR / "secrets.env"
+    if secrets_file.exists():
+        for line in secrets_file.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
+                return line.split("=", 1)[1].strip()
+
+    return None
+
+
 def get_anthropic_api_key() -> str | None:
     """
     Get Anthropic API key from environment, secrets.env, or legacy config file.
@@ -42,10 +68,17 @@ def get_anthropic_api_key() -> str | None:
 
 def get_anthropic_auth_method() -> str:
     """
-    Get the Anthropic authentication method from environment or config file.
+    Get the Anthropic authentication method from environment, config, or secrets.
+
+    Determines auth method in order of precedence:
+    1. ANTHROPIC_AUTH_METHOD environment variable
+    2. anthropic_auth_method in config.yaml
+    3. Presence of CLAUDE_CODE_OAUTH_TOKEN in secrets.env -> 'oauth'
+    4. Presence of ANTHROPIC_API_KEY in secrets.env -> 'api_key'
+    5. Default to 'oauth' (recommended method)
 
     Returns:
-        Auth method: 'api_key' (default) or 'oauth'
+        Auth method: 'api_key' or 'oauth'
     """
     import yaml
 
@@ -66,8 +99,14 @@ def get_anthropic_auth_method() -> str:
         except Exception:
             pass
 
-    # Default to api_key
-    return "api_key"
+    # Infer from available credentials in secrets.env
+    if get_claude_oauth_token():
+        return "oauth"
+    if get_anthropic_api_key():
+        return "api_key"
+
+    # Default to oauth (recommended for most users)
+    return "oauth"
 
 
 def get_github_token() -> str | None:
