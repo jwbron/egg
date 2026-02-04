@@ -107,7 +107,8 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
 
     # Initialize quiet mode globally
     # Quiet is the default; verbose (-v) overrides it
-    quiet_mode = not args.verbose
+    # Setup and reset are always verbose (interactive)
+    quiet_mode = not args.verbose and not args.setup and not args.reset
     set_quiet_mode(quiet_mode)
 
     # Initialize force rebuild flag
