@@ -1,1 +1,1 @@
-# Tests for the jib binary (main container launcher)
+# Tests for the egg binary (main container launcher)

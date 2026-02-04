@@ -17,7 +17,7 @@ import re
 import shutil
 import subprocess
 
-# Add shared directory to path for jib_logging
+# Add shared directory to path for egg_logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,7 +97,7 @@ class WorktreeManager:
     Each container gets its own worktree(s), providing:
     - Isolated working directory
     - Separate staging area (index)
-    - Container-specific branch (jib/{container_id}/work)
+    - Container-specific branch (egg/{container_id}/work)
 
     All worktrees share the git object store for efficient storage.
     """
@@ -169,7 +169,7 @@ class WorktreeManager:
 
         # Determine paths
         worktree_path = self.worktree_base / container_id / repo_name
-        branch_name = f"jib/{container_id}/work"
+        branch_name = f"egg/{container_id}/work"
 
         # Create container directory and set ownership immediately
         worktree_path.parent.mkdir(parents=True, exist_ok=True)
@@ -434,7 +434,7 @@ class WorktreeManager:
 
         worktree_path = self.worktree_base / container_id / repo_name
         main_repo = self.repos_base / repo_name
-        branch_name = f"jib/{container_id}/work"
+        branch_name = f"egg/{container_id}/work"
 
         if not worktree_path.exists():
             result.success = True

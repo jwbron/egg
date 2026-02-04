@@ -1,4 +1,4 @@
-"""egg_lib - Modular package for the jib container launcher.
+"""egg_lib - Modular package for the egg container launcher.
 
 This package provides the core functionality for running Claude Code
 in an isolated Docker container.

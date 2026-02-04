@@ -40,10 +40,10 @@ fi
 CONFIG_FILE="$HOME_DIR/.config/egg/repositories.yaml"
 SECRETS_DIR="$HOME_DIR/.egg-gateway"
 REPOS_DIR="$HOME_DIR/repos"
-WORKTREES_DIR="$HOME_DIR/.jib-worktrees"
+WORKTREES_DIR="$HOME_DIR/.egg-worktrees"
 GIT_MAIN_DIR="$HOME_DIR/.git-main"
-LOCAL_OBJECTS_DIR="$HOME_DIR/.jib-local-objects"
-SHARED_CERTS_DIR="$HOME_DIR/.jib-shared-certs"
+LOCAL_OBJECTS_DIR="$HOME_DIR/.egg-local-objects"
+SHARED_CERTS_DIR="$HOME_DIR/.egg-shared-certs"
 
 # Verify required files exist
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -80,10 +80,10 @@ if [ -d "$REPOS_DIR" ]; then
     MOUNTS+=(-v "$REPOS_DIR:$CONTAINER_HOME/repos")
 fi
 
-# Worktrees directory - mount at /home/egg/.jib-worktrees
+# Worktrees directory - mount at /home/egg/.egg-worktrees
 # Needs RW for git fetch to update refs
 if [ -d "$WORKTREES_DIR" ]; then
-    MOUNTS+=(-v "$WORKTREES_DIR:$CONTAINER_HOME/.jib-worktrees")
+    MOUNTS+=(-v "$WORKTREES_DIR:$CONTAINER_HOME/.egg-worktrees")
 fi
 
 # Git main directory - mount at /home/egg/.git-main
@@ -92,10 +92,10 @@ if [ -d "$GIT_MAIN_DIR" ]; then
     MOUNTS+=(-v "$GIT_MAIN_DIR:$CONTAINER_HOME/.git-main")
 fi
 
-# Local objects directory - mount at /home/egg/.jib-local-objects
+# Local objects directory - mount at /home/egg/.egg-local-objects
 # Used to read container-created objects for sync to shared store
 if [ -d "$LOCAL_OBJECTS_DIR" ]; then
-    MOUNTS+=(-v "$LOCAL_OBJECTS_DIR:$CONTAINER_HOME/.jib-local-objects:ro")
+    MOUNTS+=(-v "$LOCAL_OBJECTS_DIR:$CONTAINER_HOME/.egg-local-objects:ro")
 fi
 
 # Shared certs directory - used for SSL bump CA certificate sharing

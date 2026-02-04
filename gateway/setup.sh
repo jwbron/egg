@@ -8,7 +8,7 @@ COMPONENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${COMPONENT_DIR}/.." && pwd)"
 SERVICE_NAME="gateway.service"
 SYSTEMD_DIR="${HOME}/.config/systemd/user"
-CONFIG_DIR="${HOME}/.config/jib"
+CONFIG_DIR="${HOME}/.config/egg"
 # Gateway-only secrets directory - NOT shared with egg containers
 GATEWAY_SECRETS_DIR="${HOME}/.egg-gateway"
 GATEWAY_IMAGE_NAME="egg-gateway"
@@ -160,7 +160,7 @@ generate_mounts_env() {
                 echo "  Will mount .git for: $repo_name"
             fi
         fi
-    done < <(PYTHONPATH="${SHARED_DIR}:${PYTHONPATH}" python3 -m jib_config.config 2>/dev/null)
+    done < <(PYTHONPATH="${SHARED_DIR}:${PYTHONPATH}" python3 -m egg_config.config 2>/dev/null)
 
     # Write environment file for systemd
     echo "GIT_MOUNTS=${GIT_MOUNTS}" > "$MOUNTS_ENV_FILE"
