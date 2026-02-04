@@ -10,16 +10,29 @@ Enforces restrictions on forking operations:
 This ensures that private code cannot be exposed via forking operations.
 """
 
+import sys
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from shared.egg_logging import get_logger
+# Add shared directory to path for egg_logging
+_shared_path = Path(__file__).parent.parent.parent / "shared"
+if _shared_path.exists():
+    sys.path.insert(0, str(_shared_path))
+from egg_logging import get_logger
 
-from .error_messages import get_error_message
-from .private_repo_policy import is_private_mode_enabled
-from .repo_visibility import get_repo_visibility
+# Import using try/except for both module and standalone script mode
+try:
+    from .error_messages import get_error_message
+    from .private_repo_policy import is_private_mode_enabled
+    from .repo_visibility import get_repo_visibility
+except ImportError:
+    from error_messages import get_error_message
+    from private_repo_policy import is_private_mode_enabled
+    from repo_visibility import get_repo_visibility
+
 
 logger = get_logger("gateway.fork-policy")
 
@@ -36,7 +49,7 @@ class ForkPolicyResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API response."""
-        result: dict[str, Any] = {
+        result = {
             "allowed": self.allowed,
             "reason": self.reason,
             "policy": "fork_policy",
@@ -51,7 +64,8 @@ class ForkPolicyResult:
 
 
 class ForkPolicy:
-    """Policy engine for fork operations in Private Repo Mode.
+    """
+    Policy engine for fork operations in Private Repo Mode.
 
     Enforces that:
     1. Cannot fork from public repositories
@@ -60,7 +74,8 @@ class ForkPolicy:
     """
 
     def __init__(self, enabled: bool | None = None):
-        """Initialize the fork policy.
+        """
+        Initialize the fork policy.
 
         Args:
             enabled: Force enable/disable mode (default: read from environment)
@@ -74,7 +89,7 @@ class ForkPolicy:
 
     def _log_policy_event(
         self,
-        source_repo: str | None,
+        source_repo: str,
         target_org: str | None,
         source_visibility: str | None,
         target_visibility: str | None,
@@ -103,9 +118,17 @@ class ForkPolicy:
         source_owner: str,
         source_repo: str,
     ) -> ForkPolicyResult:
-        """Check if forking from a repository is allowed.
+        """
+        Check if forking from a repository is allowed.
 
         In Private Repo Mode, forking from public repositories is blocked.
+
+        Args:
+            source_owner: Owner of the source repository
+            source_repo: Name of the source repository
+
+        Returns:
+            ForkPolicyResult
         """
         if not self._enabled:
             return ForkPolicyResult(
@@ -116,6 +139,7 @@ class ForkPolicy:
 
         source_full = f"{source_owner}/{source_repo}"
 
+        # Check source visibility
         visibility = get_repo_visibility(source_owner, source_repo)
 
         if visibility is None:
@@ -171,9 +195,17 @@ class ForkPolicy:
         target_org: str,
         make_private: bool = True,
     ) -> ForkPolicyResult:
-        """Check if forking to a target organization with visibility is allowed.
+        """
+        Check if forking to a target organization with visibility is allowed.
 
         In Private Repo Mode, forks must be private or internal.
+
+        Args:
+            target_org: Target organization for the fork
+            make_private: Whether the fork will be private (default: True)
+
+        Returns:
+            ForkPolicyResult
         """
         if not self._enabled:
             return ForkPolicyResult(
@@ -182,8 +214,11 @@ class ForkPolicy:
                 details={"private_mode": False},
             )
 
+        # In Private Repo Mode, forks must be private
         if not make_private:
-            reason = get_error_message("fork_to_public")
+            reason = get_error_message(
+                "fork_to_public",
+            )
             self._log_policy_event(None, target_org, None, "public", False, reason)
             return ForkPolicyResult(
                 allowed=False,
@@ -218,9 +253,19 @@ class ForkPolicy:
         target_org: str | None = None,
         make_private: bool = True,
     ) -> ForkPolicyResult:
-        """Check if a complete fork operation is allowed.
+        """
+        Check if a complete fork operation is allowed.
 
         Validates both source and target.
+
+        Args:
+            source_owner: Owner of the source repository
+            source_repo: Name of the source repository
+            target_org: Target organization (None for personal account)
+            make_private: Whether to make the fork private
+
+        Returns:
+            ForkPolicyResult
         """
         if not self._enabled:
             return ForkPolicyResult(
@@ -229,10 +274,12 @@ class ForkPolicy:
                 details={"private_mode": False},
             )
 
+        # Check source first
         source_result = self.check_fork_source(source_owner, source_repo)
         if not source_result.allowed:
             return source_result
 
+        # Check target
         target_result = self.check_fork_target(
             target_org or "personal",
             make_private=make_private,
@@ -240,6 +287,7 @@ class ForkPolicy:
         if not target_result.allowed:
             return target_result
 
+        # Both passed
         source_full = f"{source_owner}/{source_repo}"
         return ForkPolicyResult(
             allowed=True,
@@ -265,6 +313,7 @@ def get_fork_policy() -> ForkPolicy:
     global _fork_policy
     if _fork_policy is None:
         with _fork_policy_lock:
+            # Double-checked locking pattern
             if _fork_policy is None:
                 _fork_policy = ForkPolicy()
     return _fork_policy
@@ -276,7 +325,18 @@ def check_fork_allowed(
     target_org: str | None = None,
     make_private: bool = True,
 ) -> ForkPolicyResult:
-    """Check if a fork operation is allowed (convenience function)."""
+    """
+    Check if a fork operation is allowed (convenience function).
+
+    Args:
+        source_owner: Owner of the source repository
+        source_repo: Name of the source repository
+        target_org: Target organization (None for personal)
+        make_private: Whether to make the fork private
+
+    Returns:
+        ForkPolicyResult
+    """
     return get_fork_policy().check_fork(
         source_owner=source_owner,
         source_repo=source_repo,

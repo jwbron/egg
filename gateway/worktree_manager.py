@@ -12,24 +12,37 @@ to mount only the working directory (with .git shadowed by tmpfs). All git
 operations then route through the gateway API.
 """
 
-import contextlib
 import os
 import re
 import shutil
 import subprocess
+
+# Add shared directory to path for egg_logging
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-from shared.egg_logging import get_logger
+_shared_path = Path(__file__).parent.parent.parent / "shared"
+if _shared_path.exists():
+    sys.path.insert(0, str(_shared_path))
+import contextlib
 
-from .git_client import git_cmd
+from egg_logging import get_logger
+
+# Import git_cmd helper
+try:
+    from .git_client import git_cmd
+except ImportError:
+    from git_client import git_cmd
+
 
 logger = get_logger("gateway.worktree-manager")
 
-# Default paths - can be configured via constructor
-DEFAULT_WORKTREE_BASE_DIR = Path.home() / ".egg-worktrees"
-DEFAULT_REPOS_BASE_DIR = Path.home() / "repos"
+# Default paths - hardcoded to /home/egg to match container mounts
+# The gateway container runs as root but mounts are at /home/egg/*
+# (see start-gateway.sh CONTAINER_HOME and git_client.py ALLOWED_REPO_PATHS)
+WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
+REPOS_BASE_DIR = Path("/home/egg/repos")
 
 
 @dataclass
@@ -56,9 +69,14 @@ class WorktreeRemovalResult:
 
 
 def validate_identifier(value: str, name: str) -> None:
-    """Ensure identifier contains only safe characters.
+    """
+    Ensure identifier contains only safe characters.
 
     Prevents path traversal attacks via container_id or repo_name containing '../'.
+
+    Args:
+        value: The identifier value to validate
+        name: Name of the identifier (for error messages)
 
     Raises:
         ValueError: If identifier contains unsafe characters
@@ -73,7 +91,8 @@ def validate_identifier(value: str, name: str) -> None:
 
 
 class WorktreeManager:
-    """Manages git worktrees for container isolation.
+    """
+    Manages git worktrees for container isolation.
 
     Each container gets its own worktree(s), providing:
     - Isolated working directory
@@ -87,18 +106,16 @@ class WorktreeManager:
         self,
         worktree_base: Path | None = None,
         repos_base: Path | None = None,
-        branch_prefix: str = "egg",
     ):
-        """Initialize the worktree manager.
+        """
+        Initialize the worktree manager.
 
         Args:
-            worktree_base: Base directory for worktrees
-            repos_base: Base directory for main repos
-            branch_prefix: Prefix for worktree branches (default: "egg")
+            worktree_base: Base directory for worktrees (default: ~/.egg-worktrees)
+            repos_base: Base directory for main repos (default: ~/repos)
         """
-        self.worktree_base = worktree_base or DEFAULT_WORKTREE_BASE_DIR
-        self.repos_base = repos_base or DEFAULT_REPOS_BASE_DIR
-        self.branch_prefix = branch_prefix
+        self.worktree_base = worktree_base or WORKTREE_BASE_DIR
+        self.repos_base = repos_base or REPOS_BASE_DIR
         self.worktree_base.mkdir(parents=True, exist_ok=True)
 
         # Track active worktrees in memory
@@ -112,11 +129,12 @@ class WorktreeManager:
         uid: int | None = None,
         gid: int | None = None,
     ) -> WorktreeInfo:
-        """Create an isolated worktree for a container.
+        """
+        Create an isolated worktree for a container.
 
         Args:
             repo_name: Name of the repository
-            container_id: Container identifier
+            container_id: Container identifier (e.g., 'egg-xxx-yyy')
             base_branch: Branch or ref to base the worktree on (default: HEAD)
             uid: User ID to set ownership to (default: 1000)
             gid: Group ID to set ownership to (default: 1000)
@@ -128,7 +146,7 @@ class WorktreeManager:
             ValueError: If inputs are invalid or repo not found
             RuntimeError: If worktree creation fails
         """
-        # Default to user (1000:1000) if not specified
+        # Default to egg user (1000:1000) if not specified
         if uid is None:
             uid = 1000
         if gid is None:
@@ -151,13 +169,14 @@ class WorktreeManager:
 
         # Determine paths
         worktree_path = self.worktree_base / container_id / repo_name
-        branch_name = f"{self.branch_prefix}/{container_id}/work"
+        branch_name = f"egg/{container_id}/work"
 
         # Create container directory and set ownership immediately
         worktree_path.parent.mkdir(parents=True, exist_ok=True)
         self._chown_single(worktree_path.parent, uid, gid)
 
         # Check if worktree already exists AND is valid
+        # A valid worktree has a .git file (not directory) containing "gitdir: ..."
         git_file = worktree_path / ".git"
         worktree_is_valid = (
             worktree_path.exists()
@@ -173,9 +192,10 @@ class WorktreeManager:
                 repo=repo_name,
                 path=str(worktree_path),
             )
-            # Ensure ownership is correct
+            # Ensure ownership is correct (may have been created with different uid/gid)
             self._chown_recursive(worktree_path, uid, gid)
             self._chown_single(worktree_path.parent, uid, gid)
+            # Return info about existing worktree
             return WorktreeInfo(
                 container_id=container_id,
                 repo_name=repo_name,
@@ -241,9 +261,10 @@ class WorktreeManager:
 
         # Set ownership so the container user can write to the worktree
         self._chown_recursive(worktree_path, uid, gid)
+        # Also ensure the container directory itself is writable (non-recursive)
         self._chown_single(worktree_path.parent, uid, gid)
 
-        # Find the actual git dir
+        # Find the actual git dir (git names it based on worktree basename)
         git_dir = self._find_worktree_git_dir(main_repo, worktree_path)
 
         info = WorktreeInfo(
@@ -270,10 +291,22 @@ class WorktreeManager:
         return info
 
     def _chown_single(self, path: Path, uid: int, gid: int) -> None:
-        """Change ownership of a single file or directory (non-recursive)."""
+        """
+        Change ownership of a single file or directory (non-recursive).
+
+        When running as non-root (e.g., gateway with --user flag), chown will fail
+        if trying to change to a different user. This is OK because files will
+        already be owned by the current user.
+
+        Args:
+            path: Path to change ownership of
+            uid: User ID to set
+            gid: Group ID to set
+        """
         try:
             os.chown(path, uid, gid)
         except PermissionError:
+            # Running as non-root, can't chown - files already owned by current user
             logger.debug(
                 "Skipping chown (running as non-root)",
                 path=str(path),
@@ -290,8 +323,20 @@ class WorktreeManager:
             )
 
     def _chown_recursive(self, path: Path, uid: int, gid: int) -> None:
-        """Recursively change ownership of a directory."""
+        """
+        Recursively change ownership of a directory.
+
+        When running as non-root (e.g., gateway with --user flag), chown will fail
+        if trying to change to a different user. This is OK because files will
+        already be owned by the current user.
+
+        Args:
+            path: Path to change ownership of
+            uid: User ID to set
+            gid: Group ID to set
+        """
         try:
+            # Use chown -R for efficiency on large directories
             result = subprocess.run(
                 ["chown", "-R", f"{uid}:{gid}", str(path)],
                 capture_output=True,
@@ -299,6 +344,7 @@ class WorktreeManager:
             )
             if result.returncode != 0:
                 error_msg = result.stderr.decode() if result.stderr else "unknown error"
+                # Check if this is a permission error (running as non-root)
                 if "Operation not permitted" in error_msg or "Permission denied" in error_msg:
                     logger.debug(
                         "Skipping recursive chown (running as non-root)",
@@ -324,7 +370,20 @@ class WorktreeManager:
             )
 
     def _find_worktree_git_dir(self, main_repo: Path, worktree_path: Path) -> Path:
-        """Find the git worktree admin directory."""
+        """
+        Find the git worktree admin directory.
+
+        Git names worktree admin directories based on the basename of the worktree path.
+        For /path/to/worktrees/{id}/{repo}, git creates .git/worktrees/{repo}.
+        If multiple worktrees have the same basename, git appends a number.
+
+        Args:
+            main_repo: Path to main repository
+            worktree_path: Path to worktree working directory
+
+        Returns:
+            Path to worktree admin directory
+        """
         basename = worktree_path.name
         git_dir = main_repo / ".git" / "worktrees" / basename
 
@@ -336,13 +395,14 @@ class WorktreeManager:
         if worktrees_dir.exists():
             for entry in worktrees_dir.iterdir():
                 if entry.name.startswith(basename):
+                    # Verify this is the right worktree by checking gitdir file
                     gitdir_file = entry / "gitdir"
                     if gitdir_file.exists():
                         gitdir_content = gitdir_file.read_text().strip()
                         if str(worktree_path) in gitdir_content:
                             return entry
 
-        return git_dir
+        return git_dir  # Return expected path even if not found
 
     def remove_worktree(
         self,
@@ -351,7 +411,18 @@ class WorktreeManager:
         force: bool = False,
         delete_branch: bool = True,
     ) -> WorktreeRemovalResult:
-        """Remove a container's worktree."""
+        """
+        Remove a container's worktree.
+
+        Args:
+            container_id: Container identifier
+            repo_name: Repository name
+            force: If True, remove even with uncommitted changes
+            delete_branch: If True, delete the egg/{container_id}/work branch
+
+        Returns:
+            WorktreeRemovalResult with operation status
+        """
         result = WorktreeRemovalResult(success=False)
 
         try:
@@ -363,7 +434,7 @@ class WorktreeManager:
 
         worktree_path = self.worktree_base / container_id / repo_name
         main_repo = self.repos_base / repo_name
-        branch_name = f"{self.branch_prefix}/{container_id}/work"
+        branch_name = f"egg/{container_id}/work"
 
         if not worktree_path.exists():
             result.success = True
@@ -407,6 +478,7 @@ class WorktreeManager:
             )
 
             if remove_result.returncode != 0:
+                # Try forceful directory removal
                 logger.warning(
                     "Git worktree remove failed, using shutil",
                     container_id=container_id,
@@ -432,6 +504,7 @@ class WorktreeManager:
                         + f" Branch {branch_name} has unmerged commits and was not deleted."
                     ).strip()
         else:
+            # Main repo not found, just remove the directory
             shutil.rmtree(worktree_path, ignore_errors=True)
 
         # Clean up container directory if empty
@@ -460,7 +533,18 @@ class WorktreeManager:
         return result
 
     def _delete_worktree_branch(self, main_repo: Path, branch_name: str, force: bool) -> bool:
-        """Delete a worktree branch if it's safe to do so."""
+        """
+        Delete a worktree branch if it's safe to do so.
+
+        Args:
+            main_repo: Path to main repository
+            branch_name: Name of branch to delete
+            force: If True, force delete even if unmerged
+
+        Returns:
+            True if branch was deleted, False otherwise
+        """
+        # Check if branch is fully merged
         merge_check = subprocess.run(
             git_cmd("branch", "--merged", "HEAD", "--list", branch_name),
             cwd=main_repo,
@@ -482,9 +566,14 @@ class WorktreeManager:
 
         return False
 
-    def list_worktrees(self) -> list[dict[str, Any]]:
-        """List all active worktrees."""
-        worktrees: list[dict[str, Any]] = []
+    def list_worktrees(self) -> list[dict]:
+        """
+        List all active worktrees.
+
+        Returns:
+            List of worktree information dictionaries
+        """
+        worktrees = []
 
         if not self.worktree_base.exists():
             return worktrees
@@ -498,10 +587,12 @@ class WorktreeManager:
 
             for repo_dir in container_dir.iterdir():
                 if repo_dir.is_dir():
+                    # Get branch info if possible
                     branch = None
                     git_file = repo_dir / ".git"
                     if git_file.exists():
                         try:
+                            # Read gitdir from .git file
                             gitdir_content = git_file.read_text().strip()
                             if gitdir_content.startswith("gitdir: "):
                                 gitdir_path = Path(gitdir_content[8:])
@@ -532,7 +623,18 @@ class WorktreeManager:
         return worktrees
 
     def cleanup_orphaned_worktrees(self, active_containers: set[str]) -> int:
-        """Remove worktrees for containers that no longer exist."""
+        """
+        Remove worktrees for containers that no longer exist.
+
+        Called on gateway startup and periodically to clean up orphaned worktrees
+        from crashed containers.
+
+        Args:
+            active_containers: Set of currently active container IDs
+
+        Returns:
+            Number of worktrees removed
+        """
         removed = 0
 
         if not self.worktree_base.exists():
@@ -544,6 +646,7 @@ class WorktreeManager:
 
             container_id = container_dir.name
 
+            # Skip active containers
             if container_id in active_containers:
                 continue
 
@@ -552,6 +655,7 @@ class WorktreeManager:
                 container_id=container_id,
             )
 
+            # Remove each worktree
             for worktree in list(container_dir.iterdir()):
                 if worktree.is_dir():
                     result = self.remove_worktree(container_id, worktree.name, force=True)
@@ -565,6 +669,7 @@ class WorktreeManager:
                             error=result.error,
                         )
 
+            # Remove container directory
             try:
                 if container_dir.exists():
                     shutil.rmtree(container_dir, ignore_errors=True)
@@ -578,7 +683,21 @@ class WorktreeManager:
         return removed
 
     def get_worktree_paths(self, container_id: str, repo_name: str) -> tuple[Path, Path]:
-        """Get worktree paths for path mapping."""
+        """
+        Get worktree paths for path mapping.
+
+        Used by the gateway to map container paths to worktree paths.
+
+        Args:
+            container_id: Container identifier
+            repo_name: Repository name
+
+        Returns:
+            Tuple of (worktree_path, main_repo_path)
+
+        Raises:
+            ValueError: If inputs are invalid
+        """
         validate_identifier(container_id, "container_id")
         validate_identifier(repo_name, "repo_name")
 
@@ -589,7 +708,12 @@ class WorktreeManager:
 
 
 def get_active_docker_containers() -> set[str]:
-    """Get set of currently running Docker container names."""
+    """
+    Get set of currently running Docker container names.
+
+    Returns:
+        Set of container names that are currently running
+    """
     try:
         result = subprocess.run(
             ["docker", "ps", "--format", "{{.Names}}"],
@@ -605,9 +729,17 @@ def get_active_docker_containers() -> set[str]:
     return set()
 
 
-def startup_cleanup(worktree_base: Path | None = None, repos_base: Path | None = None) -> int:
-    """Clean up orphaned worktrees on gateway startup."""
-    manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+def startup_cleanup() -> int:
+    """
+    Clean up orphaned worktrees on gateway startup.
+
+    Should be called when the gateway starts to clean up worktrees
+    from containers that may have crashed.
+
+    Returns:
+        Number of orphaned worktrees removed
+    """
+    manager = WorktreeManager()
     active_containers = get_active_docker_containers()
 
     logger.info(

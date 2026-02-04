@@ -1,0 +1,186 @@
+"""CLI argument parsing and entry point for egg.
+
+This module contains the main() function and argument parser setup.
+"""
+
+import argparse
+import shutil
+
+# Import statusbar for initialization
+from statusbar import init_statusbar
+
+from .config import Config
+from .docker import check_docker, check_docker_permissions, set_force_rebuild
+from .network_mode import (
+    PrivateMode,
+    ensure_gateway_mode,
+)
+from .output import error, info, set_quiet_mode, success, warn
+from .runtime import exec_in_new_container, run_claude
+from .setup_flow import check_host_setup, setup
+from .timing import _host_timer
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Run Claude Code CLI in an isolated Docker container (egg)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  egg                                      # Run Claude Code (progress bar by default, auto-setup if needed)
+  egg -v                                   # Run in verbose mode (detailed output)
+  egg --time                               # Show startup timing breakdown for debugging
+  egg --setup                              # Run interactive setup wizard
+  egg --reset                              # Reset configuration and remove Docker image
+  egg --rebuild                            # Force rebuild Docker image (even if files unchanged)
+  egg --exec <command> [args...]          # Execute command in new ephemeral container
+  egg --timeout 60 --exec <command>       # Execute with custom timeout (60 minutes)
+
+Network modes:
+  egg --public                             # Public mode: full internet + public repos only (default)
+  egg --private                            # Private mode: network lockdown + private repos only
+
+Note: --exec spawns a new container for each execution (automatic cleanup with --rm)
+      Default timeout is 30 minutes, configurable via --timeout
+      If setup is incomplete, egg will prompt to run setup automatically
+      Default shows progress bar; use -v for verbose output
+      Use --rebuild if container seems stale (forces fresh Docker build)
+        """,
+    )
+    parser.add_argument(
+        "--setup", action="store_true", help="Run full egg setup (services, config, Docker image)"
+    )
+    parser.add_argument("--reset", action="store_true", help="Clear configuration and start over")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=30,
+        metavar="MINUTES",
+        help="Timeout in minutes for --exec commands (default: 30)",
+    )
+    parser.add_argument(
+        "--auth",
+        choices=["api-key", "oauth-token"],
+        default="oauth-token",
+        help="Anthropic authentication method for --exec: 'oauth-token' (default) or 'api-key'",
+    )
+    parser.add_argument(
+        "--exec",
+        nargs=argparse.REMAINDER,
+        help="Execute a command in a new ephemeral container (automatic cleanup)",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Verbose mode: show detailed output instead of progress bar (default: quiet with progress bar)",
+    )
+    parser.add_argument(
+        "--time",
+        action="store_true",
+        help="Show startup timing breakdown for debugging slow startup",
+    )
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="Force rebuild of Docker image even if files haven't changed",
+    )
+
+    # Private mode arguments (mutually exclusive)
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--public",
+        action="store_true",
+        help="Public mode: full internet access + public repos only (default).",
+    )
+    mode_group.add_argument(
+        "--private",
+        action="store_true",
+        help="Private mode: network lockdown (Anthropic API only) + private repos only.",
+    )
+
+    args = parser.parse_args()
+
+    # Enable timing if --time flag is set
+    if args.time:
+        _host_timer.enabled = True
+
+    # Initialize quiet mode globally
+    # Quiet is the default; verbose (-v) overrides it
+    # Setup and reset are always verbose (interactive)
+    quiet_mode = not args.verbose and not args.setup and not args.reset
+    set_quiet_mode(quiet_mode)
+
+    # Initialize force rebuild flag
+    set_force_rebuild(args.rebuild)
+
+    if quiet_mode:
+        # Initialize statusbar with estimated steps for interactive mode
+        # Steps: check image, build image, start gateway, prepare container,
+        #        configure mounts, launch Claude
+        init_statusbar(total_steps=6, enabled=True)
+
+    # Determine mode from CLI flags (default: public)
+    # No persistent state - mode is determined purely from flags each invocation
+    if args.private:
+        requested_mode = PrivateMode.PRIVATE
+    else:
+        # Default to public mode (explicit --public or no flag)
+        requested_mode = PrivateMode.PUBLIC
+
+    # Ensure gateway is running with the correct mode
+    if not ensure_gateway_mode(requested_mode, quiet=quiet_mode):
+        error("Failed to ensure gateway is in correct mode")
+        return 1
+
+    # Handle reset
+    if args.reset:
+        warn("Resetting configuration...")
+        if Config.CONFIG_DIR.exists():
+            shutil.rmtree(Config.CONFIG_DIR)
+        if Config.USER_CONFIG_DIR.exists():
+            print()
+            warn(f"User configuration exists: {Config.USER_CONFIG_DIR}")
+            response = input("Remove user configuration as well? (yes/no): ").strip().lower()
+            if response == "yes":
+                shutil.rmtree(Config.USER_CONFIG_DIR)
+                warn(f"Removed: {Config.USER_CONFIG_DIR}")
+            else:
+                info("Preserved user configuration")
+
+        success("Configuration reset. Run again to set up fresh.")
+        return 0
+
+    # Check prerequisites
+    if not check_docker():
+        return 1
+
+    if not check_docker_permissions():
+        return 1
+
+    # Check host setup (services and directories)
+    if not check_host_setup():
+        return 1
+
+    # Handle setup - run interactive setup
+    if args.setup:
+        if not setup():
+            return 1
+        return 0
+
+    # Mode is already determined from CLI flags above
+    repo_mode = requested_mode.value
+
+    # Handle exec - execute in a new ephemeral container
+    if args.exec:
+        if not exec_in_new_container(
+            args.exec, timeout_minutes=args.timeout, auth_mode=args.auth, repo_mode=repo_mode
+        ):
+            return 1
+        return 0
+
+    # Normal run
+    if not run_claude(repo_mode=repo_mode):
+        return 1
+
+    return 0

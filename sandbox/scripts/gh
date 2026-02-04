@@ -1,0 +1,519 @@
+#!/bin/bash
+#
+# gh CLI wrapper for egg container
+# Routes gh commands through the gateway sidecar for policy enforcement.
+#
+# Security: Requires gateway sidecar - fails closed if gateway unavailable.
+# The gateway sidecar holds the GitHub token and enforces policies:
+# - PR operations (create, comment, edit, close) go through gateway
+# - Merge operations are blocked (human must merge via GitHub UI)
+# - Read-only operations are passed through
+#
+
+# Real gh binary - relocated to hidden path to prevent direct access
+# See Dockerfile for relocation logic; /usr/bin/gh is now a stub
+REAL_GH=/opt/.egg-internal/gh
+# Gateway runs as container on egg-network, reachable by container name
+GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9847}"
+# Session token for per-container authentication (required)
+EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-}"
+# Worktree container ID - set by egg launcher to translate container paths
+# Container sees ~/repos/X but gateway needs ~/.egg-worktrees/<container-id>/X
+# After PR #545, gateway mounts at container paths (/home/egg/...) not host paths
+EGG_WORKTREE_HOST_PATH="${EGG_WORKTREE_HOST_PATH:-}"
+CONTAINER_REPOS_DIR="${HOME}/repos"
+# Fixed container home path (must match gateway's CONTAINER_HOME)
+GATEWAY_CONTAINER_HOME="/home/egg"
+
+# Function to translate container path to gateway-accessible path
+# Container sees /home/egg/repos/X but gateway needs /home/egg/.egg-worktrees/<id>/X
+# Note: Gateway mounts host paths at container paths (PR #545), so we output
+# container-style paths, not host paths.
+translate_path_for_gateway() {
+    local container_path="$1"
+
+    # If no worktree host path is set, return the path as-is
+    if [ -z "$EGG_WORKTREE_HOST_PATH" ]; then
+        echo "$container_path"
+        return
+    fi
+
+    # Check if path is under the container's repos directory
+    if [[ "$container_path" == "$CONTAINER_REPOS_DIR"/* ]]; then
+        local relative_path="${container_path#$CONTAINER_REPOS_DIR/}"
+        # Extract container ID from EGG_WORKTREE_HOST_PATH
+        # e.g., /home/user/.egg-worktrees/egg-20260123-000359-244376 -> egg-20260123-000359-244376
+        local container_id="${EGG_WORKTREE_HOST_PATH##*/}"
+        # Construct the gateway container path (not host path!)
+        # Gateway mounts ~/.egg-worktrees at /home/egg/.egg-worktrees
+        echo "${GATEWAY_CONTAINER_HOME}/.egg-worktrees/${container_id}/${relative_path}"
+    else
+        echo "$container_path"
+    fi
+}
+
+# Function to show no gateway error message
+show_no_gateway_message() {
+    cat >&2 << 'EOF'
+
+================================================================================
+  GATEWAY SIDECAR NOT AVAILABLE
+================================================================================
+
+Cannot run gh command: The gateway sidecar is required but not reachable.
+
+The gateway enforces ownership policies and holds GitHub credentials.
+Without it, gh operations are not allowed.
+
+Please ensure:
+  1. Gateway sidecar is running on the host:
+     systemctl --user status gateway-sidecar
+
+  2. The container can reach the gateway:
+     curl http://egg-gateway:9847/api/v1/health
+
+================================================================================
+
+EOF
+    return 1
+}
+
+# Function to show merge blocked message
+show_merge_blocked_message() {
+    cat >&2 << 'EOF'
+
+================================================================================
+  MERGE OPERATIONS NOT SUPPORTED
+================================================================================
+
+The gateway sidecar does not support merge operations.
+
+Human must merge PRs via the GitHub web interface.
+
+This is a safety measure to ensure human review before merging.
+
+================================================================================
+
+EOF
+    return 1
+}
+
+# Function to get authentication token for gateway requests
+# Session token is required for all container operations
+get_gateway_auth() {
+    if [ -n "$EGG_SESSION_TOKEN" ]; then
+        echo "$EGG_SESSION_TOKEN"
+        return 0
+    fi
+    echo ""
+}
+
+# Function to check if gateway is available
+check_gateway_available() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -s --connect-timeout 2 "${GATEWAY_URL}/api/v1/health" >/dev/null 2>&1
+        return $?
+    fi
+    return 1
+}
+
+# Function to extract repo from current directory or args
+get_repo() {
+    local repo=""
+
+    # Check if --repo is specified
+    for i in "${!ARGS[@]}"; do
+        if [[ "${ARGS[$i]}" == "--repo" ]] && [[ -n "${ARGS[$((i+1))]}" ]]; then
+            repo="${ARGS[$((i+1))]}"
+            break
+        elif [[ "${ARGS[$i]}" == --repo=* ]]; then
+            repo="${ARGS[$i]#--repo=}"
+            break
+        elif [[ "${ARGS[$i]}" == -R ]] && [[ -n "${ARGS[$((i+1))]}" ]]; then
+            repo="${ARGS[$((i+1))]}"
+            break
+        fi
+    done
+
+    # If no --repo, try to get from git remote
+    if [ -z "$repo" ]; then
+        local url
+        url=$(git remote get-url origin 2>/dev/null)
+        if [ -n "$url" ]; then
+            # Extract owner/repo from URL
+            repo=$(echo "$url" | sed -E 's|.*github\.com[:/]([^/]+)/([^/.]+)(\.git)?$|\1/\2|')
+        fi
+    fi
+
+    echo "$repo"
+}
+
+# Function to call gateway API with authentication
+call_gateway() {
+    local endpoint="$1"
+    local payload="$2"
+
+    # Get session token for authentication
+    local secret
+    secret=$(get_gateway_auth)
+    if [ -z "$secret" ]; then
+        echo "ERROR: EGG_SESSION_TOKEN not set. Session required for gateway access" >&2
+        return 1
+    fi
+
+    local response
+    local http_code
+    response=$(curl -s -w "\n%{http_code}" \
+        -X POST \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $secret" \
+        -d "$payload" \
+        "${GATEWAY_URL}${endpoint}" 2>&1)
+
+    # Split response and status code
+    http_code=$(echo "$response" | tail -n1)
+    response=$(echo "$response" | sed '$d')
+
+    # Parse response
+    local success
+    success=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('success', False))" 2>/dev/null)
+
+    if [ "$success" = "True" ]; then
+        # Show stdout from response
+        local stdout
+        stdout=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin).get('data', {}); print(d.get('stdout', '') if d else '')" 2>/dev/null)
+        [ -n "$stdout" ] && echo "$stdout"
+        return 0
+    else
+        # Show error message
+        local message
+        message=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('message', 'Unknown error'))" 2>/dev/null)
+        echo "ERROR: $message" >&2
+
+        # Show stderr if available
+        local stderr
+        stderr=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin).get('data', {}); print(d.get('stderr', '') if d else '')" 2>/dev/null)
+        [ -n "$stderr" ] && echo "$stderr" >&2
+
+        # Special handling for error codes
+        case "$http_code" in
+            401)
+                echo "Authentication failed - check session token" >&2
+                ;;
+            429)
+                echo "Rate limit exceeded - please wait before trying again" >&2
+                ;;
+        esac
+
+        return 1
+    fi
+}
+
+# Function to handle PR create - uses proper JSON escaping
+handle_pr_create() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for title, body, base, head
+    local title="" body="" base="main" head=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --title|-t)
+                ((i++))
+                title="${ARGS[$i]}"
+                ;;
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            --base|-B)
+                ((i++))
+                base="${ARGS[$i]}"
+                ;;
+            --head|-H)
+                ((i++))
+                head="${ARGS[$i]}"
+                ;;
+        esac
+        ((i++))
+    done
+
+    # Get current branch if head not specified
+    if [ -z "$head" ]; then
+        head=$(git branch --show-current 2>/dev/null)
+    fi
+
+    if [ -z "$title" ]; then
+        echo "ERROR: Missing --title for PR create" >&2
+        return 1
+    fi
+
+    # Build JSON payload using Python for proper escaping
+    local payload
+    payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({
+    'repo': sys.argv[1],
+    'title': sys.argv[2],
+    'body': sys.argv[3],
+    'base': sys.argv[4],
+    'head': sys.argv[5]
+}))
+" "$repo" "$title" "$body" "$base" "$head")
+
+    call_gateway "/api/v1/gh/pr/create" "$payload"
+}
+
+# Function to handle PR comment - uses proper JSON escaping
+handle_pr_comment() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for PR number and body
+    local pr_number="" body=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            [0-9]*)
+                if [ -z "$pr_number" ]; then
+                    pr_number="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$pr_number" ]; then
+        echo "ERROR: Missing PR number" >&2
+        return 1
+    fi
+
+    if [ -z "$body" ]; then
+        echo "ERROR: Missing --body for PR comment" >&2
+        return 1
+    fi
+
+    # Build JSON payload using Python for proper escaping
+    local payload
+    payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({
+    'repo': sys.argv[1],
+    'pr_number': int(sys.argv[2]),
+    'body': sys.argv[3]
+}))
+" "$repo" "$pr_number" "$body")
+
+    call_gateway "/api/v1/gh/pr/comment" "$payload"
+}
+
+# Function to handle PR edit - uses proper JSON escaping
+handle_pr_edit() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for PR number, title, body
+    local pr_number="" title="" body=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --title|-t)
+                ((i++))
+                title="${ARGS[$i]}"
+                ;;
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            [0-9]*)
+                if [ -z "$pr_number" ]; then
+                    pr_number="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$pr_number" ]; then
+        echo "ERROR: Missing PR number" >&2
+        return 1
+    fi
+
+    # Build JSON payload using Python for proper escaping
+    local payload
+    payload=$(python3 -c "
+import json
+import sys
+data = {
+    'repo': sys.argv[1],
+    'pr_number': int(sys.argv[2])
+}
+if sys.argv[3]:
+    data['title'] = sys.argv[3]
+if sys.argv[4]:
+    data['body'] = sys.argv[4]
+print(json.dumps(data))
+" "$repo" "$pr_number" "$title" "$body")
+
+    call_gateway "/api/v1/gh/pr/edit" "$payload"
+}
+
+# Function to handle PR close
+handle_pr_close() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for PR number
+    local pr_number=""
+
+    for arg in "${ARGS[@]}"; do
+        if [[ "$arg" =~ ^[0-9]+$ ]]; then
+            pr_number="$arg"
+            break
+        fi
+    done
+
+    if [ -z "$pr_number" ]; then
+        echo "ERROR: Missing PR number" >&2
+        return 1
+    fi
+
+    # Build JSON payload
+    local payload
+    payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({
+    'repo': sys.argv[1],
+    'pr_number': int(sys.argv[2])
+}))
+" "$repo" "$pr_number")
+
+    call_gateway "/api/v1/gh/pr/close" "$payload"
+}
+
+# Function to execute via gateway passthrough - uses proper JSON escaping
+execute_via_gateway() {
+    local container_cwd
+    local cwd
+    container_cwd=$(pwd)
+    # Translate container path to host path for gateway
+    cwd=$(translate_path_for_gateway "$container_cwd")
+
+    # Detect repo from container context (the gateway can't auto-detect it)
+    # This runs git in the container where the worktree structure is available
+    local repo
+    repo=$(get_repo)
+
+    # Build JSON payload using Python for proper escaping
+    # Include repo so gateway can inject --repo if needed
+    local payload
+    payload=$(python3 -c "
+import json
+import sys
+args = sys.argv[3:]
+data = {
+    'args': args,
+    'cwd': sys.argv[1]
+}
+# Include repo if detected (gateway will inject --repo if not in args)
+if sys.argv[2]:
+    data['repo'] = sys.argv[2]
+print(json.dumps(data))
+" "$cwd" "$repo" "${ARGS[@]}")
+
+    call_gateway "/api/v1/gh/execute" "$payload"
+}
+
+# Store original args
+ARGS=("$@")
+
+# Parse the main command
+main_cmd=""
+sub_cmd=""
+for arg in "$@"; do
+    if [[ "$arg" != -* ]]; then
+        if [ -z "$main_cmd" ]; then
+            main_cmd="$arg"
+        elif [ -z "$sub_cmd" ]; then
+            sub_cmd="$arg"
+            break
+        fi
+    fi
+done
+
+# Check for merge command - always blocked
+if [ "$main_cmd" = "pr" ] && [ "$sub_cmd" = "merge" ]; then
+    show_merge_blocked_message
+    exit 1
+fi
+
+# Gateway is REQUIRED - fail closed if not available
+if ! check_gateway_available; then
+    show_no_gateway_message
+    exit 1
+fi
+
+# Route commands through gateway
+case "$main_cmd" in
+    pr)
+        case "$sub_cmd" in
+            create)
+                handle_pr_create
+                exit $?
+                ;;
+            comment)
+                handle_pr_comment
+                exit $?
+                ;;
+            edit)
+                handle_pr_edit
+                exit $?
+                ;;
+            close)
+                handle_pr_close
+                exit $?
+                ;;
+            *)
+                # Other PR commands - pass through via gateway execute
+                execute_via_gateway
+                exit $?
+                ;;
+        esac
+        ;;
+    *)
+        # All other commands - pass through via gateway execute
+        execute_via_gateway
+        exit $?
+        ;;
+esac

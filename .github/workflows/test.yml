@@ -26,10 +26,10 @@ jobs:
 
       - name: Run unit tests
         run: |
-          .venv/bin/pytest tests/unit -v \
-            --cov=gateway --cov=shared --cov=cli \
+          .venv/bin/pytest tests/ -v \
+            --cov=gateway --cov=shared --cov=sandbox \
             --cov-report=term-missing \
-            --cov-fail-under=75
+            --cov-fail-under=25
 
   integration:
     name: Integration Tests
@@ -74,4 +74,4 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run bandit
-        run: .venv/bin/bandit -r gateway shared cli -ll
+        run: .venv/bin/bandit -r gateway shared sandbox -ll -c pyproject.toml

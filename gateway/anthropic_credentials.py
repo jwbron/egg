@@ -1,22 +1,28 @@
 """
-Anthropic Credentials Manager for Egg Gateway.
+Anthropic Credentials Manager for Gateway Sidecar.
 
 Manages Anthropic API credentials (API key or OAuth token) for proxy injection.
-Credentials are read from a secrets.env file (configurable path).
+Credentials are read from ~/.config/egg/secrets.env on the host.
 
 Supported credential types:
 - ANTHROPIC_API_KEY: Standard Anthropic API key (x-api-key header)
-- ANTHROPIC_OAUTH_TOKEN: OAuth token from Claude Max subscription (Authorization: Bearer header)
+- CLAUDE_CODE_OAUTH_TOKEN: OAuth token from Claude (Authorization: Bearer header)
+- ANTHROPIC_OAUTH_TOKEN: Legacy OAuth token name (for backward compatibility)
 
 OAuth token takes precedence if both are configured.
 """
 
 import os
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from shared.egg_logging import get_logger
+# Add shared directory to path for egg_logging
+_shared_path = Path(__file__).parent.parent / "shared"
+if _shared_path.exists():
+    sys.path.insert(0, str(_shared_path))
+from egg_logging import get_logger
 
 logger = get_logger("gateway.anthropic-credentials")
 
@@ -36,12 +42,10 @@ class AnthropicCredential:
 
     @property
     def is_api_key(self) -> bool:
-        """Check if this is an API key credential."""
         return self.header_name == "x-api-key"
 
     @property
     def is_oauth(self) -> bool:
-        """Check if this is an OAuth token credential."""
         return self.header_name == "Authorization"
 
 
@@ -61,7 +65,7 @@ def parse_env_file(path: Path) -> dict[str, str]:
     Returns:
         Dictionary of environment variables
     """
-    result: dict[str, str] = {}
+    result = {}
     try:
         with open(path) as f:
             for line in f:
@@ -147,7 +151,13 @@ class AnthropicCredentialsManager:
             return
 
         # Check for OAuth token first (takes precedence)
-        oauth_token = secrets.get("ANTHROPIC_OAUTH_TOKEN", "").strip()
+        # Try CLAUDE_CODE_OAUTH_TOKEN first (preferred), then ANTHROPIC_OAUTH_TOKEN (legacy)
+        oauth_token = secrets.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
+        oauth_source = "CLAUDE_CODE_OAUTH_TOKEN"
+        if not oauth_token:
+            oauth_token = secrets.get("ANTHROPIC_OAUTH_TOKEN", "").strip()
+            oauth_source = "ANTHROPIC_OAUTH_TOKEN"
+
         if oauth_token:
             # Validate format
             if len(oauth_token) < 20:
@@ -161,7 +171,8 @@ class AnthropicCredentialsManager:
             )
             logger.info(
                 "Anthropic OAuth token loaded from secrets",
-                token_prefix=oauth_token[:10] + "...",
+                source=oauth_source,
+                token_prefix=oauth_token[:16] + "...",
             )
             return
 
@@ -189,7 +200,7 @@ class AnthropicCredentialsManager:
         logger.warning(
             "No Anthropic credentials found in secrets",
             path=str(self._secrets_path),
-            hint="Add ANTHROPIC_API_KEY or ANTHROPIC_OAUTH_TOKEN to secrets.env",
+            hint="Add ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN to secrets.env",
         )
         self._credential = None
 

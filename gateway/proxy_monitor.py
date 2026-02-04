@@ -2,19 +2,26 @@
 
 This module provides utilities for monitoring Squid proxy traffic and
 detecting anomalies that might indicate attempted policy violations.
+
+Reference: ADR-Internet-Tool-Access-Lockdown.md
 """
 
 import json
+import logging
 import os
-import time
+import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
-from shared.egg_logging import get_logger
-
-logger = get_logger("gateway.proxy-monitor")
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger = logging.getLogger(__name__)
 
 
 class BlockedRequest(NamedTuple):
@@ -55,6 +62,7 @@ class ProxyStats:
         self.blocked_requests.append(request)
         self.blocked_by_destination[request.destination] += 1
 
+        # Check for anomaly
         if self._check_anomaly():
             self._send_alert()
 
@@ -85,13 +93,16 @@ class ProxyStats:
         }
         logger.warning(f"SECURITY ALERT: {json.dumps(alert)}")
 
-    def get_summary(self) -> dict[str, Any]:
+    def get_summary(self) -> dict:
         """Get summary statistics."""
-        total = self.allowed_count + self.blocked_count
         return {
             "allowed_requests": self.allowed_count,
             "blocked_requests": self.blocked_count,
-            "block_rate": self.blocked_count / total if total > 0 else 0,
+            "block_rate": (
+                self.blocked_count / (self.allowed_count + self.blocked_count)
+                if (self.allowed_count + self.blocked_count) > 0
+                else 0
+            ),
             "top_blocked_destinations": dict(
                 sorted(
                     self.blocked_by_destination.items(),
@@ -102,11 +113,17 @@ class ProxyStats:
         }
 
 
-def parse_squid_json_log(line: str) -> dict[str, Any] | None:
-    """Parse a JSON log line from Squid."""
+def parse_squid_json_log(line: str) -> dict | None:
+    """Parse a JSON log line from Squid.
+
+    Args:
+        line: Raw log line from Squid access log
+
+    Returns:
+        Parsed log entry dict or None if parsing fails
+    """
     try:
-        entry: dict[str, Any] = json.loads(line.strip())
-        return entry
+        return json.loads(line.strip())
     except json.JSONDecodeError:
         return None
 
@@ -118,7 +135,15 @@ def log_blocked_request(
     reason: str,
     stats: ProxyStats | None = None,
 ) -> None:
-    """Log a blocked request with structured audit format."""
+    """Log a blocked request with structured audit format.
+
+    Args:
+        client_ip: Source IP of the request
+        destination: Target URL/domain
+        method: HTTP method (GET, POST, CONNECT, etc.)
+        reason: Why the request was blocked
+        stats: Optional ProxyStats instance to update
+    """
     entry = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "event_type": "proxy_request_blocked",
@@ -150,7 +175,14 @@ def log_allowed_request(
     method: str,
     stats: ProxyStats | None = None,
 ) -> None:
-    """Log an allowed request (verbose mode only)."""
+    """Log an allowed request (verbose mode only).
+
+    Args:
+        client_ip: Source IP of the request
+        destination: Target URL/domain
+        method: HTTP method
+        stats: Optional ProxyStats instance to update
+    """
     if os.environ.get("PROXY_LOG_VERBOSE", "0") == "1":
         entry = {
             "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -174,7 +206,13 @@ def watch_squid_log(
 
     This function tails the Squid access log and emits structured
     audit events for blocked requests.
+
+    Args:
+        log_path: Path to Squid access log
+        stats: Optional ProxyStats instance for tracking
     """
+    import time
+
     log_file = Path(log_path)
     if not log_file.exists():
         logger.warning(f"Squid log not found: {log_path}")
@@ -182,7 +220,7 @@ def watch_squid_log(
 
     # Start at end of file
     with open(log_file) as f:
-        f.seek(0, 2)
+        f.seek(0, 2)  # Seek to end
 
         while True:
             line = f.readline()
@@ -194,6 +232,7 @@ def watch_squid_log(
             if not entry:
                 continue
 
+            # Check if request was blocked (4xx status)
             status = entry.get("status", 0)
             if status >= 400:
                 log_blocked_request(
@@ -213,6 +252,7 @@ def watch_squid_log(
 
 
 if __name__ == "__main__":
+    # Run as standalone log watcher
     stats = ProxyStats()
     try:
         watch_squid_log(stats=stats)

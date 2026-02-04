@@ -1,0 +1,156 @@
+# Repository Configuration for egg
+#
+# This is a TEMPLATE file. Copy to ~/.config/egg/repositories.yaml and customize.
+# Or run ./setup.py which will create this file interactively.
+#
+# This file is the SINGLE SOURCE OF TRUTH for which repositories egg has
+# read/write access to. All components should import this config rather than
+# hardcoding repository names.
+#
+# Usage:
+# - Python: from config.repo_config import get_writable_repos, is_writable_repo
+# - Bash/Scripts: parse this YAML or use the helper script
+# - Claude Rules: Reference this file for up-to-date repo list
+#
+# Access Levels:
+# - writable: egg can respond to comments, push changes, create PRs
+# - readable: egg can sync and analyze but not modify
+
+# Your GitHub username (set by setup.py)
+github_username: YOUR_USERNAME
+
+# Bot username - the bot's GitHub identity for filtering out its own comments
+# Comments from this user are ignored (so the bot doesn't respond to itself)
+bot_username: egg
+
+# Repositories where egg has WRITE access
+# These are repos where egg can:
+# - Respond to PR comments
+# - Push code changes
+# - Create PRs via gh CLI
+# - Implement fixes for failed CI checks
+writable_repos:
+  - YOUR_USERNAME/egg
+  # Add more repos as needed:
+  # - YOUR_USERNAME/other-repo
+
+# Default reviewer for PRs created by egg (defaults to github_username)
+default_reviewer: YOUR_USERNAME
+
+# GitHub sync configuration
+github_sync:
+  # Whether to sync all PRs in writable repos (true) or just user's PRs (false)
+  sync_all_prs: true
+
+  # Sync interval in minutes (used by systemd timer)
+  sync_interval_minutes: 5
+
+# Repositories with read-only access
+# These are repos where egg can:
+# - Sync and analyze PRs, comments, and check failures
+# - Send Slack notifications with feedback/analysis
+# - NOT: Push code, create PRs, post comments, or make any modifications
+#
+# Read-only repos only require a GitHub PAT with read access.
+# egg will monitor these repos and send Slack messages with:
+# - Branch names with proposed changes
+# - Analysis and feedback on code
+# - Comments and suggestions (sent to user, not posted to GitHub)
+#
+# Authentication: Uses GITHUB_READONLY_TOKEN (PAT) - no GitHub App needed for read-only
+readable_repos:
+  # Add repos you want to monitor but not modify here
+  # Example: - some-org/some-repo
+
+# Per-repository configuration overrides
+# Each key is a repository name in "owner/repo" format
+# Available options per repo:
+#   - restrict_to_configured_users: Only auto-respond to comments/PRs from
+#     bot_username or github_username (ignores external contributors)
+#     Default: false (respond to all users)
+#   - disable_auto_fix: Don't automatically attempt to fix failing CI checks
+#     Default: false (auto-fix enabled)
+#   - auth_mode: Authentication mode for this repo
+#     "bot" (default): Use GitHub App bot identity
+#     "incognito": Use personal access token with user identity
+repo_settings:
+  # Example:
+  # YOUR_USERNAME/egg:
+  #   restrict_to_configured_users: true
+  #   disable_auto_fix: true
+  # some-org/external-repo:
+  #   auth_mode: incognito  # Use personal identity for this repo
+
+# Incognito mode configuration (optional)
+# When auth_mode is set to "incognito" for a repo, operations will be
+# attributed to this personal GitHub account instead of the egg bot.
+# This is useful for contributing to external repos where bot accounts
+# may not be appropriate.
+#
+# To use incognito mode:
+# 1. Set GITHUB_INCOGNITO_TOKEN in secrets.env (a PAT for your personal account)
+# 2. Configure the incognito section below with your GitHub username
+# 3. Set auth_mode: incognito for repos that should use it
+# 4. Configure your LOCAL git with your name/email:
+#      git config user.name "Your Name"
+#      git config user.email "your@email.com"
+#    (Git author info is set at commit time, not push time)
+#
+# Incognito mode permissions:
+# - CAN push to new branches (that don't exist upstream yet)
+# - CAN push to branches with an open PR owned by egg or the incognito user
+# - CANNOT push to main/master (protected branches)
+# - CANNOT create PRs (you must create PRs manually via GitHub UI)
+# This ensures the human maintains control over what PRs are opened in their name.
+incognito:
+  # GitHub username for attribution (must match the PAT owner)
+  # github_user: jwbron
+  # Git author info (for documentation - configure locally with git config)
+  # git_name: "James Wies"
+  # git_email: "jwbron@example.com"
+
+# Local repository configuration
+# These are local directories on your machine that will be:
+# 1. Volume-mounted into the egg container
+# 2. Set up with git worktrees for isolated development
+#
+# Each repo gets its own worktree so the agent can work without affecting
+# your working directory. Changes are committed to the worktree branch,
+# then you review and merge.
+local_repos:
+  # List of absolute paths to local git repositories
+  # Example:
+  #   - /home/username/projects/my-app
+  #   - /home/username/work/another-repo
+  #
+  # These paths will be:
+  # - Mounted read-only (the main repo stays clean)
+  # - Git metadata mounted read-write (for worktree commits)
+  # - Worktrees created at ~/.egg-worktrees/<container-id>/<repo-name>
+  paths: []
+
+# Docker container setup configuration
+# Controls what gets installed when running docker-setup.py
+docker_setup:
+  # Extra packages to install beyond core utilities
+  # Core utilities (always installed): git, curl, wget, jq, unzip, vim, htop,
+  #   tree, lsof, build-essential/gcc+make
+  extra_packages:
+    # Packages for apt (Ubuntu/Debian)
+    apt: []
+    # Packages for dnf (Fedora/RHEL)
+    dnf: []
+    # Common packages that work on both (package names must match)
+    packages: []
+  # Examples:
+  #   apt:
+  #     - nodejs
+  #     - python3.11
+  #     - golang-go
+  #     - openjdk-11-jdk
+  #     - postgresql-14
+  #   dnf:
+  #     - nodejs
+  #     - python3.11
+  #     - golang
+  #     - java-11-openjdk

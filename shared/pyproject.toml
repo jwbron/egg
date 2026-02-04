@@ -1,0 +1,13 @@
+[project]
+name = "egg-shared"
+version = "0.1.0"
+description = "Shared modules for egg (enrichment, logging, notifications, etc.)"
+requires-python = ">=3.11"
+dependencies = ["pyyaml>=6.0"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["beads*", "enrichment*", "git_utils*", "jib_config*", "jib_logging*", "notifications*", "text_utils*"]

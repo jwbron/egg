@@ -1,0 +1,49 @@
+# Hadolint configuration for Dockerfile linting
+# See: https://github.com/hadolint/hadolint
+
+# Ignore rules that don't apply to our use case
+ignored:
+  # DL3008: Pin versions in apt get install
+  # We intentionally don't pin to get latest security updates
+  - DL3008
+
+  # DL3009: Delete apt-get lists after installing
+  # Container image size is not a critical concern here
+  - DL3009
+
+  # DL3013: Pin versions in pip
+  # Handled separately via requirements.txt
+  - DL3013
+
+  # DL3015: Avoid additional packages by specifying --no-install-recommends
+  # We need recommended packages for full functionality
+  - DL3015
+
+  # DL3016: Pin versions in npm
+  # We want latest versions for Claude Code
+  - DL3016
+
+  # DL3059: Multiple consecutive RUN instructions
+  # We optimize for readability over layer count
+  - DL3059
+
+  # DL4006: Set SHELL to use pipefail
+  # Not critical for our use case
+  - DL4006
+
+  # SC2015: A && B || C is not if-then-else
+  # We use this pattern intentionally in some cases
+  - SC2015
+
+# Trusted registries
+trustedRegistries:
+  - docker.io
+  - gcr.io
+  - ghcr.io
+
+# Severity overrides
+override:
+  warning:
+    # These are best practices but not critical
+    - DL3003  # Use WORKDIR instead of proliferating RUN cd
+    - DL3006  # Always tag the version of an image explicitly

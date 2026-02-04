@@ -1,1 +1,1 @@
-"""Tests for egg sandbox environment."""
+# egg test suite
