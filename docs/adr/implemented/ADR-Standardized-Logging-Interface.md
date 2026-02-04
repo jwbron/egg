@@ -310,7 +310,7 @@ All log entries include these fields:
 
   "context": {
     "task_id": "bd-xyz789",
-    "repository": "jwbron/egg",
+    "repository": "your-org/egg",
     "pr_number": 123
   },
 
@@ -591,7 +591,7 @@ from egg_logging import get_logger
 logger = get_logger("slack-receiver")
 
 # Same code works in both environments:
-logger.info("Processing PR", pr_number=123, repository="jwbron/egg")
+logger.info("Processing PR", pr_number=123, repository="your-org/egg")
 
 # Local: Pretty console output
 # GCP: Structured JSON to Cloud Logging

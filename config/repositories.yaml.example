@@ -104,10 +104,10 @@ repo_settings:
 # This ensures the human maintains control over what PRs are opened in their name.
 incognito:
   # GitHub username for attribution (must match the PAT owner)
-  # github_user: jwbron
+  # github_user: your-username
   # Git author info (for documentation - configure locally with git config)
-  # git_name: "James Wies"
-  # git_email: "jwbron@example.com"
+  # git_name: "Your Name"
+  # git_email: "you@example.com"
 
 # Local repository configuration
 # These are local directories on your machine that will be:

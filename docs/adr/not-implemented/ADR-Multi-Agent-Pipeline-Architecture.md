@@ -541,7 +541,7 @@ Context should be layered based on scope and relevance:
 │  │ Layer 1: PERMANENT CONTEXT (Always Included)                 │ │
 │  │                                                               │ │
 │  │ - Agent identity and role                                    │ │
-│  │ - Organization standards (Khan Academy values)               │ │
+│  │ - Organization standards (company values)                    │ │
 │  │ - Security boundaries (what NOT to do)                       │ │
 │  │ - Output format requirements                                 │ │
 │  │                                                               │ │
@@ -1038,7 +1038,7 @@ termination:
 │  ┌─────────────────────────────────────────────────────────────┐ │
 │  │ BASE AGENT (base.yaml)                                       │ │
 │  │                                                               │ │
-│  │ - Organization standards (Khan Academy)                      │ │
+│  │ - Organization standards (company)                           │ │
 │  │ - Security constraints (no credentials)                      │ │
 │  │ - Communication style (concise, technical)                   │ │
 │  │ - Error handling patterns                                    │ │

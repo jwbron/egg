@@ -148,7 +148,7 @@ def get_github_readonly_token() -> str | None:
     """Get read-only GitHub token for external repositories.
 
     This token is used for repos outside the primary GitHub App's scope,
-    such as Khan/webapp when the App is only installed on jwbron/egg.
+    such as acme/webapp when the App is only installed on your-org/egg.
 
     Returns:
         Token string if found, None otherwise

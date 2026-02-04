@@ -109,7 +109,7 @@ Every operation through the gateway is logged:
 
 ```bash
 # Clone and set up
-git clone https://github.com/jwbron/egg.git
+git clone https://github.com/your-org/egg.git
 cd egg
 ./dev setup
 

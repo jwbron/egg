@@ -21,7 +21,7 @@ GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9848}"
 SECRET_FILE="${HOME}/.config/egg/session-token"
 OUTPUT_FILE="${HOME}/sharing/gateway-test-results.json"
 REPO_PATH="${HOME}/repos/egg"
-TEST_REPO="jwbron/egg"
+TEST_REPO="your-org/egg"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do

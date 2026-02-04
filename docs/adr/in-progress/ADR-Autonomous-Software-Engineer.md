@@ -1081,7 +1081,7 @@ If agent drifts from team engineering culture, analyzer recommends:
 ### Phase 2: Enhanced Mobile & Context
 - [ ] Automated PR creation fully operational
 - [ ] Mobile review workflow optimized (quick actions, inline diffs)
-- [ ] **Cultural alignment implementation** (sandbox/.claude/rules/khan-academy-culture.md from Confluence guidelines)
+- [ ] **Cultural alignment implementation** (sandbox/.claude/rules/company-culture.md from Confluence guidelines)
 - [ ] **Conversation analyzer demeanor evaluation** (assess cultural fit)
 - [ ] **Assess MCP servers** for real-time context access
 - [ ] **Evaluate API integration** for JIRA/GitHub bi-directional updates

@@ -11,7 +11,7 @@
 set -e
 
 # Network configuration (can be overridden via environment)
-# Note: 172.30.x and 172.31.x are used by jib, so we use 172.32.x and 172.33.x
+# Note: 172.30.x and 172.31.x may be in use, so we use 172.32.x and 172.33.x
 EGG_ISOLATED_SUBNET="${EGG_ISOLATED_SUBNET:-172.32.0.0/24}"
 EGG_EXTERNAL_SUBNET="${EGG_EXTERNAL_SUBNET:-172.33.0.0/24}"
 

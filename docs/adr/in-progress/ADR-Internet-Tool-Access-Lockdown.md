@@ -1254,15 +1254,15 @@ curl -x http://gateway:3128 https://api.github.com/user \
 # Expected: 200 OK with user info
 
 # Test 3: Git fetch through proxy
-HTTP_PROXY=http://gateway:3128 git ls-remote https://github.com/jwbron/egg.git
+HTTP_PROXY=http://gateway:3128 git ls-remote https://github.com/your-org/egg.git
 # Expected: List of refs
 
 # Test 4: Raw GitHub content
-curl -x http://gateway:3128 https://raw.githubusercontent.com/jwbron/egg/main/README.md
+curl -x http://gateway:3128 https://raw.githubusercontent.com/your-org/egg/main/README.md
 # Expected: 200 OK with README content
 
 # Test 5: GitHub archive download
-curl -x http://gateway:3128 -L https://codeload.github.com/jwbron/egg/tar.gz/main -o /dev/null
+curl -x http://gateway:3128 -L https://codeload.github.com/your-org/egg/tar.gz/main -o /dev/null
 # Expected: 200 OK, tarball downloaded
 ```
 
@@ -1313,7 +1313,7 @@ docker exec egg-test-container bash -c '
     python -c "import anthropic; print(anthropic.Anthropic().messages.create(model=\"claude-sonnet-4-20250514\",max_tokens=10,messages=[{\"role\":\"user\",\"content\":\"hi\"}]))"
 
     echo "Testing git operations..."
-    git clone https://github.com/jwbron/egg.git /tmp/test-repo
+    git clone https://github.com/your-org/egg.git /tmp/test-repo
     cd /tmp/test-repo
     git fetch origin
 
@@ -1833,7 +1833,7 @@ All gateway operations produce structured audit logs in JSON format:
   "source_container": "egg",
   "auth_valid": true,
   "request": {
-    "repository": "jwbron/egg",
+    "repository": "your-org/egg",
     "ref": "feature/new-feature",
     "force": false
   },

@@ -136,7 +136,7 @@ github_username: ""              # Your GitHub username
 writable_repos:
   - "${github_username}/egg"
 readable_repos:
-  - "khan/webapp"
+  - "acme/webapp"
 
 # Slack settings
 slack_channel: ""                # Your DM channel ID

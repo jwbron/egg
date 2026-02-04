@@ -11,7 +11,7 @@ Enforces policies for git/gh operations:
 
 Configuration:
 - GATEWAY_TRUSTED_USERS: Comma-separated list of GitHub usernames whose branches
-  egg is allowed to push to (e.g., "jwbron,octocat")
+  egg is allowed to push to (e.g., "your-username,octocat")
 - Configured user: The user mode user from repositories.yaml, treated as an owner in both modes
 """
 
@@ -62,7 +62,7 @@ BOT_BRANCH_PREFIXES = ("egg-", "egg/")
 
 # Trusted GitHub users whose branches egg can push to
 # Loaded from GATEWAY_TRUSTED_USERS environment variable (comma-separated)
-# Example: GATEWAY_TRUSTED_USERS="jwbron,octocat"
+# Example: GATEWAY_TRUSTED_USERS="your-username,octocat"
 def _load_trusted_users() -> frozenset[str]:
     """Load trusted users from environment variable."""
     env_value = os.environ.get("GATEWAY_TRUSTED_USERS", "")

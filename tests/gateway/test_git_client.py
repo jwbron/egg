@@ -76,13 +76,13 @@ class TestSshUrlToHttps:
 
     def test_preserves_owner_and_repo(self):
         """Owner and repo names are preserved in conversion."""
-        result = ssh_url_to_https("git@github.com:jwbron/egg.git")
-        assert result == "https://github.com/jwbron/egg.git"
+        result = ssh_url_to_https("git@github.com:acme/project.git")
+        assert result == "https://github.com/acme/project.git"
 
     def test_preserves_nested_owner(self):
         """Handles nested paths like org/repo correctly."""
-        result = ssh_url_to_https("git@github.com:Khan/webapp.git")
-        assert result == "https://github.com/Khan/webapp.git"
+        result = ssh_url_to_https("git@github.com:other-org/webapp.git")
+        assert result == "https://github.com/other-org/webapp.git"
 
 
 class TestGetAuthenticatedRemoteTarget:

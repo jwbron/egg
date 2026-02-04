@@ -24,7 +24,7 @@ cat ~/sharing/gateway-test-results.json
 
 **Option 2: From host using docker cp**
 ```bash
-docker cp sandbox:/home/jwies/sharing/gateway-test-results.json ./
+docker cp sandbox:/home/egg/sharing/gateway-test-results.json ./
 ```
 
 **Option 3: Direct path on host** (if sharing volume mounted)
@@ -78,7 +78,7 @@ For a working gateway sidecar setup:
 {
   "timestamp": "2026-01-22T...",
   "gateway_url": "http://egg-gateway:9847",
-  "repo_path": "/home/jwies/repos/egg",
+  "repo_path": "/home/egg/repos/egg",
   "summary": {
     "passed": 25,
     "failed": 0,

@@ -334,7 +334,7 @@ def _create_repositories_config() -> bool:
     print()
     info("Writable GitHub repositories:")
     print("  These are repos where egg can push code and create PRs.")
-    print("  Format: owner/repo (e.g., jwbron/egg)")
+    print("  Format: owner/repo (e.g., your-org/egg)")
     print("  Press Enter on empty line when done.")
     print()
 
