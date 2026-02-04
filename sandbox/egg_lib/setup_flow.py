@@ -231,57 +231,6 @@ def _create_launcher_secret() -> None:
         info("Generated launcher secret for gateway authentication")
 
 
-def _copy_jib_credentials() -> bool:
-    """Check for and optionally copy GitHub App credentials from jib config.
-
-    Copies:
-    - github-app.pem -> ~/.config/egg/github-app.pem
-    - github-app-id, github-app-installation-id -> secrets.env
-    """
-    jib_config_dir = Path.home() / ".config" / "jib"
-    egg_config_dir = Config.USER_CONFIG_DIR
-
-    # Files we're looking for in jib config
-    jib_app_id = jib_config_dir / "github-app-id"
-    jib_install_id = jib_config_dir / "github-app-installation-id"
-    jib_pem = jib_config_dir / "github-app.pem"
-
-    # Check what exists
-    jib_creds_exist = jib_app_id.exists() and jib_install_id.exists() and jib_pem.exists()
-
-    # Check if egg already has these
-    egg_pem = egg_config_dir / "github-app.pem"
-    existing_secrets = _read_secrets_env()
-    egg_has_app_id = "GITHUB_APP_ID" in existing_secrets
-    egg_has_install_id = "GITHUB_APP_INSTALLATION_ID" in existing_secrets
-    egg_creds_exist = egg_pem.exists() and egg_has_app_id and egg_has_install_id
-
-    if jib_creds_exist and not egg_creds_exist:
-        print()
-        info("Found GitHub App credentials from jib configuration.")
-        print()
-        response = input("Copy credentials to egg config? (yes/no): ").strip().lower()
-        if response == "yes":
-            # Copy PEM file
-            shutil.copy2(jib_pem, egg_pem)
-            egg_pem.chmod(0o600)
-
-            # Add IDs to secrets.env
-            existing_secrets["GITHUB_APP_ID"] = jib_app_id.read_text().strip()
-            existing_secrets["GITHUB_APP_INSTALLATION_ID"] = jib_install_id.read_text().strip()
-            _write_secrets_env(existing_secrets)
-
-            success("GitHub App credentials copied from jib config")
-            return True
-        else:
-            info("Skipped copying credentials. You can set them up manually.")
-    elif egg_creds_exist:
-        success("GitHub App credentials already configured")
-        return True
-
-    return False
-
-
 def _create_repositories_config() -> bool:
     """Create repositories.yaml interactively."""
     config_file = Config.USER_CONFIG_DIR / "repositories.yaml"
@@ -466,31 +415,28 @@ def setup() -> bool:
     shared_certs_dir.mkdir(parents=True, exist_ok=True)
     success("Directories created")
 
-    # Step 2: Check for existing jib credentials to copy
-    _copy_jib_credentials()
-
-    # Step 3: Configure secrets (API keys, GitHub App)
+    # Step 2: Configure secrets (API keys, GitHub App)
     if not _create_secrets_config():
         return False
 
-    # Step 4: Create launcher secret for gateway auth
+    # Step 3: Create launcher secret for gateway auth
     _create_launcher_secret()
 
-    # Step 5: Create repository configuration
+    # Step 4: Create repository configuration
     if not _create_repositories_config():
         return False
 
-    # Step 6: Create general configuration (auth method based on secrets)
+    # Step 5: Create general configuration (auth method based on secrets)
     _create_general_config()
 
-    # Step 7: Build Docker image
+    # Step 6: Build Docker image
     print()
     info("Building Docker image (this may take a few minutes on first run)...")
     if not build_image():
         error("Docker build failed")
         return False
 
-    # Step 8: Summary and next steps
+    # Step 7: Summary and next steps
     print()
     info("=== Setup Complete ===")
     print()
