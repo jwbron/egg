@@ -611,7 +611,7 @@ class PolicyEngine:
             trusted_users=list(TRUSTED_BRANCH_OWNERS) if TRUSTED_BRANCH_OWNERS else [],
             auth_mode=auth_mode,
         )
-        hint = "Use 'egg-' or 'egg/' prefix, or create a PR from this branch first"
+        hint = "Use 'egg-' or 'egg/' branch prefix for new work"
         if configured_user:
             hint += f". Configured user: {configured_user}"
         if TRUSTED_BRANCH_OWNERS:
@@ -619,7 +619,7 @@ class PolicyEngine:
         return PolicyResult(
             allowed=False,
             reason=f"Branch '{branch}' is not owned by egg or an authorized user. "
-            "Either use a bot-prefixed branch (egg-* or egg/*) or create a PR first.",
+            "Use a bot-prefixed branch (egg-* or egg/*).",
             details={
                 "branch": branch,
                 "open_prs": pr_numbers,
