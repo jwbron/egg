@@ -118,7 +118,7 @@ def _create_secrets_config() -> bool:
     print()
     print("  1. OAuth Token (Recommended)")
     print("     - Uses your Claude.ai account")
-    print("     - Get token from: claude.ai/settings → API → OAuth Token")
+    print("     - Run: claude setup-token")
     print("     - Format: sk-ant-oat01-...")
     print()
     print("  2. API Key")
@@ -177,8 +177,8 @@ def _create_secrets_config() -> bool:
         else:
             # OAuth flow (default)
             print()
-            print("Enter your Claude OAuth token (starts with sk-ant-oat01-...):")
-            print("  Get it from: https://claude.ai/settings → API → OAuth Token")
+            print("Run 'claude setup-token' to get your OAuth token, then paste it here.")
+            print("  (Format: sk-ant-oat01-...)")
             oauth_token = input("OAuth token: ").strip()
             if oauth_token:
                 if oauth_token.startswith("sk-ant-oat"):
