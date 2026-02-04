@@ -17,7 +17,7 @@
 set -o pipefail
 
 # Configuration
-GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9847}"
+GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9848}"
 SECRET_FILE="${HOME}/.config/egg/session-token"
 OUTPUT_FILE="${HOME}/sharing/gateway-test-results.json"
 REPO_PATH="${HOME}/repos/egg"

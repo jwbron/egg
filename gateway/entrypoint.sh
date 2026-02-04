@@ -103,7 +103,7 @@ elapsed=0
 max_wait=30
 while [ $elapsed -lt $max_wait ]; do
     if /usr/sbin/squid -k check 2>/dev/null; then
-        echo "Squid proxy started successfully on port 3128"
+        echo "Squid proxy started successfully on port 3129"
         break
     fi
     sleep 1
@@ -130,7 +130,7 @@ fi
 # Start Gateway API Server
 # =============================================================================
 
-echo "Starting gateway API server on port 9847..."
+echo "Starting gateway API server on port 9848..."
 
 # Run gateway on all interfaces (for container networking)
 # Use exec to replace shell process with Python for proper signal handling
@@ -155,12 +155,12 @@ if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; the
     gosu "$HOST_UID:$HOST_GID" git config --global user.name "$GIT_NAME"
     gosu "$HOST_UID:$HOST_GID" git config --global user.email "$GIT_EMAIL"
 
-    exec gosu "$HOST_UID:$HOST_GID" python3 gateway.py --host 0.0.0.0 --port 9847
+    exec gosu "$HOST_UID:$HOST_GID" python3 gateway.py --host 0.0.0.0 --port 9848
 else
     # Configure global git identity for gateway operations (commits, etc.)
     echo "Configuring git identity for gateway: $GIT_NAME <$GIT_EMAIL>"
     git config --global user.name "$GIT_NAME"
     git config --global user.email "$GIT_EMAIL"
 
-    exec python3 gateway.py --host 0.0.0.0 --port 9847
+    exec python3 gateway.py --host 0.0.0.0 --port 9848
 fi

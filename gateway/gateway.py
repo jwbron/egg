@@ -143,7 +143,7 @@ app = Flask(__name__)
 
 # Configuration
 DEFAULT_HOST = os.environ.get("GATEWAY_HOST", "0.0.0.0")  # Listen on all interfaces by default
-DEFAULT_PORT = 9847
+DEFAULT_PORT = 9848
 
 # Host home directory for path translation
 # The gateway container uses /home/egg internally, but needs to return

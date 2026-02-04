@@ -30,7 +30,7 @@ import pytest
 # Gateway IPs on each network
 GATEWAY_ISOLATED_IP = "172.30.0.2"
 GATEWAY_EXTERNAL_IP = "172.31.0.2"
-GATEWAY_PORT = 9847
+GATEWAY_PORT = 9848
 
 # Network names
 EGG_ISOLATED_NETWORK = "egg-isolated"

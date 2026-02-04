@@ -458,7 +458,7 @@ def setup_anthropic_api(config: Config, logger: Logger) -> None:
 
     Reference: PR #701 - ANTHROPIC_BASE_URL credential injection plan
     """
-    gateway_url = "http://egg-gateway:9847"
+    gateway_url = "http://egg-gateway:9848"
 
     # Placeholder OAuth token to satisfy Claude Code's startup validation
     # Must match sk-ant-oat01-* format for Claude Code to accept it
@@ -757,7 +757,7 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
     import requests
     from requests.exceptions import RequestException
 
-    gateway_url = os.environ.get("GATEWAY_URL", "http://egg-gateway:9847")
+    gateway_url = os.environ.get("GATEWAY_URL", "http://egg-gateway:9848")
     proxy_url = os.environ.get("HTTPS_PROXY")
 
     # Detect network mode: private mode has HTTPS_PROXY set, public mode doesn't
@@ -857,8 +857,8 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
             return False, f"error: {e}"
 
     gateway_host = "egg-gateway"
-    api_port = 9847
-    proxy_port = 3128
+    api_port = 9848
+    proxy_port = 3129
 
     api_tcp_ok, api_tcp_msg = test_tcp_port(gateway_host, api_port)
     proxy_tcp_ok, proxy_tcp_msg = test_tcp_port(gateway_host, proxy_port)
@@ -1027,7 +1027,7 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
     elif not api_health_passed:
         logger.error("  [API issue] TCP works but HTTP fails - gateway may be starting:")
         logger.error("    1. Check gateway logs: docker logs egg-gateway")
-        logger.error("    2. Test from host: curl http://localhost:9847/api/v1/health")
+        logger.error("    2. Test from host: curl http://localhost:9848/api/v1/health")
         logger.error("    3. Verify gateway.py is running in container")
     elif is_private_mode:
         logger.error("  [Proxy issue] Gateway API works but proxy check failed:")
@@ -1036,7 +1036,7 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
             "    2. Check Squid logs: docker exec egg-gateway cat /var/log/squid/cache.log"
         )
         logger.error("    3. Test proxy from host:")
-        logger.error("       curl -x http://localhost:3128 https://api.anthropic.com/")
+        logger.error("       curl -x http://localhost:3129 https://api.anthropic.com/")
         logger.error("    4. Verify allowed_domains.txt includes api.anthropic.com")
     return False
 

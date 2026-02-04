@@ -50,8 +50,8 @@ class Config:
 # Gateway container constants (containerized gateway sidecar)
 GATEWAY_CONTAINER_NAME = "egg-gateway"
 GATEWAY_IMAGE_NAME = "egg-gateway"
-GATEWAY_PORT = 9847
-GATEWAY_PROXY_PORT = 3128
+GATEWAY_PORT = 9848
+GATEWAY_PROXY_PORT = 3129
 
 # Network lockdown configuration
 # Dual-network architecture: egg-isolated (internal) + egg-external (for gateway)

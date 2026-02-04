@@ -249,7 +249,7 @@ EOF
     sleep 3
 
     # Health check with retry
-    HEALTH_URL="http://localhost:9847/api/v1/health"
+    HEALTH_URL="http://localhost:9848/api/v1/health"
     MAX_RETRIES=5
     RETRY_DELAY=2
 
@@ -300,7 +300,7 @@ print_summary() {
     echo ""
     echo "The gateway sidecar:"
     echo "  - Runs as Docker container managed by systemd"
-    echo "  - Listens on http://localhost:9847"
+    echo "  - Listens on http://localhost:9848"
     echo "  - Network lockdown mode: dual-homed on $ISOLATED_NETWORK + $EXTERNAL_NETWORK"
     echo "  - Enforces branch/PR ownership policies"
     echo "  - Blocks merge operations (human must merge via GitHub UI)"
@@ -333,7 +333,7 @@ print_summary() {
     echo "  systemctl --user stop $SERVICE_NAME      # Stop service"
     echo "  journalctl --user -u $SERVICE_NAME -f    # View logs"
     echo "  docker logs egg-gateway                  # View container logs"
-    echo "  curl http://localhost:9847/api/v1/health # Health check"
+    echo "  curl http://localhost:9848/api/v1/health # Health check"
 }
 
 # Main execution

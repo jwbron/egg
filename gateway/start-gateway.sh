@@ -200,8 +200,8 @@ echo "  Squid mode: $MODE_DISPLAY"
 echo "  Networks: $ISOLATED_NETWORK (internal) + $EXTERNAL_NETWORK (external)"
 echo "  Gateway IPs: $GATEWAY_ISOLATED_IP (isolated), $GATEWAY_EXTERNAL_IP (external)"
 echo "  egg containers: Dynamic IPs from 172.32.0.0/24 subnet"
-echo "  API port: 9847"
-echo "  Proxy port: 3128"
+echo "  API port: 9848"
+echo "  Proxy port: 3129"
 echo ""
 
 # Verify networks exist
@@ -228,8 +228,8 @@ docker run -d \
     --network "$ISOLATED_NETWORK" \
     --ip "$GATEWAY_ISOLATED_IP" \
     --security-opt label=disable \
-    -p 9847:9847 \
-    -p 3128:3128 \
+    -p 9848:9848 \
+    -p 3129:3129 \
     "${ENV_ARGS[@]}" \
     "${MOUNTS[@]}" \
     egg-gateway
@@ -246,7 +246,7 @@ echo "Waiting for gateway readiness..."
 max_wait=30
 elapsed=0
 while [ $elapsed -lt $max_wait ]; do
-    health_output=$(curl -s --max-time 2 "http://localhost:9847/api/v1/health" 2>&1) && {
+    health_output=$(curl -s --max-time 2 "http://localhost:9848/api/v1/health" 2>&1) && {
         echo "Gateway health check passed"
         echo "  Response: $health_output"
         break
@@ -294,11 +294,11 @@ fi
 
 echo ""
 echo "Container topology:"
-echo "  egg containers (172.32.0.x) -> gateway (${gateway_isolated_ip:-172.32.0.2}:3128) -> Internet (allowlisted)"
+echo "  egg containers (172.32.0.x) -> gateway (${gateway_isolated_ip:-172.32.0.2}:3129) -> Internet (allowlisted)"
 echo ""
 echo "To test connectivity from host:"
-echo "  curl http://localhost:9847/api/v1/health"
-echo "  curl -x http://localhost:3128 https://api.anthropic.com/"
+echo "  curl http://localhost:9848/api/v1/health"
+echo "  curl -x http://localhost:3129 https://api.anthropic.com/"
 echo ""
 
 # Follow logs (similar to exec behavior)

@@ -40,7 +40,7 @@ class GatewayConfig(BaseConfig):
     """
 
     host: str = "0.0.0.0"
-    port: int = 9847
+    port: int = 9848
     secret: str = ""
     rate_limits: RateLimitConfig = field(default_factory=RateLimitConfig)
 
@@ -168,11 +168,11 @@ class GatewayConfig(BaseConfig):
 
         # Host and port from environment
         config.host = os.environ.get("GATEWAY_HOST", "0.0.0.0")
-        port_str = os.environ.get("GATEWAY_PORT", "9847")
+        port_str = os.environ.get("GATEWAY_PORT", "9848")
         try:
             config.port = int(port_str)
         except ValueError:
-            config.port = 9847
+            config.port = 9848
 
         # Load launcher secret from environment
         env_secret = os.environ.get("EGG_LAUNCHER_SECRET", "")

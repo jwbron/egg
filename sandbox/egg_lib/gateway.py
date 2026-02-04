@@ -460,8 +460,8 @@ def start_gateway_container() -> bool:
     checks if it's running and healthy. If not, it tells the user how to start it.
 
     The health check verifies both:
-    1. Gateway API responds on port 9847
-    2. Squid proxy can reach api.anthropic.com on port 3128
+    1. Gateway API responds on port 9848
+    2. Squid proxy can reach api.anthropic.com on port 3129
 
     Returns:
         True if gateway is healthy, False otherwise
