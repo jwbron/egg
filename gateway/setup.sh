@@ -47,6 +47,28 @@ ensure_directories() {
     # Create shared certs directory for SSL bump CA certificate
     mkdir -p "${HOME}/.egg-shared-certs"
     echo "Shared certs directory exists: ${HOME}/.egg-shared-certs"
+
+    # Create worktrees directory for gateway-managed git worktrees
+    # This directory must be owned by the current user for the gateway to create
+    # per-container worktree subdirectories
+    WORKTREES_DIR="${HOME}/.egg-worktrees"
+    if [[ ! -d "$WORKTREES_DIR" ]]; then
+        mkdir -p "$WORKTREES_DIR"
+        echo "Worktrees directory created: $WORKTREES_DIR"
+    else
+        # Fix ownership if directory exists but is owned by root (common issue)
+        if [[ "$(stat -c '%U' "$WORKTREES_DIR" 2>/dev/null)" == "root" ]]; then
+            echo "Fixing worktrees directory ownership (currently owned by root)..."
+            if sudo -n chown -R "$(id -u):$(id -g)" "$WORKTREES_DIR" 2>/dev/null; then
+                echo "Worktrees directory ownership fixed: $WORKTREES_DIR"
+            else
+                echo "WARNING: Could not fix worktrees directory ownership."
+                echo "  Run: sudo chown -R \$(id -u):\$(id -g) $WORKTREES_DIR"
+            fi
+        else
+            echo "Worktrees directory exists: $WORKTREES_DIR"
+        fi
+    fi
 }
 
 generate_launcher_secret() {
