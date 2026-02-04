@@ -10,11 +10,28 @@ Provides:
 import contextlib
 import os
 import re
+import sys
 import tempfile
-from collections.abc import Callable
-from typing import Any
+from pathlib import Path
 
-from shared.egg_logging import get_logger
+# Add shared directory to path for jib_logging
+_shared_path = Path(__file__).parent.parent.parent / "shared"
+if _shared_path.exists():
+    sys.path.insert(0, str(_shared_path))
+from egg_logging import get_logger
+
+# Import repo_config for auth mode support
+_config_path = Path(__file__).parent.parent / "config"
+if _config_path.exists() and str(_config_path) not in sys.path:
+    sys.path.insert(0, str(_config_path))
+from repo_config import get_auth_mode
+
+# Import using try/except for both module and standalone script mode
+try:
+    from .github_client import get_github_client
+except ImportError:
+    from github_client import get_github_client
+
 
 logger = get_logger("gateway.git-client")
 
@@ -22,17 +39,19 @@ GIT_CLI = "/usr/bin/git"
 
 
 def git_cmd(*args: str) -> list[str]:
-    """Build a git command with safe.directory=* to allow operating on worktree paths.
+    """
+    Build a git command with safe.directory=* to allow operating on worktree paths.
 
-    The gateway runs on the host but operates on paths inside container worktrees.
-    Git's ownership check would reject these as "dubious ownership" without
-    safe.directory=*.
+    The gateway runs on the host but operates on paths inside egg container worktrees
+    (e.g., ~/.egg-worktrees/<container-id>/repo). Git's ownership check would reject
+    these as "dubious ownership" without safe.directory=*.
     """
     return [GIT_CLI, "-c", "safe.directory=*", *args]
 
 
 def ssh_url_to_https(url: str) -> str:
-    """Convert SSH git URL to HTTPS URL.
+    """
+    Convert SSH git URL to HTTPS URL.
 
     The gateway doesn't have SSH keys - it uses HTTPS with token auth.
     This converts SSH URLs so pushes work via HTTPS authentication.
@@ -43,6 +62,8 @@ def ssh_url_to_https(url: str) -> str:
 
     Returns the original URL if it's already HTTPS or doesn't match SSH patterns.
     """
+    import re
+
     # Pattern 1: git@github.com:owner/repo.git
     match = re.match(r"^git@github\.com:(.+?)(?:\.git)?$", url)
     if match:
@@ -63,11 +84,20 @@ def is_ssh_url(url: str) -> bool:
 
 
 def get_authenticated_remote_target(remote: str, remote_url: str) -> str:
-    """Get the target to use for an authenticated git remote operation.
+    """
+    Get the target to use for an authenticated git remote operation.
 
     The gateway uses HTTPS with token authentication via a credential helper.
     SSH URLs won't work with the credential helper, so they must be converted
     to HTTPS.
+
+    Args:
+        remote: The remote name (e.g., "origin")
+        remote_url: The actual URL of the remote
+
+    Returns:
+        The HTTPS URL if the remote uses SSH, otherwise the remote name.
+        Using the HTTPS URL directly ensures the credential helper is invoked.
     """
     if is_ssh_url(remote_url):
         return ssh_url_to_https(remote_url)
@@ -78,62 +108,52 @@ def get_authenticated_remote_target(remote: str, remote_url: str) -> str:
 # Path Validation
 # =============================================================================
 
-# Allowed base paths for repo_path validation (can be configured)
+# Allowed base paths for repo_path validation
 # These are the only directories where git operations are permitted
-DEFAULT_ALLOWED_REPO_PATHS = [
-    "/home/user/repos/",
-    "/home/user/.egg-worktrees/",
-    "/repos/",
+ALLOWED_REPO_PATHS = [
+    "/home/egg/repos/",
+    "/home/egg/.egg-worktrees/",
+    "/home/egg/beads/",  # Beads task tracking repo
+    "/repos/",  # Legacy path
 ]
-
-# Current allowed paths (can be updated by configuration)
-_allowed_repo_paths: list[str] = DEFAULT_ALLOWED_REPO_PATHS.copy()
 
 # Directories that contain repos but are NOT repos themselves
 # Git operations in these directories are expected to fail
-_repos_parent_directories: list[str] = [
-    "/home/user/repos",
-    "/home/user/.egg-worktrees",
+REPOS_PARENT_DIRECTORIES = [
+    "/home/egg/repos",
+    "/home/egg/.egg-worktrees",
     "/repos",
 ]
 
 
-def configure_paths(
-    allowed_paths: list[str] | None = None,
-    parent_dirs: list[str] | None = None,
-) -> None:
-    """Configure allowed paths for git operations.
-
-    Args:
-        allowed_paths: List of allowed base paths for repos
-        parent_dirs: List of directories that contain repos (not repos themselves)
-    """
-    global _allowed_repo_paths, _repos_parent_directories
-    if allowed_paths is not None:
-        _allowed_repo_paths = allowed_paths
-    if parent_dirs is not None:
-        _repos_parent_directories = parent_dirs
-
-
 def is_repos_parent_directory(path: str) -> bool:
-    """Check if a path is a "repos parent" directory.
+    """
+    Check if a path is a "repos parent" directory - a directory that contains
+    repos but is not itself a git repository.
 
-    A repos parent directory contains repos but is not itself a git repository.
     Git operations like `rev-parse` are commonly run to detect if a directory
     is a repo. When run in these parent directories, they are expected to fail.
+    This function helps identify such cases to avoid noisy warning logs.
+
+    Args:
+        path: The path to check
+
+    Returns:
+        True if the path is a repos parent directory (not an actual repo)
     """
     if not path:
         return False
 
     try:
         real_path = os.path.realpath(path).rstrip("/")
-        return any(real_path == parent_dir.rstrip("/") for parent_dir in _repos_parent_directories)
+        return any(real_path == parent_dir.rstrip("/") for parent_dir in REPOS_PARENT_DIRECTORIES)
     except Exception:
         return False
 
 
 def validate_repo_path(path: str) -> tuple[bool, str]:
-    """Validate that repo_path is within allowed directories.
+    """
+    Validate that repo_path is within allowed directories.
 
     Prevents path traversal attacks by ensuring the resolved path
     starts with an allowed prefix.
@@ -149,13 +169,14 @@ def validate_repo_path(path: str) -> tuple[bool, str]:
         real_path = os.path.realpath(path)
 
         # Check if path is within allowed directories
-        for allowed in _allowed_repo_paths:
+        # Normalize paths for comparison (ensure trailing slash for prefix matching)
+        for allowed in ALLOWED_REPO_PATHS:
             allowed_base = allowed.rstrip("/")
-            # Allow exact match or subpath
+            # Allow exact match (e.g., /home/egg/repos) or subpath (e.g., /home/egg/repos/foo)
             if real_path == allowed_base or real_path.startswith(allowed_base + "/"):
                 return True, ""
 
-        return False, f"repo_path must be within allowed directories: {_allowed_repo_paths}"
+        return False, f"repo_path must be within allowed directories: {ALLOWED_REPO_PATHS}"
     except Exception as e:
         return False, f"Invalid repo_path: {e}"
 
@@ -165,6 +186,7 @@ def validate_repo_path(path: str) -> tuple[bool, str]:
 # =============================================================================
 
 # Explicitly dangerous git flags - never allowed regardless of operation
+# These could be used for command injection or config override attacks
 BLOCKED_GIT_FLAGS = [
     "--upload-pack",  # Can specify arbitrary command
     "--exec",  # Can specify arbitrary command
@@ -175,6 +197,7 @@ BLOCKED_GIT_FLAGS = [
 ]
 
 # Per-operation allowlist of flags that are permitted
+# This is more secure than a blocklist - unknown flags are rejected by default
 GIT_ALLOWED_COMMANDS = {
     # === Network operations (require authentication) ===
     "fetch": {
@@ -254,6 +277,8 @@ GIT_ALLOWED_COMMANDS = {
             "--first-parent",
             "--reverse",
             "--max-count",
+            # Note: -n is NOT included because FLAG_NORMALIZATION maps -n → --dry-run globally.
+            # Users should use --max-count=N or -3 (numeric shorthand) instead.
             "--since",
             "--until",
             "--author",
@@ -608,6 +633,8 @@ GIT_ALLOWED_COMMANDS = {
             "--format",
             "--oneline",
             "--max-count",
+            # Note: -n is NOT included because FLAG_NORMALIZATION maps -n → --dry-run globally.
+            # Users should use --max-count=N instead.
         ],
     },
     "describe": {
@@ -655,7 +682,15 @@ FLAG_NORMALIZATION = {
 
 
 def normalize_flag(flag: str) -> str:
-    """Normalize short flags to long form for consistent validation."""
+    """
+    Normalize short flags to long form for consistent validation.
+
+    Args:
+        flag: The flag to normalize (e.g., "-a" or "--all")
+
+    Returns:
+        The normalized long-form flag, or original if not found
+    """
     # Handle -X=value format
     if "=" in flag:
         base, value = flag.split("=", 1)
@@ -665,14 +700,20 @@ def normalize_flag(flag: str) -> str:
 
 
 def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[str]]:
-    """Validate git arguments against per-operation allowlist.
+    """
+    Validate git arguments against per-operation allowlist.
 
     Uses explicit allowlists instead of blocklists for better security.
     Unknown flags are rejected by default.
 
+    Args:
+        operation: The git operation (fetch, ls-remote, push)
+        args: List of arguments to validate
+
     Returns:
         Tuple of (is_valid, error_message, normalized_args)
     """
+    # Validate operation first (before checking args)
     op_config = GIT_ALLOWED_COMMANDS.get(operation)
     if not op_config:
         return False, f"Unknown operation: {operation}", []
@@ -704,8 +745,10 @@ def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[
             continue
 
         # Handle numeric flags like -3, -10 (shorthand for --max-count=N)
+        # These are only valid for 'log' operation
         if re.match(r"^-\d+$", arg):
             if operation == "log" and "--max-count" in allowed_flags:
+                # Convert -N to --max-count=N for consistency
                 normalized.append(f"--max-count={arg[1:]}")
                 i += 1
                 continue
@@ -754,11 +797,19 @@ fi
 """
 
 
-def create_credential_helper(token_str: str, env: dict[str, str]) -> tuple[str, dict[str, str]]:
-    """Create a temporary credential helper script for git authentication.
+def create_credential_helper(token_str: str, env: dict) -> tuple[str, dict]:
+    """
+    Create a temporary credential helper script for git authentication.
 
     Creates a GIT_ASKPASS script that provides credentials from environment
     variables. The script is written to a temp file with restrictive permissions.
+
+    Args:
+        token_str: The GitHub token to use for authentication
+        env: The environment dict to update
+
+    Returns:
+        Tuple of (credential_helper_path, updated_env)
 
     Note:
         Caller MUST clean up the credential file using cleanup_credential_helper()
@@ -783,32 +834,35 @@ def create_credential_helper(token_str: str, env: dict[str, str]) -> tuple[str, 
 
 
 def cleanup_credential_helper(path: str | None) -> None:
-    """Safely clean up a credential helper file."""
+    """
+    Safely clean up a credential helper file.
+
+    Args:
+        path: Path to the credential helper file, or None if not created yet
+    """
     if path and os.path.exists(path):
         with contextlib.suppress(OSError):
             os.unlink(path)
 
 
-def get_token_for_repo(
-    repo: str,
-    get_auth_mode_fn: Callable[[str], str],
-    get_github_client_fn: Callable[..., Any],
-) -> tuple[str | None, str, str]:
-    """Get the authentication token for a repository.
+def get_token_for_repo(repo: str) -> tuple[str | None, str, str]:
+    """
+    Get the authentication token for a repository.
 
     Determines the auth mode (bot vs user) for the repo and retrieves
     the appropriate token.
 
     Args:
         repo: Repository in "owner/repo" format
-        get_auth_mode_fn: Function to get auth mode for repo
-        get_github_client_fn: Function to get GitHub client by mode
 
     Returns:
         Tuple of (token_str, auth_mode, error_message)
+        - token_str is None if token unavailable (error_message explains why)
+        - auth_mode is "bot" or "user"
+        - error_message is empty string on success
     """
-    auth_mode = get_auth_mode_fn(repo)
-    github = get_github_client_fn(mode=auth_mode)
+    auth_mode = get_auth_mode(repo)
+    github = get_github_client(mode=auth_mode)
 
     if auth_mode == "user":
         token_str = github.get_user_token()
@@ -816,7 +870,7 @@ def get_token_for_repo(
             return (
                 None,
                 auth_mode,
-                "User token not available. Set user token environment variable.",
+                "User token not available. Set GITHUB_USER_TOKEN environment variable.",
             )
     else:
         token = github.get_token()

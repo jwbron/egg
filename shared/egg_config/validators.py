@@ -1,100 +1,180 @@
-"""Configuration validation utilities for egg."""
+"""
+Reusable validation functions for configuration values.
+
+This module provides validators for common configuration patterns:
+- URLs (HTTP/HTTPS)
+- Email addresses
+- Token formats (GitHub, Anthropic)
+- Secret masking utilities
+"""
 
 import re
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from urllib.parse import urlparse
 
 
-@dataclass
-class ValidationResult:
-    """Result of a validation check."""
-
-    valid: bool
-    errors: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
-
-    def __bool__(self) -> bool:
-        return self.valid
-
-
-def validate_config(config: dict[str, Any]) -> ValidationResult:
-    """Validate an egg configuration dictionary.
+def validate_url(url: str, *, require_https: bool = True) -> tuple[bool, str | None]:
+    """Validate a URL.
 
     Args:
-        config: Configuration dictionary to validate
+        url: The URL to validate
+        require_https: If True, only HTTPS URLs are valid (default: True)
 
     Returns:
-        ValidationResult with any errors/warnings
+        Tuple of (is_valid, error_message). error_message is None if valid.
     """
-    errors: list[str] = []
-    warnings: list[str] = []
+    if not url:
+        return False, "URL is empty"
 
-    egg = config.get("egg", {})
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        return False, f"Invalid URL format: {e}"
 
-    # Validate git settings
-    git = egg.get("git", {})
-    branch_prefix = git.get("branch_prefix", "egg/")
-    if not branch_prefix:
-        errors.append("git.branch_prefix cannot be empty")
-    elif not re.match(r"^[a-zA-Z][a-zA-Z0-9_/-]*$", branch_prefix):
-        errors.append(f"git.branch_prefix has invalid characters: {branch_prefix}")
+    if not parsed.scheme:
+        return False, "URL missing scheme (http:// or https://)"
 
-    protected = git.get("protected_branches", [])
-    if not protected:
-        warnings.append("git.protected_branches is empty - no branches are protected")
+    if not parsed.netloc:
+        return False, "URL missing host"
 
-    # Validate repositories
-    repos = egg.get("repositories", {})
-    allowed = repos.get("allowed", [])
-    if not allowed:
-        warnings.append("repositories.allowed is empty - no repos allowed")
-    for repo in allowed:
-        if "/" not in repo and "*" not in repo:
-            errors.append(f"Invalid repository format: {repo} (expected owner/repo or owner/*)")
+    if require_https and parsed.scheme != "https":
+        return False, f"URL must use HTTPS, got {parsed.scheme}://"
 
-    # Validate secrets if present
-    secrets = config.get("secrets", {})
-    if secrets:
-        # Check for at least one auth method
-        has_github_auth = bool(secrets.get("github_app") or secrets.get("pats"))
-        has_anthropic_auth = bool(secrets.get("anthropic"))
+    if parsed.scheme not in ("http", "https"):
+        return False, f"URL scheme must be http or https, got {parsed.scheme}"
 
-        if not has_github_auth:
-            warnings.append("No GitHub authentication configured (github_app or pats)")
-        if not has_anthropic_auth:
-            warnings.append("No Anthropic authentication configured")
-
-        # Validate GitHub App config
-        github_app = secrets.get("github_app", {})
-        if github_app:
-            if not github_app.get("app_id"):
-                errors.append("secrets.github_app.app_id is required")
-            key_path = github_app.get("private_key_path")
-            if not key_path:
-                errors.append("secrets.github_app.private_key_path is required")
-            elif not Path(key_path).exists():
-                errors.append(f"GitHub App private key not found: {key_path}")
-
-    return ValidationResult(
-        valid=len(errors) == 0,
-        errors=errors,
-        warnings=warnings,
-    )
+    return True, None
 
 
-def mask_secret(value: str, visible_chars: int = 4) -> str:
-    """Mask a secret value for safe logging.
+def validate_email(email: str) -> tuple[bool, str | None]:
+    """Validate an email address.
 
     Args:
-        value: Secret value to mask
-        visible_chars: Number of characters to show at start
+        email: The email address to validate
 
     Returns:
-        Masked string like "sk-an****"
+        Tuple of (is_valid, error_message). error_message is None if valid.
     """
-    if not value:
-        return ""
+    if not email:
+        return False, "Email is empty"
+
+    # Basic email regex - not exhaustive but catches common issues
+    pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+    if not re.match(pattern, email):
+        return False, "Invalid email format"
+
+    return True, None
+
+
+def validate_github_token(token: str) -> tuple[bool, str | None]:
+    """Validate a GitHub token format.
+
+    Valid GitHub token prefixes:
+    - ghp_: Personal access tokens (fine-grained or classic)
+    - github_pat_: Personal access tokens (newer format)
+    - ghs_: GitHub App installation tokens
+    - gho_: OAuth tokens
+    - ghu_: User-to-server tokens
+
+    Args:
+        token: The GitHub token to validate
+
+    Returns:
+        Tuple of (is_valid, error_message). error_message is None if valid.
+    """
+    if not token:
+        return False, "GitHub token is empty"
+
+    valid_prefixes = ("ghp_", "github_pat_", "ghs_", "gho_", "ghu_")
+    if not token.startswith(valid_prefixes):
+        return False, f"GitHub token must start with one of: {', '.join(valid_prefixes)}"
+
+    # GitHub tokens have a minimum length
+    if len(token) < 20:
+        return False, "GitHub token appears too short"
+
+    return True, None
+
+
+def validate_anthropic_key(key: str) -> tuple[bool, str | None]:
+    """Validate an Anthropic API key format.
+
+    Valid Anthropic key prefix:
+    - sk-ant-: Anthropic API keys
+
+    Args:
+        key: The Anthropic API key to validate
+
+    Returns:
+        Tuple of (is_valid, error_message). error_message is None if valid.
+    """
+    if not key:
+        return False, "Anthropic API key is empty"
+
+    if not key.startswith("sk-ant-"):
+        return False, "Anthropic API key must start with 'sk-ant-'"
+
+    # Anthropic keys are typically long
+    if len(key) < 20:
+        return False, "Anthropic API key appears too short"
+
+    return True, None
+
+
+def mask_secret(value: str | None, *, visible_chars: int = 4) -> str:
+    """Mask a secret value for safe display.
+
+    Shows the first few characters followed by asterisks.
+
+    Args:
+        value: The secret value to mask (can be None)
+        visible_chars: Number of characters to show at the start (default: 4)
+
+    Returns:
+        Masked string like "xoxb-****" or "[EMPTY]" if value is empty/None
+    """
+    if value is None or not value:
+        return "[EMPTY]"
+
     if len(value) <= visible_chars:
         return "*" * len(value)
+
     return value[:visible_chars] + "*" * (len(value) - visible_chars)
+
+
+def validate_non_empty(value: str | None, field_name: str) -> tuple[bool, str | None]:
+    """Validate that a value is not empty or None.
+
+    Args:
+        value: The value to check
+        field_name: Name of the field for error messages
+
+    Returns:
+        Tuple of (is_valid, error_message). error_message is None if valid.
+    """
+    if value is None:
+        return False, f"{field_name} is not set"
+
+    if not value.strip():
+        return False, f"{field_name} is empty"
+
+    return True, None
+
+
+def validate_port(port: int | str) -> tuple[bool, str | None]:
+    """Validate a port number.
+
+    Args:
+        port: The port number to validate (can be int or string)
+
+    Returns:
+        Tuple of (is_valid, error_message). error_message is None if valid.
+    """
+    try:
+        port_int = int(port)
+    except (ValueError, TypeError):
+        return False, f"Port must be a number, got: {port}"
+
+    if port_int < 1 or port_int > 65535:
+        return False, f"Port must be between 1 and 65535, got: {port_int}"
+
+    return True, None

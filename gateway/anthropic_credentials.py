@@ -1,8 +1,8 @@
 """
-Anthropic Credentials Manager for Egg Gateway.
+Anthropic Credentials Manager for Gateway Sidecar.
 
 Manages Anthropic API credentials (API key or OAuth token) for proxy injection.
-Credentials are read from a secrets.env file (configurable path).
+Credentials are read from ~/.config/egg/secrets.env on the host.
 
 Supported credential types:
 - ANTHROPIC_API_KEY: Standard Anthropic API key (x-api-key header)
@@ -12,18 +12,23 @@ OAuth token takes precedence if both are configured.
 """
 
 import os
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from shared.egg_logging import get_logger
+# Add shared directory to path for jib_logging
+_shared_path = Path(__file__).parent.parent / "shared"
+if _shared_path.exists():
+    sys.path.insert(0, str(_shared_path))
+from egg_logging import get_logger
 
 logger = get_logger("gateway.anthropic-credentials")
 
 # Default secrets path - can be overridden via environment variable
 # Gateway runs on host, so this is the host user's config directory
 SECRETS_PATH = Path(
-    os.environ.get("EGG_SECRETS_PATH", Path.home() / ".config" / "egg" / "secrets.env")
+    os.environ.get("JIB_SECRETS_PATH", Path.home() / ".config" / "egg" / "secrets.env")
 )
 
 
@@ -36,12 +41,10 @@ class AnthropicCredential:
 
     @property
     def is_api_key(self) -> bool:
-        """Check if this is an API key credential."""
         return self.header_name == "x-api-key"
 
     @property
     def is_oauth(self) -> bool:
-        """Check if this is an OAuth token credential."""
         return self.header_name == "Authorization"
 
 
@@ -61,7 +64,7 @@ def parse_env_file(path: Path) -> dict[str, str]:
     Returns:
         Dictionary of environment variables
     """
-    result: dict[str, str] = {}
+    result = {}
     try:
         with open(path) as f:
             for line in f:

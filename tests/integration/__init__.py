@@ -1,1 +1,4 @@
-"""Integration tests for egg."""
+"""Integration tests for egg.
+
+These tests require Docker and may take longer to run.
+"""

@@ -1,0 +1,35 @@
+[Unit]
+Description=Gateway Sidecar - Git/GitHub policy enforcement for jib containers
+Documentation=file://%h/repos/james-in-a-box/gateway-sidecar/README.md
+After=network-online.target
+Wants=network-online.target
+OnFailure=service-failure-notify@%n.service
+
+[Service]
+Type=exec
+Environment=CONTAINER_NAME=jib-gateway
+Environment=IMAGE_NAME=jib-gateway
+# Network lockdown mode: start-gateway.sh manages dual networks (jib-isolated + jib-external)
+
+# Remove any stopped container before starting
+ExecStartPre=-/usr/bin/docker rm -f jib-gateway
+
+# Run container via startup script that generates mounts dynamically
+# This ensures mounts are always current, even if setup.py hasn't been re-run
+ExecStart=%h/repos/james-in-a-box/gateway-sidecar/start-gateway.sh
+
+ExecStop=/usr/bin/docker stop jib-gateway
+
+# Restart on failure with exponential backoff
+Restart=on-failure
+RestartSec=10s
+RestartSteps=5
+RestartMaxDelaySec=300s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gateway-sidecar
+
+[Install]
+WantedBy=default.target

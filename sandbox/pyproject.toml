@@ -1,0 +1,19 @@
+[project]
+name = "jib-container"
+version = "0.1.0"
+description = "Jib container-side modules including the Claude runner"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+    "requests>=2.31.0",
+    "claude-agent-sdk",
+    "cryptography>=41.0.0",
+    "PyJWT>=2.8.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["claude*"]

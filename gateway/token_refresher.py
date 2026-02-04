@@ -5,11 +5,12 @@ Tokens are refreshed automatically when they're within 15 minutes of expiry.
 On failure, the last valid token is returned with a warning logged (up to 3
 consecutive failures). After 3 failures, the cached token is cleared (fail closed).
 
-This replaces the host-side token refresher systemd service with an
+This replaces the host-side github-token-refresher systemd service with an
 in-memory solution that runs within the gateway sidecar.
 """
 
 import os
+import sys
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -18,7 +19,11 @@ from pathlib import Path
 import jwt
 import requests
 
-from shared.egg_logging import get_logger
+# Add shared directory to path for jib_logging
+_shared_path = Path(__file__).parent.parent.parent / "shared"
+if _shared_path.exists():
+    sys.path.insert(0, str(_shared_path))
+from egg_logging import get_logger
 
 logger = get_logger("gateway.token-refresher")
 
@@ -50,7 +55,8 @@ class TokenInfo:
 
 
 class TokenRefresher:
-    """Manages GitHub App installation token refresh in-memory.
+    """
+    Manages GitHub App installation token refresh in-memory.
 
     Tokens are refreshed automatically when they're within 15 minutes
     of expiry. On failure, the last valid token is returned with a
@@ -65,7 +71,8 @@ class TokenRefresher:
         refresh_margin_minutes: int = 15,
         max_consecutive_failures: int = 3,
     ):
-        """Initialize the token refresher.
+        """
+        Initialize the token refresher.
 
         Args:
             app_id: GitHub App ID
@@ -87,7 +94,8 @@ class TokenRefresher:
         self._consecutive_failures = 0
 
     def _ensure_valid_token(self) -> None:
-        """Ensure we have a valid token, refreshing if needed.
+        """
+        Ensure we have a valid token, refreshing if needed.
 
         Must be called while holding self._lock.
         """
@@ -105,6 +113,7 @@ class TokenRefresher:
                     has_cached_token=self._token is not None,
                 )
 
+                # If we have a cached token, use it with warning
                 if self._token and self._consecutive_failures < self._max_failures:
                     logger.warning(
                         "Using cached token after refresh failure",
@@ -122,13 +131,23 @@ class TokenRefresher:
                     self._generated_at = None
 
     def get_token(self) -> str | None:
-        """Get a valid token, refreshing if needed."""
+        """
+        Get a valid token, refreshing if needed.
+
+        Returns:
+            Valid token or None if refresh fails and no cached token.
+        """
         with self._lock:
             self._ensure_valid_token()
             return self._token
 
     def get_token_info(self) -> TokenInfo | None:
-        """Get token with metadata."""
+        """
+        Get token with metadata.
+
+        Returns:
+            TokenInfo or None if no token available.
+        """
         with self._lock:
             self._ensure_valid_token()
 
@@ -173,9 +192,12 @@ class TokenRefresher:
 
         data = response.json()
         self._token = data["token"]
+        # Parse ISO 8601 timestamp from GitHub (e.g., "2024-01-01T12:00:00Z")
         self._expires_at = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
         self._generated_at = datetime.now(UTC)
 
+        # Calculate minutes until expiry directly (avoid calling get_token_info()
+        # which would try to acquire the lock we already hold)
         minutes_until_expiry = (self._expires_at - datetime.now(UTC)).total_seconds() / 60
         logger.info(
             "Token refreshed successfully",
@@ -206,7 +228,8 @@ def initialize_token_refresher(
     private_key_path: Path | None = None,
     installation_id: int | None = None,
 ) -> TokenRefresher | None:
-    """Initialize the global token refresher from config or environment.
+    """
+    Initialize the global token refresher from config or environment.
 
     Config can be provided via:
     1. Explicit parameters (highest priority)
@@ -214,9 +237,19 @@ def initialize_token_refresher(
     3. Config files in config_dir (default: ~/.config/egg/)
 
     Returns None if required config is missing.
+
+    Args:
+        config_dir: Directory containing config files (optional)
+        app_id: GitHub App ID (optional, overrides env/file)
+        private_key_path: Path to private key PEM file (optional)
+        installation_id: GitHub App installation ID (optional)
+
+    Returns:
+        Initialized TokenRefresher or None if config missing
     """
     global _token_refresher, _refresher_initialization_attempted
 
+    # Only attempt initialization once
     if _refresher_initialization_attempted:
         return _token_refresher
     _refresher_initialization_attempted = True
@@ -281,9 +314,6 @@ def initialize_token_refresher(
 
     try:
         private_key = resolved_private_key_path.read_text()
-        # At this point, we've validated that all values are not None
-        assert resolved_app_id is not None
-        assert resolved_installation_id is not None
         refresher = TokenRefresher(
             app_id=resolved_app_id,
             private_key=private_key,
@@ -314,7 +344,8 @@ def initialize_token_refresher(
 
 
 def get_token_refresher() -> TokenRefresher | None:
-    """Get the global token refresher instance.
+    """
+    Get the global token refresher instance.
 
     Returns None if refresher was not initialized or initialization failed.
     Call initialize_token_refresher() first during startup.
@@ -323,7 +354,8 @@ def get_token_refresher() -> TokenRefresher | None:
 
 
 def get_bot_token() -> tuple[str | None, str]:
-    """Get the bot token from the token refresher.
+    """
+    Get the bot token from the token refresher.
 
     Returns:
         Tuple of (token, source) where source is "refresher" or "none"
@@ -338,7 +370,11 @@ def get_bot_token() -> tuple[str | None, str]:
 
 
 def reset_token_refresher() -> None:
-    """Reset the global token refresher state (for testing)."""
+    """
+    Reset the global token refresher state (for testing).
+
+    This clears the global instance and allows re-initialization.
+    """
     global _token_refresher, _refresher_initialization_attempted
     _token_refresher = None
     _refresher_initialization_attempted = False

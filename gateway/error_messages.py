@@ -18,6 +18,7 @@ Security Note:
 import os
 
 # Environment variable to control error verbosity
+# In production, set to "false" to prevent information leakage
 VERBOSE_ERRORS_VAR = "VERBOSE_ERRORS"
 
 
@@ -28,6 +29,7 @@ def _is_verbose_errors() -> bool:
 
 
 # Generic error messages for production (non-verbose mode)
+# These don't reveal repository names or visibility status
 GENERIC_ERROR_MESSAGES = {
     "visibility_unknown": "Operation blocked by policy. Could not verify target.",
     "push_public": "Operation blocked by policy.",
@@ -108,16 +110,30 @@ def get_error_message(
     repo: str | None = None,
     operation: str | None = None,
     hint: str | None = None,
-    **kwargs: str,
+    **kwargs,
 ) -> str:
-    """Get a user-friendly error message for a policy violation.
+    """
+    Get a user-friendly error message for a policy violation.
 
     In non-verbose mode (VERBOSE_ERRORS=false), returns generic messages
-    that don't reveal repository names or visibility status.
+    that don't reveal repository names or visibility status, preventing
+    information leakage in production environments.
+
+    Args:
+        error_type: Type of error (e.g., 'push_public', 'visibility_unknown')
+        repo: Repository name for substitution (only used in verbose mode)
+        operation: Operation name for substitution
+        hint: Additional hint text (only used in verbose mode)
+        **kwargs: Additional substitution variables
+
+    Returns:
+        Formatted error message
     """
+    # In non-verbose mode, return generic messages that don't leak info
     if not _is_verbose_errors():
         return GENERIC_ERROR_MESSAGES.get(error_type, GENERIC_ERROR_MESSAGES["default"])
 
+    # Build substitution dict for verbose mode
     subs = {
         "repo": repo or "unknown",
         "operation": operation or "operation",
@@ -125,11 +141,14 @@ def get_error_message(
         **kwargs,
     }
 
+    # Get template
     template = PRIVATE_REPO_ERROR_MESSAGES.get(error_type, PRIVATE_REPO_ERROR_MESSAGES["default"])
 
+    # Format with substitutions
     try:
         return template.format(**subs)
     except KeyError:
+        # If template has placeholders we don't have, use default
         return PRIVATE_REPO_ERROR_MESSAGES["default"]
 
 
@@ -139,9 +158,21 @@ def format_policy_blocked_response(
     repository: str | None = None,
     visibility: str | None = None,
     hints: list[str] | None = None,
-) -> dict[str, object]:
-    """Format a standardized policy-blocked response."""
-    response: dict[str, object] = {
+) -> dict:
+    """
+    Format a standardized policy-blocked response.
+
+    Args:
+        operation: The operation that was blocked
+        reason: Human-readable reason for blocking
+        repository: Repository involved (if any)
+        visibility: Repository visibility (if known)
+        hints: List of helpful hints for the user
+
+    Returns:
+        Dictionary with standardized response structure
+    """
+    response = {
         "success": False,
         "error": "PolicyViolation",
         "operation": operation,
@@ -182,7 +213,15 @@ PRIVATE_MODE_HINTS = {
 
 
 def get_hints_for_error(error_type: str) -> list[str]:
-    """Get helpful hints for an error type."""
+    """
+    Get helpful hints for an error type.
+
+    Args:
+        error_type: Type of error
+
+    Returns:
+        List of hint strings
+    """
     if "fork" in error_type.lower():
         return PRIVATE_MODE_HINTS["fork_blocked"]
     if "unknown" in error_type.lower():

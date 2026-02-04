@@ -1,0 +1,810 @@
+#!/bin/bash
+#
+# Git wrapper for jib container (Gateway-Managed Worktree Architecture)
+#
+# In this architecture, the container has NO direct access to git metadata.
+# The .git directory is shadowed by a tmpfs mount (appears empty to the container).
+# ALL git operations must route through the gateway sidecar.
+#
+# Security Model:
+# - Gateway holds all git metadata and credentials
+# - Container can only see working directory files
+# - All git operations are validated and executed by gateway
+# - Fails closed if gateway unavailable
+#
+
+# Real git binary - relocated to hidden path (used only for gateway fallback testing)
+REAL_GIT=/opt/.jib-internal/git
+GATEWAY_URL="${GATEWAY_URL:-http://jib-gateway:9847}"
+CONTAINER_ID="${CONTAINER_ID:-unknown}"
+CONTAINER_REPOS_DIR="${HOME}/repos"
+# Session token for per-container authentication (required)
+JIB_SESSION_TOKEN="${JIB_SESSION_TOKEN:-}"
+
+# Function to show gateway unavailable message
+show_gateway_unavailable() {
+    cat >&2 << 'EOF'
+
+================================================================================
+  GATEWAY SIDECAR NOT AVAILABLE
+================================================================================
+
+Git operations require the gateway sidecar, but it is not reachable.
+
+In the gateway-managed worktree architecture:
+- The container has no direct access to git metadata
+- All git operations must route through the gateway
+- The gateway holds credentials and enforces policies
+
+Please ensure the gateway sidecar is running:
+  curl http://jib-gateway:9847/api/v1/health
+
+================================================================================
+
+EOF
+    return 1
+}
+
+# Function to show remote modification blocked message
+show_remote_blocked_message() {
+    cat >&2 << 'EOF'
+
+================================================================================
+  GIT REMOTE MODIFICATION BLOCKED
+================================================================================
+
+Git remote URLs are managed by the gateway and cannot be modified.
+
+If you need to interact with a different repository:
+  - Clone it fresh or work in a different directory
+  - The gateway manages remote URLs for security
+
+================================================================================
+
+EOF
+    return 1
+}
+
+# Function to get authentication token for gateway requests
+# Session token is required for all container operations
+get_gateway_auth() {
+    if [ -n "$JIB_SESSION_TOKEN" ]; then
+        echo "$JIB_SESSION_TOKEN"
+        return 0
+    fi
+    echo ""
+}
+
+# Function to check if gateway is available
+check_gateway_available() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -s --connect-timeout 2 "${GATEWAY_URL}/api/v1/health" >/dev/null 2>&1
+        return $?
+    fi
+    return 1
+}
+
+# Function to get current repo path
+get_repo_path() {
+    local work_dir="${1:-}"
+    local path
+
+    if [ -n "$work_dir" ]; then
+        if [[ "$work_dir" != /* ]]; then
+            path="$(pwd)/$work_dir"
+        else
+            path="$work_dir"
+        fi
+    else
+        path=$(pwd)
+    fi
+
+    echo "$path"
+}
+
+# Function to execute git command via gateway
+# Args: operation work_dir args...
+execute_via_gateway() {
+    local operation="$1"
+    local work_dir="$2"
+    shift 2
+    local args=("$@")
+
+    local repo_path
+    repo_path=$(get_repo_path "$work_dir")
+
+    # Get session token for authentication
+    local secret
+    secret=$(get_gateway_auth)
+    if [ -z "$secret" ]; then
+        echo "ERROR: JIB_SESSION_TOKEN not set. Session required for gateway access" >&2
+        echo "The gateway sidecar must be running and properly configured." >&2
+        return 1
+    fi
+
+    # Build JSON payload using Python for proper escaping
+    local payload
+    payload=$(python3 -c "
+import json
+import sys
+args = sys.argv[4:] if len(sys.argv) > 4 else []
+print(json.dumps({
+    'repo_path': sys.argv[1],
+    'operation': sys.argv[2],
+    'args': args,
+    'container_id': sys.argv[3]
+}))
+" "$repo_path" "$operation" "$CONTAINER_ID" "${args[@]}")
+
+    # Call gateway with authentication
+    local response
+    local http_code
+    response=$(curl -s -w "\n%{http_code}" \
+        -X POST \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $secret" \
+        -d "$payload" \
+        "${GATEWAY_URL}/api/v1/git/execute" 2>&1)
+
+    # Split response and status code
+    http_code=$(echo "$response" | tail -n1)
+    response=$(echo "$response" | sed '$d')
+
+    # Parse response
+    local success
+    local message
+    success=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('success', False))" 2>/dev/null)
+    message=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('message', 'Unknown error'))" 2>/dev/null)
+
+    if [ "$success" = "True" ]; then
+        # Show stdout/stderr from the operation
+        local stdout stderr
+        stdout=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('data', {}).get('stdout', ''))" 2>/dev/null)
+        stderr=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('data', {}).get('stderr', ''))" 2>/dev/null)
+        [ -n "$stdout" ] && echo "$stdout"
+        [ -n "$stderr" ] && echo "$stderr" >&2
+        return 0
+    else
+        # Show error message
+        echo "ERROR: $message" >&2
+
+        # Show stdout and stderr from failed command (git merge conflicts often write to stdout)
+        local stdout stderr
+        stdout=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin).get('data', {}); print(d.get('stdout', '') if d else '')" 2>/dev/null)
+        stderr=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin).get('data', {}); print(d.get('stderr', '') if d else '')" 2>/dev/null)
+        [ -n "$stdout" ] && echo "$stdout" >&2
+        [ -n "$stderr" ] && echo "$stderr" >&2
+
+        # Special handling for error codes
+        case "$http_code" in
+            401)
+                echo "Authentication failed - check session token" >&2
+                ;;
+            403)
+                echo "Operation not allowed by gateway policy" >&2
+                ;;
+        esac
+
+        return 1
+    fi
+}
+
+# Function to push via gateway
+# Args: remote refspec force [work_dir]
+push_via_gateway() {
+    local remote="$1"
+    local refspec="$2"
+    local force="$3"
+    local work_dir="${4:-}"
+
+    local repo_path
+    repo_path=$(get_repo_path "$work_dir")
+
+    # Get session token for authentication
+    local secret
+    secret=$(get_gateway_auth)
+    if [ -z "$secret" ]; then
+        echo "ERROR: JIB_SESSION_TOKEN not set. Session required for gateway access" >&2
+        return 1
+    fi
+
+    # Build JSON payload
+    # Use Python boolean literals (True/False) since this is interpolated into Python code
+    local force_json="False"
+    [ "$force" = "true" ] && force_json="True"
+
+    local payload
+    payload=$(python3 -c "
+import json
+print(json.dumps({
+    'repo_path': '$repo_path',
+    'remote': '$remote',
+    'refspec': '$refspec',
+    'force': $force_json,
+    'container_id': '$CONTAINER_ID'
+}))
+")
+
+    # Call gateway with authentication
+    local response
+    local http_code
+    response=$(curl -s -w "\n%{http_code}" \
+        -X POST \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $secret" \
+        -d "$payload" \
+        "${GATEWAY_URL}/api/v1/git/push" 2>&1)
+
+    # Split response and status code
+    http_code=$(echo "$response" | tail -n1)
+    response=$(echo "$response" | sed '$d')
+
+    # Parse response
+    local success message
+    success=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('success', False))" 2>/dev/null)
+    message=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('message', 'Unknown error'))" 2>/dev/null)
+
+    if [ "$success" = "True" ]; then
+        local stdout stderr
+        stdout=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('data', {}).get('stdout', ''))" 2>/dev/null)
+        stderr=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('data', {}).get('stderr', ''))" 2>/dev/null)
+        [ -n "$stdout" ] && echo "$stdout"
+        [ -n "$stderr" ] && echo "$stderr" >&2
+        return 0
+    else
+        echo "ERROR: $message" >&2
+        local details
+        details=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin).get('data', {}); print(d.get('stderr', '') if d else '')" 2>/dev/null)
+        [ -n "$details" ] && echo "$details" >&2
+
+        case "$http_code" in
+            401) echo "Authentication failed - check session token" >&2 ;;
+            403)
+                cat >&2 << 'EOF'
+
+================================================================================
+  PUSH BLOCKED BY POLICY
+================================================================================
+
+The gateway sidecar blocked this push operation.
+
+To push, ensure one of the following:
+  1. Use a jib-prefixed branch name: jib-* or jib/*
+  2. Create a PR from this branch first (the branch will then be owned by jib)
+
+================================================================================
+
+EOF
+                ;;
+            429) echo "Rate limit exceeded - please wait before trying again" >&2 ;;
+        esac
+
+        return 1
+    fi
+}
+
+# Function to fetch via gateway
+# Args: operation remote work_dir extra_args...
+fetch_via_gateway() {
+    local operation="$1"
+    local remote="$2"
+    local work_dir="${3:-}"
+    shift 3
+    local extra_args=("$@")
+
+    local repo_path
+    repo_path=$(get_repo_path "$work_dir")
+
+    # Get session token for authentication
+    local secret
+    secret=$(get_gateway_auth)
+    if [ -z "$secret" ]; then
+        echo "ERROR: JIB_SESSION_TOKEN not set. Session required for gateway access" >&2
+        return 1
+    fi
+
+    # Build JSON payload
+    local payload
+    payload=$(python3 -c "
+import json
+import sys
+import os
+args = sys.argv[4:] if len(sys.argv) > 4 else []
+print(json.dumps({
+    'repo_path': sys.argv[1],
+    'remote': sys.argv[2],
+    'operation': sys.argv[3],
+    'args': args,
+    'container_id': os.environ.get('CONTAINER_ID', '')
+}))
+" "$repo_path" "$remote" "$operation" "${extra_args[@]}")
+
+    # Call gateway with authentication
+    local response http_code
+    response=$(curl -s -w "\n%{http_code}" \
+        -X POST \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $secret" \
+        -d "$payload" \
+        "${GATEWAY_URL}/api/v1/git/fetch" 2>&1)
+
+    http_code=$(echo "$response" | tail -n1)
+    response=$(echo "$response" | sed '$d')
+
+    local success message
+    success=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('success', False))" 2>/dev/null)
+    message=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('message', 'Unknown error'))" 2>/dev/null)
+
+    if [ "$success" = "True" ]; then
+        local stdout stderr
+        stdout=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('data', {}).get('stdout', ''))" 2>/dev/null)
+        stderr=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('data', {}).get('stderr', ''))" 2>/dev/null)
+        [ -n "$stdout" ] && echo "$stdout"
+        [ -n "$stderr" ] && echo "$stderr" >&2
+        return 0
+    else
+        echo "ERROR: $message" >&2
+        local details
+        details=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin).get('data', {}); print(d.get('stderr', '') if d else '')" 2>/dev/null)
+        [ -n "$details" ] && echo "$details" >&2
+        return 1
+    fi
+}
+
+# =============================================================================
+# Main Command Parsing
+# =============================================================================
+
+# Early check for commands that don't need gateway connectivity
+# These are handled before the gateway availability check
+#
+# In the jib container, .git directories are shadowed by tmpfs, so real git
+# will return "not a git repository" for most operations. This is intentional
+# for discovery commands - tools check if they're in a repo and get the right answer.
+for arg in "$@"; do
+    case "$arg" in
+        config)
+            # Config reads and global operations don't need gateway
+            # - --global: operates on ~/.gitconfig
+            # - --get, --get-all, --list: read operations
+            # - simple key lookup (no --set, --unset, --add): read operation
+            is_write=false
+            for inner_arg in "$@"; do
+                case "$inner_arg" in
+                    --set|--unset|--unset-all|--add|--replace-all|--rename-section|--remove-section)
+                        is_write=true
+                        break
+                        ;;
+                esac
+            done
+            if [ "$is_write" = "false" ]; then
+                # Read-only config operations use real git
+                exec "$REAL_GIT" "$@"
+            fi
+            break
+            ;;
+        rev-parse)
+            # rev-parse for repo discovery (--git-dir, --show-toplevel, etc.)
+            # These are used by tools to check if they're in a git repo
+            # Let real git handle them - it will return error if not in repo
+            for inner_arg in "$@"; do
+                case "$inner_arg" in
+                    --git-dir|--git-common-dir|--show-toplevel|--is-inside-work-tree|--is-inside-git-dir|--is-bare-repository|--show-prefix|--show-cdup)
+                        exec "$REAL_GIT" "$@"
+                        ;;
+                esac
+            done
+            break
+            ;;
+        --help|--version|--exec-path|--html-path|--man-path|--info-path)
+            # Help/version/path queries don't need gateway
+            exec "$REAL_GIT" "$@"
+            ;;
+    esac
+done
+
+# Check gateway availability - required for repo operations
+if ! check_gateway_available; then
+    show_gateway_unavailable
+    exit 1
+fi
+
+# Parse global git options and extract the actual command
+cmd=""
+git_work_dir=""
+args_after_globals=()
+skip_next=false
+capture_work_dir=false
+found_command=false
+
+for arg in "$@"; do
+    if $capture_work_dir; then
+        git_work_dir="$arg"
+        capture_work_dir=false
+        continue
+    fi
+
+    if $skip_next; then
+        skip_next=false
+        continue
+    fi
+
+    if ! $found_command; then
+        case "$arg" in
+            -C)
+                capture_work_dir=true
+                ;;
+            -c|--git-dir|--work-tree|--namespace|--super-prefix|--config-env)
+                skip_next=true
+                ;;
+            -C=*|--git-dir=*|--work-tree=*|-c=*|--namespace=*|--super-prefix=*|--config-env=*)
+                if [[ "$arg" == -C=* ]]; then
+                    git_work_dir="${arg#-C=}"
+                fi
+                ;;
+            --version|--help|--html-path|--man-path|--info-path|-p|--paginate|-P|--no-pager|--no-replace-objects|--bare|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks|--list-cmds=*)
+                ;;
+            -*)
+                args_after_globals+=("$arg")
+                ;;
+            *)
+                cmd="$arg"
+                found_command=true
+                args_after_globals+=("$arg")
+                ;;
+        esac
+    else
+        args_after_globals+=("$arg")
+    fi
+done
+
+# Route commands based on type
+case "$cmd" in
+    # ==========================================================================
+    # Network operations - use dedicated endpoints
+    # ==========================================================================
+    push)
+        remote="origin"
+        refspec=""
+        force="false"
+        skip_next=false
+        remote_seen=false
+
+        for arg in "${args_after_globals[@]}"; do
+            if $skip_next; then
+                skip_next=false
+                continue
+            fi
+
+            case "$arg" in
+                push) continue ;;
+                -f|--force|--force-with-lease*) force="true" ;;
+                -u|--set-upstream) ;;
+                --repo|--receive-pack|--exec|-o|--push-option) skip_next=true ;;
+                -*) ;;
+                *)
+                    if [ "$remote_seen" = "false" ]; then
+                        remote="$arg"
+                        remote_seen=true
+                    elif [ -z "$refspec" ]; then
+                        refspec="$arg"
+                    fi
+                    ;;
+            esac
+        done
+
+        push_via_gateway "$remote" "$refspec" "$force" "$git_work_dir"
+        exit $?
+        ;;
+
+    fetch)
+        remote="origin"
+        extra_args=()
+        skip_next=false
+        remote_seen=false
+
+        for arg in "${args_after_globals[@]}"; do
+            if $skip_next; then
+                extra_args+=("$arg")
+                skip_next=false
+                continue
+            fi
+
+            case "$arg" in
+                fetch) continue ;;
+                --depth|--deepen|--shallow-since|--shallow-exclude|-j|--jobs|--recurse-submodules-default|--submodule-prefix|--upload-pack|-o|--server-option|--negotiation-tip|--filter|--refmap)
+                    extra_args+=("$arg")
+                    skip_next=true
+                    ;;
+                -*)
+                    extra_args+=("$arg")
+                    ;;
+                *)
+                    if [ "$remote_seen" = "false" ]; then
+                        remote="$arg"
+                        remote_seen=true
+                    else
+                        extra_args+=("$arg")
+                    fi
+                    ;;
+            esac
+        done
+
+        fetch_via_gateway "fetch" "$remote" "$git_work_dir" "${extra_args[@]}"
+        exit $?
+        ;;
+
+    ls-remote)
+        remote="origin"
+        extra_args=()
+        skip_next=false
+        remote_seen=false
+
+        for arg in "${args_after_globals[@]}"; do
+            if $skip_next; then
+                extra_args+=("$arg")
+                skip_next=false
+                continue
+            fi
+
+            case "$arg" in
+                ls-remote) continue ;;
+                --upload-pack|-o|--server-option|--sort)
+                    extra_args+=("$arg")
+                    skip_next=true
+                    ;;
+                -*)
+                    extra_args+=("$arg")
+                    ;;
+                *)
+                    if [ "$remote_seen" = "false" ]; then
+                        remote="$arg"
+                        remote_seen=true
+                    else
+                        extra_args+=("$arg")
+                    fi
+                    ;;
+            esac
+        done
+
+        fetch_via_gateway "ls-remote" "$remote" "$git_work_dir" "${extra_args[@]}"
+        exit $?
+        ;;
+
+    pull)
+        # git pull = git fetch + git merge
+        remote="origin"
+        branch=""
+        fetch_args=()
+        merge_args=()
+        skip_next=false
+        prev_flag=""
+        remote_seen=false
+
+        for arg in "${args_after_globals[@]}"; do
+            if $skip_next; then
+                case "$prev_flag" in
+                    --depth|--deepen|--shallow-since|--shallow-exclude|-j|--jobs)
+                        fetch_args+=("$prev_flag" "$arg")
+                        ;;
+                    -s|--strategy|-X|--strategy-option)
+                        merge_args+=("$prev_flag" "$arg")
+                        ;;
+                    *)
+                        merge_args+=("$prev_flag" "$arg")
+                        ;;
+                esac
+                skip_next=false
+                continue
+            fi
+
+            case "$arg" in
+                pull) continue ;;
+                --depth|--deepen|--shallow-since|--shallow-exclude|-j|--jobs|-s|--strategy|-X|--strategy-option)
+                    prev_flag="$arg"
+                    skip_next=true
+                    ;;
+                --rebase|--no-rebase|--ff|--no-ff|--ff-only|--squash|--no-squash|--commit|--no-commit|--edit|--no-edit|--autostash|--no-autostash)
+                    merge_args+=("$arg")
+                    ;;
+                --all|--tags|--prune|--no-tags|-f|--force|-k|--keep|-t|--update-head-ok|-q|--quiet|-v|--verbose|--progress|--no-progress)
+                    fetch_args+=("$arg")
+                    ;;
+                -*)
+                    merge_args+=("$arg")
+                    ;;
+                *)
+                    if [ "$remote_seen" = "false" ]; then
+                        remote="$arg"
+                        remote_seen=true
+                    elif [ -z "$branch" ]; then
+                        branch="$arg"
+                    fi
+                    ;;
+            esac
+        done
+
+        # Step 1: Fetch via gateway
+        if [ -n "$branch" ]; then
+            if ! fetch_via_gateway "fetch" "$remote" "$git_work_dir" "${fetch_args[@]}" "$branch"; then
+                echo "ERROR: Fetch failed, aborting pull" >&2
+                exit 1
+            fi
+        else
+            if ! fetch_via_gateway "fetch" "$remote" "$git_work_dir" "${fetch_args[@]}"; then
+                echo "ERROR: Fetch failed, aborting pull" >&2
+                exit 1
+            fi
+        fi
+
+        # Step 2: Merge via gateway
+        merge_target=""
+        if [ -n "$branch" ]; then
+            merge_target="$remote/$branch"
+        else
+            # Get current branch's upstream via gateway
+            current_branch=$(execute_via_gateway "branch" "$git_work_dir" "--show-current" 2>/dev/null | tr -d '\n')
+            if [ -n "$current_branch" ]; then
+                upstream=$(execute_via_gateway "rev-parse" "$git_work_dir" "--abbrev-ref" "@{upstream}" 2>/dev/null | tr -d '\n')
+                if [ -n "$upstream" ]; then
+                    merge_target="$upstream"
+                else
+                    merge_target="$remote/$current_branch"
+                fi
+            else
+                merge_target="FETCH_HEAD"
+            fi
+        fi
+
+        execute_via_gateway "merge" "$git_work_dir" "${merge_args[@]}" "$merge_target"
+        exit $?
+        ;;
+
+    # ==========================================================================
+    # Remote modification - blocked
+    # ==========================================================================
+    remote)
+        subcmd=""
+        for arg in "${args_after_globals[@]}"; do
+            if [ "$arg" = "remote" ]; then continue; fi
+            if [[ "$arg" != -* ]]; then
+                subcmd="$arg"
+                break
+            fi
+        done
+
+        case "$subcmd" in
+            update)
+                # Convert to fetch --all via gateway
+                update_args=()
+                for arg in "${args_after_globals[@]}"; do
+                    case "$arg" in
+                        remote|update) continue ;;
+                        --prune|-p) update_args+=("--prune") ;;
+                    esac
+                done
+                fetch_via_gateway "fetch" "origin" "$git_work_dir" "--all" "${update_args[@]}"
+                exit $?
+                ;;
+            set-url|add|remove|rm|rename|set-head|set-branches|prune)
+                show_remote_blocked_message
+                exit 1
+                ;;
+            *)
+                # Read-only remote commands go through gateway
+                extra_args=()
+                for arg in "${args_after_globals[@]}"; do
+                    [ "$arg" = "remote" ] && continue
+                    extra_args+=("$arg")
+                done
+                execute_via_gateway "remote" "$git_work_dir" "${extra_args[@]}"
+                exit $?
+                ;;
+        esac
+        ;;
+
+    # ==========================================================================
+    # Local operations - route through gateway execute endpoint
+    # ==========================================================================
+    config)
+        # Config command - check if it's a global operation
+        extra_args=()
+        is_global=false
+        for arg in "${args_after_globals[@]}"; do
+            [ "$arg" = "$cmd" ] && continue
+            if [ "$arg" = "--global" ]; then
+                is_global=true
+            fi
+            extra_args+=("$arg")
+        done
+
+        if $is_global; then
+            # Global config operations don't need gateway - use real git
+            # These operate on ~/.gitconfig, not on any repo
+            exec "$REAL_GIT" config "${extra_args[@]}"
+        else
+            # Repo-level config goes through gateway
+            execute_via_gateway "$cmd" "$git_work_dir" "${extra_args[@]}"
+            exit $?
+        fi
+        ;;
+
+    status|log|diff|show|branch|rev-parse)
+        # Read operations
+        extra_args=()
+        for arg in "${args_after_globals[@]}"; do
+            [ "$arg" = "$cmd" ] && continue
+            extra_args+=("$arg")
+        done
+        execute_via_gateway "$cmd" "$git_work_dir" "${extra_args[@]}"
+        exit $?
+        ;;
+
+    add|commit|checkout|switch|reset|restore|stash|merge|rebase|cherry-pick|tag|clean)
+        # Write operations
+        extra_args=()
+        for arg in "${args_after_globals[@]}"; do
+            [ "$arg" = "$cmd" ] && continue
+            extra_args+=("$arg")
+        done
+        execute_via_gateway "$cmd" "$git_work_dir" "${extra_args[@]}"
+        exit $?
+        ;;
+
+    # ==========================================================================
+    # Clone - special handling (creates new repo)
+    # ==========================================================================
+    clone)
+        echo "ERROR: git clone is not supported in the container." >&2
+        echo "Repositories must be configured on the host before container launch." >&2
+        exit 1
+        ;;
+
+    # ==========================================================================
+    # Init - blocked (container doesn't manage repos)
+    # ==========================================================================
+    init)
+        echo "ERROR: git init is not supported in the container." >&2
+        echo "Repositories must be configured on the host." >&2
+        exit 1
+        ;;
+
+    # ==========================================================================
+    # Help/version - can show locally
+    # ==========================================================================
+    --help|help|--version|version)
+        echo "Git wrapper for jib container (Gateway-Managed Architecture)"
+        echo "All git operations route through the gateway sidecar."
+        echo ""
+        echo "Supported operations:"
+        echo "  Network: push, fetch, pull, ls-remote"
+        echo "  Read: status, log, diff, show, branch, rev-parse, config"
+        echo "  Write: add, commit, checkout, switch, reset, restore, stash,"
+        echo "         merge, rebase, cherry-pick, tag, clean"
+        echo ""
+        echo "Blocked operations: clone, init, remote set-url/add/remove"
+        echo ""
+        echo "Gateway URL: $GATEWAY_URL"
+        exit 0
+        ;;
+
+    # ==========================================================================
+    # Unknown commands - try to route through gateway
+    # ==========================================================================
+    *)
+        if [ -z "$cmd" ]; then
+            echo "Usage: git <command> [args...]"
+            echo "Run 'git --help' for more information."
+            exit 1
+        fi
+
+        # Try to execute via gateway - it will validate against allowlist
+        extra_args=()
+        for arg in "${args_after_globals[@]}"; do
+            [ "$arg" = "$cmd" ] && continue
+            extra_args+=("$arg")
+        done
+        execute_via_gateway "$cmd" "$git_work_dir" "${extra_args[@]}"
+        exit $?
+        ;;
+esac

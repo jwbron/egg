@@ -1,9 +1,9 @@
 """
 Private Mode Policy Enforcement.
 
-Controls repository and network access based on mode:
-- When "private": Private/internal repos only, network locked down (Anthropic API only)
-- When "public": Public repos only, full internet access
+Controls repository and network access based on PRIVATE_MODE:
+- When true: Private/internal repos only, network locked down (Anthropic API only)
+- When false: Public repos only, full internet access
 
 This single flag controls the entire security posture - there's no way to
 accidentally combine open network with private repo access.
@@ -17,23 +17,63 @@ Security Properties:
 Known Limitations (TOCTOU):
     There is an inherent Time-of-Check-Time-of-Use (TOCTOU) window between when
     visibility is checked and when the actual Git/GitHub operation executes.
+
+    Implications:
+    - A repository's visibility could change between check and operation
+    - For read operations: 60-second cache means visibility changes may not be
+      detected immediately (acceptable for performance)
+    - For write operations: No caching (TTL=0) minimizes but doesn't eliminate
+      the window
+
+    Mitigations:
+    - Write operations always verify visibility (no caching)
+    - The gateway verifies again at operation time where possible
+    - Audit logging captures all decisions for forensic analysis
+    - Repository visibility changes are rare in practice
+
+    This is a documented architectural limitation. For higher security
+    requirements, consider additional controls at the Git server level.
 """
 
 import os
+import sys
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from shared.egg_logging import get_logger
+# Add shared directory to path for jib_logging
+_shared_path = Path(__file__).parent.parent.parent / "shared"
+if _shared_path.exists():
+    sys.path.insert(0, str(_shared_path))
+from egg_logging import get_logger
 
-from .error_messages import get_error_message
-from .repo_parser import RepoInfo, extract_repo_from_request, parse_owner_repo
-from .repo_visibility import get_repo_visibility
+# Import using try/except for both module and standalone script mode
+try:
+    from .error_messages import get_error_message
+    from .repo_parser import (
+        RepoInfo,
+        extract_repo_from_request,
+        parse_owner_repo,
+    )
+    from .repo_visibility import get_repo_visibility
+except ImportError:
+    from error_messages import get_error_message
+    from repo_parser import (
+        RepoInfo,
+        extract_repo_from_request,
+        parse_owner_repo,
+    )
+    from repo_visibility import get_repo_visibility
+
 
 logger = get_logger("gateway.private-repo-policy")
 
+
 # Environment variable to control private mode
+# When true: private repos only, network locked down
+# When false: public repos only, full internet access
 PRIVATE_MODE_VAR = "PRIVATE_MODE"
 
 
@@ -45,11 +85,11 @@ class PrivateRepoPolicyResult:
     reason: str
     visibility: str | None = None
     details: dict[str, Any] | None = None
-    session_mode: str | None = None
+    session_mode: str | None = None  # "private", "public", or None (global mode)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API response."""
-        result: dict[str, Any] = {
+        result = {
             "allowed": self.allowed,
             "reason": self.reason,
             "policy": "private_mode",
@@ -64,26 +104,39 @@ class PrivateRepoPolicyResult:
 
 
 def is_private_mode_enabled() -> bool:
-    """Check if Private Mode is enabled via environment variable.
+    """
+    Check if Private Mode is enabled via environment variable.
+
+    DEPRECATED: This function is no longer used for the main policy code path.
+    Mode is now determined per-container via session_mode parameter passed to
+    check_repository_access(). This function remains for backwards compatibility
+    with fork_policy.py and config_validator.py.
 
     When true: private repos only, network locked down (Anthropic API only).
     When false: public repos only, full internet access.
+
+    Returns:
+        True if PRIVATE_MODE environment variable is set to true/1/yes
     """
     value = os.environ.get(PRIVATE_MODE_VAR, "false").lower().strip()
     return value in ("true", "1", "yes")
 
 
 class PrivateRepoPolicy:
-    """Policy engine for repository visibility enforcement.
+    """
+    Policy engine for repository visibility enforcement.
 
     Mode is determined per-session (not globally):
     - "private": Only private/internal repos accessible
     - "public": Only public repos accessible
+
+    The PRIVATE_MODE environment variable controls Squid proxy config
+    (network lockdown), but repo visibility is per-session.
     """
 
-    def __init__(self) -> None:
+    def __init__(self):
         """Initialize the policy engine."""
-        pass
+        # No state needed - mode is per-session
 
     def _log_policy_event(
         self,
@@ -121,14 +174,29 @@ class PrivateRepoPolicy:
         for_write: bool = False,
         session_mode: str | None = None,
     ) -> PrivateRepoPolicyResult:
-        """Check if access to a repository is allowed under private mode policy.
+        """
+        Check if access to a repository is allowed under private mode policy.
 
         Mode is determined by per-container session:
         - "private": Only private/internal repos accessible
         - "public": Only public repos accessible
 
         Sessions are mandatory - requests without session_mode are denied.
+
+        Args:
+            operation: Name of the operation (push, fetch, clone, etc.)
+            owner: Repository owner (if known)
+            repo: Repository name (if known)
+            repo_path: Local repository path
+            url: GitHub URL
+            for_write: If True, use stricter caching (always verify)
+            session_mode: Per-container mode from session ("private" or "public").
+                          Required - requests without session_mode are denied.
+
+        Returns:
+            PrivateRepoPolicyResult with allowed status and reason
         """
+        # Session mode is required - no legacy fallback to global env var
         if session_mode is None:
             reason = (
                 f"Operation '{operation}' denied: No session mode specified. "
@@ -140,7 +208,7 @@ class PrivateRepoPolicy:
                 reason=reason,
                 details={
                     "error": "Missing session mode",
-                    "hint": "Container must have a valid EGG_SESSION_TOKEN",
+                    "hint": "Container must have a valid JIB_SESSION_TOKEN",
                 },
                 session_mode=None,
             )
@@ -150,10 +218,13 @@ class PrivateRepoPolicy:
         # Try to determine the repository
         repo_info: RepoInfo | None = None
 
+        # If owner and repo are provided directly
         if owner and repo:
             repo_info = RepoInfo(owner=owner, repo=repo)
+        # Try full repo string (owner/repo format)
         elif repo and "/" in repo:
             repo_info = parse_owner_repo(repo)
+        # Try to extract from other sources
         else:
             repo_str = f"{owner}/{repo}" if owner and repo else repo
             repo_info = extract_repo_from_request(
@@ -163,6 +234,7 @@ class PrivateRepoPolicy:
             )
 
         if not repo_info:
+            # Cannot determine repository - FAIL CLOSED
             reason = get_error_message(
                 "visibility_unknown",
                 operation=operation,
@@ -189,6 +261,7 @@ class PrivateRepoPolicy:
         )
 
         if visibility is None:
+            # Cannot determine visibility - FAIL CLOSED
             reason = get_error_message(
                 "visibility_unknown",
                 repo=str(repo_info),
@@ -209,7 +282,9 @@ class PrivateRepoPolicy:
 
         # Check based on mode
         if use_private_mode:
+            # Private Repo Mode: only allow private/internal repositories
             if visibility == "public":
+                # Public repository - DENY
                 mode_src = "session" if session_mode else "global"
                 reason = get_error_message(
                     f"{operation}_public",
@@ -226,12 +301,13 @@ class PrivateRepoPolicy:
                         "repository": str(repo_info),
                         "visibility": visibility,
                         "private_mode": True,
-                        "hint": "Private Mode only allows private repositories",
+                        "hint": "Private Repo Mode only allows interaction with private repositories",
                         "mode_source": mode_src,
                     },
                     session_mode=session_mode,
                 )
 
+            # Private or internal - ALLOW
             mode_src = "session" if session_mode else "global"
             self._log_policy_event(
                 operation,
@@ -252,7 +328,9 @@ class PrivateRepoPolicy:
                 },
                 session_mode=session_mode,
             )
+        # Public Repo Only Mode: only allow public repositories
         elif visibility == "public":
+            # Public repository - ALLOW
             mode_src = "session" if session_mode else "global"
             self._log_policy_event(
                 operation,
@@ -274,6 +352,7 @@ class PrivateRepoPolicy:
                 session_mode=session_mode,
             )
         else:
+            # Private/internal repository - DENY
             mode_src = "session" if session_mode else "global"
             reason = (
                 f"Public Repo Only Mode ({mode_src}): Operation '{operation}' on repository "
@@ -300,7 +379,6 @@ class PrivateRepoPolicy:
         owner: str | None = None,
         repo: str | None = None,
         repo_path: str | None = None,
-        session_mode: str | None = None,
     ) -> PrivateRepoPolicyResult:
         """Check if push is allowed."""
         return self.check_repository_access(
@@ -309,7 +387,6 @@ class PrivateRepoPolicy:
             repo=repo,
             repo_path=repo_path,
             for_write=True,
-            session_mode=session_mode,
         )
 
     def check_fetch(
@@ -317,7 +394,6 @@ class PrivateRepoPolicy:
         owner: str | None = None,
         repo: str | None = None,
         repo_path: str | None = None,
-        session_mode: str | None = None,
     ) -> PrivateRepoPolicyResult:
         """Check if fetch is allowed."""
         return self.check_repository_access(
@@ -326,7 +402,73 @@ class PrivateRepoPolicy:
             repo=repo,
             repo_path=repo_path,
             for_write=False,
-            session_mode=session_mode,
+        )
+
+    def check_clone(
+        self,
+        url: str | None = None,
+        owner: str | None = None,
+        repo: str | None = None,
+    ) -> PrivateRepoPolicyResult:
+        """Check if clone is allowed."""
+        return self.check_repository_access(
+            operation="clone",
+            owner=owner,
+            repo=repo,
+            url=url,
+            for_write=False,
+        )
+
+    def check_pr_create(
+        self,
+        owner: str | None = None,
+        repo: str | None = None,
+    ) -> PrivateRepoPolicyResult:
+        """Check if PR creation is allowed."""
+        return self.check_repository_access(
+            operation="pr_create",
+            owner=owner,
+            repo=repo,
+            for_write=True,
+        )
+
+    def check_pr_comment(
+        self,
+        owner: str | None = None,
+        repo: str | None = None,
+    ) -> PrivateRepoPolicyResult:
+        """Check if PR comment is allowed."""
+        return self.check_repository_access(
+            operation="pr_comment",
+            owner=owner,
+            repo=repo,
+            for_write=True,
+        )
+
+    def check_issue(
+        self,
+        owner: str | None = None,
+        repo: str | None = None,
+    ) -> PrivateRepoPolicyResult:
+        """Check if issue operations are allowed."""
+        return self.check_repository_access(
+            operation="issue",
+            owner=owner,
+            repo=repo,
+            for_write=True,
+        )
+
+    def check_gh_execute(
+        self,
+        owner: str | None = None,
+        repo: str | None = None,
+    ) -> PrivateRepoPolicyResult:
+        """Check if generic gh execute is allowed."""
+        return self.check_repository_access(
+            operation="gh_execute",
+            owner=owner,
+            repo=repo,
+            for_write=False,
         )
 
 
@@ -340,9 +482,9 @@ def get_private_repo_policy() -> PrivateRepoPolicy:
     global _policy
     if _policy is None:
         with _policy_lock:
+            # Double-checked locking pattern
             if _policy is None:
                 _policy = PrivateRepoPolicy()
-    assert _policy is not None
     return _policy
 
 
@@ -355,7 +497,22 @@ def check_private_repo_access(
     for_write: bool = False,
     session_mode: str | None = None,
 ) -> PrivateRepoPolicyResult:
-    """Check private repo access (convenience function)."""
+    """
+    Check private repo access (convenience function).
+
+    Args:
+        operation: Name of the operation
+        owner: Repository owner
+        repo: Repository name or owner/repo
+        repo_path: Local repository path
+        url: GitHub URL
+        for_write: If True, use stricter caching
+        session_mode: Per-container mode from session ("private" or "public").
+                      Required - requests without session_mode are denied.
+
+    Returns:
+        PrivateRepoPolicyResult
+    """
     return get_private_repo_policy().check_repository_access(
         operation=operation,
         owner=owner,

@@ -31,7 +31,7 @@ jobs:
         run: .venv/bin/ruff format --check .
 
       - name: Mypy
-        run: .venv/bin/mypy gateway shared cli
+        run: .venv/bin/mypy gateway shared sandbox
 
       - name: Shellcheck
         run: |

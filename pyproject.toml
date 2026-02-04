@@ -31,7 +31,7 @@ dev = [
 ]
 
 [project.scripts]
-egg = "cli.main:main"
+egg = "egg_lib.cli:main"
 
 [tool.uv]
 # Use system Python by default (consistent with james-in-a-box)
@@ -43,6 +43,15 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "C4", "UP"]
+# E402: module level import not at top - intentional in entry points for timing
+# E501: line too long - some error messages need to be readable
+ignore = ["E402", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# F403: star import is intentional for CLI backward compatibility
+"sandbox/egg" = ["F403"]
+# UP038: isinstance style is fine as-is in tests
+"tests/*" = ["UP038"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -63,22 +72,22 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --cov=gateway --cov=shared --cov=cli --cov-report=term-missing"
+addopts = "-v --cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["cli", "gateway", "shared", "container"]
+packages = ["gateway", "shared/egg_config", "shared/egg_logging", "shared/egg_git", "sandbox/egg_lib"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "cli",
     "gateway",
     "shared",
-    "container",
+    "sandbox",
     "scripts",
+    "config",
     "pyproject.toml",
     "README.md",
     "LICENSE",

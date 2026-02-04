@@ -13,13 +13,18 @@ Design decisions:
 - Separate limiters for different operations
 """
 
+import sys
 import threading
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from pathlib import Path
 
-from shared.egg_logging import get_logger
+# Add shared directory to path for jib_logging
+_shared_path = Path(__file__).parent.parent.parent / "shared"
+if _shared_path.exists():
+    sys.path.insert(0, str(_shared_path))
+from egg_logging import get_logger
 
 logger = get_logger("gateway.rate-limiter")
 
@@ -32,9 +37,9 @@ class RateLimitResult:
     remaining: int
     retry_after_seconds: int | None = None
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict:
         """Convert to dictionary for API response."""
-        result: dict[str, Any] = {
+        result = {
             "allowed": self.allowed,
             "remaining": self.remaining,
         }
@@ -52,7 +57,14 @@ class SlidingWindowRateLimiter:
     """
 
     def __init__(self, max_requests: int, window_seconds: int, name: str = "default"):
-        """Initialize the rate limiter."""
+        """
+        Initialize the rate limiter.
+
+        Args:
+            max_requests: Maximum number of requests allowed in the window
+            window_seconds: Size of the sliding window in seconds
+            name: Name for logging purposes
+        """
         self.max_requests = max_requests
         self.window = timedelta(seconds=window_seconds)
         self.name = name
@@ -62,9 +74,16 @@ class SlidingWindowRateLimiter:
         self._lock = threading.Lock()
 
     def is_allowed(self, key: str) -> RateLimitResult:
-        """Check if a request is allowed for the given key.
+        """
+        Check if a request is allowed for the given key.
 
         If allowed, records the request. If not, returns retry info.
+
+        Args:
+            key: The key to rate limit on (e.g., IP address, session ID)
+
+        Returns:
+            RateLimitResult with allowed status and remaining count
         """
         now = datetime.now(UTC)
         cutoff = now - self.window
@@ -107,9 +126,16 @@ class SlidingWindowRateLimiter:
             )
 
     def check_only(self, key: str) -> RateLimitResult:
-        """Check rate limit without recording a request.
+        """
+        Check rate limit without recording a request.
 
         Useful for checking status before performing expensive operations.
+
+        Args:
+            key: The key to check
+
+        Returns:
+            RateLimitResult (read-only check)
         """
         now = datetime.now(UTC)
         cutoff = now - self.window
@@ -139,20 +165,35 @@ class SlidingWindowRateLimiter:
             )
 
     def reset(self, key: str) -> None:
-        """Reset rate limit for a specific key."""
+        """
+        Reset rate limit for a specific key.
+
+        Args:
+            key: The key to reset
+        """
         with self._lock:
             if key in self._requests:
                 del self._requests[key]
 
     def reset_all(self) -> int:
-        """Reset all rate limits."""
+        """
+        Reset all rate limits.
+
+        Returns:
+            Number of keys that were reset
+        """
         with self._lock:
             count = len(self._requests)
             self._requests.clear()
             return count
 
-    def get_stats(self) -> dict[str, Any]:
-        """Get statistics about rate limiter state."""
+    def get_stats(self) -> dict:
+        """
+        Get statistics about rate limiter state.
+
+        Returns:
+            Dictionary with stats
+        """
         now = datetime.now(UTC)
         cutoff = now - self.window
 
@@ -206,25 +247,53 @@ heartbeat_limiter = SlidingWindowRateLimiter(
 
 
 def check_registration_rate_limit(source_ip: str) -> RateLimitResult:
-    """Check rate limit for session registration."""
+    """
+    Check rate limit for session registration.
+
+    Args:
+        source_ip: The source IP address
+
+    Returns:
+        RateLimitResult
+    """
     return registration_limiter.is_allowed(source_ip)
 
 
 def record_failed_lookup(source_ip: str) -> RateLimitResult:
-    """Record a failed session lookup and check rate limit.
+    """
+    Record a failed session lookup and check rate limit.
 
     Called when an invalid session token is presented.
+
+    Args:
+        source_ip: The source IP address
+
+    Returns:
+        RateLimitResult (for future requests)
     """
     return failed_lookup_limiter.is_allowed(source_ip)
 
 
 def check_heartbeat_rate_limit(session_id: str) -> RateLimitResult:
-    """Check rate limit for explicit heartbeat requests."""
+    """
+    Check rate limit for explicit heartbeat requests.
+
+    Args:
+        session_id: The session ID (or token hash prefix)
+
+    Returns:
+        RateLimitResult
+    """
     return heartbeat_limiter.is_allowed(session_id)
 
 
-def get_all_limiter_stats() -> dict[str, Any]:
-    """Get statistics for all rate limiters."""
+def get_all_limiter_stats() -> dict:
+    """
+    Get statistics for all rate limiters.
+
+    Returns:
+        Dictionary with stats for each limiter
+    """
     return {
         "registration": registration_limiter.get_stats(),
         "failed_lookup": failed_lookup_limiter.get_stats(),

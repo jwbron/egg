@@ -3,6 +3,8 @@
 Validates all required configuration at startup to fail fast with clear errors.
 This validates the network lockdown implementation.
 
+Reference: ADR-Internet-Tool-Access-Lockdown.md
+
 Security Model (PRIVATE_MODE):
 - PRIVATE_MODE=true: Network locked down (Anthropic API only) + private repos only
 - PRIVATE_MODE=false: Full internet access + public repos only (default)
@@ -20,10 +22,7 @@ class ConfigError(Exception):
     """Raised when configuration validation fails."""
 
 
-def validate_config(
-    secrets_dir: Path | None = None,
-    squid_conf_path: Path | None = None,
-) -> None:
+def validate_config() -> None:
     """Validate all gateway configuration at startup.
 
     Checks:
@@ -36,65 +35,71 @@ def validate_config(
     """
     errors: list[str] = []
 
-    secrets_dir = secrets_dir or Path("/secrets")
-
     # Check for required secrets
+    secrets_dir = Path("/secrets")
     if secrets_dir.is_dir():
+        # Note: GitHub tokens are now managed in-memory by token_refresher.py
+        # We don't check for .github-token file here anymore
+
+        # Launcher secret (for session management authentication)
         launcher_secret_file = secrets_dir / "launcher-secret"
         if not launcher_secret_file.is_file():
             errors.append(
-                f"Launcher secret not found: {launcher_secret_file}\n"
+                "Launcher secret not found: /secrets/launcher-secret\n"
                 "  Run setup.sh to generate launcher secret"
             )
     else:
         errors.append(
-            f"Secrets directory not mounted: {secrets_dir}\n  Ensure secrets directory is mounted"
+            "Secrets directory not mounted: /secrets\n"
+            "  Ensure ~/.egg-gateway is mounted at /secrets"
         )
 
-    # Validate Squid configuration (optional - only if using proxy)
-    squid_conf = squid_conf_path or Path("/etc/squid/squid.conf")
-    if squid_conf.parent.exists():
-        if not squid_conf.is_file():
-            errors.append(
-                f"Squid configuration not found: {squid_conf}\n"
-                "  This file is required for network lockdown"
-            )
+    # Validate Squid configuration
+    # In private mode, we use squid.conf (locked down)
+    # In public mode, we use squid-allow-all.conf (full internet)
+    squid_conf = Path("/etc/squid/squid.conf")
+    if not squid_conf.is_file():
+        errors.append(
+            "Squid configuration not found: /etc/squid/squid.conf\n"
+            "  This file is required for network lockdown"
+        )
 
-        squid_allow_all_conf = squid_conf.parent / "squid-allow-all.conf"
-        if not squid_allow_all_conf.is_file():
-            errors.append(
-                f"Squid allow-all configuration not found: {squid_allow_all_conf}\n"
-                "  This file is required for public mode"
-            )
+    squid_allow_all_conf = Path("/etc/squid/squid-allow-all.conf")
+    if not squid_allow_all_conf.is_file():
+        errors.append(
+            "Squid allow-all configuration not found: /etc/squid/squid-allow-all.conf\n"
+            "  This file is required for public mode"
+        )
 
-        domains_file = squid_conf.parent / "allowed_domains.txt"
-        if not domains_file.is_file():
-            errors.append(
-                f"Allowed domains file not found: {domains_file}\n"
-                "  This file must be present for private mode"
-            )
-        else:
-            try:
-                with open(domains_file) as f:
-                    domains = [
-                        line.strip()
-                        for line in f
-                        if line.strip() and not line.strip().startswith("#")
-                    ]
-                if not domains:
-                    errors.append(
-                        "Allowed domains file is empty (no domains configured)\n"
-                        "  At minimum, api.anthropic.com is required for private mode"
-                    )
-            except Exception as e:
-                errors.append(f"Failed to read allowed domains file: {e}")
+    # Allowed domains file (only required for private mode, but should exist)
+    domains_file = Path("/etc/squid/allowed_domains.txt")
+    if not domains_file.is_file():
+        errors.append(
+            "Allowed domains file not found: /etc/squid/allowed_domains.txt\n"
+            "  This file must be present for private mode"
+        )
+    else:
+        # Check file has actual domains (not just comments)
+        try:
+            with open(domains_file) as f:
+                domains = [
+                    line.strip() for line in f if line.strip() and not line.strip().startswith("#")
+                ]
+            if not domains:
+                errors.append(
+                    "Allowed domains file is empty (no domains configured)\n"
+                    "  At minimum, api.anthropic.com is required for private mode"
+                )
+        except Exception as e:
+            errors.append(f"Failed to read allowed domains file: {e}")
 
-        squid_cert = squid_conf.parent / "squid-ca.pem"
-        if not squid_cert.is_file():
-            errors.append(
-                f"Squid CA certificate not found: {squid_cert}\n"
-                "  This certificate is required for SNI inspection"
-            )
+    # Check Squid CA certificate
+    squid_cert = Path("/etc/squid/squid-ca.pem")
+    if not squid_cert.is_file():
+        errors.append(
+            "Squid CA certificate not found: /etc/squid/squid-ca.pem\n"
+            "  This certificate is required for SNI inspection"
+        )
 
     if errors:
         for error in errors:
@@ -102,17 +107,16 @@ def validate_config(
         raise ConfigError(f"{len(errors)} configuration error(s) found")
 
 
-def validate_network_lockdown_mode(squid_conf_dir: Path | None = None) -> bool:
+def validate_network_lockdown_mode() -> bool:
     """Check if network lockdown mode components are properly configured.
 
     Returns:
         True if all lockdown components are present
     """
-    squid_dir = squid_conf_dir or Path("/etc/squid")
-
-    squid_conf = (squid_dir / "squid.conf").is_file()
-    domains_file = (squid_dir / "allowed_domains.txt").is_file()
-    squid_cert = (squid_dir / "squid-ca.pem").is_file()
+    # Verify all required components
+    squid_conf = Path("/etc/squid/squid.conf").is_file()
+    domains_file = Path("/etc/squid/allowed_domains.txt").is_file()
+    squid_cert = Path("/etc/squid/squid-ca.pem").is_file()
 
     return squid_conf and domains_file and squid_cert
 
@@ -123,6 +127,9 @@ def is_private_mode_enabled() -> bool:
     PRIVATE_MODE controls BOTH network access AND repository visibility:
     - true: Private repos only + network locked down (Anthropic API only)
     - false: Public repos only + full internet access (default)
+
+    Returns:
+        True if PRIVATE_MODE is set to true/1/yes
     """
     value = os.environ.get("PRIVATE_MODE", "false").lower().strip()
     return value in ("true", "1", "yes")

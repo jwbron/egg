@@ -19,10 +19,16 @@ Security Note:
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from shared.egg_logging import get_logger
+# Add shared directory to path for jib_logging
+_shared_path = Path(__file__).parent.parent.parent / "shared"
+if _shared_path.exists():
+    sys.path.insert(0, str(_shared_path))
+from egg_logging import get_logger
 
 logger = get_logger("gateway.repo-parser")
 
@@ -60,7 +66,8 @@ OWNER_REPO_PATTERN = re.compile(r"^([^/\s]+)/([^/\s]+)$")
 
 
 def normalize_github_url(url: str) -> str:
-    """Normalize a GitHub URL before parsing.
+    """
+    Normalize a GitHub URL before parsing.
 
     Handles potential bypass attempts via:
     - URL-encoded characters (e.g., %6f%77%6e%65%72 -> owner)
@@ -68,6 +75,16 @@ def normalize_github_url(url: str) -> str:
     - Unusual port numbers (e.g., github.com:443)
     - Double slashes in path (e.g., github.com//owner/repo)
     - Trailing slashes and whitespace
+
+    Args:
+        url: Raw URL to normalize
+
+    Returns:
+        Normalized URL string
+
+    Security:
+        This function is critical for preventing URL parsing bypasses.
+        All URL inputs should be normalized before pattern matching.
     """
     if not url:
         return ""
@@ -76,6 +93,7 @@ def normalize_github_url(url: str) -> str:
     url = url.strip()
 
     # Decode URL-encoded characters (handle double-encoding too)
+    # Limit iterations to prevent infinite loops on malformed input
     for _ in range(3):
         decoded = unquote(url)
         if decoded == url:
@@ -88,6 +106,7 @@ def normalize_github_url(url: str) -> str:
             parsed = urlparse(url)
 
             # Rebuild URL without credentials
+            # Use only host (strip port if it's default 443/80)
             host = parsed.hostname or parsed.netloc
             if host and host.lower() == "github.com":
                 # Normalize path: remove double slashes, strip trailing slash
@@ -99,9 +118,17 @@ def normalize_github_url(url: str) -> str:
                 # Rebuild clean URL
                 url = f"https://github.com{path}"
         except Exception:
+            # If urlparse fails, continue with basic normalization
             pass
 
+    # For SSH URLs (git@github.com:owner/repo), basic normalization
+    elif url.startswith("git@"):
+        # Remove any embedded credentials (shouldn't happen but be safe)
+        # Format: git@github.com:owner/repo.git
+        pass
+
     # Normalize double slashes in path (for all URL types)
+    # Be careful not to touch the protocol double slash
     if "://" in url:
         protocol, rest = url.split("://", 1)
         while "//" in rest:
@@ -112,7 +139,8 @@ def normalize_github_url(url: str) -> str:
 
 
 def parse_github_url(url: str) -> RepoInfo | None:
-    """Parse a GitHub URL to extract owner and repo.
+    """
+    Parse a GitHub URL to extract owner and repo.
 
     Supports:
     - https://github.com/owner/repo.git
@@ -120,6 +148,16 @@ def parse_github_url(url: str) -> RepoInfo | None:
     - git@github.com:owner/repo.git
     - ssh://git@github.com/owner/repo.git
     - git://github.com/owner/repo.git
+
+    Args:
+        url: GitHub URL in any supported format
+
+    Returns:
+        RepoInfo with owner and repo, or None if not a valid GitHub URL
+
+    Security:
+        URL is normalized before parsing to prevent bypass attempts.
+        See normalize_github_url() for details.
     """
     if not url:
         return None
@@ -134,7 +172,8 @@ def parse_github_url(url: str) -> RepoInfo | None:
         match = pattern.match(url)
         if match:
             owner, repo = match.groups()
-            # Additional validation
+            # Additional validation: owner/repo should not contain suspicious chars
+            # after normalization (e.g., encoded path traversal)
             if ".." in owner or ".." in repo:
                 logger.warning(
                     "Suspicious path traversal in parsed URL",
@@ -148,7 +187,15 @@ def parse_github_url(url: str) -> RepoInfo | None:
 
 
 def parse_owner_repo(repo_str: str) -> RepoInfo | None:
-    """Parse an owner/repo string."""
+    """
+    Parse an owner/repo string.
+
+    Args:
+        repo_str: Repository in "owner/repo" format
+
+    Returns:
+        RepoInfo with owner and repo, or None if not valid
+    """
     if not repo_str:
         return None
 
@@ -164,8 +211,19 @@ def parse_owner_repo(repo_str: str) -> RepoInfo | None:
 
 
 def get_remote_url(repo_path: str, remote: str = "origin") -> str | None:
-    """Get the remote URL for a git repository."""
+    """
+    Get the remote URL for a git repository.
+
+    Args:
+        repo_path: Path to the git repository (worktree or main repo)
+        remote: Remote name (default: origin)
+
+    Returns:
+        Remote URL or None if not found
+    """
     try:
+        # Use git config to get remote URL
+        # Note: We need to handle worktree paths where .git may be a file
         result = subprocess.run(
             [
                 "git",
@@ -203,20 +261,33 @@ def get_remote_url(repo_path: str, remote: str = "origin") -> str | None:
 
 
 def parse_repo_from_path(repo_path: str, remote: str = "origin") -> RepoInfo | None:
-    """Extract repository info from a local path by reading its git remote."""
+    """
+    Extract repository info from a local path by reading its git remote.
+
+    Args:
+        repo_path: Path to a git repository
+        remote: Remote name to use (default: origin)
+
+    Returns:
+        RepoInfo or None if not determinable
+    """
     remote_url = get_remote_url(repo_path, remote)
     if remote_url:
         return parse_github_url(remote_url)
     return None
 
 
-def parse_worktree_path(
-    path: str,
-    worktree_base: str = "~/.egg-worktrees",
-) -> tuple[str | None, str | None]:
-    """Parse a worktree path to extract container ID and repo name.
+def parse_worktree_path(path: str) -> tuple[str | None, str | None]:
+    """
+    Parse a worktree path to extract container ID and repo name.
 
-    Expected format: {worktree_base}/{container_id}/{repo_name}
+    Expected format: /home/egg/.egg-worktrees/{container_id}/{repo_name}
+
+    Args:
+        path: Worktree path
+
+    Returns:
+        Tuple of (container_id, repo_name) or (None, None) if not a worktree
     """
     if not path:
         return None, None
@@ -225,13 +296,13 @@ def parse_worktree_path(
     path = os.path.realpath(path).rstrip("/")
 
     # Expected base path
-    worktree_base_path = os.path.realpath(os.path.expanduser(worktree_base))
+    worktree_base = os.path.realpath(os.path.expanduser("~/.egg-worktrees"))
 
-    if not path.startswith(worktree_base_path + "/"):
+    if not path.startswith(worktree_base + "/"):
         return None, None
 
     # Extract relative path
-    relative = path[len(worktree_base_path) + 1 :]
+    relative = path[len(worktree_base) + 1 :]
     parts = relative.split("/")
 
     if len(parts) >= 2:
@@ -248,12 +319,22 @@ def extract_repo_from_request(
     url: str | None = None,
     remote: str = "origin",
 ) -> RepoInfo | None:
-    """Extract repository info from various sources.
+    """
+    Extract repository info from various sources.
 
     Tries in order:
     1. repo (if owner/repo format)
     2. url (if GitHub URL)
     3. repo_path (by reading git remote)
+
+    Args:
+        repo: Repository name (owner/repo format)
+        repo_path: Path to local repository
+        url: GitHub URL
+        remote: Git remote name for path-based extraction
+
+    Returns:
+        RepoInfo or None if not determinable
     """
     # Try repo parameter first (most explicit)
     if repo:
@@ -277,14 +358,30 @@ def extract_repo_from_request(
 
 
 def is_github_url(url: str) -> bool:
-    """Check if a URL is a GitHub URL."""
+    """
+    Check if a URL is a GitHub URL.
+
+    Args:
+        url: URL to check
+
+    Returns:
+        True if this is a GitHub URL
+    """
     if not url:
         return False
     return parse_github_url(url) is not None
 
 
 def normalize_repo_name(name: str) -> str:
-    """Normalize a repository name by removing .git suffix."""
+    """
+    Normalize a repository name by removing .git suffix.
+
+    Args:
+        name: Repository name possibly with .git suffix
+
+    Returns:
+        Normalized name without .git suffix
+    """
     if name.endswith(".git"):
         return name[:-4]
     return name
