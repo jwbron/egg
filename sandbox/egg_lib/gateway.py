@@ -2,9 +2,17 @@
 
 This module handles the gateway sidecar container that provides
 policy enforcement for git/gh operations.
+
+Gateway Lifecycle Management:
+- Gateway starts automatically when egg runs (no manual setup needed)
+- Hash-based rebuild detection ensures image is rebuilt when code changes
+- Systemd migration handles existing systemd-based setups
+- Cross-platform support (Linux and macOS)
 """
 
+import hashlib
 import json
+import os
 import secrets
 import subprocess
 import time
@@ -13,17 +21,370 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+import yaml
+
 from .config import (
+    EGG_EXTERNAL_NETWORK,
+    EGG_ISOLATED_NETWORK,
     GATEWAY_CONTAINER_NAME,
+    GATEWAY_EXTERNAL_IP,
     GATEWAY_IMAGE_NAME,
+    GATEWAY_ISOLATED_IP,
     GATEWAY_PORT,
     GATEWAY_PROXY_PORT,
     Config,
+    get_platform,
 )
-from .output import error, info, success
+from .output import error, info, success, warn
 
 # Launcher secret file location (for session and worktree management)
 LAUNCHER_SECRET_FILE = Config.USER_CONFIG_DIR / "launcher-secret"
+
+# Label used to store build content hash on gateway Docker image
+GATEWAY_BUILD_HASH_LABEL = "org.egg.gateway-build-hash"
+
+# Container home path (fixed user in gateway container)
+CONTAINER_HOME = "/home/egg"
+
+
+# =============================================================================
+# Hash-Based Rebuild Detection
+# =============================================================================
+
+
+def _hash_file(path: Path, hasher) -> None:
+    """Add a single file's content to the hasher."""
+    try:
+        with open(path, "rb") as f:
+            while chunk := f.read(8192):
+                hasher.update(chunk)
+    except OSError:
+        pass
+
+
+def _hash_directory(path: Path, hasher, exclude_tests: bool = False) -> None:
+    """Recursively hash all files in a directory.
+
+    Args:
+        path: Directory to hash
+        hasher: Hash object to update
+        exclude_tests: If True, skip test files and directories
+    """
+    if not path.exists():
+        return
+    for item in sorted(path.rglob("*")):
+        if item.is_file() and not item.name.startswith("."):
+            # Skip test files if requested
+            if exclude_tests and ("test" in item.name.lower() or "tests" in str(item)):
+                continue
+            # Include relative path in hash to detect renames/moves
+            hasher.update(str(item.relative_to(path)).encode())
+            _hash_file(item, hasher)
+
+
+def compute_gateway_build_hash() -> str:
+    """Compute a SHA256 hash of all files that affect the gateway Docker image.
+
+    This includes:
+    - gateway/Dockerfile, gateway/entrypoint.sh
+    - gateway/*.py (excluding tests)
+    - gateway/squid.conf, gateway/squid-allow-all.conf
+    - gateway/allowed_domains.txt
+    - gateway/scripts/*.sh
+    - shared/egg_logging/, shared/egg_config/
+
+    Returns:
+        Hex-encoded SHA256 hash string
+    """
+    # Find repo root (parent of sandbox directory)
+    script_dir = Path(__file__).resolve().parent.parent
+    repo_root = script_dir.parent
+    gateway_dir = repo_root / "gateway"
+    shared_dir = repo_root / "shared"
+
+    hasher = hashlib.sha256()
+
+    # Single files in gateway/
+    single_files = [
+        gateway_dir / "Dockerfile",
+        gateway_dir / "entrypoint.sh",
+        gateway_dir / "squid.conf",
+        gateway_dir / "squid-allow-all.conf",
+        gateway_dir / "allowed_domains.txt",
+    ]
+    for path in single_files:
+        if path.exists():
+            hasher.update(path.name.encode())
+            _hash_file(path, hasher)
+
+    # Python files in gateway/ (excluding tests)
+    for py_file in sorted(gateway_dir.glob("*.py")):
+        if "test" not in py_file.name.lower():
+            hasher.update(py_file.name.encode())
+            _hash_file(py_file, hasher)
+
+    # Scripts in gateway/scripts/
+    scripts_dir = gateway_dir / "scripts"
+    if scripts_dir.exists():
+        hasher.update(b"scripts")
+        _hash_directory(scripts_dir, hasher)
+
+    # Shared modules (egg_logging, egg_config)
+    for module_name in ["egg_logging", "egg_config"]:
+        module_path = shared_dir / module_name
+        if module_path.exists():
+            hasher.update(module_name.encode())
+            _hash_directory(module_path, hasher, exclude_tests=True)
+
+    # Shared pyproject.toml
+    shared_pyproject = shared_dir / "pyproject.toml"
+    if shared_pyproject.exists():
+        hasher.update(b"shared/pyproject.toml")
+        _hash_file(shared_pyproject, hasher)
+
+    return hasher.hexdigest()
+
+
+def get_gateway_image_hash() -> str | None:
+    """Get the build hash stored in the gateway Docker image label.
+
+    Returns:
+        Hash string if image exists and has the label, None otherwise
+    """
+    if not gateway_image_exists():
+        return None
+
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "image",
+                "inspect",
+                "--format",
+                f'{{{{index .Config.Labels "{GATEWAY_BUILD_HASH_LABEL}"}}}}',
+                GATEWAY_IMAGE_NAME,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode == 0:
+            hash_value = result.stdout.strip()
+            # Docker returns empty string or "<no value>" if label doesn't exist
+            if hash_value and hash_value != "<no value>":
+                return hash_value
+        return None
+    except Exception:
+        return None
+
+
+def should_rebuild_gateway() -> tuple[bool, str]:
+    """Check if the gateway Docker image needs to be rebuilt.
+
+    Returns:
+        Tuple of (should_rebuild, reason)
+    """
+    if not gateway_image_exists():
+        return True, "image does not exist"
+
+    current_hash = compute_gateway_build_hash()
+    stored_hash = get_gateway_image_hash()
+
+    if stored_hash is None:
+        return True, "no build hash stored (legacy image)"
+
+    if current_hash != stored_hash:
+        return True, "gateway source files changed"
+
+    return False, "build hash matches (skipping rebuild)"
+
+
+# =============================================================================
+# Helper Functions for Gateway Container Configuration
+# =============================================================================
+
+
+def _load_secrets() -> dict[str, str]:
+    """Load secrets from ~/.config/egg/secrets.env.
+
+    Returns:
+        Dict of environment variable name to value
+    """
+    secrets_file = Config.USER_CONFIG_DIR / "secrets.env"
+    secrets_dict: dict[str, str] = {}
+
+    if secrets_file.exists():
+        for line in secrets_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                secrets_dict[key.strip()] = value.strip()
+
+    return secrets_dict
+
+
+def _parse_git_mounts(config_file: Path, home_dir: str) -> list[str]:
+    """Parse repositories.yaml and return git mount specifications.
+
+    Matches logic from gateway/parse-git-mounts.py.
+
+    Args:
+        config_file: Path to repositories.yaml
+        home_dir: Container home directory path
+
+    Returns:
+        List of mount specs in "source:destination" format
+    """
+    mounts = []
+
+    if not config_file.exists():
+        return mounts
+
+    try:
+        with open(config_file) as f:
+            config = yaml.safe_load(f) or {}
+
+        local_repos = config.get("local_repos", {})
+        paths = local_repos.get("paths", [])
+
+        for repo_path_str in paths:
+            repo_path = Path(repo_path_str).expanduser()
+            if not repo_path.exists():
+                continue
+
+            repo_name = repo_path.name
+            git_dir = repo_path / ".git"
+
+            if git_dir.is_file():
+                # Worktree - read the actual git dir location
+                content = git_dir.read_text().strip()
+                if content.startswith("gitdir:"):
+                    actual_git = content[7:].strip()
+                    git_dir = Path(actual_git)
+
+            if git_dir.exists():
+                # Mount git directory to a known location
+                container_git_path = f"{home_dir}/.git-main/{repo_name}"
+                mounts.append(f"{git_dir}:{container_git_path}")
+
+    except Exception as e:
+        warn(f"Failed to parse git mounts: {e}")
+
+    return mounts
+
+
+def _get_user_git_config(config_file: Path) -> tuple[str | None, str | None]:
+    """Get git identity from user_mode config in repositories.yaml.
+
+    Args:
+        config_file: Path to repositories.yaml
+
+    Returns:
+        Tuple of (git_name, git_email), either may be None
+    """
+    if not config_file.exists():
+        return None, None
+
+    try:
+        with open(config_file) as f:
+            config = yaml.safe_load(f) or {}
+
+        user_mode = config.get("user_mode", {})
+        return user_mode.get("git_name"), user_mode.get("git_email")
+    except Exception:
+        return None, None
+
+
+def _get_running_egg_containers() -> list[str]:
+    """Get list of running egg sandbox containers.
+
+    Returns:
+        List of container names that are running egg containers
+    """
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "--filter",
+                "name=egg-",
+                "--format",
+                "{{.Names}}",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        containers = []
+        for name in result.stdout.strip().split("\n"):
+            name = name.strip()
+            # Skip the gateway itself and empty lines
+            if name and name != GATEWAY_CONTAINER_NAME:
+                containers.append(name)
+        return containers
+    except Exception:
+        return []
+
+
+# =============================================================================
+# Systemd Migration (Linux only)
+# =============================================================================
+
+
+def _migrate_from_systemd() -> bool:
+    """Migrate from systemd-managed gateway to Python-managed.
+
+    Checks for existing systemd service, stops/disables it if active,
+    and removes old container.
+
+    Returns:
+        True if migration was performed, False otherwise
+    """
+    if get_platform() != "linux":
+        return False
+
+    service_file = Path.home() / ".config/systemd/user/egg-gateway.service"
+    if not service_file.exists():
+        return False
+
+    info("Migrating from systemd-managed gateway to Python-managed...")
+
+    # Check if service is active
+    result = subprocess.run(
+        ["systemctl", "--user", "is-active", "egg-gateway.service"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        # Service is active - stop and disable it
+        info("Stopping systemd gateway service...")
+        subprocess.run(
+            ["systemctl", "--user", "stop", "egg-gateway.service"],
+            capture_output=True,
+            check=False,
+        )
+        subprocess.run(
+            ["systemctl", "--user", "disable", "egg-gateway.service"],
+            capture_output=True,
+            check=False,
+        )
+
+    # Remove any existing container
+    subprocess.run(
+        ["docker", "rm", "-f", GATEWAY_CONTAINER_NAME],
+        capture_output=True,
+        check=False,
+    )
+
+    # Note: We don't remove the service file - user may want to revert
+    warn("Gateway is now managed by the egg binary instead of systemd.")
+    warn("The old service file remains at: " + str(service_file))
+    warn("You can remove it with: rm " + str(service_file))
+
+    return True
 
 
 def create_worktrees(
@@ -343,27 +704,53 @@ def gateway_image_exists() -> bool:
     )
 
 
-def build_gateway_image() -> bool:
+def build_gateway_image(force: bool = False) -> bool:
     """Build the gateway sidecar Docker image.
 
-    Builds from the repo root using the Dockerfile at
-    host-services/gateway/Dockerfile.
+    Builds from the repo root using the Dockerfile at gateway/Dockerfile.
+    Includes a build hash label for change detection.
+
+    Args:
+        force: If True, rebuild even if hash matches (default False)
 
     Returns:
-        True if build succeeded, False otherwise
+        True if build succeeded or skipped (up-to-date), False on failure
     """
+    # Check if rebuild is needed (unless forced)
+    if not force:
+        needs_rebuild, reason = should_rebuild_gateway()
+        if not needs_rebuild:
+            info(f"Gateway image up-to-date: {reason}")
+            return True
+        info(f"Building gateway image: {reason}")
+    else:
+        info("Force rebuilding gateway image...")
+
     # Find repo root (parent of sandbox directory)
     script_dir = Path(__file__).resolve().parent.parent
     repo_root = script_dir.parent
 
-    dockerfile_path = repo_root / "host-services" / "gateway" / "Dockerfile"
+    dockerfile_path = repo_root / "gateway" / "Dockerfile"
     if not dockerfile_path.exists():
         error(f"Gateway Dockerfile not found at {dockerfile_path}")
         return False
 
+    # Compute build hash for label
+    build_hash = compute_gateway_build_hash()
+
     info("Building gateway sidecar image...")
     result = subprocess.run(
-        ["docker", "build", "-t", GATEWAY_IMAGE_NAME, "-f", str(dockerfile_path), str(repo_root)],
+        [
+            "docker",
+            "build",
+            "-t",
+            GATEWAY_IMAGE_NAME,
+            "--label",
+            f"{GATEWAY_BUILD_HASH_LABEL}={build_hash}",
+            "-f",
+            str(dockerfile_path),
+            str(repo_root),
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -454,59 +841,210 @@ def wait_for_gateway_health(timeout: int = 30, check_proxy: bool = True) -> bool
 
 
 def start_gateway_container() -> bool:
-    """Ensure the gateway sidecar is available.
+    """Ensure the gateway sidecar is running and up-to-date.
 
-    The gateway is managed by systemd (gateway.service). This function
-    checks if it's running and healthy. If not, it tells the user how to start it.
-
-    The health check verifies both:
-    1. Gateway API responds on port 9848
-    2. Squid proxy can reach api.anthropic.com on port 3129
+    This function manages the complete gateway lifecycle:
+    1. Checks if gateway is running and up-to-date (hash check)
+    2. Migrates from systemd if needed (Linux only)
+    3. Creates networks if needed
+    4. Builds image if needed (with hash label)
+    5. Starts container with proper mounts and environment
+    6. Connects to both networks (dual-homed)
+    7. Waits for health check
 
     Returns:
         True if gateway is healthy, False otherwise
     """
-    # First do a quick check without proxy verification (for fast feedback)
-    if wait_for_gateway_health(timeout=5, check_proxy=False):
-        # API is up, now verify proxy connectivity with more time
-        # This is the critical check that prevents container startup failures
-        if wait_for_gateway_health(timeout=15, check_proxy=True):
-            return True
-        # API healthy but proxy failed
-        error("Gateway API is healthy but Squid proxy is not responding")
-        error("")
-        error("The proxy may still be initializing. Check Squid logs:")
-        error("  docker logs egg-gateway 2>&1 | grep -i squid")
-        error("")
-        error("Try restarting the gateway service:")
-        error("  systemctl --user restart gateway.service")
+    from .docker import ensure_gateway_networks
+
+    # Quick health check - if gateway is running and healthy, verify hash
+    if is_gateway_running():
+        if wait_for_gateway_health(timeout=5, check_proxy=False):
+            # Gateway running - check if rebuild needed
+            needs_rebuild, reason = should_rebuild_gateway()
+            if not needs_rebuild:
+                # Already running and up-to-date - verify proxy and return
+                if wait_for_gateway_health(timeout=15, check_proxy=True):
+                    return True
+                # Proxy not working - need to restart
+                warn("Gateway API healthy but proxy not responding, restarting...")
+            else:
+                # Rebuild needed - check for running sandboxes
+                running_containers = _get_running_egg_containers()
+                if running_containers:
+                    warn(
+                        f"Gateway rebuild needed ({reason}) but {len(running_containers)} sandbox(es) running:"
+                    )
+                    for name in running_containers[:5]:  # Show max 5
+                        warn(f"  - {name}")
+                    if len(running_containers) > 5:
+                        warn(f"  ... and {len(running_containers) - 5} more")
+                    warn("")
+                    warn("Stop running sandboxes first, or use --rebuild to force.")
+                    # Return True anyway - gateway is still functional
+                    if wait_for_gateway_health(timeout=15, check_proxy=True):
+                        return True
+                else:
+                    info(f"Gateway rebuild needed: {reason}")
+
+    # Migrate from systemd if applicable (Linux only)
+    _migrate_from_systemd()
+
+    # Ensure networks exist
+    if not ensure_gateway_networks():
+        error("Failed to create gateway networks")
         return False
 
-    # Gateway not available - check systemd service status
-    service_result = subprocess.run(
-        ["systemctl", "--user", "is-active", "gateway.service"],
+    # Build/update gateway image (handles hash check internally)
+    if not build_gateway_image():
+        error("Failed to build gateway image")
+        return False
+
+    # Stop existing gateway container if running
+    subprocess.run(
+        ["docker", "rm", "-f", GATEWAY_CONTAINER_NAME],
+        capture_output=True,
+        check=False,
+    )
+
+    # Prepare mounts and environment
+    mounts, env_args = _prepare_gateway_config()
+
+    # Start gateway container on isolated network first
+    info("Starting gateway container...")
+    cmd = [
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        GATEWAY_CONTAINER_NAME,
+        "--network",
+        EGG_ISOLATED_NETWORK,
+        "--ip",
+        GATEWAY_ISOLATED_IP,
+        "--security-opt",
+        "label=disable",
+        "-p",
+        f"{GATEWAY_PORT}:{GATEWAY_PORT}",
+        "-p",
+        f"{GATEWAY_PROXY_PORT}:{GATEWAY_PROXY_PORT}",
+    ]
+    cmd.extend(env_args)
+    cmd.extend(mounts)
+    cmd.append(GATEWAY_IMAGE_NAME)
+
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        error(f"Failed to start gateway container: {result.stderr}")
+        return False
+
+    # Connect to external network (dual-homed)
+    info("Connecting gateway to external network...")
+    result = subprocess.run(
+        [
+            "docker",
+            "network",
+            "connect",
+            "--ip",
+            GATEWAY_EXTERNAL_IP,
+            EGG_EXTERNAL_NETWORK,
+            GATEWAY_CONTAINER_NAME,
+        ],
         capture_output=True,
         text=True,
         check=False,
     )
-
-    if service_result.returncode != 0:
-        error("Gateway sidecar service is not running")
-        error("")
-        error("To start the gateway:")
-        error("  systemctl --user start gateway.service")
-        error("")
-        error("To set up the gateway (if not installed):")
-        error("  ./gateway/setup.sh")
+    if result.returncode != 0:
+        error(f"Failed to connect gateway to external network: {result.stderr}")
+        # Clean up
+        subprocess.run(
+            ["docker", "rm", "-f", GATEWAY_CONTAINER_NAME], capture_output=True, check=False
+        )
         return False
 
-    # Service is active but not healthy - check logs
-    error("Gateway sidecar service is running but not healthy")
-    error("")
-    error("Check service logs:")
-    error("  journalctl --user -u gateway.service -f")
-    error("")
-    error("Try restarting the service:")
-    error("  systemctl --user restart gateway.service")
+    # Wait for gateway to be healthy
+    info("Waiting for gateway health check...")
+    if not wait_for_gateway_health(timeout=30, check_proxy=True):
+        error("Gateway failed to become healthy")
+        error("")
+        error("Check logs: docker logs egg-gateway")
+        return False
 
-    return False
+    success("Gateway started successfully")
+    return True
+
+
+def _prepare_gateway_config() -> tuple[list[str], list[str]]:
+    """Prepare mount arguments and environment variables for gateway container.
+
+    Returns:
+        Tuple of (mount_args, env_args) lists for docker run
+    """
+    home_dir = str(Path.home())
+    config_file = Config.REPOS_CONFIG_FILE
+    config_dir = Config.USER_CONFIG_DIR
+    repos_dir = Path.home() / "repos"
+    worktrees_dir = Path.home() / ".egg-worktrees"
+    git_main_dir = Path.home() / ".git-main"
+    local_objects_dir = Path.home() / ".egg-local-objects"
+    shared_certs_dir = Path.home() / ".egg-shared-certs"
+
+    mounts = []
+    env_args = []
+
+    # Config file mount
+    if config_file.exists():
+        mounts.extend(["-v", f"{config_file}:/config/repositories.yaml:ro"])
+
+    # Config directory (contains secrets.env, github-app.pem, launcher-secret)
+    if config_dir.exists():
+        mounts.extend(["-v", f"{config_dir}:{CONTAINER_HOME}/.config/egg:ro"])
+        mounts.extend(["-v", f"{config_dir}:/secrets:ro"])
+
+    # Repos directory
+    if repos_dir.exists():
+        mounts.extend(["-v", f"{repos_dir}:{CONTAINER_HOME}/repos"])
+
+    # Worktrees directory
+    worktrees_dir.mkdir(parents=True, exist_ok=True)
+    mounts.extend(["-v", f"{worktrees_dir}:{CONTAINER_HOME}/.egg-worktrees"])
+
+    # Git main directory
+    if git_main_dir.exists():
+        mounts.extend(["-v", f"{git_main_dir}:{CONTAINER_HOME}/.git-main"])
+
+    # Local objects directory
+    if local_objects_dir.exists():
+        mounts.extend(["-v", f"{local_objects_dir}:{CONTAINER_HOME}/.egg-local-objects:ro"])
+
+    # Shared certs directory
+    shared_certs_dir.mkdir(parents=True, exist_ok=True)
+    shared_certs_dir.chmod(0o755)
+    mounts.extend(["-v", f"{shared_certs_dir}:/shared/certs"])
+
+    # Dynamic git mounts from local_repos in repositories.yaml
+    if config_file.exists():
+        for mount_spec in _parse_git_mounts(config_file, CONTAINER_HOME):
+            mounts.extend(["-v", mount_spec])
+
+    # Environment variables
+    env_args.extend(["-e", "EGG_REPO_CONFIG=/config/repositories.yaml"])
+    env_args.extend(["-e", f"HOME={CONTAINER_HOME}"])
+    env_args.extend(["-e", f"HOST_HOME={home_dir}"])
+    env_args.extend(["-e", f"HOST_UID={os.getuid()}"])
+    env_args.extend(["-e", f"HOST_GID={os.getgid()}"])
+
+    # Load secrets and pass relevant ones
+    secrets_dict = _load_secrets()
+    if "GITHUB_USER_TOKEN" in secrets_dict:
+        env_args.extend(["-e", f"GITHUB_USER_TOKEN={secrets_dict['GITHUB_USER_TOKEN']}"])
+
+    # Git identity from config
+    if config_file.exists():
+        git_name, git_email = _get_user_git_config(config_file)
+        if git_name:
+            env_args.extend(["-e", f"EGG_USER_GIT_NAME={git_name}"])
+        if git_email:
+            env_args.extend(["-e", f"EGG_USER_GIT_EMAIL={git_email}"])
+
+    return mounts, env_args
