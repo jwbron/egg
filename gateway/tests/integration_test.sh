@@ -291,16 +291,16 @@ test_git_operations() {
         record_result "git_fetch" "fail" "Exit $EXIT_CODE" "$RESP"
     fi
 
-    log_test "git push --dry-run to jib-prefixed branch"
-    BRANCH="jib-test-$$"
+    log_test "git push --dry-run to bot-prefixed branch"
+    BRANCH="egg-test-$$"
     git checkout -b "$BRANCH" origin/main 2>/dev/null
     RESP=$(git push --dry-run origin "$BRANCH" 2>&1)
     EXIT_CODE=$?
     git checkout - 2>/dev/null; git branch -D "$BRANCH" 2>/dev/null
 
     if [[ $EXIT_CODE -eq 0 ]] || echo "$RESP" | grep -q "Would push\|Everything up-to-date\|up to date"; then
-        log_pass "Push to jib- branch allowed (dry-run)"
-        record_result "git_push_jib_branch" "pass" "Allowed" "$RESP"
+        log_pass "Push to egg- branch allowed (dry-run)"
+        record_result "git_push_egg_branch" "pass" "Allowed" "$RESP"
     else
         log_fail "Push to jib- branch rejected"
         log_info "$RESP"

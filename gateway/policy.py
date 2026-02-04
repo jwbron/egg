@@ -2,7 +2,7 @@
 Policy Engine - Ownership and access control checks.
 
 Enforces policies for git/gh operations:
-- Branch ownership (bot): egg can push to jib-prefixed branches OR branches with PRs by egg/configured-user/trusted-user
+- Branch ownership (bot): egg can push to bot-prefixed branches (egg-* or jib-*) OR branches with PRs by egg/configured-user/trusted-user
 - Branch ownership (user mode): user can push to new branches OR branches with PRs by egg/configured-user
 - PR creation: allowed in bot mode, blocked in user mode (user creates PRs manually)
 - PR comments: egg can comment on any PR
@@ -64,8 +64,8 @@ BOT_IDENTITIES = frozenset(
 )
 
 # Branch prefixes that indicate bot ownership
-# jib- prefix kept for backward compatibility with existing branches
-BOT_BRANCH_PREFIXES = ("jib-", "jib/")
+# Both egg- and jib- prefixes supported for backward compatibility
+BOT_BRANCH_PREFIXES = ("egg-", "egg/", "jib-", "jib/")
 
 
 # Trusted GitHub users whose branches egg can push to
@@ -534,7 +534,7 @@ class PolicyEngine:
             )
             return PolicyResult(
                 allowed=True,
-                reason=f"Branch '{branch}' is owned by egg (jib-prefixed branch)",
+                reason=f"Branch '{branch}' is owned by egg (bot-prefixed branch)",
                 details={"branch": branch, "reason": "bot_prefix"},
             )
 
@@ -619,7 +619,7 @@ class PolicyEngine:
             trusted_users=list(TRUSTED_BRANCH_OWNERS) if TRUSTED_BRANCH_OWNERS else [],
             auth_mode=auth_mode,
         )
-        hint = "Use 'jib-' or 'jib/' prefix, or create a PR from this branch first"
+        hint = "Use 'egg-' or 'egg/' prefix, or create a PR from this branch first"
         if configured_user:
             hint += f". Configured user: {configured_user}"
         if TRUSTED_BRANCH_OWNERS:
@@ -627,7 +627,7 @@ class PolicyEngine:
         return PolicyResult(
             allowed=False,
             reason=f"Branch '{branch}' is not owned by egg or an authorized user. "
-            "Either use a jib-prefixed branch (jib-* or jib/*) or create a PR first.",
+            "Either use a bot-prefixed branch (egg-* or egg/*) or create a PR first.",
             details={
                 "branch": branch,
                 "open_prs": pr_numbers,

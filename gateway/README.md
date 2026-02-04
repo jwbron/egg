@@ -114,8 +114,8 @@ host-services/gateway/
 
 ### Phase 2: Policy Engine
 - [x] Implement `policy.py` with:
-  - `check_pr_ownership(repo, pr_number)` - verify jib is author
-  - `check_branch_ownership(repo, branch)` - verify branch tied to jib's PR or jib-prefixed
+  - `check_pr_ownership(repo, pr_number)` - verify egg is author
+  - `check_branch_ownership(repo, branch)` - verify branch tied to egg's PR or bot-prefixed
 - [x] Add PR info caching to reduce GitHub API calls
 - [x] Write tests for policy logic
 

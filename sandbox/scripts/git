@@ -269,8 +269,8 @@ print(json.dumps({
 The gateway sidecar blocked this push operation.
 
 To push, ensure one of the following:
-  1. Use a jib-prefixed branch name: jib-* or jib/*
-  2. Create a PR from this branch first (the branch will then be owned by jib)
+  1. Use a bot-prefixed branch name: egg-* or egg/*
+  2. Create a PR from this branch first (the branch will then be owned by egg)
 
 ================================================================================
 

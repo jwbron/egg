@@ -88,7 +88,10 @@ class TestBotIdentities:
         assert "apps/egg" in BOT_IDENTITIES
 
     def test_bot_branch_prefixes(self):
-        """Test that jib- branch prefixes are kept for backward compatibility."""
+        """Test that egg- and jib- branch prefixes are supported."""
+        assert "egg-" in BOT_BRANCH_PREFIXES
+        assert "egg/" in BOT_BRANCH_PREFIXES
+        # jib- prefixes kept for backward compatibility
         assert "jib-" in BOT_BRANCH_PREFIXES
         assert "jib/" in BOT_BRANCH_PREFIXES
 
@@ -135,16 +138,28 @@ class TestPolicyEngine:
     # Branch ownership tests
 
     def test_branch_ownership_jib_prefix_dash(self, policy_engine):
-        """jib- prefixed branches are always owned by egg."""
+        """jib- prefixed branches are always owned by egg (backward compatibility)."""
         result = policy_engine.check_branch_ownership("owner/repo", "jib-feature")
         assert result.allowed
-        assert "jib-prefixed" in result.reason
+        assert "bot-prefixed" in result.reason
 
     def test_branch_ownership_jib_prefix_slash(self, policy_engine):
-        """jib/ prefixed branches are always owned by egg."""
+        """jib/ prefixed branches are always owned by egg (backward compatibility)."""
         result = policy_engine.check_branch_ownership("owner/repo", "jib/feature")
         assert result.allowed
-        assert "jib-prefixed" in result.reason
+        assert "bot-prefixed" in result.reason
+
+    def test_branch_ownership_egg_prefix_dash(self, policy_engine):
+        """egg- prefixed branches are always owned by egg."""
+        result = policy_engine.check_branch_ownership("owner/repo", "egg-feature")
+        assert result.allowed
+        assert "bot-prefixed" in result.reason
+
+    def test_branch_ownership_egg_prefix_slash(self, policy_engine):
+        """egg/ prefixed branches are always owned by egg."""
+        result = policy_engine.check_branch_ownership("owner/repo", "egg/feature")
+        assert result.allowed
+        assert "bot-prefixed" in result.reason
 
     def test_branch_ownership_with_jib_pr(self, policy_engine, mock_github_client):
         """Branch with open jib-authored PR is owned by egg."""
@@ -544,9 +559,9 @@ class TestConfiguredUser:
 
         result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
         assert not result.allowed
-        # User mode should only mention jib and configured user, not trusted users
+        # User mode should only mention egg and configured user, not trusted users
         assert "trusted" not in result.reason.lower()
-        assert "jib" in result.reason.lower()
+        assert "egg" in result.reason.lower()
         assert "configureduser" in result.reason.lower()
 
 

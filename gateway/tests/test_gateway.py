@@ -227,8 +227,8 @@ class TestGitPush:
             assert "denied" in data["message"].lower()
             assert data["success"] is False
 
-    def test_push_allowed_for_jib_branch(self, client, auth_headers):
-        """Push allowed for jib-prefixed branch."""
+    def test_push_allowed_for_bot_prefixed_branch(self, client, auth_headers):
+        """Push allowed for bot-prefixed branch (egg- or jib-)."""
         with (
             patch("subprocess.run") as mock_run,
             patch.object(gateway, "get_policy_engine") as mock_policy,

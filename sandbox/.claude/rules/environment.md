@@ -40,7 +40,7 @@ In this mode:
 All git/gh operations are routed through the gateway sidecar (runs as `egg-gateway` container on the egg-isolated network). The container does NOT have direct access to GitHub tokens - credentials are held by the gateway.
 
 **Policy enforcement:**
-- `git push`: Only to branches you own (jib-prefixed or has your open PR)
+- `git push`: Only to branches you own (egg-prefixed or has your open PR)
 - `git fetch/pull/ls-remote`: Routed through gateway for authentication
 - `git remote update`: Converted to `fetch --all` via gateway
 - `gh pr merge`: **Blocked** - human must merge via GitHub UI
@@ -57,7 +57,7 @@ Use `git push origin <branch>` (HTTPS). Operations are authenticated by the gate
 If push fails:
 - Check `git remote -v` is HTTPS
 - Check gateway sidecar is running: `curl http://egg-gateway:9847/api/v1/health`
-- Ensure branch is jib-owned (jib-prefixed or has your open PR)
+- Ensure branch is egg-owned (egg-prefixed or has your open PR)
 
 ## File System
 
