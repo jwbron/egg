@@ -208,7 +208,7 @@ class PrivateRepoPolicy:
                 reason=reason,
                 details={
                     "error": "Missing session mode",
-                    "hint": "Container must have a valid JIB_SESSION_TOKEN",
+                    "hint": "Container must have a valid EGG_SESSION_TOKEN",
                 },
                 session_mode=None,
             )

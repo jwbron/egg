@@ -50,7 +50,7 @@ if [ ! -f "/secrets/launcher-secret" ]; then
 fi
 
 # Export launcher secret for authentication
-export JIB_LAUNCHER_SECRET=$(cat /secrets/launcher-secret)
+export EGG_LAUNCHER_SECRET=$(cat /secrets/launcher-secret)
 
 # github_client.py reads directly from /secrets/.github-token
 # No symlinks needed since we mount the directory
@@ -140,8 +140,8 @@ echo "Starting gateway API server on port 9847..."
 # - Container starts as root so Squid can read its certificate
 # - Gateway Python code must run as host user to avoid root-owned git files
 # Determine git identity - prefer user mode config if set, otherwise use bot defaults
-GIT_NAME="${JIB_USER_GIT_NAME:-james-in-a-box}"
-GIT_EMAIL="${JIB_USER_GIT_EMAIL:-jib@jameswiesebron.com}"
+GIT_NAME="${EGG_USER_GIT_NAME:-${JIB_USER_GIT_NAME:-james-in-a-box}}"
+GIT_EMAIL="${EGG_USER_GIT_EMAIL:-${JIB_USER_GIT_EMAIL:-jib@jameswiesebron.com}}"
 
 if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; then
     echo "Dropping privileges to UID=$HOST_UID GID=$HOST_GID"

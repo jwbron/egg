@@ -47,7 +47,7 @@ class TestJibLogger:
 
     def test_detects_container_environment(self, tmp_path, monkeypatch):
         """Test environment detection for container."""
-        monkeypatch.setenv("JIB_CONTAINER", "1")
+        monkeypatch.setenv("EGG_CONTAINER", "1")
         logger = JibLogger("test")
         assert logger._environment == "container"
 
@@ -60,6 +60,7 @@ class TestJibLogger:
     def test_detects_host_environment(self, monkeypatch):
         """Test environment detection for host (default)."""
         monkeypatch.delenv("K_SERVICE", raising=False)
+        monkeypatch.delenv("EGG_CONTAINER", raising=False)
         monkeypatch.delenv("JIB_CONTAINER", raising=False)
         logger = JibLogger("test")
         # May be "host" or "container" depending on test environment

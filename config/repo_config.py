@@ -3,7 +3,7 @@
 Repository Configuration Module
 
 Provides programmatic access to repository configuration defined in repositories.yaml.
-This is the single source of truth for which repos jib has access to.
+This is the single source of truth for which repos egg has access to.
 
 Usage:
     from config.repo_config import (
@@ -42,12 +42,13 @@ def _get_config_path() -> Path:
     """Get the path to repositories.yaml config file.
 
     Search order:
-    1. Environment variable JIB_REPO_CONFIG (explicit override)
+    1. Environment variable EGG_REPO_CONFIG (explicit override)
     2. Host config: ~/.config/egg/repositories.yaml (preferred location)
     3. Container mount: ~/repos/egg/config/repositories.yaml
     """
     # Try environment variable first (allows explicit override)
-    env_path = os.environ.get("JIB_REPO_CONFIG")
+    # EGG_REPO_CONFIG is primary, JIB_REPO_CONFIG for backward compatibility
+    env_path = os.environ.get("EGG_REPO_CONFIG") or os.environ.get("JIB_REPO_CONFIG")
     if env_path:
         env_config = Path(env_path)
         if env_config.exists():
@@ -58,14 +59,14 @@ def _get_config_path() -> Path:
     if host_config.exists():
         return host_config
 
-    # Try container mount path (when running inside jib container)
+    # Try container mount path (when running inside egg container)
     container_config = Path.home() / "khan" / "egg" / "config" / "repositories.yaml"
     if container_config.exists():
         return container_config
 
     raise FileNotFoundError(
         f"Could not find repositories.yaml. Checked:\n"
-        f"  - JIB_REPO_CONFIG env var\n"
+        f"  - EGG_REPO_CONFIG env var\n"
         f"  - {host_config} (host config)\n"
         f"  - {container_config} (container mount)\n"
         f"\nRun ./setup.py to create the configuration."
@@ -104,9 +105,9 @@ def get_github_username() -> str:
 
 def get_writable_repos() -> list[str]:
     """
-    Get list of repositories where jib has write access.
+    Get list of repositories where egg has write access.
 
-    These are repos where jib can:
+    These are repos where egg can:
     - Respond to PR comments
     - Push code changes
     - Create PRs
@@ -121,13 +122,13 @@ def get_writable_repos() -> list[str]:
 
 def get_readable_repos() -> list[str]:
     """
-    Get list of repositories where jib has read-only access.
+    Get list of repositories where egg has read-only access.
 
-    These are repos where jib can:
+    These are repos where egg can:
     - Sync and analyze PRs, comments, and check failures
     - Send Slack notifications with feedback/analysis
 
-    jib CANNOT:
+    egg CANNOT:
     - Push code, create PRs, post comments
     - Make any modifications to these repos
 
@@ -148,7 +149,7 @@ def is_writable_repo(repo: str) -> bool:
         repo: Repository in "owner/repo" format
 
     Returns:
-        True if jib has write access to this repo
+        True if egg has write access to this repo
     """
     writable = get_writable_repos()
     # Normalize comparison (case-insensitive)
@@ -164,7 +165,7 @@ def is_readable_repo(repo: str) -> bool:
         repo: Repository in "owner/repo" format
 
     Returns:
-        True if jib has read-only access to this repo
+        True if egg has read-only access to this repo
     """
     readable = get_readable_repos()
     # Normalize comparison (case-insensitive)
@@ -191,7 +192,7 @@ def get_repo_access_level(repo: str) -> str:
 
 def get_default_reviewer() -> str:
     """
-    Get the default reviewer for PRs created by jib.
+    Get the default reviewer for PRs created by egg.
 
     Falls back to github_username if default_reviewer is not explicitly set.
 
@@ -263,7 +264,7 @@ def should_restrict_to_configured_users(repo: str) -> bool:
     """
     Check if a repository is configured to only auto-respond to configured users.
 
-    When enabled, jib will only respond to comments/PRs from:
+    When enabled, egg will only respond to comments/PRs from:
     - bot_username (the bot's own identity)
     - github_username (the configured owner/user)
 
@@ -282,7 +283,7 @@ def should_disable_auto_fix(repo: str) -> bool:
     """
     Check if auto-fix for check failures is disabled for a repository.
 
-    When enabled, jib will NOT automatically attempt to fix failing CI checks.
+    When enabled, egg will NOT automatically attempt to fix failing CI checks.
     This is useful for repos where:
     - GitHub Actions minutes are limited/exhausted
     - Auto-fix attempts are not desired
@@ -308,7 +309,7 @@ def get_auth_mode(repo: str) -> str:
     - "user": Use a personal access token with user identity
 
     User mode allows operations to be attributed to a personal GitHub
-    account instead of the jib bot, useful for contributing to external repos
+    account instead of the egg bot, useful for contributing to external repos
     where bot accounts may not be appropriate.
 
     Args:
@@ -328,7 +329,7 @@ def is_user_mode_repo(repo: str) -> bool:
     Check if a repository is configured to use user mode.
 
     In user mode, operations are attributed to a personal GitHub account
-    instead of the jib bot.
+    instead of the egg bot.
 
     Args:
         repo: Repository in "owner/repo" format

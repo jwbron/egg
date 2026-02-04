@@ -40,20 +40,20 @@ RUN /usr/lib/squid/security_file_certgen -c -s /var/lib/squid/ssl_db -M 16MB && 
 # Initialize Squid cache directories
 RUN /usr/sbin/squid -z -N 2>/dev/null || true
 
-# Create jib user with UID/GID 1000 so gosu can resolve HOME correctly
+# Create egg user with UID/GID 1000 so gosu can resolve HOME correctly
 # Without this, gosu sets HOME=/ when dropping to UID 1000, breaking Path.home()
 # This matches the sandbox user setup for consistency
-RUN groupadd -g 1000 jib && \
-    useradd -m -u 1000 -g 1000 -s /bin/bash jib
+RUN groupadd -g 1000 egg && \
+    useradd -m -u 1000 -g 1000 -s /bin/bash egg
 
 WORKDIR /app
 
 # Copy gateway code
 COPY gateway/*.py ./
 
-# Copy shared modules (jib_logging for logging, jib_config for config parsing)
-COPY shared/jib_logging/ ./jib_logging/
-COPY shared/jib_config/ ./jib_config/
+# Copy shared modules (egg_logging for logging, egg_config for config parsing)
+COPY shared/egg_logging/ ./egg_logging/
+COPY shared/egg_config/ ./egg_config/
 
 # Copy config module (repo_config needed by github_client for incognito mode)
 COPY config/repo_config.py /config/

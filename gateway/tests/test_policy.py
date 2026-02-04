@@ -8,8 +8,8 @@ import pytest
 # conftest.py loads the modules via importlib
 # Import from the loaded policy module
 from policy import (
-    JIB_BRANCH_PREFIXES,
-    JIB_IDENTITIES,
+    BOT_BRANCH_PREFIXES,
+    BOT_IDENTITIES,
     TRUSTED_BRANCH_OWNERS,
     CachedPRInfo,
     PolicyEngine,
@@ -70,26 +70,27 @@ class TestExtractBranchFromRefspec:
         assert extract_branch_from_refspec("+main") == "main"
 
 
-class TestJibIdentities:
-    """Tests for jib identity checking."""
+class TestBotIdentities:
+    """Tests for bot identity checking."""
 
-    def test_jib_identities_include_short_names(self):
-        """Test that short name variants are included."""
-        assert "jib" in JIB_IDENTITIES
-        assert "jib[bot]" in JIB_IDENTITIES
-        assert "app/jib" in JIB_IDENTITIES
-        assert "apps/jib" in JIB_IDENTITIES
+    def test_bot_identities_include_legacy_names(self):
+        """Test that legacy jib variants are included for backward compatibility."""
+        assert "jib" in BOT_IDENTITIES
+        assert "jib[bot]" in BOT_IDENTITIES
+        assert "app/jib" in BOT_IDENTITIES
+        assert "apps/jib" in BOT_IDENTITIES
 
-    def test_jib_identities_include_full_github_app_names(self):
-        """Test that full GitHub App name variants are included."""
-        assert "egg" in JIB_IDENTITIES
-        assert "egg[bot]" in JIB_IDENTITIES
-        assert "app/egg" in JIB_IDENTITIES
-        assert "apps/egg" in JIB_IDENTITIES
+    def test_bot_identities_include_primary_names(self):
+        """Test that primary egg variants are included."""
+        assert "egg" in BOT_IDENTITIES
+        assert "egg[bot]" in BOT_IDENTITIES
+        assert "app/egg" in BOT_IDENTITIES
+        assert "apps/egg" in BOT_IDENTITIES
 
-    def test_jib_branch_prefixes(self):
-        assert "jib-" in JIB_BRANCH_PREFIXES
-        assert "jib/" in JIB_BRANCH_PREFIXES
+    def test_bot_branch_prefixes(self):
+        """Test that jib- branch prefixes are kept for backward compatibility."""
+        assert "jib-" in BOT_BRANCH_PREFIXES
+        assert "jib/" in BOT_BRANCH_PREFIXES
 
 
 class TestCachedPRInfo:

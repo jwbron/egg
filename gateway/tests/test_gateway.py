@@ -20,7 +20,7 @@ import pytest
 # Modules are loaded via importlib in conftest.py
 
 # Import the test secrets and modules (loaded by conftest.py)
-TEST_LAUNCHER_SECRET = os.environ.get("JIB_LAUNCHER_SECRET", "test-launcher-secret-12345")
+TEST_LAUNCHER_SECRET = os.environ.get("EGG_LAUNCHER_SECRET", "test-launcher-secret-12345")
 from policy import PolicyResult
 from session_manager import SessionValidationResult
 

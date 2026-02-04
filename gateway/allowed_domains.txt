@@ -1,5 +1,5 @@
 # Allowed domains for Phase 2 network lockdown
-# These are the only domains the jib container can access through the proxy
+# These are the only domains the egg container can access through the proxy
 #
 # Format: One domain per line, supports subdomains via .domain.com syntax
 # Lines starting with # are comments
@@ -8,7 +8,7 @@
 
 # IMPORTANT: api.anthropic.com is intentionally NOT in this allowlist.
 # Anthropic API traffic MUST go through the gateway's HTTP proxy endpoint
-# (via ANTHROPIC_BASE_URL=http://jib-gateway:9847), not directly through Squid.
+# (via ANTHROPIC_BASE_URL=http://egg-gateway:9847), not directly through Squid.
 # This ensures:
 # - Credentials are injected by the gateway (not stored in container)
 # - All API traffic is audited by the gateway
@@ -18,14 +18,14 @@
 
 # IMPORTANT: GitHub domains are intentionally NOT in this allowlist.
 # All GitHub/git access MUST go through the gateway sidecar's git/gh wrappers
-# (via REST API at jib-gateway:9847), not directly through the proxy.
+# (via REST API at egg-gateway:9847), not directly through the proxy.
 # This ensures policy enforcement (branch ownership, merge blocking, etc.)
 # cannot be bypassed by direct API calls.
 #
 # The gateway sidecar holds the GitHub token and enforces:
-# - Branch ownership policy (jib can only push to jib-owned branches)
-# - Merge blocking (jib cannot merge PRs - human must merge via GitHub UI)
-# - Force push blocking (jib cannot force push)
+# - Branch ownership policy (bot can only push to jib-owned branches)
+# - Merge blocking (bot cannot merge PRs - human must merge via GitHub UI)
+# - Force push blocking (bot cannot force push)
 # - Audit logging for all operations
 
 # Note: PyPI, npm, and other package managers are intentionally NOT included

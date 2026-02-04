@@ -128,7 +128,7 @@ if command -v python3 &> /dev/null; then
 fi
 
 # Build environment variable arguments
-ENV_ARGS=(-e JIB_REPO_CONFIG=/config/repositories.yaml)
+ENV_ARGS=(-e EGG_REPO_CONFIG=/config/repositories.yaml)
 
 # Set HOME for the gateway process so Path.home() resolves correctly
 # This is needed for token_refresher.py to find ~/.config/egg/
@@ -177,10 +177,10 @@ except:
 " 2>/dev/null)
 
     if [ -n "$USER_GIT_NAME" ]; then
-        ENV_ARGS+=(-e "JIB_USER_GIT_NAME=$USER_GIT_NAME")
+        ENV_ARGS+=(-e "EGG_USER_GIT_NAME=$USER_GIT_NAME")
     fi
     if [ -n "$USER_GIT_EMAIL" ]; then
-        ENV_ARGS+=(-e "JIB_USER_GIT_EMAIL=$USER_GIT_EMAIL")
+        ENV_ARGS+=(-e "EGG_USER_GIT_EMAIL=$USER_GIT_EMAIL")
     fi
 fi
 

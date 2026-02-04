@@ -6,7 +6,7 @@ Provides a REST API that egg containers call to perform git push and gh operatio
 The gateway holds GitHub credentials and enforces ownership policies.
 
 Security:
-    - Authentication via launcher secret (JIB_LAUNCHER_SECRET) and session tokens
+    - Authentication via launcher secret (EGG_LAUNCHER_SECRET) and session tokens
     - Listens on all interfaces (containers access via host.docker.internal)
 
 Endpoints:
@@ -226,7 +226,7 @@ def require_session_auth(f):
 
 # Launcher secret for session management and worktree operations
 # This is used by the jib launcher to authenticate with the gateway
-LAUNCHER_SECRET = os.environ.get("JIB_LAUNCHER_SECRET", "")
+LAUNCHER_SECRET = os.environ.get("EGG_LAUNCHER_SECRET") or os.environ.get("JIB_LAUNCHER_SECRET", "")
 LAUNCHER_SECRET_FILE = Path("/secrets/launcher-secret")
 
 
@@ -255,7 +255,7 @@ def get_launcher_secret() -> str:
         return LAUNCHER_SECRET
 
     raise LauncherSecretNotConfiguredError(
-        f"Launcher secret not found at {LAUNCHER_SECRET_FILE} or JIB_LAUNCHER_SECRET env var. "
+        f"Launcher secret not found at {LAUNCHER_SECRET_FILE} or EGG_LAUNCHER_SECRET env var. "
         "Run gateway/setup.sh to generate it."
     )
 

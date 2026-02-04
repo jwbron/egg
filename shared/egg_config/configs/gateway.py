@@ -160,7 +160,7 @@ class GatewayConfig(BaseConfig):
         """Load gateway configuration from environment and files.
 
         Secret sources (in priority order):
-        1. JIB_LAUNCHER_SECRET environment variable
+        1. EGG_LAUNCHER_SECRET environment variable
         2. ~/.config/egg/launcher-secret file
         3. Auto-generate and save new secret
         """
@@ -174,8 +174,10 @@ class GatewayConfig(BaseConfig):
         except ValueError:
             config.port = 9847
 
-        # Load launcher secret
-        env_secret = os.environ.get("JIB_LAUNCHER_SECRET", "")
+        # Load launcher secret (EGG_LAUNCHER_SECRET primary, JIB_LAUNCHER_SECRET for backward compatibility)
+        env_secret = os.environ.get("EGG_LAUNCHER_SECRET") or os.environ.get(
+            "JIB_LAUNCHER_SECRET", ""
+        )
         if env_secret:
             config.secret = env_secret
             config._secret_source = "environment"

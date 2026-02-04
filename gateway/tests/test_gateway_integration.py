@@ -19,7 +19,7 @@ from session_manager import Session, SessionValidationResult
 from gateway import app
 
 # Get launcher secret from environment (set by conftest.py)
-TEST_LAUNCHER_SECRET = os.environ.get("JIB_LAUNCHER_SECRET", "test-launcher-secret-12345")
+TEST_LAUNCHER_SECRET = os.environ.get("EGG_LAUNCHER_SECRET", "test-launcher-secret-12345")
 
 
 def _create_mock_session(mode="private"):

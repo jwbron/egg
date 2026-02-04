@@ -15,7 +15,7 @@ from types import ModuleType
 
 # Set up test secrets before any gateway imports
 TEST_LAUNCHER_SECRET = "test-launcher-secret-12345"
-os.environ["JIB_LAUNCHER_SECRET"] = TEST_LAUNCHER_SECRET
+os.environ["EGG_LAUNCHER_SECRET"] = TEST_LAUNCHER_SECRET
 
 # Create a minimal test repositories.yaml config
 import tempfile
@@ -32,7 +32,7 @@ github:
   default_reviewer: reviewer
 """
 )
-os.environ["JIB_REPO_CONFIG"] = str(_test_config_path)
+os.environ["EGG_REPO_CONFIG"] = str(_test_config_path)
 
 # Get the gateway directory
 GATEWAY_DIR = Path(__file__).parent.parent

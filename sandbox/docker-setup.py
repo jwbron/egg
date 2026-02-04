@@ -44,14 +44,14 @@ def load_config() -> dict:
     """Load repository configuration to get extra packages.
 
     Search order:
-    1. JIB_REPO_CONFIG env var (explicit override)
+    1. EGG_REPO_CONFIG env var (explicit override)
     2. Host config: ~/.config/egg/repositories.yaml
     3. Container mount: ~/repos/egg/config/repositories.yaml
 
     Returns empty dict if no config found (uses defaults only).
     """
-    # Check env var first
-    env_path = os.environ.get("JIB_REPO_CONFIG")
+    # Check env var first (EGG_REPO_CONFIG primary, JIB_REPO_CONFIG for backward compatibility)
+    env_path = os.environ.get("EGG_REPO_CONFIG") or os.environ.get("JIB_REPO_CONFIG")
     if env_path:
         env_config = Path(env_path)
         if env_config.exists():

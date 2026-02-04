@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# gh CLI wrapper for jib container
+# gh CLI wrapper for egg container
 # Routes gh commands through the gateway sidecar for policy enforcement.
 #
 # Security: Requires gateway sidecar - fails closed if gateway unavailable.
@@ -12,28 +12,30 @@
 
 # Real gh binary - relocated to hidden path to prevent direct access
 # See Dockerfile for relocation logic; /usr/bin/gh is now a stub
-REAL_GH=/opt/.jib-internal/gh
-# Gateway runs as container on jib-network, reachable by container name
-GATEWAY_URL="${GATEWAY_URL:-http://jib-gateway:9847}"
+REAL_GH=/opt/.egg-internal/gh
+# Gateway runs as container on egg-network, reachable by container name
+GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9847}"
 # Session token for per-container authentication (required)
-JIB_SESSION_TOKEN="${JIB_SESSION_TOKEN:-}"
-# Worktree container ID - set by jib launcher to translate container paths
-# Container sees ~/repos/X but gateway needs ~/.jib-worktrees/<container-id>/X
-# After PR #545, gateway mounts at container paths (/home/jib/...) not host paths
-JIB_WORKTREE_HOST_PATH="${JIB_WORKTREE_HOST_PATH:-}"
+# EGG_SESSION_TOKEN is primary, JIB_SESSION_TOKEN for backward compatibility
+EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-${JIB_SESSION_TOKEN:-}}"
+# Worktree container ID - set by egg launcher to translate container paths
+# Container sees ~/repos/X but gateway needs ~/.egg-worktrees/<container-id>/X
+# After PR #545, gateway mounts at container paths (/home/egg/...) not host paths
+# EGG_WORKTREE_HOST_PATH is primary, JIB_WORKTREE_HOST_PATH for backward compatibility
+EGG_WORKTREE_HOST_PATH="${EGG_WORKTREE_HOST_PATH:-${JIB_WORKTREE_HOST_PATH:-}}"
 CONTAINER_REPOS_DIR="${HOME}/repos"
 # Fixed container home path (must match gateway's CONTAINER_HOME)
-GATEWAY_CONTAINER_HOME="/home/jib"
+GATEWAY_CONTAINER_HOME="/home/egg"
 
 # Function to translate container path to gateway-accessible path
-# Container sees /home/jib/repos/X but gateway needs /home/jib/.jib-worktrees/<id>/X
+# Container sees /home/egg/repos/X but gateway needs /home/egg/.egg-worktrees/<id>/X
 # Note: Gateway mounts host paths at container paths (PR #545), so we output
 # container-style paths, not host paths.
 translate_path_for_gateway() {
     local container_path="$1"
 
     # If no worktree host path is set, return the path as-is
-    if [ -z "$JIB_WORKTREE_HOST_PATH" ]; then
+    if [ -z "$EGG_WORKTREE_HOST_PATH" ]; then
         echo "$container_path"
         return
     fi
@@ -41,12 +43,12 @@ translate_path_for_gateway() {
     # Check if path is under the container's repos directory
     if [[ "$container_path" == "$CONTAINER_REPOS_DIR"/* ]]; then
         local relative_path="${container_path#$CONTAINER_REPOS_DIR/}"
-        # Extract container ID from JIB_WORKTREE_HOST_PATH
-        # e.g., /home/jwies/.jib-worktrees/jib-20260123-000359-244376 -> jib-20260123-000359-244376
-        local container_id="${JIB_WORKTREE_HOST_PATH##*/}"
+        # Extract container ID from EGG_WORKTREE_HOST_PATH
+        # e.g., /home/user/.egg-worktrees/egg-20260123-000359-244376 -> egg-20260123-000359-244376
+        local container_id="${EGG_WORKTREE_HOST_PATH##*/}"
         # Construct the gateway container path (not host path!)
-        # Gateway mounts ~/.jib-worktrees at /home/jib/.jib-worktrees
-        echo "${GATEWAY_CONTAINER_HOME}/.jib-worktrees/${container_id}/${relative_path}"
+        # Gateway mounts ~/.egg-worktrees at /home/egg/.egg-worktrees
+        echo "${GATEWAY_CONTAINER_HOME}/.egg-worktrees/${container_id}/${relative_path}"
     else
         echo "$container_path"
     fi
@@ -70,7 +72,7 @@ Please ensure:
      systemctl --user status gateway-sidecar
 
   2. The container can reach the gateway:
-     curl http://jib-gateway:9847/api/v1/health
+     curl http://egg-gateway:9847/api/v1/health
 
 ================================================================================
 
@@ -101,8 +103,8 @@ EOF
 # Function to get authentication token for gateway requests
 # Session token is required for all container operations
 get_gateway_auth() {
-    if [ -n "$JIB_SESSION_TOKEN" ]; then
-        echo "$JIB_SESSION_TOKEN"
+    if [ -n "$EGG_SESSION_TOKEN" ]; then
+        echo "$EGG_SESSION_TOKEN"
         return 0
     fi
     echo ""
@@ -157,7 +159,7 @@ call_gateway() {
     local secret
     secret=$(get_gateway_auth)
     if [ -z "$secret" ]; then
-        echo "ERROR: JIB_SESSION_TOKEN not set. Session required for gateway access" >&2
+        echo "ERROR: EGG_SESSION_TOKEN not set. Session required for gateway access" >&2
         return 1
     fi
 

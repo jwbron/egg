@@ -122,15 +122,14 @@ RUN chmod 644 /opt/claude-rules/*.md
 # This provides container-resident executables available in PATH
 # The bin/ directory contains symlinks to all executables
 # Structure:
-#   /opt/egg-runtime/sandbox/{bin,jib-tasks,scripts}
+#   /opt/egg-runtime/sandbox/{bin,scripts,tools}
 #   /opt/egg-runtime/shared/
 COPY . /opt/egg-runtime/
 RUN chmod +x /opt/egg-runtime/sandbox/bin/* 2>/dev/null || true && \
     chmod +x /opt/egg-runtime/sandbox/scripts/* 2>/dev/null || true && \
-    chmod +x /opt/egg-runtime/sandbox/tools/* 2>/dev/null || true && \
-    find /opt/egg-runtime/sandbox/jib-tasks -name "*.py" -exec chmod +x {} \; 2>/dev/null || true
+    chmod +x /opt/egg-runtime/sandbox/tools/* 2>/dev/null || true
 
-# Relocate git/gh binaries and symlink /usr/bin to wrappers
+# Relocate git/gh binaries to hidden path and symlink /usr/bin to wrappers
 # This ensures ALL git/gh invocations route through the gateway sidecar,
 # whether called as 'git' (PATH) or '/usr/bin/git' (absolute path)
 RUN mkdir -p /opt/.egg-internal && \
@@ -183,7 +182,7 @@ ENTRYPOINT ["python3", "/usr/local/bin/entrypoint.py"]
 # END OF DOCKERFILE
 # =============================================================================
 # The entrypoint script (entrypoint.py) handles:
-# - Adjusting jib user's UID/GID to match host user (for file permissions)
+# - Adjusting egg user's UID/GID to match host user (for file permissions)
 # - Git configuration and worktree setup
 # - Claude Code configuration
 # - Agent rules installation (CLAUDE.md)

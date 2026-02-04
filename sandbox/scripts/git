@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Git wrapper for jib container (Gateway-Managed Worktree Architecture)
+# Git wrapper for egg container (Gateway-Managed Worktree Architecture)
 #
 # In this architecture, the container has NO direct access to git metadata.
 # The .git directory is shadowed by a tmpfs mount (appears empty to the container).
@@ -14,12 +14,13 @@
 #
 
 # Real git binary - relocated to hidden path (used only for gateway fallback testing)
-REAL_GIT=/opt/.jib-internal/git
-GATEWAY_URL="${GATEWAY_URL:-http://jib-gateway:9847}"
+REAL_GIT=/opt/.egg-internal/git
+GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9847}"
 CONTAINER_ID="${CONTAINER_ID:-unknown}"
 CONTAINER_REPOS_DIR="${HOME}/repos"
 # Session token for per-container authentication (required)
-JIB_SESSION_TOKEN="${JIB_SESSION_TOKEN:-}"
+# EGG_SESSION_TOKEN is primary, JIB_SESSION_TOKEN for backward compatibility
+EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-${JIB_SESSION_TOKEN:-}}"
 
 # Function to show gateway unavailable message
 show_gateway_unavailable() {
@@ -37,7 +38,7 @@ In the gateway-managed worktree architecture:
 - The gateway holds credentials and enforces policies
 
 Please ensure the gateway sidecar is running:
-  curl http://jib-gateway:9847/api/v1/health
+  curl http://egg-gateway:9847/api/v1/health
 
 ================================================================================
 
@@ -68,8 +69,8 @@ EOF
 # Function to get authentication token for gateway requests
 # Session token is required for all container operations
 get_gateway_auth() {
-    if [ -n "$JIB_SESSION_TOKEN" ]; then
-        echo "$JIB_SESSION_TOKEN"
+    if [ -n "$EGG_SESSION_TOKEN" ]; then
+        echo "$EGG_SESSION_TOKEN"
         return 0
     fi
     echo ""
@@ -117,7 +118,7 @@ execute_via_gateway() {
     local secret
     secret=$(get_gateway_auth)
     if [ -z "$secret" ]; then
-        echo "ERROR: JIB_SESSION_TOKEN not set. Session required for gateway access" >&2
+        echo "ERROR: EGG_SESSION_TOKEN not set. Session required for gateway access" >&2
         echo "The gateway sidecar must be running and properly configured." >&2
         return 1
     fi
@@ -204,7 +205,7 @@ push_via_gateway() {
     local secret
     secret=$(get_gateway_auth)
     if [ -z "$secret" ]; then
-        echo "ERROR: JIB_SESSION_TOKEN not set. Session required for gateway access" >&2
+        echo "ERROR: EGG_SESSION_TOKEN not set. Session required for gateway access" >&2
         return 1
     fi
 
@@ -299,7 +300,7 @@ fetch_via_gateway() {
     local secret
     secret=$(get_gateway_auth)
     if [ -z "$secret" ]; then
-        echo "ERROR: JIB_SESSION_TOKEN not set. Session required for gateway access" >&2
+        echo "ERROR: EGG_SESSION_TOKEN not set. Session required for gateway access" >&2
         return 1
     fi
 
@@ -358,7 +359,7 @@ print(json.dumps({
 # Early check for commands that don't need gateway connectivity
 # These are handled before the gateway availability check
 #
-# In the jib container, .git directories are shadowed by tmpfs, so real git
+# In the egg container, .git directories are shadowed by tmpfs, so real git
 # will return "not a git repository" for most operations. This is intentional
 # for discovery commands - tools check if they're in a repo and get the right answer.
 for arg in "$@"; do
@@ -773,7 +774,7 @@ case "$cmd" in
     # Help/version - can show locally
     # ==========================================================================
     --help|help|--version|version)
-        echo "Git wrapper for jib container (Gateway-Managed Architecture)"
+        echo "Git wrapper for egg container (Gateway-Managed Architecture)"
         echo "All git operations route through the gateway sidecar."
         echo ""
         echo "Supported operations:"

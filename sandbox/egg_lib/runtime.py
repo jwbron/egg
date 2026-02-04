@@ -1,4 +1,4 @@
-"""Container execution for jib.
+"""Container execution for egg.
 
 This module handles running containers in interactive and exec modes.
 
@@ -11,7 +11,7 @@ The gateway-managed worktree architecture:
 Per-container session mode:
 - Launcher registers session with gateway BEFORE container starts
 - Session specifies repo visibility mode (private/public)
-- Container receives JIB_SESSION_TOKEN for authenticated requests
+- Container receives EGG_SESSION_TOKEN for authenticated requests
 - Gateway enforces mode on all git/gh operations
 """
 
@@ -608,7 +608,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
 
         if not session_token:
             # Session creation failed - cannot proceed without a session
-            # since git/gh wrappers require JIB_SESSION_TOKEN (PR #666)
+            # since git/gh wrappers require EGG_SESSION_TOKEN (PR #666)
             error("Session creation failed. Check that:")
             error("  1. Gateway sidecar is running: curl http://localhost:9847/api/v1/health")
             error("  2. Launcher secret is synced: ~/.config/egg/launcher-secret")
@@ -680,9 +680,9 @@ def run_claude(repo_mode: str | None = None) -> bool:
             "-e",
             f"CONTAINER_ID={container_id}",
             "-e",
-            f"JIB_QUIET={'1' if quiet else '0'}",
+            f"EGG_QUIET={'1' if quiet else '0'}",
             "-e",
-            f"JIB_TIMING={'1' if _host_timer.enabled else '0'}",
+            f"EGG_TIMING={'1' if _host_timer.enabled else '0'}",
             "-e",
             f"GATEWAY_URL=http://{GATEWAY_CONTAINER_NAME}:{GATEWAY_PORT}",
         ]
@@ -694,7 +694,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
 
     # If session mode, pass session token for container authentication
     if session_token:
-        cmd.extend(["-e", f"JIB_SESSION_TOKEN={session_token}"])
+        cmd.extend(["-e", f"EGG_SESSION_TOKEN={session_token}"])
 
     # GitHub authentication is handled by the gateway sidecar
     # The container does NOT receive GITHUB_TOKEN - all git/gh operations
@@ -751,7 +751,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
     if host_timing_json:
         # Insert timing env var before the image name (last element)
         cmd.insert(-1, "-e")
-        cmd.insert(-1, f"JIB_HOST_TIMING={host_timing_json}")
+        cmd.insert(-1, f"EGG_HOST_TIMING={host_timing_json}")
 
     # Final status update before launching
     if quiet:
@@ -762,7 +762,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
     if _host_timer.enabled:
         launch_time = time.time()
         cmd.insert(-1, "-e")
-        cmd.insert(-1, f"JIB_HOST_LAUNCH_TIME={launch_time}")
+        cmd.insert(-1, f"EGG_HOST_LAUNCH_TIME={launch_time}")
 
     # Run container
     try:
@@ -844,7 +844,7 @@ def exec_in_new_container(
         return False
 
     # Generate unique container ID for this exec
-    container_id = f"jib-exec-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+    container_id = f"egg-exec-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
 
     # Auto-detect task_id from command if not provided
     if not task_id:
@@ -899,7 +899,7 @@ def exec_in_new_container(
 
         if not session_token:
             # Session creation failed - cannot proceed without a session
-            # since git/gh wrappers require JIB_SESSION_TOKEN (PR #666)
+            # since git/gh wrappers require EGG_SESSION_TOKEN (PR #666)
             error("Session creation failed. Check that:")
             error("  1. Gateway sidecar is running: curl http://localhost:9847/api/v1/health")
             error("  2. Launcher secret is synced: ~/.config/egg/launcher-secret")
@@ -968,7 +968,7 @@ def exec_in_new_container(
 
     # If session mode, pass session token for container authentication
     if session_token:
-        cmd.extend(["-e", f"JIB_SESSION_TOKEN={session_token}"])
+        cmd.extend(["-e", f"EGG_SESSION_TOKEN={session_token}"])
 
     # Add logging configuration for log persistence
     log_config = get_docker_log_config(container_id, task_id)
@@ -976,9 +976,9 @@ def exec_in_new_container(
 
     # Add correlation environment variables for log tracing
     if task_id:
-        cmd.extend(["-e", f"JIB_TASK_ID={task_id}"])
+        cmd.extend(["-e", f"EGG_TASK_ID={task_id}"])
     if thread_ts:
-        cmd.extend(["-e", f"JIB_THREAD_TS={thread_ts}"])
+        cmd.extend(["-e", f"EGG_THREAD_TS={thread_ts}"])
 
     # GitHub authentication is handled by the gateway sidecar
     # The container does NOT receive GITHUB_TOKEN - all git/gh operations

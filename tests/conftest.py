@@ -13,10 +13,6 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "shared"))
 sys.path.insert(0, str(PROJECT_ROOT / "sandbox"))
 sys.path.insert(0, str(PROJECT_ROOT / "sandbox" / "tools"))
-sys.path.insert(0, str(PROJECT_ROOT / "host-services"))
-sys.path.insert(0, str(PROJECT_ROOT / "host-services" / "slack"))
-sys.path.insert(0, str(PROJECT_ROOT / "host-services" / "sync" / "context-sync"))
-sys.path.insert(0, str(PROJECT_ROOT / "shared"))
 sys.path.insert(0, str(PROJECT_ROOT / "config"))
 
 
@@ -49,5 +45,5 @@ def notifications_dir(mock_home):
 @pytest.fixture
 def mock_env(monkeypatch):
     """Set up common environment variables for testing."""
-    monkeypatch.setenv("JIB_TEST_MODE", "1")
+    monkeypatch.setenv("EGG_TEST_MODE", "1")
     monkeypatch.setenv("GITHUB_TOKEN", "test-token")

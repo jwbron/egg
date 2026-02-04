@@ -2,16 +2,16 @@
 Policy Engine - Ownership and access control checks.
 
 Enforces policies for git/gh operations:
-- Branch ownership (bot): jib can push to jib-prefixed branches OR branches with PRs by jib/configured-user/trusted-user
-- Branch ownership (user mode): user can push to new branches OR branches with PRs by jib/configured-user
+- Branch ownership (bot): egg can push to jib-prefixed branches OR branches with PRs by egg/configured-user/trusted-user
+- Branch ownership (user mode): user can push to new branches OR branches with PRs by egg/configured-user
 - PR creation: allowed in bot mode, blocked in user mode (user creates PRs manually)
-- PR comments: jib can comment on any PR
-- PR edit/close: jib can only modify PRs it created or PRs by configured user
+- PR comments: egg can comment on any PR
+- PR edit/close: egg can only modify PRs it created or PRs by configured user
 - Merge blocked: No merge operations allowed (human must merge)
 
 Configuration:
 - GATEWAY_TRUSTED_USERS: Comma-separated list of GitHub usernames whose branches
-  jib is allowed to push to (e.g., "jwbron,octocat")
+  egg is allowed to push to (e.g., "jwbron,octocat")
 - Configured user: The user mode user from repositories.yaml, treated as an owner in both modes
 """
 
@@ -24,10 +24,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-# Add shared directory to path for jib_logging
-# Add shared directory to path for jib_logging
-# In container, jib_logging is at /app/jib_logging
-# On host, it's at ../../shared/jib_logging
+# Add shared directory to path for egg_logging
+# In container, egg_logging is at /app/egg_logging
+# On host, it's at ../../shared/egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists():
     sys.path.insert(0, str(_shared_path))
@@ -47,16 +46,16 @@ logger = get_logger("gateway.policy")
 MAX_PR_CACHE_SIZE = 500
 MAX_BRANCH_PR_CACHE_SIZE = 200
 
-# Bot identity variants that count as "jib"
-# Includes both short name (jib) and full GitHub App name (egg)
-JIB_IDENTITIES = frozenset(
+# Bot identity variants that count as "egg" (the bot)
+# Includes both short name (jib) and full GitHub App name (egg) for backward compatibility
+BOT_IDENTITIES = frozenset(
     {
-        # Short name variants
+        # Legacy short name variants (backward compatibility)
         "jib",
         "jib[bot]",
         "app/jib",
         "apps/jib",
-        # Full GitHub App name variants
+        # Primary GitHub App name variants
         "egg",
         "egg[bot]",
         "app/egg",
@@ -64,11 +63,12 @@ JIB_IDENTITIES = frozenset(
     }
 )
 
-# Branch prefixes that indicate jib ownership
-JIB_BRANCH_PREFIXES = ("jib-", "jib/")
+# Branch prefixes that indicate bot ownership
+# jib- prefix kept for backward compatibility with existing branches
+BOT_BRANCH_PREFIXES = ("jib-", "jib/")
 
 
-# Trusted GitHub users whose branches jib can push to
+# Trusted GitHub users whose branches egg can push to
 # Loaded from GATEWAY_TRUSTED_USERS environment variable (comma-separated)
 # Example: GATEWAY_TRUSTED_USERS="jwbron,octocat"
 def _load_trusted_users() -> frozenset[str]:
@@ -147,22 +147,22 @@ class PolicyEngine:
         # Cache: (repo, branch) -> (list of PR numbers, timestamp) (bounded)
         self._branch_pr_cache: BoundedCache = BoundedCache(MAX_BRANCH_PR_CACHE_SIZE)
 
-    def _is_jib_author(self, author: str | dict[str, Any]) -> bool:
-        """Check if author is a jib identity."""
+    def _is_bot_author(self, author: str | dict[str, Any]) -> bool:
+        """Check if author is a bot identity."""
         if isinstance(author, dict):
             # GitHub API returns author as {"login": "username"}
             login = author.get("login", "")
         else:
             login = author
 
-        return login.lower() in JIB_IDENTITIES
+        return login.lower() in BOT_IDENTITIES
 
-    def _is_jib_branch(self, branch: str) -> bool:
-        """Check if branch name indicates jib ownership."""
-        return branch.startswith(JIB_BRANCH_PREFIXES)
+    def _is_bot_branch(self, branch: str) -> bool:
+        """Check if branch name indicates bot ownership."""
+        return branch.startswith(BOT_BRANCH_PREFIXES)
 
     def _is_trusted_author(self, author: str | dict[str, Any]) -> bool:
-        """Check if author is a trusted user (whose branches jib can push to)."""
+        """Check if author is a trusted user (whose branches egg can push to)."""
         if not TRUSTED_BRANCH_OWNERS:
             return False
         if isinstance(author, dict):
@@ -257,7 +257,7 @@ class PolicyEngine:
         Check if the current identity owns a PR.
 
         In both modes, a PR is owned if the author is:
-        - A jib identity, OR
+        - A bot identity, OR
         - The configured user (user mode user)
 
         Args:
@@ -280,9 +280,9 @@ class PolicyEngine:
             )
 
         # Check if PR is owned by egg
-        if self._is_jib_author(pr_info.author):
+        if self._is_bot_author(pr_info.author):
             logger.debug(
-                "PR ownership verified (jib author)",
+                "PR ownership verified (bot author)",
                 repo=repo,
                 pr_number=pr_number,
                 author=pr_info.author,
@@ -320,7 +320,7 @@ class PolicyEngine:
             author=pr_info.author,
             auth_mode=auth_mode,
         )
-        expected = list(JIB_IDENTITIES)
+        expected = list(BOT_IDENTITIES)
         if configured_user:
             expected.append(configured_user)
         return PolicyResult(
@@ -331,7 +331,7 @@ class PolicyEngine:
 
     def check_pr_comment_allowed(self, repo: str, pr_number: int) -> PolicyResult:
         """
-        Check if jib can comment on a PR.
+        Check if egg can comment on a PR.
 
         Jib can comment on ANY PR - this enables collaboration on PRs owned by others.
         """
@@ -367,15 +367,15 @@ class PolicyEngine:
         """
         Check if the current identity can push to a branch.
 
-        In bot mode, jib can push to a branch if:
+        In bot mode, egg can push to a branch if:
         1. Branch name starts with jib- or jib/ (allows pushing before PR exists), OR
-        2. Branch has an open PR authored by jib, OR
+        2. Branch has an open PR authored by egg, OR
         3. Branch has an open PR authored by the configured user, OR
         4. Branch has an open PR authored by a trusted user (from GATEWAY_TRUSTED_USERS)
 
         In user mode, the user can push to a branch if:
         1. Branch does not exist upstream yet (new branch), OR
-        2. Branch has an open PR authored by jib, OR
+        2. Branch has an open PR authored by egg, OR
         3. Branch has an open PR authored by the configured user
 
         Protected branches (main, master) are always blocked regardless of mode.
@@ -407,7 +407,7 @@ class PolicyEngine:
 
         # In user mode:
         # 1. Allow pushing to NEW branches (don't exist upstream yet)
-        # 2. Allow pushing to branches with open PR by jib OR configured user
+        # 2. Allow pushing to branches with open PR by egg OR configured user
         if auth_mode == "user":
             configured_user = self._get_configured_user()
 
@@ -452,7 +452,7 @@ class PolicyEngine:
                     },
                 )
 
-            # Branch exists - check for open PR by jib or configured user
+            # Branch exists - check for open PR by egg or configured user
             pr_numbers = self._get_prs_for_branch(repo, branch)
             for pr_number in pr_numbers:
                 pr_info = self._get_pr_info(repo, pr_number)
@@ -460,9 +460,9 @@ class PolicyEngine:
                     continue
 
                 # Check if PR is owned by egg
-                if self._is_jib_author(pr_info.author):
+                if self._is_bot_author(pr_info.author):
                     logger.debug(
-                        "Branch push allowed (user mode) - jib PR",
+                        "Branch push allowed (user mode) - bot PR",
                         repo=repo,
                         branch=branch,
                         pr_number=pr_number,
@@ -476,7 +476,7 @@ class PolicyEngine:
                             "pr_number": pr_number,
                             "author": pr_info.author,
                             "auth_mode": "user",
-                            "reason": "jib_pr",
+                            "reason": "bot_pr",
                         },
                     )
 
@@ -505,7 +505,7 @@ class PolicyEngine:
                         },
                     )
 
-            # Branch exists but no PR by jib or configured user
+            # Branch exists but no PR by egg or configured user
             logger.info(
                 "Branch push denied (user mode) - no owned PR",
                 repo=repo,
@@ -526,7 +526,7 @@ class PolicyEngine:
             )
 
         # Bot mode: Check 1: Branch prefix
-        if self._is_jib_branch(branch):
+        if self._is_bot_branch(branch):
             logger.debug(
                 "Branch ownership verified by prefix",
                 repo=repo,
@@ -535,10 +535,10 @@ class PolicyEngine:
             return PolicyResult(
                 allowed=True,
                 reason=f"Branch '{branch}' is owned by egg (jib-prefixed branch)",
-                details={"branch": branch, "reason": "jib_prefix"},
+                details={"branch": branch, "reason": "bot_prefix"},
             )
 
-        # Check 2-4: Open PR by jib, configured user, or trusted user
+        # Check 2-4: Open PR by egg, configured user, or trusted user
         pr_numbers = self._get_prs_for_branch(repo, branch)
         configured_user = self._get_configured_user()
 
@@ -548,9 +548,9 @@ class PolicyEngine:
                 continue
 
             # Check if PR is owned by egg
-            if self._is_jib_author(pr_info.author):
+            if self._is_bot_author(pr_info.author):
                 logger.debug(
-                    "Branch ownership verified by PR (jib author)",
+                    "Branch ownership verified by PR (bot author)",
                     repo=repo,
                     branch=branch,
                     pr_number=pr_number,
@@ -563,7 +563,7 @@ class PolicyEngine:
                         "branch": branch,
                         "pr_number": pr_number,
                         "author": pr_info.author,
-                        "reason": "jib_pr",
+                        "reason": "bot_pr",
                     },
                 )
 
@@ -641,11 +641,11 @@ class PolicyEngine:
         """
         Check if PR creation is allowed.
 
-        In bot mode: Always allowed - jib can create PRs.
+        In bot mode: Always allowed - egg can create PRs.
         In user mode: Blocked - user must create PRs manually via GitHub UI.
 
         This ensures the human maintains control over what PRs are opened in their name.
-        jib can push branches in user mode, but the human decides which become PRs.
+        egg can push branches in user mode, but the human decides which become PRs.
 
         Args:
             repo: Repository in "owner/repo" format
@@ -698,7 +698,7 @@ class PolicyEngine:
             details={
                 "repo": repo,
                 "pr_number": pr_number,
-                "action": "Use GitHub web UI or 'gh pr merge' from a non-jib environment",
+                "action": "Use GitHub web UI or 'gh pr merge' from a non-egg environment",
             },
         )
 

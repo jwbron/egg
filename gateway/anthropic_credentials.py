@@ -27,8 +27,10 @@ logger = get_logger("gateway.anthropic-credentials")
 
 # Default secrets path - can be overridden via environment variable
 # Gateway runs on host, so this is the host user's config directory
+# EGG_SECRETS_PATH is primary, JIB_SECRETS_PATH for backward compatibility
 SECRETS_PATH = Path(
-    os.environ.get("JIB_SECRETS_PATH", Path.home() / ".config" / "egg" / "secrets.env")
+    os.environ.get("EGG_SECRETS_PATH")
+    or os.environ.get("JIB_SECRETS_PATH", Path.home() / ".config" / "egg" / "secrets.env")
 )
 
 

@@ -29,7 +29,7 @@ class TestConfig:
         # Clear environment variables to test defaults
         monkeypatch.delenv("RUNTIME_UID", raising=False)
         monkeypatch.delenv("RUNTIME_GID", raising=False)
-        monkeypatch.delenv("JIB_QUIET", raising=False)
+        monkeypatch.delenv("EGG_QUIET", raising=False)
 
         config = entrypoint.Config()
 
