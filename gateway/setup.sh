@@ -68,8 +68,8 @@ generate_launcher_secret() {
     cp "$LAUNCHER_SECRET_FILE" "$LAUNCHER_SECRET_COPY"
     chmod 600 "$LAUNCHER_SECRET_COPY"
     echo "Launcher secret copied to: $LAUNCHER_SECRET_COPY"
-    # Note: Launcher secret is NOT copied to jib-sharing - containers use
-    # session tokens (JIB_SESSION_TOKEN), not the launcher secret.
+    # Note: Launcher secret is NOT copied to egg-sharing - containers use
+    # session tokens (EGG_SESSION_TOKEN), not the launcher secret.
     # Only the launcher process on the host needs access to register sessions.
 }
 

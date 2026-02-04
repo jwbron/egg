@@ -23,13 +23,13 @@ JIB containers are ephemeral - they're removed after execution completes. To pre
 Every container execution is tagged with correlation IDs:
 
 ### Environment Variables (Inside Container)
-- `CONTAINER_ID` - Unique container identifier (e.g., `jib-exec-20251129-222239-12345`)
-- `JIB_TASK_ID` - Task identifier from Slack (e.g., `task-20251129-222239`)
-- `JIB_THREAD_TS` - Slack thread timestamp (e.g., `1764483758.159619`)
+- `CONTAINER_ID` - Unique container identifier (e.g., `egg-exec-20251129-222239-12345`)
+- `EGG_TASK_ID` - Task identifier (e.g., `task-20251129-222239`)
+- `EGG_THREAD_TS` - Thread timestamp (e.g., `1764483758.159619`)
 
 ### Docker Labels
-- `jib.container_id` - Container ID label
-- `jib.task_id` - Task ID label (if available)
+- `egg.container_id` - Container ID label
+- `egg.task_id` - Task ID label (if available)
 
 ### Log Index File
 `~/.egg-sharing/container-logs/log-index.json` contains:

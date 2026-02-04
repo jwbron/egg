@@ -26,6 +26,9 @@ from .auth import (
 
 # CLI module exports
 from .cli import main as main
+from .config import (
+    EGG_ISOLATED_NETWORK as EGG_ISOLATED_NETWORK,
+)
 
 # Config module exports
 from .config import (
@@ -36,9 +39,6 @@ from .config import (
 )
 from .config import (
     GATEWAY_PORT as GATEWAY_PORT,
-)
-from .config import (
-    JIB_NETWORK_NAME as JIB_NETWORK_NAME,
 )
 from .config import (
     Colors as Colors,

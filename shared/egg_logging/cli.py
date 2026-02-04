@@ -17,8 +17,8 @@ Usage:
     jib-claude -p "Hello"
 
 Environment:
-    JIB_LOGGING_PASSTHROUGH: Set to "1" to skip logging entirely
-    JIB_LOGGING_QUIET: Set to "1" to suppress wrapper messages
+    EGG_LOGGING_PASSTHROUGH: Set to "1" to skip logging entirely
+    EGG_LOGGING_QUIET: Set to "1" to suppress wrapper messages
 """
 
 import os
@@ -36,7 +36,7 @@ def _run_wrapper(wrapper_class, tool_name: str) -> int:
         Exit code from the command
     """
     # Check for passthrough mode (skip logging entirely)
-    if os.environ.get("JIB_LOGGING_PASSTHROUGH") == "1":
+    if os.environ.get("EGG_LOGGING_PASSTHROUGH") == "1":
         import subprocess
 
         result = subprocess.run([tool_name] + sys.argv[1:], check=False)

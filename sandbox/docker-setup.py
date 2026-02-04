@@ -50,8 +50,8 @@ def load_config() -> dict:
 
     Returns empty dict if no config found (uses defaults only).
     """
-    # Check env var first (EGG_REPO_CONFIG primary, JIB_REPO_CONFIG for backward compatibility)
-    env_path = os.environ.get("EGG_REPO_CONFIG") or os.environ.get("JIB_REPO_CONFIG")
+    # Check env var first
+    env_path = os.environ.get("EGG_REPO_CONFIG")
     if env_path:
         env_config = Path(env_path)
         if env_config.exists():

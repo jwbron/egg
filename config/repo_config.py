@@ -47,8 +47,7 @@ def _get_config_path() -> Path:
     3. Container mount: ~/repos/egg/config/repositories.yaml
     """
     # Try environment variable first (allows explicit override)
-    # EGG_REPO_CONFIG is primary, JIB_REPO_CONFIG for backward compatibility
-    env_path = os.environ.get("EGG_REPO_CONFIG") or os.environ.get("JIB_REPO_CONFIG")
+    env_path = os.environ.get("EGG_REPO_CONFIG")
     if env_path:
         env_config = Path(env_path)
         if env_config.exists():

@@ -225,8 +225,8 @@ def require_session_auth(f):
 
 
 # Launcher secret for session management and worktree operations
-# This is used by the jib launcher to authenticate with the gateway
-LAUNCHER_SECRET = os.environ.get("EGG_LAUNCHER_SECRET") or os.environ.get("JIB_LAUNCHER_SECRET", "")
+# This is used by the egg launcher to authenticate with the gateway
+LAUNCHER_SECRET = os.environ.get("EGG_LAUNCHER_SECRET", "")
 LAUNCHER_SECRET_FILE = Path("/secrets/launcher-secret")
 
 

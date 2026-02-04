@@ -203,11 +203,8 @@ class TestContextFromEnv:
             "EGG_TASK_ID",
             "EGG_REPOSITORY",
             "EGG_PR_NUMBER",
-            "JIB_TRACE_ID",
-            "JIB_SPAN_ID",
-            "JIB_TASK_ID",
-            "JIB_REPOSITORY",
-            "JIB_PR_NUMBER",
+            "EGG_WORKFLOW_ID",
+            "EGG_WORKFLOW_TYPE",
             "OTEL_TRACE_ID",
             "OTEL_SPAN_ID",
         ]:
@@ -247,16 +244,6 @@ class TestContextFromEnv:
         ctx = context_from_env()
 
         assert ctx.trace_id == "egg_trace"
-
-    def test_jib_backward_compatibility(self):
-        """Test that JIB_* variables still work for backward compatibility."""
-        os.environ["JIB_TRACE_ID"] = "jib_trace"
-        os.environ["JIB_SPAN_ID"] = "jib_span"
-
-        ctx = context_from_env()
-
-        assert ctx.trace_id == "jib_trace"
-        assert ctx.span_id == "jib_span"
 
     def test_handles_missing_variables(self):
         """Test graceful handling of missing variables."""

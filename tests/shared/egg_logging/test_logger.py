@@ -61,7 +61,6 @@ class TestJibLogger:
         """Test environment detection for host (default)."""
         monkeypatch.delenv("K_SERVICE", raising=False)
         monkeypatch.delenv("EGG_CONTAINER", raising=False)
-        monkeypatch.delenv("JIB_CONTAINER", raising=False)
         logger = JibLogger("test")
         # May be "host" or "container" depending on test environment
         assert logger._environment in ("host", "container")

@@ -477,12 +477,12 @@ def _find_api_path(args: list[str]) -> str | None:
 Both git and gh wrappers use the same session token for authentication:
 
 ```python
-# Container receives session_token via JIB_SESSION_TOKEN environment variable
+# Container receives session_token via EGG_SESSION_TOKEN environment variable
 # This is set by the launcher AFTER session registration succeeds
 
 # git-wrapper.py AND gh-wrapper.py both use:
 def get_gateway_auth() -> dict[str, str]:
-    session_token = os.environ.get("JIB_SESSION_TOKEN")
+    session_token = os.environ.get("EGG_SESSION_TOKEN")
     if session_token:
         return {"Authorization": f"Bearer {session_token}"}
     # Legacy fallback (when REQUIRE_SESSION_AUTH=false)
@@ -493,7 +493,7 @@ headers = get_gateway_auth()
 ```
 
 **Authentication hierarchy at request time**:
-1. If `JIB_SESSION_TOKEN` env var is set → use session token (session-based mode)
+1. If `EGG_SESSION_TOKEN` env var is set → use session token (session-based mode)
 2. Else use `gateway_secret` (legacy mode, only works when `REQUIRE_SESSION_AUTH=false`)
 
 **Both wrappers (git and gh) use identical authentication logic.** The same `get_gateway_auth()` function is shared or duplicated in both wrappers.
@@ -539,7 +539,7 @@ def start_container(mode: str, repos: list[str]):
     docker.run(
         container_id=container_id,
         ip=container_ip,
-        env={"JIB_SESSION_TOKEN": session_token},
+        env={"EGG_SESSION_TOKEN": session_token},
         mounts=worktrees,
     )
 ```
@@ -781,7 +781,7 @@ Events logged:
 | `jib-launcher/launcher.py` | Session registration (atomic endpoint), IP pre-allocation |
 | `jib-launcher/secrets.py` | NEW: Manage launcher_secret separate from gateway_secret |
 | `jib-launcher/ip_allocator.py` | NEW: Docker network IP pre-allocation |
-| `sandbox/egg_lib/auth.py` | Shared `get_gateway_auth()` using JIB_SESSION_TOKEN |
+| `sandbox/egg_lib/auth.py` | Shared `get_gateway_auth()` using EGG_SESSION_TOKEN |
 | `sandbox/wrappers/git-wrapper.py` | Use session_token for auth (via shared auth module) |
 | `sandbox/wrappers/gh-wrapper.py` | Use session_token for auth (via shared auth module) |
 | `sandbox/egg` | Add CLI flags for mode selection (launcher interprets these) |

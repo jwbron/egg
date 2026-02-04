@@ -79,7 +79,7 @@ class TestRunWrapper:
         assert result == 42
 
     @patch.object(sys, "argv", ["jib-git", "status"])
-    @patch.dict("os.environ", {"JIB_LOGGING_PASSTHROUGH": "1"})
+    @patch.dict("os.environ", {"EGG_LOGGING_PASSTHROUGH": "1"})
     @patch("subprocess.run")
     def test_passthrough_mode(self, mock_subprocess):
         """Test that passthrough mode skips wrapper."""

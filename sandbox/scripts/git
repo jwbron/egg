@@ -19,8 +19,7 @@ GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9847}"
 CONTAINER_ID="${CONTAINER_ID:-unknown}"
 CONTAINER_REPOS_DIR="${HOME}/repos"
 # Session token for per-container authentication (required)
-# EGG_SESSION_TOKEN is primary, JIB_SESSION_TOKEN for backward compatibility
-EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-${JIB_SESSION_TOKEN:-}}"
+EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-}"
 
 # Function to show gateway unavailable message
 show_gateway_unavailable() {

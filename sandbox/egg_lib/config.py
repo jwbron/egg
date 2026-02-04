@@ -67,12 +67,8 @@ GATEWAY_PROXY_PORT = 3128
 EGG_ISOLATED_NETWORK = "egg-isolated"
 EGG_EXTERNAL_NETWORK = "egg-external"
 EGG_CONTAINER_IP = "172.30.0.10"  # Fixed IP for egg container in isolated network
-JIB_CONTAINER_IP = EGG_CONTAINER_IP  # Backward compatibility alias
 GATEWAY_ISOLATED_IP = "172.30.0.2"  # Gateway IP in isolated network
 GATEWAY_EXTERNAL_IP = "172.31.0.2"  # Gateway IP in external network
-
-# Backward compatibility alias
-JIB_NETWORK_NAME = EGG_ISOLATED_NETWORK
 
 
 def get_platform() -> str:

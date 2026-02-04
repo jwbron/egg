@@ -180,8 +180,8 @@ The gateway API must authenticate requests to prevent abuse from unauthorized co
 │                                                                               │
 │  egg container                    gateway                           │
 │  ┌─────────────┐                  ┌─────────────────────┐                   │
-│  │ JIB_GATEWAY │  Authorization:  │ Validate header     │                   │
-│  │ _SECRET     │ ──Bearer $SECRET─► matches JIB_GATEWAY │                   │
+│  │ EGG_GATEWAY │  Authorization:  │ Validate header     │                   │
+│  │ _SECRET     │ ──Bearer $SECRET─► matches EGG_GATEWAY │                   │
 │  │             │                  │ _SECRET             │                   │
 │  └─────────────┘                  └─────────────────────┘                   │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -422,7 +422,7 @@ The CLAUDE.md instructions include lockdown mode awareness:
 ```markdown
 ## Network Lockdown Mode
 
-When `JIB_NETWORK_MODE=lockdown`, the following tools are **unavailable**:
+When `EGG_NETWORK_MODE=lockdown`, the following tools are **unavailable**:
 - WebFetch (cannot access arbitrary URLs)
 - WebSearch (cannot access search engines)
 - curl/wget to external sites (blocked by proxy)
@@ -556,7 +556,7 @@ Phase 2 Network Lockdown and Private Repo Mode are **independent but complementa
 
 ```bash
 # Maximum security configuration
-export JIB_NETWORK_LOCKDOWN=true
+export EGG_NETWORK_LOCKDOWN=true
 export PRIVATE_REPO_MODE=true
 ./egg --dangerously-skip-permissions
 ```
@@ -573,7 +573,7 @@ services:
       - egg-isolated
       - external  # Adds external network access
     environment:
-      - JIB_MODE=supervised
+      - EGG_MODE=supervised
 ```
 
 In supervised mode:
@@ -948,7 +948,7 @@ def _get_network_lockdown_env() -> dict[str, str]:
         "PYTHONWARNINGS": "ignore:Unverified HTTPS request",
 
         # Network mode indicator
-        "JIB_NETWORK_MODE": "lockdown",
+        "EGG_NETWORK_MODE": "lockdown",
     }
 ```
 
@@ -984,7 +984,7 @@ def _build_docker_command(
             cmd.extend(["-e", f"{key}={value}"])
     else:
         # Legacy mode: standard jib-network with full internet access
-        cmd.extend(["--network", JIB_NETWORK_NAME])
+        cmd.extend(["--network", EGG_ISOLATED_NETWORK])
 
     # ... rest of existing code ...
 
@@ -1304,7 +1304,7 @@ echo "=== Network Lockdown Integration Tests ==="
 
 # Start containers in lockdown mode
 ./egg --network-lockdown --test-mode &
-JIB_PID=$!
+EGG_PID=$!
 sleep 10
 
 # Run test suite inside container
@@ -1325,7 +1325,7 @@ docker exec jib-test-container bash -c '
 '
 
 # Cleanup
-kill $JIB_PID
+kill $EGG_PID
 docker rm -f jib-test-container
 ```
 
@@ -1364,7 +1364,7 @@ echo "✓ Concurrent checks completed without race conditions"
 
 # Test 3: Rollback procedure verification
 echo "Test 3: Rollback to supervised mode"
-export JIB_NETWORK_LOCKDOWN=false
+export EGG_NETWORK_LOCKDOWN=false
 # Verify egg can reach google.com in supervised mode
 ./egg --test-mode --command "curl -s https://google.com > /dev/null && echo 'Supervised mode working'"
 echo "✓ Rollback to supervised mode successful"
@@ -1405,7 +1405,7 @@ echo "=== Claude Code tool tests passed ==="
 
 ```bash
 # Option 1: Disable lockdown mode via environment variable
-export JIB_NETWORK_LOCKDOWN=false
+export EGG_NETWORK_LOCKDOWN=false
 ./jib  # Runs with full internet access
 
 # Option 2: Use supervised mode override
@@ -1591,8 +1591,8 @@ def get_metrics():
 
 | Variable | Default | Description | Valid Values |
 |----------|---------|-------------|--------------|
-| `JIB_NETWORK_LOCKDOWN` | `true` | Enable Phase 2 network lockdown | `true`, `false` |
-| `JIB_NETWORK_MODE` | `lockdown` | Set by launcher, read by container | `lockdown`, `supervised` |
+| `EGG_NETWORK_LOCKDOWN` | `true` | Enable Phase 2 network lockdown | `true`, `false` |
+| `EGG_NETWORK_MODE` | `lockdown` | Set by launcher, read by container | `lockdown`, `supervised` |
 | `HTTP_PROXY` | `http://gateway:3128` | Proxy for HTTP traffic | URL format |
 | `HTTPS_PROXY` | `http://gateway:3128` | Proxy for HTTPS traffic | URL format |
 | `SQUID_ALLOWED_DOMAINS_FILE` | `/etc/squid/allowed_domains.txt` | Domain allowlist | File path |
@@ -1665,7 +1665,7 @@ def validate_config():
     errors = []
 
     # Boolean configs
-    for var in ["JIB_NETWORK_LOCKDOWN", "PRIVATE_REPO_MODE"]:
+    for var in ["EGG_NETWORK_LOCKDOWN", "PRIVATE_REPO_MODE"]:
         value = os.getenv(var, "")
         if value:  # Only validate if set
             try:
@@ -1684,7 +1684,7 @@ def validate_config():
 
     # File configs
     domains_file = os.getenv("SQUID_ALLOWED_DOMAINS_FILE", "/etc/squid/allowed_domains.txt")
-    if os.getenv("JIB_NETWORK_LOCKDOWN", "true").lower() == "true":
+    if os.getenv("EGG_NETWORK_LOCKDOWN", "true").lower() == "true":
         try:
             validate_file_exists("SQUID_ALLOWED_DOMAINS_FILE", domains_file)
         except ConfigError as e:

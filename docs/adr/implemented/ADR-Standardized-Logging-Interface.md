@@ -435,8 +435,8 @@ jib-claude --print -p "Explain this"
 ```
 
 **Environment Variables:**
-- `JIB_LOGGING_PASSTHROUGH=1` - Skip logging, pass through to real tool
-- `JIB_LOGGING_QUIET=1` - Suppress wrapper diagnostic messages
+- `EGG_LOGGING_PASSTHROUGH=1` - Skip logging, pass through to real tool
+- `EGG_LOGGING_QUIET=1` - Suppress wrapper diagnostic messages
 
 **Benefits:**
 - **Zero code changes:** Existing scripts work unchanged

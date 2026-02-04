@@ -49,13 +49,13 @@ class TestGetConfigPath:
         assert config_file.exists()
 
     def test_finds_config_from_env_var(self, temp_dir, monkeypatch):
-        """Test finding config from JIB_REPO_CONFIG env var."""
+        """Test finding config from EGG_REPO_CONFIG env var."""
         config_file = temp_dir / "custom-config.yaml"
         config_file.write_text("github_username: testuser")
 
-        monkeypatch.setenv("JIB_REPO_CONFIG", str(config_file))
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
 
-        env_path = os.environ.get("JIB_REPO_CONFIG")
+        env_path = os.environ.get("EGG_REPO_CONFIG")
         assert env_path == str(config_file)
 
     def test_raises_when_not_found(self, temp_dir, monkeypatch):

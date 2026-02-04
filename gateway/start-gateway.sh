@@ -67,11 +67,11 @@ MOUNTS+=(-v "$CONFIG_FILE:/config/repositories.yaml:ro")
 # Secrets directory (contains .github-token and launcher-secret)
 MOUNTS+=(-v "$SECRETS_DIR:/secrets:ro")
 
-# JIB config directory (contains GitHub App credentials for token_refresher.py)
-# Mount at /home/egg/.config/jib since gateway drops to UID 1000 with HOME=/home/egg
-JIB_CONFIG_DIR="$HOME_DIR/.config/jib"
-if [ -d "$JIB_CONFIG_DIR" ]; then
-    MOUNTS+=(-v "$JIB_CONFIG_DIR:$CONTAINER_HOME/.config/jib:ro")
+# EGG config directory (contains GitHub App credentials for token_refresher.py)
+# Mount at /home/egg/.config/egg since gateway drops to UID 1000 with HOME=/home/egg
+EGG_CONFIG_DIR="$HOME_DIR/.config/egg"
+if [ -d "$EGG_CONFIG_DIR" ]; then
+    MOUNTS+=(-v "$EGG_CONFIG_DIR:$CONTAINER_HOME/.config/egg:ro")
 fi
 
 # Repos directory - mount at /home/egg/repos to match container paths

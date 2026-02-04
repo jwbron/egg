@@ -16,13 +16,11 @@ REAL_GH=/opt/.egg-internal/gh
 # Gateway runs as container on egg-network, reachable by container name
 GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9847}"
 # Session token for per-container authentication (required)
-# EGG_SESSION_TOKEN is primary, JIB_SESSION_TOKEN for backward compatibility
-EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-${JIB_SESSION_TOKEN:-}}"
+EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-}"
 # Worktree container ID - set by egg launcher to translate container paths
 # Container sees ~/repos/X but gateway needs ~/.egg-worktrees/<container-id>/X
 # After PR #545, gateway mounts at container paths (/home/egg/...) not host paths
-# EGG_WORKTREE_HOST_PATH is primary, JIB_WORKTREE_HOST_PATH for backward compatibility
-EGG_WORKTREE_HOST_PATH="${EGG_WORKTREE_HOST_PATH:-${JIB_WORKTREE_HOST_PATH:-}}"
+EGG_WORKTREE_HOST_PATH="${EGG_WORKTREE_HOST_PATH:-}"
 CONTAINER_REPOS_DIR="${HOME}/repos"
 # Fixed container home path (must match gateway's CONTAINER_HOME)
 GATEWAY_CONTAINER_HOME="/home/egg"

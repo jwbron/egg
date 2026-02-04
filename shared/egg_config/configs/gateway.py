@@ -174,10 +174,8 @@ class GatewayConfig(BaseConfig):
         except ValueError:
             config.port = 9847
 
-        # Load launcher secret (EGG_LAUNCHER_SECRET primary, JIB_LAUNCHER_SECRET for backward compatibility)
-        env_secret = os.environ.get("EGG_LAUNCHER_SECRET") or os.environ.get(
-            "JIB_LAUNCHER_SECRET", ""
-        )
+        # Load launcher secret from environment
+        env_secret = os.environ.get("EGG_LAUNCHER_SECRET", "")
         if env_secret:
             config.secret = env_secret
             config._secret_source = "environment"

@@ -13,7 +13,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .config import JIB_NETWORK_NAME, Config
+from .config import EGG_ISOLATED_NETWORK, Config
 from .output import error, get_quiet_mode, info, success, warn
 
 # Label used to store build content hash on Docker image
@@ -652,20 +652,20 @@ def ensure_jib_network() -> bool:
     """
     # Check if network exists
     result = subprocess.run(
-        ["docker", "network", "inspect", JIB_NETWORK_NAME], capture_output=True, check=False
+        ["docker", "network", "inspect", EGG_ISOLATED_NETWORK], capture_output=True, check=False
     )
     if result.returncode == 0:
         return True
 
     # Create the network
     result = subprocess.run(
-        ["docker", "network", "create", JIB_NETWORK_NAME],
+        ["docker", "network", "create", EGG_ISOLATED_NETWORK],
         capture_output=True,
         text=True,
         check=False,
     )
     if result.returncode == 0:
-        info(f"Created Docker network: {JIB_NETWORK_NAME}")
+        info(f"Created Docker network: {EGG_ISOLATED_NETWORK}")
         return True
 
     error(f"Failed to create Docker network: {result.stderr}")

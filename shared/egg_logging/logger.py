@@ -60,12 +60,8 @@ class JibLogger:
         if os.environ.get("K_SERVICE"):
             return "gcp"
 
-        # Check for container (EGG_CONTAINER primary, JIB_CONTAINER for backward compatibility)
-        if (
-            Path("/.dockerenv").exists()
-            or os.environ.get("EGG_CONTAINER")
-            or os.environ.get("JIB_CONTAINER")
-        ):
+        # Check for container
+        if Path("/.dockerenv").exists() or os.environ.get("EGG_CONTAINER"):
             return "container"
 
         return "host"
