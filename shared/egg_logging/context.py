@@ -184,21 +184,30 @@ class ContextScope:
 def context_from_env() -> LogContext:
     """Create a context from environment variables.
 
-    Looks for:
-        - JIB_TRACE_ID / OTEL_TRACE_ID: Trace ID
-        - JIB_SPAN_ID / OTEL_SPAN_ID: Span ID
-        - JIB_TASK_ID: Beads task ID
-        - JIB_REPOSITORY: Repository name
-        - JIB_PR_NUMBER: PR number
-        - JIB_WORKFLOW_ID: Workflow/job identifier
-        - JIB_WORKFLOW_TYPE: Workflow type
+    Looks for (EGG_* takes precedence, JIB_* for backward compatibility):
+        - EGG_TRACE_ID / JIB_TRACE_ID / OTEL_TRACE_ID: Trace ID
+        - EGG_SPAN_ID / JIB_SPAN_ID / OTEL_SPAN_ID: Span ID
+        - EGG_TASK_ID / JIB_TASK_ID: Task ID
+        - EGG_REPOSITORY / JIB_REPOSITORY: Repository name
+        - EGG_PR_NUMBER / JIB_PR_NUMBER: PR number
+        - EGG_WORKFLOW_ID / JIB_WORKFLOW_ID: Workflow/job identifier
+        - EGG_WORKFLOW_TYPE / JIB_WORKFLOW_TYPE: Workflow type
     """
+    pr_number_str = os.environ.get("EGG_PR_NUMBER") or os.environ.get("JIB_PR_NUMBER")
     return LogContext(
-        trace_id=os.environ.get("JIB_TRACE_ID") or os.environ.get("OTEL_TRACE_ID"),
-        span_id=os.environ.get("JIB_SPAN_ID") or os.environ.get("OTEL_SPAN_ID"),
-        task_id=os.environ.get("JIB_TASK_ID"),
-        repository=os.environ.get("JIB_REPOSITORY"),
-        pr_number=int(os.environ["JIB_PR_NUMBER"]) if os.environ.get("JIB_PR_NUMBER") else None,
-        workflow_id=os.environ.get("JIB_WORKFLOW_ID"),
-        workflow_type=os.environ.get("JIB_WORKFLOW_TYPE"),
+        trace_id=(
+            os.environ.get("EGG_TRACE_ID")
+            or os.environ.get("JIB_TRACE_ID")
+            or os.environ.get("OTEL_TRACE_ID")
+        ),
+        span_id=(
+            os.environ.get("EGG_SPAN_ID")
+            or os.environ.get("JIB_SPAN_ID")
+            or os.environ.get("OTEL_SPAN_ID")
+        ),
+        task_id=os.environ.get("EGG_TASK_ID") or os.environ.get("JIB_TASK_ID"),
+        repository=os.environ.get("EGG_REPOSITORY") or os.environ.get("JIB_REPOSITORY"),
+        pr_number=int(pr_number_str) if pr_number_str else None,
+        workflow_id=os.environ.get("EGG_WORKFLOW_ID") or os.environ.get("JIB_WORKFLOW_ID"),
+        workflow_type=os.environ.get("EGG_WORKFLOW_TYPE") or os.environ.get("JIB_WORKFLOW_TYPE"),
     )

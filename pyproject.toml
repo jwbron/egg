@@ -71,11 +71,13 @@ module = ["waitress", "waitress.*"]
 ignore_missing_imports = true
 
 [tool.bandit]
-# B104: bind all interfaces - intentional for gateway inside container
-# B201: flask debug=True - only enabled with explicit --debug flag, guarded by if args.debug
-# B108: hardcoded /tmp - intentional for ephemeral session data and test fixtures
 # B102: exec - used for dynamically loading test fixtures
-skips = ["B102", "B104", "B108", "B201"]
+# B104: bind all interfaces - intentional for gateway inside container
+# B108: hardcoded /tmp - intentional for ephemeral session data and test fixtures
+# B201: flask debug=True - only enabled with explicit --debug flag
+# B310: urllib.urlopen - used with hardcoded/controlled URLs for health checks and API calls
+# B602: subprocess shell=True - used for user-provided commands in setup/discovery scripts
+skips = ["B102", "B104", "B108", "B201", "B310", "B602"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

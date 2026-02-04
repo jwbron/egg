@@ -16,28 +16,28 @@ class TestIsStreamingRequest:
 
     def test_stream_true(self):
         """Test detection of stream: true."""
-        from gateway import _is_streaming_request
+        from gateway.gateway import _is_streaming_request
 
         body = json.dumps({"model": "claude-3", "stream": True}).encode()
         assert _is_streaming_request(body) is True
 
     def test_stream_false(self):
         """Test detection of stream: false."""
-        from gateway import _is_streaming_request
+        from gateway.gateway import _is_streaming_request
 
         body = json.dumps({"model": "claude-3", "stream": False}).encode()
         assert _is_streaming_request(body) is False
 
     def test_stream_missing(self):
         """Test when stream key is missing."""
-        from gateway import _is_streaming_request
+        from gateway.gateway import _is_streaming_request
 
         body = json.dumps({"model": "claude-3"}).encode()
         assert _is_streaming_request(body) is False
 
     def test_stream_in_string(self):
         """Test that stream in string content is not detected as streaming."""
-        from gateway import _is_streaming_request
+        from gateway.gateway import _is_streaming_request
 
         # Stream appears in message content but not as a parameter
         body = json.dumps(
@@ -50,13 +50,13 @@ class TestIsStreamingRequest:
 
     def test_invalid_json(self):
         """Test handling of invalid JSON."""
-        from gateway import _is_streaming_request
+        from gateway.gateway import _is_streaming_request
 
         assert _is_streaming_request(b"not json") is False
 
     def test_empty_body(self):
         """Test handling of empty body."""
-        from gateway import _is_streaming_request
+        from gateway.gateway import _is_streaming_request
 
         assert _is_streaming_request(b"") is False
 
@@ -67,14 +67,14 @@ class TestInjectAnthropicCredentials:
     @pytest.fixture
     def mock_credentials_manager(self):
         """Create a mock credentials manager."""
-        with patch("gateway.get_credentials_manager") as mock_get:
+        with patch("gateway.gateway.get_credentials_manager") as mock_get:
             manager = MagicMock()
             mock_get.return_value = manager
             yield manager
 
     def test_injects_api_key(self, mock_credentials_manager):
         """Test that API key is injected."""
-        from gateway import _inject_anthropic_credentials
+        from gateway.gateway import _inject_anthropic_credentials
 
         mock_cred = MagicMock()
         mock_cred.header_name = "x-api-key"
@@ -89,7 +89,7 @@ class TestInjectAnthropicCredentials:
 
     def test_injects_oauth_token(self, mock_credentials_manager):
         """Test that OAuth token is injected."""
-        from gateway import _inject_anthropic_credentials
+        from gateway.gateway import _inject_anthropic_credentials
 
         mock_cred = MagicMock()
         mock_cred.header_name = "Authorization"
@@ -104,7 +104,7 @@ class TestInjectAnthropicCredentials:
 
     def test_preserves_client_authorization(self, mock_credentials_manager):
         """Test that client-provided Authorization header is preserved."""
-        from gateway import _inject_anthropic_credentials
+        from gateway.gateway import _inject_anthropic_credentials
 
         mock_credentials_manager.get_credential.return_value = None
 
@@ -116,7 +116,7 @@ class TestInjectAnthropicCredentials:
 
     def test_preserves_client_api_key(self, mock_credentials_manager):
         """Test that client-provided x-api-key header is preserved."""
-        from gateway import _inject_anthropic_credentials
+        from gateway.gateway import _inject_anthropic_credentials
 
         mock_credentials_manager.get_credential.return_value = None
 
@@ -128,7 +128,7 @@ class TestInjectAnthropicCredentials:
 
     def test_error_no_credentials(self, mock_credentials_manager):
         """Test error when no credentials available."""
-        from gateway import _inject_anthropic_credentials, app
+        from gateway.gateway import _inject_anthropic_credentials, app
 
         mock_credentials_manager.get_credential.return_value = None
 
@@ -149,7 +149,7 @@ class TestGetForwardedHeaders:
         """Test that sensitive headers are blocked."""
         from werkzeug.datastructures import Headers
 
-        from gateway import _get_forwarded_headers
+        from gateway.gateway import _get_forwarded_headers
 
         incoming = Headers(
             [
@@ -191,7 +191,7 @@ class TestFilterResponseHeaders:
         """Test that hop-by-hop headers are filtered."""
         from httpx import Headers
 
-        from gateway import _filter_response_headers
+        from gateway.gateway import _filter_response_headers
 
         incoming = Headers(
             [
@@ -221,7 +221,7 @@ class TestProxyMessagesEndpoint:
     @pytest.fixture
     def client(self):
         """Create a test client for the Flask app."""
-        from gateway import app
+        from gateway.gateway import app
 
         app.config["TESTING"] = True
         with app.test_client() as client:
@@ -230,7 +230,7 @@ class TestProxyMessagesEndpoint:
     @pytest.fixture
     def mock_httpx_client(self):
         """Mock the httpx client."""
-        with patch("gateway.get_anthropic_client") as mock_get:
+        with patch("gateway.gateway.get_anthropic_client") as mock_get:
             mock_client = MagicMock()
             mock_get.return_value = mock_client
             yield mock_client
@@ -238,7 +238,7 @@ class TestProxyMessagesEndpoint:
     @pytest.fixture
     def mock_credentials(self):
         """Mock credentials manager to return valid credential."""
-        with patch("gateway.get_credentials_manager") as mock_get:
+        with patch("gateway.gateway.get_credentials_manager") as mock_get:
             manager = MagicMock()
             cred = MagicMock()
             cred.header_name = "x-api-key"
@@ -328,7 +328,7 @@ class TestProxyMessagesEndpoint:
 
     def test_no_credentials_returns_401(self, client, mock_httpx_client):
         """Test that missing credentials returns 401."""
-        with patch("gateway.get_credentials_manager") as mock_get:
+        with patch("gateway.gateway.get_credentials_manager") as mock_get:
             manager = MagicMock()
             manager.get_credential.return_value = None
             mock_get.return_value = manager
@@ -388,7 +388,7 @@ class TestProxyCountTokensEndpoint:
     @pytest.fixture
     def client(self):
         """Create a test client for the Flask app."""
-        from gateway import app
+        from gateway.gateway import app
 
         app.config["TESTING"] = True
         with app.test_client() as client:
@@ -397,7 +397,7 @@ class TestProxyCountTokensEndpoint:
     @pytest.fixture
     def mock_httpx_client(self):
         """Mock the httpx client."""
-        with patch("gateway.get_anthropic_client") as mock_get:
+        with patch("gateway.gateway.get_anthropic_client") as mock_get:
             mock_client = MagicMock()
             mock_get.return_value = mock_client
             yield mock_client
@@ -405,7 +405,7 @@ class TestProxyCountTokensEndpoint:
     @pytest.fixture
     def mock_credentials(self):
         """Mock credentials manager."""
-        with patch("gateway.get_credentials_manager") as mock_get:
+        with patch("gateway.gateway.get_credentials_manager") as mock_get:
             manager = MagicMock()
             cred = MagicMock()
             cred.header_name = "x-api-key"
@@ -436,7 +436,7 @@ class TestProxyCountTokensEndpoint:
 
     def test_count_tokens_no_credentials(self, client, mock_httpx_client):
         """Test that missing credentials returns 401."""
-        with patch("gateway.get_credentials_manager") as mock_get:
+        with patch("gateway.gateway.get_credentials_manager") as mock_get:
             manager = MagicMock()
             manager.get_credential.return_value = None
             mock_get.return_value = manager
@@ -456,7 +456,7 @@ class TestStreamingResponse:
     @pytest.fixture
     def client(self):
         """Create a test client for the Flask app."""
-        from gateway import app
+        from gateway.gateway import app
 
         app.config["TESTING"] = True
         with app.test_client() as client:
@@ -465,7 +465,7 @@ class TestStreamingResponse:
     @pytest.fixture
     def mock_credentials(self):
         """Mock credentials manager."""
-        with patch("gateway.get_credentials_manager") as mock_get:
+        with patch("gateway.gateway.get_credentials_manager") as mock_get:
             manager = MagicMock()
             cred = MagicMock()
             cred.header_name = "x-api-key"
@@ -478,7 +478,7 @@ class TestStreamingResponse:
         """Test that streaming requests use streaming handler."""
         from httpx import Headers
 
-        with patch("gateway.get_anthropic_client") as mock_get:
+        with patch("gateway.gateway.get_anthropic_client") as mock_get:
             mock_client = MagicMock()
             mock_get.return_value = mock_client
 
@@ -520,7 +520,7 @@ class TestStreamingResponse:
         """Test that Content-Type is forwarded from upstream."""
         from httpx import Headers
 
-        with patch("gateway.get_anthropic_client") as mock_get:
+        with patch("gateway.gateway.get_anthropic_client") as mock_get:
             mock_client = MagicMock()
             mock_get.return_value = mock_client
 
@@ -548,7 +548,7 @@ class TestFilterBlockedTools:
 
     def test_filters_web_search_in_private_mode(self):
         """Test that web_search is removed in private mode."""
-        from gateway import _filter_blocked_tools
+        from gateway.gateway import _filter_blocked_tools
 
         body = json.dumps(
             {
@@ -567,7 +567,7 @@ class TestFilterBlockedTools:
 
     def test_filters_web_fetch_in_private_mode(self):
         """Test that web_fetch is removed in private mode."""
-        from gateway import _filter_blocked_tools
+        from gateway.gateway import _filter_blocked_tools
 
         body = json.dumps(
             {
@@ -586,7 +586,7 @@ class TestFilterBlockedTools:
 
     def test_filters_all_blocked_tools(self):
         """Test that all blocked tool variants are removed."""
-        from gateway import _filter_blocked_tools
+        from gateway.gateway import _filter_blocked_tools
 
         body = json.dumps(
             {
@@ -608,7 +608,7 @@ class TestFilterBlockedTools:
 
     def test_no_filtering_in_public_mode(self):
         """Test that tools are not filtered in public mode."""
-        from gateway import _filter_blocked_tools
+        from gateway.gateway import _filter_blocked_tools
 
         body = json.dumps(
             {
@@ -628,7 +628,7 @@ class TestFilterBlockedTools:
 
     def test_no_filtering_when_session_mode_is_none(self):
         """Test that tools are not filtered when session_mode is None."""
-        from gateway import _filter_blocked_tools
+        from gateway.gateway import _filter_blocked_tools
 
         body = json.dumps(
             {
@@ -646,7 +646,7 @@ class TestFilterBlockedTools:
 
     def test_handles_missing_tools_key(self):
         """Test that requests without tools are passed through."""
-        from gateway import _filter_blocked_tools
+        from gateway.gateway import _filter_blocked_tools
 
         body = json.dumps({"model": "claude-3", "messages": []}).encode()
 
@@ -657,7 +657,7 @@ class TestFilterBlockedTools:
 
     def test_handles_invalid_json(self):
         """Test that invalid JSON is passed through unchanged."""
-        from gateway import _filter_blocked_tools
+        from gateway.gateway import _filter_blocked_tools
 
         body = b"not valid json"
 
@@ -668,7 +668,7 @@ class TestFilterBlockedTools:
 
     def test_handles_empty_tools_array(self):
         """Test that empty tools array is handled correctly."""
-        from gateway import _filter_blocked_tools
+        from gateway.gateway import _filter_blocked_tools
 
         body = json.dumps({"model": "claude-3", "tools": []}).encode()
 
@@ -679,7 +679,7 @@ class TestFilterBlockedTools:
 
     def test_preserves_other_request_fields(self):
         """Test that other request fields are preserved after filtering."""
-        from gateway import _filter_blocked_tools
+        from gateway.gateway import _filter_blocked_tools
 
         body = json.dumps(
             {

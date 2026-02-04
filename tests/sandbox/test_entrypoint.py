@@ -43,7 +43,7 @@ class TestConfig:
         # Note: container_user is fixed as "egg", only UID/GID can be overridden
         monkeypatch.setenv("RUNTIME_UID", "2000")
         monkeypatch.setenv("RUNTIME_GID", "2000")
-        monkeypatch.setenv("JIB_QUIET", "1")
+        monkeypatch.setenv("EGG_QUIET", "1")
 
         config = entrypoint.Config()
 
@@ -85,7 +85,6 @@ class TestConfig:
         config = entrypoint.Config()
 
         assert config.claude_dir == Path("/home/egg/.claude")
-        assert config.beads_dir == Path("/home/egg/sharing/beads")
 
 
 class TestLogger:
@@ -237,14 +236,6 @@ class TestSetupEnvironment:
 
         assert os.environ["DISABLE_AUTOUPDATER"] == "1"
 
-    def test_sets_beads_dir(self, monkeypatch):
-        """Test that BEADS_DIR is set correctly - always under /home/egg."""
-        config = entrypoint.Config()
-
-        entrypoint.setup_environment(config)
-
-        assert os.environ["BEADS_DIR"] == "/home/egg/sharing/beads/.beads"
-
     def test_updates_path(self, monkeypatch):
         """Test that PATH is updated with jib runtime scripts and local bin."""
         monkeypatch.setenv("PATH", "/usr/bin")
@@ -252,7 +243,7 @@ class TestSetupEnvironment:
 
         entrypoint.setup_environment(config)
 
-        assert "/opt/jib-runtime/sandbox/bin" in os.environ["PATH"]
+        assert "/opt/egg-runtime/sandbox/bin" in os.environ["PATH"]
         assert "/home/egg/.local/bin" in os.environ["PATH"]
 
 
@@ -276,7 +267,6 @@ class TestSetupSharing:
 
         # Check subdirectories exist
         assert (sharing_dir / "tmp").exists()
-        assert (sharing_dir / "notifications").exists()
         assert (sharing_dir / "context").exists()
         assert (sharing_dir / "tracking").exists()
         assert (sharing_dir / "traces").exists()
@@ -301,66 +291,6 @@ class TestSetupSharing:
         tmp_link = temp_dir / "tmp"
         assert tmp_link.is_symlink()
         assert tmp_link.resolve() == (sharing_dir / "tmp").resolve()
-
-
-class TestSetupBeads:
-    """Tests for the setup_beads function."""
-
-    def test_returns_false_if_beads_dir_missing(self, temp_dir, monkeypatch, capsys):
-        """Test that function returns False if beads directory doesn't exist."""
-        config = MagicMock()
-        config.beads_dir = temp_dir / "nonexistent"
-
-        logger = entrypoint.Logger(quiet=False)
-        result = entrypoint.setup_beads(config, logger)
-
-        assert result is False
-        captured = capsys.readouterr()
-        assert "ERROR" in captured.err
-
-    def test_returns_false_if_beads_not_initialized(self, temp_dir, monkeypatch, capsys):
-        """Test that function returns False if beads not initialized."""
-        beads_dir = temp_dir / "beads"
-        beads_dir.mkdir()
-        # Don't create the .beads/issues.jsonl file
-
-        config = MagicMock()
-        config.beads_dir = beads_dir
-
-        logger = entrypoint.Logger(quiet=False)
-        result = entrypoint.setup_beads(config, logger)
-
-        assert result is False
-        captured = capsys.readouterr()
-        assert "not initialized" in captured.err
-
-    @patch.object(entrypoint, "run_cmd")
-    @patch.object(entrypoint, "chown_recursive")
-    def test_returns_true_if_beads_valid(self, mock_chown, mock_run_cmd, temp_dir, monkeypatch):
-        """Test that function returns True if beads is properly initialized."""
-        # Use separate paths for sharing/beads and user_home
-        sharing_dir = temp_dir / "sharing"
-        beads_dir = sharing_dir / "beads"
-        beads_data_dir = beads_dir / ".beads"
-        beads_data_dir.mkdir(parents=True)
-        (beads_data_dir / "issues.jsonl").write_text("")
-
-        user_home = temp_dir / "home"
-        user_home.mkdir()
-
-        config = MagicMock()
-        config.beads_dir = beads_dir
-        config.user_home = user_home
-        config.runtime_uid = 1000
-        config.runtime_gid = 1000
-
-        logger = entrypoint.Logger(quiet=True)
-        result = entrypoint.setup_beads(config, logger)
-
-        assert result is True
-        # Check symlink was created
-        beads_link = user_home / "beads"
-        assert beads_link.is_symlink()
 
 
 class TestSetupClaude:

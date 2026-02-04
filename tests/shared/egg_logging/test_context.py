@@ -199,6 +199,11 @@ class TestContextFromEnv:
         """Clean up environment variables after each test."""
         for var in [
             "EGG_TRACE_ID",
+            "EGG_SPAN_ID",
+            "EGG_TASK_ID",
+            "EGG_REPOSITORY",
+            "EGG_PR_NUMBER",
+            "JIB_TRACE_ID",
             "JIB_SPAN_ID",
             "JIB_TASK_ID",
             "JIB_REPOSITORY",
@@ -208,13 +213,13 @@ class TestContextFromEnv:
         ]:
             os.environ.pop(var, None)
 
-    def test_reads_jib_variables(self):
-        """Test that it reads JIB_* environment variables."""
+    def test_reads_egg_variables(self):
+        """Test that it reads EGG_* environment variables."""
         os.environ["EGG_TRACE_ID"] = "env_trace"
-        os.environ["JIB_SPAN_ID"] = "env_span"
-        os.environ["JIB_TASK_ID"] = "env_task"
-        os.environ["JIB_REPOSITORY"] = "owner/repo"
-        os.environ["JIB_PR_NUMBER"] = "42"
+        os.environ["EGG_SPAN_ID"] = "env_span"
+        os.environ["EGG_TASK_ID"] = "env_task"
+        os.environ["EGG_REPOSITORY"] = "owner/repo"
+        os.environ["EGG_PR_NUMBER"] = "42"
 
         ctx = context_from_env()
 
@@ -234,14 +239,24 @@ class TestContextFromEnv:
         assert ctx.trace_id == "otel_trace"
         assert ctx.span_id == "otel_span"
 
-    def test_jib_takes_precedence_over_otel(self):
-        """Test that JIB_* variables take precedence over OTEL_*."""
+    def test_egg_takes_precedence_over_otel(self):
+        """Test that EGG_* variables take precedence over OTEL_*."""
         os.environ["EGG_TRACE_ID"] = "egg_trace"
         os.environ["OTEL_TRACE_ID"] = "otel_trace"
 
         ctx = context_from_env()
 
         assert ctx.trace_id == "egg_trace"
+
+    def test_jib_backward_compatibility(self):
+        """Test that JIB_* variables still work for backward compatibility."""
+        os.environ["JIB_TRACE_ID"] = "jib_trace"
+        os.environ["JIB_SPAN_ID"] = "jib_span"
+
+        ctx = context_from_env()
+
+        assert ctx.trace_id == "jib_trace"
+        assert ctx.span_id == "jib_span"
 
     def test_handles_missing_variables(self):
         """Test graceful handling of missing variables."""

@@ -1,4 +1,4 @@
-"""Configuration and constants for jib.
+"""Configuration and constants for egg.
 
 This module contains the Config class, Colors, gateway constants,
 and platform detection utilities.
@@ -25,7 +25,7 @@ class Config:
     # Cache directory for Docker staging (XDG-compliant)
     # Respects XDG_CACHE_HOME if set
     _xdg_cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    CACHE_DIR = _xdg_cache / "jib"
+    CACHE_DIR = _xdg_cache / "egg"
     CONFIG_DIR = CACHE_DIR  # Alias for backward compatibility
     DOCKERFILE = CONFIG_DIR / "Dockerfile"
     USER_CONFIG_DIR = Path.home() / ".config" / "egg"  # User config (secrets, preferences)
@@ -63,10 +63,11 @@ GATEWAY_PROXY_PORT = 3128
 
 # Network lockdown configuration
 # Dual-network architecture: egg-isolated (internal) + egg-external (for gateway)
-# jib container connects only to egg-isolated and routes all traffic through gateway proxy
+# egg container connects only to egg-isolated and routes all traffic through gateway proxy
 EGG_ISOLATED_NETWORK = "egg-isolated"
 EGG_EXTERNAL_NETWORK = "egg-external"
-JIB_CONTAINER_IP = "172.30.0.10"  # Fixed IP for jib container in isolated network
+EGG_CONTAINER_IP = "172.30.0.10"  # Fixed IP for egg container in isolated network
+JIB_CONTAINER_IP = EGG_CONTAINER_IP  # Backward compatibility alias
 GATEWAY_ISOLATED_IP = "172.30.0.2"  # Gateway IP in isolated network
 GATEWAY_EXTERNAL_IP = "172.31.0.2"  # Gateway IP in external network
 
@@ -87,11 +88,11 @@ def get_platform() -> str:
 
 
 # Import shared config module for get_local_repos
-# This ensures jib and gateway use identical config parsing
+# This ensures egg and gateway use identical config parsing
 def get_local_repos() -> list[Path]:
     """Load local repository paths from configuration.
 
-    Uses the shared jib_config module for consistent config parsing.
+    Uses the shared egg_config module for consistent config parsing.
     Falls back to local implementation if module not available.
     """
     try:
