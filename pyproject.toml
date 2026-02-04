@@ -70,6 +70,13 @@ disallow_untyped_defs = false
 module = ["waitress", "waitress.*"]
 ignore_missing_imports = true
 
+[tool.bandit]
+# B104: bind all interfaces - intentional for gateway inside container
+# B201: flask debug=True - only enabled with explicit --debug flag, guarded by if args.debug
+# B108: hardcoded /tmp - intentional for ephemeral session data and test fixtures
+# B102: exec - used for dynamically loading test fixtures
+skips = ["B102", "B104", "B108", "B201"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing"

@@ -74,4 +74,4 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run bandit
-        run: .venv/bin/bandit -r gateway shared sandbox -ll
+        run: .venv/bin/bandit -r gateway shared sandbox -ll -c pyproject.toml
