@@ -375,14 +375,14 @@ class TestSessionIPBinding:
         # which test containers don't have. We verify the IPs are in different ranges.
 
         # External network: 172.31.x.x
-        assert external_container.ip.startswith(
-            "172.31."
-        ), f"External container IP should be in 172.31.x.x range, got {external_container.ip}"
+        assert external_container.ip.startswith("172.31."), (
+            f"External container IP should be in 172.31.x.x range, got {external_container.ip}"
+        )
 
         # Isolated network: 172.30.x.x
-        assert isolated_container.ip.startswith(
-            "172.30."
-        ), f"Isolated container IP should be in 172.30.x.x range, got {isolated_container.ip}"
+        assert isolated_container.ip.startswith("172.30."), (
+            f"Isolated container IP should be in 172.30.x.x range, got {isolated_container.ip}"
+        )
 
         # The IP ranges being different means the session_manager's IP verification
         # (in validate_session_for_request) will reject cross-network token reuse
@@ -425,9 +425,9 @@ class TestRepoVisibilityEnforcement:
                 "healthy",
                 "degraded",
             ), f"Unexpected health status: {health_data}"
-            assert (
-                "active_sessions" in health_data
-            ), "Health response should include active_sessions"
+            assert "active_sessions" in health_data, (
+                "Health response should include active_sessions"
+            )
         except json.JSONDecodeError:
             pytest.fail(f"Health endpoint returned invalid JSON: {stdout}")
 
@@ -464,9 +464,9 @@ class TestRepoVisibilityEnforcement:
         try:
             response = json.loads(stdout)
             # The response should indicate authentication failure
-            assert (
-                response.get("success") is False
-            ), f"Git operation without session should fail. Response: {response}"
+            assert response.get("success") is False, (
+                f"Git operation without session should fail. Response: {response}"
+            )
         except json.JSONDecodeError:
             # If we got HTML error page or similar, that's also a failure (expected)
             pass

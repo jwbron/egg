@@ -80,6 +80,6 @@ class TestBashSyntax:
             "#!/bin/sh",
             "#!/usr/bin/env sh",
         ]
-        assert any(
-            first_line.startswith(shebang) for shebang in valid_shebangs
-        ), f"{bash_file} missing valid shebang. Got: {first_line!r}"
+        assert any(first_line.startswith(shebang) for shebang in valid_shebangs), (
+            f"{bash_file} missing valid shebang. Got: {first_line!r}"
+        )
