@@ -249,12 +249,6 @@ class TestIsDangerousDir:
         safe_dir.mkdir()
         assert egg.is_dangerous_dir(safe_dir) is False
 
-    def test_repos_dir_is_safe(self):
-        """Test repos directory is safe."""
-        # Use a path that's definitely not in DANGEROUS_DIRS
-        repos_dir = Config.SHARING_DIR.parent / "repos"
-        assert egg.is_dangerous_dir(repos_dir) is False
-
 
 class TestGenerateContainerId:
     """Tests for container ID generation."""

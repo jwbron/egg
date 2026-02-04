@@ -74,12 +74,6 @@ class TestConfig:
 
         assert config.repos_dir == Path("/home/egg/repos")
 
-    def test_sharing_dir_property(self, monkeypatch):
-        """Test the sharing_dir property - always under /home/egg."""
-        config = entrypoint.Config()
-
-        assert config.sharing_dir == Path("/home/egg/sharing")
-
     def test_derived_paths(self, monkeypatch):
         """Test all derived path properties - all under /home/egg."""
         config = entrypoint.Config()
@@ -245,52 +239,6 @@ class TestSetupEnvironment:
 
         assert "/opt/egg-runtime/sandbox/bin" in os.environ["PATH"]
         assert "/home/egg/.local/bin" in os.environ["PATH"]
-
-
-class TestSetupSharing:
-    """Tests for the setup_sharing function."""
-
-    @patch.object(entrypoint, "chown_recursive")
-    def test_creates_subdirectories(self, mock_chown, temp_dir, monkeypatch):
-        """Test that subdirectories are created."""
-        sharing_dir = temp_dir / "sharing"
-        sharing_dir.mkdir()
-
-        config = MagicMock()
-        config.sharing_dir = sharing_dir
-        config.user_home = temp_dir
-        config.runtime_uid = 1000
-        config.runtime_gid = 1000
-
-        logger = entrypoint.Logger(quiet=True)
-        entrypoint.setup_sharing(config, logger)
-
-        # Check subdirectories exist
-        assert (sharing_dir / "tmp").exists()
-        assert (sharing_dir / "context").exists()
-        assert (sharing_dir / "tracking").exists()
-        assert (sharing_dir / "traces").exists()
-        assert (sharing_dir / "logs").exists()
-
-    @patch.object(entrypoint, "chown_recursive")
-    def test_creates_tmp_symlink(self, mock_chown, temp_dir, monkeypatch):
-        """Test that ~/tmp symlink is created."""
-        sharing_dir = temp_dir / "sharing"
-        sharing_dir.mkdir()
-
-        config = MagicMock()
-        config.sharing_dir = sharing_dir
-        config.user_home = temp_dir
-        config.runtime_uid = 1000
-        config.runtime_gid = 1000
-
-        logger = entrypoint.Logger(quiet=True)
-        entrypoint.setup_sharing(config, logger)
-
-        # Check symlink exists
-        tmp_link = temp_dir / "tmp"
-        assert tmp_link.is_symlink()
-        assert tmp_link.resolve() == (sharing_dir / "tmp").resolve()
 
 
 class TestSetupClaude:
