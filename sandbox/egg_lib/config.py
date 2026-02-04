@@ -33,14 +33,6 @@ class Config:
     GITHUB_TOKEN_FILE = USER_CONFIG_DIR / "github-token"
     IMAGE_NAME = "egg"
     CONTAINER_NAME = "egg"
-    # Persistent directory for all shared data
-    SHARING_DIR = Path.home() / ".egg-sharing"
-    TMP_DIR = SHARING_DIR / "tmp"  # Persistent tmp workspace
-    # Worktree base directory (ephemeral workspaces per container)
-    WORKTREE_BASE = Path.home() / ".egg-worktrees"
-
-    # Note: Each container gets its own worktree to isolate changes
-    # Host repos stay clean while containers work independently
 
     # Directories that are dangerous to mount (contain credentials)
     DANGEROUS_DIRS = [
@@ -66,9 +58,9 @@ GATEWAY_PROXY_PORT = 3128
 # egg container connects only to egg-isolated and routes all traffic through gateway proxy
 EGG_ISOLATED_NETWORK = "egg-isolated"
 EGG_EXTERNAL_NETWORK = "egg-external"
-EGG_CONTAINER_IP = "172.30.0.10"  # Fixed IP for egg container in isolated network
-GATEWAY_ISOLATED_IP = "172.30.0.2"  # Gateway IP in isolated network
-GATEWAY_EXTERNAL_IP = "172.31.0.2"  # Gateway IP in external network
+EGG_CONTAINER_IP = "172.32.0.10"  # Fixed IP for egg container in isolated network
+GATEWAY_ISOLATED_IP = "172.32.0.2"  # Gateway IP in isolated network
+GATEWAY_EXTERNAL_IP = "172.33.0.2"  # Gateway IP in external network
 
 
 def get_platform() -> str:

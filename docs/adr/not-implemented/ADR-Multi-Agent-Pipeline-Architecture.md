@@ -499,7 +499,7 @@ The [ACE (Agentic Context Engineering)](https://arxiv.org/abs/2510.04618) framew
 | **Reflection Phase** | Evaluating context effectiveness after execution | Reviewer agent assesses what context helped/hurt |
 | **Curation Phase** | Refining context based on outcomes | Update templates based on success/failure patterns |
 
-**Applying ACE to jib:**
+**Applying ACE to egg:**
 
 ```python
 class ACEContextManager:
@@ -1682,7 +1682,7 @@ async def consensus_decision(query, context):
 
 While this ADR recommends a custom implementation (see [Alternative 3](#alternative-3-agentic-framework-langgraph-crewai-autogen-microsoft-agent-framework) for full analysis), the following quick reference may inform future decisions if we need to adopt or integrate an external framework:
 
-| Framework | Best For | Avoid If | jib Compatibility |
+| Framework | Best For | Avoid If | egg Compatibility |
 |-----------|----------|----------|-------------------|
 | **[LangGraph](https://python.langchain.com/docs/langgraph)** | Complex workflows with cycles, sophisticated state management | Need quick iteration, simple linear pipelines | Good - graph model aligns with pipeline stages |
 | **[CrewAI](https://github.com/joaomdmoura/crewAI)** | Role-based teams, rapid prototyping, YAML-first config | Need fine-grained control, complex logging | Moderate - simpler but less flexible |
@@ -1892,11 +1892,11 @@ class AuditLogger:
         })
 ```
 
-### jib-Specific Security Considerations
+### egg-Specific Security Considerations
 
-Given jib's sandboxed Docker environment:
+Given egg's sandboxed Docker environment:
 
-| jib Security Feature | How It Helps Multi-Agent |
+| egg Security Feature | How It Helps Multi-Agent |
 |---------------------|--------------------------|
 | Network isolation | Prevents agents from making unauthorized external calls |
 | No production credentials | Limits blast radius of compromised agents |
@@ -2147,8 +2147,8 @@ class SemanticCache:
 - 2-3 agent templates (planner, coder, reviewer)
 
 **Deliverables:**
-- `jib/pipelines/` - Core framework
-- `jib/agents/` - Agent templates
+- `egg/pipelines/` - Core framework
+- `egg/agents/` - Agent templates
 - 1 working pipeline (feature_implementation)
 - Tests for orchestrator
 - Documentation
@@ -2359,7 +2359,7 @@ Based on [comprehensive 2025 framework comparison](https://latenode.com/blog/lan
 
 **Cons:**
 - External dependency (increase complexity)
-- Abstractions may not fit jib's needs (Beads, Claude Code specifics, container isolation)
+- Abstractions may not fit egg's needs (Beads, Claude Code specifics, container isolation)
 - Migration effort still required
 - Less control over orchestration details
 - LangGraph: demands higher upfront investment
@@ -2412,7 +2412,7 @@ Based on [comprehensive 2025 framework comparison](https://latenode.com/blog/lan
 ## References
 
 ### Internal Documentation
-- [ADR: Autonomous Software Engineer](../in-progress/ADR-Autonomous-Software-Engineer.md) - Core jib architecture
+- [ADR: Autonomous Software Engineer](../in-progress/ADR-Autonomous-Software-Engineer.md) - Core egg architecture
 - [ADR: LLM Documentation Index Strategy](../implemented/ADR-LLM-Documentation-Index-Strategy.md) - Multi-agent doc generation example
 
 ### Related Slack Discussion

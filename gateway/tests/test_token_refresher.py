@@ -265,7 +265,7 @@ class TestInitializeTokenRefresher:
     def test_initialize_from_files(
         self, mock_post, mock_jwt, tmp_path, mock_private_key, mock_github_response
     ):
-        """Token refresher initializes from config files."""
+        """Token refresher initializes from secrets.env and pem file."""
         mock_jwt.return_value = "mock_jwt_token"
         mock_post.return_value = MagicMock(
             status_code=200,
@@ -273,9 +273,12 @@ class TestInitializeTokenRefresher:
             raise_for_status=lambda: None,
         )
 
-        # Create config files
-        (tmp_path / "github-app-id").write_text("12345")
-        (tmp_path / "github-app-installation-id").write_text("67890")
+        # Create secrets.env with GitHub App credentials
+        secrets_content = """# Test secrets
+GITHUB_APP_ID=12345
+GITHUB_APP_INSTALLATION_ID=67890
+"""
+        (tmp_path / "secrets.env").write_text(secrets_content)
         (tmp_path / "github-app.pem").write_text(mock_private_key)
 
         refresher = initialize_token_refresher(config_dir=tmp_path)

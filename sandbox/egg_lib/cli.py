@@ -17,7 +17,7 @@ from .network_mode import (
 )
 from .output import error, info, set_quiet_mode, success, warn
 from .runtime import exec_in_new_container, run_claude
-from .setup_flow import check_host_setup, run_setup_script
+from .setup_flow import check_host_setup, setup
 from .timing import _host_timer
 
 
@@ -30,7 +30,7 @@ Examples:
   egg                                      # Run Claude Code (progress bar by default, auto-setup if needed)
   egg -v                                   # Run in verbose mode (detailed output)
   egg --time                               # Show startup timing breakdown for debugging
-  egg --setup                              # Run full setup (delegates to setup.py)
+  egg --setup                              # Run interactive setup wizard
   egg --reset                              # Reset configuration and remove Docker image
   egg --rebuild                            # Force rebuild Docker image (even if files unchanged)
   egg --exec <command> [args...]          # Execute command in new ephemeral container
@@ -137,21 +137,15 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
         warn("Resetting configuration...")
         if Config.CONFIG_DIR.exists():
             shutil.rmtree(Config.CONFIG_DIR)
-
-        # Ask about persistent directories
-        if Config.SHARING_DIR.exists():
+        if Config.USER_CONFIG_DIR.exists():
             print()
-            warn("Persistent directories found:")
-            if Config.SHARING_DIR.exists():
-                print(f"  • {Config.SHARING_DIR} (shared artifacts, context documents)")
-            print()
-            response = input("Remove these as well? (yes/no): ").strip().lower()
+            warn(f"User configuration exists: {Config.USER_CONFIG_DIR}")
+            response = input("Remove user configuration as well? (yes/no): ").strip().lower()
             if response == "yes":
-                if Config.SHARING_DIR.exists():
-                    shutil.rmtree(Config.SHARING_DIR)
-                    warn(f"Removed: {Config.SHARING_DIR}")
+                shutil.rmtree(Config.USER_CONFIG_DIR)
+                warn(f"Removed: {Config.USER_CONFIG_DIR}")
             else:
-                info("Preserved persistent directories")
+                info("Preserved user configuration")
 
         success("Configuration reset. Run again to set up fresh.")
         return 0
@@ -167,11 +161,9 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
     if not check_host_setup():
         return 1
 
-    # Handle setup - delegate to setup.py
+    # Handle setup - run interactive setup
     if args.setup:
-        info("Delegating to setup.py for complete egg configuration...")
-        print()
-        if not run_setup_script():
+        if not setup():
             return 1
         return 0
 

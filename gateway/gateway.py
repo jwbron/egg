@@ -249,7 +249,7 @@ def get_launcher_secret() -> str:
     if LAUNCHER_SECRET:
         return LAUNCHER_SECRET
 
-    # Try to read from file (mounted from ~/.egg-gateway/launcher-secret)
+    # Try to read from file (mounted from ~/.config/egg/launcher-secret)
     if LAUNCHER_SECRET_FILE.exists():
         LAUNCHER_SECRET = LAUNCHER_SECRET_FILE.read_text().strip()
         return LAUNCHER_SECRET

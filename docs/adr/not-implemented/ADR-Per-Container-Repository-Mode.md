@@ -154,7 +154,7 @@ class Session:
 POST /api/v1/sessions/create
   Auth: Bearer {launcher_secret}  # NOT gateway_secret - separate credential
   Body: {
-    "container_id": "jib-xxx",
+    "container_id": "egg-xxx",
     "container_ip": "172.18.0.3",  # Pre-allocated IP (see IP Allocation below)
     "mode": "private"|"public",
     "repos": ["owner/repo1", "owner/repo2"]  # All repos to consider
@@ -489,7 +489,7 @@ def get_gateway_auth() -> dict[str, str]:
     return {"Authorization": f"Bearer {get_gateway_secret()}"}
 
 headers = get_gateway_auth()
-# No X-Jib-Session header needed - token IS the session identifier
+# No X-Egg-Session header needed - token IS the session identifier
 ```
 
 **Authentication hierarchy at request time**:
@@ -518,7 +518,7 @@ Before starting a container, the launcher uses the atomic session creation endpo
 # Launcher sequence (atomic operation via gateway)
 def start_container(mode: str, repos: list[str]):
     # 1. Generate container ID
-    container_id = f"jib-{uuid.uuid4().hex[:12]}"
+    container_id = f"egg-{uuid.uuid4().hex[:12]}"
 
     # 2. Pre-allocate container IP (see IP Allocation section)
     container_ip = docker.allocate_ip(network="egg-isolated")
@@ -607,7 +607,7 @@ We recommend **Option A** for stronger security guarantees.
 
 ```bash
 # Default: public repos only (safe default)
-jib
+egg
 
 # Explicit modes
 egg --public-repos
@@ -754,7 +754,7 @@ All session events are logged with the following fields:
   "event_type": "session_*",
   "timestamp": "ISO8601",
   "session_token_hash": "sha256(token)[:16]",  // NOT the full token
-  "container_id": "jib-xxx",
+  "container_id": "egg-xxx",
   "container_ip": "172.18.0.3",
   "mode": "private|public",
   "outcome": "success|denied|error",
@@ -778,9 +778,9 @@ Events logged:
 | `gateway/rate_limiter.py` | NEW: Thread-safe sliding window rate limiting |
 | `gateway/gateway.py` | Add session endpoints, extract session+IP in all handlers |
 | `gateway/private_repo_policy.py` | Accept session_token, verify IP, fail-closed logic |
-| `jib-launcher/launcher.py` | Session registration (atomic endpoint), IP pre-allocation |
-| `jib-launcher/secrets.py` | NEW: Manage launcher_secret separate from gateway_secret |
-| `jib-launcher/ip_allocator.py` | NEW: Docker network IP pre-allocation |
+| `egg-launcher/launcher.py` | Session registration (atomic endpoint), IP pre-allocation |
+| `egg-launcher/secrets.py` | NEW: Manage launcher_secret separate from gateway_secret |
+| `egg-launcher/ip_allocator.py` | NEW: Docker network IP pre-allocation |
 | `sandbox/egg_lib/auth.py` | Shared `get_gateway_auth()` using EGG_SESSION_TOKEN |
 | `sandbox/wrappers/git-wrapper.py` | Use session_token for auth (via shared auth module) |
 | `sandbox/wrappers/gh-wrapper.py` | Use session_token for auth (via shared auth module) |

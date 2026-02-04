@@ -11,8 +11,9 @@
 set -e
 
 # Network configuration (can be overridden via environment)
-EGG_ISOLATED_SUBNET="${EGG_ISOLATED_SUBNET:-172.30.0.0/24}"
-EGG_EXTERNAL_SUBNET="${EGG_EXTERNAL_SUBNET:-172.31.0.0/24}"
+# Note: 172.30.x and 172.31.x are used by jib, so we use 172.32.x and 172.33.x
+EGG_ISOLATED_SUBNET="${EGG_ISOLATED_SUBNET:-172.32.0.0/24}"
+EGG_EXTERNAL_SUBNET="${EGG_EXTERNAL_SUBNET:-172.33.0.0/24}"
 
 # Check if a subnet is already in use
 check_subnet_available() {
@@ -82,14 +83,14 @@ main() {
     if ! check_subnet_available "$EGG_ISOLATED_SUBNET" "egg-isolated"; then
         echo ""
         echo "To use different subnets, set environment variables:"
-        echo "  EGG_ISOLATED_SUBNET=172.30.0.0/24 EGG_EXTERNAL_SUBNET=172.31.0.0/24 $0"
+        echo "  EGG_ISOLATED_SUBNET=172.34.0.0/24 EGG_EXTERNAL_SUBNET=172.35.0.0/24 $0"
         exit 1
     fi
 
     if ! check_subnet_available "$EGG_EXTERNAL_SUBNET" "egg-external"; then
         echo ""
         echo "To use different subnets, set environment variables:"
-        echo "  EGG_ISOLATED_SUBNET=172.30.0.0/24 EGG_EXTERNAL_SUBNET=172.31.0.0/24 $0"
+        echo "  EGG_ISOLATED_SUBNET=172.34.0.0/24 EGG_EXTERNAL_SUBNET=172.35.0.0/24 $0"
         exit 1
     fi
 
@@ -104,13 +105,13 @@ main() {
     echo "=== Network Setup Complete ==="
     echo ""
     echo "Network topology:"
-    echo "  egg containers -> egg-isolated (172.30.0.x) -> gateway (172.30.0.2)"
-    echo "  gateway (172.31.0.2) -> egg-external -> Internet (allowlisted)"
+    echo "  egg containers -> egg-isolated (172.32.0.x) -> gateway (172.32.0.2)"
+    echo "  gateway (172.33.0.2) -> egg-external -> Internet (allowlisted)"
     echo ""
     echo "IP Assignments:"
-    echo "  Gateway (egg-isolated): 172.30.0.2"
-    echo "  Gateway (egg-external): 172.31.0.2"
-    echo "  egg containers:         Dynamic (172.30.0.3+)"
+    echo "  Gateway (egg-isolated): 172.32.0.2"
+    echo "  Gateway (egg-external): 172.33.0.2"
+    echo "  egg containers:         Dynamic (172.32.0.3+)"
 }
 
 main "$@"

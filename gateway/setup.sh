@@ -6,11 +6,9 @@ set -e
 
 COMPONENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${COMPONENT_DIR}/.." && pwd)"
-SERVICE_NAME="gateway.service"
+SERVICE_NAME="egg-gateway.service"
 SYSTEMD_DIR="${HOME}/.config/systemd/user"
 CONFIG_DIR="${HOME}/.config/egg"
-# Gateway-only secrets directory - NOT shared with egg containers
-GATEWAY_SECRETS_DIR="${HOME}/.egg-gateway"
 GATEWAY_IMAGE_NAME="egg-gateway"
 # Network lockdown requires dual networks created by create-networks.sh
 ISOLATED_NETWORK="egg-isolated"
@@ -46,8 +44,9 @@ ensure_directories() {
     mkdir -p "$CONFIG_DIR"
     echo "Config directory exists: $CONFIG_DIR"
 
-    mkdir -p "$GATEWAY_SECRETS_DIR"
-    echo "Gateway secrets directory exists: $GATEWAY_SECRETS_DIR"
+    # Create shared certs directory for SSL bump CA certificate
+    mkdir -p "${HOME}/.egg-shared-certs"
+    echo "Shared certs directory exists: ${HOME}/.egg-shared-certs"
 }
 
 generate_launcher_secret() {
@@ -62,33 +61,39 @@ generate_launcher_secret() {
     else
         echo "Launcher secret exists: $LAUNCHER_SECRET_FILE"
     fi
-
-    # Copy launcher secret to gateway secrets directory for gateway container
-    LAUNCHER_SECRET_COPY="${GATEWAY_SECRETS_DIR}/launcher-secret"
-    cp "$LAUNCHER_SECRET_FILE" "$LAUNCHER_SECRET_COPY"
-    chmod 600 "$LAUNCHER_SECRET_COPY"
-    echo "Launcher secret copied to: $LAUNCHER_SECRET_COPY"
-    # Note: Launcher secret is NOT copied to egg-sharing - containers use
+    # Note: Launcher secret is NOT shared with egg containers - containers use
     # session tokens (EGG_SESSION_TOKEN), not the launcher secret.
     # Only the launcher process on the host needs access to register sessions.
 }
 
 # Check prerequisites
 check_prerequisites() {
-    # Check GitHub App credentials for in-memory token refresh
-    APP_ID_FILE="${CONFIG_DIR}/github-app-id"
-    INSTALLATION_ID_FILE="${CONFIG_DIR}/github-app-installation-id"
+    # Check GitHub App credentials
+    # - App ID and Installation ID should be in secrets.env
+    # - Private key should be in github-app.pem
+    SECRETS_FILE="${CONFIG_DIR}/secrets.env"
     PRIVATE_KEY_FILE="${CONFIG_DIR}/github-app.pem"
 
-    if [[ ! -f "$APP_ID_FILE" ]] || [[ ! -f "$INSTALLATION_ID_FILE" ]] || [[ ! -f "$PRIVATE_KEY_FILE" ]]; then
+    # Check if secrets.env exists and has required values
+    HAS_APP_ID=false
+    HAS_INSTALL_ID=false
+    if [[ -f "$SECRETS_FILE" ]]; then
+        if grep -q "^GITHUB_APP_ID=" "$SECRETS_FILE"; then
+            HAS_APP_ID=true
+        fi
+        if grep -q "^GITHUB_APP_INSTALLATION_ID=" "$SECRETS_FILE"; then
+            HAS_INSTALL_ID=true
+        fi
+    fi
+
+    if [[ "$HAS_APP_ID" != "true" ]] || [[ "$HAS_INSTALL_ID" != "true" ]] || [[ ! -f "$PRIVATE_KEY_FILE" ]]; then
         echo "WARNING: GitHub App credentials not fully configured."
         echo ""
-        echo "Expected files in $CONFIG_DIR/:"
-        echo "  - github-app-id"
-        echo "  - github-app-installation-id"
-        echo "  - github-app.pem"
+        echo "Expected in $CONFIG_DIR/:"
+        echo "  - secrets.env with GITHUB_APP_ID and GITHUB_APP_INSTALLATION_ID"
+        echo "  - github-app.pem (private key)"
         echo ""
-        echo "See docs/setup/github-app-setup.md for instructions."
+        echo "Run 'egg --setup' to configure credentials, or see docs/setup/github-app-setup.md"
         echo ""
         read -p "Continue anyway? (y/N) " -n 1 -r
         echo
@@ -190,10 +195,41 @@ install_service() {
         docker rm -f egg-gateway >/dev/null
     fi
 
-    # Symlink service file
+    # Generate service file with correct paths
     mkdir -p "$SYSTEMD_DIR"
-    ln -sf "$COMPONENT_DIR/$SERVICE_NAME" "$SYSTEMD_DIR/"
-    echo "Service file symlinked to $SYSTEMD_DIR/$SERVICE_NAME"
+    cat > "$SYSTEMD_DIR/$SERVICE_NAME" << EOF
+[Unit]
+Description=Egg Gateway Sidecar - Git/GitHub policy enforcement for egg containers
+Documentation=file://${REPO_ROOT}/gateway/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+Environment=CONTAINER_NAME=egg-gateway
+Environment=IMAGE_NAME=egg-gateway
+
+# Remove any stopped container before starting
+ExecStartPre=-/usr/bin/docker rm -f egg-gateway
+
+# Run container via startup script
+ExecStart=${COMPONENT_DIR}/start-gateway.sh
+
+ExecStop=/usr/bin/docker stop egg-gateway
+
+# Restart on failure with exponential backoff
+Restart=on-failure
+RestartSec=10s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=egg-gateway
+
+[Install]
+WantedBy=default.target
+EOF
+    echo "Service file generated at $SYSTEMD_DIR/$SERVICE_NAME"
 
     # Reload systemd
     systemctl --user daemon-reload
@@ -212,22 +248,50 @@ install_service() {
     echo "Waiting for gateway to be ready..."
     sleep 3
 
-    # Health check
+    # Health check with retry
     HEALTH_URL="http://localhost:9847/api/v1/health"
-    if curl -s "$HEALTH_URL" | grep -q '"status"'; then
-        echo ""
-        echo "Gateway is running!"
-        echo ""
-        curl -s "$HEALTH_URL" | python3 -m json.tool
-    else
-        echo ""
-        echo "WARNING: Gateway health check failed."
-        echo "Check service logs: journalctl --user -u $SERVICE_NAME -f"
-    fi
+    MAX_RETRIES=5
+    RETRY_DELAY=2
 
+    for i in $(seq 1 $MAX_RETRIES); do
+        if curl -s "$HEALTH_URL" | grep -q '"status"'; then
+            echo ""
+            echo "Gateway is running!"
+            echo ""
+            curl -s "$HEALTH_URL" | python3 -m json.tool
+            echo ""
+            echo "Service status:"
+            systemctl --user status "$SERVICE_NAME" --no-pager || true
+            return 0
+        fi
+
+        # Check if service is still running or has failed
+        if ! systemctl --user is-active "$SERVICE_NAME" &>/dev/null; then
+            echo ""
+            echo "ERROR: Gateway service failed to start."
+            echo ""
+            echo "Service status:"
+            systemctl --user status "$SERVICE_NAME" --no-pager || true
+            echo ""
+            echo "Recent logs:"
+            journalctl --user -u "$SERVICE_NAME" -n 20 --no-pager
+            echo ""
+            echo "Fix the issue and run: systemctl --user restart $SERVICE_NAME"
+            return 1
+        fi
+
+        echo "Waiting for gateway... (attempt $i/$MAX_RETRIES)"
+        sleep $RETRY_DELAY
+    done
+
+    echo ""
+    echo "ERROR: Gateway health check failed after $MAX_RETRIES attempts."
     echo ""
     echo "Service status:"
     systemctl --user status "$SERVICE_NAME" --no-pager || true
+    echo ""
+    echo "Check logs: journalctl --user -u $SERVICE_NAME -f"
+    return 1
 }
 
 print_summary() {

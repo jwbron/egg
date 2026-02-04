@@ -1,392 +1,533 @@
 """Interactive setup process for egg.
 
-This module handles the setup flow, including checking host setup,
-running the setup script, and adding standard mounts.
+This module handles the setup flow, including configuration creation,
+checking host setup, and adding standard mounts.
 """
 
-import subprocess
-import sys
+import secrets
+import shutil
 from pathlib import Path
 
-from .auth import get_anthropic_api_key
-from .config import Colors, Config, get_local_repos
-from .docker import (
-    build_image,
-    create_dockerfile,
-    is_dangerous_dir,
-)
+import yaml
+
+from .config import Config
+from .docker import build_image
 from .output import error, info, success, warn
 
 
-def get_setup_script_path() -> Path | None:
-    """Find the setup.py script relative to the egg launcher location"""
-    # Try to find setup.py relative to the egg script
-    egg_script = Path(__file__).resolve().parent.parent
-
-    # egg is at sandbox/egg, setup.py is at repo root
-    repo_root = egg_script.parent
-    setup_script = repo_root / "setup.py"
-
-    if setup_script.exists():
-        return setup_script
-
-    # Fallback: check ~/repos/egg/setup.py
-    fallback = Path.home() / "repos" / "egg" / "setup.py"
-    if fallback.exists():
-        return fallback
-
-    return None
-
-
-def run_setup_script() -> bool:
-    """Run the setup.py script to configure egg"""
-    setup_script = get_setup_script_path()
-
-    if not setup_script:
-        error("Could not find setup.py script")
-        print()
-        print("Please run setup manually:")
-        print("  cd ~/repos/egg")
-        print("  ./setup.py")
-        return False
-
-    info(f"Running setup: {setup_script}")
-    print()
-
-    try:
-        # Run setup.py in its directory
-        result = subprocess.run(
-            [sys.executable, str(setup_script)], cwd=setup_script.parent, check=False
-        )
-        return result.returncode == 0
-    except Exception as e:
-        error(f"Failed to run setup.py: {e}")
-        return False
-
-
 def check_host_setup() -> bool:
-    """Check if host setup is complete (services installed, directories exist)"""
-    # Systemd services that should be installed (gateway can be containerized instead)
-    slack_services = [
-        "slack-notifier.service",
-        "slack-receiver.service",
-    ]
+    """Check if host setup is complete for standalone egg.
 
-    # Important directories that should exist
-    critical_dirs = [
-        Path.home() / ".egg-sharing" / "notifications",
-        Path.home() / ".egg-sharing" / "incoming",
-        Path.home() / ".egg-sharing" / "responses",
-    ]
-
-    # Configuration file (consolidated location since PR #549)
-    config_file = Path.home() / ".config" / "egg" / "config.yaml"
-
-    issues_found = []
-
-    # Check if Slack services are installed
-    for service in slack_services:
-        result = subprocess.run(
-            ["systemctl", "--user", "list-unit-files", service],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0 or service not in result.stdout:
-            issues_found.append(f"Service not installed: {service}")
-
-    # Check gateway setup: either systemd service OR containerized gateway (launcher secret file)
-    # The containerized gateway is started on-demand by egg, so we just need the launcher secret
-    launcher_secret = Config.USER_CONFIG_DIR / "launcher-secret"
-    gateway_systemd_result = subprocess.run(
-        ["systemctl", "--user", "list-unit-files", "gateway.service"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    gateway_systemd_ok = (
-        gateway_systemd_result.returncode == 0
-        and "gateway.service" in gateway_systemd_result.stdout
-    )
-    gateway_container_ok = launcher_secret.exists()
-
-    if not gateway_systemd_ok and not gateway_container_ok:
-        issues_found.append("Gateway not configured: run host-services/gateway/setup.sh")
-
-    # Check if critical directories exist
-    for dir_path in critical_dirs:
-        if not dir_path.exists():
-            issues_found.append(f"Directory not found: {dir_path}")
+    Standalone egg requires minimal setup:
+    - Gateway will be started on-demand (containerized)
+    - Directories are auto-created if missing
+    - Config file is optional
+    """
+    # Auto-create config directory
+    Config.USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
     # Check if config exists (warning only, not critical)
-    config_warning = None
+    config_file = Config.USER_CONFIG_DIR / "repositories.yaml"
     if not config_file.exists():
-        config_warning = f"Configuration file not found: {config_file}"
-
-    # If critical issues found, automatically run setup
-    if issues_found:
-        warn("Host setup appears incomplete")
+        warn(f"Configuration file not found: {config_file}")
+        info("Run 'egg --setup' to configure repositories and options")
         print()
 
-        error("Critical issues found:")
-        for issue in issues_found:
-            print(f"  ✗ {issue}")
+    return True
+
+
+def _get_template_path() -> Path:
+    """Get path to the repositories.yaml.example template."""
+    # Template is in config/ directory relative to egg repo root
+    egg_lib_dir = Path(__file__).resolve().parent
+    sandbox_dir = egg_lib_dir.parent
+    repo_root = sandbox_dir.parent
+    return repo_root / "config" / "repositories.yaml.example"
+
+
+def _read_secrets_env() -> dict[str, str]:
+    """Read existing secrets.env file into a dictionary."""
+    secrets_file = Config.USER_CONFIG_DIR / "secrets.env"
+    secrets_dict: dict[str, str] = {}
+
+    if secrets_file.exists():
+        for line in secrets_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                secrets_dict[key.strip()] = value.strip()
+
+    return secrets_dict
+
+
+def _write_secrets_env(secrets_dict: dict[str, str]) -> None:
+    """Write secrets dictionary to secrets.env file."""
+    secrets_file = Config.USER_CONFIG_DIR / "secrets.env"
+    Config.USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+    lines = [
+        "# Egg Secrets Configuration",
+        "# Generated by egg --setup",
+        "# This file contains sensitive credentials - keep it secure!",
+        "",
+    ]
+
+    # Group secrets by category
+    categories = {
+        "Anthropic": ["ANTHROPIC_API_KEY"],
+        "GitHub App": ["GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID"],
+        "GitHub Tokens": ["GITHUB_TOKEN", "GITHUB_READONLY_TOKEN", "GITHUB_INCOGNITO_TOKEN"],
+    }
+
+    written_keys: set[str] = set()
+
+    for category, keys in categories.items():
+        category_secrets = [(k, secrets_dict[k]) for k in keys if k in secrets_dict]
+        if category_secrets:
+            lines.append(f"# {category}")
+            for key, value in category_secrets:
+                lines.append(f"{key}={value}")
+                written_keys.add(key)
+            lines.append("")
+
+    # Write any remaining secrets not in categories
+    remaining = [(k, v) for k, v in secrets_dict.items() if k not in written_keys]
+    if remaining:
+        lines.append("# Other")
+        for key, value in remaining:
+            lines.append(f"{key}={value}")
+        lines.append("")
+
+    secrets_file.write_text("\n".join(lines))
+    secrets_file.chmod(0o600)  # Restrict permissions
+
+
+def _create_secrets_config() -> bool:
+    """Create or update secrets.env with required credentials."""
+    print()
+    info("=== Secrets Configuration ===")
+    print()
+
+    existing_secrets = _read_secrets_env()
+    updated = False
+
+    # --- Anthropic Authentication ---
+    print("Anthropic API Authentication:")
+    print("  egg can authenticate with Claude using either:")
+    print("  1. API Key - Direct API access (requires ANTHROPIC_API_KEY)")
+    print("  2. OAuth - Browser-based login (no key needed)")
+    print()
+
+    current_key = existing_secrets.get("ANTHROPIC_API_KEY", "")
+    if current_key:
+        masked = f"{current_key[:12]}...{current_key[-4:]}" if len(current_key) > 16 else "***"
+        info(f"Current API key: {masked}")
+        response = input("Update API key? (yes/no): ").strip().lower()
+        if response != "yes":
+            print("  Keeping existing key.")
+        else:
+            current_key = ""  # Clear to prompt for new one
+
+    if not current_key:
+        print()
+        print("Enter your Anthropic API key (starts with sk-ant-...):")
+        print("  Leave blank to use OAuth instead.")
+        api_key = input("API key: ").strip()
+        if api_key:
+            if api_key.startswith("sk-ant-"):
+                existing_secrets["ANTHROPIC_API_KEY"] = api_key
+                updated = True
+                success("API key saved")
+            else:
+                warn("Invalid API key format (should start with sk-ant-). Skipping.")
+        else:
+            info("No API key provided - will use OAuth login")
+            # Remove any existing key if user wants OAuth
+            if "ANTHROPIC_API_KEY" in existing_secrets:
+                del existing_secrets["ANTHROPIC_API_KEY"]
+                updated = True
+
+    # --- GitHub App Credentials ---
+    print()
+    info("GitHub App Configuration:")
+    print("  egg uses a GitHub App for authenticated git/gh operations.")
+    print("  You need: App ID, Installation ID, and private key (.pem file)")
+    print()
+
+    current_app_id = existing_secrets.get("GITHUB_APP_ID", "")
+    current_install_id = existing_secrets.get("GITHUB_APP_INSTALLATION_ID", "")
+    pem_file = Config.USER_CONFIG_DIR / "github-app.pem"
+    has_pem = pem_file.exists()
+
+    if current_app_id and current_install_id and has_pem:
+        success(f"GitHub App already configured (App ID: {current_app_id})")
+        response = input("Reconfigure GitHub App? (yes/no): ").strip().lower()
+        if response != "yes":
+            print("  Keeping existing configuration.")
+        else:
+            current_app_id = ""
+            current_install_id = ""
+
+    if not current_app_id or not current_install_id:
+        print()
+        print("Enter GitHub App credentials:")
+        print("  (See docs/setup/github-app-setup.md for instructions)")
         print()
 
-        if config_warning:
-            warn(config_warning)
-            print()
+        app_id = input("GitHub App ID: ").strip()
+        if app_id:
+            existing_secrets["GITHUB_APP_ID"] = app_id
+            updated = True
 
-        print("Egg requires host services to be installed for full functionality:")
-        print("  • Slack integration (notifier and receiver)")
-        print("  • Gateway sidecar (git/gh policy enforcement)")
-        print("  • Shared directories for notifications and task communication")
-        print()
+        install_id = input("Installation ID: ").strip()
+        if install_id:
+            existing_secrets["GITHUB_APP_INSTALLATION_ID"] = install_id
+            updated = True
 
-        # Auto-run setup.py when config is missing
-        info("Running setup.py to configure egg...")
         print()
-        if run_setup_script():
-            success("Setup completed!")
+        print("Private key file (.pem):")
+        print(f"  Copy your github-app.pem file to: {pem_file}")
+        pem_path = input("Or enter path to .pem file (Enter to skip): ").strip()
+        if pem_path:
+            src_pem = Path(pem_path).expanduser().resolve()
+            if src_pem.exists() and src_pem.suffix == ".pem":
+                shutil.copy2(src_pem, pem_file)
+                pem_file.chmod(0o600)
+                success(f"Private key copied to {pem_file}")
+            else:
+                warn(f"File not found or not a .pem file: {src_pem}")
+
+    # --- Optional: GitHub Personal Access Token ---
+    print()
+    current_pat = existing_secrets.get("GITHUB_TOKEN", "")
+    if not current_pat:
+        print("Optional: GitHub Personal Access Token")
+        print("  Used as fallback if GitHub App is not configured.")
+        print("  Format: ghp_... or github_pat_...")
+        pat = input("GitHub PAT (Enter to skip): ").strip()
+        if pat and pat.startswith(("ghp_", "github_pat_")):
+            existing_secrets["GITHUB_TOKEN"] = pat
+            updated = True
+            success("GitHub PAT saved")
+        elif pat:
+            warn("Invalid PAT format. Skipping.")
+
+    # Write secrets if changed
+    if updated or not (Config.USER_CONFIG_DIR / "secrets.env").exists():
+        _write_secrets_env(existing_secrets)
+        success(f"Secrets saved to: {Config.USER_CONFIG_DIR / 'secrets.env'}")
+
+    return True
+
+
+def _create_launcher_secret() -> None:
+    """Create launcher secret for gateway authentication."""
+    secret_file = Config.USER_CONFIG_DIR / "launcher-secret"
+    if not secret_file.exists():
+        new_secret = secrets.token_urlsafe(32)
+        Config.USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        secret_file.write_text(new_secret)
+        secret_file.chmod(0o600)
+        info("Generated launcher secret for gateway authentication")
+
+
+def _copy_jib_credentials() -> bool:
+    """Check for and optionally copy GitHub App credentials from jib config.
+
+    Copies:
+    - github-app.pem -> ~/.config/egg/github-app.pem
+    - github-app-id, github-app-installation-id -> secrets.env
+    """
+    jib_config_dir = Path.home() / ".config" / "jib"
+    egg_config_dir = Config.USER_CONFIG_DIR
+
+    # Files we're looking for in jib config
+    jib_app_id = jib_config_dir / "github-app-id"
+    jib_install_id = jib_config_dir / "github-app-installation-id"
+    jib_pem = jib_config_dir / "github-app.pem"
+
+    # Check what exists
+    jib_creds_exist = jib_app_id.exists() and jib_install_id.exists() and jib_pem.exists()
+
+    # Check if egg already has these
+    egg_pem = egg_config_dir / "github-app.pem"
+    existing_secrets = _read_secrets_env()
+    egg_has_app_id = "GITHUB_APP_ID" in existing_secrets
+    egg_has_install_id = "GITHUB_APP_INSTALLATION_ID" in existing_secrets
+    egg_creds_exist = egg_pem.exists() and egg_has_app_id and egg_has_install_id
+
+    if jib_creds_exist and not egg_creds_exist:
+        print()
+        info("Found GitHub App credentials from jib configuration.")
+        print()
+        response = input("Copy credentials to egg config? (yes/no): ").strip().lower()
+        if response == "yes":
+            # Copy PEM file
+            shutil.copy2(jib_pem, egg_pem)
+            egg_pem.chmod(0o600)
+
+            # Add IDs to secrets.env
+            existing_secrets["GITHUB_APP_ID"] = jib_app_id.read_text().strip()
+            existing_secrets["GITHUB_APP_INSTALLATION_ID"] = jib_install_id.read_text().strip()
+            _write_secrets_env(existing_secrets)
+
+            success("GitHub App credentials copied from jib config")
             return True
         else:
-            error("Setup failed")
-            return False
+            info("Skipped copying credentials. You can set them up manually.")
+    elif egg_creds_exist:
+        success("GitHub App credentials already configured")
+        return True
 
-    # Config warning only (not critical) - just warn and continue
-    if config_warning:
-        warn(config_warning)
+    return False
+
+
+def _create_repositories_config() -> bool:
+    """Create repositories.yaml interactively."""
+    config_file = Config.USER_CONFIG_DIR / "repositories.yaml"
+    template_path = _get_template_path()
+
+    # If config already exists, ask to reconfigure
+    if config_file.exists():
         print()
+        info(f"Configuration already exists: {config_file}")
+        response = input("Reconfigure? (yes/no): ").strip().lower()
+        if response != "yes":
+            return True
 
+    print()
+    info("=== Repository Configuration ===")
+    print()
+
+    # Get GitHub username
+    print("Your GitHub username is used to:")
+    print("  - Identify your PRs and comments")
+    print("  - Set as default PR reviewer")
+    print()
+    github_username = input("GitHub username: ").strip()
+    if not github_username:
+        warn("No username provided. Using 'YOUR_USERNAME' as placeholder.")
+        github_username = "YOUR_USERNAME"
+
+    # Get local repositories to mount
+    print()
+    info("Local repositories to mount into the container:")
+    print("  Enter full paths to git repositories on your machine.")
+    print("  These will be mounted as ~/repos/<repo-name>/ in the container.")
+    print("  Press Enter on empty line when done.")
+    print()
+
+    local_repo_paths = []
+    while True:
+        repo_path = input("Repository path (or Enter to finish): ").strip()
+        if not repo_path:
+            break
+
+        # Expand and validate
+        expanded_path = Path(repo_path).expanduser().resolve()
+        if not expanded_path.exists():
+            warn(f"Path does not exist: {expanded_path}")
+            continue
+        if not (expanded_path / ".git").exists():
+            warn(f"Not a git repository: {expanded_path}")
+            continue
+
+        local_repo_paths.append(str(expanded_path))
+        success(f"Added: {expanded_path}")
+
+    # Get writable repos (GitHub repos the bot can push to)
+    print()
+    info("Writable GitHub repositories:")
+    print("  These are repos where egg can push code and create PRs.")
+    print("  Format: owner/repo (e.g., jwbron/egg)")
+    print("  Press Enter on empty line when done.")
+    print()
+
+    writable_repos = []
+    while True:
+        repo = input("Writable repo (or Enter to finish): ").strip()
+        if not repo:
+            break
+        if "/" not in repo:
+            warn("Format should be: owner/repo")
+            continue
+        writable_repos.append(repo)
+        success(f"Added: {repo}")
+
+    # Build config
+    config = {
+        "github_username": github_username,
+        "bot_username": "egg",
+        "writable_repos": writable_repos if writable_repos else [f"{github_username}/egg"],
+        "default_reviewer": github_username,
+        "github_sync": {
+            "sync_all_prs": True,
+            "sync_interval_minutes": 5,
+        },
+        "readable_repos": [],
+        "repo_settings": {},
+        "incognito": {},
+        "local_repos": {
+            "paths": local_repo_paths,
+        },
+        "docker_setup": {
+            "extra_packages": {
+                "apt": [],
+                "dnf": [],
+                "packages": [],
+            },
+        },
+    }
+
+    # Write config
+    Config.USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(config_file, "w") as f:
+        f.write("# Egg Repository Configuration\n")
+        f.write("# Generated by egg --setup\n")
+        f.write(f"# See {template_path} for all available options\n\n")
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+    success(f"Configuration saved to: {config_file}")
+    return True
+
+
+def _create_general_config() -> bool:
+    """Create config.yaml with general settings."""
+    config_file = Config.USER_CONFIG_DIR / "config.yaml"
+
+    # Check if we should use OAuth or API key based on secrets.env
+    existing_secrets = _read_secrets_env()
+    has_api_key = bool(existing_secrets.get("ANTHROPIC_API_KEY"))
+
+    # Don't overwrite existing config unless auth method changed
+    if config_file.exists():
+        try:
+            with open(config_file) as f:
+                existing_config = yaml.safe_load(f) or {}
+            current_method = existing_config.get("anthropic_auth_method", "")
+            expected_method = "api_key" if has_api_key else "oauth"
+            if current_method == expected_method:
+                return True
+            # Update auth method if it changed
+            existing_config["anthropic_auth_method"] = expected_method
+            with open(config_file, "w") as f:
+                f.write("# Egg General Configuration\n")
+                f.write("# Generated by egg --setup\n\n")
+                yaml.dump(existing_config, f, default_flow_style=False, sort_keys=False)
+            info(f"Updated auth method to: {expected_method}")
+            return True
+        except Exception:
+            pass  # Fall through to create new config
+
+    config = {
+        # Anthropic authentication method based on whether API key is configured
+        "anthropic_auth_method": "api_key" if has_api_key else "oauth",
+    }
+
+    Config.USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(config_file, "w") as f:
+        f.write("# Egg General Configuration\n")
+        f.write("# Generated by egg --setup\n\n")
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+    success(f"General config saved to: {config_file}")
     return True
 
 
 def setup() -> bool:
-    """Interactive setup process"""
+    """Interactive setup process for egg."""
     print()
-    info("=== Autonomous Software Engineering Agent - Setup ===")
+    info("=== Egg Setup ===")
     print()
-    print("🤖 AUTONOMOUS ENGINEERING AGENT")
+    print("This will configure egg, the sandboxed environment for Claude Code.")
     print()
-    print("This sets up a sandboxed environment for Claude to work as an autonomous")
-    print("software engineer with minimal supervision.")
+    print("WHAT EGG DOES:")
+    print("  - Runs Claude Code in an isolated Docker container")
+    print("  - Enforces security via gateway sidecar (credential isolation)")
+    print("  - Mounts your local repos for AI-assisted development")
     print()
     print("OPERATING MODEL:")
-    print("  • Agent: Plans, implements, tests, documents, creates PRs")
-    print("  • Human: Reviews, approves, deploys")
-    print()
-    print("AGENT CAPABILITIES:")
-    print("  ✓ Edit code and create commits in ~/repos/")
-    print("  ✓ Run tests, linters, development servers")
-    print("  ✓ Access Confluence docs (ADRs, runbooks, best practices)")
-    print("  ✓ Create pull requests with @create-pr command")
-    print("  ✓ Build accumulated knowledge with @save-context")
-    print("  ✓ Network access for Claude API and package installs")
-    print()
-    print("SECURITY ISOLATION:")
-    print("  ✗ NO access to SSH keys (cannot git push)")
-    print("  ✗ NO access to gcloud credentials (cannot deploy)")
-    print("  ✗ NO access to GSM secrets")
-    print()
-    print("HOW IT WORKS:")
-    print("  1. Your local repos are mounted into the container as ~/repos/")
-    print("  2. Git worktrees isolate container changes from your working directory")
-    print("  3. Agent works on code, creates commits in worktrees")
-    print("  4. YOU review commits and push from host (with credentials)")
-    print()
-    print("FUTURE CAPABILITIES (Roadmap):")
-    print("  🔄 GitHub PR context")
-    print("  🔄 Slack message context")
-    print("  🔄 JIRA ticket context")
-    print("  🔄 Email thread context")
+    print("  - Agent: Plans, implements, tests, documents, creates PRs")
+    print("  - Human: Reviews, approves, merges, deploys")
     print()
 
-    response = input("Continue? (yes/no): ").strip().lower()
+    response = input("Continue with setup? (yes/no): ").strip().lower()
     if response != "yes":
         info("Setup cancelled")
         return False
 
+    # Step 1: Create directories first
     print()
-    info("Setting up mounts...")
-    print()
-
+    info("Creating directories...")
+    Config.USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     Config.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    mounts = []
+    # Create shared certs directory for gateway SSL
+    shared_certs_dir = Path.home() / ".egg-shared-certs"
+    shared_certs_dir.mkdir(parents=True, exist_ok=True)
+    success("Directories created")
 
-    # Check for configured local repositories
-    local_repos = get_local_repos()
-    if local_repos:
-        info(f"Found {len(local_repos)} configured local repository(ies):")
-        for repo in local_repos:
-            print(f"    • {repo}")
-        print()
-        print("    These will be mounted as ~/repos/<repo-name>/ with git worktrees")
-        print("    for isolated development.")
-    else:
-        warn("No local repositories configured.")
-        print("    Run ./setup.py to configure local repositories.")
-        print("    These will be mounted as ~/repos/<repo-name>/")
+    # Step 2: Check for existing jib credentials to copy
+    _copy_jib_credentials()
 
-    # Add context-sync directory (read-only) - includes Confluence, JIRA, and more
-    print()
-    context_sync_dir = Path.home() / "context-sync"
-    if context_sync_dir.exists():
-        context_container_path = "/home/egg/context-sync"
-        mounts.append(f"{context_sync_dir}:{context_container_path}:ro")
-        print(f"  ✓ Context sources: {context_sync_dir}")
-        print("    Mounted as: ~/context-sync/ (read-only)")
-
-        # Show available context sources
-        subdirs = []
-        if (context_sync_dir / "confluence").exists():
-            subdirs.append("confluence (ADRs, runbooks, docs)")
-        if (context_sync_dir / "jira").exists():
-            subdirs.append("jira (tickets, issues)")
-        if (context_sync_dir / "github").exists():
-            subdirs.append("github (PRs, issues)")
-        if (context_sync_dir / "slack").exists():
-            subdirs.append("slack (messages)")
-
-        if subdirs:
-            print(f"    Contains: {', '.join(subdirs)}")
-        else:
-            print("    Note: No context subdirectories found yet")
-    else:
-        warn(f"Context sync directory not found: {context_sync_dir}")
-        warn("Expected directory with confluence/, jira/, etc. subdirectories")
-
-    # Create and mount persistent directories for agent
-    print()
-    info("Setting up persistent directories...")
-
-    # Sharing directory - single location for ALL persistent data
-    Config.SHARING_DIR.mkdir(parents=True, exist_ok=True)
-    Config.TMP_DIR.mkdir(parents=True, exist_ok=True)  # tmp/ inside sharing/
-
-    sharing_container_path = "/home/egg/sharing"
-    mounts.append(f"{Config.SHARING_DIR}:{sharing_container_path}:rw")
-    print(f"  ✓ Sharing: {Config.SHARING_DIR}")
-    print("    Mounted as: ~/sharing/ (read-write)")
-    print("    Purpose: All persistent data")
-    print("    - ~/sharing/tmp/           Persistent workspace (also at ~/tmp)")
-    print("    - ~/sharing/context/       Context documents (@save-context)")
-    print("    - ~/sharing/notifications/ Notifications to human")
-    print("    - ~/sharing/incoming/      Incoming tasks from Slack")
-    print("    - ~/sharing/analysis/      Analysis reports")
-
-    # Create convenience symlink in container for tmp
-    # Note: Actual symlink creation happens in container entrypoint
-
-    # Check Anthropic API key authentication
-    print()
-    print(f"{Colors.BOLD}Claude Code authentication...{Colors.NC}")
-
-    api_key = get_anthropic_api_key()
-    if api_key:
-        success("Anthropic API key configured")
-        print(f"  API key: {api_key[:12]}...{api_key[-4:]}")
-    else:
-        warn("Anthropic API key not configured")
-        print("  Set via: export ANTHROPIC_API_KEY=sk-ant-...")
-        print(f"  Or save to: {Config.USER_CONFIG_DIR / 'anthropic-api-key'}")
-        print()
-        info("Container will not be able to use Claude without an API key.")
-
-    print()
-    print("Add additional directories? (optional)")
-    print("Format: /path/to/dir        (read-write)")
-    print("    or: /path/to/dir:ro     (read-only)")
-    print("Press Enter on empty line when done")
-    print()
-
-    # Collect additional directories
-    while True:
-        dir_input = input("Additional directory (or Enter to finish): ").strip()
-        if not dir_input:
-            break
-
-        # Parse mode
-        if ":ro" in dir_input or ":rw" in dir_input:
-            mount_path_str, mode = dir_input.rsplit(":", 1)
-            if mode not in ["ro", "rw"]:
-                warn(f"Invalid mode '{mode}', use 'ro' or 'rw'")
-                continue
-        else:
-            mount_path_str = dir_input
-            mode = "rw"
-
-        # Expand and validate path
-        mount_path = Path(mount_path_str).expanduser().resolve()
-
-        # Check if dangerous
-        if is_dangerous_dir(mount_path):
-            print(f"⛔ BLOCKED: {mount_path}")
-            print("   This directory contains credentials and will not be mounted.")
-            print("   This is intentional to prevent AI from accessing sensitive files.")
-            continue
-
-        if not mount_path.exists():
-            warn(f"Directory does not exist: {mount_path}")
-            create = input("Create it? (yes/no): ").strip().lower()
-            if create == "yes":
-                try:
-                    mount_path.mkdir(parents=True, exist_ok=True)
-                    success(f"Created: {mount_path}")
-                except Exception as e:
-                    error(f"Failed to create directory: {e}")
-                    continue
-            else:
-                continue
-
-        mounts.append(f"{mount_path}:{mode}")
-        print(f"Added: {mount_path} ({mode})")
-
-    print()
-    info("Summary of mounted directories:")
-    for mount in mounts:
-        print(f"  • {mount}")
-    print()
-
-    proceed = input("Proceed with this configuration? (yes/no): ").strip().lower()
-    if proceed != "yes":
-        info("Setup cancelled")
+    # Step 3: Configure secrets (API keys, GitHub App)
+    if not _create_secrets_config():
         return False
 
-    # Create Dockerfile and build image
-    create_dockerfile()
-    print()
+    # Step 4: Create launcher secret for gateway auth
+    _create_launcher_secret()
 
-    # Let Docker's cache handle what needs rebuilding
-    info("Building Docker image (Docker will cache unchanged layers)...")
+    # Step 5: Create repository configuration
+    if not _create_repositories_config():
+        return False
+
+    # Step 6: Create general configuration (auth method based on secrets)
+    _create_general_config()
+
+    # Step 7: Build Docker image
+    print()
+    info("Building Docker image (this may take a few minutes on first run)...")
     if not build_image():
+        error("Docker build failed")
         return False
 
+    # Step 8: Summary and next steps
     print()
-    success("Setup complete!")
+    info("=== Setup Complete ===")
     print()
+    print("Configuration files created:")
+    print(f"  {Config.USER_CONFIG_DIR}/")
+    print("    - config.yaml        (general settings)")
+    print("    - repositories.yaml  (repo configuration)")
+    print("    - secrets.env        (API keys, credentials)")
+    print("    - github-app.pem     (GitHub App private key)")
+    print("    - launcher-secret    (gateway authentication)")
+    print()
+    print("Next steps:")
+    print("  1. Set up the gateway sidecar:")
+    print("     ./gateway/setup.sh")
+    print()
+    print("  2. Start egg:")
+    print("     egg              # Interactive Claude Code session")
+    print("     egg --exec ...   # Run a command in the container")
+    print()
+
+    success("Egg setup complete!")
     return True
 
 
 def add_standard_mounts(mount_args: list[str], quiet: bool = False) -> None:
-    """Add standard mounts (sharing, context-sync, shared-certs) to mount_args list.
+    """Add standard mounts (context-sync, shared-certs) to mount_args list.
 
     These mounts are always added dynamically rather than relying on config files,
     ensuring they're always available even if setup hasn't been run recently.
     """
-    # Mount sharing directory (beads, notifications, incoming tasks, etc.)
-    if Config.SHARING_DIR.exists():
-        sharing_container_path = "/home/egg/sharing"
-        mount_args.extend(["-v", f"{Config.SHARING_DIR}:{sharing_container_path}:rw"])
-        if not quiet:
-            print("  • ~/sharing/ (beads, notifications, tasks)")
-
     # Mount context-sync directory if it exists (Confluence, JIRA docs)
     context_sync_dir = Path.home() / "context-sync"
     if context_sync_dir.exists():
         context_sync_container = "/home/egg/context-sync"
         mount_args.extend(["-v", f"{context_sync_dir}:{context_sync_container}:ro"])
         if not quiet:
-            print("  • ~/context-sync/ (Confluence, JIRA - read-only)")
+            print("  - ~/context-sync/ (Confluence, JIRA - read-only)")
 
     # Mount shared certs directory for SSL bump CA certificate
     # Gateway writes its CA cert here, container adds it to trust store
@@ -395,4 +536,4 @@ def add_standard_mounts(mount_args: list[str], quiet: bool = False) -> None:
     if shared_certs_dir.exists():
         mount_args.extend(["-v", f"{shared_certs_dir}:/shared/certs:ro"])
         if not quiet:
-            print("  • /shared/certs/ (gateway CA cert - read-only)")
+            print("  - /shared/certs/ (gateway CA cert - read-only)")

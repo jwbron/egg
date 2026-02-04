@@ -20,8 +20,8 @@ CONTAINER_HOME="/home/egg"
 # Network names and IPs for lockdown mode
 ISOLATED_NETWORK="egg-isolated"
 EXTERNAL_NETWORK="egg-external"
-GATEWAY_ISOLATED_IP="172.30.0.2"
-GATEWAY_EXTERNAL_IP="172.31.0.2"
+GATEWAY_ISOLATED_IP="172.32.0.2"
+GATEWAY_EXTERNAL_IP="172.33.0.2"
 
 # Load secrets from secrets.env if it exists
 # This file contains sensitive environment variables like GITHUB_INCOGNITO_TOKEN
@@ -38,7 +38,7 @@ fi
 # Per-container mode determines whether containers use the proxy or not.
 
 CONFIG_FILE="$HOME_DIR/.config/egg/repositories.yaml"
-SECRETS_DIR="$HOME_DIR/.egg-gateway"
+CONFIG_DIR="$HOME_DIR/.config/egg"
 REPOS_DIR="$HOME_DIR/repos"
 WORKTREES_DIR="$HOME_DIR/.egg-worktrees"
 GIT_MAIN_DIR="$HOME_DIR/.git-main"
@@ -48,13 +48,20 @@ SHARED_CERTS_DIR="$HOME_DIR/.egg-shared-certs"
 # Verify required files exist
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "ERROR: Configuration file not found: $CONFIG_FILE" >&2
-    echo "Run ./setup.py to create the configuration." >&2
+    echo "Run 'egg --setup' to create the configuration." >&2
     exit 1
 fi
 
-if [ ! -d "$SECRETS_DIR" ]; then
-    echo "ERROR: Secrets directory not found: $SECRETS_DIR" >&2
-    echo "Run gateway/setup.sh to create it." >&2
+if [ ! -d "$CONFIG_DIR" ]; then
+    echo "ERROR: Config directory not found: $CONFIG_DIR" >&2
+    echo "Run 'egg --setup' to create it." >&2
+    exit 1
+fi
+
+# Verify launcher secret exists
+if [ ! -f "$CONFIG_DIR/launcher-secret" ]; then
+    echo "ERROR: Launcher secret not found: $CONFIG_DIR/launcher-secret" >&2
+    echo "Run 'egg --setup' or gateway/setup.sh to generate it." >&2
     exit 1
 fi
 
@@ -64,15 +71,11 @@ MOUNTS=()
 # Config file mount (required for repo_config.py)
 MOUNTS+=(-v "$CONFIG_FILE:/config/repositories.yaml:ro")
 
-# Secrets directory (contains .github-token and launcher-secret)
-MOUNTS+=(-v "$SECRETS_DIR:/secrets:ro")
-
-# EGG config directory (contains GitHub App credentials for token_refresher.py)
+# EGG config directory (contains secrets.env, github-app.pem, launcher-secret)
 # Mount at /home/egg/.config/egg since gateway drops to UID 1000 with HOME=/home/egg
-EGG_CONFIG_DIR="$HOME_DIR/.config/egg"
-if [ -d "$EGG_CONFIG_DIR" ]; then
-    MOUNTS+=(-v "$EGG_CONFIG_DIR:$CONTAINER_HOME/.config/egg:ro")
-fi
+# Also mount at /secrets for backward compatibility with gateway code
+MOUNTS+=(-v "$CONFIG_DIR:$CONTAINER_HOME/.config/egg:ro")
+MOUNTS+=(-v "$CONFIG_DIR:/secrets:ro")
 
 # Repos directory - mount at /home/egg/repos to match container paths
 # Needs RW for git worktree add (writes to .git/worktrees/)
@@ -196,7 +199,7 @@ echo "Configuration:"
 echo "  Squid mode: $MODE_DISPLAY"
 echo "  Networks: $ISOLATED_NETWORK (internal) + $EXTERNAL_NETWORK (external)"
 echo "  Gateway IPs: $GATEWAY_ISOLATED_IP (isolated), $GATEWAY_EXTERNAL_IP (external)"
-echo "  egg containers: Dynamic IPs from 172.30.0.0/24 subnet"
+echo "  egg containers: Dynamic IPs from 172.32.0.0/24 subnet"
 echo "  API port: 9847"
 echo "  Proxy port: 3128"
 echo ""
@@ -291,7 +294,7 @@ fi
 
 echo ""
 echo "Container topology:"
-echo "  egg containers (172.30.0.x) -> gateway (${gateway_isolated_ip:-172.30.0.2}:3128) -> Internet (allowlisted)"
+echo "  egg containers (172.32.0.x) -> gateway (${gateway_isolated_ip:-172.32.0.2}:3128) -> Internet (allowlisted)"
 echo ""
 echo "To test connectivity from host:"
 echo "  curl http://localhost:9847/api/v1/health"

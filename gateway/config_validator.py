@@ -50,8 +50,7 @@ def validate_config() -> None:
             )
     else:
         errors.append(
-            "Secrets directory not mounted: /secrets\n"
-            "  Ensure ~/.egg-gateway is mounted at /secrets"
+            "Secrets directory not mounted: /secrets\n  Ensure ~/.config/egg is mounted at /secrets"
         )
 
     # Validate Squid configuration

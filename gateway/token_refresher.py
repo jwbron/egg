@@ -222,6 +222,18 @@ _token_refresher: TokenRefresher | None = None
 _refresher_initialization_attempted = False
 
 
+def _read_secrets_env(secrets_file: Path) -> dict[str, str]:
+    """Read secrets.env file into a dictionary."""
+    secrets_dict: dict[str, str] = {}
+    if secrets_file.exists():
+        for line in secrets_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                secrets_dict[key.strip()] = value.strip()
+    return secrets_dict
+
+
 def initialize_token_refresher(
     config_dir: Path | None = None,
     app_id: str | None = None,
@@ -234,7 +246,7 @@ def initialize_token_refresher(
     Config can be provided via:
     1. Explicit parameters (highest priority)
     2. Environment variables: GITHUB_APP_ID, GITHUB_PRIVATE_KEY_PATH, GITHUB_INSTALLATION_ID
-    3. Config files in config_dir (default: ~/.config/egg/)
+    3. secrets.env file in config_dir (default: ~/.config/egg/)
 
     Returns None if required config is missing.
 
@@ -256,35 +268,28 @@ def initialize_token_refresher(
 
     config_dir = config_dir or DEFAULT_CONFIG_DIR
 
-    # Resolve app_id
-    resolved_app_id = app_id or os.environ.get("GITHUB_APP_ID")
-    if not resolved_app_id:
-        app_id_file = config_dir / "github-app-id"
-        if app_id_file.exists():
-            resolved_app_id = app_id_file.read_text().strip()
+    # Read secrets.env for GitHub App credentials
+    secrets = _read_secrets_env(config_dir / "secrets.env")
 
-    # Resolve installation_id
+    # Resolve app_id (explicit > env > secrets.env)
+    resolved_app_id = app_id or os.environ.get("GITHUB_APP_ID") or secrets.get("GITHUB_APP_ID")
+
+    # Resolve installation_id (explicit > env > secrets.env)
     resolved_installation_id = installation_id
     if resolved_installation_id is None:
-        env_installation_id = os.environ.get("GITHUB_INSTALLATION_ID")
+        env_installation_id = os.environ.get("GITHUB_INSTALLATION_ID") or os.environ.get(
+            "GITHUB_APP_INSTALLATION_ID"
+        )
+        if not env_installation_id:
+            env_installation_id = secrets.get("GITHUB_APP_INSTALLATION_ID")
         if env_installation_id:
             try:
                 resolved_installation_id = int(env_installation_id)
             except ValueError:
                 logger.warning(
-                    "Invalid GITHUB_INSTALLATION_ID in environment",
+                    "Invalid GITHUB_APP_INSTALLATION_ID",
                     value=env_installation_id,
                 )
-        else:
-            installation_id_file = config_dir / "github-app-installation-id"
-            if installation_id_file.exists():
-                try:
-                    resolved_installation_id = int(installation_id_file.read_text().strip())
-                except ValueError:
-                    logger.warning(
-                        "Invalid installation ID in config file",
-                        file=str(installation_id_file),
-                    )
 
     # Resolve private key
     resolved_private_key_path = private_key_path

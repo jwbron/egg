@@ -15,8 +15,8 @@ from pathlib import Path
 
 from .output import get_quiet_mode, info, warn
 
-# Default log directory for container logs
-CONTAINER_LOGS_DIR = Path.home() / ".egg-sharing" / "container-logs"
+# Default log directory for container logs (in cache directory)
+CONTAINER_LOGS_DIR = Path.home() / ".cache" / "egg" / "container-logs"
 
 
 def generate_container_id() -> str:
@@ -97,22 +97,13 @@ def extract_thread_ts_from_task_file(task_file_path: str) -> str | None:
         ---
 
     Args:
-        task_file_path: Path to the task file (may be container path)
+        task_file_path: Path to the task file
 
     Returns:
         Thread timestamp if found, None otherwise
     """
-    # Convert container path back to host path
-    host_path = task_file_path
-    if "/sharing/" in task_file_path:
-        # Container path like /home/user/sharing/incoming/task.md
-        # -> Host path like ~/.egg-sharing/incoming/task.md
-        parts = task_file_path.split("/sharing/", 1)
-        if len(parts) == 2:
-            host_path = str(Path.home() / ".egg-sharing" / parts[1])
-
     try:
-        path = Path(host_path)
+        path = Path(task_file_path)
         if path.exists():
             content = path.read_text()
             # Look for thread_ts in YAML frontmatter
@@ -203,7 +194,7 @@ def save_container_logs(
     """Save Docker container logs to persistent storage.
 
     Uses `docker logs` to capture all container output and saves it to
-    ~/.egg-sharing/container-logs/{container_id}.log
+    ~/.cache/egg/container-logs/{container_id}.log
 
     Also creates a symlink from task_id.log -> container_id.log for easy lookup,
     and updates the log index for correlation searches.

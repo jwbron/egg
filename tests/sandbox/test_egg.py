@@ -110,19 +110,6 @@ class TestConfig:
         """Test container name."""
         assert Config.CONTAINER_NAME == "egg"
 
-    def test_sharing_dir_path(self):
-        """Test sharing directory path ends with .egg-sharing."""
-        assert Config.SHARING_DIR.name == ".egg-sharing"
-
-    def test_tmp_dir_path(self):
-        """Test tmp directory path structure."""
-        assert Config.TMP_DIR.name == "tmp"
-        assert Config.TMP_DIR.parent == Config.SHARING_DIR
-
-    def test_worktree_base_path(self):
-        """Test worktree base directory path ends with .egg-worktrees."""
-        assert Config.WORKTREE_BASE.name == ".egg-worktrees"
-
     def test_dangerous_dirs_defined(self):
         """Test that dangerous directories are defined."""
         assert len(Config.DANGEROUS_DIRS) > 0

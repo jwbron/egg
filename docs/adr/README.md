@@ -37,7 +37,7 @@ ADRs are organized by implementation status:
 
 | ADR | Summary |
 |-----|---------|
-| [Jib Repository Onboarding](not-implemented/ADR-Jib-Repo-Onboarding.md) | How jib onboards to and documents external repos |
+| [Egg Repository Onboarding](not-implemented/ADR-Egg-Repo-Onboarding.md) | How egg onboards to and documents external repos |
 | [Multi-Agent Pipeline Architecture](not-implemented/ADR-Multi-Agent-Pipeline-Architecture.md) | Patterns for multi-agent collaborative development |
 | [Per-Container Repository Mode](not-implemented/ADR-Per-Container-Repository-Mode.md) | Session-based per-container repository mode management |
 

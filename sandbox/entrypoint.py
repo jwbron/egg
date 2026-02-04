@@ -213,10 +213,6 @@ class Config:
         return self.user_home / "repos"
 
     @property
-    def sharing_dir(self) -> Path:
-        return self.user_home / "sharing"
-
-    @property
     def claude_dir(self) -> Path:
         return self.user_home / ".claude"
 
@@ -547,33 +543,6 @@ def setup_egg_symlink(config: Config, logger: Logger) -> None:
 
     logger.success("Runtime symlink created: ~/egg -> /opt/egg-runtime/sandbox")
     logger.info("  Use ~/egg/ for runtime scripts instead of ~/repos/egg/sandbox/")
-
-
-def setup_sharing(config: Config, logger: Logger) -> None:
-    """Set up shared directories and symlinks."""
-    if not config.sharing_dir.exists():
-        logger.warn("Sharing directory not found - check mount configuration")
-        return
-
-    # Create symlink: ~/tmp -> ~/sharing/tmp
-    tmp_link = config.user_home / "tmp"
-    if tmp_link.is_symlink():
-        tmp_link.unlink()
-    tmp_link.symlink_to(config.sharing_dir / "tmp")
-
-    # Ensure subdirectories exist
-    subdirs = ["tmp", "context", "tracking", "traces", "logs"]
-    for subdir in subdirs:
-        (config.sharing_dir / subdir).mkdir(parents=True, exist_ok=True)
-
-    chown_recursive(config.sharing_dir, config.runtime_uid, config.runtime_gid)
-
-    logger.success("Shared directories configured:")
-    logger.info("  ~/sharing/tmp/           (mounted from ~/.egg-sharing/tmp/)")
-    logger.info("  ~/sharing/context/       (mounted from ~/.egg-sharing/context/)")
-    logger.info("  ~/sharing/traces/        (LLM trace collection)")
-    logger.info("  ~/sharing/logs/          (trace collector logs)")
-    logger.info("  Convenience symlink: ~/tmp -> ~/sharing/tmp")
 
 
 def setup_agent_rules(config: Config, logger: Logger) -> None:
@@ -1200,9 +1169,6 @@ def main() -> None:
             logger.error("Please check your egg setup and try again.")
             sys.exit(1)
 
-    with _startup_timer.phase("setup_sharing"):
-        setup_sharing(config, logger)
-
     with _startup_timer.phase("setup_agent_rules"):
         setup_agent_rules(config, logger)
 
@@ -1211,13 +1177,6 @@ def main() -> None:
 
     with _startup_timer.phase("setup_bashrc"):
         setup_bashrc(config, logger)
-
-    # Ensure tracking directory
-    with _startup_timer.phase("setup_tracking_dir"):
-        tracking_dir = config.sharing_dir / "tracking"
-        if config.sharing_dir.exists():
-            tracking_dir.mkdir(exist_ok=True)
-            os.chown(tracking_dir, config.runtime_uid, config.runtime_gid)
 
     # Wait for gateway readiness (network lockdown mode)
     with _startup_timer.phase("check_gateway"):

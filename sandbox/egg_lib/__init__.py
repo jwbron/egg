@@ -99,7 +99,7 @@ from .docker import (
     create_dockerfile as create_dockerfile,
 )
 from .docker import (
-    ensure_jib_network as ensure_jib_network,
+    ensure_egg_network as ensure_egg_network,
 )
 from .docker import (
     get_force_rebuild as get_force_rebuild,
@@ -174,12 +174,6 @@ from .setup_flow import (
 )
 from .setup_flow import (
     check_host_setup as check_host_setup,
-)
-from .setup_flow import (
-    get_setup_script_path as get_setup_script_path,
-)
-from .setup_flow import (
-    run_setup_script as run_setup_script,
 )
 from .setup_flow import (
     setup as setup,

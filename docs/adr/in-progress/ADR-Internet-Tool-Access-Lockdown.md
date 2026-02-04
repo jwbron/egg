@@ -31,7 +31,7 @@ This ADR aligns with the **OWASP Top 10 for Agentic Applications (2026)**, the i
 
 | OWASP Risk | Description | Mitigation in This ADR |
 |------------|-------------|------------------------|
-| **ASI01** - Agentic Excessive Authority | Agents granted overly broad permissions | Credential isolation - jib has no credentials; gateway exposes minimal API |
+| **ASI01** - Agentic Excessive Authority | Agents granted overly broad permissions | Credential isolation - egg has no credentials; gateway exposes minimal API |
 | **ASI02** - Tool Misuse & Exploitation | Agents misusing available tools | Gateway enforces policies; no merge endpoint; force push blocked |
 | **ASI03** - Identity & Privilege Abuse | Credential theft or misuse | Credentials never enter egg container; gateway holds GITHUB_TOKEN |
 | **ASI04** - Supply Chain Vulnerabilities | Compromised dependencies/images | *Partially addressed* - See [Supply Chain Considerations](#supply-chain-considerations) |
@@ -98,8 +98,8 @@ Note: Data exfiltration via arbitrary endpoints is acknowledged as a residual ri
 
 1. **Credential isolation**: egg container has NO credentials (no GITHUB_TOKEN, no SSH keys)
 2. **Gateway as single choke point**: All authenticated operations go through the gateway
-3. **Network proxy for visibility**: All jib traffic proxied through gateway for audit logging
-4. **Fail closed**: Gateway enforces policies; jib physically cannot bypass
+3. **Network proxy for visibility**: All egg traffic proxied through gateway for audit logging
+4. **Fail closed**: Gateway enforces policies; egg physically cannot bypass
 
 ## High-Level Design
 
@@ -150,7 +150,7 @@ Note: Data exfiltration via arbitrary endpoints is acknowledged as a residual ri
 1. **egg cannot push to GitHub** - It has no credentials. Network rules block direct GitHub access.
 2. **egg cannot merge PRs** - Gateway API doesn't expose merge operation.
 3. **All traffic is auditable** - Everything goes through gateway proxy.
-4. **Credentials never enter jib** - GITHUB_TOKEN only exists in gateway.
+4. **Credentials never enter egg** - GITHUB_TOKEN only exists in gateway.
 5. **GitHub domains excluded from proxy allowlist** - All GitHub access must go through the gateway sidecar's git/gh wrappers. This ensures policy enforcement (branch ownership, merge blocking) cannot be bypassed by direct API calls through the proxy.
 
 ### Gateway REST API
@@ -160,7 +160,7 @@ The gateway exposes a controlled API for git/gh operations:
 - `POST /api/git/push` - Push to remote (blocks force push, protected branches)
 - `POST /api/gh/pr/create` - Create pull request
 - `POST /api/gh/pr/comment` - Add comment to PR
-- `POST /api/gh/pr/close` - Close PR (only jib's own PRs)
+- `POST /api/gh/pr/close` - Close PR (only egg's own PRs)
 - **No merge endpoint** - Human must merge via GitHub UI
 
 ### Gateway Authentication
@@ -175,7 +175,7 @@ The gateway API must authenticate requests to prevent abuse from unauthorized co
 │                                                                               │
 │  1. Docker Compose generates a random shared secret at startup               │
 │  2. Secret injected into both containers via environment variable            │
-│  3. jib includes secret in Authorization header for all gateway requests     │
+│  3. egg includes secret in Authorization header for all gateway requests     │
 │  4. Gateway validates secret before processing any request                   │
 │                                                                               │
 │  egg container                    gateway                           │
@@ -197,7 +197,7 @@ The gateway API must authenticate requests to prevent abuse from unauthorized co
 
 For production deployments, upgrade to mutual TLS (mTLS):
 - Gateway presents server certificate
-- jib presents client certificate
+- egg presents client certificate
 - Both certificates signed by internal CA
 - Provides stronger identity guarantee than shared secret
 
@@ -262,7 +262,7 @@ Phase 1 established credential isolation and gateway-mediated git operations. Ph
 
 ### Motivation
 
-The current architecture (Phase 1) still allows jib to reach arbitrary internet endpoints:
+The current architecture (Phase 1) still allows egg to reach arbitrary internet endpoints:
 - Web search could be used for data exfiltration
 - Package installation could pull malicious dependencies
 - Any HTTP endpoint could receive exfiltrated code or secrets
@@ -273,7 +273,7 @@ For truly unsupervised operation with `--dangerously-skip-permissions`, we need 
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                            Docker Network (jib-network)                       │
+│                            Docker Network (egg-network)                       │
 │                                                                               │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │                        egg container (ISOLATED)                         │  │
@@ -339,7 +339,7 @@ networks:
     # Standard bridge network with internet access
 
 services:
-  jib:
+  egg:
     networks:
       - egg-isolated  # ONLY internal network
     # No default route to internet
@@ -351,7 +351,7 @@ services:
       - external      # Can reach internet
 ```
 
-**Key property:** Docker's `internal: true` network has no gateway to the outside world. jib physically cannot route packets to the internet—there's no route in its network namespace.
+**Key property:** Docker's `internal: true` network has no gateway to the outside world. egg physically cannot route packets to the internet—there's no route in its network namespace.
 
 ### Domain Allowlist
 
@@ -470,17 +470,17 @@ extra_hosts:
 **Architecture detail:** DNS resolution is handled by the proxy, not the egg container:
 
 1. **egg container:** Has no DNS servers configured. Cannot resolve hostnames directly.
-2. **Proxy operation:** When jib sends a request through the proxy, it sends the hostname (not IP) in the CONNECT request.
+2. **Proxy operation:** When egg sends a request through the proxy, it sends the hostname (not IP) in the CONNECT request.
 3. **Gateway/Squid:** The gateway is on the `egg-external` network which has normal DNS. Squid resolves the hostname internally when establishing the upstream connection.
 4. **Validation:** Squid validates the hostname from the CONNECT request against the allowlist **before** resolving DNS. This prevents bypass via pre-resolved IPs.
 
-**Key security property:** The proxy validates hostnames from CONNECT/Host headers, not IP addresses. Even if jib somehow learns an IP address (e.g., from conversation context), it cannot use it because:
+**Key security property:** The proxy validates hostnames from CONNECT/Host headers, not IP addresses. Even if egg somehow learns an IP address (e.g., from conversation context), it cannot use it because:
 - Direct IP connections are blocked by the `direct_ip` ACL in Squid
 - The internal network has no route to external IPs—the proxy is the only path out
 
 ### Proxy Configuration
 
-jib routes all HTTP/HTTPS traffic through the gateway proxy:
+egg routes all HTTP/HTTPS traffic through the gateway proxy:
 
 ```bash
 # Environment variables in egg container
@@ -493,7 +493,7 @@ no_proxy=localhost,127.0.0.1,gateway,egg-gateway
 ```
 
 **Proxy behavior:**
-1. jib sends CONNECT request to gateway for HTTPS destinations
+1. egg sends CONNECT request to gateway for HTTPS destinations
 2. Gateway checks destination against allowlist
 3. If allowed: Gateway establishes tunnel to destination
 4. If blocked: Gateway returns 403 Forbidden
@@ -532,7 +532,7 @@ The architecture prevents several classes of network breakout:
 | DNS tunneling | No DNS servers configured in egg container |
 | Proxy bypass | No alternate route exists; proxy is the only path out |
 | IP-based proxy bypass | Squid `direct_ip` ACL: `url_regex ^https?://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+` blocks requests by IP address. Hostname validation uses `dstdomain` ACL. |
-| Learned IP from context | Even if jib learns `140.82.114.3` is GitHub's IP from conversation, requests to `http://140.82.114.3` are blocked by the `direct_ip` ACL. |
+| Learned IP from context | Even if egg learns `140.82.114.3` is GitHub's IP from conversation, requests to `http://140.82.114.3` are blocked by the `direct_ip` ACL. |
 | Container escape | Defense in depth; not in scope for network layer |
 
 ### Relationship: Phase 2 and Private Repo Mode
@@ -550,7 +550,7 @@ Phase 2 Network Lockdown and Private Repo Mode are **independent but complementa
 
 - **Phase 2 alone:** egg cannot install packages or search the web. Can still clone public repos via gateway.
 - **Private Repo Mode alone:** egg can install packages and search web. Cannot interact with public repos.
-- **Both enabled:** Maximum security. jib is restricted to private repos and can only reach Anthropic/GitHub APIs.
+- **Both enabled:** Maximum security. egg is restricted to private repos and can only reach Anthropic/GitHub APIs.
 
 **Recommendation for autonomous operation:** Enable both Phase 2 and Private Repo Mode for unsupervised `--dangerously-skip-permissions` sessions. This provides the strongest security guarantees.
 
@@ -568,7 +568,7 @@ For tasks requiring web access (research, package updates), egg can operate in *
 ```yaml
 # docker-compose.supervised.yml override
 services:
-  jib:
+  egg:
     networks:
       - egg-isolated
       - external  # Adds external network access
@@ -607,7 +607,7 @@ The following domains are **required** for egg to function. All other domains ar
 | `uploads.github.com` | 443 | File uploads | Release asset uploads |
 
 **Explicitly NOT included:**
-- `*.actions.githubusercontent.com` — Not needed (jib doesn't run GitHub Actions)
+- `*.actions.githubusercontent.com` — Not needed (egg doesn't run GitHub Actions)
 - `ghcr.io` — Not needed (no container registry access)
 - `*.github.io` — Not needed (no GitHub Pages access)
 - `copilot-*.githubusercontent.com` — Not needed (no GitHub Copilot)
@@ -666,7 +666,7 @@ ALLOWED_DOMAIN_PATTERNS = [
 │  │              Gateway: NONE (no external route)            │   │
 │  │                                                           │   │
 │  │    ┌─────────────┐              ┌─────────────────┐      │   │
-│  │    │     jib     │              │  gateway │      │   │
+│  │    │     egg     │              │  gateway │      │   │
 │  │    │ 172.30.0.10 │◄────────────►│   172.30.0.2    │      │   │
 │  │    │             │   REST API   │                 │      │   │
 │  │    │ NO EXTERNAL │   Port 9847  │                 │      │   │
@@ -868,7 +868,7 @@ Add to `gateway/Dockerfile`:
 # Generate self-signed CA for Squid SSL bump
 RUN mkdir -p /etc/squid/ssl && \
     openssl req -new -newkey rsa:2048 -sha256 -days 365 -nodes -x509 \
-        -subj "/CN=egg-gateway-proxy/O=jib/C=US" \
+        -subj "/CN=egg-gateway-proxy/O=egg/C=US" \
         -keyout /etc/squid/squid-ca.pem \
         -out /etc/squid/squid-ca.pem && \
     chmod 400 /etc/squid/squid-ca.pem && \
@@ -925,7 +925,7 @@ echo "Starting gateway API server..."
 exec python -m waitress --port=9847 --host=0.0.0.0 gateway:app
 ```
 
-#### 4. jib Container Changes
+#### 4. egg Container Changes
 
 ##### 4.1 Runtime Environment Variables
 
@@ -983,7 +983,7 @@ def _build_docker_command(
         for key, value in _get_network_lockdown_env().items():
             cmd.extend(["-e", f"{key}={value}"])
     else:
-        # Legacy mode: standard jib-network with full internet access
+        # Legacy mode: standard egg-network with full internet access
         cmd.extend(["--network", EGG_ISOLATED_NETWORK])
 
     # ... rest of existing code ...
@@ -1029,7 +1029,7 @@ rich>=13.7.0
 **Node.js packages** (`sandbox/package-lockdown.json`):
 ```json
 {
-  "name": "jib-lockdown-deps",
+  "name": "egg-lockdown-deps",
   "version": "1.0.0",
   "dependencies": {
     "typescript": "^5.3.0",
@@ -1161,7 +1161,7 @@ start_gateway
 wait_for_gateway
 ```
 
-##### 5.2 jib Container Startup Dependency
+##### 5.2 egg Container Startup Dependency
 
 The egg container entrypoint includes a health check wait loop to ensure the gateway is ready:
 
@@ -1221,7 +1221,7 @@ if not wait_for_gateway():
 ```yaml
 # docker-compose.yml
 services:
-  jib:
+  egg:
     depends_on:
       gateway:
         condition: service_healthy
@@ -1308,7 +1308,7 @@ EGG_PID=$!
 sleep 10
 
 # Run test suite inside container
-docker exec jib-test-container bash -c '
+docker exec egg-test-container bash -c '
     echo "Testing Claude API..."
     python -c "import anthropic; print(anthropic.Anthropic().messages.create(model=\"claude-sonnet-4-20250514\",max_tokens=10,messages=[{\"role\":\"user\",\"content\":\"hi\"}]))"
 
@@ -1326,7 +1326,7 @@ docker exec jib-test-container bash -c '
 
 # Cleanup
 kill $EGG_PID
-docker rm -f jib-test-container
+docker rm -f egg-test-container
 ```
 
 ##### 6.4 Edge Case and Resilience Tests
@@ -1379,7 +1379,7 @@ echo "=== All edge case tests passed ==="
 echo "=== Claude Code Tool Behavior Tests ==="
 
 # Test WebFetch - should fail gracefully
-docker exec jib-test-container bash -c '
+docker exec egg-test-container bash -c '
     # Simulate WebFetch attempt (via proxy)
     RESULT=$(curl -x http://gateway:3128 -s -w "%{http_code}" -o /dev/null https://example.com 2>&1)
     if [ "$RESULT" = "403" ]; then
@@ -1388,7 +1388,7 @@ docker exec jib-test-container bash -c '
 '
 
 # Test WebSearch - should fail gracefully
-docker exec jib-test-container bash -c '
+docker exec egg-test-container bash -c '
     # Simulate WebSearch attempt
     RESULT=$(curl -x http://gateway:3128 -s -w "%{http_code}" -o /dev/null https://www.google.com/search?q=test 2>&1)
     if [ "$RESULT" = "403" ]; then
@@ -1406,7 +1406,7 @@ echo "=== Claude Code tool tests passed ==="
 ```bash
 # Option 1: Disable lockdown mode via environment variable
 export EGG_NETWORK_LOCKDOWN=false
-./jib  # Runs with full internet access
+./egg  # Runs with full internet access
 
 # Option 2: Use supervised mode override
 ./egg --supervised  # Explicitly enables full internet
@@ -1419,12 +1419,12 @@ export EGG_NETWORK_LOCKDOWN=false
 docker network rm egg-isolated egg-external
 
 # Restore original network
-docker network create jib-network
+docker network create egg-network
 
 # Restart gateway without Squid
 systemctl restart gateway
 
-# Containers will use original jib-network with full access
+# Containers will use original egg-network with full access
 ```
 
 #### 8. Migration Path
@@ -1924,7 +1924,7 @@ Per OWASP ASI04, supply chain risks are partially addressed:
 Layer 1: Behavioral (CLAUDE.md instructions)
     ↓ Can be bypassed by prompt injection
 Layer 2: Credential Isolation (this ADR)
-    ↓ jib has no credentials - cannot push/merge even if instructed
+    ↓ egg has no credentials - cannot push/merge even if instructed
 Layer 3: Gateway Policy Enforcement
     ↓ Gateway validates all operations
 Layer 4: Network Isolation
@@ -1939,10 +1939,10 @@ Layer 6: Human Review
 
 ### Positive
 
-- **Credential isolation**: jib physically cannot access credentials
+- **Credential isolation**: egg physically cannot access credentials
 - **Enforceable controls**: Security doesn't rely on agent following instructions
 - **Audit trail**: All traffic and operations logged
-- **Simple mental model**: "jib has no credentials, gateway does"
+- **Simple mental model**: "egg has no credentials, gateway does"
 - **Flexible internet access**: egg can still search web, install packages
 
 ### Negative
@@ -2018,13 +2018,13 @@ When MCP is adopted for GitHub operations, the gateway architecture adapts:
 
 **Option 1: MCP Server in Gateway**
 ```
-jib → Claude Code → MCP (in egg) → Gateway API → GitHub
+egg → Claude Code → MCP (in egg) → Gateway API → GitHub
 ```
 MCP client calls gateway REST API instead of direct GitHub API.
 
 **Option 2: MCP Server IS the Gateway**
 ```
-jib → Claude Code → MCP Server (in gateway container) → GitHub
+egg → Claude Code → MCP Server (in gateway container) → GitHub
 ```
 Run the GitHub MCP server in the gateway with credentials.
 

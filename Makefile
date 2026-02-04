@@ -11,7 +11,7 @@ YAMLLINT := $(VENV_BIN)/yamllint
 
 .PHONY: help \
         test test-deps test-quick test-python test-bash \
-        lint lint-fix lint-fix-jib \
+        lint lint-fix \
         lint-python lint-python-fix \
         lint-shell lint-shell-fix \
         lint-yaml lint-yaml-fix \

@@ -15,7 +15,7 @@ from .output import warn
 
 def get_anthropic_api_key() -> str | None:
     """
-    Get Anthropic API key from environment or config file.
+    Get Anthropic API key from environment, secrets.env, or legacy config file.
 
     Returns:
         API key string if found, None otherwise.
@@ -24,7 +24,15 @@ def get_anthropic_api_key() -> str | None:
     if os.environ.get("ANTHROPIC_API_KEY"):
         return os.environ["ANTHROPIC_API_KEY"]
 
-    # Check config file
+    # Check secrets.env
+    secrets_file = Config.USER_CONFIG_DIR / "secrets.env"
+    if secrets_file.exists():
+        for line in secrets_file.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("ANTHROPIC_API_KEY="):
+                return line.split("=", 1)[1].strip()
+
+    # Legacy: check dedicated file
     api_key_file = Config.USER_CONFIG_DIR / "anthropic-api-key"
     if api_key_file.exists():
         return api_key_file.read_text().strip()
@@ -126,21 +134,41 @@ def get_github_readonly_token() -> str | None:
     return None
 
 
+def _read_secrets_env() -> dict[str, str]:
+    """Read secrets.env file into a dictionary."""
+    secrets_file = Config.USER_CONFIG_DIR / "secrets.env"
+    secrets_dict: dict[str, str] = {}
+
+    if secrets_file.exists():
+        for line in secrets_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                secrets_dict[key.strip()] = value.strip()
+
+    return secrets_dict
+
+
 def get_github_app_token() -> str | None:
     """Generate GitHub App installation token for container use.
 
     Uses the github-app-token.py script to generate a fresh installation token
     from App credentials (App ID, Installation ID, private key).
 
+    Credentials are read from:
+    - secrets.env: GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID
+    - github-app.pem: Private key file
+
     Returns:
         Installation token string if successful, None otherwise
     """
     # Check if App credentials exist
-    app_id_file = Config.USER_CONFIG_DIR / "github-app-id"
-    installation_id_file = Config.USER_CONFIG_DIR / "github-app-installation-id"
+    secrets = _read_secrets_env()
+    app_id = secrets.get("GITHUB_APP_ID")
+    installation_id = secrets.get("GITHUB_APP_INSTALLATION_ID")
     private_key_file = Config.USER_CONFIG_DIR / "github-app.pem"
 
-    if not all(f.exists() for f in [app_id_file, installation_id_file, private_key_file]):
+    if not app_id or not installation_id or not private_key_file.exists():
         return None  # App not configured, fall back to PAT
 
     # Find the token generation script

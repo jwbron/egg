@@ -167,7 +167,7 @@ class SessionManager:
         Initialize the session manager.
 
         Args:
-            persistence_file: Path to persistence file (default: ~/.egg-gateway/sessions.json)
+            persistence_file: Path to persistence file (default: ~/.config/egg/sessions.json)
             ttl_hours: Default session TTL in hours
         """
         self._persistence_file = persistence_file or SESSION_PERSISTENCE_FILE

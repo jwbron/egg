@@ -5,7 +5,6 @@ Consolidates token loading from multiple sources:
 1. Environment variables (highest priority)
 2. ~/.config/egg/secrets.env
 3. ~/.config/egg/github-token (plain text)
-4. ~/.egg-sharing/.github-token (JSON from refresher service)
 """
 
 import json
@@ -175,7 +174,6 @@ class GitHubConfig(BaseConfig):
         1. GITHUB_TOKEN environment variable
         2. ~/.config/egg/secrets.env
         3. ~/.config/egg/github-token (plain text)
-        4. ~/.egg-sharing/.github-token (JSON from refresher)
         """
         config = cls()
 
@@ -200,22 +198,6 @@ class GitHubConfig(BaseConfig):
                         config._token_source = "github-token file"
                     except Exception:
                         pass
-
-                # Try refresher JSON file (may have expiration info)
-                if not config.token:
-                    refresher_file = Path.home() / ".egg-sharing" / ".github-token"
-                    if refresher_file.exists():
-                        try:
-                            data = json.loads(refresher_file.read_text())
-                            config.token = data.get("token", "")
-                            config._token_source = "refresher service"
-                            # Parse expiration
-                            if "expires_at_unix" in data:
-                                config.token_expires_at = datetime.fromtimestamp(
-                                    data["expires_at_unix"]
-                                )
-                        except Exception:
-                            pass
 
         # Load optional tokens
         secrets_file = Path.home() / ".config" / "egg" / "secrets.env"

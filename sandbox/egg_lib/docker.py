@@ -212,6 +212,9 @@ def create_dockerfile() -> None:
     """Create the Dockerfile for the container"""
     quiet = get_quiet_mode()
 
+    # Ensure cache directory exists
+    Config.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
     # Resolve symlinks to find the actual project directory
     script_dir = Path(__file__).resolve().parent.parent
 
@@ -245,19 +248,12 @@ def create_dockerfile() -> None:
         warn("claude-rules directory not found, skipping agent rules")
 
     # Copy egg-runtime directories to build context
-    # These provide container-resident executables and processors
+    # These provide container-resident executables and tools
     # The bin/ directory contains symlinks to executables (added to PATH in container)
-    #
-    # Directory structure must match the host layout so path calculations work:
-    # Host:      egg/sandbox/egg-tasks/... + egg/shared/
-    # Container: /opt/egg-runtime/sandbox/egg-tasks/... + /opt/egg-runtime/shared/
-    #
-    # The processors use: Path(__file__).parents[3] / "shared"
-    # From sandbox/egg-tasks/analysis/*.py, this goes up 3 levels to repo root
     sandbox_dest = Config.CONFIG_DIR / "sandbox"
     sandbox_dest.mkdir(parents=True, exist_ok=True)
 
-    runtime_dirs = ["bin", "llm", "egg-tasks", "tools", "scripts"]
+    runtime_dirs = ["bin", "llm", "tools", "scripts"]
     for dir_name in runtime_dirs:
         src = script_dir / dir_name
         dest = sandbox_dest / dir_name
@@ -267,8 +263,7 @@ def create_dockerfile() -> None:
             warn(f"{dir_name} directory not found, skipping")
 
     # Copy shared directory from repo root to build context (sibling of sandbox)
-    # The egg-tasks processors import shared modules (e.g., egg_logging, notifications)
-    # Note: llm module is in sandbox/llm/ (copied via runtime_dirs above)
+    # Contains shared modules (egg_logging, egg_config, etc.)
     repo_root = script_dir.parent  # sandbox's parent is egg
     shared_src = repo_root / "shared"
     shared_dest = Config.CONFIG_DIR / "shared"
@@ -427,7 +422,7 @@ def compute_build_hash() -> str:
     - claude-commands/
     - claude-rules/
     - .claude/hooks/
-    - bin/, llm/, egg-tasks/, tools/, scripts/
+    - bin/, llm/, tools/, scripts/
     - shared/ (from repo root)
     - pyproject.toml files
     - Host-services files that get copied to container
@@ -462,7 +457,6 @@ def compute_build_hash() -> str:
         "claude-rules",
         "bin",
         "llm",
-        "egg-tasks",
         "tools",
         "scripts",
     ]

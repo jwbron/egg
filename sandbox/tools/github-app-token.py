@@ -9,8 +9,7 @@ Usage:
     github-app-token.py [--config-dir DIR]
 
 Credentials are read from:
-    ~/.config/egg/github-app-id           - App ID (numeric)
-    ~/.config/egg/github-app-installation-id - Installation ID (numeric)
+    ~/.config/egg/secrets.env             - Contains GITHUB_APP_ID and GITHUB_APP_INSTALLATION_ID
     ~/.config/egg/github-app.pem          - Private key file
 
 Output:
@@ -105,32 +104,46 @@ def get_installation_token(jwt_token: str, installation_id: str) -> tuple[str | 
         return None, str(e)
 
 
+def _read_secrets_env(secrets_file: Path) -> dict[str, str]:
+    """Read secrets.env file into a dictionary."""
+    secrets_dict: dict[str, str] = {}
+    if secrets_file.exists():
+        for line in secrets_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                secrets_dict[key.strip()] = value.strip()
+    return secrets_dict
+
+
 def load_config(config_dir: Path) -> tuple[str | None, str | None, str | None, str | None]:
     """
-    Load GitHub App configuration from files.
+    Load GitHub App configuration from secrets.env and .pem file.
 
     Returns:
         Tuple of (app_id, installation_id, private_key, error_message)
     """
-    app_id_file = config_dir / "github-app-id"
-    installation_id_file = config_dir / "github-app-installation-id"
+    secrets_file = config_dir / "secrets.env"
     private_key_file = config_dir / "github-app.pem"
 
-    # Check all files exist
+    # Read secrets from secrets.env
+    secrets = _read_secrets_env(secrets_file)
+    app_id = secrets.get("GITHUB_APP_ID")
+    installation_id = secrets.get("GITHUB_APP_INSTALLATION_ID")
+
+    # Check required values
     missing = []
-    if not app_id_file.exists():
-        missing.append(str(app_id_file))
-    if not installation_id_file.exists():
-        missing.append(str(installation_id_file))
+    if not app_id:
+        missing.append("GITHUB_APP_ID in secrets.env")
+    if not installation_id:
+        missing.append("GITHUB_APP_INSTALLATION_ID in secrets.env")
     if not private_key_file.exists():
         missing.append(str(private_key_file))
 
     if missing:
-        return None, None, None, f"Missing config files: {', '.join(missing)}"
+        return None, None, None, f"Missing config: {', '.join(missing)}"
 
     try:
-        app_id = app_id_file.read_text().strip()
-        installation_id = installation_id_file.read_text().strip()
         private_key = private_key_file.read_text()
 
         # Validate

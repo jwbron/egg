@@ -495,10 +495,10 @@ class TestConfiguredUser:
         assert result.allowed
         assert "configured user" in result.reason.lower()
 
-    def test_pr_ownership_jib_with_configured_user_set(
+    def test_pr_ownership_egg_with_configured_user_set(
         self, policy_engine, mock_github_client, monkeypatch
     ):
-        """Jib PRs are still allowed when configured user is set."""
+        """Egg PRs are still allowed when configured user is set."""
         monkeypatch.setattr(policy_engine, "_get_configured_user", lambda: "configureduser")
 
         mock_github_client.get_pr_info.return_value = {

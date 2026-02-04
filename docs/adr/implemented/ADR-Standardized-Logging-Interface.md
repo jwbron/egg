@@ -31,7 +31,7 @@ The egg system consists of multiple components across host and container environ
 | Component Type | Location | Examples |
 |----------------|----------|----------|
 | Host services | `host-services/` | slack-receiver, slack-notifier, context-sync |
-| Container scripts | `sandbox/` | jib CLI, github-processor, incoming-processor |
+| Container scripts | `sandbox/` | egg CLI, github-processor, incoming-processor |
 | Utilities | `host-services/utilities/` | egg-logs, service-failure-notify |
 
 Currently, all components use `print()` statements for output with inconsistent formatting:
@@ -149,7 +149,7 @@ export OTEL_SEMCONV_STABILITY_OPT_IN=genai
 export OTEL_PROPAGATORS=tracecontext,baggage
 
 # Set service identification
-export OTEL_SERVICE_NAME=jib-slack-receiver
+export OTEL_SERVICE_NAME=egg-slack-receiver
 export OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production
 ```
 
@@ -403,15 +403,15 @@ For transparent logging of shell commands (including those run by Claude Code ag
 **Location:** `shared/egg_logging/bin/`
 
 **Available Commands:**
-- `jib-bd` - Drop-in replacement for `bd`
-- `jib-claude` - Drop-in replacement for `claude`
+- `egg-bd` - Drop-in replacement for `bd`
+- `egg-claude` - Drop-in replacement for `claude`
 
 **Setup Option 1: Shell Aliases**
 
 ```bash
 # In .bashrc or container setup
-alias bd='jib-bd'
-alias claude='jib-claude'
+alias bd='egg-bd'
+alias claude='egg-claude'
 
 # Or source the setup script
 source ~/repos/egg/shared/egg_logging/bin/setup-aliases.sh
@@ -429,9 +429,9 @@ ln -sf ~/repos/egg/shared/egg_logging/bin/egg-claude ~/.local/bin/claude
 **Setup Option 3: Direct Usage**
 
 ```bash
-# Use jib-* prefix directly
-jib-bd --allow-stale list
-jib-claude --print -p "Explain this"
+# Use egg-* prefix directly
+egg-bd --allow-stale list
+egg-claude --print -p "Explain this"
 ```
 
 **Environment Variables:**
@@ -578,7 +578,7 @@ Each directory contains an `index.jsonl` file (newline-delimited JSON) for fast 
 
 In local/container mode, logs go to:
 1. Console (human-readable format)
-2. File (`/var/log/egg/jib.log` - JSON format)
+2. File (`/var/log/egg/egg.log` - JSON format)
 
 ### GCP Production
 
@@ -602,9 +602,9 @@ logger.info("Processing PR", pr_number=123, repository="jwbron/egg")
 ```hcl
 # terraform/infrastructure/logging.tf
 
-resource "google_logging_project_sink" "jib_logs" {
-  name        = "jib-log-sink"
-  destination = "bigquery.googleapis.com/projects/${var.project}/datasets/jib_logs"
+resource "google_logging_project_sink" "egg_logs" {
+  name        = "egg-log-sink"
+  destination = "bigquery.googleapis.com/projects/${var.project}/datasets/egg_logs"
 
   filter = <<-EOT
     resource.type="cloud_run_revision"
@@ -618,13 +618,13 @@ resource "google_logging_project_sink" "jib_logs" {
 ```sql
 -- Find all errors in last hour
 SELECT timestamp, severity, message, jsonPayload.context
-FROM `project.jib_logs.cloudrun_requests`
+FROM `project.egg_logs.cloudrun_requests`
 WHERE severity = "ERROR"
   AND timestamp > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR)
 
 -- Trace a specific operation
 SELECT *
-FROM `project.jib_logs.cloudrun_requests`
+FROM `project.egg_logs.cloudrun_requests`
 WHERE jsonPayload.correlation_id = "abc123"
 ORDER BY timestamp
 
@@ -633,7 +633,7 @@ SELECT
   jsonPayload.tool,
   COUNT(*) as invocations,
   AVG(jsonPayload.duration_ms) as avg_duration_ms
-FROM `project.jib_logs.cloudrun_requests`
+FROM `project.egg_logs.cloudrun_requests`
 WHERE jsonPayload.tool IS NOT NULL
 GROUP BY jsonPayload.tool
 ```
@@ -751,7 +751,7 @@ management) that generic logging wrappers couldn't provide. The wrappers were re
 January 2026 to reduce dead code.
 
 **Enhancements Beyond Spec:**
-- ✅ CLI wrapper binaries (`shared/egg_logging/bin/egg-bd`, `jib-claude`)
+- ✅ CLI wrapper binaries (`shared/egg_logging/bin/egg-bd`, `egg-claude`)
 - ✅ Shell alias setup script
 - ✅ Passthrough mode via environment variables
 - ✅ Base `ToolWrapper` class for extensibility

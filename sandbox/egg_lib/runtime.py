@@ -45,7 +45,7 @@ from .container_logging import (
     get_docker_log_config,
     save_container_logs,
 )
-from .docker import build_image, image_exists
+from .docker import build_image, create_dockerfile, image_exists
 from .gateway import (
     create_session,
     create_worktrees,
@@ -54,7 +54,7 @@ from .gateway import (
     start_gateway_container,
 )
 from .output import error, get_quiet_mode, info, warn
-from .setup_flow import add_standard_mounts, setup
+from .setup_flow import add_standard_mounts
 from .timing import _host_timer
 
 # Subnet for egg-isolated network (must match docker network creation)
@@ -522,21 +522,19 @@ def run_claude(repo_mode: str | None = None) -> bool:
 
     quiet = get_quiet_mode()
 
-    # Check if image exists
+    # Check if image exists - build non-interactively if missing
     with _host_timer.phase("check_image"):
         if quiet:
             status("Checking Docker image...")
         if not image_exists():
-            info("Docker image not found. Running initial setup...")
-            if not setup():
-                return False
+            info("Docker image not found. Building...")
+            create_dockerfile()
 
-    # Check repository configuration exists
+    # Check repository configuration - warn but continue if missing
     with _host_timer.phase("check_config"):
         if not Config.REPOS_CONFIG_FILE.exists():
-            info("Repository configuration not found. Running initial setup...")
-            if not setup():
-                return False
+            warn("No repositories configured. Run 'egg --setup' to add repositories.")
+            warn("Continuing with no mounted repositories...")
 
     # Get Anthropic API key (used for env var passthrough, but not required with OAuth)
     api_key = get_anthropic_api_key()
@@ -611,8 +609,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
             # since git/gh wrappers require EGG_SESSION_TOKEN (PR #666)
             error("Session creation failed. Check that:")
             error("  1. Gateway sidecar is running: curl http://localhost:9847/api/v1/health")
-            error("  2. Launcher secret is synced: ~/.config/egg/launcher-secret")
-            error("     must match ~/.egg-gateway/launcher-secret")
+            error("  2. Launcher secret exists: ~/.config/egg/launcher-secret")
             error("  Fix: Re-run gateway/setup.sh to sync secrets")
             return False
     else:
@@ -626,7 +623,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
         info(f"Mounted {len(repos)} repo(s){mode_info} (all git operations via gateway)")
         print()
 
-    # Add standard mounts (sharing, context-sync)
+    # Add standard mounts (context-sync, shared-certs)
     add_standard_mounts(mount_args, quiet=quiet)
 
     # Note: Host ~/.claude is NOT mounted - container uses gateway-injected
@@ -794,7 +791,7 @@ def exec_in_new_container(
     In the gateway-managed worktree architecture:
     - Repos are mounted directly with .git shadowed by tmpfs
     - All git operations route through the gateway API
-    - Container logs persisted to ~/.egg-sharing/container-logs/
+    - Container logs persisted to ~/.cache/egg/container-logs/
 
     Args:
         command: Command to execute
@@ -821,17 +818,15 @@ def exec_in_new_container(
     # Validate repo_mode parameter
     _validate_repo_mode(repo_mode)
 
-    # Check if image exists
+    # Check if image exists - build non-interactively if missing
     if not image_exists():
-        info("Docker image not found. Running initial setup...")
-        if not setup():
-            return False
+        info("Docker image not found. Building...")
+        create_dockerfile()
 
-    # Check repository configuration exists
+    # Check repository configuration - warn but continue if missing
     if not Config.REPOS_CONFIG_FILE.exists():
-        info("Repository configuration not found. Running initial setup...")
-        if not setup():
-            return False
+        warn("No repositories configured. Run 'egg --setup' to add repositories.")
+        warn("Continuing with no mounted repositories...")
 
     # Build/update image
     if not build_image():
@@ -902,8 +897,7 @@ def exec_in_new_container(
             # since git/gh wrappers require EGG_SESSION_TOKEN (PR #666)
             error("Session creation failed. Check that:")
             error("  1. Gateway sidecar is running: curl http://localhost:9847/api/v1/health")
-            error("  2. Launcher secret is synced: ~/.config/egg/launcher-secret")
-            error("     must match ~/.egg-gateway/launcher-secret")
+            error("  2. Launcher secret exists: ~/.config/egg/launcher-secret")
             error("  Fix: Re-run gateway/setup.sh to sync secrets")
             return False
     else:
@@ -916,7 +910,7 @@ def exec_in_new_container(
         info(f"Mounted {len(repos)} repo(s){mode_info} (all git operations via gateway)")
         print()
 
-    # Add standard mounts (sharing, context-sync)
+    # Add standard mounts (context-sync, shared-certs)
     add_standard_mounts(mount_args, quiet=False)
 
     # Note: Host ~/.claude is NOT mounted - container uses gateway-injected

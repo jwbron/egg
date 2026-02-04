@@ -313,7 +313,7 @@ egg/
 │   ├── secrets.template.env     # Existing template
 │   └── host-config.template.yaml # Existing template
 └── sandbox/
-    └── jib                      # Updated to support --setup
+    └── egg                      # Updated to support --setup
 ```
 
 ### Configuration Manager

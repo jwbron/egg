@@ -327,7 +327,7 @@ Agent should demonstrate L3-L4 behaviors:
 │  │ Code    │   │ Context │   │ Prompts  │   │ Memory   │   │ Analysis │  │
 │  │ (R/W)   │   │ (R/O)   │   │ (R/O)    │   │ (R/W)    │   │ (Output) │  │
 │  │         │   │         │   │          │   │          │   │          │  │
-│  │~/repos │   │ Confl.  │   │ jib-     │   │ ~/beads  │   │ ~/sharing│  │
+│  │~/repos │   │ Confl.  │   │ egg-     │   │ ~/beads  │   │ ~/sharing│  │
 │  │         │   │ JIRA    │   │ container│   │ (tasks   │   │ /notif.  │  │
 │  │         │   │         │   │ /.claude │   │  state)  │   │          │  │
 │  └─────────┘   └─────────┘   └──────────┘   └──────────┘   └──────────┘  │
@@ -412,7 +412,7 @@ Agent should demonstrate L3-L4 behaviors:
 - **Sprint Analysis:** Provides actionable recommendations for sprint work
 
 **PR Creation via GitHub MCP**
-- **Purpose:** Enables jib to create PRs after completing tasks
+- **Purpose:** Enables egg to create PRs after completing tasks
 - **Capabilities:**
   - Auto-generates PR title/body from git commits
   - Pushes branch to remote via GitHub MCP
@@ -591,7 +591,7 @@ Each watcher constructs a comprehensive prompt including:
 - **slack-receiver:** Triggers `incoming-processor.py` when message arrives
   - Parses incoming tasks or responses
   - Calls Claude with full context to execute work
-- **Containers:** Each execution gets unique ID (`jib-exec-{timestamp}-{pid}`)
+- **Containers:** Each execution gets unique ID (`egg-exec-{timestamp}-{pid}`)
 - **Cleanup:** Automatic via Docker `--rm` flag (no manual cleanup needed)
 - **Timeout:** All Claude invocations have 10-15 minute timeouts to prevent hangs
 
@@ -1103,8 +1103,8 @@ If agent drifts from team engineering culture, analyzer recommends:
 
 **Infrastructure:**
 - [ ] **Cloud Run deployment** via Terraform (Pattern A from ADR #889)
-- [ ] Cloud Run services: jib-bot, slack-worker, slack-receiver
-- [ ] Cloud Run jobs: jib-task, jib-sync, jib-analyze
+- [ ] Cloud Run services: egg-bot, slack-worker, slack-receiver
+- [ ] Cloud Run jobs: egg-task, egg-sync, egg-analyze
 - [ ] Cloud Storage for context sync and artifacts
 - [ ] Native GCP IAM (Workload Identity, no service account key files)
 - [ ] Multi-engineer support (container instances per engineer)
@@ -1457,19 +1457,19 @@ Benefits:
 Deploy egg to Cloud Run using Terraform (Pattern A from ADR #889):
 
 Cloud Run Services:
-- jib-bot: Slack slash command handler, job orchestration
+- egg-bot: Slack slash command handler, job orchestration
 - slack-worker: Outbound message processing with rate limiting
 - slack-receiver: Socket Mode event ingestion
 
 Cloud Run Jobs:
-- jib-task: Task execution (Claude Code container)
-- jib-sync: Context synchronization (Confluence, Jira, GitHub)
-- jib-analyze: Codebase and conversation analysis
+- egg-task: Task execution (Claude Code container)
+- egg-sync: Context synchronization (Confluence, Jira, GitHub)
+- egg-analyze: Codebase and conversation analysis
 
 Supporting Infrastructure:
 - Cloud Pub/Sub: slack-outgoing, slack-incoming, slack-outgoing-dlq
 - Firestore: jobs, threads, contexts, users, beads collections
-- Cloud Tasks: jib-tasks, jib-sync, jib-analyze queues
+- Cloud Tasks: egg-tasks, egg-sync, egg-analyze queues
 - Cloud Storage: context-sync, artifacts buckets
 - Secret Manager: Slack tokens, API keys
 - Cloud Scheduler: Periodic sync jobs (via scheduled-job module)
@@ -1756,18 +1756,18 @@ Phase 1 (Current - Laptop)          Phase 3 (Target - GCP)
 Host Services:                      Cloud Run Services:
 ├── slack-notifier (file-based) →   ├── slack-worker (Pub/Sub)
 ├── slack-receiver (Socket Mode) →  ├── slack-receiver (Socket Mode)
-├── context-sync (cron) ────────→   ├── jib-sync (Cloud Scheduler)
+├── context-sync (cron) ────────→   ├── egg-sync (Cloud Scheduler)
 ├── github-sync (cron) ─────────→   │   └── via scheduled-job module
-├── codebase-analyzer (timer) ──→   ├── jib-analyze (Cloud Scheduler)
-└── conversation-analyzer ──────→   └── jib-analyze (Cloud Scheduler)
+├── codebase-analyzer (timer) ──→   ├── egg-analyze (Cloud Scheduler)
+└── conversation-analyzer ──────→   └── egg-analyze (Cloud Scheduler)
 
 Container (Docker):                 Cloud Run Jobs:
-└── sandbox ──────────────→   ├── jib-task (Claude Code)
-                                    ├── jib-sync (context sync)
-                                    └── jib-analyze (analyzers)
+└── sandbox ──────────────→   ├── egg-task (Claude Code)
+                                    ├── egg-sync (context sync)
+                                    └── egg-analyze (analyzers)
 
 Host Commands:                      Slack Slash Commands:
-├── egg --exec ─────────────────→   ├── /jib task|status|cancel|logs
+├── egg --exec ─────────────────→   ├── /egg task|status|cancel|logs
 ├── remote-control.sh ──────────→   ├── /sync confluence|jira|github
 └── systemctl (services) ───────→   ├── /analyze codebase|conversation
                                     ├── /pr create|status|review
