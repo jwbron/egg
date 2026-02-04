@@ -79,34 +79,37 @@ MOUNTS+=(-v "$CONFIG_DIR:/secrets:ro")
 
 # Repos directory - mount at /home/egg/repos to match container paths
 # Needs RW for git worktree add (writes to .git/worktrees/)
+# :z enables SELinux relabeling for container write access
 if [ -d "$REPOS_DIR" ]; then
-    MOUNTS+=(-v "$REPOS_DIR:$CONTAINER_HOME/repos")
+    MOUNTS+=(-v "$REPOS_DIR:$CONTAINER_HOME/repos:z")
 fi
 
 # Worktrees directory - mount at /home/egg/.egg-worktrees
-# Needs RW for git fetch to update refs
-if [ -d "$WORKTREES_DIR" ]; then
-    MOUNTS+=(-v "$WORKTREES_DIR:$CONTAINER_HOME/.egg-worktrees")
-fi
+# Needs RW for creating per-container worktrees
+# :z enables SELinux relabeling for container write access
+mkdir -p "$WORKTREES_DIR"
+MOUNTS+=(-v "$WORKTREES_DIR:$CONTAINER_HOME/.egg-worktrees:z")
 
 # Git main directory - mount at /home/egg/.git-main
 # Needs RW for git fetch (FETCH_HEAD, refs) and object sync after push
+# :z enables SELinux relabeling for container write access
 if [ -d "$GIT_MAIN_DIR" ]; then
-    MOUNTS+=(-v "$GIT_MAIN_DIR:$CONTAINER_HOME/.git-main")
+    MOUNTS+=(-v "$GIT_MAIN_DIR:$CONTAINER_HOME/.git-main:z")
 fi
 
 # Local objects directory - mount at /home/egg/.egg-local-objects
 # Used to read container-created objects for sync to shared store
 if [ -d "$LOCAL_OBJECTS_DIR" ]; then
-    MOUNTS+=(-v "$LOCAL_OBJECTS_DIR:$CONTAINER_HOME/.egg-local-objects:ro")
+    MOUNTS+=(-v "$LOCAL_OBJECTS_DIR:$CONTAINER_HOME/.egg-local-objects:ro,z")
 fi
 
 # Shared certs directory - used for SSL bump CA certificate sharing
 # Gateway writes CA cert here, egg containers read it for trust store setup
 # This enables credential injection via gateway proxy
+# :z enables SELinux relabeling for container write access
 mkdir -p "$SHARED_CERTS_DIR"
 chmod 755 "$SHARED_CERTS_DIR"
-MOUNTS+=(-v "$SHARED_CERTS_DIR:/shared/certs")
+MOUNTS+=(-v "$SHARED_CERTS_DIR:/shared/certs:z")
 
 # Dynamic git mounts from local_repos in repositories.yaml
 # Parse local_repos.paths from YAML and generate git directory mounts
