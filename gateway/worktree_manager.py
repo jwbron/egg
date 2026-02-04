@@ -17,7 +17,7 @@ import re
 import shutil
 import subprocess
 
-# Add shared directory to path for jib_logging
+# Add shared directory to path for egg_logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CLI entry points for jib_logging tool wrappers.
+CLI entry points for egg_logging tool wrappers.
 
 These entry points provide drop-in replacements for bd, git, gh, and claude
 commands that automatically add logging. They pass through all arguments
@@ -8,7 +8,7 @@ to the underlying tool while capturing invocation metadata.
 
 Usage:
     # Direct Python invocation
-    python -m jib_logging.cli bd --allow-stale list
+    python -m egg_logging.cli bd --allow-stale list
 
     # Or via installed entry points (if configured in pyproject.toml)
     egg-bd --allow-stale list
@@ -86,9 +86,9 @@ def claude_main() -> int:
 
 
 def main() -> int:
-    """Dispatcher for 'python -m jib_logging.cli <tool> [args...]'."""
+    """Dispatcher for 'python -m egg_logging.cli <tool> [args...]'."""
     if len(sys.argv) < 2:
-        print("Usage: python -m jib_logging.cli <tool> [args...]", file=sys.stderr)
+        print("Usage: python -m egg_logging.cli <tool> [args...]", file=sys.stderr)
         print("Tools: bd, git, gh, claude", file=sys.stderr)
         return 1
 

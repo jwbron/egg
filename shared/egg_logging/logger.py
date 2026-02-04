@@ -1,5 +1,5 @@
 """
-JibLogger - Structured logging for egg components.
+EggLogger - Structured logging for egg components.
 
 Provides a unified logging interface with JSON output, context propagation,
 and GCP Cloud Logging compatibility.
@@ -16,7 +16,7 @@ from .context import get_current_context
 from .formatters import ConsoleFormatter, JsonFormatter
 
 
-class JibLogger:
+class EggLogger:
     """Structured logger for egg components.
 
     Provides a logging interface that:
@@ -226,7 +226,7 @@ class BoundLogger:
     All log calls from a BoundLogger include the bound fields.
     """
 
-    def __init__(self, parent: JibLogger, bound_fields: dict[str, Any]):
+    def __init__(self, parent: EggLogger, bound_fields: dict[str, Any]):
         self._parent = parent
         self._bound_fields = bound_fields
 
@@ -266,14 +266,14 @@ class BoundLogger:
 
 
 # Logger registry for singleton behavior
-_loggers: dict[str, JibLogger] = {}
+_loggers: dict[str, EggLogger] = {}
 
 
 def get_logger(
     name: str,
     level: int | str = logging.INFO,
     component: str | None = None,
-) -> JibLogger:
+) -> EggLogger:
     """Get or create a logger by name.
 
     This is the primary entry point for getting loggers. Loggers are
@@ -286,12 +286,12 @@ def get_logger(
         component: Optional component within the service
 
     Returns:
-        JibLogger instance
+        EggLogger instance
     """
     key = f"{name}:{component or ''}"
 
     if key not in _loggers:
-        _loggers[key] = JibLogger(name, level, component)
+        _loggers[key] = EggLogger(name, level, component)
 
     return _loggers[key]
 

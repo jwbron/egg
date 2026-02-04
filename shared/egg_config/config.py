@@ -74,7 +74,7 @@ def main():
     This allows setup.sh to use the same parsing logic as egg.
 
     Usage:
-        python -m jib_config.config  # Print all configured repo paths
+        python -m egg_config.config  # Print all configured repo paths
     """
     for repo_path in get_local_repos():
         print(repo_path)

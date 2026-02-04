@@ -39,14 +39,14 @@ from .context import (
     set_current_context,
 )
 from .formatters import ConsoleFormatter, JsonFormatter
-from .logger import BoundLogger, JibLogger, configure_root_logging, get_logger
+from .logger import BoundLogger, EggLogger, configure_root_logging, get_logger
 
 __all__ = [
     "BoundLogger",
     "ConsoleFormatter",
     "ContextScope",
     # Logger classes
-    "JibLogger",
+    "EggLogger",
     # Formatters (for advanced use)
     "JsonFormatter",
     # Context management

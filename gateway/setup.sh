@@ -160,7 +160,7 @@ generate_mounts_env() {
                 echo "  Will mount .git for: $repo_name"
             fi
         fi
-    done < <(PYTHONPATH="${SHARED_DIR}:${PYTHONPATH}" python3 -m jib_config.config 2>/dev/null)
+    done < <(PYTHONPATH="${SHARED_DIR}:${PYTHONPATH}" python3 -m egg_config.config 2>/dev/null)
 
     # Write environment file for systemd
     echo "GIT_MOUNTS=${GIT_MOUNTS}" > "$MOUNTS_ENV_FILE"

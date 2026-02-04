@@ -17,7 +17,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-# Add shared directory to path for jib_logging
+# Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent / "shared"
 if _shared_path.exists():
     sys.path.insert(0, str(_shared_path))

@@ -1,5 +1,5 @@
 """
-Context management for jib_logging.
+Context management for egg_logging.
 
 Provides correlation IDs and context propagation for structured logging.
 Aligns with OpenTelemetry trace context for distributed tracing compatibility.
