@@ -1066,13 +1066,6 @@ def cleanup_on_exit(config: Config, logger: Logger) -> None:
 
 def run_interactive(config: Config, logger: Logger) -> None:
     """Launch interactive Claude Code session."""
-    logger.info("")
-    logger.info("Analysis Pattern: Exec-based (triggered by host services)")
-    logger.info("  - Context analysis: Triggered after context-sync")
-    logger.info("  - GitHub analysis: Triggered after github-sync")
-    logger.info("  - Message processing: Triggered by slack-receiver")
-    logger.info("")
-
     # Change to repos directory
     if config.repos_dir.exists():
         os.chdir(config.repos_dir)

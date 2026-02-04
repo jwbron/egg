@@ -623,7 +623,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
         info(f"Mounted {len(repos)} repo(s){mode_info} (all git operations via gateway)")
         print()
 
-    # Add standard mounts (context-sync, shared-certs)
+    # Add standard mounts (shared-certs)
     add_standard_mounts(mount_args, quiet=quiet)
 
     # Note: Host ~/.claude is NOT mounted - container uses gateway-injected
@@ -910,7 +910,7 @@ def exec_in_new_container(
         info(f"Mounted {len(repos)} repo(s){mode_info} (all git operations via gateway)")
         print()
 
-    # Add standard mounts (context-sync, shared-certs)
+    # Add standard mounts (shared-certs)
     add_standard_mounts(mount_args, quiet=False)
 
     # Note: Host ~/.claude is NOT mounted - container uses gateway-injected

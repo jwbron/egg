@@ -516,19 +516,11 @@ def setup() -> bool:
 
 
 def add_standard_mounts(mount_args: list[str], quiet: bool = False) -> None:
-    """Add standard mounts (context-sync, shared-certs) to mount_args list.
+    """Add standard mounts (shared-certs) to mount_args list.
 
     These mounts are always added dynamically rather than relying on config files,
     ensuring they're always available even if setup hasn't been run recently.
     """
-    # Mount context-sync directory if it exists (Confluence, JIRA docs)
-    context_sync_dir = Path.home() / "context-sync"
-    if context_sync_dir.exists():
-        context_sync_container = "/home/egg/context-sync"
-        mount_args.extend(["-v", f"{context_sync_dir}:{context_sync_container}:ro"])
-        if not quiet:
-            print("  - ~/context-sync/ (Confluence, JIRA - read-only)")
-
     # Mount shared certs directory for SSL bump CA certificate
     # Gateway writes its CA cert here, container adds it to trust store
     # This enables credential injection via gateway proxy
