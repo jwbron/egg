@@ -68,9 +68,8 @@ If push fails:
 | `~/context-sync/` | Confluence/JIRA (RO) |
 | `~/sharing/` | Persistent data, notifications, context |
 
-## Available Commands
+## Services
 
-- `discover-tests`, `@load-context`, `@save-context`, `@create-pr`
 - PostgreSQL and Redis start automatically
 
 ## Working with Network Lockdown
