@@ -37,19 +37,12 @@ In this mode:
 
 ## Gateway Sidecar
 
-All git/gh operations are routed through the gateway sidecar (runs as `egg-gateway` container on the egg-isolated network). The container does NOT have direct access to GitHub tokens - credentials are held by the gateway.
+All git/gh operations are routed through the gateway sidecar. You do NOT have direct access to GitHub tokens — credentials are held by the gateway.
 
-**Policy enforcement:**
+Key restrictions enforced by the gateway:
 - `git push`: Only to branches you own (egg-prefixed or has your open PR)
-- `git fetch/pull/ls-remote`: Routed through gateway for authentication
-- `git remote update`: Converted to `fetch --all` via gateway
-- `git worktree add/remove`: **Unsupported** - worktrees are managed by the gateway; use `git checkout -b` instead
-- `gh pr merge`: **Blocked** - human must merge via GitHub UI
-- `gh pr comment/edit/close`: Only on PRs you authored
-
-## Git/Gh Binary Redirection
-
-Both `/usr/bin/git` and `/usr/bin/gh` are symlinked to the gateway wrappers. All invocations (whether `git` or `/usr/bin/git`) route through the gateway sidecar for policy enforcement. The real binaries are relocated to a hidden path.
+- `git worktree add/remove`: **Unsupported** — use `git checkout -b` instead
+- `gh pr merge`: **Blocked** — human must merge via GitHub UI
 
 ## Git Push
 
@@ -73,10 +66,6 @@ If push fails:
 - `discover-tests`, `@load-context`, `@save-context`, `@create-pr`
 - PostgreSQL and Redis start automatically
 
-## Working with Network Lockdown
+## Network Lockdown Notes
 
-1. **Web search/fetch will fail in private mode** - Use local codebase search instead
-2. **Package installation fails in private mode** - All common dependencies are pre-installed; if you need a package that's missing, note it in your PR description
-3. **External URLs blocked in private mode** - Claude API works; GitHub access goes through gateway; everything else returns HTTP 403
-
-If a tool returns 403 Forbidden, acknowledge the limitation and proceed with local resources.
+If a tool returns 403 Forbidden, you are likely in private mode. Acknowledge the limitation and proceed with local resources. Package installation and web access are unavailable in private mode — all common dependencies are pre-installed.

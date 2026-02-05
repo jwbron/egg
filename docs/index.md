@@ -20,6 +20,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | Document | Description |
 |----------|-------------|
 | [Architecture Overview](architecture/README.md) | High-level system design, components, data flows |
+| [Host-Container Boundary](architecture/host-container-boundary.md) | Security boundary between host services and container |
 | [Slack Integration](architecture/slack-integration.md) | Bidirectional Slack messaging design |
 
 ### Setup Guides
@@ -65,7 +66,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 |-----------|------------|--------------|
 | **Slack integration changes** | [Slack Integration](architecture/slack-integration.md) | [Slack Quick Reference](reference/slack-quick-reference.md) |
 | **Adding new host services** | [Architecture Overview](architecture/README.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
-| **Security-related changes** | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) | [Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
+| **Security-related changes** | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) | [Host-Container Boundary](architecture/host-container-boundary.md), [Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
 
 ## Quick Navigation
 
