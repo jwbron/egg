@@ -982,6 +982,7 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     config_dir = Config.USER_CONFIG_DIR
     repos_dir = Path.home() / "repos"
     worktrees_dir = Path.home() / ".egg-worktrees"
+    state_dir = Path.home() / ".egg-state"
     git_main_dir = Path.home() / ".git-main"
     local_objects_dir = Path.home() / ".egg-local-objects"
     shared_certs_dir = Path.home() / ".egg-shared-certs"
@@ -1005,6 +1006,10 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     # Worktrees directory
     worktrees_dir.mkdir(parents=True, exist_ok=True)
     mounts.extend(["-v", f"{worktrees_dir}:{CONTAINER_HOME}/.egg-worktrees"])
+
+    # State directory (session persistence across gateway restarts)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    mounts.extend(["-v", f"{state_dir}:{CONTAINER_HOME}/.egg-state"])
 
     # Git main directory
     if git_main_dir.exists():

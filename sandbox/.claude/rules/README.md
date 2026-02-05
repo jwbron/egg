@@ -29,6 +29,7 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
   - Network modes (public vs private)
   - GitHub CLI (`gh`) for PRs and issues
   - File system layout and access
+  - Services and package installation
 
 ### Code Standards
 
@@ -43,13 +44,16 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
   - Standard PR format
   - Length targets
 
-- **test-workflow.md** - Test discovery and execution
-  - Dynamic test discovery
+- **test-workflow.md** - Test workflow and execution
   - Testing workflow integration
 
-## Reference Documentation
+## Design Principles
 
-For detailed architecture docs, security model, and ADRs, see `~/repos/egg/docs/index.md`.
+- **Index, Don't Dump** - Rules are concise; detailed docs are referenced
+- **Pull, Don't Push** - Agent fetches relevant docs on-demand
+- **Avoid Redundancy** - Each concept documented once, referenced elsewhere
+
+See `~/repos/egg/docs/index.md` for navigation to all documentation.
 
 ## Maintenance
 

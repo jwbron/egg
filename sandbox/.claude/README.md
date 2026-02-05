@@ -24,7 +24,7 @@ These define how Claude operates within egg.
 **Quality standards:**
 - `code-standards.md` - Tech stack and code standards
 - `pr-descriptions.md` - PR writing guidelines
-- `test-workflow.md` - Test discovery and execution
+- `test-workflow.md` - Test workflow and execution
 
 ## Usage
 
