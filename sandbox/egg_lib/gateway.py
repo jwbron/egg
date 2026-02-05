@@ -22,21 +22,10 @@ from urllib.request import Request, urlopen
 
 import yaml
 
-from .config import (
-    EGG_EXTERNAL_NETWORK,
-    EGG_ISOLATED_NETWORK,
-    GATEWAY_CONTAINER_NAME,
-    GATEWAY_EXTERNAL_IP,
-    GATEWAY_IMAGE_NAME,
-    GATEWAY_ISOLATED_IP,
-    GATEWAY_PORT,
-    GATEWAY_PROXY_PORT,
-    Config,
-)
+from .context import get_context
 from .output import error, info, success, warn
 
 # Launcher secret file location (for session and worktree management)
-LAUNCHER_SECRET_FILE = Config.USER_CONFIG_DIR / "launcher-secret"
 
 # Label used to store build content hash on gateway Docker image
 GATEWAY_BUILD_HASH_LABEL = "org.egg.gateway-build-hash"
@@ -160,7 +149,7 @@ def get_gateway_image_hash() -> str | None:
                 "inspect",
                 "--format",
                 f'{{{{index .Config.Labels "{GATEWAY_BUILD_HASH_LABEL}"}}}}',
-                GATEWAY_IMAGE_NAME,
+                get_context().gateway_image,
             ],
             capture_output=True,
             text=True,
@@ -209,7 +198,7 @@ def _load_secrets() -> dict[str, str]:
     Returns:
         Dict of environment variable name to value
     """
-    secrets_file = Config.USER_CONFIG_DIR / "secrets.env"
+    secrets_file = get_context().config_dir / "secrets.env"
     secrets_dict: dict[str, str] = {}
 
     if secrets_file.exists():
@@ -380,20 +369,26 @@ def get_launcher_secret() -> str:
     """Get the launcher authentication secret.
 
     Returns the shared secret used to authenticate session management
-    operations with the gateway sidecar. Generates a new secret if one
-    doesn't exist.
+    operations with the gateway sidecar.  If ``ctx.launcher_secret``
+    is set (GHA), returns it directly without file I/O.  Otherwise
+    reads from (or generates) the on-disk secret file.
 
     Returns:
         The launcher secret string
     """
-    if LAUNCHER_SECRET_FILE.exists():
-        return LAUNCHER_SECRET_FILE.read_text().strip()
+    ctx = get_context()
+    if ctx.launcher_secret:
+        return ctx.launcher_secret
+
+    secret_file = ctx.config_dir / "launcher-secret"
+    if secret_file.exists():
+        return secret_file.read_text().strip()
 
     # Generate a new secret
     new_secret = secrets.token_urlsafe(32)
-    LAUNCHER_SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
-    LAUNCHER_SECRET_FILE.write_text(new_secret)
-    LAUNCHER_SECRET_FILE.chmod(0o600)
+    secret_file.parent.mkdir(parents=True, exist_ok=True)
+    secret_file.write_text(new_secret)
+    secret_file.chmod(0o600)
     return new_secret
 
 
@@ -408,6 +403,10 @@ def launcher_api_call(
     This uses the launcher_secret which has elevated privileges for
     session management operations.
 
+    In local mode the gateway ports are published to localhost.
+    In GHA (``ctx.publish_ports is False``) the gateway is reached
+    directly via its container IP on the isolated network.
+
     Args:
         endpoint: API endpoint path (e.g., "/api/v1/sessions/create")
         method: HTTP method (GET, POST, or DELETE)
@@ -417,7 +416,12 @@ def launcher_api_call(
     Returns:
         Tuple of (success, response_data)
     """
-    url = f"http://localhost:{GATEWAY_PORT}{endpoint}"
+    ctx = get_context()
+    if ctx.publish_ports:
+        host = "localhost"
+    else:
+        host = ctx.gateway_isolated_ip
+    url = f"http://{host}:{ctx.gateway_port}{endpoint}"
     secret = get_launcher_secret()
 
     headers = {
@@ -599,8 +603,9 @@ def is_gateway_running() -> bool:
     Returns:
         True if gateway container is running, False otherwise
     """
+    ctx = get_context()
     result = subprocess.run(
-        ["docker", "container", "inspect", "-f", "{{.State.Running}}", GATEWAY_CONTAINER_NAME],
+        ["docker", "container", "inspect", "-f", "{{.State.Running}}", ctx.gateway_container_name],
         capture_output=True,
         text=True,
         check=False,
@@ -610,9 +615,10 @@ def is_gateway_running() -> bool:
 
 def gateway_image_exists() -> bool:
     """Check if gateway Docker image exists."""
+    ctx = get_context()
     return (
         subprocess.run(
-            ["docker", "image", "inspect", GATEWAY_IMAGE_NAME], capture_output=True, check=False
+            ["docker", "image", "inspect", ctx.gateway_image], capture_output=True, check=False
         ).returncode
         == 0
     )
@@ -658,7 +664,7 @@ def build_gateway_image(force: bool = False) -> bool:
             "docker",
             "build",
             "-t",
-            GATEWAY_IMAGE_NAME,
+            get_context().gateway_image,
             "--label",
             f"{GATEWAY_BUILD_HASH_LABEL}={build_hash}",
             "-f",
@@ -694,10 +700,15 @@ def wait_for_gateway_health(timeout: int = 30, check_proxy: bool = True) -> bool
     import urllib.error
     import urllib.request
 
-    # Use container name for health check since we're on the same network
-    # But during startup from host, we need to use localhost or check via docker exec
-    health_url = f"http://localhost:{GATEWAY_PORT}/api/v1/health"
-    proxy_url = f"http://localhost:{GATEWAY_PROXY_PORT}"
+    ctx = get_context()
+    # In local mode, gateway ports are published to localhost.
+    # In GHA, reach the gateway via its container IP.
+    if ctx.publish_ports:
+        host = "localhost"
+    else:
+        host = ctx.gateway_isolated_ip
+    health_url = f"http://{host}:{ctx.gateway_port}/api/v1/health"
+    proxy_url = f"http://{host}:{ctx.gateway_proxy_port}"
 
     start_time = time.time()
     api_healthy = False
@@ -765,10 +776,15 @@ def start_gateway_container() -> bool:
     5. Connects to both networks (dual-homed)
     6. Waits for health check
 
+    When ``ctx.skip_build`` is True (GHA), the image build step is
+    skipped and the pre-pulled image is used directly.
+
     Returns:
         True if gateway is healthy, False otherwise
     """
     from .docker import ensure_gateway_networks
+
+    ctx = get_context()
 
     # Quick health check - if gateway is running and healthy, verify hash
     if is_gateway_running():
@@ -793,13 +809,15 @@ def start_gateway_container() -> bool:
         return False
 
     # Build/update gateway image (handles hash check internally)
-    if not build_gateway_image():
-        error("Failed to build gateway image")
-        return False
+    # Skip when images are pre-pulled (GHA)
+    if not ctx.skip_build:
+        if not build_gateway_image():
+            error("Failed to build gateway image")
+            return False
 
     # Stop existing gateway container if running
     subprocess.run(
-        ["docker", "rm", "-f", GATEWAY_CONTAINER_NAME],
+        ["docker", "rm", "-f", ctx.gateway_container_name],
         capture_output=True,
         check=False,
     )
@@ -814,21 +832,27 @@ def start_gateway_container() -> bool:
         "run",
         "-d",
         "--name",
-        GATEWAY_CONTAINER_NAME,
+        ctx.gateway_container_name,
         "--network",
-        EGG_ISOLATED_NETWORK,
+        ctx.isolated_network,
         "--ip",
-        GATEWAY_ISOLATED_IP,
+        ctx.gateway_isolated_ip,
         "--security-opt",
         "label=disable",
-        "-p",
-        f"{GATEWAY_PORT}:{GATEWAY_PORT}",
-        "-p",
-        f"{GATEWAY_PROXY_PORT}:{GATEWAY_PROXY_PORT}",
     ]
+
+    # Publish ports to localhost only in local mode
+    if ctx.publish_ports:
+        cmd.extend([
+            "-p",
+            f"{ctx.gateway_port}:{ctx.gateway_port}",
+            "-p",
+            f"{ctx.gateway_proxy_port}:{ctx.gateway_proxy_port}",
+        ])
+
     cmd.extend(env_args)
     cmd.extend(mounts)
-    cmd.append(GATEWAY_IMAGE_NAME)
+    cmd.append(ctx.gateway_image)
 
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
@@ -843,9 +867,9 @@ def start_gateway_container() -> bool:
             "network",
             "connect",
             "--ip",
-            GATEWAY_EXTERNAL_IP,
-            EGG_EXTERNAL_NETWORK,
-            GATEWAY_CONTAINER_NAME,
+            ctx.gateway_external_ip,
+            ctx.external_network,
+            ctx.gateway_container_name,
         ],
         capture_output=True,
         text=True,
@@ -855,7 +879,7 @@ def start_gateway_container() -> bool:
         error(f"Failed to connect gateway to external network: {result.stderr}")
         # Clean up
         subprocess.run(
-            ["docker", "rm", "-f", GATEWAY_CONTAINER_NAME], capture_output=True, check=False
+            ["docker", "rm", "-f", ctx.gateway_container_name], capture_output=True, check=False
         )
         return False
 
@@ -864,11 +888,32 @@ def start_gateway_container() -> bool:
     if not wait_for_gateway_health(timeout=30, check_proxy=True):
         error("Gateway failed to become healthy")
         error("")
-        error("Check logs: docker logs egg-gateway")
+        error(f"Check logs: docker logs {ctx.gateway_container_name}")
         return False
 
     success("Gateway started successfully")
     return True
+
+
+def cleanup_gateway() -> None:
+    """Stop and remove the gateway container and ephemeral networks.
+
+    Called during cleanup of ephemeral (GHA) runs.
+    """
+    from .docker import teardown_networks
+
+    ctx = get_context()
+    subprocess.run(
+        ["docker", "stop", "-t", "5", ctx.gateway_container_name],
+        capture_output=True,
+        check=False,
+    )
+    subprocess.run(
+        ["docker", "rm", "-f", ctx.gateway_container_name],
+        capture_output=True,
+        check=False,
+    )
+    teardown_networks()
 
 
 def _prepare_gateway_config() -> tuple[list[str], list[str]]:
@@ -877,9 +922,10 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     Returns:
         Tuple of (mount_args, env_args) lists for docker run
     """
+    ctx = get_context()
     home_dir = str(Path.home())
-    config_file = Config.REPOS_CONFIG_FILE
-    config_dir = Config.USER_CONFIG_DIR
+    config_file = ctx.config_dir / "repositories.yaml"
+    config_dir = ctx.config_dir
     repos_dir = Path.home() / "repos"
     worktrees_dir = Path.home() / ".egg-worktrees"
     state_dir = Path.home() / ".egg-state"

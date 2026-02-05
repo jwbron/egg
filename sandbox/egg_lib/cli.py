@@ -1,15 +1,18 @@
 """CLI argument parsing and entry point for egg.
 
-This module contains the main() function and argument parser setup.
+This module contains the main() function and argument parser setup,
+plus the ``gha_exec()`` entry point for GitHub Actions.
 """
 
 import argparse
+import os
 import shutil
 
 # Import statusbar for initialization
 from statusbar import init_statusbar
 
 from .config import Config
+from .context import RuntimeContext, set_context
 from .docker import check_docker, check_docker_permissions, set_force_rebuild
 from .network_mode import (
     PrivateMode,
@@ -184,3 +187,85 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
         return 1
 
     return 0
+
+
+def gha_exec() -> int:
+    """Entry point for GitHub Actions — called by ``action/entrypoint.sh``.
+
+    Reads configuration from ``EGG_*`` environment variables (set by the
+    action shell script) and orchestrates the full GHA flow:
+
+    1. Build ``RuntimeContext`` from environment
+    2. Create networks (dynamic subnet allocation)
+    3. Start gateway container (pre-built image)
+    4. Detect mode from ``GITHUB_EVENT_REPOSITORY_VISIBILITY``
+    5. Build claude command from ``INPUT_PROMPT``, ``INPUT_MODEL``, etc.
+    6. Execute in ephemeral container via ``exec_in_new_container()``
+    7. Cleanup (ephemeral flag triggers gateway + network teardown)
+
+    Returns:
+        Exit code (0 = success)
+    """
+    from .docker import ensure_gateway_networks
+    from .gateway import start_gateway_container as start_gw
+
+    # 1. Build context from environment
+    ctx = RuntimeContext.from_environment()
+    set_context(ctx)
+
+    # Verbose output for CI logs
+    set_quiet_mode(False)
+
+    info("GHA exec: starting orchestration")
+    info(f"  gateway_image={ctx.gateway_image}")
+    info(f"  sandbox_image={ctx.sandbox_image}")
+    info(f"  isolated_network={ctx.isolated_network}")
+    info(f"  external_network={ctx.external_network}")
+    info(f"  ephemeral={ctx.ephemeral}")
+
+    # 2. Create networks (dynamic subnets when "auto")
+    if not ensure_gateway_networks():
+        error("Failed to create gateway networks")
+        return 1
+
+    # 3. Start gateway container
+    if not start_gw():
+        error("Failed to start gateway container")
+        return 1
+
+    # 4. Detect mode
+    mode_input = os.environ.get("INPUT_MODE", "auto")
+    if mode_input == "auto":
+        repo_vis = os.environ.get("GITHUB_EVENT_REPOSITORY_VISIBILITY", "public")
+        mode = "private" if repo_vis in ("private", "internal") else "public"
+        info(f"Auto-detected mode: {mode} (visibility={repo_vis})")
+    else:
+        mode = mode_input
+        info(f"Configured mode: {mode}")
+
+    # 5. Build claude command
+    prompt = os.environ.get("INPUT_PROMPT", "")
+    model = os.environ.get("INPUT_MODEL", "opus")
+    timeout = int(os.environ.get("INPUT_TIMEOUT", "30"))
+
+    command = [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--print",
+        "--verbose",
+        "--output-format",
+        "stream-json",
+        "--model",
+        model,
+        prompt,
+    ]
+
+    # 6. Execute
+    success_flag = exec_in_new_container(
+        command=command,
+        timeout_minutes=timeout,
+        auth_mode="oauth-token",
+        repo_mode=mode,
+    )
+
+    return 0 if success_flag else 1

@@ -73,7 +73,7 @@ user_mode:
 
 local_repos:
   paths:
-    - /home/egg/repos/${REPO_NAME}
+    - ${GITHUB_WORKSPACE}
 YAML
 
 # ---------------------------------------------------------------------------
