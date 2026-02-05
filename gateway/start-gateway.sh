@@ -27,8 +27,8 @@ GATEWAY_EXTERNAL_IP="172.33.0.2"
 # This file contains sensitive environment variables like GITHUB_USER_TOKEN
 SECRETS_ENV_FILE="$HOME_DIR/.config/egg/secrets.env"
 if [ -f "$SECRETS_ENV_FILE" ]; then
-    # shellcheck source=/dev/null
     set -a  # Automatically export all variables
+    # shellcheck source=/dev/null
     source "$SECRETS_ENV_FILE"
     set +a
 fi

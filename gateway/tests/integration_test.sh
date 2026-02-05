@@ -80,7 +80,8 @@ get_auth_header() {
 
 # Make authenticated curl request
 auth_curl() {
-    local auth=$(get_auth_header)
+    local auth
+    auth=$(get_auth_header)
     if [[ -n "$auth" ]]; then
         curl -s -H "Authorization: $auth" "$@"
     else
