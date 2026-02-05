@@ -146,6 +146,9 @@ GIT_EMAIL="${EGG_USER_GIT_EMAIL:-egg@example.com}"
 
 if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; then
     echo "Dropping privileges to UID=$HOST_UID GID=$HOST_GID"
+    # Defense-in-depth fallback: the passwd entry created below is the primary
+    # mechanism that makes gosu resolve HOME=/home/egg, but we export it here
+    # too in case the useradd/passwd lookup fails for any reason.
     export HOME=/home/egg
 
     # Ensure the target UID has a passwd entry pointing to /home/egg.
