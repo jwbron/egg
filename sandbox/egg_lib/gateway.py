@@ -824,11 +824,25 @@ def start_gateway_container() -> bool:
                     if len(running_containers) > 5:
                         warn(f"  ... and {len(running_containers) - 5} more")
                     warn("")
-                    warn("Stop running sandboxes first, or use --rebuild to force.")
-                    # Return True anyway - gateway is still functional
-                    if wait_for_gateway_health(timeout=15, check_proxy=True):
-                        info("Skipping rebuild - existing gateway will be used")
+                    warn(
+                        "Rebuilding the gateway will restart it and all running egg"
+                        " instances will lose access to GitHub and outside networks."
+                    )
+                    try:
+                        response = input("Proceed with gateway rebuild? (y/n): ").strip().lower()
+                    except (EOFError, KeyboardInterrupt):
+                        response = "n"
+                    if response != "y":
+                        warn(
+                            "Skipping gateway rebuild. There are no guarantees"
+                            " everything will work with the existing gateway."
+                        )
+                        # Return True anyway - gateway container is still running
+                        if wait_for_gateway_health(timeout=15, check_proxy=True):
+                            return True
+                        warn("Existing gateway is not healthy")
                         return True
+                    info("Proceeding with gateway rebuild...")
                 else:
                     info(f"Gateway rebuild needed: {reason}")
 
