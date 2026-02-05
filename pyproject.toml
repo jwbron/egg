@@ -89,8 +89,15 @@ ignore_missing_imports = true
 skips = ["B102", "B104", "B108", "B201", "B310", "B602"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "gateway/tests"]
 addopts = "-v --cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing"
+
+[tool.coverage.run]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/conftest.py",
+]
 
 [build-system]
 requires = ["hatchling"]

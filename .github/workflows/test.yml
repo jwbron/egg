@@ -26,10 +26,10 @@ jobs:
 
       - name: Run unit tests
         run: |
-          .venv/bin/pytest tests/ -v \
+          PYTHONPATH=shared:gateway .venv/bin/pytest tests/ gateway/tests/ -v \
             --cov=gateway --cov=shared --cov=sandbox \
             --cov-report=term-missing \
-            --cov-fail-under=20
+            --cov-fail-under=50
 
   integration:
     name: Integration Tests
