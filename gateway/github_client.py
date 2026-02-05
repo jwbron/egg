@@ -119,6 +119,10 @@ GH_API_ALLOWED_PATHS = [
     re.compile(r"^repos/[^/]+/[^/]+/releases/\d+$"),  # Specific release
     re.compile(r"^repos/[^/]+/[^/]+/releases/latest$"),  # Latest release
     re.compile(r"^repos/[^/]+/[^/]+/releases/tags/[^/]+$"),  # Release by tag
+    # Reactions
+    re.compile(r"^repos/[^/]+/[^/]+/issues/\d+/reactions$"),  # Issue reactions
+    re.compile(r"^repos/[^/]+/[^/]+/issues/comments/\d+/reactions$"),  # Comment reactions
+    re.compile(r"^repos/[^/]+/[^/]+/pulls/comments/\d+/reactions$"),  # PR review comment reactions
     # User info
     re.compile(r"^user$"),  # Current user
     re.compile(r"^users/[^/]+$"),  # User info

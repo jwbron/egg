@@ -1,0 +1,125 @@
+name: "egg: Respond to @mention"
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened]
+
+jobs:
+  respond:
+    name: Run egg
+    runs-on: ubuntu-latest
+    if: >-
+      (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@james-in-a-box')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@james-in-a-box')) ||
+        (github.event_name == 'issues' && contains(github.event.issue.body, '@james-in-a-box'))
+      ) &&
+      github.event.sender.login == 'jwbron' &&
+      github.event.sender.login != 'james-in-a-box' &&
+      github.event.sender.login != 'james-in-a-box[bot]'
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    concurrency:
+      group: egg-mention-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Acknowledge with reaction
+        env:
+          GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ "${{ github.event_name }}" == "issues" ]]; then
+            # React to the issue itself
+            gh api \
+              repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/reactions \
+              -X POST -f content='eyes'
+          elif [[ "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+            # React to the PR review comment
+            gh api \
+              repos/${{ github.repository }}/pulls/comments/${{ github.event.comment.id }}/reactions \
+              -X POST -f content='eyes'
+          else
+            # React to the issue/PR comment
+            gh api \
+              repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+              -X POST -f content='eyes'
+          fi
+
+      - name: Determine checkout ref
+        id: ref
+        run: |
+          if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+            # Check if this is a PR comment by looking for pull_request in the issue
+            PR_URL="${{ github.event.issue.pull_request.url }}"
+            if [[ -n "$PR_URL" && "$PR_URL" != "null" ]]; then
+              # It's a PR comment — fetch the head ref
+              PR_NUMBER="${{ github.event.issue.number }}"
+              PR_DATA=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER} --jq '.head.ref')
+              echo "ref=${PR_DATA}" >> "$GITHUB_OUTPUT"
+              echo "is_pr=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "ref=main" >> "$GITHUB_OUTPUT"
+              echo "is_pr=false" >> "$GITHUB_OUTPUT"
+            fi
+          elif [[ "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+            echo "ref=${{ github.event.pull_request.head.ref }}" >> "$GITHUB_OUTPUT"
+            echo "is_pr=true" >> "$GITHUB_OUTPUT"
+          else
+            # issues (opened)
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+            echo "is_pr=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Build prompt
+        id: prompt
+        run: bash action/build-mention-prompt.sh
+        env:
+          BOT_USERNAME: james-in-a-box
+
+      - name: Run egg
+        id: egg
+        uses: jwbron/egg@main
+        with:
+          prompt: ${{ steps.prompt.outputs.prompt }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-github-token: ${{ secrets.BOT_GITHUB_TOKEN }}
+          bot-username: james-in-a-box
+
+      - name: Post result comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
+            BODY="egg finished successfully. [View run logs](${RUN_URL})"
+          else
+            BODY="egg run failed (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
+          fi
+
+          # Determine where to post the comment
+          if [[ "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+            ISSUE_NUMBER="${{ github.event.pull_request.number }}"
+          else
+            ISSUE_NUMBER="${{ github.event.issue.number }}"
+          fi
+
+          gh api repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments \
+            -X POST -f body="${BODY}"

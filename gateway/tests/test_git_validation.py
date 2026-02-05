@@ -387,6 +387,28 @@ class TestGhApiPathValidation:
         )
         assert valid is True
 
+    def test_issue_reactions_allowed(self):
+        """Issue reactions endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path("repos/owner/repo/issues/123/reactions")
+        assert valid is True
+        assert error == ""
+
+    def test_issue_comment_reactions_allowed(self):
+        """Issue comment reactions endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/issues/comments/456/reactions"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_pr_review_comment_reactions_allowed(self):
+        """PR review comment reactions endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/pulls/comments/789/reactions"
+        )
+        assert valid is True
+        assert error == ""
+
     def test_pr_number_must_be_numeric(self):
         """PR number must be numeric."""
         valid, error = github_client.validate_gh_api_path("repos/owner/repo/pulls/abc")

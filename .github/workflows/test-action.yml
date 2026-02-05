@@ -87,7 +87,7 @@ jobs:
 
       - name: Run shellcheck on action scripts
         run: |
-          shellcheck --severity=warning action/entrypoint.sh action/generate-config.sh
+          shellcheck --severity=warning action/entrypoint.sh action/generate-config.sh action/build-mention-prompt.sh
 
   integration-test:
     name: Integration Test
