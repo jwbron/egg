@@ -150,11 +150,31 @@ fork_policy = _load_module_with_replaced_imports(
     },
 )
 
+# git_client has no relative imports to other gateway modules
+git_client = _load_module_with_replaced_imports(
+    "git_client",
+    GATEWAY_DIR / "git_client.py",
+)
+
+# anthropic_credentials has no relative imports to other gateway modules
+anthropic_credentials = _load_module_with_replaced_imports(
+    "anthropic_credentials",
+    GATEWAY_DIR / "anthropic_credentials.py",
+)
+
+# worktree_manager has no relative imports to other gateway modules
+worktree_manager = _load_module_with_replaced_imports(
+    "worktree_manager",
+    GATEWAY_DIR / "worktree_manager.py",
+)
+
 # gateway imports from all
 gateway = _load_module_with_replaced_imports(
     "gateway",
     GATEWAY_DIR / "gateway.py",
     import_replacements={
+        "from .anthropic_credentials import": "from anthropic_credentials import",
+        "from .git_client import": "from git_client import",
         "from .github_client import": "from github_client import",
         "from .policy import": "from policy import",
         "from .private_repo_policy import": "from private_repo_policy import",
@@ -162,6 +182,7 @@ gateway = _load_module_with_replaced_imports(
         "from .session_manager import": "from session_manager import",
         "from .rate_limiter import": "from rate_limiter import",
         "from .repo_visibility import": "from repo_visibility import",
+        "from .worktree_manager import": "from worktree_manager import",
     },
 )
 

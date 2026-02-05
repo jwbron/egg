@@ -643,7 +643,7 @@ def git_execute() -> tuple[Response, int] | Response:
 
     Supported operations: status, add, commit, log, diff, show, branch,
     checkout, switch, reset, restore, stash, merge, rebase, cherry-pick,
-    tag, clean, config, rev-parse, remote
+    tag, clean, config, rev-parse, remote, apply, format-patch
 
     Network operations (push, fetch, ls-remote) should use dedicated endpoints.
     """
@@ -752,9 +752,13 @@ def git_execute() -> tuple[Response, int] | Response:
     # Operations that support --no-verify:
     # - commit: pre-commit, prepare-commit-msg, commit-msg, post-commit
     # - merge: pre-merge-commit, prepare-commit-msg, commit-msg, post-merge
-    # - cherry-pick: prepare-commit-msg, commit-msg
     # - am: pre-applypatch, applypatch-msg, post-applypatch
-    if operation in ("commit", "merge", "cherry-pick", "am"):
+    #
+    # Note: cherry-pick is NOT included here. While git 2.36+ added --no-verify
+    # for cherry-pick, older versions (including 2.34) reject it with a usage error.
+    # The primary protection (core.hooksPath=/dev/null) already covers cherry-pick.
+    # See issue #118.
+    if operation in ("commit", "merge", "am"):
         validated_args = ["--no-verify", *validated_args]
 
     # Build command

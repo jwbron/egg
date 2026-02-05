@@ -743,7 +743,7 @@ case "$cmd" in
         fi
         ;;
 
-    status|log|diff|show|branch|rev-parse)
+    status|log|diff|show|branch|rev-parse|format-patch)
         # Read operations
         extra_args=()
         for arg in "${args_after_globals[@]}"; do
@@ -752,6 +752,38 @@ case "$cmd" in
         done
         execute_via_gateway "$cmd" "$git_work_dir" "${extra_args[@]}"
         exit $?
+        ;;
+
+    am|apply)
+        # Patch operations - need special handling for file paths.
+        # The gateway runs on the host and can only access files inside the
+        # repo (via worktree mapping). Files outside the repo (e.g. /tmp)
+        # are not accessible. We detect such file args, copy them into
+        # the repo, and use relative paths so the gateway can find them.
+        extra_args=()
+        temp_files=()
+        for arg in "${args_after_globals[@]}"; do
+            [ "$arg" = "$cmd" ] && continue
+            if [[ "$arg" == -* ]]; then
+                # Flags pass through
+                extra_args+=("$arg")
+            elif [ -f "$arg" ] && [[ "$(realpath "$arg" 2>/dev/null)" != "$git_work_dir"* ]]; then
+                # File exists but is outside the repo - copy into repo
+                tmpname=".egg-patch-tmp-$$-$(basename "$arg")"
+                cp "$arg" "$git_work_dir/$tmpname"
+                extra_args+=("$tmpname")
+                temp_files+=("$git_work_dir/$tmpname")
+            else
+                extra_args+=("$arg")
+            fi
+        done
+        execute_via_gateway "$cmd" "$git_work_dir" "${extra_args[@]}"
+        rc=$?
+        # Clean up any temp files copied into the repo
+        for tf in "${temp_files[@]}"; do
+            rm -f "$tf"
+        done
+        exit $rc
         ;;
 
     add|commit|checkout|switch|reset|restore|stash|merge|rebase|cherry-pick|tag|clean)
@@ -792,9 +824,9 @@ case "$cmd" in
         echo ""
         echo "Supported operations:"
         echo "  Network: push, fetch, pull, ls-remote"
-        echo "  Read: status, log, diff, show, branch, rev-parse, config"
+        echo "  Read: status, log, diff, show, branch, rev-parse, config, format-patch"
         echo "  Write: add, commit, checkout, switch, reset, restore, stash,"
-        echo "         merge, rebase, cherry-pick, tag, clean"
+        echo "         merge, rebase, cherry-pick, tag, clean, am, apply"
         echo ""
         echo "Blocked operations: clone, init, remote set-url/add/remove"
         echo ""

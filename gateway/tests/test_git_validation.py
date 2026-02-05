@@ -179,6 +179,54 @@ class TestGitArgsValidation:
         assert "origin" in args
         assert "main" in args
 
+    def test_apply_allowed_flags(self):
+        """git apply accepts its allowed flags."""
+        valid, error, args = git_client.validate_git_args(
+            "apply", ["--check", "--stat", "--3way", "patch.diff"]
+        )
+        assert valid is True
+        assert error == ""
+        assert "--check" in args
+        assert "patch.diff" in args
+
+    def test_apply_rejects_unknown_flags(self):
+        """git apply rejects unknown flags."""
+        valid, error, _ = git_client.validate_git_args("apply", ["--exec=evil"])
+        assert valid is False
+        assert "not allowed" in error
+
+    def test_apply_file_paths_pass_through(self):
+        """git apply passes file path arguments through."""
+        valid, error, args = git_client.validate_git_args(
+            "apply", ["--verbose", "fix.patch"]
+        )
+        assert valid is True
+        assert "fix.patch" in args
+
+    def test_format_patch_allowed_flags(self):
+        """git format-patch accepts its allowed flags."""
+        valid, error, args = git_client.validate_git_args(
+            "format-patch", ["--stdout", "HEAD~1"]
+        )
+        assert valid is True
+        assert error == ""
+        assert "--stdout" in args
+        assert "HEAD~1" in args
+
+    def test_format_patch_rejects_unknown_flags(self):
+        """git format-patch rejects unknown flags."""
+        valid, error, _ = git_client.validate_git_args("format-patch", ["--exec=evil"])
+        assert valid is False
+        assert "not allowed" in error
+
+    def test_format_patch_output_directory(self):
+        """git format-patch accepts -o flag for output directory."""
+        valid, error, args = git_client.validate_git_args(
+            "format-patch", ["-o", "/tmp/patches", "HEAD~3"]
+        )
+        assert valid is True
+        assert "-o" in args
+
 
 class TestFlagNormalization:
     """Tests for normalize_flag function."""

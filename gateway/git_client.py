@@ -584,6 +584,52 @@ GIT_ALLOWED_COMMANDS = {
             "-q",
         ],
     },
+    "apply": {
+        "allowed_flags": [
+            "--stat",
+            "--numstat",
+            "--summary",
+            "--check",
+            "--index",
+            "--cached",
+            "--3way",
+            "--reverse",
+            "--reject",
+            "--verbose",
+            "--quiet",
+            "--whitespace",
+            "--directory",
+            "--unidiff-zero",
+            "-p",
+            "-v",
+            "-R",
+            "-3",
+            "-q",
+        ],
+    },
+    "format-patch": {
+        "allowed_flags": [
+            "--stdout",
+            "--output-directory",
+            "--numbered",
+            "--start-number",
+            "--no-numbered",
+            "--keep-subject",
+            "--signoff",
+            "--cover-letter",
+            "--quiet",
+            "--no-stat",
+            "--stat",
+            "--notes",
+            "--base",
+            "-o",
+            "-n",
+            "-N",
+            "-k",
+            "-s",
+            "-q",
+        ],
+    },
     "tag": {
         "allowed_flags": [
             "--list",
@@ -776,11 +822,16 @@ def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[
             continue
 
         # Handle numeric flags like -3, -10 (shorthand for --max-count=N)
-        # These are only valid for 'log' operation
+        # These are valid for 'log' and 'format-patch' operations
         if re.match(r"^-\d+$", arg):
             if operation == "log" and "--max-count" in allowed_flags:
                 # Convert -N to --max-count=N for consistency
                 normalized.append(f"--max-count={arg[1:]}")
+                i += 1
+                continue
+            elif operation == "format-patch":
+                # format-patch uses -N to specify number of commits
+                normalized.append(arg)
                 i += 1
                 continue
             else:
