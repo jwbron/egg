@@ -106,7 +106,7 @@ jobs:
           grep -q "END RSA PRIVATE KEY" "$CONFIG_DIR/github-app.pem"
           LINE_COUNT=$(wc -l < "$CONFIG_DIR/github-app.pem")
           if [[ "$LINE_COUNT" -lt 3 ]]; then
-            echo "ERROR: PEM should have multiple lines after \\n normalization, got $LINE_COUNT"
+            printf "ERROR: PEM should have multiple lines after \\n normalization, got %s\n" "$LINE_COUNT"
             exit 1
           fi
 
