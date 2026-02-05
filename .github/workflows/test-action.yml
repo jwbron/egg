@@ -33,11 +33,13 @@ jobs:
           cat "$CONFIG_DIR/repositories.yaml"
 
           # Verify required fields use actual GHA context values
-          grep -q "github_username: ${GITHUB_ACTOR}" "$CONFIG_DIR/repositories.yaml"
-          grep -q "bot_username: egg" "$CONFIG_DIR/repositories.yaml"
-          grep -q "${GITHUB_REPOSITORY}" "$CONFIG_DIR/repositories.yaml"
-          grep -q "auth_mode: user" "$CONFIG_DIR/repositories.yaml"
-          grep -q "/home/egg/repos/${REPO_NAME}" "$CONFIG_DIR/repositories.yaml"
+          # Use -F for fixed string matching — GITHUB_ACTOR may contain
+          # regex-special characters (e.g., "app[bot]")
+          grep -qF "github_username: ${GITHUB_ACTOR}" "$CONFIG_DIR/repositories.yaml"
+          grep -qF "bot_username: egg" "$CONFIG_DIR/repositories.yaml"
+          grep -qF "${GITHUB_REPOSITORY}" "$CONFIG_DIR/repositories.yaml"
+          grep -qF "auth_mode: user" "$CONFIG_DIR/repositories.yaml"
+          grep -qF "/home/egg/repos/${REPO_NAME}" "$CONFIG_DIR/repositories.yaml"
 
           echo "=== Validating secrets.env ==="
           # Don't cat secrets, just verify they exist
