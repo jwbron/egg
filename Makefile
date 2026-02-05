@@ -24,7 +24,7 @@ YAMLLINT := $(VENV_BIN)/yamllint
         lint-container-paths lint-boundary lint-gh-cli lint-claude-imports \
         security \
         build \
-        ci ci-lint ci-test ci-integration ci-security
+        _require-act ci ci-lint ci-test ci-integration ci-security
 
 # Default target
 help:
@@ -76,6 +76,9 @@ setup: venv
 	@$(VENV_BIN)/pre-commit install || true
 	@echo ""
 	@echo "Setup complete! Run 'make help' to see available commands."
+	@echo ""
+	@echo "Note: 'make lint' requires shellcheck, hadolint, and other system tools."
+	@echo "Run 'make check-linters' to verify, or 'make install-linters' for install help."
 
 # Ensure venv exists and has dev dependencies
 venv:
@@ -369,7 +372,7 @@ build:
 # CI targets (via act, for GitHub Actions parity)
 # ============================================================================
 
-ci:
+_require-act:
 	@if ! command -v act >/dev/null 2>&1; then \
 		echo "ERROR: act is not installed."; \
 		echo "Install with:"; \
@@ -377,32 +380,18 @@ ci:
 		echo "  Linux: curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b ~/.local/bin"; \
 		exit 1; \
 	fi
+
+ci: _require-act
 	act push
 
-ci-lint:
-	@if ! command -v act >/dev/null 2>&1; then \
-		echo "ERROR: act is not installed. See 'make ci' for install instructions."; \
-		exit 1; \
-	fi
+ci-lint: _require-act
 	act -j lint
 
-ci-test:
-	@if ! command -v act >/dev/null 2>&1; then \
-		echo "ERROR: act is not installed. See 'make ci' for install instructions."; \
-		exit 1; \
-	fi
+ci-test: _require-act
 	act -j unit
 
-ci-integration:
-	@if ! command -v act >/dev/null 2>&1; then \
-		echo "ERROR: act is not installed. See 'make ci' for install instructions."; \
-		exit 1; \
-	fi
+ci-integration: _require-act
 	act -j integration
 
-ci-security:
-	@if ! command -v act >/dev/null 2>&1; then \
-		echo "ERROR: act is not installed. See 'make ci' for install instructions."; \
-		exit 1; \
-	fi
+ci-security: _require-act
 	act -j security
