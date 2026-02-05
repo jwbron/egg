@@ -1048,7 +1048,7 @@ def gh_pr_create():
 
     Policy:
         - Bot mode: allowed (egg can create PRs)
-        - Incognito mode: blocked (user must create PRs manually via GitHub UI)
+        - User mode: blocked (user must create PRs manually via GitHub UI)
     """
     data = request.get_json()
     if not data:

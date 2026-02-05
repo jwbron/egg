@@ -27,14 +27,14 @@ class GitHubConfig(BaseConfig):
     Attributes:
         token: Primary GitHub token for API access
         readonly_token: Optional read-only token for public repos
-        incognito_token: Optional token for personal account attribution
+        user_mode_token: Optional token for personal account attribution
         username: GitHub username (for egg identity)
         token_expires_at: Token expiration time (for GitHub App tokens)
     """
 
     token: str = ""
     readonly_token: str = ""
-    incognito_token: str = ""
+    user_mode_token: str = ""
     username: str = "egg"
     token_expires_at: datetime | None = None
 
@@ -69,11 +69,11 @@ class GitHubConfig(BaseConfig):
             if not is_valid:
                 warnings.append(f"readonly_token: {error}")
 
-        # Incognito token is optional but must be valid if provided
-        if self.incognito_token:
-            is_valid, error = validate_github_token(self.incognito_token)
+        # User mode token is optional but must be valid if provided
+        if self.user_mode_token:
+            is_valid, error = validate_github_token(self.user_mode_token)
             if not is_valid:
-                warnings.append(f"incognito_token: {error}")
+                warnings.append(f"user_mode_token: {error}")
 
         if errors:
             return ValidationResult.invalid(errors, warnings)
@@ -142,7 +142,7 @@ class GitHubConfig(BaseConfig):
         result: dict[str, Any] = {
             "token": mask_secret(self.token),
             "readonly_token": mask_secret(self.readonly_token),
-            "incognito_token": mask_secret(self.incognito_token),
+            "user_mode_token": mask_secret(self.user_mode_token),
             "username": self.username,
         }
         if self.token_expires_at:
@@ -208,9 +208,9 @@ class GitHubConfig(BaseConfig):
             secrets.get("GITHUB_READONLY_TOKEN", ""),
         )
 
-        config.incognito_token = os.environ.get(
-            "GITHUB_INCOGNITO_TOKEN",
-            secrets.get("GITHUB_INCOGNITO_TOKEN", ""),
+        config.user_mode_token = os.environ.get(
+            "GITHUB_USER_TOKEN",
+            secrets.get("GITHUB_USER_TOKEN", ""),
         )
 
         # Load username from repo config

@@ -76,7 +76,7 @@ def _write_secrets_env(secrets_dict: dict[str, str]) -> None:
     categories = {
         "Claude Authentication": ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
         "GitHub App": ["GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID"],
-        "GitHub Tokens": ["GITHUB_TOKEN", "GITHUB_READONLY_TOKEN", "GITHUB_INCOGNITO_TOKEN"],
+        "GitHub Tokens": ["GITHUB_TOKEN", "GITHUB_READONLY_TOKEN", "GITHUB_USER_TOKEN"],
     }
 
     written_keys: set[str] = set()
@@ -374,7 +374,7 @@ def _create_repositories_config() -> bool:
         },
         "readable_repos": [],
         "repo_settings": {},
-        "incognito": {},
+        "user_mode": {},
         "local_repos": {
             "paths": local_repo_paths,
         },

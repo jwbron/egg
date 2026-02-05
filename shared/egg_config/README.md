@@ -82,7 +82,7 @@ GATEWAY_SECRET="your-gateway-secret"
 
 | Config | Purpose | Key Fields |
 |--------|---------|------------|
-| `GitHubConfig` | GitHub API access | `token`, `readonly_token`, `incognito_token` |
+| `GitHubConfig` | GitHub API access | `token`, `readonly_token`, `user_mode_token` |
 | `GatewayConfig` | Gateway sidecar auth | `secret`, `port` |
 | `LLMConfig` | LLM provider settings | `anthropic_api_key`, `model` |
 

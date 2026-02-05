@@ -55,7 +55,7 @@ COPY gateway/*.py ./
 COPY shared/egg_logging/ ./egg_logging/
 COPY shared/egg_config/ ./egg_config/
 
-# Copy config module (repo_config needed by github_client for incognito mode)
+# Copy config module (repo_config needed by github_client for user mode)
 COPY config/repo_config.py /config/
 
 # Copy Squid configuration for network lockdown

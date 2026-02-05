@@ -72,37 +72,37 @@ readable_repos:
 #     Default: false (auto-fix enabled)
 #   - auth_mode: Authentication mode for this repo
 #     "bot" (default): Use GitHub App bot identity
-#     "incognito": Use personal access token with user identity
+#     "user": Use personal access token with user identity
 repo_settings:
   # Example:
   # YOUR_USERNAME/egg:
   #   restrict_to_configured_users: true
   #   disable_auto_fix: true
   # some-org/external-repo:
-  #   auth_mode: incognito  # Use personal identity for this repo
+  #   auth_mode: user  # Use personal identity for this repo
 
-# Incognito mode configuration (optional)
-# When auth_mode is set to "incognito" for a repo, operations will be
+# User mode configuration (optional)
+# When auth_mode is set to "user" for a repo, operations will be
 # attributed to this personal GitHub account instead of the egg bot.
 # This is useful for contributing to external repos where bot accounts
 # may not be appropriate.
 #
-# To use incognito mode:
-# 1. Set GITHUB_INCOGNITO_TOKEN in secrets.env (a PAT for your personal account)
-# 2. Configure the incognito section below with your GitHub username
-# 3. Set auth_mode: incognito for repos that should use it
+# To use user mode:
+# 1. Set GITHUB_USER_TOKEN in secrets.env (a PAT for your personal account)
+# 2. Configure the user_mode section below with your GitHub username
+# 3. Set auth_mode: user for repos that should use it
 # 4. Configure your LOCAL git with your name/email:
 #      git config user.name "Your Name"
 #      git config user.email "your@email.com"
 #    (Git author info is set at commit time, not push time)
 #
-# Incognito mode permissions:
+# User mode permissions:
 # - CAN push to new branches (that don't exist upstream yet)
-# - CAN push to branches with an open PR owned by egg or the incognito user
+# - CAN push to branches with an open PR owned by egg or the user mode user
 # - CANNOT push to main/master (protected branches)
 # - CANNOT create PRs (you must create PRs manually via GitHub UI)
 # This ensures the human maintains control over what PRs are opened in their name.
-incognito:
+user_mode:
   # GitHub username for attribution (must match the PAT owner)
   # github_user: your-username
   # Git author info (for documentation - configure locally with git config)
