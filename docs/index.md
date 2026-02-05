@@ -27,7 +27,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | Document | Description |
 |----------|-------------|
 | [Setup Overview](setup/README.md) | Installation and configuration summary |
-| [Slack Quickstart](setup/slack-quickstart.md) | Get Slack notifications working quickly |
 | [Slack App Setup](setup/slack-app-setup.md) | Detailed Slack app configuration |
 | [GitHub App Setup](setup/github-app-setup.md) | GitHub App permissions and installation |
 
@@ -36,7 +35,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | Document | Description |
 |----------|-------------|
 | [Features - Source Mapping](FEATURES.md) | Map of all features to their implementation locations |
-| [Slack Quick Reference](reference/slack-quick-reference.md) | Common Slack operations and commands |
 | [Log Persistence](reference/log-persistence.md) | Container log persistence and correlation |
 
 ### Development
@@ -63,7 +61,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Task Type | Read First | Also Helpful |
 |-----------|------------|--------------|
-| **Slack integration changes** | [Slack Integration](architecture/slack-integration.md) | [Slack Quick Reference](reference/slack-quick-reference.md) |
+| **Slack integration changes** | [Slack Integration](architecture/slack-integration.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
 | **Adding new host services** | [Architecture Overview](architecture/README.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
 | **Security-related changes** | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) | [Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
 
