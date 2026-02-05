@@ -33,6 +33,7 @@ from .config import (
     GATEWAY_PROXY_PORT,
     Config,
 )
+from .docker import get_force_rebuild
 from .output import error, info, success, warn
 
 # Launcher secret file location (for session and worktree management)
@@ -785,7 +786,7 @@ def wait_for_gateway_health(timeout: int = 30, check_proxy: bool = True) -> bool
     return False
 
 
-def start_gateway_container() -> bool:
+def start_gateway_container(interactive: bool = False) -> bool:
     """Ensure the gateway sidecar is running and up-to-date.
 
     This function manages the complete gateway lifecycle:
@@ -795,6 +796,10 @@ def start_gateway_container() -> bool:
     4. Starts container with proper mounts and environment
     5. Connects to both networks (dual-homed)
     6. Waits for health check
+
+    Args:
+        interactive: If True (non-exec mode), prompt the user before
+            rebuilding when sessions are active. If False, just warn.
 
     Returns:
         True if gateway is healthy, False otherwise
@@ -812,25 +817,48 @@ def start_gateway_container() -> bool:
                     return True
                 # Proxy not working - need to restart
                 warn("Gateway API healthy but proxy not responding, restarting...")
-            else:
-                # Rebuild needed - check for running sandboxes
-                running_containers = _get_running_egg_containers()
-                if running_containers:
-                    warn(
-                        f"Gateway rebuild needed ({reason}) but {len(running_containers)} sandbox(es) running:"
-                    )
-                    for name in running_containers[:5]:  # Show max 5
-                        warn(f"  - {name}")
-                    if len(running_containers) > 5:
-                        warn(f"  ... and {len(running_containers) - 5} more")
-                    warn("")
-                    warn("Stop running sandboxes first, or use --rebuild to force.")
-                    # Return True anyway - gateway is still functional
-                    if wait_for_gateway_health(timeout=15, check_proxy=True):
-                        info("Skipping rebuild - existing gateway will be used")
-                        return True
+            elif not get_force_rebuild():
+                # Rebuild needed but not forced — redeploying the gateway
+                # terminates all open sessions, so ask or warn first.
+                running = _get_running_egg_containers()
+                session_count = len(running)
+
+                if interactive:
+                    # Interactive mode: prompt the user
+                    warn(f"Gateway rebuild needed ({reason}).")
+                    if session_count > 0:
+                        warn(
+                            f"There {'is' if session_count == 1 else 'are'} "
+                            f"{session_count} active session(s) that will be "
+                            f"terminated by a rebuild."
+                        )
+                    else:
+                        warn("Rebuilding will restart the gateway container.")
+                    try:
+                        answer = input("Rebuild gateway now? (y/n): ").strip().lower()
+                    except (EOFError, KeyboardInterrupt):
+                        answer = "n"
+                    if answer == "y":
+                        info(f"Gateway rebuild needed: {reason}")
+                        # Fall through to rebuild
+                    else:
+                        if wait_for_gateway_health(timeout=15, check_proxy=True):
+                            info("Skipping rebuild — existing gateway will be used.")
+                            return True
+                        error("Existing gateway is not healthy. Re-run with --rebuild to force.")
+                        return False
                 else:
-                    info(f"Gateway rebuild needed: {reason}")
+                    # Non-interactive (exec) mode: warn and skip
+                    warn(f"Gateway rebuild needed ({reason}).")
+                    if session_count > 0:
+                        warn(f"{session_count} active session(s) would be terminated by a rebuild.")
+                    warn("Run 'egg --rebuild' when ready to redeploy.")
+                    if wait_for_gateway_health(timeout=15, check_proxy=True):
+                        return True
+                    error("Existing gateway is not healthy. Run 'egg --rebuild' to redeploy.")
+                    return False
+            else:
+                info(f"Gateway rebuild needed: {reason}")
 
     # Ensure networks exist
     if not ensure_gateway_networks():
