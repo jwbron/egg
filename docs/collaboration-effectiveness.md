@@ -70,9 +70,19 @@ Traditional AI coding tools leave safety as a human responsibility — developer
 
 This shifts the reviewer's job from defensive auditing to quality assessment. You stop asking "could this agent do something dangerous?" and start asking "is this output correct?" — which is a better use of engineering time and a more sustainable model as AI-generated code volume increases.
 
-### Structured verification
+### Why async work stays high quality
 
-A separate agent invocation — with its own context window — reviews the implementing agent's work ([#133](https://github.com/jwbron/egg/issues/133)). The implementing agent cannot mark its own work as complete. If the review cycle doesn't converge, the agent stops and escalates to a human rather than burning tokens. Work is broken into phases of ~1-2k lines, keeping PRs digestible for human reviewers.
+The natural concern with async AI work is: if nobody is watching, how do you trust the output? Prompt instructions alone aren't enough — agents can run out of context mid-task, mark their own work as done without real verification, or spin on a broken approach indefinitely. egg addresses this with structural mechanisms, not behavioral ones.
+
+**Independent verification** ([#133](https://github.com/jwbron/egg/issues/133)). A separate agent invocation — with its own context window and instructions — reviews the implementing agent's work. The reviewer can't be influenced by the implementer's reasoning because it literally doesn't share a context. The implementing agent cannot mark its own work as complete; only the review agent can flip that flag. This is the async equivalent of pair programming, but with a guaranteed-independent second opinion.
+
+**Circuit breakers prevent wasted effort.** If the implement-review cycle doesn't converge after a configurable number of attempts, the agent stops, documents what's blocking it, and escalates to a human. This prevents the failure mode where an unsupervised agent burns hours of compute on an approach that won't work — a real risk with async execution where nobody is watching in real time.
+
+**Small batches keep work reviewable.** Implementation is broken into phases of ~1-2k lines of change, each independently verified before the next begins. This means the PR that lands on a reviewer's desk is digestible, and any mistake has limited blast radius. It also means the agent's context stays fresh — no single invocation has to hold an entire large feature in memory.
+
+**Multi-perspective automated review** ([#134](https://github.com/jwbron/egg/issues/134)). Beyond the implementation-verification loop, specialized review bots catch issues that a single reviewer — human or AI — would miss. A security reviewer flags vulnerabilities. A standards enforcer checks adherence to team ADRs. Most notably, a *bounded-context reviewer* deliberately operates without internal project knowledge, catching assumptions and documentation gaps from an outsider's perspective. When you can't read the agent's docs and the code still makes sense, that's a signal it will make sense to the next engineer who encounters it.
+
+These mechanisms compound. The implementing agent writes code. An independent agent verifies it. Specialized reviewers check it from multiple angles. The entire chain is visible in the PR timeline. By the time a human reviewer sees the PR, the most common failure modes — incomplete implementation, standard violations, undocumented assumptions — have already been caught.
 
 ## When egg Is (and Isn't) a Good Fit
 
