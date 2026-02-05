@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y \
     openssl \
     # gosu for dropping privileges (Squid needs root start, gateway needs non-root)
     gosu \
+    # procps provides pgrep/pkill for process management and health checks
+    procps \
     && \
     curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
     dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \

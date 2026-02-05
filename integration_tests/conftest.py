@@ -100,7 +100,14 @@ class EggStack:
             },
             timeout=10,
         )
-        return resp.json()
+        try:
+            return resp.json()
+        except requests.exceptions.JSONDecodeError:
+            return {
+                "success": False,
+                "message": f"Non-JSON response (HTTP {resp.status_code})",
+                "data": {},
+            }
 
     def delete_session(self, session_token: str) -> dict[str, Any]:
         """Delete a session via the gateway API."""
