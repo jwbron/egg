@@ -12,6 +12,9 @@ import pytest  # noqa: F401 (used by caplog fixture)
 from llm.claude.runner import (
     _BUFFER_WARNING_THRESHOLD,
     _READ_CHUNK_SIZE,
+    _classify_error,
+    _extract_model_from_event,
+    _extract_text_from_event,
     _read_lines_unbuffered,
 )
 
@@ -204,6 +207,219 @@ class TestBufferWarningThreshold:
             assert len(lines) == 2
             # Warning should have been logged once
             assert caplog.text.count("Stream buffer exceeded") == 1
+
+
+class TestClassifyError:
+    """Tests for _classify_error function."""
+
+    def test_auth_failure_invalid_api_key(self):
+        """Detect invalid_api_key in stderr."""
+        result = _classify_error(1, "Error: invalid_api_key provided")
+        assert result == "Authentication failed"
+
+    def test_auth_failure_authentication(self):
+        """Detect authentication keyword in stderr."""
+        result = _classify_error(1, "Authentication error occurred")
+        assert result == "Authentication failed"
+
+    def test_auth_case_insensitive(self):
+        """Auth detection is case-insensitive."""
+        result = _classify_error(1, "INVALID_API_KEY")
+        assert result == "Authentication failed"
+
+    def test_rate_limited_keyword(self):
+        """Detect rate_limit in stderr."""
+        result = _classify_error(1, "rate_limit exceeded")
+        assert result == "Rate limited"
+
+    def test_rate_limited_429(self):
+        """Detect HTTP 429 in stderr."""
+        result = _classify_error(1, "HTTP error 429: too many requests")
+        assert result == "Rate limited"
+
+    def test_model_not_available(self):
+        """Detect model not found in stderr."""
+        result = _classify_error(1, "model claude-4 not found")
+        assert result == "Model not available"
+
+    def test_permission_denied(self):
+        """Detect permission error in stderr."""
+        result = _classify_error(1, "Permission denied for this resource")
+        assert result == "Permission denied"
+
+    def test_fallback_with_stderr(self):
+        """Fall back to stderr content when no pattern matches."""
+        result = _classify_error(1, "Some unknown error")
+        assert result == "Some unknown error"
+
+    def test_fallback_truncates_long_stderr(self):
+        """Truncate long stderr to 500 chars."""
+        long_msg = "x" * 1000
+        result = _classify_error(1, long_msg)
+        assert len(result) == 500
+
+    def test_fallback_empty_stderr(self):
+        """Use exit code when stderr is empty."""
+        result = _classify_error(42, "")
+        assert result == "Exit code 42"
+
+    def test_priority_auth_over_rate_limit(self):
+        """Auth check comes before rate limit check."""
+        result = _classify_error(1, "invalid_api_key rate_limit")
+        assert result == "Authentication failed"
+
+
+class TestExtractTextFromEvent:
+    """Tests for _extract_text_from_event function."""
+
+    def test_assistant_text_block(self):
+        """Extract text from assistant message content block."""
+        event = {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "text", "text": "Hello world"}],
+            },
+        }
+        assert _extract_text_from_event(event) == "Hello world"
+
+    def test_assistant_multiple_text_blocks(self):
+        """Multiple text blocks joined with newlines."""
+        event = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "text", "text": "Part 1"},
+                    {"type": "text", "text": "Part 2"},
+                ],
+            },
+        }
+        assert _extract_text_from_event(event) == "Part 1\nPart 2"
+
+    def test_assistant_thinking_block(self):
+        """Extract thinking block content."""
+        event = {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "thinking", "thinking": "Let me think..."}],
+            },
+        }
+        result = _extract_text_from_event(event)
+        assert result == "[Thinking: Let me think...]"
+
+    def test_assistant_thinking_no_content(self):
+        """Thinking block with '(no content)' is skipped."""
+        event = {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "thinking", "thinking": "(no content)"}],
+            },
+        }
+        assert _extract_text_from_event(event) is None
+
+    def test_assistant_empty_content(self):
+        """Empty content list returns None."""
+        event = {
+            "type": "assistant",
+            "message": {"content": []},
+        }
+        assert _extract_text_from_event(event) is None
+
+    def test_result_event(self):
+        """Extract result from result event."""
+        event = {"type": "result", "result": "Task completed successfully"}
+        assert _extract_text_from_event(event) == "Task completed successfully"
+
+    def test_result_event_empty(self):
+        """Empty result returns None."""
+        event = {"type": "result", "result": ""}
+        assert _extract_text_from_event(event) is None
+
+    def test_unknown_event_type(self):
+        """Unknown event type returns None."""
+        event = {"type": "unknown", "data": "something"}
+        assert _extract_text_from_event(event) is None
+
+    def test_no_type(self):
+        """Missing type returns None."""
+        event = {"data": "something"}
+        assert _extract_text_from_event(event) is None
+
+    def test_assistant_text_block_empty_text(self):
+        """Text block with empty text is skipped."""
+        event = {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "text", "text": ""}],
+            },
+        }
+        assert _extract_text_from_event(event) is None
+
+    def test_mixed_text_and_thinking(self):
+        """Mixed text and thinking blocks."""
+        event = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "thinking", "thinking": "Hmm"},
+                    {"type": "text", "text": "Answer"},
+                ],
+            },
+        }
+        result = _extract_text_from_event(event)
+        assert "[Thinking: Hmm]" in result
+        assert "Answer" in result
+
+
+class TestExtractModelFromEvent:
+    """Tests for _extract_model_from_event function."""
+
+    def test_system_init_event(self):
+        """Extract model from system init event."""
+        event = {"type": "system", "subtype": "init", "model": "claude-sonnet-4-20250514"}
+        result = _extract_model_from_event(event, None)
+        assert result == "claude-sonnet-4-20250514"
+
+    def test_system_init_no_model(self):
+        """System init without model returns current_model."""
+        event = {"type": "system", "subtype": "init"}
+        result = _extract_model_from_event(event, "existing-model")
+        assert result == "existing-model"
+
+    def test_system_non_init(self):
+        """Non-init system event returns current_model."""
+        event = {"type": "system", "subtype": "other", "model": "claude-sonnet-4-20250514"}
+        result = _extract_model_from_event(event, "current")
+        assert result == "current"
+
+    def test_assistant_event_with_model(self):
+        """Extract model from assistant message."""
+        event = {
+            "type": "assistant",
+            "message": {"model": "claude-opus-4-20250514"},
+        }
+        result = _extract_model_from_event(event, None)
+        assert result == "claude-opus-4-20250514"
+
+    def test_assistant_same_model_returns_current(self):
+        """Same model as current returns current_model."""
+        event = {
+            "type": "assistant",
+            "message": {"model": "claude-sonnet-4-20250514"},
+        }
+        result = _extract_model_from_event(event, "claude-sonnet-4-20250514")
+        assert result == "claude-sonnet-4-20250514"
+
+    def test_unknown_event_returns_current(self):
+        """Unknown event type returns current_model."""
+        event = {"type": "result", "result": "done"}
+        result = _extract_model_from_event(event, "my-model")
+        assert result == "my-model"
+
+    def test_none_current_model(self):
+        """Returns None when no model found and current is None."""
+        event = {"type": "result"}
+        result = _extract_model_from_event(event, None)
+        assert result is None
 
 
 class TestConstants:

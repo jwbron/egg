@@ -92,6 +92,14 @@ skips = ["B102", "B104", "B108", "B201", "B310", "B602"]
 testpaths = ["tests"]
 addopts = "-v --cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing"
 
+[tool.coverage.run]
+omit = [
+    "gateway/tests/*",
+    "*/test_*.py",
+    "*/tests/*",
+    "*/conftest.py",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
