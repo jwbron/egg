@@ -161,14 +161,11 @@ egg start --config egg.yaml --private
 
 ```bash
 make setup           # Set up development environment
-make lint            # Run all linters
-make test            # Run all tests
-make security        # Run security scan (bandit)
-
-# CI parity (via act, same as GitHub Actions)
-make ci              # Run full CI pipeline locally
-make ci-lint         # Run lint job via act
-make ci-test         # Run unit test job via act
+make lint            # Run all linters (via act)
+make test            # Run all tests (via act)
+make security        # Run security scan (via act)
+make ci              # Run full CI pipeline (via act)
+make lint-fix        # Auto-fix lint issues (native)
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.

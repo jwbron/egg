@@ -63,6 +63,13 @@ jobs:
           hadolint --config .hadolint.yaml gateway/Dockerfile
           hadolint --config .hadolint.yaml sandbox/Dockerfile
 
+      # ---- GitHub Actions ----
+
+      - name: Actionlint
+        run: |
+          bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint
+
       # ---- Custom lint scripts ----
 
       - name: Check container paths

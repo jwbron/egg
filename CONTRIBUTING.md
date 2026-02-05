@@ -20,7 +20,18 @@ Thank you for your interest in contributing to egg!
    - Creates a virtual environment with all dependencies (via uv)
    - Installs pre-commit hooks
 
-3. **Verify the setup**
+3. **Install act** for running CI locally
+   ```bash
+   # macOS
+   brew install act
+
+   # Linux
+   curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b ~/.local/bin
+   ```
+
+   See [act documentation](https://github.com/nektos/act) for details.
+
+4. **Verify the setup**
    ```bash
    make lint
    make test
@@ -35,21 +46,23 @@ The `Makefile` is the single entry point for all development tasks:
 | Command | What it does | Notes |
 |---------|--------------|-------|
 | `make setup` | Install dependencies and pre-commit hooks | Run once after cloning |
-| `make lint` | Run all linters | Ruff, shellcheck, yamllint, hadolint, custom checks |
-| `make lint-fix` | Auto-fix lint issues | Ruff format, shfmt, YAML whitespace |
-| `make test` | Run all tests | Main tests + gateway tests |
-| `make security` | Run security scan | Bandit |
-| `make ci` | Run full CI pipeline | Via act, same as GitHub Actions |
-| `make ci-lint` | Run lint job | Via act |
-| `make ci-test` | Run unit test job | Via act |
+| `make lint` | Run all linters | Via act, same as GitHub Actions |
+| `make test` | Run all tests | Via act, same as GitHub Actions |
+| `make security` | Run security scan | Via act, same as GitHub Actions |
+| `make ci` | Run full CI pipeline | Via act, all jobs |
+| `make lint-fix` | Auto-fix lint issues | Native (ruff format, shfmt, YAML whitespace) |
 
 Run `make help` for the full list of targets.
 
 ### CI/Local Parity
 
-**GitHub Actions workflows are the single source of truth.** Use `make ci` to run the full CI pipeline locally via [act](https://github.com/nektos/act), guaranteeing that what passes locally will pass in CI.
+**GitHub Actions workflows are the single source of truth.** All `make lint`, `make test`, and `make security` targets delegate to the workflows via [act](https://github.com/nektos/act), guaranteeing that what passes locally will pass in CI.
 
-For fast iteration, native targets (`make lint`, `make test`) run checks directly without Docker overhead.
+For quick one-off checks without Docker overhead, use the venv directly:
+```bash
+.venv/bin/ruff check .
+.venv/bin/pytest tests/test_python_syntax.py -v
+```
 
 ### Code Style
 
@@ -72,13 +85,10 @@ Coverage requirements:
 
 Run tests:
 ```bash
-# All tests
+# All tests (via act, CI parity)
 make test
 
-# Via act (CI parity)
-make ci-test
-
-# Specific test file
+# Specific test file (native, faster)
 .venv/bin/pytest tests/test_python_syntax.py -v
 ```
 
