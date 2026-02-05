@@ -2,7 +2,7 @@
 
 import json
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -122,7 +122,7 @@ class TestProxyStats:
     def test_anomaly_detection_below_threshold(self):
         """No anomaly when below threshold."""
         stats = ProxyStats(alert_threshold=10, window_minutes=5)
-        for i in range(5):
+        for _ in range(5):
             req = BlockedRequest(
                 timestamp=datetime.utcnow(),
                 client_ip="10.0.0.1",
@@ -139,7 +139,7 @@ class TestProxyStats:
         """Alert sent when threshold reached."""
         stats = ProxyStats(alert_threshold=3, window_minutes=5)
         with patch.object(stats, "_send_alert") as mock_alert:
-            for i in range(3):
+            for _ in range(3):
                 req = BlockedRequest(
                     timestamp=datetime.utcnow(),
                     client_ip="10.0.0.1",

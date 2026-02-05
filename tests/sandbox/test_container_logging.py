@@ -2,12 +2,7 @@
 
 import json
 import os
-import re
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from egg_lib.container_logging import (
     extract_task_id_from_command,
@@ -73,7 +68,7 @@ class TestGetDockerLogConfig:
         # Find the label
         label_idx = [i for i, a in enumerate(args) if a == "--label"]
         labels = [args[i + 1] for i in label_idx]
-        assert any("egg.container_id=my-container" in l for l in labels)
+        assert any("egg.container_id=my-container" in label for label in labels)
 
     def test_task_id_label(self, tmp_path):
         """Config includes task ID label when provided."""
@@ -82,7 +77,7 @@ class TestGetDockerLogConfig:
 
         label_idx = [i for i, a in enumerate(args) if a == "--label"]
         labels = [args[i + 1] for i in label_idx]
-        assert any("egg.task_id=task-20251129-222239" in l for l in labels)
+        assert any("egg.task_id=task-20251129-222239" in label for label in labels)
 
     def test_no_task_id_label_when_none(self, tmp_path):
         """No task ID label when not provided."""
@@ -136,9 +131,7 @@ class TestExtractThreadTsFromTaskFile:
     def test_extract_unquoted(self, tmp_path):
         """Extract unquoted thread_ts."""
         task_file = tmp_path / "task.md"
-        task_file.write_text(
-            "---\nthread_ts: 1764483758.159619\n---\n"
-        )
+        task_file.write_text("---\nthread_ts: 1764483758.159619\n---\n")
         result = extract_thread_ts_from_task_file(str(task_file))
         assert result == "1764483758.159619"
 

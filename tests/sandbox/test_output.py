@@ -1,10 +1,6 @@
 """Tests for sandbox egg_lib output module."""
 
-import sys
-from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 from egg_lib.output import (
     error,

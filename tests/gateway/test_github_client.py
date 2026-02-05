@@ -4,8 +4,6 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 # Add gateway to path for imports
 gateway_path = Path(__file__).parent.parent.parent / "gateway"
 if str(gateway_path) not in sys.path:
@@ -231,9 +229,7 @@ class TestParseGhApiArgs:
 
     def test_jq_flag(self):
         """Skip -q/--jq flags."""
-        path, method = parse_gh_api_args(
-            ["repos/owner/repo/pulls", "--jq", ".[].number"]
-        )
+        path, method = parse_gh_api_args(["repos/owner/repo/pulls", "--jq", ".[].number"])
         assert path == "repos/owner/repo/pulls"
 
     def test_paginate_flag(self):
@@ -282,10 +278,13 @@ class TestParseGhApiArgs:
         """Complex real-world example."""
         path, method = parse_gh_api_args(
             [
-                "-X", "POST",
-                "-H", "Accept: application/vnd.github+json",
+                "-X",
+                "POST",
+                "-H",
+                "Accept: application/vnd.github+json",
                 "repos/owner/repo/issues/1/comments",
-                "-f", "body=Hello",
+                "-f",
+                "body=Hello",
             ]
         )
         assert path == "repos/owner/repo/issues/1/comments"
@@ -334,8 +333,7 @@ class TestExtractRepoFromGhApiPath:
     def test_deeply_nested_path(self):
         """Extract from deeply nested path."""
         assert (
-            extract_repo_from_gh_api_path("repos/myorg/myrepo/pulls/42/comments")
-            == "myorg/myrepo"
+            extract_repo_from_gh_api_path("repos/myorg/myrepo/pulls/42/comments") == "myorg/myrepo"
         )
 
 
@@ -371,16 +369,12 @@ class TestExtractRepoFromGhCommand:
 
     def test_api_command(self):
         """Extract from gh api path."""
-        result = extract_repo_from_gh_command(
-            ["api", "repos/owner/repo/pulls"]
-        )
+        result = extract_repo_from_gh_command(["api", "repos/owner/repo/pulls"])
         assert result == "owner/repo"
 
     def test_api_with_flags(self):
         """Extract from gh api with flags."""
-        result = extract_repo_from_gh_command(
-            ["api", "-X", "GET", "repos/owner/repo/issues"]
-        )
+        result = extract_repo_from_gh_command(["api", "-X", "GET", "repos/owner/repo/issues"])
         assert result == "owner/repo"
 
     def test_empty_args(self):
@@ -549,9 +543,7 @@ class TestGitHubClient:
     def test_execute_success(self, mock_run, monkeypatch):
         """Successful command execution."""
         monkeypatch.setenv("GITHUB_USER_TOKEN", "ghp_test")
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="output data", stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout="output data", stderr="")
         client = GitHubClient(mode="user")
         result = client.execute(["pr", "list"])
         assert result.success is True
@@ -561,9 +553,7 @@ class TestGitHubClient:
     def test_execute_failure(self, mock_run, monkeypatch):
         """Failed command execution."""
         monkeypatch.setenv("GITHUB_USER_TOKEN", "ghp_test")
-        mock_run.return_value = MagicMock(
-            returncode=1, stdout="", stderr="not found"
-        )
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="not found")
         client = GitHubClient(mode="user")
         result = client.execute(["pr", "view", "999"])
         assert result.success is False
@@ -595,9 +585,7 @@ class TestGitHubClient:
     def test_execute_rate_limit_error(self, mock_run, monkeypatch):
         """Rate limit error is logged specifically."""
         monkeypatch.setenv("GITHUB_USER_TOKEN", "ghp_test")
-        mock_run.return_value = MagicMock(
-            returncode=1, stdout="", stderr="API rate limit exceeded"
-        )
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="API rate limit exceeded")
         client = GitHubClient(mode="user")
         result = client.execute(["api", "user"])
         assert result.success is False

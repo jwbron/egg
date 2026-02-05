@@ -1,13 +1,6 @@
 """Tests for shared egg_config configs (gateway, github, llm)."""
 
-import json
-import os
-import urllib.error
 from datetime import datetime, timedelta
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 from egg_config.configs.gateway import GatewayConfig, RateLimitConfig
 from egg_config.configs.github import GitHubConfig
@@ -192,16 +185,12 @@ class TestGitHubConfig:
 
     def test_is_token_expired(self):
         """is_token_expired property."""
-        config = GitHubConfig(
-            token_expires_at=datetime.now() - timedelta(hours=1)
-        )
+        config = GitHubConfig(token_expires_at=datetime.now() - timedelta(hours=1))
         assert config.is_token_expired is True
 
     def test_is_token_not_expired(self):
         """Token not expired."""
-        config = GitHubConfig(
-            token_expires_at=datetime.now() + timedelta(hours=1)
-        )
+        config = GitHubConfig(token_expires_at=datetime.now() + timedelta(hours=1))
         assert config.is_token_expired is False
 
     def test_no_expiration(self):
@@ -211,16 +200,12 @@ class TestGitHubConfig:
 
     def test_token_expires_soon(self):
         """token_expires_soon property."""
-        config = GitHubConfig(
-            token_expires_at=datetime.now() + timedelta(minutes=2)
-        )
+        config = GitHubConfig(token_expires_at=datetime.now() + timedelta(minutes=2))
         assert config.token_expires_soon is True
 
     def test_token_not_expiring_soon(self):
         """Token not expiring soon."""
-        config = GitHubConfig(
-            token_expires_at=datetime.now() + timedelta(hours=1)
-        )
+        config = GitHubConfig(token_expires_at=datetime.now() + timedelta(hours=1))
         assert config.token_expires_soon is False
 
     def test_to_dict_masks_tokens(self):

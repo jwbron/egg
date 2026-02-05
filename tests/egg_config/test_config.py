@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from egg_config.config import Config, get_local_repos, get_repos_config_file
 
 
@@ -60,9 +58,7 @@ class TestGetLocalRepos:
         repo2.mkdir()
 
         config_file = tmp_path / "repos.yaml"
-        config_file.write_text(
-            f"local_repos:\n  paths:\n    - {repo1}\n    - {repo2}\n"
-        )
+        config_file.write_text(f"local_repos:\n  paths:\n    - {repo1}\n    - {repo2}\n")
         result = get_local_repos(config_file)
         assert len(result) == 2
 
@@ -72,9 +68,7 @@ class TestGetLocalRepos:
         repo1.mkdir()
 
         config_file = tmp_path / "repos.yaml"
-        config_file.write_text(
-            f"local_repos:\n  paths:\n    - {repo1}\n    - /nonexistent/path\n"
-        )
+        config_file.write_text(f"local_repos:\n  paths:\n    - {repo1}\n    - /nonexistent/path\n")
         result = get_local_repos(config_file)
         assert len(result) == 1
 

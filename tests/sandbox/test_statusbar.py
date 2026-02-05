@@ -1,10 +1,7 @@
 """Tests for sandbox statusbar module."""
 
 import sys
-from io import StringIO
 from pathlib import Path
-
-import pytest
 
 # statusbar is in the sandbox directory
 sandbox_path = Path(__file__).parent.parent.parent / "sandbox"
@@ -13,8 +10,8 @@ if str(sandbox_path) not in sys.path:
 
 from statusbar import (
     StatusBar,
-    init_statusbar,
     get_statusbar,
+    init_statusbar,
     status,
     status_error,
     status_finish,

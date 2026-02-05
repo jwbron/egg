@@ -15,8 +15,6 @@ from egg_lib.gateway import (
     _hash_file,
     _load_secrets,
     _parse_git_mounts,
-    compute_gateway_build_hash,
-    should_rebuild_gateway,
 )
 
 
@@ -210,11 +208,7 @@ class TestGetUserGitConfig:
     def test_valid_config(self, tmp_path):
         """Extract git name and email from config."""
         config = tmp_path / "repos.yaml"
-        config.write_text(
-            "user_mode:\n"
-            "  git_name: Test User\n"
-            "  git_email: test@example.com\n"
-        )
+        config.write_text("user_mode:\n  git_name: Test User\n  git_email: test@example.com\n")
         name, email = _get_user_git_config(config)
         assert name == "Test User"
         assert email == "test@example.com"

@@ -193,7 +193,7 @@ class TestTokenRefresher:
         r = self._make_refresher()
         mock_post.return_value.raise_for_status.side_effect = Exception("HTTP 500")
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="HTTP 500"):
             r._refresh()
 
 

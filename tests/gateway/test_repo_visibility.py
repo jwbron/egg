@@ -5,17 +5,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 # Add gateway to path for imports
 gateway_path = Path(__file__).parent.parent.parent / "gateway"
 if str(gateway_path) not in sys.path:
     sys.path.insert(0, str(gateway_path))
 
 from repo_visibility import (
+    VALID_VISIBILITIES,
     CachedVisibility,
     RepoVisibilityChecker,
-    VALID_VISIBILITIES,
 )
 
 

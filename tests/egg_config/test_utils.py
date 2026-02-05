@@ -1,9 +1,5 @@
 """Tests for shared egg_config utils module."""
 
-from pathlib import Path
-
-import pytest
-
 from egg_config.utils import load_env_file, load_yaml_file, safe_bool, safe_int
 
 

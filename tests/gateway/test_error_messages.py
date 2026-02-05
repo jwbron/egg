@@ -3,8 +3,6 @@
 import sys
 from pathlib import Path
 
-import pytest
-
 # Add gateway to path for imports
 gateway_path = Path(__file__).parent.parent.parent / "gateway"
 if str(gateway_path) not in sys.path:
@@ -97,9 +95,7 @@ class TestGetErrorMessage:
     def test_verbose_visibility_unknown(self, monkeypatch):
         """Verbose visibility unknown includes hint."""
         monkeypatch.setenv("VERBOSE_ERRORS", "true")
-        msg = get_error_message(
-            "visibility_unknown", repo="owner/repo", hint="Check permissions"
-        )
+        msg = get_error_message("visibility_unknown", repo="owner/repo", hint="Check permissions")
         assert "owner/repo" in msg
         assert "Check permissions" in msg
 

@@ -1,10 +1,6 @@
 """Tests for sandbox egg_lib auth module."""
 
-import os
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from egg_lib.auth import (
     _read_secrets_env,

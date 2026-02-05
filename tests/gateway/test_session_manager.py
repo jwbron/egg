@@ -4,8 +4,6 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import pytest
-
 # Add gateway to path for imports
 gateway_path = Path(__file__).parent.parent.parent / "gateway"
 if str(gateway_path) not in sys.path:
@@ -83,16 +81,12 @@ class TestSession:
 
     def test_expired(self):
         """Expired session."""
-        session = self._make_session(
-            expires_at=datetime.now(UTC) - timedelta(hours=1)
-        )
+        session = self._make_session(expires_at=datetime.now(UTC) - timedelta(hours=1))
         assert session.is_expired() is True
 
     def test_extend_ttl(self):
         """Extending TTL updates last_seen and expires_at."""
-        session = self._make_session(
-            expires_at=datetime.now(UTC) + timedelta(hours=1)
-        )
+        session = self._make_session(expires_at=datetime.now(UTC) + timedelta(hours=1))
         old_expires = session.expires_at
         session.extend_ttl(hours=48)
         assert session.expires_at > old_expires
@@ -336,6 +330,7 @@ class TestSessionManager:
         old_expires = session.expires_at
 
         import time
+
         time.sleep(0.01)  # Small delay to ensure time difference
         mgr.validate_session(token)
         assert session.expires_at >= old_expires

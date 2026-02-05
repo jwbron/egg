@@ -2,9 +2,6 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 # Add gateway to path for imports
 gateway_path = Path(__file__).parent.parent.parent / "gateway"

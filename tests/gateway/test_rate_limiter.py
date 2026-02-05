@@ -1,11 +1,7 @@
 """Tests for gateway rate_limiter module."""
 
 import sys
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
-
-import pytest
 
 # Add gateway to path for imports
 gateway_path = Path(__file__).parent.parent.parent / "gateway"
