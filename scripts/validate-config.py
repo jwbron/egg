@@ -207,15 +207,15 @@ def run_api_health_checks(slack, github, jira, confluence):
     else:
         print(f"  ✗ Readonly token: {result['message']}")
 
-    # Test incognito token
-    result = test_github_token(github.incognito_token, "Incognito")
+    # Test user mode token
+    result = test_github_token(github.user_mode_token, "User mode")
     if result.get("skipped"):
-        print("  ⚠ Incognito token: Not configured")
+        print("  ⚠ User mode token: Not configured")
     elif result["healthy"]:
         latency = f" ({result['latency_ms']:.0f}ms)" if result.get("latency_ms") else ""
-        print(f"  ✓ Incognito token: {result['message']}{latency}")
+        print(f"  ✓ User mode token: {result['message']}{latency}")
     else:
-        print(f"  ✗ Incognito token: {result['message']}")
+        print(f"  ✗ User mode token: {result['message']}")
 
     # =========================================================================
     # JIRA Health Check
