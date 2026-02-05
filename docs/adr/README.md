@@ -31,13 +31,13 @@ ADRs are organized by implementation status:
 | ADR | Summary |
 |-----|---------|
 | [Autonomous Software Engineer](in-progress/ADR-Autonomous-Software-Engineer.md) | Core system architecture, security model, operating principles |
+| [GitHub Actions Support](in-progress/ADR-GitHub-Actions-Support.md) | Run egg as a GitHub Action with checked-out repo (#78, PR #111) |
 | [Internet Tool Access Lockdown](in-progress/ADR-Internet-Tool-Access-Lockdown.md) | Security restrictions on agent network access (Phase 1 implemented, Phase 2 planned) |
 
 ### Not Implemented
 
 | ADR | Summary |
 |-----|---------|
-| [GitHub Actions Support](not-implemented/ADR-GitHub-Actions-Support.md) | Run egg as a GitHub Action with checked-out repo (#78) |
 | [Per-Container Repository Mode](not-implemented/ADR-Per-Container-Repository-Mode.md) | Session-based per-container repository mode management |
 
 ## ADR Template

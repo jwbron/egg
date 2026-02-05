@@ -1,6 +1,6 @@
 # Implementation Plan: GitHub Actions Support
 
-**ADR:** [GitHub Actions Support](../adr/not-implemented/ADR-GitHub-Actions-Support.md)
+**ADR:** [GitHub Actions Support](../adr/in-progress/ADR-GitHub-Actions-Support.md)
 **Issue:** #78
 **ADR PR:** #98
 
