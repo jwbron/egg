@@ -729,18 +729,25 @@ def get_active_docker_containers() -> set[str]:
     return set()
 
 
-def startup_cleanup() -> int:
+def startup_cleanup(active_containers: set[str] | None = None) -> int:
     """
     Clean up orphaned worktrees on gateway startup.
 
     Should be called when the gateway starts to clean up worktrees
     from containers that may have crashed.
 
+    Args:
+        active_containers: Set of active container IDs whose worktrees are
+            preserved. Pass an empty set when no containers are active. When
+            None, falls back to querying Docker (which may not be available
+            inside the gateway container).
+
     Returns:
         Number of orphaned worktrees removed
     """
     manager = WorktreeManager()
-    active_containers = get_active_docker_containers()
+    if active_containers is None:
+        active_containers = get_active_docker_containers()
 
     logger.info(
         "Running startup worktree cleanup",
