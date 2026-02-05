@@ -2068,7 +2068,6 @@ Detailed implementation examples including:
 |-----|--------------|
 | [ADR-Autonomous-Software-Engineer](../in-progress/ADR-Autonomous-Software-Engineer.md) | Parent ADR - defines overall security model |
 | [ADR-Context-Sync-Strategy-Custom-vs-MCP](../implemented/ADR-Context-Sync-Strategy-Custom-vs-MCP.md) (PR #36) | MCP strategy affects how gateway integrates |
-| ADR-GCP-Deployment-Terraform (PR #44 refs) | Gateway must work in Cloud Run |
 
 ---
 

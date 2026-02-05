@@ -152,8 +152,7 @@ docs/
 ├── architecture/              # System design docs
 ├── development/               # Developer guides (like this file)
 ├── reference/                 # Quick reference guides
-├── setup/                     # Setup instructions
-└── user-guide/                # End-user documentation
+└── setup/                     # Setup instructions
 
 host-services/<service>/       # Component-specific docs
 └── README.md                  # Service documentation

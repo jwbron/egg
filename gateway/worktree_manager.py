@@ -21,6 +21,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists():
@@ -33,7 +34,7 @@ from egg_logging import get_logger
 try:
     from .git_client import git_cmd
 except ImportError:
-    from git_client import git_cmd
+    from git_client import git_cmd  # type: ignore[no-redef, import-not-found]
 
 
 logger = get_logger("gateway.worktree-manager")
@@ -566,14 +567,14 @@ class WorktreeManager:
 
         return False
 
-    def list_worktrees(self) -> list[dict]:
+    def list_worktrees(self) -> list[dict[str, Any]]:
         """
         List all active worktrees.
 
         Returns:
             List of worktree information dictionaries
         """
-        worktrees = []
+        worktrees: list[dict[str, Any]] = []
 
         if not self.worktree_base.exists():
             return worktrees
@@ -729,18 +730,25 @@ def get_active_docker_containers() -> set[str]:
     return set()
 
 
-def startup_cleanup() -> int:
+def startup_cleanup(active_containers: set[str] | None = None) -> int:
     """
     Clean up orphaned worktrees on gateway startup.
 
     Should be called when the gateway starts to clean up worktrees
     from containers that may have crashed.
 
+    Args:
+        active_containers: Set of active container IDs whose worktrees are
+            preserved. Pass an empty set when no containers are active. When
+            None, falls back to querying Docker (which may not be available
+            inside the gateway container).
+
     Returns:
         Number of orphaned worktrees removed
     """
     manager = WorktreeManager()
-    active_containers = get_active_docker_containers()
+    if active_containers is None:
+        active_containers = get_active_docker_containers()
 
     logger.info(
         "Running startup worktree cleanup",

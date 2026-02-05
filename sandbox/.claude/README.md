@@ -10,10 +10,6 @@ Slash commands available in Claude Code sessions.
 These are invoked with `/command-name` syntax.
 
 **Available commands:**
-- `/load-context` - Load accumulated knowledge
-- `/save-context` - Save session learnings
-- `/create-pr` - Generate PR description
-- `/update-confluence-doc` - Prepare Confluence updates
 - `/show-metrics` - Generate activity report
 
 ### rules/
@@ -25,18 +21,10 @@ These define how Claude operates within egg.
 - `mission.md` - Agent mission, workflow, and responsibilities
 - `environment.md` - Sandbox environment constraints
 
-**Context rules:**
-- `slack-thread-context.md` - Slack thread memory
-- `github-pr-context.md` - PR context tracking
-
 **Quality standards:**
 - `code-standards.md` - Tech stack and code standards
 - `pr-descriptions.md` - PR writing guidelines
-- `test-workflow.md` - Test discovery and execution
-
-**Communication:**
-- `notification-template.md` - Async notification formatting
-- `conversation-analysis-criteria.md` - Performance assessment
+- `test-workflow.md` - Test workflow and execution
 
 ## Usage
 
@@ -44,9 +32,7 @@ Claude Code automatically loads these files when running in the container.
 
 **Slash Commands:**
 ```
-/load-context my-project
-/save-context my-project
-/create-pr
+/show-metrics
 ```
 
 **Rules:**

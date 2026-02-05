@@ -80,7 +80,7 @@ def add_signature_to_comment(comment: str, include_trace_id: bool = False) -> st
     return f"{comment}\n\n{signature}"
 
 
-def get_workflow_context_dict() -> dict:
+def get_workflow_context_dict() -> dict[str, str]:
     """Get workflow context as a dictionary for structured outputs.
 
     Returns:

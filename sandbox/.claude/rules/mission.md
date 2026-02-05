@@ -33,7 +33,7 @@ Before complex tasks, consult `~/repos/egg/docs/index.md` for task-specific guid
 
 ### 1. Gather Context → 2. Plan → 3. Implement → 4. Test → 5. Commit & PR
 
-**Gather context**: `@load-context <project>`, `discover-tests ~/repos/<repo>`
+**Gather context**: Check `~/repos/egg/docs/index.md` for task-specific guides.
 
 **Git Worktrees**: You're already in an isolated worktree on a temp branch. Commit directly, then PR.
 
@@ -81,12 +81,6 @@ gh pr review <PR> --comment --body "Response to review comments"
 **Response format**: `**Agreed.** [what changed]` | `**Disagree.** [reasoning]`
 
 **You can disagree** - be respectful but firm when you have good reasons.
-
-### Complete Task
-
-```bash
-@save-context <project-name>
-```
 
 ## Git Safety
 

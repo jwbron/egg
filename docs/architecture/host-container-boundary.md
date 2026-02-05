@@ -65,6 +65,5 @@ A lint check in `.github/workflows/` or pre-commit hook should verify:
 
 ## See Also
 
-- `environment.md` - Container capabilities and limitations
+- [Environment rules](../../sandbox/.claude/rules/environment.md) - Container capabilities and limitations
 - `host-services/shared/egg_exec.py` - How to delegate to container
-- PR #387 - Example of what NOT to do (reverted)

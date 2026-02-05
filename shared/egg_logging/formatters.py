@@ -326,7 +326,7 @@ class ConsoleFormatter(logging.Formatter):
 
         return message
 
-    def _extract_extra(self, record: logging.LogRecord) -> dict:
+    def _extract_extra(self, record: logging.LogRecord) -> dict[str, Any]:
         """Extract extra fields that were passed to the log call."""
         extra = {}
         for key, value in record.__dict__.items():

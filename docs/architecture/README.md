@@ -13,6 +13,14 @@ Detailed Slack bidirectional messaging design.
 - Thread-based conversations
 - File watching and triggers
 
+### [Host-Container Security Boundary](host-container-boundary.md)
+Security boundary between host services and the egg container.
+
+**Covers:**
+- Why host services must not call Claude API directly
+- Correct pattern: delegate via `egg_exec`
+- Enforcement via lint checks
+
 ### [Host Slack Notifier](host-slack-notifier.md)
 Implementation details of the Slack notification system.
 

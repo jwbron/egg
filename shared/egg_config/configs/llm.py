@@ -43,7 +43,8 @@ class LLMConfig(BaseConfig):
         if auth_method == "api_key":
             is_valid, error = validate_non_empty(self.anthropic_api_key, "anthropic_api_key")
             if not is_valid:
-                errors.append(error)
+                if error is not None:
+                    errors.append(error)
             else:
                 is_valid, error = validate_anthropic_key(self.anthropic_api_key)
                 if not is_valid:

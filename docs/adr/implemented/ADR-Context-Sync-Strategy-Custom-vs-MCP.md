@@ -556,13 +556,13 @@ Due to the Checks API limitation (see Section 3), we recommend a **hybrid authen
 
 ### Phase 3: GCP Migration
 
-**Goal:** Ensure MCP works in Cloud Run environment (see [ADR-GCP-Deployment-Terraform](../not-implemented/ADR-GCP-Deployment-Terraform.md))
+**Goal:** Ensure MCP works in Cloud Run environment
 
 1. MCP servers work over network (no local file dependencies)
 2. OAuth token refresh works in stateless containers
 3. Confluence sync works with Cloud Storage mount
 4. Scheduled sync jobs (sync-confluence, sync-jira, sync-github) work via scheduled-job module
-5. Manual sync via `/sync` slash commands (see [ADR-Slack-Bot-GCP-Integration](../not-implemented/ADR-Slack-Bot-GCP-Integration.md))
+5. Manual sync via `/sync` slash commands
 
 **Success Criteria:** Full MCP functionality in Cloud Run environment
 
@@ -710,14 +710,7 @@ Initially rejected because "sandbox cannot receive inbound connections." However
 
 ## Related ADRs
 
-This ADR is part of a series defining the egg GCP deployment architecture:
-
-| ADR | Relationship to This ADR |
-|-----|-------------------------|
-| [ADR-Message-Queue-Slack-Integration](../not-implemented/ADR-Message-Queue-Slack-Integration.md) | Sync jobs use Pub/Sub to send notifications about sync status and errors |
-| [ADR-Slack-Integration-Strategy-MCP-vs-Custom](../not-implemented/ADR-Slack-Integration-Strategy-MCP-vs-Custom.md) | Parallel decision - MCP for Slack reading, similar hybrid approach |
-| [ADR-Slack-Bot-GCP-Integration](../not-implemented/ADR-Slack-Bot-GCP-Integration.md) | Defines `/sync` slash commands that trigger sync operations |
-| [ADR-GCP-Deployment-Terraform](../not-implemented/ADR-GCP-Deployment-Terraform.md) | Defines scheduled sync jobs (sync-confluence, sync-jira, sync-github) using scheduled-job module |
+This ADR is part of a series defining the egg deployment architecture.
 
 ## References
 
