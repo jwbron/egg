@@ -786,6 +786,54 @@ def wait_for_gateway_health(timeout: int = 30, check_proxy: bool = True) -> bool
     return False
 
 
+def _confirm_gateway_restart(interactive: bool, reason: str, action: str = "restart") -> bool:
+    """Prompt or warn before restarting the gateway.
+
+    In interactive mode, shows the number of active sessions and prompts
+    the user for confirmation.  In non-interactive mode, warns and returns
+    False so the caller can skip the restart.
+
+    Args:
+        interactive: Whether the user can be prompted (True for ``egg``,
+            False for ``egg --exec``).
+        reason: Human-readable explanation of why a restart is needed.
+        action: Verb describing the operation — ``"rebuild"`` when the
+            gateway image needs to be rebuilt, ``"restart"`` (default)
+            when only the container needs to be recycled.
+
+    Returns:
+        True if the restart should proceed, False to skip.
+    """
+    running = _get_running_egg_containers()
+    session_count = len(running)
+
+    if interactive:
+        warn(f"Gateway {action} needed ({reason}).")
+        if session_count > 0:
+            warn(
+                f"There {'is' if session_count == 1 else 'are'} "
+                f"{session_count} active session(s) that will be "
+                f"terminated by a {action}."
+            )
+        else:
+            warn(f"{action.capitalize()} will recreate the gateway container.")
+        try:
+            answer = input(f"{action.capitalize()} gateway now? (y/n): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = "n"
+        return answer == "y"
+
+    # Non-interactive (exec) mode: warn and skip
+    warn(f"Gateway {action} needed ({reason}).")
+    if session_count > 0:
+        warn(f"{session_count} active session(s) would be terminated by a {action}.")
+    if action == "rebuild":
+        warn("Run 'egg --rebuild' when ready to redeploy.")
+    else:
+        warn("Run 'egg' to restart the gateway.")
+    return False
+
+
 def start_gateway_container(interactive: bool = False) -> bool:
     """Ensure the gateway sidecar is running and up-to-date.
 
@@ -816,49 +864,28 @@ def start_gateway_container(interactive: bool = False) -> bool:
                 if wait_for_gateway_health(timeout=15, check_proxy=True):
                     return True
                 # Proxy not working - need to restart
-                warn("Gateway API healthy but proxy not responding, restarting...")
+                if not get_force_rebuild() and not _confirm_gateway_restart(
+                    interactive, "API healthy but proxy not responding"
+                ):
+                    return False
             elif not get_force_rebuild():
                 # Rebuild needed but not forced — redeploying the gateway
                 # terminates all open sessions, so ask or warn first.
-                running = _get_running_egg_containers()
-                session_count = len(running)
-
-                if interactive:
-                    # Interactive mode: prompt the user
-                    warn(f"Gateway rebuild needed ({reason}).")
-                    if session_count > 0:
-                        warn(
-                            f"There {'is' if session_count == 1 else 'are'} "
-                            f"{session_count} active session(s) that will be "
-                            f"terminated by a rebuild."
-                        )
-                    else:
-                        warn("Rebuilding will restart the gateway container.")
-                    try:
-                        answer = input("Rebuild gateway now? (y/n): ").strip().lower()
-                    except (EOFError, KeyboardInterrupt):
-                        answer = "n"
-                    if answer == "y":
-                        info(f"Gateway rebuild needed: {reason}")
-                        # Fall through to rebuild
-                    else:
-                        if wait_for_gateway_health(timeout=15, check_proxy=True):
-                            info("Skipping rebuild — existing gateway will be used.")
-                            return True
-                        error("Existing gateway is not healthy. Re-run with --rebuild to force.")
-                        return False
-                else:
-                    # Non-interactive (exec) mode: warn and skip
-                    warn(f"Gateway rebuild needed ({reason}).")
-                    if session_count > 0:
-                        warn(f"{session_count} active session(s) would be terminated by a rebuild.")
-                    warn("Run 'egg --rebuild' when ready to redeploy.")
+                if not _confirm_gateway_restart(interactive, reason, action="rebuild"):
                     if wait_for_gateway_health(timeout=15, check_proxy=True):
+                        info("Skipping rebuild — existing gateway will be used.")
                         return True
                     error("Existing gateway is not healthy. Run 'egg --rebuild' to redeploy.")
                     return False
+                info(f"Gateway rebuild needed: {reason}")
             else:
                 info(f"Gateway rebuild needed: {reason}")
+        else:
+            # Gateway container is running but API is not healthy
+            if not get_force_rebuild() and not _confirm_gateway_restart(
+                interactive, "gateway running but API not healthy"
+            ):
+                return False
 
     # Ensure networks exist
     if not ensure_gateway_networks():
