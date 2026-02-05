@@ -841,9 +841,12 @@ def start_gateway_container(interactive: bool = False) -> bool:
                     if answer == "y":
                         info(f"Gateway rebuild needed: {reason}")
                         # Fall through to rebuild
-                    elif wait_for_gateway_health(timeout=15, check_proxy=True):
-                        info("Skipping rebuild — existing gateway will be used.")
-                        return True
+                    else:
+                        if wait_for_gateway_health(timeout=15, check_proxy=True):
+                            info("Skipping rebuild — existing gateway will be used.")
+                            return True
+                        error("Existing gateway is not healthy. Re-run with --rebuild to force.")
+                        return False
                 else:
                     # Non-interactive (exec) mode: warn and skip
                     warn(f"Gateway rebuild needed ({reason}).")
@@ -852,6 +855,8 @@ def start_gateway_container(interactive: bool = False) -> bool:
                     warn("Run 'egg --rebuild' when ready to redeploy.")
                     if wait_for_gateway_health(timeout=15, check_proxy=True):
                         return True
+                    error("Existing gateway is not healthy. Run 'egg --rebuild' to redeploy.")
+                    return False
             else:
                 info(f"Gateway rebuild needed: {reason}")
 
