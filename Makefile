@@ -18,6 +18,7 @@ YAMLLINT := $(VENV_BIN)/yamllint
 .PHONY: help \
         setup venv install-linters check-linters \
         lint test security ci \
+        test-integration test-e2e test-security \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
         build \
         _require-act
@@ -38,6 +39,11 @@ help:
 	@echo "  make test               - Run all tests"
 	@echo "  make security           - Run security scan"
 	@echo "  make ci                 - Run full CI pipeline"
+	@echo ""
+	@echo "Integration tests (native, requires Docker):"
+	@echo "  make test-integration   - Run integration tests"
+	@echo "  make test-e2e           - Run E2E tests (requires API keys)"
+	@echo "  make test-security      - Run security/pentesting tests"
 	@echo ""
 	@echo "Auto-fix (native, modifies local files):"
 	@echo "  make lint-fix           - Auto-fix lint issues (ruff, shfmt, yaml)"
@@ -161,6 +167,19 @@ security: _require-act
 
 ci: _require-act
 	act push
+
+# ============================================================================
+# Integration tests (native — requires Docker)
+# ============================================================================
+
+test-integration: venv  ## Run integration tests (requires Docker)
+	PYTHONPATH=shared $(VENV_BIN)/pytest tests/integration -v -m integration --timeout=300
+
+test-e2e: venv  ## Run E2E tests (requires API keys)
+	PYTHONPATH=shared $(VENV_BIN)/pytest tests/integration -v -m e2e --timeout=600
+
+test-security: venv  ## Run security/pentesting tests
+	PYTHONPATH=shared $(VENV_BIN)/pytest tests/integration -v -m security --timeout=300
 
 # ============================================================================
 # Auto-fix (native — these modify local files, can't run via act)

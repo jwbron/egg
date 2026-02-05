@@ -37,6 +37,7 @@ jobs:
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest
+    needs: [unit]
     steps:
       - uses: actions/checkout@v4
 
@@ -51,13 +52,20 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
-      - name: Build containers
-        run: |
-          docker build -t egg-gateway -f gateway/Dockerfile . || true
-          docker build -t egg-sandbox -f sandbox/Dockerfile . || true
+      - name: Build gateway container
+        run: docker build -t egg-gateway -f gateway/Dockerfile .
 
-      - name: Run integration tests
-        run: .venv/bin/pytest tests/integration -v
+      - name: Run integration and security tests
+        run: |
+          PYTHONPATH=shared .venv/bin/pytest tests/integration -v \
+            -m "integration or security" \
+            --timeout=300
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f tests/integration/docker-compose.yml down -v --remove-orphans 2>/dev/null || true
+          docker network prune -f 2>/dev/null || true
 
   security:
     name: Security Scan
