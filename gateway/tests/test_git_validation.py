@@ -197,9 +197,7 @@ class TestGitArgsValidation:
 
     def test_apply_file_paths_pass_through(self):
         """git apply passes file path arguments through."""
-        valid, error, args = git_client.validate_git_args(
-            "apply", ["--verbose", "fix.patch"]
-        )
+        valid, error, args = git_client.validate_git_args("apply", ["--verbose", "fix.patch"])
         assert valid is True
         assert "fix.patch" in args
 
@@ -214,17 +212,13 @@ class TestGitArgsValidation:
 
     def test_log_diff_filter_flag(self):
         """git log accepts --diff-filter flag."""
-        valid, error, args = git_client.validate_git_args(
-            "log", ["--oneline", "--diff-filter=M"]
-        )
+        valid, error, args = git_client.validate_git_args("log", ["--oneline", "--diff-filter=M"])
         assert valid is True
         assert error == ""
 
     def test_format_patch_allowed_flags(self):
         """git format-patch accepts its allowed flags."""
-        valid, error, args = git_client.validate_git_args(
-            "format-patch", ["--stdout", "HEAD~1"]
-        )
+        valid, error, args = git_client.validate_git_args("format-patch", ["--stdout", "HEAD~1"])
         assert valid is True
         assert error == ""
         assert "--stdout" in args

@@ -66,8 +66,11 @@ try:
     )
     from .github_client import (
         BLOCKED_GH_COMMANDS,
+        GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
+        extract_repo_from_gh_command,
         get_github_client,
+        parse_gh_api_args,
         validate_gh_api_path,
     )
     from .policy import (
