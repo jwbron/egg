@@ -37,6 +37,7 @@ ADRs are organized by implementation status:
 
 | ADR | Summary |
 |-----|---------|
+| [GitHub Actions Support](not-implemented/ADR-GitHub-Actions-Support.md) | Run egg as a GitHub Action with checked-out repo (#78) |
 | [Per-Container Repository Mode](not-implemented/ADR-Per-Container-Repository-Mode.md) | Session-based per-container repository mode management |
 
 ## ADR Template
