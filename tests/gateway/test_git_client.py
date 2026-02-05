@@ -76,8 +76,8 @@ class TestSshUrlToHttps:
 
     def test_preserves_owner_and_repo(self):
         """Owner and repo names are preserved in conversion."""
-        result = ssh_url_to_https("git@github.com:jwbron/egg.git")
-        assert result == "https://github.com/jwbron/egg.git"
+        result = ssh_url_to_https("git@github.com:owner/egg.git")
+        assert result == "https://github.com/owner/egg.git"
 
     def test_preserves_nested_owner(self):
         """Handles nested paths like org/repo correctly."""

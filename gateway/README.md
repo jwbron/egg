@@ -16,7 +16,7 @@ The gateway sidecar holds GitHub credentials and validates all GitHub operations
 │  │              Gateway Sidecar (systemd service)                      │ │
 │  │  ┌─────────────┐  ┌─────────────────┐  ┌────────────────────────┐ │ │
 │  │  │ REST API    │  │ Policy Engine   │  │ GitHub Client          │ │ │
-│  │  │ :9847       │  │ - PR ownership  │  │ - GITHUB_TOKEN holder  │ │ │
+│  │  │ :9848       │  │ - PR ownership  │  │ - GITHUB_TOKEN holder  │ │ │
 │  │  │             │  │ - Branch owner  │  │ - gh CLI executor      │ │ │
 │  │  │             │  │ - Approval check│  │                        │ │ │
 │  │  └──────┬──────┘  └────────┬────────┘  └────────────┬───────────┘ │ │

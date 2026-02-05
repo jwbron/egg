@@ -148,7 +148,7 @@ def get_github_readonly_token() -> str | None:
     """Get read-only GitHub token for external repositories.
 
     This token is used for repos outside the primary GitHub App's scope,
-    such as Khan/webapp when the App is only installed on jwbron/egg.
+    such as external-org/repo when the App is only installed on your-org/egg.
 
     Returns:
         Token string if found, None otherwise
@@ -220,8 +220,8 @@ def get_github_app_token() -> str | None:
 
     # Use the host-services venv Python which has cryptography installed
     # Fall back to system python3 if venv doesn't exist
-    jib_root = script_dir.parent
-    venv_python = jib_root / "host-services" / ".venv" / "bin" / "python"
+    egg_root = script_dir.parent
+    venv_python = egg_root / "host-services" / ".venv" / "bin" / "python"
     python_cmd = str(venv_python) if venv_python.exists() else "python3"
 
     try:

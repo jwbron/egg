@@ -1,10 +1,10 @@
-# jib_config
+# egg_config
 
 Unified configuration framework for egg services.
 
 ## Overview
 
-`jib_config` provides:
+`egg_config` provides:
 - **Centralized config loading** from environment variables, `secrets.env`, and `config.yaml`
 - **Validation** with clear error messages
 - **Health checks** to verify API connectivity
@@ -13,18 +13,18 @@ Unified configuration framework for egg services.
 ## Quick Start
 
 ```python
-from jib_config import SlackConfig, GitHubConfig
+from egg_config import GitHubConfig, GatewayConfig, LLMConfig
 
-# Load and validate Slack config
-slack = SlackConfig.from_env()
-result = slack.validate()
+# Load and validate GitHub config
+github = GitHubConfig.from_env()
+result = github.validate()
 if not result.is_valid:
     raise ValueError(f"Invalid config: {result.errors}")
 
 # Test API connectivity
-health = slack.health_check(timeout=10.0)
+health = github.health_check(timeout=10.0)
 if not health.healthy:
-    print(f"Slack unhealthy: {health.message}")
+    print(f"GitHub unhealthy: {health.message}")
 ```
 
 ## Configuration Files
@@ -82,12 +82,11 @@ GATEWAY_SECRET="your-gateway-secret"
 
 | Config | Purpose | Key Fields |
 |--------|---------|------------|
-| `SlackConfig` | Slack bot integration | `bot_token`, `app_token`, `channel` |
 | `GitHubConfig` | GitHub API access | `token`, `readonly_token`, `incognito_token` |
-| `JiraConfig` | JIRA issue sync | `base_url`, `username`, `api_token` |
-| `ConfluenceConfig` | Confluence page sync | `base_url`, `username`, `api_token` |
 | `GatewayConfig` | Gateway sidecar auth | `secret`, `port` |
 | `LLMConfig` | LLM provider settings | `anthropic_api_key`, `model` |
+
+> **Note:** SlackConfig, JiraConfig, and ConfluenceConfig are planned but not yet implemented.
 
 ## Config Priority
 
@@ -117,23 +116,23 @@ This script is automatically run after `setup.py` completes to verify secrets ar
 Each config has a `health_check()` method that tests actual API connectivity:
 
 ```python
-from jib_config import SlackConfig, GitHubConfig, JiraConfig
+from egg_config import GitHubConfig
 
-slack = SlackConfig.from_env()
-result = slack.health_check(timeout=10.0)
-# Returns: HealthCheckResult(healthy=True, message="Authenticated as bot_name", latency_ms=150)
+github = GitHubConfig.from_env()
+result = github.health_check(timeout=10.0)
+# Returns: HealthCheckResult(healthy=True, message="Authenticated as username", latency_ms=150)
 ```
 
 ## Validation
 
 Configs validate:
 - **Required fields** are present
-- **Token formats** match expected patterns (e.g., `xoxb-` for Slack bot tokens)
+- **Token formats** match expected patterns (e.g., `ghp_` for GitHub tokens)
 - **URLs** are valid HTTPS
 - **Emails** are properly formatted
 
 ```python
-config = SlackConfig.from_env()
+config = GitHubConfig.from_env()
 result = config.validate()
 
 if not result.is_valid:
@@ -156,7 +155,7 @@ print(config.to_dict())
 
 ## Adding a New Config
 
-1. Create `shared/jib_config/configs/myservice.py`:
+1. Create `shared/egg_config/configs/myservice.py`:
 
 ```python
 from dataclasses import dataclass
@@ -191,17 +190,17 @@ class MyServiceConfig(BaseConfig):
         ...
 ```
 
-2. Export from `shared/jib_config/__init__.py`:
+2. Export from `shared/egg_config/__init__.py`:
 
 ```python
 from .configs.myservice import MyServiceConfig
 ```
 
-3. Add tests in `tests/jib_config/test_configs.py`
+3. Add tests in `tests/egg_config/test_configs.py`
 
 ## Testing
 
 ```bash
-# Run all jib_config tests
-python -m pytest tests/jib_config/ -v
+# Run all egg_config tests
+python -m pytest tests/egg_config/ -v
 ```

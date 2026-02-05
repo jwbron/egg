@@ -4,9 +4,10 @@ Thank you for your interest in contributing to egg!
 
 ## Development Setup
 
-1. **Clone the repository**
+1. **Fork and clone the repository**
    ```bash
-   git clone https://github.com/jwbron/egg.git
+   # First, fork the repo on GitHub, then clone your fork:
+   git clone https://github.com/YOUR_USERNAME/egg.git
    cd egg
    ```
 

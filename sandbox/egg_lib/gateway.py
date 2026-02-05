@@ -6,7 +6,6 @@ policy enforcement for git/gh operations.
 Gateway Lifecycle Management:
 - Gateway starts automatically when egg runs (no manual setup needed)
 - Hash-based rebuild detection ensures image is rebuilt when code changes
-- Systemd migration handles existing systemd-based setups
 - Cross-platform support (Linux and macOS)
 """
 
@@ -33,7 +32,6 @@ from .config import (
     GATEWAY_PORT,
     GATEWAY_PROXY_PORT,
     Config,
-    get_platform,
 )
 from .output import error, info, success, warn
 
@@ -332,63 +330,6 @@ def _get_running_egg_containers() -> list[str]:
 
 
 # =============================================================================
-# Systemd Migration (Linux only)
-# =============================================================================
-
-
-def _migrate_from_systemd() -> bool:
-    """Migrate from systemd-managed gateway to Python-managed.
-
-    Checks for existing systemd service, stops/disables it if active,
-    and removes old container.
-
-    Returns:
-        True if migration was performed, False otherwise
-    """
-    if get_platform() != "linux":
-        return False
-
-    service_file = Path.home() / ".config/systemd/user/egg-gateway.service"
-    if not service_file.exists():
-        return False
-
-    info("Migrating from systemd-managed gateway to Python-managed...")
-
-    # Check if service is active
-    result = subprocess.run(
-        ["systemctl", "--user", "is-active", "egg-gateway.service"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    if result.returncode == 0:
-        # Service is active - stop and disable it
-        info("Stopping systemd gateway service...")
-        subprocess.run(
-            ["systemctl", "--user", "stop", "egg-gateway.service"],
-            capture_output=True,
-            check=False,
-        )
-        subprocess.run(
-            ["systemctl", "--user", "disable", "egg-gateway.service"],
-            capture_output=True,
-            check=False,
-        )
-
-    # Remove any existing container
-    subprocess.run(
-        ["docker", "rm", "-f", GATEWAY_CONTAINER_NAME],
-        capture_output=True,
-        check=False,
-    )
-
-    # Note: We don't remove the service file - user may want to revert
-    warn("Gateway is now managed by the egg binary instead of systemd.")
-    warn("The old service file remains at: " + str(service_file))
-    warn("You can remove it with: rm " + str(service_file))
-
-    return True
 
 
 def create_worktrees(
@@ -849,12 +790,11 @@ def start_gateway_container() -> bool:
 
     This function manages the complete gateway lifecycle:
     1. Checks if gateway is running and up-to-date (hash check)
-    2. Migrates from systemd if needed (Linux only)
-    3. Creates networks if needed
-    4. Builds image if needed (with hash label)
-    5. Starts container with proper mounts and environment
-    6. Connects to both networks (dual-homed)
-    7. Waits for health check
+    2. Creates networks if needed
+    3. Builds image if needed (with hash label)
+    4. Starts container with proper mounts and environment
+    5. Connects to both networks (dual-homed)
+    6. Waits for health check
 
     Returns:
         True if gateway is healthy, False otherwise
@@ -891,9 +831,6 @@ def start_gateway_container() -> bool:
                         return True
                 else:
                     info(f"Gateway rebuild needed: {reason}")
-
-    # Migrate from systemd if applicable (Linux only)
-    _migrate_from_systemd()
 
     # Ensure networks exist
     if not ensure_gateway_networks():

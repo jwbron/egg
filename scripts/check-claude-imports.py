@@ -8,7 +8,7 @@ Host services MUST NOT call Claude or the Anthropic API directly because:
 3. Prompt injection: Direct API calls from host could allow prompt injection to escalate to host access
 
 CORRECT pattern for host-services:
-    - Use jib_exec to delegate to a container-side processor
+    - Use egg_exec to delegate to a container-side processor
     - The processor (in sandbox/egg-tasks/) can import and use claude/anthropic
 
 INCORRECT patterns:
@@ -155,8 +155,8 @@ def main():
         print("How to fix:")
         print("  1. Remove anthropic from host-services dependencies")
         print("  2. Create a processor in sandbox/egg-tasks/ for LLM work")
-        print("  3. Use jib_exec to delegate to the container-side processor")
-        print("  4. See host-services/shared/jib_exec.py for the delegation pattern")
+        print("  3. Use egg_exec to delegate to the container-side processor")
+        print("  4. See host-services/shared/egg_exec.py for the delegation pattern")
         print()
         print("Documentation: sandbox/.claude/rules/host-container-boundary.md")
         print()
