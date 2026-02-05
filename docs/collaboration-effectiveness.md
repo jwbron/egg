@@ -1,4 +1,4 @@
-# How egg Makes AI-Assisted Development Collaborative
+# Why egg Works: Safety, Quality, and Collaboration
 
 Engineer A asks an AI assistant to refactor the auth module. It works great. A week later, Engineer B tackles the same area — different prompts, different approach, conflicting patterns. Neither knows what the other did or why. The AI conversations that drove both changes vanished when the IDE sessions ended.
 

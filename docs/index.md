@@ -19,7 +19,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Document | Description |
 |----------|-------------|
-| [Collaboration Effectiveness](collaboration-effectiveness.md) | Why egg's public, async model enables team collaboration with AI |
+| [Why egg Works](collaboration-effectiveness.md) | How the public, sandboxed, async model delivers safety, quality, and collaboration |
 
 ### Architecture
 
