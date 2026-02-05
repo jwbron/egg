@@ -158,52 +158,73 @@ call_gateway() {
         return 1
     fi
 
-    local response
+    # Write response to temp file to avoid bash variable issues with large responses
+    # (echo "$var" can mangle data, and $() strips trailing newlines)
+    local tmpfile curl_errfile
+    tmpfile=$(mktemp)
+    curl_errfile=$(mktemp)
+    trap 'rm -f "$tmpfile" "$curl_errfile"' EXIT
+
     local http_code
-    response=$(curl -s -w "\n%{http_code}" \
+    http_code=$(curl -s -w "%{http_code}" \
         -X POST \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $secret" \
         -d "$payload" \
-        "${GATEWAY_URL}${endpoint}" 2>&1)
+        -o "$tmpfile" \
+        "${GATEWAY_URL}${endpoint}" 2>"$curl_errfile")
 
-    # Split response and status code
-    http_code=$(echo "$response" | tail -n1)
-    response=$(echo "$response" | sed '$d')
-
-    # Parse response
-    local success
-    success=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('success', False))" 2>/dev/null)
-
-    if [ "$success" = "True" ]; then
-        # Show stdout from response
-        local stdout
-        stdout=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin).get('data', {}); print(d.get('stdout', '') if d else '')" 2>/dev/null)
-        [ -n "$stdout" ] && echo "$stdout"
-        return 0
-    else
-        # Show error message
-        local message
-        message=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('message', 'Unknown error'))" 2>/dev/null)
-        echo "ERROR: $message" >&2
-
-        # Show stderr if available
-        local stderr
-        stderr=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin).get('data', {}); print(d.get('stderr', '') if d else '')" 2>/dev/null)
-        [ -n "$stderr" ] && echo "$stderr" >&2
-
-        # Special handling for error codes
-        case "$http_code" in
-            401)
-                echo "Authentication failed - check session token" >&2
-                ;;
-            429)
-                echo "Rate limit exceeded - please wait before trying again" >&2
-                ;;
-        esac
-
+    local curl_exit=$?
+    if [ $curl_exit -ne 0 ]; then
+        echo "ERROR: Failed to connect to gateway (curl exit $curl_exit)" >&2
+        cat "$curl_errfile" >&2
+        rm -f "$tmpfile" "$curl_errfile"
+        trap - EXIT
         return 1
     fi
+    rm -f "$curl_errfile"
+
+    # Parse response with a single Python invocation (not multiple echo|python3 pipes).
+    # Python writes stdout to fd 1 and stderr to fd 2, then exits with the right code.
+    # Note: f-strings like f'ERROR: {message}' are safe inside bash double-quotes
+    # because bash does not expand {braces} within double-quoted strings.
+    python3 -c "
+import json, sys
+
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+except (json.JSONDecodeError, OSError) as e:
+    print(f'ERROR: Failed to parse gateway response: {e}', file=sys.stderr)
+    sys.exit(1)
+
+if data.get('success'):
+    stdout = (data.get('data') or {}).get('stdout', '')
+    if stdout:
+        # Use sys.stdout.write to preserve exact output (no extra newline)
+        sys.stdout.write(stdout)
+        # Add trailing newline if the output doesn't end with one
+        if not stdout.endswith('\n'):
+            sys.stdout.write('\n')
+    sys.exit(0)
+else:
+    message = data.get('message', 'Unknown error')
+    print(f'ERROR: {message}', file=sys.stderr)
+    stderr_out = (data.get('data') or {}).get('stderr', '')
+    if stderr_out:
+        print(stderr_out, file=sys.stderr)
+    http = sys.argv[2]
+    if http == '401':
+        print('Authentication failed - check session token', file=sys.stderr)
+    elif http == '429':
+        print('Rate limit exceeded - please wait before trying again', file=sys.stderr)
+    sys.exit(1)
+" "$tmpfile" "$http_code"
+
+    local py_exit=$?
+    rm -f "$tmpfile"
+    trap - EXIT
+    return $py_exit
 }
 
 # Function to handle PR create - uses proper JSON escaping
