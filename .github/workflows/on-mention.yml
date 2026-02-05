@@ -104,7 +104,7 @@ jobs:
 
       - name: Run egg
         id: egg
-        uses: jwbron/egg@main
+        uses: jwbron/egg/action@main
         with:
           prompt: ${{ steps.prompt.outputs.prompt }}
           anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
