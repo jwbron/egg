@@ -6,7 +6,7 @@ non-allowlisted domains are blocked. Tests DNS lockdown when configured.
 
 import pytest
 
-from tests.integration.conftest import GATEWAY_PORT, exec_in_container
+from integration_tests.conftest import GATEWAY_PORT, exec_in_container
 
 
 @pytest.mark.integration

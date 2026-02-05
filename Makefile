@@ -173,13 +173,13 @@ ci: _require-act
 # ============================================================================
 
 test-integration: venv  ## Run integration tests (requires Docker)
-	PYTHONPATH=shared $(VENV_BIN)/pytest tests/integration -v -m integration --timeout=300
+	PYTHONPATH=shared $(VENV_BIN)/pytest integration_tests -v -m integration --timeout=300
 
 test-e2e: venv  ## Run E2E tests (requires API keys)
-	PYTHONPATH=shared $(VENV_BIN)/pytest tests/integration -v -m e2e --timeout=600
+	PYTHONPATH=shared $(VENV_BIN)/pytest integration_tests -v -m e2e --timeout=600
 
 test-security: venv  ## Run security/pentesting tests
-	PYTHONPATH=shared $(VENV_BIN)/pytest tests/integration -v -m security --timeout=300
+	PYTHONPATH=shared $(VENV_BIN)/pytest integration_tests -v -m security --timeout=300
 
 # ============================================================================
 # Auto-fix (native — these modify local files, can't run via act)

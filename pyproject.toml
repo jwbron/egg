@@ -53,6 +53,7 @@ ignore = ["E402", "E501"]
 "sandbox/egg" = ["F403"]
 # UP038: isinstance style is fine as-is in tests
 "tests/*" = ["UP038"]
+"integration_tests/*" = ["UP038"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -65,6 +66,10 @@ check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = ["tests.*"]
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = ["integration_tests.*"]
 disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]

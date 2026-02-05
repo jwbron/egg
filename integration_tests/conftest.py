@@ -23,8 +23,8 @@ from typing import Any
 import pytest
 import requests
 
-# Project root (two levels up from tests/integration/)
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+# Project root (one level up from integration_tests/)
+PROJECT_ROOT = Path(__file__).parent.parent
 
 # Test network configuration -- uses 172.40.x/172.41.x to avoid collision
 # with production (172.32/172.33) or other CI runs.
@@ -236,7 +236,7 @@ def egg_stack() -> Generator[EggStack, None, None]:
     if not _docker_available():
         pytest.skip("Docker is not available")
 
-    compose_file = PROJECT_ROOT / "tests" / "integration" / "docker-compose.yml"
+    compose_file = PROJECT_ROOT / "integration_tests" / "docker-compose.yml"
     if not compose_file.exists():
         pytest.skip("docker-compose.yml not found")
 

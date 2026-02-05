@@ -8,14 +8,14 @@
 # programmatically for fine-grained control over network, env, and lifecycle.
 #
 # Usage:
-#   docker compose -f tests/integration/docker-compose.yml up -d --build
-#   pytest tests/integration -v -m integration
-#   docker compose -f tests/integration/docker-compose.yml down -v --remove-orphans
+#   docker compose -f integration_tests/docker-compose.yml up -d --build
+#   pytest integration_tests -v -m integration
+#   docker compose -f integration_tests/docker-compose.yml down -v --remove-orphans
 
 services:
   gateway:
     build:
-      context: ../..
+      context: ..
       dockerfile: gateway/Dockerfile
     container_name: ${COMPOSE_PROJECT_NAME:-egg-test}-gateway
     networks:

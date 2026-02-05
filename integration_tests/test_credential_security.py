@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from tests.integration.conftest import exec_in_container
+from integration_tests.conftest import exec_in_container
 
 
 @pytest.mark.integration

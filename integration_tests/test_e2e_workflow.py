@@ -7,7 +7,7 @@ These tests require:
 They are opt-in via the @pytest.mark.e2e marker and are NOT run in
 regular CI. They run on manual trigger or weekly schedule.
 
-Run with: pytest tests/integration/test_e2e_workflow.py -v -m e2e
+Run with: pytest integration_tests/test_e2e_workflow.py -v -m e2e
 """
 
 import os
