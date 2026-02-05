@@ -95,15 +95,18 @@ class ConfigRegistry:
 
     _instance: "ConfigRegistry | None" = None
     _instance_lock: RLock = RLock()
+    _configs: dict[str, BaseConfig]
+    _dry_run: bool
+    _lock: RLock
 
     def __new__(cls) -> "ConfigRegistry":
         """Ensure only one instance exists (singleton pattern)."""
         with cls._instance_lock:
             if cls._instance is None:
                 instance = super().__new__(cls)
-                instance._configs: dict[str, BaseConfig] = {}
-                instance._dry_run: bool = False
-                instance._lock: RLock = RLock()
+                instance._configs = {}
+                instance._dry_run = False
+                instance._lock = RLock()
                 cls._instance = instance
             return cls._instance
 

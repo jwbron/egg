@@ -67,7 +67,7 @@ def get_local_repos(config_file: Path | None = None) -> list[Path]:
         return []
 
 
-def main():
+def main() -> None:
     """CLI entrypoint for setup scripts to get repo paths.
 
     When called from shell, prints one repo path per line.

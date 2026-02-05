@@ -51,7 +51,7 @@ CONTAINER_HOME = "/home/egg"
 # =============================================================================
 
 
-def _hash_file(path: Path, hasher) -> None:
+def _hash_file(path: Path, hasher: Any) -> None:
     """Add a single file's content to the hasher."""
     try:
         with open(path, "rb") as f:
@@ -61,7 +61,7 @@ def _hash_file(path: Path, hasher) -> None:
         pass
 
 
-def _hash_directory(path: Path, hasher, exclude_tests: bool = False) -> None:
+def _hash_directory(path: Path, hasher: Any, exclude_tests: bool = False) -> None:
     """Recursively hash all files in a directory.
 
     Args:
@@ -239,7 +239,7 @@ def _parse_git_mounts(config_file: Path, home_dir: str) -> list[str]:
     Returns:
         List of mount specs in "source:destination" format
     """
-    mounts = []
+    mounts: list[str] = []
 
     if not config_file.exists():
         return mounts

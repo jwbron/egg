@@ -13,7 +13,7 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 # Configure logging
 logging.basicConfig(
@@ -93,7 +93,7 @@ class ProxyStats:
         }
         logger.warning(f"SECURITY ALERT: {json.dumps(alert)}")
 
-    def get_summary(self) -> dict:
+    def get_summary(self) -> dict[str, Any]:
         """Get summary statistics."""
         return {
             "allowed_requests": self.allowed_count,
@@ -113,7 +113,7 @@ class ProxyStats:
         }
 
 
-def parse_squid_json_log(line: str) -> dict | None:
+def parse_squid_json_log(line: str) -> dict[str, Any] | None:
     """Parse a JSON log line from Squid.
 
     Args:
@@ -123,7 +123,10 @@ def parse_squid_json_log(line: str) -> dict | None:
         Parsed log entry dict or None if parsing fails
     """
     try:
-        return json.loads(line.strip())
+        result = json.loads(line.strip())
+        if isinstance(result, dict):
+            return result
+        return None
     except json.JSONDecodeError:
         return None
 

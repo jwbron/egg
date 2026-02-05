@@ -30,7 +30,7 @@ from repo_config import get_auth_mode
 try:
     from .github_client import get_github_client
 except ImportError:
-    from github_client import get_github_client
+    from github_client import get_github_client  # type: ignore[no-redef, import-not-found]
 
 
 logger = get_logger("gateway.git-client")
@@ -828,7 +828,7 @@ fi
 """
 
 
-def create_credential_helper(token_str: str, env: dict) -> tuple[str, dict]:
+def create_credential_helper(token_str: str, env: dict[str, str]) -> tuple[str, dict[str, str]]:
     """
     Create a temporary credential helper script for git authentication.
 

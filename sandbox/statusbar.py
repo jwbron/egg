@@ -21,7 +21,7 @@ def _visible_len(text: str) -> int:
 class StatusBar:
     """Single-line status bar with progress indicator."""
 
-    def __init__(self, total_steps: int = 0, enabled: bool = True):
+    def __init__(self, total_steps: int = 0, enabled: bool = True) -> None:
         """Initialize the status bar.
 
         Args:
