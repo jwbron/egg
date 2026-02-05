@@ -8,14 +8,14 @@ import pytest
 # conftest.py loads the modules via importlib
 # Import from the loaded policy module
 from policy import (
-    BOT_BRANCH_PREFIXES,
-    BOT_IDENTITIES,
     TRUSTED_BRANCH_OWNERS,
     CachedPRInfo,
     PolicyEngine,
     PolicyResult,
     extract_branch_from_refspec,
     extract_repo_from_remote,
+    get_bot_branch_prefixes,
+    get_bot_identities,
 )
 
 
@@ -71,19 +71,29 @@ class TestExtractBranchFromRefspec:
 
 
 class TestBotIdentities:
-    """Tests for bot identity checking."""
+    """Tests for bot identity checking.
 
-    def test_bot_identities_include_egg_variants(self):
-        """Test that egg variants are included."""
-        assert "egg" in BOT_IDENTITIES
-        assert "egg[bot]" in BOT_IDENTITIES
-        assert "app/egg" in BOT_IDENTITIES
-        assert "apps/egg" in BOT_IDENTITIES
+    Bot identities are loaded from GATEWAY_BOT_NAME env var (REQUIRED).
+    Branch prefixes are loaded from GATEWAY_BOT_BRANCH_PREFIX env var (REQUIRED).
 
-    def test_bot_branch_prefixes(self):
-        """Test that egg- branch prefixes are supported."""
-        assert "egg-" in BOT_BRANCH_PREFIXES
-        assert "egg/" in BOT_BRANCH_PREFIXES
+    Note: conftest.py sets these env vars for tests.
+    """
+
+    def test_bot_identities_include_configured_variants(self):
+        """Test that configured bot name variants are included."""
+        # conftest.py sets GATEWAY_BOT_NAME=egg for tests
+        identities = get_bot_identities()
+        assert "egg" in identities
+        assert "egg[bot]" in identities
+        assert "app/egg" in identities
+        assert "apps/egg" in identities
+
+    def test_bot_branch_prefixes_configured(self):
+        """Test that configured branch prefixes are supported."""
+        # conftest.py sets GATEWAY_BOT_BRANCH_PREFIX=egg for tests
+        prefixes = get_bot_branch_prefixes()
+        assert "egg-" in prefixes
+        assert "egg/" in prefixes
 
 
 class TestCachedPRInfo:

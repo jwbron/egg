@@ -349,10 +349,23 @@ def _create_repositories_config() -> bool:
         writable_repos.append(repo)
         success(f"Added: {repo}")
 
+    # Get bot name (GitHub App name) - REQUIRED
+    print()
+    info("GitHub App / Bot name (REQUIRED):")
+    print("  This MUST match your GitHub App name exactly.")
+    print("  The gateway uses this to identify PRs created by the bot.")
+    print("  PRs created by the app will show author as 'app/<bot-name>'.")
+    print()
+    while True:
+        bot_name = input("Bot name: ").strip().lower()
+        if bot_name:
+            break
+        warn("Bot name is required. Check your GitHub App settings for the name.")
+
     # Build config
     config = {
         "github_username": github_username,
-        "bot_username": "egg",
+        "bot_username": bot_name,
         "writable_repos": writable_repos if writable_repos else [f"{github_username}/egg"],
         "default_reviewer": github_username,
         "github_sync": {
@@ -383,6 +396,15 @@ def _create_repositories_config() -> bool:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     success(f"Configuration saved to: {config_file}")
+
+    # Update secrets.env with gateway bot configuration (REQUIRED)
+    # This is needed for the gateway sidecar's policy enforcement
+    existing_secrets = _read_secrets_env()
+    existing_secrets["GATEWAY_BOT_NAME"] = bot_name
+    existing_secrets["GATEWAY_BOT_BRANCH_PREFIX"] = bot_name
+    _write_secrets_env(existing_secrets)
+    info(f"Updated secrets.env with GATEWAY_BOT_NAME={bot_name}")
+
     return True
 
 
