@@ -15,68 +15,10 @@
 
 set -euo pipefail
 
+# shellcheck source=action/lib.sh
+source "$(dirname "$0")/lib.sh"
+
 BOT_USERNAME="${BOT_USERNAME:-james-in-a-box}"
-MAX_BODY_CHARS=10000
-MAX_COMMENT_CHARS=2000
-MAX_PROMPT_CHARS=50000
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-truncate_text() {
-  local text="$1"
-  local max_chars="$2"
-  if [[ ${#text} -gt $max_chars ]]; then
-    echo "${text:0:$max_chars}... (truncated)"
-  else
-    echo "$text"
-  fi
-}
-
-jq_raw() {
-  jq -r "$1" "$GITHUB_EVENT_PATH"
-}
-
-# Wrapper around gh api that warns on failure instead of silently swallowing errors
-gh_api_safe() {
-  local stderr_file
-  stderr_file=$(mktemp)
-  local output
-  if output=$(gh api "$@" 2>"$stderr_file"); then
-    rm -f "$stderr_file"
-    echo "$output"
-  else
-    local rc=$?
-    echo "WARNING: 'gh api $1' failed (exit $rc): $(cat "$stderr_file")" >&2
-    rm -f "$stderr_file"
-    return 0  # non-fatal — prompt is built with missing section
-  fi
-}
-
-# Fetch last 10 comments on an issue/PR
-fetch_recent_comments() {
-  local issue_number="$1"
-  gh_api_safe "repos/${GITHUB_REPOSITORY}/issues/${issue_number}/comments" \
-    --jq '.[-10:][] | "@\(.user.login): \(.body)"' \
-    | while IFS= read -r line; do
-        truncate_text "$line" "$MAX_COMMENT_CHARS"
-      done
-}
-
-# Fetch changed files for a PR
-fetch_pr_files() {
-  local pr_number="$1"
-  gh_api_safe "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/files" \
-    --jq '.[].filename'
-}
-
-# Fetch PR details
-fetch_pr_details() {
-  local pr_number="$1"
-  gh_api_safe "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
-    --jq '{title: .title, body: .body, state: .state, merged: .merged, base: .base.ref, head: .head.ref, html_url: .html_url}'
-}
 
 # ---------------------------------------------------------------------------
 # Build prompt based on event type
@@ -285,17 +227,8 @@ issue with a link to the PR."
       ;;
   esac
 
-  # Truncate overall prompt if needed
-  prompt=$(truncate_text "$prompt" "$MAX_PROMPT_CHARS")
-
-  # Write multiline output using heredoc delimiter
-  {
-    echo "prompt<<__EGG_PROMPT_BOUNDARY_7f3a9c__"
-    echo "$prompt"
-    echo "__EGG_PROMPT_BOUNDARY_7f3a9c__"
-  } >> "${GITHUB_OUTPUT:-/dev/null}"
-
-  echo "Prompt built for event: $GITHUB_EVENT_NAME (${#prompt} chars)"
+  emit_prompt "$prompt"
+  echo "Event: $GITHUB_EVENT_NAME"
 }
 
 # ---------------------------------------------------------------------------

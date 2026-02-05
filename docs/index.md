@@ -53,6 +53,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | **Gateway changes** | [Architecture Overview](architecture/README.md) | [ADR: Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
 | **Security-related changes** | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) | [Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
 | **@mention trigger setup** | [Mention Trigger Setup](guides/mention-trigger-setup.md) | [Architecture Overview](architecture/README.md) |
+| **CI autofixer setup** | [CI Autofixer](guides/ci-autofixer.md) | [Mention Trigger Setup](guides/mention-trigger-setup.md) |
 
 ## Quick Navigation
 
