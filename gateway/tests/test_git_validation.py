@@ -203,6 +203,23 @@ class TestGitArgsValidation:
         assert valid is True
         assert "fix.patch" in args
 
+    def test_diff_filter_flag(self):
+        """git diff accepts --diff-filter flag with value."""
+        valid, error, args = git_client.validate_git_args(
+            "diff", ["--name-only", "--diff-filter=U"]
+        )
+        assert valid is True
+        assert error == ""
+        assert "--diff-filter=U" in args
+
+    def test_log_diff_filter_flag(self):
+        """git log accepts --diff-filter flag."""
+        valid, error, args = git_client.validate_git_args(
+            "log", ["--oneline", "--diff-filter=M"]
+        )
+        assert valid is True
+        assert error == ""
+
     def test_format_patch_allowed_flags(self):
         """git format-patch accepts its allowed flags."""
         valid, error, args = git_client.validate_git_args(

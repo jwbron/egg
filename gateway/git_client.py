@@ -290,6 +290,7 @@ GIT_ALLOWED_COMMANDS = {
             "--author",
             "--grep",
             "--follow",
+            "--diff-filter",
         ],
     },
     "diff": {
@@ -301,6 +302,7 @@ GIT_ALLOWED_COMMANDS = {
             "--shortstat",
             "--name-only",
             "--name-status",
+            "--diff-filter",
             "--color",
             "--no-color",
             "--word-diff",
