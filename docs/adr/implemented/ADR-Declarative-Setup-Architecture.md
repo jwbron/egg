@@ -279,7 +279,6 @@ Users can enable/disable all services, or manage individual services:
 - **Goal:** Complete feature parity with current setup.sh
 - **Components:**
   - Docker image build
-  - Beads initialization
   - Shared directories creation
   - Context sync validation
   - All optional component setup

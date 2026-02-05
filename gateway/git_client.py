@@ -40,13 +40,20 @@ GIT_CLI = "/usr/bin/git"
 
 def git_cmd(*args: str) -> list[str]:
     """
-    Build a git command with safe.directory=* to allow operating on worktree paths.
+    Build a git command with security and ownership configurations.
 
-    The gateway runs on the host but operates on paths inside egg container worktrees
-    (e.g., ~/.egg-worktrees/<container-id>/repo). Git's ownership check would reject
-    these as "dubious ownership" without safe.directory=*.
+    Configurations applied:
+    - safe.directory=*: Allow operating on worktree paths. The gateway runs on the
+      host but operates on paths inside egg container worktrees (e.g.,
+      ~/.egg-worktrees/<container-id>/repo). Git's ownership check would reject
+      these as "dubious ownership" without safe.directory=*.
+    - core.hooksPath=/dev/null: SECURITY - Disable all git hooks. Git hooks are
+      scripts in .git/hooks/ that execute automatically during certain operations.
+      A malicious repo could include hooks that execute arbitrary code on the gateway
+      (outside the sandbox). By pointing hooksPath to /dev/null (not a directory),
+      git will never find any hooks to execute. See issue #58.
     """
-    return [GIT_CLI, "-c", "safe.directory=*", *args]
+    return [GIT_CLI, "-c", "safe.directory=*", "-c", "core.hooksPath=/dev/null", *args]
 
 
 def ssh_url_to_https(url: str) -> str:
@@ -113,7 +120,6 @@ def get_authenticated_remote_target(remote: str, remote_url: str) -> str:
 ALLOWED_REPO_PATHS = [
     "/home/egg/repos/",
     "/home/egg/.egg-worktrees/",
-    "/home/egg/beads/",  # Beads task tracking repo
     "/repos/",  # Legacy path
 ]
 
@@ -551,6 +557,31 @@ GIT_ALLOWED_COMMANDS = {
             "-n",
             "-e",
             "-m",
+        ],
+    },
+    "am": {
+        "allowed_flags": [
+            "--abort",
+            "--continue",
+            "--skip",
+            "--quit",
+            "--resolved",
+            "--no-verify",
+            "--keep",
+            "--keep-non-patch",
+            "--message-id",
+            "--scissors",
+            "--no-scissors",
+            "--ignore-whitespace",
+            "--whitespace",
+            "--directory",
+            "--3way",
+            "--quiet",
+            "-k",
+            "-m",
+            "-s",
+            "-3",
+            "-q",
         ],
     },
     "tag": {

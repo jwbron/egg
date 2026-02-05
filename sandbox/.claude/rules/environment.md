@@ -66,7 +66,6 @@ If push fails:
 | `~/repos/` | Code workspace (RW) - mounted repositories |
 | `~/context-sync/` | Confluence/JIRA (RO) |
 | `~/sharing/` | Persistent data, notifications, context |
-| `~/beads/` | Task memory |
 
 ## Available Commands
 

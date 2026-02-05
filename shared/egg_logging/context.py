@@ -23,7 +23,7 @@ class LogContext:
         trace_id: W3C Trace Context trace-id (32 hex chars)
         span_id: W3C Trace Context span-id (16 hex chars)
         trace_flags: W3C Trace Context trace-flags (2 hex chars, usually "01")
-        task_id: Beads task ID for task correlation
+        task_id: Task ID for task correlation
         repository: GitHub repository (owner/repo format)
         pr_number: Pull request number if applicable
         workflow_id: Unique identifier for the workflow/job that initiated this work

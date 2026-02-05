@@ -536,7 +536,10 @@ def git_push():
             original_url=remote_url,
             https_url=push_target,
         )
-    push_args = ["push"]
+    # SECURITY: Belt-and-suspenders hook prevention. The primary protection is
+    # core.hooksPath=/dev/null in git_cmd() which disables ALL hooks globally.
+    # --no-verify is added as defense-in-depth for the pre-push hook. See issue #58.
+    push_args = ["push", "--no-verify"]
     if force:
         push_args.append("--force")
     push_args.extend([push_target, refspec] if refspec else [push_target])
@@ -732,6 +735,19 @@ def git_execute():
 
     # Map container path to worktree path if container_id is provided
     exec_path = map_container_path_to_worktree(repo_path, container_id, operation)
+
+    # SECURITY: Belt-and-suspenders hook prevention for operations that support it.
+    # The primary protection is core.hooksPath=/dev/null in git_cmd() which disables
+    # ALL hooks globally. However, we also add --no-verify for operations that
+    # support it as defense-in-depth. See issue #58.
+    #
+    # Operations that support --no-verify:
+    # - commit: pre-commit, prepare-commit-msg, commit-msg, post-commit
+    # - merge: pre-merge-commit, prepare-commit-msg, commit-msg, post-merge
+    # - cherry-pick: prepare-commit-msg, commit-msg
+    # - am: pre-applypatch, applypatch-msg, post-applypatch
+    if operation in ("commit", "merge", "cherry-pick", "am"):
+        validated_args = ["--no-verify", *validated_args]
 
     # Build command
     cmd = git_cmd(operation, *validated_args)
@@ -1593,8 +1609,13 @@ def gh_execute():
     if not repo and payload_repo:
         repo = payload_repo
         # Inject --repo into args so gh command uses it
-        # NOTE: Don't inject for 'gh repo' commands - they take repo as positional arg
-        if args and args[0] != "repo":
+        # NOTE: Don't inject for commands that don't support --repo flag:
+        # - 'gh repo' commands - they take repo as positional arg
+        # - 'gh auth' commands - global commands, no repo context
+        # - 'gh config' commands - global commands, no repo context
+        # - 'gh api' commands - repo is in the API path, not a flag
+        commands_without_repo_flag = {"repo", "auth", "config", "api"}
+        if args and args[0] not in commands_without_repo_flag:
             args = ["--repo", payload_repo] + list(args)
 
     # Determine auth mode (default to bot if repo not specified)

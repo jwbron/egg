@@ -5,7 +5,6 @@ For contributors and developers working on egg.
 ## Available Guides
 
 - **[Project Structure](STRUCTURE.md)** - Directory conventions, naming, adding new services
-- **[Beads Integration](beads-integration.md)** - How to integrate beads task tracking into container tools
 
 ## Planned Documentation
 

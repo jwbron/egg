@@ -35,7 +35,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Document | Description |
 |----------|-------------|
-| [Beads Task Tracking](reference/beads.md) | Persistent task memory system - commands, workflows, best practices |
 | [Features - Source Mapping](FEATURES.md) | Map of all features to their implementation locations |
 | [Slack Quick Reference](reference/slack-quick-reference.md) | Common Slack operations and commands |
 | [Log Persistence](reference/log-persistence.md) | Container log persistence and correlation |
@@ -45,7 +44,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | Document | Description |
 |----------|-------------|
 | [Project Structure](development/STRUCTURE.md) | Directory conventions and organization |
-| [Beads Integration](development/beads-integration.md) | How to integrate Beads into container tools |
 
 ### Troubleshooting
 
@@ -65,11 +63,9 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Task Type | Read First | Also Helpful |
 |-----------|------------|--------------|
-| **ANY new task** | [Beads Task Tracking](reference/beads.md) | Check for existing work before starting |
 | **Slack integration changes** | [Slack Integration](architecture/slack-integration.md) | [Slack Quick Reference](reference/slack-quick-reference.md) |
 | **Adding new host services** | [Architecture Overview](architecture/README.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
 | **Security-related changes** | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) | [Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
-| **Beads integration** | [Beads Integration](development/beads-integration.md) | [Beads Task Tracking](reference/beads.md) |
 
 ## Quick Navigation
 

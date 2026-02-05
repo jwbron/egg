@@ -46,18 +46,81 @@ logger = get_logger("gateway.policy")
 MAX_PR_CACHE_SIZE = 500
 MAX_BRANCH_PR_CACHE_SIZE = 200
 
-# Bot identity variants that count as "egg" (the bot)
-BOT_IDENTITIES = frozenset(
-    {
-        "egg",
-        "egg[bot]",
-        "app/egg",
-        "apps/egg",
-    }
-)
 
-# Branch prefixes that indicate bot ownership
-BOT_BRANCH_PREFIXES = ("egg-", "egg/")
+# Bot identity configuration
+# Loaded from GATEWAY_BOT_NAME environment variable (REQUIRED)
+# This should match your GitHub App name for PR ownership checks
+# Example: GATEWAY_BOT_NAME="james-in-a-box"
+
+# Cached values (loaded lazily on first access)
+_bot_identities_cache: frozenset[str] | None = None
+_bot_branch_prefixes_cache: tuple[str, ...] | None = None
+
+
+def _reset_bot_config_caches() -> None:
+    """Reset bot configuration caches. For testing only.
+
+    This allows tests to verify behavior with different configurations
+    without restarting the process.
+    """
+    global _bot_identities_cache, _bot_branch_prefixes_cache
+    _bot_identities_cache = None
+    _bot_branch_prefixes_cache = None
+
+
+def get_bot_identities() -> frozenset[str]:
+    """Get bot identities, loading from environment on first access.
+
+    The bot name is used to generate identity variants that GitHub may use:
+    - "name" (plain username)
+    - "name[bot]" (GitHub App bot suffix)
+    - "app/name" (GitHub App author format in API)
+    - "apps/name" (alternate app format)
+
+    Raises:
+        ValueError: If GATEWAY_BOT_NAME is not configured.
+    """
+    global _bot_identities_cache
+    if _bot_identities_cache is not None:
+        return _bot_identities_cache
+
+    bot_name = os.environ.get("GATEWAY_BOT_NAME", "").strip().lower()
+    if not bot_name:
+        raise ValueError(
+            "GATEWAY_BOT_NAME environment variable is required. "
+            "Set it to your GitHub App name (e.g., GATEWAY_BOT_NAME=james-in-a-box). "
+            "Run 'egg --setup' to configure."
+        )
+    _bot_identities_cache = frozenset(
+        {
+            bot_name,
+            f"{bot_name}[bot]",
+            f"app/{bot_name}",
+            f"apps/{bot_name}",
+        }
+    )
+    return _bot_identities_cache
+
+
+def get_bot_branch_prefixes() -> tuple[str, ...]:
+    """Get bot branch prefixes, loading from environment on first access.
+
+    Raises:
+        ValueError: If GATEWAY_BOT_BRANCH_PREFIX is not configured.
+    """
+    global _bot_branch_prefixes_cache
+    if _bot_branch_prefixes_cache is not None:
+        return _bot_branch_prefixes_cache
+
+    prefix = os.environ.get("GATEWAY_BOT_BRANCH_PREFIX", "").strip().lower()
+    if not prefix:
+        raise ValueError(
+            "GATEWAY_BOT_BRANCH_PREFIX environment variable is required. "
+            "Set it to your branch prefix (e.g., GATEWAY_BOT_BRANCH_PREFIX=egg). "
+            "Run 'egg --setup' to configure."
+        )
+    _bot_branch_prefixes_cache = (f"{prefix}-", f"{prefix}/")
+    return _bot_branch_prefixes_cache
 
 
 # Trusted GitHub users whose branches egg can push to
@@ -147,11 +210,11 @@ class PolicyEngine:
         else:
             login = author
 
-        return login.lower() in BOT_IDENTITIES
+        return login.lower() in get_bot_identities()
 
     def _is_bot_branch(self, branch: str) -> bool:
         """Check if branch name indicates bot ownership."""
-        return branch.startswith(BOT_BRANCH_PREFIXES)
+        return branch.startswith(get_bot_branch_prefixes())
 
     def _is_trusted_author(self, author: str | dict[str, Any]) -> bool:
         """Check if author is a trusted user (whose branches egg can push to)."""
@@ -312,7 +375,7 @@ class PolicyEngine:
             author=pr_info.author,
             auth_mode=auth_mode,
         )
-        expected = list(BOT_IDENTITIES)
+        expected = list(get_bot_identities())
         if configured_user:
             expected.append(configured_user)
         return PolicyResult(

@@ -157,6 +157,18 @@ if [ -n "${GITHUB_USER_TOKEN:-}" ]; then
     ENV_ARGS+=(-e "GITHUB_USER_TOKEN=$GITHUB_USER_TOKEN")
 fi
 
+# Pass gateway configuration environment variables from secrets.env
+# These are required for policy enforcement (bot identity, branch prefixes, trusted users)
+if [ -n "${GATEWAY_BOT_NAME:-}" ]; then
+    ENV_ARGS+=(-e "GATEWAY_BOT_NAME=$GATEWAY_BOT_NAME")
+fi
+if [ -n "${GATEWAY_BOT_BRANCH_PREFIX:-}" ]; then
+    ENV_ARGS+=(-e "GATEWAY_BOT_BRANCH_PREFIX=$GATEWAY_BOT_BRANCH_PREFIX")
+fi
+if [ -n "${GATEWAY_TRUSTED_USERS:-}" ]; then
+    ENV_ARGS+=(-e "GATEWAY_TRUSTED_USERS=$GATEWAY_TRUSTED_USERS")
+fi
+
 # Extract git identity from user_mode config in repositories.yaml
 # This is used for git commits in user mode repos
 if command -v python3 &> /dev/null; then

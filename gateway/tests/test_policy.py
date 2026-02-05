@@ -8,14 +8,15 @@ import pytest
 # conftest.py loads the modules via importlib
 # Import from the loaded policy module
 from policy import (
-    BOT_BRANCH_PREFIXES,
-    BOT_IDENTITIES,
     TRUSTED_BRANCH_OWNERS,
     CachedPRInfo,
     PolicyEngine,
     PolicyResult,
+    _reset_bot_config_caches,
     extract_branch_from_refspec,
     extract_repo_from_remote,
+    get_bot_branch_prefixes,
+    get_bot_identities,
 )
 
 
@@ -71,19 +72,73 @@ class TestExtractBranchFromRefspec:
 
 
 class TestBotIdentities:
-    """Tests for bot identity checking."""
+    """Tests for bot identity checking.
 
-    def test_bot_identities_include_egg_variants(self):
-        """Test that egg variants are included."""
-        assert "egg" in BOT_IDENTITIES
-        assert "egg[bot]" in BOT_IDENTITIES
-        assert "app/egg" in BOT_IDENTITIES
-        assert "apps/egg" in BOT_IDENTITIES
+    Bot identities are loaded from GATEWAY_BOT_NAME env var (REQUIRED).
+    Branch prefixes are loaded from GATEWAY_BOT_BRANCH_PREFIX env var (REQUIRED).
 
-    def test_bot_branch_prefixes(self):
-        """Test that egg- branch prefixes are supported."""
-        assert "egg-" in BOT_BRANCH_PREFIXES
-        assert "egg/" in BOT_BRANCH_PREFIXES
+    Note: conftest.py sets these env vars for tests.
+    """
+
+    def test_bot_identities_include_configured_variants(self):
+        """Test that configured bot name variants are included."""
+        # conftest.py sets GATEWAY_BOT_NAME=egg for tests
+        identities = get_bot_identities()
+        assert "egg" in identities
+        assert "egg[bot]" in identities
+        assert "app/egg" in identities
+        assert "apps/egg" in identities
+
+    def test_bot_branch_prefixes_configured(self):
+        """Test that configured branch prefixes are supported."""
+        # conftest.py sets GATEWAY_BOT_BRANCH_PREFIX=egg for tests
+        prefixes = get_bot_branch_prefixes()
+        assert "egg-" in prefixes
+        assert "egg/" in prefixes
+
+    def test_bot_identities_raises_without_config(self, monkeypatch):
+        """Test that missing GATEWAY_BOT_NAME raises ValueError."""
+        _reset_bot_config_caches()
+        monkeypatch.delenv("GATEWAY_BOT_NAME", raising=False)
+        with pytest.raises(ValueError, match="GATEWAY_BOT_NAME.*required"):
+            get_bot_identities()
+        # Restore for other tests
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
+        _reset_bot_config_caches()
+
+    def test_bot_branch_prefixes_raises_without_config(self, monkeypatch):
+        """Test that missing GATEWAY_BOT_BRANCH_PREFIX raises ValueError."""
+        _reset_bot_config_caches()
+        monkeypatch.delenv("GATEWAY_BOT_BRANCH_PREFIX", raising=False)
+        with pytest.raises(ValueError, match="GATEWAY_BOT_BRANCH_PREFIX.*required"):
+            get_bot_branch_prefixes()
+        # Restore for other tests
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        _reset_bot_config_caches()
+
+    def test_different_bot_name_configuration(self, monkeypatch):
+        """Test that a different bot name generates correct identities."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        identities = get_bot_identities()
+        assert "james-in-a-box" in identities
+        assert "james-in-a-box[bot]" in identities
+        assert "app/james-in-a-box" in identities
+        assert "apps/james-in-a-box" in identities
+        # Restore for other tests
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
+        _reset_bot_config_caches()
+
+    def test_different_branch_prefix_configuration(self, monkeypatch):
+        """Test that a different branch prefix generates correct prefixes."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james")
+        prefixes = get_bot_branch_prefixes()
+        assert "james-" in prefixes
+        assert "james/" in prefixes
+        # Restore for other tests
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        _reset_bot_config_caches()
 
 
 class TestCachedPRInfo:

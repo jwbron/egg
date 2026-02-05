@@ -13,7 +13,13 @@ import time
 import uuid
 from pathlib import Path
 
-from .config import EGG_ISOLATED_NETWORK, Config
+from .config import (
+    EGG_EXTERNAL_NETWORK,
+    EGG_EXTERNAL_SUBNET,
+    EGG_ISOLATED_NETWORK,
+    EGG_ISOLATED_SUBNET,
+    Config,
+)
 from .output import error, get_quiet_mode, info, success, warn
 
 # Label used to store build content hash on Docker image
@@ -664,3 +670,73 @@ def ensure_egg_network() -> bool:
 
     error(f"Failed to create Docker network: {result.stderr}")
     return False
+
+
+def _create_network(name: str, subnet: str, internal: bool = False) -> bool:
+    """Create a Docker network with specific configuration.
+
+    Args:
+        name: Network name
+        subnet: Network subnet (e.g., "172.32.0.0/24")
+        internal: If True, create as internal network (no external route)
+
+    Returns:
+        True if network exists or was created successfully
+    """
+    # Check if network exists
+    result = subprocess.run(
+        ["docker", "network", "inspect", name],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return True
+
+    # Build create command
+    cmd = [
+        "docker",
+        "network",
+        "create",
+        "--driver",
+        "bridge",
+        "--subnet",
+        subnet,
+    ]
+
+    if internal:
+        cmd.append("--internal")
+
+    cmd.append(name)
+
+    # Create the network
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode == 0:
+        info(f"Created Docker network: {name} (subnet: {subnet}, internal: {internal})")
+        return True
+
+    error(f"Failed to create Docker network {name}: {result.stderr}")
+    return False
+
+
+def ensure_gateway_networks() -> bool:
+    """Create both gateway networks if they don't exist.
+
+    Creates the dual-network architecture for gateway:
+    - egg-isolated: Internal network (no external route) for egg containers
+    - egg-external: Standard bridge network for gateway external access
+
+    The gateway is dual-homed, connecting to both networks. Egg containers
+    connect only to egg-isolated and route traffic through the gateway.
+
+    Returns:
+        True if both networks exist or were created, False on failure
+    """
+    # Create internal isolated network (no external route)
+    if not _create_network(EGG_ISOLATED_NETWORK, EGG_ISOLATED_SUBNET, internal=True):
+        return False
+
+    # Create external network (standard bridge)
+    if not _create_network(EGG_EXTERNAL_NETWORK, EGG_EXTERNAL_SUBNET, internal=False):
+        return False
+
+    return True
