@@ -628,6 +628,7 @@ def setup_claude(config: Config, logger: Logger) -> None:
         "autoUpdate": False,
         "outputStyle": "default",
         "defaultModel": "opus",
+        "showResumeCommand": False,
     }
 
     settings_file = config.claude_dir / "settings.json"
