@@ -754,7 +754,6 @@ def wait_for_gateway_health(timeout: int = 30, check_proxy: bool = True) -> bool
     return False
 
 
-
 def start_gateway_container() -> bool:
     """Ensure the gateway sidecar is running and up-to-date.
 
