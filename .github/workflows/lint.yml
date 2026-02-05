@@ -24,6 +24,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      # ---- Python ----
+
       - name: Ruff check
         run: .venv/bin/ruff check .
 
@@ -33,16 +35,44 @@ jobs:
       - name: Mypy
         run: .venv/bin/mypy gateway shared sandbox --exclude 'gateway/tests/' || true
 
+      # ---- Shell ----
+
       - name: Shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck sandbox/scripts/* || true
+          SHELL_FILES=$(find . -name "*.sh" -not -path "./.venv/*" -not -path "./.git/*")
+          if [ -n "$SHELL_FILES" ]; then
+            echo "$SHELL_FILES" | xargs shellcheck --severity=warning
+          fi
+          if [ -d "sandbox/scripts" ]; then
+            shellcheck --severity=warning sandbox/scripts/*
+          fi
 
-      - name: Hadolint
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: gateway/Dockerfile
-        continue-on-error: true  # Don't fail if Dockerfile doesn't exist yet
+      # ---- YAML ----
 
       - name: Yamllint
-        run: .venv/bin/yamllint -c .yamllint.yaml . || true
+        run: .venv/bin/yamllint -c .yamllint.yaml .
+
+      # ---- Docker ----
+
+      - name: Hadolint
+        run: |
+          wget -qO /usr/local/bin/hadolint \
+            https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64
+          chmod +x /usr/local/bin/hadolint
+          hadolint --config .hadolint.yaml gateway/Dockerfile
+          hadolint --config .hadolint.yaml sandbox/Dockerfile
+
+      # ---- Custom lint scripts ----
+
+      - name: Check container paths
+        run: python3 scripts/check-container-paths.py
+
+      - name: Check container-host boundary
+        run: python3 scripts/check-container-host-boundary.py
+
+      - name: Check gh CLI usage
+        run: python3 scripts/check-gh-cli-usage.py
+
+      - name: Check Claude imports
+        run: python3 scripts/check-claude-imports.py

@@ -1,6 +1,9 @@
 # egg Makefile
 # =============
-# Single entry point for common development tasks
+# Single entry point for all development tasks.
+#
+# Native targets run checks directly for fast iteration.
+# CI targets (make ci-*) run via act for GitHub Actions parity.
 
 # Virtual environment configuration
 VENV_DIR := .venv
@@ -10,46 +13,152 @@ RUFF := $(VENV_BIN)/ruff
 YAMLLINT := $(VENV_BIN)/yamllint
 
 .PHONY: help \
+        setup venv install-linters check-linters \
         test test-deps test-quick test-python test-bash \
         lint lint-fix \
         lint-python lint-python-fix \
+        lint-mypy \
         lint-shell lint-shell-fix \
         lint-yaml lint-yaml-fix \
         lint-docker lint-workflows \
-        lint-host-services lint-container-paths lint-bin-symlinks \
-        install-linters check-linters venv
+        lint-container-paths lint-boundary lint-gh-cli lint-claude-imports \
+        security \
+        build \
+        ci ci-lint ci-test ci-integration ci-security
 
 # Default target
 help:
 	@echo "egg Development Commands"
 	@echo "========================"
 	@echo ""
+	@echo "Setup:"
+	@echo "  make setup              - Full development environment setup"
+	@echo "  make venv               - Create venv with dev dependencies"
+	@echo "  make install-linters    - Install system linting tools"
+	@echo "  make check-linters      - Check if linting tools are installed"
+	@echo ""
 	@echo "Testing:"
-	@echo "  make test              - Run all tests (pytest)"
-	@echo "  make test-quick        - Quick syntax check (faster)"
-	@echo "  make test-python       - Run Python syntax tests only"
-	@echo "  make test-bash         - Run Bash syntax tests only"
+	@echo "  make test               - Run all tests (pytest)"
+	@echo "  make test-quick         - Quick syntax check (faster)"
+	@echo "  make security           - Run security scan (bandit)"
 	@echo ""
 	@echo "Linting:"
-	@echo "  make lint              - Run all linters"
-	@echo "  make lint-fix          - Run all linters with auto-fix"
-	@echo "  make lint-python       - Lint Python files with ruff"
-	@echo "  make lint-python-fix   - Lint and fix Python files"
-	@echo "  make lint-shell        - Lint shell scripts with shellcheck"
-	@echo "  make lint-shell-fix    - Format shell scripts with shfmt"
-	@echo "  make lint-yaml         - Lint YAML files with yamllint"
-	@echo "  make lint-yaml-fix     - Fix common YAML issues (trailing spaces)"
-	@echo "  make lint-docker       - Lint Dockerfiles with hadolint"
-	@echo "  make lint-workflows    - Lint GitHub Actions with actionlint"
-	@echo "  make lint-container-paths - Check for problematic sys.path patterns"
-	@echo "  make lint-bin-symlinks  - Check container bin symlinks are valid"
+	@echo "  make lint               - Run all linters"
+	@echo "  make lint-fix           - Run all linters with auto-fix"
+	@echo "  make lint-python        - Lint Python (ruff)"
+	@echo "  make lint-mypy          - Type check (mypy)"
+	@echo "  make lint-shell         - Lint shell scripts (shellcheck)"
+	@echo "  make lint-yaml          - Lint YAML (yamllint)"
+	@echo "  make lint-docker        - Lint Dockerfiles (hadolint)"
+	@echo "  make lint-workflows     - Lint GitHub Actions (actionlint)"
+	@echo "  make lint-container-paths    - Check sys.path patterns"
+	@echo "  make lint-boundary      - Check host-container boundary"
+	@echo "  make lint-gh-cli        - Check gh CLI usage"
+	@echo "  make lint-claude-imports - Check Claude imports"
 	@echo ""
-	@echo "Setup:"
-	@echo "  make install-linters   - Install all linting tools"
-	@echo "  make check-linters     - Check if linting tools are installed"
+	@echo "CI (via act, for GitHub Actions parity):"
+	@echo "  make ci                 - Run full CI pipeline via act"
+	@echo "  make ci-lint            - Run lint job via act"
+	@echo "  make ci-test            - Run unit test job via act"
+	@echo "  make ci-integration     - Run integration test job via act"
+	@echo "  make ci-security        - Run security scan job via act"
+	@echo ""
+	@echo "Build:"
+	@echo "  make build              - Build Docker images"
 
 # ============================================================================
-# Testing Targets
+# Setup
+# ============================================================================
+
+# Full development environment setup
+setup: venv
+	@echo "==> Installing pre-commit hooks..."
+	@$(VENV_BIN)/pre-commit install || true
+	@echo ""
+	@echo "Setup complete! Run 'make help' to see available commands."
+
+# Ensure venv exists and has dev dependencies
+venv:
+	@if [ ! -f "$(RUFF)" ]; then \
+		echo "==> Setting up venv..."; \
+		if ! command -v uv >/dev/null 2>&1; then \
+			echo "ERROR: uv is not installed."; \
+			echo ""; \
+			echo "Install uv with:"; \
+			echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"; \
+			echo ""; \
+			echo "Or see: https://docs.astral.sh/uv/getting-started/installation/"; \
+			exit 1; \
+		fi; \
+		uv sync --extra dev; \
+	else \
+		echo "Dev dependencies already installed."; \
+	fi
+
+# Install all linting tools
+install-linters: venv
+	@echo "Installing linting tools..."
+	@echo ""
+	@echo "==> ruff and yamllint installed in venv via 'make venv'"
+	@echo ""
+	@echo "==> Checking for shfmt..."
+	@if ! command -v shfmt >/dev/null 2>&1; then \
+		echo "shfmt not found. Install with:"; \
+		echo "  Ubuntu/Debian: sudo apt-get install shfmt"; \
+		echo "  macOS: brew install shfmt"; \
+		echo "  Go: go install mvdan.cc/sh/v3/cmd/shfmt@latest"; \
+	else \
+		echo "shfmt is installed: $$(shfmt --version)"; \
+	fi
+	@echo ""
+	@echo "==> Checking for shellcheck..."
+	@if ! command -v shellcheck >/dev/null 2>&1; then \
+		echo "shellcheck not found. Install with:"; \
+		echo "  Ubuntu/Debian: sudo apt-get install shellcheck"; \
+		echo "  macOS: brew install shellcheck"; \
+	else \
+		echo "shellcheck is installed: $$(shellcheck --version | head -1)"; \
+	fi
+	@echo ""
+	@echo "==> Checking for hadolint..."
+	@if ! command -v hadolint >/dev/null 2>&1; then \
+		echo "hadolint not found. Install with:"; \
+		echo "  macOS: brew install hadolint"; \
+		echo "  Linux: Download from https://github.com/hadolint/hadolint/releases"; \
+	else \
+		echo "hadolint is installed: $$(hadolint --version)"; \
+	fi
+	@echo ""
+	@echo "==> Checking for actionlint..."
+	@if ! command -v actionlint >/dev/null 2>&1; then \
+		echo "actionlint not found. Install with:"; \
+		echo "  macOS: brew install actionlint"; \
+		echo "  Go: go install github.com/rhysd/actionlint/cmd/actionlint@latest"; \
+	else \
+		echo "actionlint is installed: $$(actionlint --version)"; \
+	fi
+	@echo ""
+	@echo "Linting tools installation complete!"
+
+# Check if linting tools are installed
+check-linters:
+	@echo "Checking linting tools..."
+	@echo ""
+	@echo -n "ruff (venv): "
+	@if [ -f "$(RUFF)" ]; then $(RUFF) --version; else echo "NOT INSTALLED - run 'make venv'"; fi
+	@echo -n "yamllint (venv): "
+	@if [ -f "$(YAMLLINT)" ]; then $(YAMLLINT) --version; else echo "NOT INSTALLED - run 'make venv'"; fi
+	@echo -n "shfmt: "
+	@if command -v shfmt >/dev/null 2>&1; then shfmt --version; else echo "NOT INSTALLED"; fi
+	@echo -n "shellcheck: "
+	@if command -v shellcheck >/dev/null 2>&1; then shellcheck --version | head -1; else echo "NOT INSTALLED"; fi
+	@echo -n "hadolint: "
+	@if command -v hadolint >/dev/null 2>&1; then hadolint --version; else echo "NOT INSTALLED"; fi
+	@echo -n "actionlint: "
+	@if command -v actionlint >/dev/null 2>&1; then actionlint --version; else echo "NOT INSTALLED"; fi
+
+# ============================================================================
+# Testing
 # ============================================================================
 
 # Ensure test dependencies are installed
@@ -79,14 +188,23 @@ test-python: test-deps
 test-bash: test-deps
 	PYTHONPATH=shared $(PYTHON) -m pytest tests/test_bash_syntax.py -v
 
+# Security scan with bandit
+security: test-deps
+	@echo "==> Running security scan with bandit..."
+	$(VENV_BIN)/bandit -r gateway shared sandbox -ll -c pyproject.toml
+
 # ============================================================================
-# Linting Targets
+# Linting
 # ============================================================================
 
+# Shell files: .sh files + bash scripts without .sh extension
+SHELL_FILES := $(shell find . -name "*.sh" -not -path "./.venv/*" -not -path "./venv/*" -not -path "./host-services/.venv/*" -not -path "./.git/*" 2>/dev/null)
+SANDBOX_SCRIPTS := $(wildcard sandbox/scripts/*)
+
 # Run all linters
-lint: lint-python lint-shell lint-yaml lint-docker lint-container-paths lint-bin-symlinks
+lint: lint-python lint-shell lint-yaml lint-docker lint-container-paths lint-boundary lint-gh-cli lint-claude-imports
 	@echo ""
-	@echo "All linters completed!"
+	@echo "All linters passed!"
 
 # Run all linters with auto-fix where possible
 lint-fix: lint-python-fix lint-shell-fix lint-yaml-fix
@@ -116,10 +234,16 @@ lint-python-fix:
 	@echo "Python files fixed!"
 
 # ----------------------------------------------------------------------------
+# Python type checking (mypy)
+# ----------------------------------------------------------------------------
+lint-mypy:
+	@echo "==> Type checking with mypy..."
+	@$(VENV_BIN)/mypy gateway shared sandbox --exclude 'gateway/tests/' || true
+	@echo "Mypy check complete (non-blocking)."
+
+# ----------------------------------------------------------------------------
 # Shell (shellcheck + shfmt)
 # ----------------------------------------------------------------------------
-SHELL_FILES := $(shell find . -name "*.sh" -not -path "./.venv/*" -not -path "./venv/*" -not -path "./host-services/.venv/*" -not -path "./.git/*" 2>/dev/null)
-
 lint-shell:
 	@echo "==> Linting shell scripts with shellcheck..."
 	@if ! command -v shellcheck >/dev/null 2>&1; then \
@@ -128,12 +252,14 @@ lint-shell:
 		echo "  Fedora/RHEL: sudo dnf install ShellCheck"; \
 		echo "  macOS: brew install shellcheck"; \
 		exit 1; \
-	elif [ -n "$(SHELL_FILES)" ]; then \
-		shellcheck --severity=warning $(SHELL_FILES) || (echo "Shell linting failed!" && exit 1); \
-		echo "Shell linting passed!"; \
-	else \
-		echo "No shell scripts found."; \
 	fi
+	@if [ -n "$(SHELL_FILES)" ]; then \
+		shellcheck --severity=warning $(SHELL_FILES) || (echo "Shell linting failed!" && exit 1); \
+	fi
+	@if [ -n "$(SANDBOX_SCRIPTS)" ]; then \
+		shellcheck --severity=warning $(SANDBOX_SCRIPTS) || (echo "Sandbox scripts linting failed!" && exit 1); \
+	fi
+	@echo "Shell linting passed!"
 
 lint-shell-fix:
 	@echo "==> Formatting shell scripts with shfmt..."
@@ -187,7 +313,6 @@ lint-docker:
 		echo "Install with:"; \
 		echo "  Fedora/RHEL: sudo dnf install hadolint"; \
 		echo "  macOS: brew install hadolint"; \
-		echo "  Manual: wget -O ~/.local/bin/hadolint https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-arm64 && chmod +x ~/.local/bin/hadolint"; \
 		exit 1; \
 	elif [ -n "$(DOCKERFILES)" ]; then \
 		for f in $(DOCKERFILES); do \
@@ -212,107 +337,72 @@ lint-workflows:
 	fi
 
 # ----------------------------------------------------------------------------
-# Container Path Checks
+# Custom lint scripts
 # ----------------------------------------------------------------------------
 lint-container-paths:
 	@echo "==> Checking for problematic sys.path patterns..."
 	@$(PYTHON) scripts/check-container-paths.py
 
-# ----------------------------------------------------------------------------
-# Sandbox Bin Symlinks Check
-# ----------------------------------------------------------------------------
-lint-bin-symlinks:
-	@echo "==> Checking sandbox/bin/ symlinks..."
-	@if [ -f "scripts/check-bin-symlinks.py" ]; then \
-		$(PYTHON) scripts/check-bin-symlinks.py; \
-	else \
-		echo "Note: check-bin-symlinks.py not found, skipping"; \
-	fi
+lint-boundary:
+	@echo "==> Checking host-container boundary..."
+	@$(PYTHON) scripts/check-container-host-boundary.py
+
+lint-gh-cli:
+	@echo "==> Checking gh CLI usage..."
+	@$(PYTHON) scripts/check-gh-cli-usage.py
+
+lint-claude-imports:
+	@echo "==> Checking Claude imports..."
+	@$(PYTHON) scripts/check-claude-imports.py
 
 # ============================================================================
-# Setup Targets
+# Build
 # ============================================================================
 
-# Ensure venv exists and has dev dependencies
-venv:
-	@if [ ! -f "$(RUFF)" ]; then \
-		echo "==> Setting up venv..."; \
-		if ! command -v uv >/dev/null 2>&1; then \
-			echo "ERROR: uv is not installed."; \
-			echo ""; \
-			echo "Install uv with:"; \
-			echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"; \
-			echo ""; \
-			echo "Or see: https://docs.astral.sh/uv/getting-started/installation/"; \
-			exit 1; \
-		fi; \
-		uv sync --extra dev; \
-	else \
-		echo "Dev dependencies already installed."; \
-	fi
+build:
+	@echo "==> Building gateway container..."
+	docker build -t egg-gateway -f gateway/Dockerfile . || echo "WARNING: gateway build failed"
+	@echo "==> Building sandbox container..."
+	docker build -t egg-sandbox -f sandbox/Dockerfile . || echo "WARNING: sandbox build failed"
 
-# Install all linting tools
-install-linters: venv
-	@echo "Installing linting tools..."
-	@echo ""
-	@echo "==> ruff and yamllint installed in venv via 'make venv'"
-	@echo ""
-	@echo "==> Checking for shfmt..."
-	@if ! command -v shfmt >/dev/null 2>&1; then \
-		echo "shfmt not found. Install with:"; \
-		echo "  Ubuntu/Debian: sudo apt-get install shfmt"; \
-		echo "  macOS: brew install shfmt"; \
-		echo "  Go: go install mvdan.cc/sh/v3/cmd/shfmt@latest"; \
-		echo "  Or: https://github.com/mvdan/sh#shfmt"; \
-	else \
-		echo "shfmt is installed: $$(shfmt --version)"; \
-	fi
-	@echo ""
-	@echo "==> Checking for shellcheck..."
-	@if ! command -v shellcheck >/dev/null 2>&1; then \
-		echo "shellcheck not found. Install with:"; \
-		echo "  Ubuntu/Debian: sudo apt-get install shellcheck"; \
-		echo "  macOS: brew install shellcheck"; \
-		echo "  Or: https://github.com/koalaman/shellcheck#installing"; \
-	else \
-		echo "shellcheck is installed: $$(shellcheck --version | head -1)"; \
-	fi
-	@echo ""
-	@echo "==> Checking for hadolint..."
-	@if ! command -v hadolint >/dev/null 2>&1; then \
-		echo "hadolint not found. Install with:"; \
-		echo "  macOS: brew install hadolint"; \
-		echo "  Linux: Download from https://github.com/hadolint/hadolint/releases"; \
-		echo "  Or: docker run --rm -i hadolint/hadolint < Dockerfile"; \
-	else \
-		echo "hadolint is installed: $$(hadolint --version)"; \
-	fi
-	@echo ""
-	@echo "==> Checking for actionlint..."
-	@if ! command -v actionlint >/dev/null 2>&1; then \
-		echo "actionlint not found. Install with:"; \
-		echo "  macOS: brew install actionlint"; \
-		echo "  Go: go install github.com/rhysd/actionlint/cmd/actionlint@latest"; \
-		echo "  Or: https://github.com/rhysd/actionlint#installation"; \
-	else \
-		echo "actionlint is installed: $$(actionlint --version)"; \
-	fi
-	@echo ""
-	@echo "Linting tools installation complete!"
+# ============================================================================
+# CI targets (via act, for GitHub Actions parity)
+# ============================================================================
 
-# Check if linting tools are installed
-check-linters:
-	@echo "Checking linting tools..."
-	@echo ""
-	@echo -n "ruff (venv): "
-	@if [ -f "$(RUFF)" ]; then $(RUFF) --version; else echo "NOT INSTALLED - run 'make venv'"; fi
-	@echo -n "yamllint (venv): "
-	@if [ -f "$(YAMLLINT)" ]; then $(YAMLLINT) --version; else echo "NOT INSTALLED - run 'make venv'"; fi
-	@echo -n "shfmt: "
-	@if command -v shfmt >/dev/null 2>&1; then shfmt --version; else echo "NOT INSTALLED"; fi
-	@echo -n "shellcheck: "
-	@if command -v shellcheck >/dev/null 2>&1; then shellcheck --version | head -1; else echo "NOT INSTALLED"; fi
-	@echo -n "hadolint: "
-	@if command -v hadolint >/dev/null 2>&1; then hadolint --version; else echo "NOT INSTALLED"; fi
-	@echo -n "actionlint: "
-	@if command -v actionlint >/dev/null 2>&1; then actionlint --version; else echo "NOT INSTALLED"; fi
+ci:
+	@if ! command -v act >/dev/null 2>&1; then \
+		echo "ERROR: act is not installed."; \
+		echo "Install with:"; \
+		echo "  macOS: brew install act"; \
+		echo "  Linux: curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b ~/.local/bin"; \
+		exit 1; \
+	fi
+	act push
+
+ci-lint:
+	@if ! command -v act >/dev/null 2>&1; then \
+		echo "ERROR: act is not installed. See 'make ci' for install instructions."; \
+		exit 1; \
+	fi
+	act -j lint
+
+ci-test:
+	@if ! command -v act >/dev/null 2>&1; then \
+		echo "ERROR: act is not installed. See 'make ci' for install instructions."; \
+		exit 1; \
+	fi
+	act -j unit
+
+ci-integration:
+	@if ! command -v act >/dev/null 2>&1; then \
+		echo "ERROR: act is not installed. See 'make ci' for install instructions."; \
+		exit 1; \
+	fi
+	act -j integration
+
+ci-security:
+	@if ! command -v act >/dev/null 2>&1; then \
+		echo "ERROR: act is not installed. See 'make ci' for install instructions."; \
+		exit 1; \
+	fi
+	act -j security

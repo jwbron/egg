@@ -111,7 +111,7 @@ Every operation through the gateway is logged:
 # Clone and set up
 git clone https://github.com/YOUR_USERNAME/egg.git
 cd egg
-./dev setup
+make setup
 
 # Configure credentials
 cp secrets.yaml.example ~/.config/egg/secrets.yaml
@@ -160,14 +160,15 @@ egg start --config egg.yaml --private
 ## Development
 
 ```bash
-./dev setup          # Set up development environment
-./dev lint           # Run linters
-./dev test           # Run tests
-./dev ci             # Run full CI pipeline locally
+make setup           # Set up development environment
+make lint            # Run all linters
+make test            # Run all tests
+make security        # Run security scan (bandit)
 
-# Fast mode (native Python, no Docker)
-./dev native lint
-./dev native test
+# CI parity (via act, same as GitHub Actions)
+make ci              # Run full CI pipeline locally
+make ci-lint         # Run lint job via act
+make ci-test         # Run unit test job via act
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.

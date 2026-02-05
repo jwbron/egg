@@ -12,6 +12,7 @@
 
 # Real gh binary - relocated to hidden path to prevent direct access
 # See Dockerfile for relocation logic; /usr/bin/gh is now a stub
+# shellcheck disable=SC2034  # kept for documentation; matches git wrapper pattern
 REAL_GH=/opt/.egg-internal/gh
 # Gateway runs as container on egg-network, reachable by container name
 GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9847}"
