@@ -44,7 +44,9 @@ jobs:
           # Don't cat secrets, just verify they exist
           test -f "$CONFIG_DIR/secrets.env"
           grep -q "CLAUDE_CODE_OAUTH_TOKEN=" "$CONFIG_DIR/secrets.env"
-          grep -q "GITHUB_USER_TOKEN=" "$CONFIG_DIR/secrets.env"
+          # GITHUB_USER_TOKEN should NOT be in secrets.env — gateway reads it
+          # from the environment variable, not from this file
+          ! grep -q "GITHUB_USER_TOKEN=" "$CONFIG_DIR/secrets.env"
 
           echo "=== Validating launcher-secret ==="
           test -f "$CONFIG_DIR/launcher-secret"

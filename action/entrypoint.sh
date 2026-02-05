@@ -99,9 +99,11 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 
 allocate_subnet() {
-  # Collect subnets already in use by Docker
-  local used_subnets
-  used_subnets=$(docker network ls --format '{{.ID}}' | while read -r net_id; do
+  # Collect subnets already in use by Docker into an associative array for O(1) lookups
+  local -A used_subnets
+  while read -r subnet; do
+    [[ -n "$subnet" ]] && used_subnets["$subnet"]=1
+  done < <(docker network ls --format '{{.ID}}' | while read -r net_id; do
     docker network inspect "$net_id" --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null
   done)
 
@@ -109,7 +111,7 @@ allocate_subnet() {
   for major in $(seq 28 63); do
     for minor in $(seq 0 255); do
       local candidate="172.${major}.${minor}.0/24"
-      if ! echo "$used_subnets" | grep -qF "$candidate"; then
+      if [[ -z "${used_subnets[$candidate]+x}" ]]; then
         echo "$candidate"
         return 0
       fi
@@ -295,23 +297,48 @@ echo "=== Step 6: Health check ==="
 
 HEALTH_URL="http://${GATEWAY_IP_ISOLATED}:${GATEWAY_PORT}/api/v1/health"
 HEALTH_TIMEOUT=60
-HEALTH_INTERVAL=0.5
-elapsed=0
+SECONDS=0
 
-while (( $(echo "$elapsed < $HEALTH_TIMEOUT" | bc -l) )); do
+while (( SECONDS < HEALTH_TIMEOUT )); do
   if curl -sf "$HEALTH_URL" > /dev/null 2>&1; then
-    echo "Gateway healthy after ${elapsed}s"
+    echo "Gateway healthy after ${SECONDS}s"
     break
   fi
-  sleep "$HEALTH_INTERVAL"
-  elapsed=$(echo "$elapsed + $HEALTH_INTERVAL" | bc -l)
+  sleep 1
 done
 
-if (( $(echo "$elapsed >= $HEALTH_TIMEOUT" | bc -l) )); then
+if (( SECONDS >= HEALTH_TIMEOUT )); then
   echo "ERROR: Gateway failed health check after ${HEALTH_TIMEOUT}s"
   echo "Gateway logs:"
   docker logs "$GATEWAY_CONTAINER" 2>&1 | tail -50
   exit 1
+fi
+
+# In private mode, also verify that the Squid proxy is ready.
+# Claude Code's non-gateway traffic routes through Squid, so it must be
+# accepting connections before the sandbox starts. Accept any HTTP response
+# (including 403/407) as proof of connectivity.
+if [[ "$MODE" == "private" ]]; then
+  echo "Checking proxy readiness..."
+  SECONDS=0
+  while (( SECONDS < 15 )); do
+    if curl -sf --proxy "http://${GATEWAY_IP_ISOLATED}:${GATEWAY_PROXY_PORT}" \
+         -o /dev/null -w '' https://api.anthropic.com/ 2>/dev/null; then
+      echo "Proxy healthy after ${SECONDS}s"
+      break
+    fi
+    # Squid may return 403/407 — any response means it's up
+    HTTP_CODE=$(curl -s --proxy "http://${GATEWAY_IP_ISOLATED}:${GATEWAY_PROXY_PORT}" \
+                  -o /dev/null -w '%{http_code}' https://api.anthropic.com/ 2>/dev/null || echo "000")
+    if [[ "$HTTP_CODE" != "000" ]]; then
+      echo "Proxy healthy after ${SECONDS}s (HTTP $HTTP_CODE)"
+      break
+    fi
+    sleep 1
+  done
+  if (( SECONDS >= 15 )); then
+    echo "WARNING: Proxy health check timed out — sandbox may experience connectivity issues"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -350,8 +377,6 @@ SESSION_RESPONSE=$(curl -sf -X POST \
     \"gid\": $(id -g)
   }")
 
-echo "Session response: $SESSION_RESPONSE"
-
 SESSION_TOKEN=$(echo "$SESSION_RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin)['data']['session_token'])")
 WORKTREE_PATH=$(echo "$SESSION_RESPONSE" | python3 -c "
 import sys, json
@@ -387,21 +412,25 @@ SANDBOX_CMD=(
   -e "EGG_SESSION_TOKEN=${SESSION_TOKEN}"
   -e "GATEWAY_URL=http://egg-gateway:${GATEWAY_PORT}"
   -e "ANTHROPIC_AUTH_METHOD=oauth"
+  -e "EGG_QUIET=1"
 )
 
 # Mode-specific network settings
 if [[ "$MODE" == "private" ]]; then
-  PROXY_URL="http://egg-gateway:${GATEWAY_PROXY_PORT}"
   SANDBOX_CMD+=(
     --dns 0.0.0.0
     -e "PRIVATE_MODE=true"
-    -e "HTTP_PROXY=${PROXY_URL}"
-    -e "HTTPS_PROXY=${PROXY_URL}"
-    -e "http_proxy=${PROXY_URL}"
-    -e "https_proxy=${PROXY_URL}"
     -e "NO_PROXY=localhost,127.0.0.1,egg-gateway"
     -e "no_proxy=localhost,127.0.0.1,egg-gateway"
   )
+  # NOTE: We intentionally do NOT pass HTTP_PROXY/HTTPS_PROXY to the sandbox
+  # container. The sandbox entrypoint's run_exec() path (used by GHA) does not
+  # strip proxy vars before exec'ing the command, unlike run_interactive().
+  # If set, Claude Code (Node.js) would route all traffic — including calls to
+  # ANTHROPIC_BASE_URL (egg-gateway:9848) — through Squid, which only allows
+  # api.anthropic.com. Network isolation is still enforced via --dns 0.0.0.0
+  # and the isolated network topology. The proper fix is to add proxy stripping
+  # to run_exec() in sandbox/entrypoint.py (tracked separately).
 else
   SANDBOX_CMD+=(-e "PRIVATE_MODE=false")
 fi
