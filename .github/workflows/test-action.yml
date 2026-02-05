@@ -20,7 +20,6 @@ jobs:
           GITHUB_REPOSITORY: test-owner/test-repo
           GITHUB_ACTOR: test-user
           GITHUB_ACTOR_ID: "12345"
-          GITHUB_RUN_ID: "99999"
           INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
           INPUT_GITHUB_TOKEN: test-github-token
           INPUT_BOT_USERNAME: egg
@@ -28,7 +27,8 @@ jobs:
         run: |
           bash action/generate-config.sh
 
-          CONFIG_DIR="${RUNNER_TEMP}/egg-config-99999"
+          # GITHUB_RUN_ID is a built-in GHA variable that cannot be overridden
+          CONFIG_DIR="${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
 
           echo "=== Validating repositories.yaml ==="
           cat "$CONFIG_DIR/repositories.yaml"
@@ -46,7 +46,10 @@ jobs:
           grep -q "CLAUDE_CODE_OAUTH_TOKEN=" "$CONFIG_DIR/secrets.env"
           # GITHUB_USER_TOKEN should NOT be in secrets.env — gateway reads it
           # from the environment variable, not from this file
-          ! grep -q "GITHUB_USER_TOKEN=" "$CONFIG_DIR/secrets.env"
+          if grep -q "GITHUB_USER_TOKEN=" "$CONFIG_DIR/secrets.env"; then
+            echo "ERROR: GITHUB_USER_TOKEN should not be in secrets.env"
+            exit 1
+          fi
 
           echo "=== Validating launcher-secret ==="
           test -f "$CONFIG_DIR/launcher-secret"
@@ -59,7 +62,6 @@ jobs:
           GITHUB_REPOSITORY: test-owner/test-repo
           GITHUB_ACTOR: test-user
           GITHUB_ACTOR_ID: "12345"
-          GITHUB_RUN_ID: "88888"
           INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
           INPUT_GITHUB_TOKEN: test-github-token
           INPUT_BOT_GITHUB_TOKEN: test-bot-token
@@ -68,7 +70,7 @@ jobs:
         run: |
           bash action/generate-config.sh
 
-          CONFIG_DIR="${RUNNER_TEMP}/egg-config-88888"
+          CONFIG_DIR="${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
 
           grep -q "bot_username: my-bot" "$CONFIG_DIR/repositories.yaml"
           grep -q "auth_mode: bot" "$CONFIG_DIR/repositories.yaml"
