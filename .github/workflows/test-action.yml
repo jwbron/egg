@@ -17,9 +17,6 @@ jobs:
 
       - name: Test generate-config.sh
         env:
-          GITHUB_REPOSITORY: test-owner/test-repo
-          GITHUB_ACTOR: test-user
-          GITHUB_ACTOR_ID: "12345"
           INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
           INPUT_GITHUB_TOKEN: test-github-token
           INPUT_BOT_USERNAME: egg
@@ -27,18 +24,20 @@ jobs:
         run: |
           bash action/generate-config.sh
 
-          # GITHUB_RUN_ID is a built-in GHA variable that cannot be overridden
+          # GITHUB_* vars are built-in GHA variables that cannot be overridden,
+          # so we validate against the actual runtime values
           CONFIG_DIR="${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
 
           echo "=== Validating repositories.yaml ==="
           cat "$CONFIG_DIR/repositories.yaml"
 
-          # Verify required fields
-          grep -q "github_username: test-user" "$CONFIG_DIR/repositories.yaml"
+          # Verify required fields use actual GHA context values
+          grep -q "github_username: ${GITHUB_ACTOR}" "$CONFIG_DIR/repositories.yaml"
           grep -q "bot_username: egg" "$CONFIG_DIR/repositories.yaml"
-          grep -q "test-owner/test-repo" "$CONFIG_DIR/repositories.yaml"
+          grep -q "${GITHUB_REPOSITORY}" "$CONFIG_DIR/repositories.yaml"
           grep -q "auth_mode: user" "$CONFIG_DIR/repositories.yaml"
-          grep -q "/home/egg/repos/test-repo" "$CONFIG_DIR/repositories.yaml"
+          grep -q "/home/egg/repos/${REPO_NAME}" "$CONFIG_DIR/repositories.yaml"
 
           echo "=== Validating secrets.env ==="
           # Don't cat secrets, just verify they exist
@@ -59,15 +58,15 @@ jobs:
 
       - name: Test generate-config.sh with bot token
         env:
-          GITHUB_REPOSITORY: test-owner/test-repo
-          GITHUB_ACTOR: test-user
-          GITHUB_ACTOR_ID: "12345"
           INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
           INPUT_GITHUB_TOKEN: test-github-token
           INPUT_BOT_GITHUB_TOKEN: test-bot-token
           INPUT_BOT_USERNAME: my-bot
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
+          # Clean up config from previous step so we validate fresh output
+          rm -rf "${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+
           bash action/generate-config.sh
 
           CONFIG_DIR="${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
