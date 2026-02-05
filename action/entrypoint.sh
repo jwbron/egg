@@ -160,6 +160,7 @@ allocate_container_ip() {
 # ---------------------------------------------------------------------------
 
 echo "=== Step 1: Pull images ==="
+echo "${INPUT_GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 docker pull "$GATEWAY_IMAGE"
 docker pull "$SANDBOX_IMAGE"
 
