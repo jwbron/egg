@@ -476,6 +476,15 @@ print(json.dumps(data))
 # Store original args
 ARGS=("$@")
 
+# Unescape \! → ! in all arguments.
+# Claude Code's Bash tool escapes ! to \! in command strings. Since this script
+# runs as non-interactive bash (#!/bin/bash), the backslash is not consumed as
+# a history-expansion escape — it remains as a literal character. This breaks
+# jq expressions (e.g., != becomes \!=) and other arguments containing !.
+for i in "${!ARGS[@]}"; do
+    ARGS[$i]="${ARGS[$i]//\\!/!}"
+done
+
 # Parse the main command
 main_cmd=""
 sub_cmd=""
