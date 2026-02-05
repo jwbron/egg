@@ -112,11 +112,19 @@ gateway/
 ├── scripts/                # Helper scripts
 ├── tests/                  # Unit and integration tests
 │   ├── test_gateway.py
+│   ├── test_gateway_integration.py
 │   ├── test_git_client.py
-│   ├── test_session_manager.py
+│   ├── test_git_validation.py
+│   ├── test_policy.py
+│   ├── test_private_repo_policy.py
+│   ├── test_proxy_security.py
 │   ├── test_rate_limiter.py
 │   ├── test_repo_parser.py
-│   ├── test_private_repo_policy.py
+│   ├── test_repo_visibility.py
+│   ├── test_session_manager.py
+│   ├── test_token_refresher.py
+│   ├── test_worktree_manager.py
+│   ├── integration_test.sh
 │   └── README-integration.md
 └── README.md               # This file
 ```

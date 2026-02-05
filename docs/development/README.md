@@ -49,9 +49,9 @@ For direct tool access without act:
 - **Gateway tests**: `gateway/tests/` - Gateway-specific tests
 - **Integration tests**: `tests/integration/` - Tests requiring Docker
 
-Coverage requirements:
-- Minimum 80% overall coverage
-- 95%+ for security-critical code (`policy.py`, `session_manager.py`)
+Coverage targets (aspirational — CI enforces a 20% floor via `--cov-fail-under`):
+- Target 80% overall coverage
+- Target 95%+ for security-critical code (`policy.py`, `session_manager.py`)
 
 ## Code Standards
 

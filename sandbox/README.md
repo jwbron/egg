@@ -45,7 +45,12 @@ sandbox/
 │       ├── runner.py       # Claude Code runner
 │       └── config.py       # Claude-specific config
 │
-├── bin/                    # Git/gh wrapper scripts
+├── bin/                    # Symlinks to scripts/ (added to PATH)
+│   ├── git -> ../scripts/git
+│   ├── gh -> ../scripts/gh
+│   └── git-credential-github-token -> ../scripts/git-credential-github-token
+│
+├── scripts/                # Wrapper script implementations
 │   ├── git                 # Git wrapper (routes to gateway)
 │   ├── gh                  # GitHub CLI wrapper (routes to gateway)
 │   └── git-credential-github-token
