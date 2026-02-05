@@ -82,10 +82,8 @@ YAML
 
 cat > "$CONFIG_DIR/secrets.env" <<ENV
 CLAUDE_CODE_OAUTH_TOKEN=${INPUT_ANTHROPIC_OAUTH_TOKEN}
+GITHUB_USER_TOKEN=${INPUT_GITHUB_TOKEN}
 ENV
-# NOTE: GITHUB_USER_TOKEN is intentionally omitted from secrets.env — the
-# gateway reads it from the environment variable (passed via docker run -e),
-# not from this file.
 
 # Add bot GitHub App credentials if provided
 if [[ "$AUTH_MODE" == "bot" ]]; then

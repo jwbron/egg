@@ -119,12 +119,23 @@ if [[ -n "$PR_URL" ]]; then
 fi
 
 # Write to job summary
+# Resolve mode the same way Python does (auto → public/private)
+RESOLVED_MODE="${INPUT_MODE:-auto}"
+if [[ "$RESOLVED_MODE" == "auto" ]]; then
+  REPO_VIS="${GITHUB_EVENT_REPOSITORY_VISIBILITY:-public}"
+  if [[ "$REPO_VIS" == "private" || "$REPO_VIS" == "internal" ]]; then
+    RESOLVED_MODE="private"
+  else
+    RESOLVED_MODE="public"
+  fi
+fi
+
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
     echo "## egg Run Summary"
     echo ""
     echo "**Exit code:** \`${SANDBOX_EXIT_CODE}\`"
-    echo "**Mode:** ${INPUT_MODE:-auto}"
+    echo "**Mode:** ${RESOLVED_MODE}"
     echo "**Model:** ${MODEL}"
     if [[ -n "$PR_URL" ]]; then
       echo "**PR:** ${PR_URL}"

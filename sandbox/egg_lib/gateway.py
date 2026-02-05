@@ -948,6 +948,18 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     # Repos directory
     if repos_dir.exists():
         mounts.extend(["-v", f"{repos_dir}:{CONTAINER_HOME}/repos"])
+    elif config_file.exists():
+        # GHA: repos are at GITHUB_WORKSPACE, not ~/repos/.
+        # Mount each local_repos path so the gateway has working tree access.
+        try:
+            with open(config_file) as f:
+                cfg = yaml.safe_load(f) or {}
+            for path_str in cfg.get("local_repos", {}).get("paths", []):
+                p = Path(path_str).expanduser()
+                if p.exists():
+                    mounts.extend(["-v", f"{p}:{CONTAINER_HOME}/repos/{p.name}"])
+        except Exception:
+            pass
 
     # Worktrees directory
     worktrees_dir.mkdir(parents=True, exist_ok=True)
