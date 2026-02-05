@@ -62,6 +62,7 @@ class EggStack:
     config_dir: str
     isolated_network: str
     external_network: str
+    source_ip: str = ""  # Auto-detected: IP the gateway sees for our requests
     _containers: list[str] = field(default_factory=list)
 
     def health_check(self, timeout: int = 5) -> dict[str, Any]:
@@ -73,10 +74,22 @@ class EggStack:
         resp.raise_for_status()
         return resp.json()
 
+    def detect_source_ip(self) -> str:
+        """Detect the IP the gateway sees for requests from this host.
+
+        Uses the client_ip field from the health endpoint response.
+        """
+        health = self.health_check()
+        ip = health.get("client_ip", "")
+        if not ip:
+            raise RuntimeError("Gateway health endpoint did not return client_ip")
+        self.source_ip = ip
+        return ip
+
     def create_session(
         self,
         container_id: str | None = None,
-        container_ip: str = "172.40.0.100",
+        container_ip: str | None = None,
         mode: str = "private",
         repos: list[str] | None = None,
     ) -> dict[str, Any]:
@@ -86,6 +99,8 @@ class EggStack:
         """
         if container_id is None:
             container_id = f"test-{os.getpid()}-{time.time_ns()}"
+        if container_ip is None:
+            container_ip = self.source_ip or "172.40.0.100"
 
         resp = requests.post(
             f"{self.gateway_url}/api/v1/sessions/create",
@@ -326,6 +341,10 @@ def egg_stack() -> Generator[EggStack, None, None]:
             external_network=f"{project_name}-external",
         )
 
+        # Detect what source IP the gateway sees for our requests
+        # so sessions can be bound to the correct IP.
+        stack.detect_source_ip()
+
         yield stack
 
     finally:
@@ -352,7 +371,6 @@ def gateway_session(egg_stack: EggStack) -> Generator[dict[str, Any], None, None
     container_id = f"test-{os.getpid()}-{time.time_ns()}"
     result = egg_stack.create_session(
         container_id=container_id,
-        container_ip="172.40.0.100",
         mode="private",
     )
 

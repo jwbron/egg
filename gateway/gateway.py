@@ -157,10 +157,12 @@ def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
 
     if isinstance(e, HTTPException):
         # Preserve HTTP status codes for werkzeug exceptions (400, 404, etc.)
-        return jsonify({
-            "success": False,
-            "message": e.description or str(e),
-        }), e.code or 500
+        return jsonify(
+            {
+                "success": False,
+                "message": e.description or str(e),
+            }
+        ), e.code or 500
 
     logger.error(
         "Unhandled exception in request handler",
@@ -169,10 +171,12 @@ def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
         path=request.path if request else "unknown",
         traceback=traceback.format_exc(),
     )
-    return jsonify({
-        "success": False,
-        "message": "Internal server error",
-    }), 500
+    return jsonify(
+        {
+            "success": False,
+            "message": "Internal server error",
+        }
+    ), 500
 
 
 # Configuration
@@ -413,6 +417,7 @@ def health_check() -> Response:
             "auth_configured": launcher_secret_configured,
             "active_sessions": active_sessions,
             "service": "gateway",
+            "client_ip": request.remote_addr,
         }
     )
 
