@@ -238,6 +238,28 @@ class TestGitArgsValidation:
         assert valid is True
         assert "-o" in args
 
+    def test_format_patch_numbered_long_flag(self):
+        """git format-patch accepts --numbered flag."""
+        valid, error, args = git_client.validate_git_args("format-patch", ["--numbered", "HEAD~3"])
+        assert valid is True
+        assert "--numbered" in args
+
+    def test_format_patch_short_n_rejected(self):
+        """git format-patch -n is rejected because FLAG_NORMALIZATION maps -n to --dry-run.
+
+        Users should use --numbered instead. This matches how log and reflog
+        handle the same -n normalization conflict.
+        """
+        valid, error, _ = git_client.validate_git_args("format-patch", ["-n", "HEAD~3"])
+        assert valid is False
+        assert "not allowed" in error
+
+    def test_format_patch_numeric_flag(self):
+        """git format-patch accepts numeric flags like -1, -3."""
+        valid, error, args = git_client.validate_git_args("format-patch", ["-1", "HEAD"])
+        assert valid is True
+        assert "-1" in args
+
 
 class TestFlagNormalization:
     """Tests for normalize_flag function."""
