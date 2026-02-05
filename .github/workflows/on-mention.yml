@@ -72,7 +72,7 @@ jobs:
               echo "is_pr=false" >> "$GITHUB_OUTPUT"
             fi
           elif [[ "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
-            echo "ref=${{ github.event.pull_request.head.ref }}" >> "$GITHUB_OUTPUT"
+            echo "ref=${PR_HEAD_REF}" >> "$GITHUB_OUTPUT"
             echo "is_pr=true" >> "$GITHUB_OUTPUT"
           else
             # issues (opened)
@@ -81,6 +81,7 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
 
       - name: Checkout
         uses: actions/checkout@v4
