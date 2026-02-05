@@ -1,0 +1,44 @@
+name: E2E Tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run weekly on Monday at 06:00 UTC
+    - cron: "0 6 * * 1"
+
+jobs:
+  e2e:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Build containers
+        run: |
+          docker build -t egg-gateway -f gateway/Dockerfile .
+          docker build -t egg-sandbox -f sandbox/Dockerfile .
+
+      - name: Run E2E tests
+        env:
+          ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+        run: |
+          PYTHONPATH=shared .venv/bin/pytest tests/integration -v \
+            -m e2e \
+            --timeout=600
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f tests/integration/docker-compose.yml down -v --remove-orphans 2>/dev/null || true
+          docker network prune -f 2>/dev/null || true
