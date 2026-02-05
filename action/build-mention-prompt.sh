@@ -38,11 +38,27 @@ jq_raw() {
   jq -r "$1" "$GITHUB_EVENT_PATH"
 }
 
+# Wrapper around gh api that warns on failure instead of silently swallowing errors
+gh_api_safe() {
+  local stderr_file
+  stderr_file=$(mktemp)
+  local output
+  if output=$(gh api "$@" 2>"$stderr_file"); then
+    rm -f "$stderr_file"
+    echo "$output"
+  else
+    local rc=$?
+    echo "WARNING: 'gh api $1' failed (exit $rc): $(cat "$stderr_file")" >&2
+    rm -f "$stderr_file"
+    return 0  # non-fatal — prompt is built with missing section
+  fi
+}
+
 # Fetch last 10 comments on an issue/PR
 fetch_recent_comments() {
   local issue_number="$1"
-  gh api "repos/${GITHUB_REPOSITORY}/issues/${issue_number}/comments" \
-    --jq '.[-10:][] | "@\(.user.login): \(.body)"' 2>/dev/null \
+  gh_api_safe "repos/${GITHUB_REPOSITORY}/issues/${issue_number}/comments" \
+    --jq '.[-10:][] | "@\(.user.login): \(.body)"' \
     | while IFS= read -r line; do
         truncate_text "$line" "$MAX_COMMENT_CHARS"
       done
@@ -51,15 +67,15 @@ fetch_recent_comments() {
 # Fetch changed files for a PR
 fetch_pr_files() {
   local pr_number="$1"
-  gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/files" \
-    --jq '.[].filename' 2>/dev/null
+  gh_api_safe "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/files" \
+    --jq '.[].filename'
 }
 
 # Fetch PR details
 fetch_pr_details() {
   local pr_number="$1"
-  gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
-    --jq '{title: .title, body: .body, state: .state, merged: .merged, base: .base.ref, head: .head.ref, html_url: .html_url}' 2>/dev/null
+  gh_api_safe "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
+    --jq '{title: .title, body: .body, state: .state, merged: .merged, base: .base.ref, head: .head.ref, html_url: .html_url}'
 }
 
 # ---------------------------------------------------------------------------
@@ -168,6 +184,7 @@ your work, post a comment on the issue summarizing what you did."
       local pr_title
       local pr_url
       local pr_head
+      local pr_base
       local comment_body
       local comment_path
       local comment_line
@@ -177,16 +194,46 @@ your work, post a comment on the issue summarizing what you did."
       pr_title=$(jq_raw '.pull_request.title')
       pr_url=$(jq_raw '.pull_request.html_url')
       pr_head=$(jq_raw '.pull_request.head.ref')
+      pr_base=$(jq_raw '.pull_request.base.ref')
       comment_body=$(jq_raw '.comment.body')
       comment_path=$(jq_raw '.comment.path')
       comment_line=$(jq_raw '.comment.line // .comment.original_line // "unknown"')
       diff_hunk=$(truncate_text "$(jq_raw '.comment.diff_hunk // ""')" "$MAX_BODY_CHARS")
+
+      local pr_details
+      pr_details=$(fetch_pr_details "$pr_number")
+      local pr_body_raw pr_body pr_state pr_merged pr_display_state
+      pr_state=$(echo "$pr_details" | jq -r '.state')
+      pr_merged=$(echo "$pr_details" | jq -r '.merged')
+      pr_body_raw=$(echo "$pr_details" | jq -r '.body // ""')
+      pr_body=$(truncate_text "$pr_body_raw" "$MAX_BODY_CHARS")
+      pr_display_state="$pr_state"
+      if [[ "$pr_merged" == "true" ]]; then
+        pr_display_state="merged"
+      fi
+
+      local changed_files
+      changed_files=$(fetch_pr_files "$pr_number")
+
+      local recent_comments
+      recent_comments=$(fetch_recent_comments "$pr_number")
 
       prompt="You were mentioned in an inline code review comment.
 
 Repository: ${GITHUB_REPOSITORY}
 Pull Request: #${pr_number} — ${pr_title}
 PR URL: ${pr_url}
+PR state: ${pr_display_state}
+PR base: ${pr_base} <- ${pr_head}
+
+## PR description
+${pr_body}
+
+## Changed files
+${changed_files}
+
+## Recent conversation (last 10 comments)
+${recent_comments}
 
 ## Review comment context
 File: ${comment_path}
@@ -243,9 +290,9 @@ issue with a link to the PR."
 
   # Write multiline output using heredoc delimiter
   {
-    echo "prompt<<PROMPT_EOF"
+    echo "prompt<<__EGG_PROMPT_BOUNDARY_7f3a9c__"
     echo "$prompt"
-    echo "PROMPT_EOF"
+    echo "__EGG_PROMPT_BOUNDARY_7f3a9c__"
   } >> "${GITHUB_OUTPUT:-/dev/null}"
 
   echo "Prompt built for event: $GITHUB_EVENT_NAME (${#prompt} chars)"

@@ -12,6 +12,8 @@ jobs:
   respond:
     name: Run egg
     runs-on: ubuntu-latest
+    # Bot-self checks (!= james-in-a-box) are defense-in-depth: prevent
+    # self-triggering if authorized users list expands beyond jwbron.
     if: >-
       (
         (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@james-in-a-box')) ||
@@ -90,6 +92,7 @@ jobs:
         run: bash action/build-mention-prompt.sh
         env:
           BOT_USERNAME: james-in-a-box
+          GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Run egg
         id: egg
