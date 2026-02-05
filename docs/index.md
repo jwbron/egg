@@ -15,6 +15,12 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Context Sync Strategy](adr/implemented/ADR-Context-Sync-Strategy-Custom-vs-MCP.md) | How external data (Confluence, JIRA, GitHub) is synced |
 | [Git Isolation Architecture](adr/implemented/ADR-Git-Isolation-Architecture.md) | Gateway sidecar design for credential isolation |
 
+### Strategy
+
+| Document | Description |
+|----------|-------------|
+| [Collaboration Effectiveness](collaboration-effectiveness.md) | Why egg's public, async model enables team collaboration with AI |
+
 ### Architecture
 
 | Document | Description |
