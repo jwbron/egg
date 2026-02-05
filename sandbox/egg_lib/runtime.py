@@ -28,7 +28,6 @@ from statusbar import status, status_finish
 
 from .auth import get_anthropic_api_key, get_anthropic_auth_method
 from .config import (
-    Config,
     get_local_repos,
 )
 from .container_logging import (
@@ -53,6 +52,17 @@ from .timing import _host_timer
 
 # Valid repo_mode values
 VALID_REPO_MODES = ("private", "public")
+
+
+def _get_repos_config_file() -> Path:
+    """Return the context-aware path to repositories.yaml.
+
+    Uses RuntimeContext.config_dir when set (e.g. in GHA mode where
+    EGG_CONFIG_DIR points to an ephemeral temp directory), falling
+    back to the default ~/.config/egg/repositories.yaml.
+    """
+    ctx = get_context()
+    return ctx.config_dir / "repositories.yaml"
 
 
 def _get_reserved_ips(subnet: str, gateway_ip: str) -> set[str]:
@@ -267,7 +277,7 @@ def _setup_repo_mounts(
         Dict of repo_name -> repo_path for tracking
     """
     repos: dict[str, Path] = {}
-    local_repos = get_local_repos()
+    local_repos = get_local_repos(config_file=_get_repos_config_file())
 
     if not local_repos:
         if not quiet:
@@ -411,7 +421,7 @@ def _setup_session_repos(
         - filtered_repos: List of repos that passed visibility filtering
     """
     repos: dict[str, Path] = {}
-    local_repos = get_local_repos()
+    local_repos = get_local_repos(config_file=_get_repos_config_file())
 
     if not local_repos:
         if not quiet:
@@ -526,7 +536,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
 
     # Check repository configuration - warn but continue if missing
     with _host_timer.phase("check_config"):
-        if not Config.REPOS_CONFIG_FILE.exists():
+        if not _get_repos_config_file().exists():
             warn("No repositories configured. Run 'egg --setup' to add repositories.")
             warn("Continuing with no mounted repositories...")
 
@@ -820,7 +830,7 @@ def exec_in_new_container(
         create_dockerfile()
 
     # Check repository configuration - warn but continue if missing
-    if not Config.REPOS_CONFIG_FILE.exists():
+    if not _get_repos_config_file().exists():
         warn("No repositories configured. Run 'egg --setup' to add repositories.")
         warn("Continuing with no mounted repositories...")
 
