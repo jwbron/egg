@@ -1002,8 +1002,11 @@ class TestGitHookDisabling:
 
     Git hooks execute in the gateway (trusted environment), not in the sandbox.
     A malicious repository could include pre-commit hooks that execute arbitrary
-    code. We disable all hooks by injecting --no-verify for operations that
-    support it.
+    code. We use a defense-in-depth approach:
+
+    1. Primary: core.hooksPath=/dev/null disables ALL hooks for all git operations
+    2. Belt-and-suspenders: --no-verify for operations that support it (commit,
+       merge, cherry-pick, am, push)
     """
 
     def test_commit_injects_no_verify(self, client, auth_headers):
@@ -1141,6 +1144,32 @@ class TestGitHookDisabling:
 
             assert response.status_code == 200
 
+    def test_am_injects_no_verify(self, client, auth_headers):
+        """Am (apply mailbox) operations get --no-verify to disable hooks."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="Applying: patch",
+                stderr="",
+            )
+
+            response = client.post(
+                "/api/v1/git/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "am",
+                        "args": ["--abort"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_args = mock_run.call_args[0][0]
+            assert "--no-verify" in call_args
+
     def test_status_does_not_inject_no_verify(self, client, auth_headers):
         """Status and other safe operations do not get --no-verify."""
         with patch("subprocess.run") as mock_run:
@@ -1167,3 +1196,41 @@ class TestGitHookDisabling:
             call_args = mock_run.call_args[0][0]
             # status should NOT have --no-verify (it doesn't support it)
             assert "--no-verify" not in call_args
+
+    def test_all_operations_have_hooks_disabled_via_config(self, client, auth_headers):
+        """All git operations have core.hooksPath=/dev/null to disable hooks globally."""
+        # Test multiple operations to ensure the config is always present
+        operations_to_test = [
+            ("status", ["--porcelain"]),
+            ("checkout", ["-b", "test-branch"]),
+            ("rebase", ["--abort"]),
+            ("log", ["--oneline"]),
+        ]
+
+        for operation, args in operations_to_test:
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0,
+                    stdout="",
+                    stderr="",
+                )
+
+                response = client.post(
+                    "/api/v1/git/execute",
+                    headers=auth_headers,
+                    data=json.dumps(
+                        {
+                            "repo_path": "/home/egg/repos/test",
+                            "operation": operation,
+                            "args": args,
+                        }
+                    ),
+                    content_type="application/json",
+                )
+
+                assert response.status_code == 200, f"Failed for {operation}"
+                call_args = mock_run.call_args[0][0]
+                # Verify core.hooksPath=/dev/null is in the command
+                assert "core.hooksPath=/dev/null" in call_args, (
+                    f"core.hooksPath=/dev/null missing for {operation}: {call_args}"
+                )
