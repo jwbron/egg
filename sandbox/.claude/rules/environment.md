@@ -43,6 +43,7 @@ All git/gh operations are routed through the gateway sidecar (runs as `egg-gatew
 - `git push`: Only to branches you own (egg-prefixed or has your open PR)
 - `git fetch/pull/ls-remote`: Routed through gateway for authentication
 - `git remote update`: Converted to `fetch --all` via gateway
+- `git worktree add/remove`: **Unsupported** - worktrees are managed by the gateway; use `git checkout -b` instead
 - `gh pr merge`: **Blocked** - human must merge via GitHub UI
 - `gh pr comment/edit/close`: Only on PRs you authored
 

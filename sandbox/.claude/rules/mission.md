@@ -35,7 +35,9 @@ Before complex tasks, consult `~/repos/egg/docs/index.md` for task-specific guid
 
 **Gather context**: `@load-context <project>`, `discover-tests ~/repos/<repo>`
 
-**Git Worktrees**: You're in an isolated worktree on a temp branch. Commit directly, then PR.
+**Git Worktrees**: You're already in an isolated worktree on a temp branch. Commit directly, then PR.
+
+**DO NOT use `git worktree add/remove`**. The gateway manages worktrees — manual worktree commands will fail or create inaccessible directories. To work on a different branch, use `git checkout -b <name> origin/<branch>`. To push a local branch to a differently-named remote branch, use `git push origin local-name:remote-branch-name`.
 
 **Commit & PR**:
 ```bash
