@@ -17,6 +17,7 @@ YAMLLINT := $(VENV_BIN)/yamllint
         lint-yaml lint-yaml-fix \
         lint-docker lint-workflows \
         lint-host-services lint-container-paths lint-bin-symlinks \
+        lint-claude-imports lint-container-host-boundary lint-gh-cli-usage lint-validate-config \
         install-linters check-linters venv
 
 # Default target
@@ -43,6 +44,10 @@ help:
 	@echo "  make lint-workflows    - Lint GitHub Actions with actionlint"
 	@echo "  make lint-container-paths - Check for problematic sys.path patterns"
 	@echo "  make lint-bin-symlinks  - Check container bin symlinks are valid"
+	@echo "  make lint-claude-imports - Check host-services for forbidden Claude imports"
+	@echo "  make lint-container-host-boundary - Check sandbox for host-services imports"
+	@echo "  make lint-gh-cli-usage  - Check host-services for forbidden gh CLI writes"
+	@echo "  make lint-validate-config - Validate configuration loading"
 	@echo ""
 	@echo "Setup:"
 	@echo "  make install-linters   - Install all linting tools"
@@ -84,7 +89,7 @@ test-bash: test-deps
 # ============================================================================
 
 # Run all linters
-lint: lint-python lint-shell lint-yaml lint-docker lint-container-paths lint-bin-symlinks
+lint: lint-python lint-shell lint-yaml lint-docker lint-container-paths lint-bin-symlinks lint-claude-imports lint-container-host-boundary lint-gh-cli-usage lint-validate-config
 	@echo ""
 	@echo "All linters completed!"
 
@@ -223,11 +228,35 @@ lint-container-paths:
 # ----------------------------------------------------------------------------
 lint-bin-symlinks:
 	@echo "==> Checking sandbox/bin/ symlinks..."
-	@if [ -f "scripts/check-bin-symlinks.py" ]; then \
-		$(PYTHON) scripts/check-bin-symlinks.py; \
-	else \
-		echo "Note: check-bin-symlinks.py not found, skipping"; \
-	fi
+	@$(PYTHON) scripts/check-bin-symlinks.py
+
+# ----------------------------------------------------------------------------
+# Security: Claude/Anthropic Import Check
+# ----------------------------------------------------------------------------
+lint-claude-imports:
+	@echo "==> Checking for forbidden Claude/Anthropic imports in host-services..."
+	@$(PYTHON) scripts/check-claude-imports.py
+
+# ----------------------------------------------------------------------------
+# Security: Container/Host Boundary Check
+# ----------------------------------------------------------------------------
+lint-container-host-boundary:
+	@echo "==> Checking for forbidden host-services imports in sandbox..."
+	@$(PYTHON) scripts/check-container-host-boundary.py
+
+# ----------------------------------------------------------------------------
+# Security: gh CLI Write Operations Check
+# ----------------------------------------------------------------------------
+lint-gh-cli-usage:
+	@echo "==> Checking for forbidden gh CLI write operations in host-services..."
+	@$(PYTHON) scripts/check-gh-cli-usage.py
+
+# ----------------------------------------------------------------------------
+# Configuration Validation
+# ----------------------------------------------------------------------------
+lint-validate-config:
+	@echo "==> Validating configuration loading..."
+	@$(PYTHON) scripts/validate-config.py || echo "Warning: config validation failed (may require environment setup)"
 
 # ============================================================================
 # Setup Targets

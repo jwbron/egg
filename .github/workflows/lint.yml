@@ -46,3 +46,19 @@ jobs:
 
       - name: Yamllint
         run: .venv/bin/yamllint -c .yamllint.yaml . || true
+
+      - name: Check Claude/Anthropic imports
+        run: .venv/bin/python scripts/check-claude-imports.py
+
+      - name: Check container/host boundary
+        run: .venv/bin/python scripts/check-container-host-boundary.py
+
+      - name: Check gh CLI usage
+        run: .venv/bin/python scripts/check-gh-cli-usage.py
+
+      - name: Check bin symlinks
+        run: .venv/bin/python scripts/check-bin-symlinks.py
+
+      - name: Validate config
+        run: .venv/bin/python scripts/validate-config.py
+        continue-on-error: true  # Config may not be available in CI
