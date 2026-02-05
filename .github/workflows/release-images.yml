@@ -16,13 +16,21 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  GATEWAY_IMAGE: ghcr.io/jwbron/egg-gateway
-  SANDBOX_IMAGE: ghcr.io/jwbron/egg-sandbox
 
 jobs:
   build-and-push:
-    name: Build and Push Images
+    name: Build and Push (${{ matrix.component }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: gateway
+            dockerfile: gateway/Dockerfile
+            image: ghcr.io/jwbron/egg-gateway
+          - component: sandbox
+            dockerfile: sandbox/Dockerfile
+            image: ghcr.io/jwbron/egg-sandbox
     steps:
       - uses: actions/checkout@v4
 
@@ -45,24 +53,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push gateway image
+      - name: Build and push image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: gateway/Dockerfile
+          file: ${{ matrix.dockerfile }}
           push: true
           platforms: linux/amd64
           tags: |
-            ${{ env.GATEWAY_IMAGE }}:${{ steps.tag.outputs.tag }}
-            ${{ env.GATEWAY_IMAGE }}:latest
-
-      - name: Build and push sandbox image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: sandbox/Dockerfile
-          push: true
-          platforms: linux/amd64
-          tags: |
-            ${{ env.SANDBOX_IMAGE }}:${{ steps.tag.outputs.tag }}
-            ${{ env.SANDBOX_IMAGE }}:latest
+            ${{ matrix.image }}:${{ steps.tag.outputs.tag }}
+            ${{ matrix.image }}:latest
