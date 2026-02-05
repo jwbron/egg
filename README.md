@@ -124,6 +124,19 @@ egg start --config egg.yaml
 egg start --config egg.yaml --private
 ```
 
+## GitHub Action
+
+egg can run as a GitHub Action for CI/CD automation:
+
+```yaml
+- uses: jwbron/egg@main
+  with:
+    prompt: "Fix the failing tests"
+    anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+```
+
+Trigger egg via @mentions in issues and PRs, or run it on any GitHub Actions event. See the [GitHub Action documentation](docs/features/github-action.md) and [@mention trigger setup guide](docs/guides/mention-trigger-setup.md) for details.
+
 ## CLI Reference
 
 | Command | Description |
@@ -148,13 +161,23 @@ egg start --config egg.yaml --private
 - [Documentation Index](docs/index.md) - Navigation hub for all docs
 - [Architecture](docs/architecture/README.md) - System design and component overview
 - [Setup Guide](docs/setup/README.md) - First-time setup and configuration
+- [GitHub Action](docs/features/github-action.md) - CI/CD integration
+- [@mention Trigger Setup](docs/guides/mention-trigger-setup.md) - GitHub @mention automation
 - [Troubleshooting](docs/troubleshooting/) - Common issues and solutions
+
+### Component Documentation
+
+- [Gateway Sidecar](gateway/README.md) - Policy enforcement, API endpoints, credential injection
+- [Sandbox Container](sandbox/README.md) - Agent environment, tools, wrappers
+- [Shared Libraries](shared/README.md) - Config, logging, and git utilities
+- [Configuration](config/README.md) - Repository and host configuration
 
 ### Architecture Decision Records
 
 - [Git Isolation Architecture](docs/adr/implemented/ADR-Git-Isolation-Architecture.md) - Worktree isolation design
 - [Credential Injection](docs/adr/implemented/ADR-Gateway-Credential-Injection.md) - Zero-credential sandbox design
 - [Internet Tool Access Lockdown](docs/adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) - Public/private mode implementation
+- [All ADRs](docs/adr/README.md) - Complete index
 
 ## Development
 
@@ -165,6 +188,7 @@ make test            # Run all tests (via act)
 make security        # Run security scan (via act)
 make ci              # Run full CI pipeline (via act)
 make lint-fix        # Auto-fix lint issues (native)
+make build           # Build Docker images
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.

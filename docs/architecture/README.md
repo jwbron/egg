@@ -29,6 +29,14 @@ See the [main README](../../README.md) for the architecture diagram.
 - No merge capability (gateway has no merge endpoint)
 - Force push and destructive operations blocked
 
+## Components
+
+| Component | Role | Documentation |
+|-----------|------|---------------|
+| **Gateway** | Credential injection, policy enforcement, HTTP proxy | [Gateway README](../../gateway/README.md) |
+| **Sandbox** | Agent execution environment, git/gh wrappers | [Sandbox README](../../sandbox/README.md) |
+| **Shared Libraries** | Config, logging, git utilities | [Shared README](../../shared/README.md) |
+
 ## Key Architectural Decisions
 
 See [ADR Overview](../adr/README.md) for the full list. Key decisions:
@@ -36,9 +44,12 @@ See [ADR Overview](../adr/README.md) for the full list. Key decisions:
 - [Git Isolation Architecture](../adr/implemented/ADR-Git-Isolation-Architecture.md) - Worktree isolation via gateway
 - [Gateway Credential Injection](../adr/implemented/ADR-Gateway-Credential-Injection.md) - Zero-credential sandbox
 - [Anthropic API Credential Injection](../adr/implemented/ADR-Anthropic-API-Credential-Injection.md) - API key proxy
+- [Declarative Setup Architecture](../adr/implemented/ADR-Declarative-Setup-Architecture.md) - Python-based setup
+- [Standardized Logging Interface](../adr/implemented/ADR-Standardized-Logging-Interface.md) - Structured JSON logging
 - [Internet Tool Access Lockdown](../adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) - Public/private network modes
 
 ## See Also
 
 - [ADR: Autonomous Software Engineer](../adr/in-progress/ADR-Autonomous-Software-Engineer.md) - Full system architecture
 - [Setup Guides](../setup/) - Installation and configuration
+- [Project Structure](../development/STRUCTURE.md) - Directory layout
