@@ -57,7 +57,18 @@ _bot_identities_cache: frozenset[str] | None = None
 _bot_branch_prefixes_cache: tuple[str, ...] | None = None
 
 
-def _get_bot_identities() -> frozenset[str]:
+def _reset_bot_config_caches() -> None:
+    """Reset bot configuration caches. For testing only.
+
+    This allows tests to verify behavior with different configurations
+    without restarting the process.
+    """
+    global _bot_identities_cache, _bot_branch_prefixes_cache
+    _bot_identities_cache = None
+    _bot_branch_prefixes_cache = None
+
+
+def get_bot_identities() -> frozenset[str]:
     """Get bot identities, loading from environment on first access.
 
     The bot name is used to generate identity variants that GitHub may use:
@@ -91,7 +102,7 @@ def _get_bot_identities() -> frozenset[str]:
     return _bot_identities_cache
 
 
-def _get_bot_branch_prefixes() -> tuple[str, ...]:
+def get_bot_branch_prefixes() -> tuple[str, ...]:
     """Get bot branch prefixes, loading from environment on first access.
 
     Raises:
@@ -110,17 +121,6 @@ def _get_bot_branch_prefixes() -> tuple[str, ...]:
         )
     _bot_branch_prefixes_cache = (f"{prefix}-", f"{prefix}/")
     return _bot_branch_prefixes_cache
-
-
-# Module-level accessors (lazy loaded)
-def get_bot_identities() -> frozenset[str]:
-    """Get configured bot identities."""
-    return _get_bot_identities()
-
-
-def get_bot_branch_prefixes() -> tuple[str, ...]:
-    """Get configured bot branch prefixes."""
-    return _get_bot_branch_prefixes()
 
 
 # Trusted GitHub users whose branches egg can push to
