@@ -210,21 +210,22 @@ push_via_gateway() {
     fi
 
     # Build JSON payload
-    # Use Python boolean literals (True/False) since this is interpolated into Python code
+    # force_json is "True"/"False" — passed as sys.argv[4] and compared in Python
     local force_json="False"
     [ "$force" = "true" ] && force_json="True"
 
     local payload
     payload=$(python3 -c "
 import json
+import sys
 print(json.dumps({
-    'repo_path': '$repo_path',
-    'remote': '$remote',
-    'refspec': '$refspec',
-    'force': $force_json,
-    'container_id': '$CONTAINER_ID'
+    'repo_path': sys.argv[1],
+    'remote': sys.argv[2],
+    'refspec': sys.argv[3],
+    'force': sys.argv[4] == 'True',
+    'container_id': sys.argv[5]
 }))
-")
+" "$repo_path" "$remote" "$refspec" "$force_json" "$CONTAINER_ID")
 
     # Call gateway with authentication
     local response
@@ -355,6 +356,18 @@ print(json.dumps({
 # =============================================================================
 # Main Command Parsing
 # =============================================================================
+
+# Unescape \! → ! in all positional parameters.
+# Claude Code's Bash tool escapes ! to \! in command strings. Since this script
+# runs as non-interactive bash (#!/bin/bash), the backslash is not consumed as
+# a history-expansion escape — it remains as a literal character. This breaks
+# arguments containing ! (e.g., jq != becomes \!=).
+_unescaped_args=()
+for _arg in "$@"; do
+    _unescaped_args+=("${_arg//\\!/!}")
+done
+set -- "${_unescaped_args[@]}"
+unset _unescaped_args _arg
 
 # Early check for commands that don't need gateway connectivity
 # These are handled before the gateway availability check

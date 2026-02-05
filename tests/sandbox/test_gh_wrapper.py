@@ -11,8 +11,9 @@ import os
 import subprocess
 import textwrap
 
-# Path to the gh wrapper script
+# Path to the wrapper scripts
 GH_WRAPPER = os.path.join(os.path.dirname(__file__), "..", "..", "sandbox", "scripts", "gh")
+GIT_WRAPPER = os.path.join(os.path.dirname(__file__), "..", "..", "sandbox", "scripts", "git")
 
 
 # The Python parsing logic embedded in call_gateway, kept in sync here for testing.
@@ -353,3 +354,99 @@ class TestGhWrapperMergeBlocking:
         )
         assert result.returncode == 1
         assert "MERGE OPERATIONS NOT SUPPORTED" in result.stderr
+
+
+class TestExclamationUnescaping:
+    """Test that \\! → ! unescaping works in both wrapper scripts.
+
+    Claude Code's Bash tool escapes ! to \\! in command strings. Since the
+    wrapper scripts run as non-interactive bash, the backslash persists as
+    a literal character. Both wrappers unescape \\! early in arg processing.
+    """
+
+    # Bash snippet that replicates the gh wrapper's unescaping pattern
+    # (ARGS array + set --) and prints the resulting args.
+    GH_UNESCAPE = textwrap.dedent("""\
+        ARGS=("$@")
+        for i in "${!ARGS[@]}"; do
+            ARGS[$i]="${ARGS[$i]//\\\\!/!}"
+        done
+        set -- "${ARGS[@]}"
+        printf '%s\\n' "${ARGS[@]}"
+    """)
+
+    # Bash snippet that replicates the git wrapper's unescaping pattern
+    # (rebuild $@ via set --) and prints the resulting args.
+    GIT_UNESCAPE = textwrap.dedent("""\
+        _unescaped_args=()
+        for _arg in "$@"; do
+            _unescaped_args+=("${_arg//\\\\!/!}")
+        done
+        set -- "${_unescaped_args[@]}"
+        unset _unescaped_args _arg
+        printf '%s\\n' "$@"
+    """)
+
+    def _run_unescape(self, snippet: str, args: list[str]) -> list[str]:
+        """Run an unescaping snippet with the given args and return output lines."""
+        result = subprocess.run(
+            ["bash", "-c", snippet, "_"] + args,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        # Filter out empty trailing line from printf
+        return [line for line in result.stdout.split("\n") if line]
+
+    def test_gh_unescapes_backslash_bang(self):
+        """gh wrapper should convert \\! to ! in arguments."""
+        args = ['select(.conclusion \\!= "SUCCESS")', "normal_arg"]
+        lines = self._run_unescape(self.GH_UNESCAPE, args)
+        assert lines[0] == 'select(.conclusion != "SUCCESS")'
+        assert lines[1] == "normal_arg"
+
+    def test_git_unescapes_backslash_bang(self):
+        """git wrapper should convert \\! to ! in arguments."""
+        args = ['select(.conclusion \\!= "SUCCESS")', "normal_arg"]
+        lines = self._run_unescape(self.GIT_UNESCAPE, args)
+        assert lines[0] == 'select(.conclusion != "SUCCESS")'
+        assert lines[1] == "normal_arg"
+
+    def test_gh_no_change_without_backslash_bang(self):
+        """Arguments without \\! should pass through unchanged."""
+        args = ["--title", "hello world", "--body", "no special chars"]
+        lines = self._run_unescape(self.GH_UNESCAPE, args)
+        assert lines == args
+
+    def test_git_no_change_without_backslash_bang(self):
+        """Arguments without \\! should pass through unchanged."""
+        args = ["push", "origin", "main"]
+        lines = self._run_unescape(self.GIT_UNESCAPE, args)
+        assert lines == args
+
+    def test_gh_multiple_bangs_in_one_arg(self):
+        """Multiple \\! in a single argument should all be unescaped."""
+        args = ["\\!a\\!b\\!c"]
+        lines = self._run_unescape(self.GH_UNESCAPE, args)
+        assert lines[0] == "!a!b!c"
+
+    def test_git_multiple_bangs_in_one_arg(self):
+        """Multiple \\! in a single argument should all be unescaped."""
+        args = ["\\!a\\!b\\!c"]
+        lines = self._run_unescape(self.GIT_UNESCAPE, args)
+        assert lines[0] == "!a!b!c"
+
+    def test_gh_preserves_other_backslashes(self):
+        """Backslashes not followed by ! should be preserved."""
+        args = ["path\\to\\file", "tab\\there"]
+        lines = self._run_unescape(self.GH_UNESCAPE, args)
+        assert lines[0] == "path\\to\\file"
+        assert lines[1] == "tab\\there"
+
+    def test_git_preserves_other_backslashes(self):
+        """Backslashes not followed by ! should be preserved."""
+        args = ["path\\to\\file", "tab\\there"]
+        lines = self._run_unescape(self.GIT_UNESCAPE, args)
+        assert lines[0] == "path\\to\\file"
+        assert lines[1] == "tab\\there"
