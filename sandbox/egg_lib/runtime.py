@@ -549,7 +549,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
     with _host_timer.phase("start_gateway"):
         if quiet:
             status("Starting gateway sidecar...")
-        if not start_gateway_container(interactive=True):
+        if not start_gateway_container():
             error("Failed to start gateway sidecar")
             return False
 
