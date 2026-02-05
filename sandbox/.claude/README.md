@@ -20,7 +20,6 @@ These define how Claude operates within egg.
 **Core rules:**
 - `mission.md` - Agent mission, workflow, and responsibilities
 - `environment.md` - Sandbox environment constraints
-- `host-container-boundary.md` - Security boundary rules
 
 **Quality standards:**
 - `code-standards.md` - Tech stack and code standards

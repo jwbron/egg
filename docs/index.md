@@ -20,6 +20,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | Document | Description |
 |----------|-------------|
 | [Architecture Overview](architecture/README.md) | High-level system design, components, data flows |
+| [Host-Container Boundary](architecture/host-container-boundary.md) | Security boundary between host services and container |
 
 ### Setup Guides
 
@@ -52,7 +53,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | Task Type | Read First | Also Helpful |
 |-----------|------------|--------------|
 | **Adding new host services** | [Architecture Overview](architecture/README.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
-| **Security-related changes** | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) | [Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
+| **Security-related changes** | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) | [Host-Container Boundary](architecture/host-container-boundary.md), [Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
 
 ## Quick Navigation
 

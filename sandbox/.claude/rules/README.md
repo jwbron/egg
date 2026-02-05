@@ -26,13 +26,10 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
 
 - **environment.md** - Technical constraints
   - Sandbox security model
+  - Network modes (public vs private)
   - GitHub CLI (`gh`) for PRs and issues
   - File system layout and access
   - Services and package installation
-
-- **host-container-boundary.md** - Security boundary rules
-  - No Claude/Anthropic API calls from host services
-  - Correct pattern: delegate to container via egg_exec
 
 ### Code Standards
 
