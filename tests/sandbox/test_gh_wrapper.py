@@ -427,26 +427,26 @@ class TestExclamationUnescaping:
 
     def test_gh_multiple_bangs_in_one_arg(self):
         """Multiple \\! in a single argument should all be unescaped."""
-        args = ['\\!a\\!b\\!c']
+        args = ["\\!a\\!b\\!c"]
         lines = self._run_unescape(self.GH_UNESCAPE, args)
         assert lines[0] == "!a!b!c"
 
     def test_git_multiple_bangs_in_one_arg(self):
         """Multiple \\! in a single argument should all be unescaped."""
-        args = ['\\!a\\!b\\!c']
+        args = ["\\!a\\!b\\!c"]
         lines = self._run_unescape(self.GIT_UNESCAPE, args)
         assert lines[0] == "!a!b!c"
 
     def test_gh_preserves_other_backslashes(self):
         """Backslashes not followed by ! should be preserved."""
-        args = ['path\\to\\file', 'tab\\there']
+        args = ["path\\to\\file", "tab\\there"]
         lines = self._run_unescape(self.GH_UNESCAPE, args)
-        assert lines[0] == 'path\\to\\file'
-        assert lines[1] == 'tab\\there'
+        assert lines[0] == "path\\to\\file"
+        assert lines[1] == "tab\\there"
 
     def test_git_preserves_other_backslashes(self):
         """Backslashes not followed by ! should be preserved."""
-        args = ['path\\to\\file', 'tab\\there']
+        args = ["path\\to\\file", "tab\\there"]
         lines = self._run_unescape(self.GIT_UNESCAPE, args)
-        assert lines[0] == 'path\\to\\file'
-        assert lines[1] == 'tab\\there'
+        assert lines[0] == "path\\to\\file"
+        assert lines[1] == "tab\\there"
