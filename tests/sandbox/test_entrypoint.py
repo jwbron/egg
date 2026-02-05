@@ -12,9 +12,12 @@ so we focus on testing logic that can be unit tested.
 """
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Load the entrypoint module
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
@@ -191,14 +194,45 @@ class TestRunCmd:
 class TestChownRecursive:
     """Tests for the chown_recursive utility function."""
 
-    @patch.object(entrypoint, "run_cmd")
-    def test_chown_recursive_calls_chown(self, mock_run_cmd):
+    @patch("subprocess.run")
+    def test_chown_recursive_calls_chown(self, mock_run):
         """Test that chown_recursive calls chown with correct args."""
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         test_path = Path("/test/path")
 
         entrypoint.chown_recursive(test_path, 1000, 1000)
 
-        mock_run_cmd.assert_called_once_with(["chown", "-R", "1000:1000", "/test/path"])
+        mock_run.assert_called_once_with(
+            ["chown", "-R", "1000:1000", "/test/path"],
+            capture_output=True,
+            text=True,
+        )
+
+    @patch("subprocess.run")
+    def test_chown_recursive_tolerates_read_only_filesystem(self, mock_run):
+        """Test that chown_recursive ignores read-only filesystem errors."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["chown", "-R", "1001:1001", "/home/egg"],
+            returncode=1,
+            stdout="",
+            stderr="chown: changing ownership of '/home/egg/repos/egg/.git': Read-only file system\n",
+        )
+
+        # Should not raise
+        entrypoint.chown_recursive(Path("/home/egg"), 1001, 1001)
+
+    @patch("subprocess.run")
+    def test_chown_recursive_raises_on_real_errors(self, mock_run):
+        """Test that chown_recursive raises on non-EROFS errors."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["chown", "-R", "1001:1001", "/home/egg"],
+            returncode=1,
+            stdout="",
+            stderr="chown: changing ownership of '/root': Permission denied\n",
+        )
+
+        with pytest.raises(subprocess.CalledProcessError):
+            entrypoint.chown_recursive(Path("/home/egg"), 1001, 1001)
 
 
 class TestSetupEnvironment:
