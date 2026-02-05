@@ -7,8 +7,8 @@ on:
     - cron: "0 6 * * 1"
 
 jobs:
-  e2e:
-    name: End-to-End Tests
+  e2e-deterministic:
+    name: E2E Deterministic Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,13 +29,69 @@ jobs:
           docker build -t egg-gateway -f gateway/Dockerfile .
           docker build -t egg-sandbox -f sandbox/Dockerfile .
 
-      - name: Run E2E tests
+      - name: Run deterministic E2E tests
         env:
           ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
         run: |
           PYTHONPATH=shared .venv/bin/pytest integration_tests -v \
-            -m e2e \
-            --timeout=600
+            -m "e2e and not agent_flaky" \
+            --timeout=600 \
+            --junitxml=e2e-deterministic-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-deterministic-results
+          path: e2e-deterministic-results.xml
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f integration_tests/docker-compose.yml down -v --remove-orphans 2>/dev/null || true
+          docker network prune -f 2>/dev/null || true
+
+  e2e-agent-fuzz:
+    name: E2E Agent Fuzz Tests
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Build containers
+        run: |
+          docker build -t egg-gateway -f gateway/Dockerfile .
+          docker build -t egg-sandbox -f sandbox/Dockerfile .
+
+      - name: Run agent fuzz tests
+        env:
+          ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          AGENT_FINDINGS_DIR: ${{ github.workspace }}/agent-findings
+        run: |
+          PYTHONPATH=shared .venv/bin/pytest integration_tests -v \
+            -m "e2e and agent_flaky" \
+            --timeout=600 \
+            --junitxml=e2e-agent-fuzz-results.xml || true
+
+      - name: Upload fuzz results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-agent-fuzz-results
+          path: |
+            e2e-agent-fuzz-results.xml
+            agent-findings/
 
       - name: Cleanup
         if: always()

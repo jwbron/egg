@@ -5,10 +5,13 @@ Provides:
 - egg_stack (session-scoped): starts/stops the gateway via docker compose
 - gateway_session (function-scoped): creates/destroys a gateway session per test
 - test_container: starts/stops an alpine container on a given network
+- run_claude_structured(): runs Claude Code with JSON schema output parsing
+- AgentVerdict / assert_agent_verdict(): structured verdict helpers
 
 All Docker-dependent fixtures skip gracefully when Docker is unavailable.
 """
 
+import json
 import os
 import secrets
 import shutil
@@ -508,3 +511,191 @@ def test_container(egg_stack: EggStack):
 
     for cid in containers:
         _cleanup_container(cid)
+
+
+# ---------------------------------------------------------------------------
+# Structured output helpers for agent-led testing
+# ---------------------------------------------------------------------------
+
+VERDICT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {
+            "type": "string",
+            "enum": ["pass", "fail"],
+            "description": "Whether the test condition was met.",
+        },
+        "evidence": {
+            "type": "string",
+            "description": "Concrete output or observation supporting the verdict.",
+        },
+        "details": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "check": {"type": "string"},
+                    "passed": {"type": "boolean"},
+                    "note": {"type": "string"},
+                },
+                "required": ["check", "passed"],
+            },
+            "description": "Individual sub-checks performed.",
+        },
+    },
+    "required": ["verdict", "evidence"],
+}
+
+TEST_AGENT_SYSTEM_PROMPT = (
+    "You are a TEST agent evaluating the egg sandbox. You did NOT build this code. "
+    "Report findings as structured verdicts. Be precise and factual."
+)
+
+
+@dataclass
+class AgentVerdict:
+    """Parsed result from a structured agent run."""
+
+    verdict: str
+    evidence: str
+    details: list[dict[str, Any]]
+    raw_output: str
+    cost_usd: float | None
+
+    @property
+    def passed(self) -> bool:
+        return self.verdict == "pass"
+
+
+def run_claude_structured(
+    egg_stack: "EggStack",
+    session_token: str,
+    prompt: str,
+    *,
+    model: str = "sonnet",
+    max_budget_usd: float = 0.50,
+    timeout: int = 180,
+    extra_system: str = "",
+) -> AgentVerdict:
+    """Run Claude Code with structured JSON output in a sandbox container.
+
+    Uses ``--output-format json`` and ``--json-schema`` to get a parsed
+    verdict back from the agent. The agent identity is established via
+    ``--append-system-prompt`` to separate it from the building agent.
+    """
+    system_prompt = TEST_AGENT_SYSTEM_PROMPT
+    if extra_system:
+        system_prompt = f"{system_prompt} {extra_system}"
+
+    schema_json = json.dumps(VERDICT_SCHEMA)
+
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        egg_stack.isolated_network,
+        "-e",
+        f"EGG_GATEWAY_URL=http://{egg_stack.gateway_isolated_ip}:9848",
+        "-e",
+        f"EGG_SESSION_TOKEN={session_token}",
+        "-e",
+        f"ANTHROPIC_OAUTH_TOKEN={os.environ['ANTHROPIC_OAUTH_TOKEN']}",
+        "egg-sandbox:latest",
+        "claude",
+        "--print",
+        "--output-format",
+        "json",
+        "--json-schema",
+        schema_json,
+        "--append-system-prompt",
+        system_prompt,
+        "--no-session-persistence",
+        "--max-budget-usd",
+        str(max_budget_usd),
+        "--model",
+        model,
+        "--dangerously-skip-permissions",
+        prompt,
+    ]
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+    raw = result.stdout.strip()
+
+    if result.returncode != 0:
+        return AgentVerdict(
+            verdict="fail",
+            evidence=f"Claude Code exited {result.returncode}: {result.stderr[:500]}",
+            details=[],
+            raw_output=raw,
+            cost_usd=None,
+        )
+
+    try:
+        envelope = json.loads(raw)
+    except json.JSONDecodeError:
+        return AgentVerdict(
+            verdict="fail",
+            evidence=f"Could not parse JSON output: {raw[:500]}",
+            details=[],
+            raw_output=raw,
+            cost_usd=None,
+        )
+
+    # The envelope from --output-format json wraps the schema result.
+    # Extract the verdict payload — it may be at top level or nested
+    # under a "result" key depending on Claude Code version.
+    payload = envelope.get("result", envelope)
+
+    cost = None
+    if "cost_usd" in envelope:
+        cost = envelope["cost_usd"]
+
+    return AgentVerdict(
+        verdict=payload.get("verdict", "fail"),
+        evidence=payload.get("evidence", ""),
+        details=payload.get("details", []),
+        raw_output=raw,
+        cost_usd=cost,
+    )
+
+
+def assert_agent_verdict(
+    verdict: AgentVerdict,
+    *,
+    min_pass_ratio: float = 1.0,
+    msg: str = "",
+) -> None:
+    """Assert that an agent verdict meets expectations.
+
+    Args:
+        verdict: The AgentVerdict to check.
+        min_pass_ratio: Fraction of detail checks that must pass (0.0-1.0).
+            Use < 1.0 for flaky tolerance.
+        msg: Optional context message for assertion errors.
+    """
+    context = f" ({msg})" if msg else ""
+
+    if verdict.details:
+        passed = sum(1 for d in verdict.details if d.get("passed"))
+        total = len(verdict.details)
+        ratio = passed / total if total else 0.0
+        assert ratio >= min_pass_ratio, (
+            f"Agent detail checks{context}: {passed}/{total} passed "
+            f"(need {min_pass_ratio:.0%}).\n"
+            f"Evidence: {verdict.evidence}\n"
+            f"Details: {json.dumps(verdict.details, indent=2)}"
+        )
+
+    assert verdict.passed, (
+        f"Agent verdict: FAIL{context}.\n"
+        f"Evidence: {verdict.evidence}\n"
+        f"Raw output: {verdict.raw_output[:1000]}"
+    )
