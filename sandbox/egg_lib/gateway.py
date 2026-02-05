@@ -32,9 +32,8 @@ from .config import (
     GATEWAY_PORT,
     GATEWAY_PROXY_PORT,
     Config,
-    get_platform,
 )
-from .output import error, info, success, warn
+from .output import error, info, success
 
 # Launcher secret file location (for session and worktree management)
 LAUNCHER_SECRET_FILE = Config.USER_CONFIG_DIR / "launcher-secret"
