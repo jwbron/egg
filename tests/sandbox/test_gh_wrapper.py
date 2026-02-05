@@ -20,60 +20,90 @@ GH_WRAPPER = os.path.join(
 )
 
 
-def run_call_gateway_python(response_data: dict, http_code: str = "200") -> subprocess.CompletedProcess:
-    """Run the Python parsing logic from call_gateway against a test response.
+# The Python parsing logic embedded in call_gateway, kept in sync here for testing.
+# If the inline Python in sandbox/scripts/gh changes, update this constant too.
+CALL_GATEWAY_PYTHON = textwrap.dedent("""\
+    import json, sys
 
-    This extracts the inline Python from call_gateway and runs it against
-    a temp file containing the response data, verifying parsing behavior
-    without needing a real gateway.
+    try:
+        with open(sys.argv[1]) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        print(f'ERROR: Failed to parse gateway response: {e}', file=sys.stderr)
+        sys.exit(1)
+
+    if data.get('success'):
+        stdout = (data.get('data') or {}).get('stdout', '')
+        if stdout:
+            sys.stdout.write(stdout)
+            if not stdout.endswith('\\n'):
+                sys.stdout.write('\\n')
+        sys.exit(0)
+    else:
+        message = data.get('message', 'Unknown error')
+        print(f'ERROR: {message}', file=sys.stderr)
+        stderr_out = (data.get('data') or {}).get('stderr', '')
+        if stderr_out:
+            print(stderr_out, file=sys.stderr)
+        http = sys.argv[2]
+        if http == '401':
+            print('Authentication failed - check session token', file=sys.stderr)
+        elif http == '429':
+            print('Rate limit exceeded - please wait before trying again', file=sys.stderr)
+        sys.exit(1)
+""")
+
+
+def run_call_gateway_raw(
+    raw_content: str, http_code: str = "200"
+) -> subprocess.CompletedProcess:
+    """Run the call_gateway Python parser against a file with raw content.
+
+    Use this when testing malformed input (invalid JSON, empty files, etc.)
+    where json.dump() isn't appropriate.
     """
+    import tempfile
+
     tmpfile = None
     try:
-        import tempfile
-
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump(response_data, f)
+            f.write(raw_content)
             tmpfile = f.name
 
-        # This is the same Python code embedded in call_gateway
-        python_code = textwrap.dedent("""\
-            import json, sys
-
-            try:
-                with open(sys.argv[1]) as f:
-                    data = json.load(f)
-            except (json.JSONDecodeError, OSError) as e:
-                print(f'ERROR: Failed to parse gateway response: {e}', file=sys.stderr)
-                sys.exit(1)
-
-            if data.get('success'):
-                stdout = (data.get('data') or {}).get('stdout', '')
-                if stdout:
-                    sys.stdout.write(stdout)
-                    if not stdout.endswith('\\n'):
-                        sys.stdout.write('\\n')
-                sys.exit(0)
-            else:
-                message = data.get('message', 'Unknown error')
-                print(f'ERROR: {message}', file=sys.stderr)
-                stderr_out = (data.get('data') or {}).get('stderr', '')
-                if stderr_out:
-                    print(stderr_out, file=sys.stderr)
-                http = sys.argv[2]
-                if http == '401':
-                    print('Authentication failed - check session token', file=sys.stderr)
-                elif http == '429':
-                    print('Rate limit exceeded - please wait before trying again', file=sys.stderr)
-                sys.exit(1)
-        """)
-
-        result = subprocess.run(
-            ["python3", "-c", python_code, tmpfile, http_code],
+        return subprocess.run(
+            ["python3", "-c", CALL_GATEWAY_PYTHON, tmpfile, http_code],
             capture_output=True,
             text=True,
             timeout=10,
         )
-        return result
+    finally:
+        if tmpfile and os.path.exists(tmpfile):
+            os.unlink(tmpfile)
+
+
+def run_call_gateway_python(
+    response_data: dict, http_code: str = "200"
+) -> subprocess.CompletedProcess:
+    """Run the Python parsing logic from call_gateway against a test response.
+
+    This uses the same Python code embedded in call_gateway and runs it against
+    a temp file containing the response data, verifying parsing behavior
+    without needing a real gateway.
+    """
+    import tempfile
+
+    tmpfile = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(response_data, f)
+            tmpfile = f.name
+
+        return subprocess.run(
+            ["python3", "-c", CALL_GATEWAY_PYTHON, tmpfile, http_code],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
     finally:
         if tmpfile and os.path.exists(tmpfile):
             os.unlink(tmpfile)
@@ -276,55 +306,14 @@ class TestCallGatewayParsing:
 
     def test_invalid_json_response(self):
         """Non-JSON response should produce a clear error."""
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            f.write("this is not json")
-            tmpfile = f.name
-
-        try:
-            python_code = textwrap.dedent("""\
-                import json, sys
-                try:
-                    with open(sys.argv[1]) as f:
-                        data = json.load(f)
-                except (json.JSONDecodeError, OSError) as e:
-                    print(f'ERROR: Failed to parse gateway response: {e}', file=sys.stderr)
-                    sys.exit(1)
-                if data.get('success'):
-                    stdout = (data.get('data') or {}).get('stdout', '')
-                    if stdout:
-                        sys.stdout.write(stdout)
-                    sys.exit(0)
-                else:
-                    print(f'ERROR: {data.get("message", "Unknown error")}', file=sys.stderr)
-                    sys.exit(1)
-            """)
-            result = subprocess.run(
-                ["python3", "-c", python_code, tmpfile, "200"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            assert result.returncode == 1
-            assert "Failed to parse gateway response" in result.stderr
-        finally:
-            os.unlink(tmpfile)
+        result = run_call_gateway_raw("this is not json")
+        assert result.returncode == 1
+        assert "Failed to parse gateway response" in result.stderr
 
     def test_missing_response_file(self):
         """Missing response file should produce a clear error."""
-        python_code = textwrap.dedent("""\
-            import json, sys
-            try:
-                with open(sys.argv[1]) as f:
-                    data = json.load(f)
-            except (json.JSONDecodeError, OSError) as e:
-                print(f'ERROR: Failed to parse gateway response: {e}', file=sys.stderr)
-                sys.exit(1)
-            sys.exit(0)
-        """)
         result = subprocess.run(
-            ["python3", "-c", python_code, "/nonexistent/file.json", "200"],
+            ["python3", "-c", CALL_GATEWAY_PYTHON, "/nonexistent/file.json", "200"],
             capture_output=True,
             text=True,
             timeout=10,

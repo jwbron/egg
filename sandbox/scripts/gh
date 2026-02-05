@@ -163,8 +163,10 @@ call_gateway() {
 
     # Write response to temp file to avoid bash variable issues with large responses
     # (echo "$var" can mangle data, and $() strips trailing newlines)
-    local tmpfile
+    local tmpfile curl_errfile
     tmpfile=$(mktemp)
+    curl_errfile=$(mktemp)
+    trap 'rm -f "$tmpfile" "$curl_errfile"' EXIT
 
     local http_code
     http_code=$(curl -s -w "%{http_code}" \
@@ -173,17 +175,22 @@ call_gateway() {
         -H "Authorization: Bearer $secret" \
         -d "$payload" \
         -o "$tmpfile" \
-        "${GATEWAY_URL}${endpoint}" 2>/dev/null)
+        "${GATEWAY_URL}${endpoint}" 2>"$curl_errfile")
 
     local curl_exit=$?
     if [ $curl_exit -ne 0 ]; then
         echo "ERROR: Failed to connect to gateway (curl exit $curl_exit)" >&2
-        rm -f "$tmpfile"
+        cat "$curl_errfile" >&2
+        rm -f "$tmpfile" "$curl_errfile"
+        trap - EXIT
         return 1
     fi
+    rm -f "$curl_errfile"
 
-    # Parse response with a single Python invocation (not multiple echo|python3 pipes)
-    # Python writes stdout to fd 1 and stderr to fd 2, then exits with the right code
+    # Parse response with a single Python invocation (not multiple echo|python3 pipes).
+    # Python writes stdout to fd 1 and stderr to fd 2, then exits with the right code.
+    # Note: f-strings like f'ERROR: {message}' are safe inside bash double-quotes
+    # because bash does not expand {braces} within double-quoted strings.
     python3 -c "
 import json, sys
 
@@ -219,6 +226,7 @@ else:
 
     local py_exit=$?
     rm -f "$tmpfile"
+    trap - EXIT
     return $py_exit
 }
 
