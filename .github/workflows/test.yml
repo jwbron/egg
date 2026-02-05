@@ -27,6 +27,7 @@ jobs:
       - name: Run unit tests
         run: |
           PYTHONPATH=shared .venv/bin/pytest tests/ -v \
+            --ignore=tests/integration \
             --cov=gateway --cov=shared --cov=sandbox \
             --cov-report=term-missing \
             --cov-fail-under=20
