@@ -19,8 +19,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Document | Description |
 |----------|-------------|
-| [Architecture Overview](architecture/README.md) | High-level system design, components, data flows |
-| [Host-Container Boundary](architecture/host-container-boundary.md) | Security boundary between host services and container |
+| [Architecture Overview](architecture/README.md) | High-level system design and security model |
 
 ### Setup Guides
 
@@ -33,7 +32,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Document | Description |
 |----------|-------------|
-| [Features - Source Mapping](FEATURES.md) | Map of all features to their implementation locations |
 | [Log Persistence](reference/log-persistence.md) | Container log persistence and correlation |
 
 ### Development
@@ -52,8 +50,8 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Task Type | Read First | Also Helpful |
 |-----------|------------|--------------|
-| **Adding new host services** | [Architecture Overview](architecture/README.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
-| **Security-related changes** | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) | [Host-Container Boundary](architecture/host-container-boundary.md), [Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
+| **Gateway changes** | [Architecture Overview](architecture/README.md) | [ADR: Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
+| **Security-related changes** | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) | [Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
 
 ## Quick Navigation
 

@@ -4,7 +4,7 @@ For contributors and developers working on egg.
 
 ## Available Guides
 
-- **[Project Structure](STRUCTURE.md)** - Directory conventions, naming, adding new services
+- **[Project Structure](STRUCTURE.md)** - Directory conventions and code organization
 
 ## Planned Documentation
 
