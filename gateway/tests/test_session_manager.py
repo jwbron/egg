@@ -395,6 +395,58 @@ class TestSessionManagerPersistence:
             data = json.load(f)
         assert "sessions" in data
 
+    def test_validate_after_restart(self, tmp_path):
+        """Test that tokens can be validated after a simulated gateway restart.
+
+        After restart, sessions are loaded from disk without raw tokens.
+        Validation via hash computation should succeed and repopulate the
+        fast lookup cache for subsequent O(1) lookups.
+        """
+        persist_path = tmp_path / "sessions.json"
+
+        # Register sessions with the original manager
+        manager1 = SessionManager(persistence_file=persist_path)
+        token1, _ = manager1.register_session(
+            container_id="container-1",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        token2, _ = manager1.register_session(
+            container_id="container-2",
+            container_ip="172.18.0.6",
+            mode="public",
+        )
+
+        # Simulate gateway restart: new manager loads from same persistence file
+        manager2 = SessionManager(persistence_file=persist_path)
+
+        # Sessions loaded from disk have session_token=None and empty fast cache
+        session1 = manager2.get_session_by_container("container-1")
+        assert session1 is not None
+        assert session1.session_token is None  # Not persisted
+
+        # Validate with original raw tokens via hash computation
+        result1 = manager2.validate_session(token1, source_ip="172.18.0.5")
+        assert result1.valid is True
+        assert result1.session.container_id == "container-1"
+        assert result1.session.mode == "private"
+
+        result2 = manager2.validate_session(token2, source_ip="172.18.0.6")
+        assert result2.valid is True
+        assert result2.session.container_id == "container-2"
+        assert result2.session.mode == "public"
+
+        # After successful validation, fast cache should be repopulated
+        assert result1.session.session_token == token1
+        assert result2.session.session_token == token2
+        assert manager2._token_to_hash.get(token1) == _hash_token(token1)
+        assert manager2._token_to_hash.get(token2) == _hash_token(token2)
+
+        # Subsequent validations should use the fast cache (O(1) lookup)
+        result1_again = manager2.validate_session(token1)
+        assert result1_again.valid is True
+        assert result1_again.session.container_id == "container-1"
+
 
 class TestSessionManagerThreadSafety:
     """Tests for thread safety."""

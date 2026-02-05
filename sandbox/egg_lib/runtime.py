@@ -24,20 +24,10 @@ from datetime import datetime
 from pathlib import Path
 
 # Import statusbar for quiet mode
-from statusbar import status
+from statusbar import status, status_finish
 
 from .auth import get_anthropic_api_key, get_anthropic_auth_method
 from .config import (
-    EGG_EXTERNAL_NETWORK,
-    EGG_EXTERNAL_SUBNET,
-    EGG_ISOLATED_NETWORK,
-    EGG_ISOLATED_SUBNET,
-    GATEWAY_CONTAINER_NAME,
-    GATEWAY_EXTERNAL_IP,
-    GATEWAY_ISOLATED_IP,
-    GATEWAY_PORT,
-    GATEWAY_PROXY_PORT,
-    Config,
     get_local_repos,
 )
 from .container_logging import (
@@ -47,6 +37,7 @@ from .container_logging import (
     get_docker_log_config,
     save_container_logs,
 )
+from .context import get_context
 from .docker import build_image, create_dockerfile, image_exists
 from .gateway import (
     create_session,
@@ -59,20 +50,29 @@ from .output import error, get_quiet_mode, info, warn
 from .setup_flow import add_standard_mounts
 from .timing import _host_timer
 
-# Reserved IPs in each subnet
-RESERVED_ISOLATED_IPS = {
-    "172.32.0.1",  # Docker gateway
-    "172.32.0.2",  # egg-gateway sidecar (GATEWAY_ISOLATED_IP)
-}
-RESERVED_EXTERNAL_IPS = {
-    "172.33.0.1",  # Docker gateway
-    "172.33.0.2",  # egg-gateway sidecar (GATEWAY_EXTERNAL_IP)
-}
-# Legacy alias for backward compatibility
-RESERVED_IPS = RESERVED_ISOLATED_IPS
-
 # Valid repo_mode values
 VALID_REPO_MODES = ("private", "public")
+
+
+def _get_repos_config_file() -> Path:
+    """Return the context-aware path to repositories.yaml.
+
+    Uses RuntimeContext.config_dir when set (e.g. in GHA mode where
+    EGG_CONFIG_DIR points to an ephemeral temp directory), falling
+    back to the default ~/.config/egg/repositories.yaml.
+    """
+    ctx = get_context()
+    return ctx.config_dir / "repositories.yaml"
+
+
+def _get_reserved_ips(subnet: str, gateway_ip: str) -> set[str]:
+    """Derive reserved IPs from subnet and gateway IP.
+
+    Reserved IPs are the Docker gateway (*.*.*.1) and the egg-gateway
+    sidecar (provided ``gateway_ip``).
+    """
+    base = subnet.rsplit(".", 1)[0]  # e.g. "172.32.0"
+    return {f"{base}.1", gateway_ip}
 
 
 def _validate_repo_mode(repo_mode: str | None) -> None:
@@ -107,7 +107,8 @@ def _get_container_network_config(
         - gateway_ip: IP address of the gateway on that network
         - extra_docker_args: Mode-specific docker arguments (DNS, proxy settings)
     """
-    proxy_url = f"http://{GATEWAY_CONTAINER_NAME}:{GATEWAY_PROXY_PORT}"
+    ctx = get_context()
+    proxy_url = f"http://{ctx.gateway_container_name}:{ctx.gateway_proxy_port}"
 
     if repo_mode == "private":
         # PRIVATE: Internal isolated network with proxy (locked to api.anthropic.com)
@@ -133,17 +134,17 @@ def _get_container_network_config(
             f"https_proxy={proxy_url}",
             # Bypass proxy for local connections to gateway
             "-e",
-            f"NO_PROXY=localhost,127.0.0.1,{GATEWAY_CONTAINER_NAME}",
+            f"NO_PROXY=localhost,127.0.0.1,{ctx.gateway_container_name}",
             "-e",
-            f"no_proxy=localhost,127.0.0.1,{GATEWAY_CONTAINER_NAME}",
+            f"no_proxy=localhost,127.0.0.1,{ctx.gateway_container_name}",
         ]
-        return EGG_ISOLATED_NETWORK, GATEWAY_ISOLATED_IP, extra_args
+        return ctx.isolated_network, ctx.gateway_isolated_ip, extra_args
     else:
         # PUBLIC: External network with direct internet access (no proxy)
         # Uses Docker's default DNS. No proxy env vars set.
         # Container can access the internet directly.
         # Set PRIVATE_MODE=false so container knows its mode
-        return EGG_EXTERNAL_NETWORK, GATEWAY_EXTERNAL_IP, ["-e", "PRIVATE_MODE=false"]
+        return ctx.external_network, ctx.gateway_external_ip, ["-e", "PRIVATE_MODE=false"]
 
 
 def _get_repo_owner_name(repo_path: Path) -> str | None:
@@ -186,25 +187,29 @@ def _get_repo_owner_name(repo_path: Path) -> str | None:
         return None
 
 
-def _allocate_container_ip(network: str = EGG_ISOLATED_NETWORK) -> str | None:
+def _allocate_container_ip(network: str | None = None) -> str | None:
     """Allocate an available IP address from the specified network.
 
     Pre-allocates an IP before container start for session-container binding.
     The IP is used to verify requests come from the expected container.
 
     Args:
-        network: Docker network name (egg-isolated or egg-external)
+        network: Docker network name (defaults to ctx.isolated_network)
 
     Returns:
         Available IP address string, or None if allocation fails
     """
+    ctx = get_context()
+    if network is None:
+        network = ctx.isolated_network
+
     # Select subnet and reserved IPs based on network
-    if network == EGG_EXTERNAL_NETWORK:
-        subnet_str = EGG_EXTERNAL_SUBNET
-        reserved_ips = RESERVED_EXTERNAL_IPS
+    if network == ctx.external_network:
+        subnet_str = ctx.external_subnet
+        reserved_ips = _get_reserved_ips(ctx.external_subnet, ctx.gateway_external_ip)
     else:
-        subnet_str = EGG_ISOLATED_SUBNET
-        reserved_ips = RESERVED_ISOLATED_IPS
+        subnet_str = ctx.isolated_subnet
+        reserved_ips = _get_reserved_ips(ctx.isolated_subnet, ctx.gateway_isolated_ip)
 
     try:
         # Get network info to find assigned IPs
@@ -252,7 +257,7 @@ def _setup_repo_mounts(
     mount_args: list[str],
     quiet: bool = False,
     use_gateway_worktrees: bool = True,
-) -> dict:
+) -> dict[str, Path]:
     """Configure repository mounts for a container.
 
     In the gateway-managed worktree architecture:
@@ -271,8 +276,8 @@ def _setup_repo_mounts(
     Returns:
         Dict of repo_name -> repo_path for tracking
     """
-    repos = {}
-    local_repos = get_local_repos()
+    repos: dict[str, Path] = {}
+    local_repos = get_local_repos(config_file=_get_repos_config_file())
 
     if not local_repos:
         if not quiet:
@@ -393,7 +398,7 @@ def _setup_session_repos(
     mode: str,
     mount_args: list[str],
     quiet: bool = False,
-) -> tuple[str | None, dict, list[str]]:
+) -> tuple[str | None, dict[str, Path], list[str]]:
     """Configure repository mounts using session-based visibility filtering.
 
     This is the per-container repository mode flow. It:
@@ -415,8 +420,8 @@ def _setup_session_repos(
         - repos_dict: Dict of repo_name -> repo_path for tracking
         - filtered_repos: List of repos that passed visibility filtering
     """
-    repos = {}
-    local_repos = get_local_repos()
+    repos: dict[str, Path] = {}
+    local_repos = get_local_repos(config_file=_get_repos_config_file())
 
     if not local_repos:
         if not quiet:
@@ -518,6 +523,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
     # Validate repo_mode before any other work
     _validate_repo_mode(repo_mode)
 
+    ctx = get_context()
     quiet = get_quiet_mode()
 
     # Check if image exists - build non-interactively if missing
@@ -530,7 +536,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
 
     # Check repository configuration - warn but continue if missing
     with _host_timer.phase("check_config"):
-        if not Config.REPOS_CONFIG_FILE.exists():
+        if not _get_repos_config_file().exists():
             warn("No repositories configured. Run 'egg --setup' to add repositories.")
             warn("Continuing with no mounted repositories...")
 
@@ -549,7 +555,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
     with _host_timer.phase("start_gateway"):
         if quiet:
             status("Starting gateway sidecar...")
-        if not start_gateway_container(interactive=True):
+        if not start_gateway_container():
             error("Failed to start gateway sidecar")
             return False
 
@@ -572,7 +578,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
     else:
         info("Configuring repository mounts...")
         print()
-    mount_args = []
+    mount_args: list[str] = []
 
     # Track session token for cleanup and container env
     session_token = None
@@ -666,7 +672,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
     cmd.extend(
         [
             "--add-host",
-            f"{GATEWAY_CONTAINER_NAME}:{gateway_ip}",
+            f"{ctx.gateway_container_name}:{gateway_ip}",
             # Environment variables
             "-e",
             f"RUNTIME_UID={os.getuid()}",
@@ -679,7 +685,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
             "-e",
             f"EGG_TIMING={'1' if _host_timer.enabled else '0'}",
             "-e",
-            f"GATEWAY_URL=http://{GATEWAY_CONTAINER_NAME}:{GATEWAY_PORT}",
+            f"GATEWAY_URL=http://{ctx.gateway_container_name}:{ctx.gateway_port}",
         ]
     )
 
@@ -713,9 +719,9 @@ def run_claude(repo_mode: str | None = None) -> bool:
                 print(f"  Network: {container_network} (IP: {container_ip})")
             else:
                 print(f"  Network: {container_network} (IP assigned dynamically)")
-            print(f"  Gateway: {GATEWAY_CONTAINER_NAME} at {gateway_ip}")
-            print(f"  Gateway API: http://{GATEWAY_CONTAINER_NAME}:{GATEWAY_PORT}")
-            print(f"  Proxy: http://{GATEWAY_CONTAINER_NAME}:{GATEWAY_PROXY_PORT}")
+            print(f"  Gateway: {ctx.gateway_container_name} at {gateway_ip}")
+            print(f"  Gateway API: http://{ctx.gateway_container_name}:{ctx.gateway_port}")
+            print(f"  Proxy: http://{ctx.gateway_container_name}:{ctx.gateway_proxy_port}")
             print("  Container can: Access Claude API, GitHub (via gateway sidecar)")
             print("  Container cannot: Access any other websites, install packages at runtime")
         else:
@@ -724,8 +730,8 @@ def run_claude(repo_mode: str | None = None) -> bool:
                 print(f"  Network: {container_network} (IP: {container_ip})")
             else:
                 print(f"  Network: {container_network} (IP assigned dynamically)")
-            print(f"  Gateway: {GATEWAY_CONTAINER_NAME} at {gateway_ip}")
-            print(f"  Gateway API: http://{GATEWAY_CONTAINER_NAME}:{GATEWAY_PORT}")
+            print(f"  Gateway: {ctx.gateway_container_name} at {gateway_ip}")
+            print(f"  Gateway API: http://{ctx.gateway_container_name}:{ctx.gateway_port}")
             print("  Container can: Access internet directly, GitHub (via gateway sidecar)")
             print("  Container cannot: Access private repos")
         if session_token:
@@ -736,7 +742,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
     cmd.extend(mount_args)
 
     # Add image name
-    cmd.append(Config.IMAGE_NAME)
+    cmd.append(ctx.sandbox_image)
 
     # End timing for command build
     _host_timer.end_phase()  # build_docker_cmd
@@ -750,7 +756,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
 
     # Final status update before launching
     if quiet:
-        status("Launching Claude...")
+        status_finish("Launching Claude Code...")
 
     # Record launch timestamp for measuring docker startup time
     # This captures the gap between host finishing and container Python starting
@@ -816,13 +822,15 @@ def exec_in_new_container(
     # Validate repo_mode parameter
     _validate_repo_mode(repo_mode)
 
+    ctx = get_context()
+
     # Check if image exists - build non-interactively if missing
     if not image_exists():
         info("Docker image not found. Building...")
         create_dockerfile()
 
     # Check repository configuration - warn but continue if missing
-    if not Config.REPOS_CONFIG_FILE.exists():
+    if not _get_repos_config_file().exists():
         warn("No repositories configured. Run 'egg --setup' to add repositories.")
         warn("Continuing with no mounted repositories...")
 
@@ -861,7 +869,7 @@ def exec_in_new_container(
 
     # Build mount configuration
     info("Configuring repository mounts...")
-    mount_args = []
+    mount_args: list[str] = []
 
     # Track session token for cleanup and container env
     session_token = None
@@ -939,7 +947,7 @@ def exec_in_new_container(
     cmd.extend(
         [
             "--add-host",
-            f"{GATEWAY_CONTAINER_NAME}:{gateway_ip}",
+            f"{ctx.gateway_container_name}:{gateway_ip}",
             # Environment variables
             "-e",
             f"RUNTIME_UID={os.getuid()}",
@@ -950,7 +958,7 @@ def exec_in_new_container(
             "-e",
             "PYTHONUNBUFFERED=1",  # Force Python to use unbuffered output
             "-e",
-            f"GATEWAY_URL=http://{GATEWAY_CONTAINER_NAME}:{GATEWAY_PORT}",
+            f"GATEWAY_URL=http://{ctx.gateway_container_name}:{ctx.gateway_port}",
         ]
     )
 
@@ -992,7 +1000,7 @@ def exec_in_new_container(
     cmd.extend(mount_args)
 
     # Add image name
-    cmd.append(Config.IMAGE_NAME)
+    cmd.append(ctx.sandbox_image)
 
     # Add the command to execute
     cmd.extend(command)
@@ -1001,7 +1009,7 @@ def exec_in_new_container(
     timeout_seconds = timeout_minutes * 60
     run_success = False
 
-    def cleanup_container():
+    def cleanup_container() -> None:
         """Save logs, remove container, and clean up session/worktrees."""
         try:
             # Save container logs before removal (with correlation info)
@@ -1025,6 +1033,15 @@ def exec_in_new_container(
             # Clean up session and worktrees
             if repos:
                 _cleanup_session(session_token, container_id)
+
+            # In ephemeral mode (GHA), tear down gateway and networks
+            if ctx.ephemeral:
+                from .gateway import cleanup_gateway
+
+                try:
+                    cleanup_gateway()
+                except Exception as e:
+                    error(f"Ephemeral gateway cleanup failed: {e}")
 
     try:
         result = subprocess.run(cmd, timeout=timeout_seconds, check=False)

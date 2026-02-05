@@ -25,6 +25,7 @@ from .auth import (
 )
 
 # CLI module exports
+from .cli import gha_exec as gha_exec
 from .cli import main as main
 from .config import (
     EGG_ISOLATED_NETWORK as EGG_ISOLATED_NETWORK,
@@ -76,6 +77,11 @@ from .container_logging import (
     update_log_index as update_log_index,
 )
 
+# Context module exports
+from .context import RuntimeContext as RuntimeContext
+from .context import get_context as get_context
+from .context import set_context as set_context
+
 # Docker module exports
 from .docker import (
     BUILD_HASH_LABEL as BUILD_HASH_LABEL,
@@ -102,9 +108,6 @@ from .docker import (
     ensure_egg_network as ensure_egg_network,
 )
 from .docker import (
-    get_force_rebuild as get_force_rebuild,
-)
-from .docker import (
     get_installed_claude_version as get_installed_claude_version,
 )
 from .docker import (
@@ -122,10 +125,16 @@ from .docker import (
 from .docker import (
     should_rebuild_image as should_rebuild_image,
 )
+from .docker import (
+    teardown_networks as teardown_networks,
+)
 
 # Gateway module exports
 from .gateway import (
     build_gateway_image as build_gateway_image,
+)
+from .gateway import (
+    cleanup_gateway as cleanup_gateway,
 )
 from .gateway import (
     gateway_image_exists as gateway_image_exists,

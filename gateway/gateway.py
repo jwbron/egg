@@ -30,9 +30,12 @@ import os
 import secrets
 import subprocess
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
+
+F = TypeVar("F", bound=Callable[..., Any])
 
 import httpx
 from flask import Flask, Response, g, jsonify, request, stream_with_context
@@ -63,8 +66,11 @@ try:
     )
     from .github_client import (
         BLOCKED_GH_COMMANDS,
+        GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
+        extract_repo_from_gh_command,
         get_github_client,
+        parse_gh_api_args,
         validate_gh_api_path,
     )
     from .policy import (
@@ -88,8 +94,8 @@ try:
     )
     from .worktree_manager import WorktreeManager, startup_cleanup
 except ImportError:
-    from anthropic_credentials import get_credentials_manager
-    from git_client import (
+    from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
+    from git_client import (  # type: ignore[no-redef, import-not-found]
         GIT_ALLOWED_COMMANDS,
         cleanup_credential_helper,
         create_credential_helper,
@@ -100,7 +106,7 @@ except ImportError:
         validate_git_args,
         validate_repo_path,
     )
-    from github_client import (
+    from github_client import (  # type: ignore[no-redef, import-not-found]
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
@@ -109,26 +115,29 @@ except ImportError:
         parse_gh_api_args,
         validate_gh_api_path,
     )
-    from policy import (
+    from policy import (  # type: ignore[no-redef, import-not-found]
         extract_branch_from_refspec,
         extract_repo_from_remote,
         get_policy_engine,
     )
-    from private_repo_policy import (
+    from private_repo_policy import (  # type: ignore[no-redef]
         check_private_repo_access,
     )
-    from rate_limiter import (
+    from rate_limiter import (  # type: ignore[no-redef, import-not-found]
         check_heartbeat_rate_limit,
         check_registration_rate_limit,
         record_failed_lookup,
     )
-    from repo_parser import parse_owner_repo
-    from repo_visibility import get_repo_visibility
-    from session_manager import (
+    from repo_parser import parse_owner_repo  # type: ignore[no-redef, import-not-found]
+    from repo_visibility import get_repo_visibility  # type: ignore[no-redef]
+    from session_manager import (  # type: ignore[no-redef, import-not-found]
         get_session_manager,
         validate_session_for_request,
     )
-    from worktree_manager import WorktreeManager, startup_cleanup
+    from worktree_manager import (  # type: ignore[no-redef, import-not-found]
+        WorktreeManager,
+        startup_cleanup,
+    )
 
 # Import repo_config for user mode support
 # Path setup needed because config is in a sibling directory
@@ -176,7 +185,7 @@ def translate_to_host_path(container_path: str) -> str:
     return container_path
 
 
-def require_session_auth(f):
+def require_session_auth(f: F) -> F:
     """
     Decorator that validates session tokens in request handlers.
 
@@ -189,7 +198,7 @@ def require_session_auth(f):
     """
 
     @functools.wraps(f)
-    def decorated(*args, **kwargs):
+    def decorated(*args: Any, **kwargs: Any) -> Any:
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             logger.warning(
@@ -206,7 +215,7 @@ def require_session_auth(f):
         result = validate_session_for_request(token, source_ip)
         if not result.valid:
             # Record failed lookup for rate limiting
-            record_failed_lookup(source_ip)
+            record_failed_lookup(source_ip or "")
             logger.warning(
                 "Session auth failed - invalid token",
                 endpoint=request.path,
@@ -221,7 +230,7 @@ def require_session_auth(f):
 
         return f(*args, **kwargs)
 
-    return decorated
+    return decorated  # type: ignore[return-value]
 
 
 # Launcher secret for session management and worktree operations
@@ -284,11 +293,11 @@ def check_launcher_auth() -> tuple[bool, str]:
     return False, "Invalid launcher authorization token"
 
 
-def require_launcher_auth(f):
+def require_launcher_auth(f: F) -> F:
     """Decorator to require launcher authentication for an endpoint."""
 
     @functools.wraps(f)
-    def decorated(*args, **kwargs):
+    def decorated(*args: Any, **kwargs: Any) -> Any:
         is_valid, error = check_launcher_auth()
         if not is_valid:
             logger.warning(
@@ -300,7 +309,7 @@ def require_launcher_auth(f):
             return make_error(error, status_code=401)
         return f(*args, **kwargs)
 
-    return decorated
+    return decorated  # type: ignore[return-value]
 
 
 def make_response(
@@ -308,7 +317,7 @@ def make_response(
     message: str,
     data: dict[str, Any] | None = None,
     status_code: int = 200,
-):
+) -> tuple[Response, int]:
     """Create a standardized JSON response."""
     response = {"success": success, "message": message}
     if data:
@@ -316,12 +325,14 @@ def make_response(
     return jsonify(response), status_code
 
 
-def make_error(message: str, status_code: int = 400, details: dict[str, Any] | None = None):
+def make_error(
+    message: str, status_code: int = 400, details: dict[str, Any] | None = None
+) -> tuple[Response, int]:
     """Create an error response."""
     return make_response(False, message, details, status_code)
 
 
-def make_success(message: str, data: dict[str, Any] | None = None):
+def make_success(message: str, data: dict[str, Any] | None = None) -> tuple[Response, int]:
     """Create a success response."""
     return make_response(True, message, data, 200)
 
@@ -333,7 +344,7 @@ def audit_log(
     details: dict[str, Any] | None = None,
 ) -> None:
     """Log an audit event in structured format."""
-    log_data = {
+    log_data: dict[str, Any] = {
         "timestamp": datetime.now(UTC).isoformat(),
         "event_type": "gateway_operation",
         "operation": operation,
@@ -350,7 +361,7 @@ def audit_log(
 
 
 @app.route("/api/v1/health", methods=["GET"])
-def health_check():
+def health_check() -> Response:
     """Health check endpoint (no auth required)."""
     github = get_github_client()
     token_valid = github.is_token_valid()
@@ -383,7 +394,7 @@ def health_check():
 
 @app.route("/api/v1/git/push", methods=["POST"])
 @require_session_auth
-def git_push():
+def git_push() -> tuple[Response, int] | Response:
     """
     Handle git push requests.
 
@@ -617,7 +628,7 @@ def git_push():
 
 @app.route("/api/v1/git/execute", methods=["POST"])
 @require_session_auth
-def git_execute():
+def git_execute() -> tuple[Response, int] | Response:
     """
     Execute a git command in the gateway's worktree.
 
@@ -635,7 +646,7 @@ def git_execute():
 
     Supported operations: status, add, commit, log, diff, show, branch,
     checkout, switch, reset, restore, stash, merge, rebase, cherry-pick,
-    tag, clean, config, rev-parse, remote
+    tag, clean, config, rev-parse, remote, apply, format-patch
 
     Network operations (push, fetch, ls-remote) should use dedicated endpoints.
     """
@@ -744,9 +755,13 @@ def git_execute():
     # Operations that support --no-verify:
     # - commit: pre-commit, prepare-commit-msg, commit-msg, post-commit
     # - merge: pre-merge-commit, prepare-commit-msg, commit-msg, post-merge
-    # - cherry-pick: prepare-commit-msg, commit-msg
     # - am: pre-applypatch, applypatch-msg, post-applypatch
-    if operation in ("commit", "merge", "cherry-pick", "am"):
+    #
+    # Note: cherry-pick is NOT included here. While git 2.36+ added --no-verify
+    # for cherry-pick, older versions (including 2.34) reject it with a usage error.
+    # The primary protection (core.hooksPath=/dev/null) already covers cherry-pick.
+    # See issue #118.
+    if operation in ("commit", "merge", "am"):
         validated_args = ["--no-verify", *validated_args]
 
     # Build command
@@ -831,7 +846,7 @@ def git_execute():
 
 @app.route("/api/v1/git/fetch", methods=["POST"])
 @require_session_auth
-def git_fetch():
+def git_fetch() -> tuple[Response, int] | Response:
     """
     Handle git fetch requests.
 
@@ -1033,7 +1048,7 @@ def git_fetch():
 
 @app.route("/api/v1/gh/pr/create", methods=["POST"])
 @require_session_auth
-def gh_pr_create():
+def gh_pr_create() -> tuple[Response, int] | Response:
     """
     Create a pull request.
 
@@ -1181,7 +1196,7 @@ def gh_pr_create():
 
 @app.route("/api/v1/gh/pr/comment", methods=["POST"])
 @require_session_auth
-def gh_pr_comment():
+def gh_pr_comment() -> tuple[Response, int] | Response:
     """
     Add a comment to a PR.
 
@@ -1297,7 +1312,7 @@ def gh_pr_comment():
 
 @app.route("/api/v1/gh/pr/edit", methods=["POST"])
 @require_session_auth
-def gh_pr_edit():
+def gh_pr_edit() -> tuple[Response, int] | Response:
     """
     Edit a PR title or body.
 
@@ -1411,7 +1426,7 @@ def gh_pr_edit():
 
 @app.route("/api/v1/gh/pr/close", methods=["POST"])
 @require_session_auth
-def gh_pr_close():
+def gh_pr_close() -> tuple[Response, int] | Response:
     """
     Close a PR.
 
@@ -1515,7 +1530,7 @@ def gh_pr_close():
 
 @app.route("/api/v1/gh/execute", methods=["POST"])
 @require_session_auth
-def gh_execute():
+def gh_execute() -> tuple[Response, int] | Response:
     """
     Execute a generic gh command.
 
@@ -1751,7 +1766,7 @@ def map_container_path_to_worktree(
 
 @app.route("/api/v1/worktree/create", methods=["POST"])
 @require_launcher_auth
-def worktree_create():
+def worktree_create() -> tuple[Response, int] | Response:
     """
     Create worktrees for a container.
 
@@ -1857,7 +1872,7 @@ def worktree_create():
 
 @app.route("/api/v1/worktree/delete", methods=["POST"])
 @require_launcher_auth
-def worktree_delete():
+def worktree_delete() -> tuple[Response, int] | Response:
     """
     Delete worktrees for a container.
 
@@ -1951,7 +1966,7 @@ def worktree_delete():
 
 @app.route("/api/v1/worktree/list", methods=["GET"])
 @require_launcher_auth
-def worktree_list():
+def worktree_list() -> tuple[Response, int] | Response:
     """
     List all active worktrees.
 
@@ -1969,7 +1984,7 @@ def worktree_list():
 
 @app.route("/api/v1/sessions/create", methods=["POST"])
 @require_launcher_auth
-def session_create():
+def session_create() -> tuple[Response, int] | Response:
     """
     Create a session with atomic visibility query, filtering, worktree creation.
 
@@ -2006,7 +2021,7 @@ def session_create():
     Rate limit: 10 registrations per minute per source IP
     """
     # Rate limit check
-    rate_result = check_registration_rate_limit(request.remote_addr)
+    rate_result = check_registration_rate_limit(request.remote_addr or "")
     if not rate_result.allowed:
         return make_error(
             "Rate limit exceeded for session registration",
@@ -2167,7 +2182,7 @@ def session_create():
 
 @app.route("/api/v1/sessions/<session_token>", methods=["DELETE"])
 @require_launcher_auth
-def session_delete(session_token: str):
+def session_delete(session_token: str) -> tuple[Response, int] | Response:
     """
     Delete a session.
 
@@ -2231,7 +2246,7 @@ def session_delete(session_token: str):
 
 @app.route("/api/v1/sessions/<session_token>/heartbeat", methods=["POST"])
 @require_launcher_auth
-def session_heartbeat(session_token: str):
+def session_heartbeat(session_token: str) -> tuple[Response, int] | Response:
     """
     Explicit session heartbeat to extend TTL.
 
@@ -2250,12 +2265,12 @@ def session_heartbeat(session_token: str):
     result = validate_session_for_request(session_token, request.remote_addr)
     if not result.valid:
         # Record failed lookup for rate limiting
-        record_failed_lookup(request.remote_addr)
-        return make_error(result.error, status_code=401)
+        record_failed_lookup(request.remote_addr or "")
+        return make_error(result.error or "Invalid session", status_code=401)
 
     # Check heartbeat rate limit (100 per hour per session)
     if result.session:
-        rate_limit = check_heartbeat_rate_limit(result.session.session_id)
+        rate_limit = check_heartbeat_rate_limit(result.session.session_token_hash)
         if not rate_limit.allowed:
             return make_error(
                 f"Heartbeat rate limit exceeded. Retry after {rate_limit.retry_after_seconds}s",
@@ -2273,7 +2288,7 @@ def session_heartbeat(session_token: str):
 
 @app.route("/api/v1/repos/visibility", methods=["GET"])
 @require_launcher_auth
-def repos_visibility():
+def repos_visibility() -> tuple[Response, int] | Response:
     """
     Query visibility for multiple repositories.
 
@@ -2316,7 +2331,7 @@ def repos_visibility():
 
 @app.route("/api/v1/sessions", methods=["GET"])
 @require_launcher_auth
-def sessions_list():
+def sessions_list() -> tuple[Response, int] | Response:
     """
     List all active sessions.
 
@@ -2358,12 +2373,12 @@ ANTHROPIC_BLOCKED_HEADERS = {
 }
 
 
-def _get_forwarded_headers(request_headers) -> dict[str, str]:
+def _get_forwarded_headers(request_headers: Any) -> dict[str, str]:
     """Forward all headers except blocked ones (blocklist approach)."""
     return {k: v for k, v in request_headers if k.lower() not in ANTHROPIC_BLOCKED_HEADERS}
 
 
-def _filter_response_headers(headers) -> dict[str, str]:
+def _filter_response_headers(headers: Any) -> dict[str, str]:
     """Filter response headers for passthrough."""
     # Preserve important headers like x-request-id for debugging
     skip = {"content-encoding", "transfer-encoding", "connection"}
@@ -2487,7 +2502,7 @@ def _is_streaming_request(request_body: bytes) -> bool:
 
 
 @app.route("/v1/messages", methods=["POST"])
-def proxy_anthropic_messages():
+def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     """
     Proxy messages API with credential injection and streaming support.
 
@@ -2506,7 +2521,7 @@ def proxy_anthropic_messages():
 
     # Look up session by IP to determine mode (Claude Code doesn't send session tokens)
     session_manager = get_session_manager()
-    session = session_manager.get_session_by_ip(request.remote_addr)
+    session = session_manager.get_session_by_ip(request.remote_addr or "")
     session_mode = session.mode if session else None
     request_body = _filter_blocked_tools(
         request_body, session_mode
@@ -2530,7 +2545,7 @@ def proxy_anthropic_messages():
             # Forward actual Content-Type from upstream (usually text/event-stream)
             content_type = upstream.headers.get("content-type", "text/event-stream")
 
-            def generate():
+            def generate() -> Any:
                 try:
                     yield from upstream.iter_bytes()
                 finally:
@@ -2590,7 +2605,7 @@ def proxy_anthropic_messages():
 
 
 @app.route("/v1/messages/count_tokens", methods=["POST"])
-def proxy_count_tokens():
+def proxy_count_tokens() -> tuple[Response, int] | Response:
     """
     Proxy token counting API (non-streaming).
 
@@ -2650,7 +2665,7 @@ def proxy_count_tokens():
         ), 502
 
 
-def main():
+def main() -> None:
     """Run the gateway server."""
     # Safety check: refuse to run as root to prevent permission issues
     # When the gateway runs as root, git objects are created with root:root ownership,
@@ -2716,22 +2731,35 @@ def main():
     else:
         logger.info("User mode config", status=validation_msg)
 
-    # Clean up orphaned worktrees from crashed containers
-    try:
-        orphans_removed = startup_cleanup()
-        if orphans_removed > 0:
-            logger.info(f"Startup cleanup removed {orphans_removed} orphaned worktree(s)")
-    except Exception as e:
-        logger.warning("Startup worktree cleanup failed", error=str(e))
-
-    # Prune expired sessions
+    # Load sessions BEFORE worktree cleanup so we know which containers are active.
+    # After a gateway restart, Docker CLI may not be available inside the container,
+    # so we derive the active container set from persisted sessions instead.
+    active_container_ids: set[str] = set()
     try:
         session_manager = get_session_manager()
         pruned = session_manager.prune_expired_sessions()
         if pruned > 0:
             logger.info(f"Startup session cleanup pruned {pruned} expired session(s)")
+        # Extract active container IDs from surviving sessions
+        for session_info in session_manager.list_sessions():
+            container_id = session_info.get("container_id")
+            if container_id:
+                active_container_ids.add(container_id)
+        if active_container_ids:
+            logger.info(
+                "Active containers from sessions",
+                count=len(active_container_ids),
+            )
     except Exception as e:
         logger.warning("Startup session cleanup failed", error=str(e))
+
+    # Clean up orphaned worktrees from crashed containers
+    try:
+        orphans_removed = startup_cleanup(active_containers=active_container_ids)
+        if orphans_removed > 0:
+            logger.info(f"Startup cleanup removed {orphans_removed} orphaned worktree(s)")
+    except Exception as e:
+        logger.warning("Startup worktree cleanup failed", error=str(e))
 
     # Ensure launcher secret is configured - fail startup if not
     try:

@@ -119,6 +119,10 @@ GH_API_ALLOWED_PATHS = [
     re.compile(r"^repos/[^/]+/[^/]+/releases/\d+$"),  # Specific release
     re.compile(r"^repos/[^/]+/[^/]+/releases/latest$"),  # Latest release
     re.compile(r"^repos/[^/]+/[^/]+/releases/tags/[^/]+$"),  # Release by tag
+    # Reactions
+    re.compile(r"^repos/[^/]+/[^/]+/issues/\d+/reactions$"),  # Issue reactions
+    re.compile(r"^repos/[^/]+/[^/]+/issues/comments/\d+/reactions$"),  # Comment reactions
+    re.compile(r"^repos/[^/]+/[^/]+/pulls/comments/\d+/reactions$"),  # PR review comment reactions
     # User info
     re.compile(r"^user$"),  # Current user
     re.compile(r"^users/[^/]+$"),  # User info
@@ -713,7 +717,8 @@ class GitHubClient:
             return None
 
         try:
-            return json.loads(result.stdout)
+            parsed: dict[str, Any] = json.loads(result.stdout)
+            return parsed
         except json.JSONDecodeError:
             logger.error("Failed to parse PR info", stdout=result.stdout[:500])
             return None
@@ -751,7 +756,8 @@ class GitHubClient:
             return []
 
         try:
-            return json.loads(result.stdout)
+            parsed: list[dict[str, Any]] = json.loads(result.stdout)
+            return parsed
         except json.JSONDecodeError:
             return []
 

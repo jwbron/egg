@@ -52,7 +52,7 @@ RUN add-apt-repository -y ppa:deadsnakes/ppa && \
 RUN pip3 install --no-cache-dir pyyaml
 
 # Install development tools (configurable via repositories.yaml)
-COPY docker-setup.py /tmp/docker-setup.py
+COPY sandbox/docker-setup.py /tmp/docker-setup.py
 RUN chmod +x /tmp/docker-setup.py && \
     apt-get update && \
     python3 /tmp/docker-setup.py
@@ -113,12 +113,12 @@ RUN python3 /tmp/docker-setup.py --install-deps --config /tmp/repositories.yaml 
 
 # Copy Claude command documentation
 RUN mkdir -p /usr/local/share/claude-commands
-COPY claude-commands/*.md /usr/local/share/claude-commands/
+COPY sandbox/claude-commands/*.md /usr/local/share/claude-commands/
 RUN chmod 644 /usr/local/share/claude-commands/*.md
 
 # Copy Claude agent rules directory
 RUN mkdir -p /opt/claude-rules
-COPY claude-rules/*.md /opt/claude-rules/
+COPY sandbox/claude-rules/*.md /opt/claude-rules/
 RUN chmod 644 /opt/claude-rules/*.md
 
 # Copy sandbox runtime scripts and tools to /opt/egg-runtime
@@ -174,7 +174,7 @@ RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CO
     fi
 
 # Copy entrypoint script (Python for maintainability)
-COPY entrypoint.py /usr/local/bin/entrypoint.py
+COPY sandbox/entrypoint.py /usr/local/bin/entrypoint.py
 RUN chmod +x /usr/local/bin/entrypoint.py
 
 WORKDIR /home/egg

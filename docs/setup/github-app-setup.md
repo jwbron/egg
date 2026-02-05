@@ -113,5 +113,5 @@ If pushes fail:
 
 ## Related Documentation
 
-- [Slack App Setup](slack-app-setup.md) - Slack integration configuration
+- [GitHub Auth Comparison](github-auth-comparison.md) - Auth method options
 - [Architecture Overview](../architecture/) - System design

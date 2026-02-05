@@ -60,7 +60,8 @@ class GatewayConfig(BaseConfig):
         # Secret must be set
         is_valid, error = validate_non_empty(self.secret, "secret")
         if not is_valid:
-            errors.append(error)
+            if error is not None:
+                errors.append(error)
         elif len(self.secret) < 32:
             warnings.append("secret is shorter than recommended (32+ chars)")
 

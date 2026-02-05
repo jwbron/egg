@@ -224,6 +224,11 @@ class TestGitAllowedCommands:
         assert "checkout" in GIT_ALLOWED_COMMANDS
         assert "reset" in GIT_ALLOWED_COMMANDS
 
+    def test_patch_operations_defined(self):
+        """Patch-related operations should be defined (issue #118)."""
+        assert "apply" in GIT_ALLOWED_COMMANDS
+        assert "format-patch" in GIT_ALLOWED_COMMANDS
+
     def test_each_operation_has_allowed_flags(self):
         """Each operation should have allowed_flags defined."""
         for op, config in GIT_ALLOWED_COMMANDS.items():

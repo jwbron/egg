@@ -640,9 +640,8 @@ The configuration file locations and structure are relatively stable, but the sp
 
 ## References
 
-- [Current setup.sh](../../../setup.sh) - Existing bash setup
-- [host_config.py](../../../config/host_config.py) - Existing config loader
 - [egg script](../../../sandbox/egg) - Current egg launcher
+- [repo_config.py](../../../config/repo_config.py) - Repository config loader
 
 ---
 

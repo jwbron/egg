@@ -22,22 +22,10 @@ from urllib.request import Request, urlopen
 
 import yaml
 
-from .config import (
-    EGG_EXTERNAL_NETWORK,
-    EGG_ISOLATED_NETWORK,
-    GATEWAY_CONTAINER_NAME,
-    GATEWAY_EXTERNAL_IP,
-    GATEWAY_IMAGE_NAME,
-    GATEWAY_ISOLATED_IP,
-    GATEWAY_PORT,
-    GATEWAY_PROXY_PORT,
-    Config,
-)
-from .docker import get_force_rebuild
+from .context import get_context
 from .output import error, info, success, warn
 
 # Launcher secret file location (for session and worktree management)
-LAUNCHER_SECRET_FILE = Config.USER_CONFIG_DIR / "launcher-secret"
 
 # Label used to store build content hash on gateway Docker image
 GATEWAY_BUILD_HASH_LABEL = "org.egg.gateway-build-hash"
@@ -51,7 +39,7 @@ CONTAINER_HOME = "/home/egg"
 # =============================================================================
 
 
-def _hash_file(path: Path, hasher) -> None:
+def _hash_file(path: Path, hasher: Any) -> None:
     """Add a single file's content to the hasher."""
     try:
         with open(path, "rb") as f:
@@ -61,7 +49,7 @@ def _hash_file(path: Path, hasher) -> None:
         pass
 
 
-def _hash_directory(path: Path, hasher, exclude_tests: bool = False) -> None:
+def _hash_directory(path: Path, hasher: Any, exclude_tests: bool = False) -> None:
     """Recursively hash all files in a directory.
 
     Args:
@@ -161,7 +149,7 @@ def get_gateway_image_hash() -> str | None:
                 "inspect",
                 "--format",
                 f'{{{{index .Config.Labels "{GATEWAY_BUILD_HASH_LABEL}"}}}}',
-                GATEWAY_IMAGE_NAME,
+                get_context().gateway_image,
             ],
             capture_output=True,
             text=True,
@@ -210,7 +198,7 @@ def _load_secrets() -> dict[str, str]:
     Returns:
         Dict of environment variable name to value
     """
-    secrets_file = Config.USER_CONFIG_DIR / "secrets.env"
+    secrets_file = get_context().config_dir / "secrets.env"
     secrets_dict: dict[str, str] = {}
 
     if secrets_file.exists():
@@ -239,7 +227,7 @@ def _parse_git_mounts(config_file: Path, home_dir: str) -> list[str]:
     Returns:
         List of mount specs in "source:destination" format
     """
-    mounts = []
+    mounts: list[str] = []
 
     if not config_file.exists():
         return mounts
@@ -297,37 +285,6 @@ def _get_user_git_config(config_file: Path) -> tuple[str | None, str | None]:
         return user_mode.get("git_name"), user_mode.get("git_email")
     except Exception:
         return None, None
-
-
-def _get_running_egg_containers() -> list[str]:
-    """Get list of running egg sandbox containers.
-
-    Returns:
-        List of container names that are running egg containers
-    """
-    try:
-        result = subprocess.run(
-            [
-                "docker",
-                "ps",
-                "--filter",
-                "name=egg-",
-                "--format",
-                "{{.Names}}",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        containers = []
-        for name in result.stdout.strip().split("\n"):
-            name = name.strip()
-            # Skip the gateway itself and empty lines
-            if name and name != GATEWAY_CONTAINER_NAME:
-                containers.append(name)
-        return containers
-    except Exception:
-        return []
 
 
 # =============================================================================
@@ -412,20 +369,26 @@ def get_launcher_secret() -> str:
     """Get the launcher authentication secret.
 
     Returns the shared secret used to authenticate session management
-    operations with the gateway sidecar. Generates a new secret if one
-    doesn't exist.
+    operations with the gateway sidecar.  If ``ctx.launcher_secret``
+    is set (GHA), returns it directly without file I/O.  Otherwise
+    reads from (or generates) the on-disk secret file.
 
     Returns:
         The launcher secret string
     """
-    if LAUNCHER_SECRET_FILE.exists():
-        return LAUNCHER_SECRET_FILE.read_text().strip()
+    ctx = get_context()
+    if ctx.launcher_secret:
+        return ctx.launcher_secret
+
+    secret_file = ctx.config_dir / "launcher-secret"
+    if secret_file.exists():
+        return secret_file.read_text().strip()
 
     # Generate a new secret
     new_secret = secrets.token_urlsafe(32)
-    LAUNCHER_SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
-    LAUNCHER_SECRET_FILE.write_text(new_secret)
-    LAUNCHER_SECRET_FILE.chmod(0o600)
+    secret_file.parent.mkdir(parents=True, exist_ok=True)
+    secret_file.write_text(new_secret)
+    secret_file.chmod(0o600)
     return new_secret
 
 
@@ -440,6 +403,10 @@ def launcher_api_call(
     This uses the launcher_secret which has elevated privileges for
     session management operations.
 
+    In local mode the gateway ports are published to localhost.
+    In GHA (``ctx.publish_ports is False``) the gateway is reached
+    directly via its container IP on the isolated network.
+
     Args:
         endpoint: API endpoint path (e.g., "/api/v1/sessions/create")
         method: HTTP method (GET, POST, or DELETE)
@@ -449,7 +416,12 @@ def launcher_api_call(
     Returns:
         Tuple of (success, response_data)
     """
-    url = f"http://localhost:{GATEWAY_PORT}{endpoint}"
+    ctx = get_context()
+    if ctx.publish_ports:
+        host = "localhost"
+    else:
+        host = ctx.gateway_isolated_ip
+    url = f"http://{host}:{ctx.gateway_port}{endpoint}"
     secret = get_launcher_secret()
 
     headers = {
@@ -631,8 +603,9 @@ def is_gateway_running() -> bool:
     Returns:
         True if gateway container is running, False otherwise
     """
+    ctx = get_context()
     result = subprocess.run(
-        ["docker", "container", "inspect", "-f", "{{.State.Running}}", GATEWAY_CONTAINER_NAME],
+        ["docker", "container", "inspect", "-f", "{{.State.Running}}", ctx.gateway_container_name],
         capture_output=True,
         text=True,
         check=False,
@@ -642,9 +615,10 @@ def is_gateway_running() -> bool:
 
 def gateway_image_exists() -> bool:
     """Check if gateway Docker image exists."""
+    ctx = get_context()
     return (
         subprocess.run(
-            ["docker", "image", "inspect", GATEWAY_IMAGE_NAME], capture_output=True, check=False
+            ["docker", "image", "inspect", ctx.gateway_image], capture_output=True, check=False
         ).returncode
         == 0
     )
@@ -690,7 +664,7 @@ def build_gateway_image(force: bool = False) -> bool:
             "docker",
             "build",
             "-t",
-            GATEWAY_IMAGE_NAME,
+            get_context().gateway_image,
             "--label",
             f"{GATEWAY_BUILD_HASH_LABEL}={build_hash}",
             "-f",
@@ -726,10 +700,15 @@ def wait_for_gateway_health(timeout: int = 30, check_proxy: bool = True) -> bool
     import urllib.error
     import urllib.request
 
-    # Use container name for health check since we're on the same network
-    # But during startup from host, we need to use localhost or check via docker exec
-    health_url = f"http://localhost:{GATEWAY_PORT}/api/v1/health"
-    proxy_url = f"http://localhost:{GATEWAY_PROXY_PORT}"
+    ctx = get_context()
+    # In local mode, gateway ports are published to localhost.
+    # In GHA, reach the gateway via its container IP.
+    if ctx.publish_ports:
+        host = "localhost"
+    else:
+        host = ctx.gateway_isolated_ip
+    health_url = f"http://{host}:{ctx.gateway_port}/api/v1/health"
+    proxy_url = f"http://{host}:{ctx.gateway_proxy_port}"
 
     start_time = time.time()
     api_healthy = False
@@ -786,55 +765,7 @@ def wait_for_gateway_health(timeout: int = 30, check_proxy: bool = True) -> bool
     return False
 
 
-def _confirm_gateway_restart(interactive: bool, reason: str, action: str = "restart") -> bool:
-    """Prompt or warn before restarting the gateway.
-
-    In interactive mode, shows the number of active sessions and prompts
-    the user for confirmation.  In non-interactive mode, warns and returns
-    False so the caller can skip the restart.
-
-    Args:
-        interactive: Whether the user can be prompted (True for ``egg``,
-            False for ``egg --exec``).
-        reason: Human-readable explanation of why a restart is needed.
-        action: Verb describing the operation — ``"rebuild"`` when the
-            gateway image needs to be rebuilt, ``"restart"`` (default)
-            when only the container needs to be recycled.
-
-    Returns:
-        True if the restart should proceed, False to skip.
-    """
-    running = _get_running_egg_containers()
-    session_count = len(running)
-
-    if interactive:
-        warn(f"Gateway {action} needed ({reason}).")
-        if session_count > 0:
-            warn(
-                f"There {'is' if session_count == 1 else 'are'} "
-                f"{session_count} active session(s) that will be "
-                f"terminated by a {action}."
-            )
-        else:
-            warn(f"{action.capitalize()} will recreate the gateway container.")
-        try:
-            answer = input(f"{action.capitalize()} gateway now? (y/n): ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            answer = "n"
-        return answer == "y"
-
-    # Non-interactive (exec) mode: warn and skip
-    warn(f"Gateway {action} needed ({reason}).")
-    if session_count > 0:
-        warn(f"{session_count} active session(s) would be terminated by a {action}.")
-    if action == "rebuild":
-        warn("Run 'egg --rebuild' when ready to redeploy.")
-    else:
-        warn("Run 'egg' to restart the gateway.")
-    return False
-
-
-def start_gateway_container(interactive: bool = False) -> bool:
+def start_gateway_container() -> bool:
     """Ensure the gateway sidecar is running and up-to-date.
 
     This function manages the complete gateway lifecycle:
@@ -845,14 +776,15 @@ def start_gateway_container(interactive: bool = False) -> bool:
     5. Connects to both networks (dual-homed)
     6. Waits for health check
 
-    Args:
-        interactive: If True (non-exec mode), prompt the user before
-            rebuilding when sessions are active. If False, just warn.
+    When ``ctx.skip_build`` is True (GHA), the image build step is
+    skipped and the pre-pulled image is used directly.
 
     Returns:
         True if gateway is healthy, False otherwise
     """
     from .docker import ensure_gateway_networks
+
+    ctx = get_context()
 
     # Quick health check - if gateway is running and healthy, verify hash
     if is_gateway_running():
@@ -864,28 +796,12 @@ def start_gateway_container(interactive: bool = False) -> bool:
                 if wait_for_gateway_health(timeout=15, check_proxy=True):
                     return True
                 # Proxy not working - need to restart
-                if not get_force_rebuild() and not _confirm_gateway_restart(
-                    interactive, "API healthy but proxy not responding"
-                ):
-                    return False
-            elif not get_force_rebuild():
-                # Rebuild needed but not forced — redeploying the gateway
-                # terminates all open sessions, so ask or warn first.
-                if not _confirm_gateway_restart(interactive, reason, action="rebuild"):
-                    if wait_for_gateway_health(timeout=15, check_proxy=True):
-                        info("Skipping rebuild — existing gateway will be used.")
-                        return True
-                    error("Existing gateway is not healthy. Run 'egg --rebuild' to redeploy.")
-                    return False
-                info(f"Gateway rebuild needed: {reason}")
+                warn("Gateway restart needed: API healthy but proxy not responding")
             else:
                 info(f"Gateway rebuild needed: {reason}")
         else:
             # Gateway container is running but API is not healthy
-            if not get_force_rebuild() and not _confirm_gateway_restart(
-                interactive, "gateway running but API not healthy"
-            ):
-                return False
+            warn("Gateway restart needed: gateway running but API not healthy")
 
     # Ensure networks exist
     if not ensure_gateway_networks():
@@ -893,13 +809,15 @@ def start_gateway_container(interactive: bool = False) -> bool:
         return False
 
     # Build/update gateway image (handles hash check internally)
-    if not build_gateway_image():
-        error("Failed to build gateway image")
-        return False
+    # Skip when images are pre-pulled (GHA)
+    if not ctx.skip_build:
+        if not build_gateway_image():
+            error("Failed to build gateway image")
+            return False
 
     # Stop existing gateway container if running
     subprocess.run(
-        ["docker", "rm", "-f", GATEWAY_CONTAINER_NAME],
+        ["docker", "rm", "-f", ctx.gateway_container_name],
         capture_output=True,
         check=False,
     )
@@ -914,21 +832,29 @@ def start_gateway_container(interactive: bool = False) -> bool:
         "run",
         "-d",
         "--name",
-        GATEWAY_CONTAINER_NAME,
+        ctx.gateway_container_name,
         "--network",
-        EGG_ISOLATED_NETWORK,
+        ctx.isolated_network,
         "--ip",
-        GATEWAY_ISOLATED_IP,
+        ctx.gateway_isolated_ip,
         "--security-opt",
         "label=disable",
-        "-p",
-        f"{GATEWAY_PORT}:{GATEWAY_PORT}",
-        "-p",
-        f"{GATEWAY_PROXY_PORT}:{GATEWAY_PROXY_PORT}",
     ]
+
+    # Publish ports to localhost only in local mode
+    if ctx.publish_ports:
+        cmd.extend(
+            [
+                "-p",
+                f"{ctx.gateway_port}:{ctx.gateway_port}",
+                "-p",
+                f"{ctx.gateway_proxy_port}:{ctx.gateway_proxy_port}",
+            ]
+        )
+
     cmd.extend(env_args)
     cmd.extend(mounts)
-    cmd.append(GATEWAY_IMAGE_NAME)
+    cmd.append(ctx.gateway_image)
 
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
@@ -943,9 +869,9 @@ def start_gateway_container(interactive: bool = False) -> bool:
             "network",
             "connect",
             "--ip",
-            GATEWAY_EXTERNAL_IP,
-            EGG_EXTERNAL_NETWORK,
-            GATEWAY_CONTAINER_NAME,
+            ctx.gateway_external_ip,
+            ctx.external_network,
+            ctx.gateway_container_name,
         ],
         capture_output=True,
         text=True,
@@ -955,7 +881,7 @@ def start_gateway_container(interactive: bool = False) -> bool:
         error(f"Failed to connect gateway to external network: {result.stderr}")
         # Clean up
         subprocess.run(
-            ["docker", "rm", "-f", GATEWAY_CONTAINER_NAME], capture_output=True, check=False
+            ["docker", "rm", "-f", ctx.gateway_container_name], capture_output=True, check=False
         )
         return False
 
@@ -964,11 +890,32 @@ def start_gateway_container(interactive: bool = False) -> bool:
     if not wait_for_gateway_health(timeout=30, check_proxy=True):
         error("Gateway failed to become healthy")
         error("")
-        error("Check logs: docker logs egg-gateway")
+        error(f"Check logs: docker logs {ctx.gateway_container_name}")
         return False
 
     success("Gateway started successfully")
     return True
+
+
+def cleanup_gateway() -> None:
+    """Stop and remove the gateway container and ephemeral networks.
+
+    Called during cleanup of ephemeral (GHA) runs.
+    """
+    from .docker import teardown_networks
+
+    ctx = get_context()
+    subprocess.run(
+        ["docker", "stop", "-t", "5", ctx.gateway_container_name],
+        capture_output=True,
+        check=False,
+    )
+    subprocess.run(
+        ["docker", "rm", "-f", ctx.gateway_container_name],
+        capture_output=True,
+        check=False,
+    )
+    teardown_networks()
 
 
 def _prepare_gateway_config() -> tuple[list[str], list[str]]:
@@ -977,11 +924,13 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     Returns:
         Tuple of (mount_args, env_args) lists for docker run
     """
+    ctx = get_context()
     home_dir = str(Path.home())
-    config_file = Config.REPOS_CONFIG_FILE
-    config_dir = Config.USER_CONFIG_DIR
+    config_file = ctx.config_dir / "repositories.yaml"
+    config_dir = ctx.config_dir
     repos_dir = Path.home() / "repos"
     worktrees_dir = Path.home() / ".egg-worktrees"
+    state_dir = Path.home() / ".egg-state"
     git_main_dir = Path.home() / ".git-main"
     local_objects_dir = Path.home() / ".egg-local-objects"
     shared_certs_dir = Path.home() / ".egg-shared-certs"
@@ -1001,10 +950,26 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     # Repos directory
     if repos_dir.exists():
         mounts.extend(["-v", f"{repos_dir}:{CONTAINER_HOME}/repos"])
+    elif config_file.exists():
+        # GHA: repos are at GITHUB_WORKSPACE, not ~/repos/.
+        # Mount each local_repos path so the gateway has working tree access.
+        try:
+            with open(config_file) as f:
+                cfg = yaml.safe_load(f) or {}
+            for path_str in cfg.get("local_repos", {}).get("paths", []):
+                p = Path(path_str).expanduser()
+                if p.exists():
+                    mounts.extend(["-v", f"{p}:{CONTAINER_HOME}/repos/{p.name}"])
+        except Exception:
+            pass
 
     # Worktrees directory
     worktrees_dir.mkdir(parents=True, exist_ok=True)
     mounts.extend(["-v", f"{worktrees_dir}:{CONTAINER_HOME}/.egg-worktrees"])
+
+    # State directory (session persistence across gateway restarts)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    mounts.extend(["-v", f"{state_dir}:{CONTAINER_HOME}/.egg-state"])
 
     # Git main directory
     if git_main_dir.exists():

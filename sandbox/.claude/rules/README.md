@@ -26,18 +26,10 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
 
 - **environment.md** - Technical constraints
   - Sandbox security model
+  - Network modes (public vs private)
   - GitHub CLI (`gh`) for PRs and issues
   - File system layout and access
   - Services and package installation
-
-- **context-tracking.md** - Persistent context for Slack/PR work
-  - Slack thread context via task_id
-  - GitHub PR context tracking
-
-- **egg-branding.md** - Attribution and identity (IMPORTANT)
-  - Commits/PRs must be attributed to "egg", not "Claude"
-  - NEVER include "Generated with Claude Code" branding
-  - GitHub comment sign-off format
 
 ### Code Standards
 
@@ -52,30 +44,16 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
   - Standard PR format
   - Length targets
 
-- **test-workflow.md** - Test discovery and execution
-  - Dynamic test discovery
+- **test-workflow.md** - Test workflow and execution
   - Testing workflow integration
 
-- **notification-template.md** - Async notification formatting
-  - When to send notifications
-  - Template and threading
-
-## Reference Documentation
-
-The following content has been moved to `docs/reference/` for on-demand access:
-
-- **culture.md** - L3-L4 engineering behavioral standards
-- **conversation-analysis-criteria.md** - Performance assessment dimensions
-
-See `~/repos/egg/docs/index.md` for navigation to all documentation.
-
 ## Design Principles
-
-These rules follow the [LLM Documentation Index Strategy](../../docs/adr/ADR-LLM-Documentation-Index-Strategy.md):
 
 - **Index, Don't Dump** - Rules are concise; detailed docs are referenced
 - **Pull, Don't Push** - Agent fetches relevant docs on-demand
 - **Avoid Redundancy** - Each concept documented once, referenced elsewhere
+
+See `~/repos/egg/docs/index.md` for navigation to all documentation.
 
 ## Maintenance
 

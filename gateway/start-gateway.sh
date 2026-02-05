@@ -27,8 +27,8 @@ GATEWAY_EXTERNAL_IP="172.33.0.2"
 # This file contains sensitive environment variables like GITHUB_USER_TOKEN
 SECRETS_ENV_FILE="$HOME_DIR/.config/egg/secrets.env"
 if [ -f "$SECRETS_ENV_FILE" ]; then
-    # shellcheck source=/dev/null
     set -a  # Automatically export all variables
+    # shellcheck source=/dev/null
     source "$SECRETS_ENV_FILE"
     set +a
 fi
@@ -41,6 +41,7 @@ CONFIG_FILE="$HOME_DIR/.config/egg/repositories.yaml"
 CONFIG_DIR="$HOME_DIR/.config/egg"
 REPOS_DIR="$HOME_DIR/repos"
 WORKTREES_DIR="$HOME_DIR/.egg-worktrees"
+STATE_DIR="$HOME_DIR/.egg-state"
 GIT_MAIN_DIR="$HOME_DIR/.git-main"
 LOCAL_OBJECTS_DIR="$HOME_DIR/.egg-local-objects"
 SHARED_CERTS_DIR="$HOME_DIR/.egg-shared-certs"
@@ -88,6 +89,11 @@ fi
 # Needs RW for creating per-container worktrees
 mkdir -p "$WORKTREES_DIR"
 MOUNTS+=(-v "$WORKTREES_DIR:$CONTAINER_HOME/.egg-worktrees")
+
+# State directory - mount at /home/egg/.egg-state
+# Persists session data across gateway container restarts
+mkdir -p "$STATE_DIR"
+MOUNTS+=(-v "$STATE_DIR:$CONTAINER_HOME/.egg-state")
 
 # Git main directory - mount at /home/egg/.git-main
 # Needs RW for git fetch (FETCH_HEAD, refs) and object sync after push

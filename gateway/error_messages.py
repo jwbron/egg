@@ -16,6 +16,7 @@ Security Note:
 """
 
 import os
+from typing import Any
 
 # Environment variable to control error verbosity
 # In production, set to "false" to prevent information leakage
@@ -110,7 +111,7 @@ def get_error_message(
     repo: str | None = None,
     operation: str | None = None,
     hint: str | None = None,
-    **kwargs,
+    **kwargs: str,
 ) -> str:
     """
     Get a user-friendly error message for a policy violation.
@@ -158,7 +159,7 @@ def format_policy_blocked_response(
     repository: str | None = None,
     visibility: str | None = None,
     hints: list[str] | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """
     Format a standardized policy-blocked response.
 

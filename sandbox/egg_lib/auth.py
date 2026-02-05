@@ -93,7 +93,7 @@ def get_anthropic_auth_method() -> str:
         try:
             with open(config_file) as f:
                 config = yaml.safe_load(f) or {}
-                method = config.get("anthropic_auth_method", "").lower()
+                method = str(config.get("anthropic_auth_method", "")).lower()
                 if method in ("api_key", "oauth"):
                     return method
         except Exception:
@@ -133,7 +133,7 @@ def get_github_token() -> str | None:
         from config.host_config import HostConfig
 
         config = HostConfig()
-        token = config.github_token
+        token: str | None = config.github_token
 
         if token and token.startswith(("ghp_", "github_pat_")):
             return token
@@ -163,7 +163,7 @@ def get_github_readonly_token() -> str | None:
 
         config = HostConfig()
         # Note: github_readonly_token falls back to github_token if not set
-        token = config.get_secret("GITHUB_READONLY_TOKEN")
+        token: str | None = config.get_secret("GITHUB_READONLY_TOKEN")
         if token:
             return token
     except ImportError:

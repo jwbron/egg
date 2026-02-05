@@ -1,0 +1,151 @@
+name: Test Action
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "action/**"
+      - ".github/workflows/test-action.yml"
+  workflow_dispatch:
+
+jobs:
+  config-generation:
+    name: Config Generation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test generate-config.sh
+        env:
+          INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
+          INPUT_GITHUB_TOKEN: test-github-token
+          INPUT_BOT_USERNAME: egg
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          bash action/generate-config.sh
+
+          # GITHUB_* vars are built-in GHA variables that cannot be overridden,
+          # so we validate against the actual runtime values
+          CONFIG_DIR="${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+
+          echo "=== Validating repositories.yaml ==="
+          cat "$CONFIG_DIR/repositories.yaml"
+
+          # Verify required fields use actual GHA context values
+          # Use -F for fixed string matching — GITHUB_ACTOR may contain
+          # regex-special characters (e.g., "app[bot]")
+          grep -qF "github_username: ${GITHUB_ACTOR}" "$CONFIG_DIR/repositories.yaml"
+          grep -qF "bot_username: egg" "$CONFIG_DIR/repositories.yaml"
+          grep -qF "${GITHUB_REPOSITORY}" "$CONFIG_DIR/repositories.yaml"
+          grep -qF "auth_mode: user" "$CONFIG_DIR/repositories.yaml"
+          grep -qF "${GITHUB_WORKSPACE}" "$CONFIG_DIR/repositories.yaml"
+
+          echo "=== Validating secrets.env ==="
+          # Don't cat secrets, just verify they exist
+          test -f "$CONFIG_DIR/secrets.env"
+          grep -q "CLAUDE_CODE_OAUTH_TOKEN=" "$CONFIG_DIR/secrets.env"
+          grep -q "GITHUB_USER_TOKEN=" "$CONFIG_DIR/secrets.env"
+
+          echo "=== Validating launcher-secret ==="
+          test -f "$CONFIG_DIR/launcher-secret"
+          test -s "$CONFIG_DIR/launcher-secret"
+
+          echo "All config generation tests passed"
+
+      - name: Test generate-config.sh with bot App credentials
+        env:
+          INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
+          INPUT_GITHUB_TOKEN: test-github-token
+          INPUT_BOT_APP_ID: "123456"
+          INPUT_BOT_APP_PRIVATE_KEY: "-----BEGIN RSA PRIVATE KEY-----\ntest-key-placeholder\n-----END RSA PRIVATE KEY-----"
+          INPUT_BOT_APP_INSTALLATION_ID: "789012"
+          INPUT_BOT_USERNAME: my-bot
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          # Clean up config from previous step so we validate fresh output
+          rm -rf "${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+
+          bash action/generate-config.sh
+
+          CONFIG_DIR="${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+
+          grep -q "bot_username: my-bot" "$CONFIG_DIR/repositories.yaml"
+          grep -q "auth_mode: bot" "$CONFIG_DIR/repositories.yaml"
+          grep -q "GITHUB_APP_ID=123456" "$CONFIG_DIR/secrets.env"
+          grep -q "GITHUB_APP_INSTALLATION_ID=789012" "$CONFIG_DIR/secrets.env"
+          test -f "$CONFIG_DIR/github-app.pem"
+          test -s "$CONFIG_DIR/github-app.pem"
+
+          echo "Bot App credentials config generation tests passed"
+
+      - name: Test generate-config.sh with single-line PEM (literal \n)
+        env:
+          INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
+          INPUT_GITHUB_TOKEN: test-github-token
+          INPUT_BOT_APP_ID: "123456"
+          INPUT_BOT_APP_PRIVATE_KEY: "-----BEGIN RSA PRIVATE KEY-----\\ntest-key-placeholder\\n-----END RSA PRIVATE KEY-----"
+          INPUT_BOT_APP_INSTALLATION_ID: "789012"
+          INPUT_BOT_USERNAME: my-bot
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          rm -rf "${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+
+          bash action/generate-config.sh
+
+          CONFIG_DIR="${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+
+          # PEM should contain real newlines, not literal \n
+          test -f "$CONFIG_DIR/github-app.pem"
+          grep -q "BEGIN RSA PRIVATE KEY" "$CONFIG_DIR/github-app.pem"
+          grep -q "END RSA PRIVATE KEY" "$CONFIG_DIR/github-app.pem"
+          LINE_COUNT=$(wc -l < "$CONFIG_DIR/github-app.pem")
+          if [[ "$LINE_COUNT" -lt 3 ]]; then
+            printf "ERROR: PEM should have multiple lines after \\n normalization, got %s\n" "$LINE_COUNT"
+            exit 1
+          fi
+
+          echo "Single-line PEM normalization tests passed"
+
+      - name: Test generate-config.sh rejects invalid PEM
+        env:
+          INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
+          INPUT_GITHUB_TOKEN: test-github-token
+          INPUT_BOT_APP_ID: "123456"
+          INPUT_BOT_APP_PRIVATE_KEY: "not-a-pem-key"
+          INPUT_BOT_APP_INSTALLATION_ID: "789012"
+          INPUT_BOT_USERNAME: my-bot
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          rm -rf "${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+
+          if bash action/generate-config.sh 2>/dev/null; then
+            echo "ERROR: generate-config.sh should have failed for invalid PEM"
+            exit 1
+          fi
+
+          echo "Invalid PEM rejection test passed"
+
+  shellcheck:
+    name: Shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run shellcheck on action scripts
+        run: |
+          shellcheck --severity=warning action/entrypoint.sh action/generate-config.sh action/build-mention-prompt.sh
+
+  integration-test:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run action (smoke test)
+        uses: ./action
+        with:
+          prompt: "Echo 'Hello from egg' and exit successfully"
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          timeout: "5"

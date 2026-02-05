@@ -17,10 +17,6 @@ The egg container provides a sandboxed development environment:
 **Location**: `sandbox/.claude/commands/README.md`
 
 **Components**:
-- **Load Context Command** (`sandbox/.claude/commands/load-context.md`)
-- **Save Context Command** (`sandbox/.claude/commands/save-context.md`)
-- **Create PR Command** (`sandbox/.claude/commands/create-pr.md`)
-- **Update Confluence Doc Command** (`sandbox/.claude/commands/update-confluence-doc.md`)
 - **Show Metrics Command** (`sandbox/.claude/commands/show-metrics.md`)
 
 ### Egg Container Management System

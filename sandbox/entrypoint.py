@@ -27,7 +27,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 # =============================================================================
 # Startup Timing (Debug)
@@ -40,7 +40,7 @@ ENABLE_STARTUP_TIMING = os.environ.get("EGG_TIMING", "0") == "1"
 class StartupTimer:
     """Collects timing data for startup phases."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.timings: list[tuple[str, float]] = []
         self.start_time: float = time.perf_counter()
         self._phase_start: float | None = None
@@ -85,24 +85,24 @@ class StartupTimer:
 
     def end_phase(self) -> None:
         """End timing the current phase."""
-        if not ENABLE_STARTUP_TIMING or self._phase_start is None:
+        if not ENABLE_STARTUP_TIMING or self._phase_start is None or self._phase_name is None:
             return
         elapsed = (time.perf_counter() - self._phase_start) * 1000  # ms
         self.timings.append((self._phase_name, elapsed))
         self._phase_name = None
         self._phase_start = None
 
-    def phase(self, name: str):
+    def phase(self, name: str) -> Any:
         """Context manager for timing a phase."""
         timer = self
         phase_name = name
 
         class PhaseContext:
-            def __enter__(self):
+            def __enter__(self) -> "PhaseContext":
                 timer.start_phase(phase_name)
                 return self
 
-            def __exit__(self, *args):
+            def __exit__(self, *args: Any) -> None:
                 timer.end_phase()
 
         return PhaseContext()
@@ -258,7 +258,7 @@ def run_cmd(
     capture: bool = False,
     timeout: int = 30,
     as_user: tuple[int, int] | None = None,
-) -> subprocess.CompletedProcess:
+) -> subprocess.CompletedProcess[str]:
     """Run a command, optionally as a different user via gosu."""
     if as_user:
         uid, gid = as_user
@@ -274,8 +274,23 @@ def run_cmd(
 
 
 def chown_recursive(path: Path, uid: int, gid: int) -> None:
-    """Recursively change ownership of a path."""
-    run_cmd(["chown", "-R", f"{uid}:{gid}", str(path)])
+    """Recursively change ownership of a path, tolerating read-only mounts."""
+    result = subprocess.run(
+        ["chown", "-R", f"{uid}:{gid}", str(path)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        # Filter out read-only filesystem errors (from bind mounts like .git shadow)
+        real_errors = [
+            line
+            for line in result.stderr.strip().splitlines()
+            if "Read-only file system" not in line
+        ]
+        if real_errors:
+            raise subprocess.CalledProcessError(
+                result.returncode, result.args, result.stdout, result.stderr
+            )
 
 
 # =============================================================================
@@ -458,7 +473,7 @@ def setup_anthropic_api(config: Config, logger: Logger) -> None:
 
     Reference: PR #701 - ANTHROPIC_BASE_URL credential injection plan
     """
-    gateway_url = "http://egg-gateway:9848"
+    gateway_url = os.environ.get("GATEWAY_URL", "http://egg-gateway:9848")
 
     # Placeholder OAuth token to satisfy Claude Code's startup validation
     # Must match sk-ant-oat01-* format for Claude Code to accept it
@@ -751,13 +766,13 @@ def setup_claude(config: Config, logger: Logger) -> None:
     # Ensure ~/.claude.json has required settings to skip onboarding prompts
     # We merge with any existing settings rather than overwriting
     user_state_file = config.user_home / ".claude.json"
-    required_settings = {
+    required_settings: dict[str, Any] = {
         "hasCompletedOnboarding": True,
         "autoUpdates": False,
         "bypassPermissionsModeAccepted": True,
     }
     # These are only set on new files, not forced on existing ones
-    default_settings = {
+    default_settings: dict[str, Any] = {
         "lastOnboardingVersion": "2.0.69",
         "numStartups": 1,
         "installMethod": "api_key",
@@ -765,7 +780,7 @@ def setup_claude(config: Config, logger: Logger) -> None:
 
     # Read existing config if present
     file_existed = user_state_file.exists()
-    existing_config = {}
+    existing_config: dict[str, Any] = {}
     if file_existed:
         try:
             existing_config = json.loads(user_state_file.read_text())
@@ -874,6 +889,12 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
     gateway_url = os.environ.get("GATEWAY_URL", "http://egg-gateway:9848")
     proxy_url = os.environ.get("HTTPS_PROXY")
 
+    # Parse gateway hostname from URL (supports dynamic names in GHA)
+    from urllib.parse import urlparse
+
+    parsed = urlparse(gateway_url)
+    gateway_host = parsed.hostname or "egg-gateway"
+
     # Detect network mode: private mode has HTTPS_PROXY set, public mode doesn't
     is_private_mode = proxy_url is not None
     if is_private_mode:
@@ -890,7 +911,6 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
         logger.info("  HTTPS_PROXY: (not set - direct internet access)")
 
     # Check hostname resolution
-    gateway_host = "egg-gateway"
     try:
         resolved_ip = socket.gethostbyname(gateway_host)
         logger.info(f"  {gateway_host} resolves to: {resolved_ip}")
@@ -970,8 +990,7 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
         except Exception as e:
             return False, f"error: {e}"
 
-    gateway_host = "egg-gateway"
-    api_port = 9848
+    api_port = parsed.port or 9848
     proxy_port = 3129
 
     api_tcp_ok, api_tcp_msg = test_tcp_port(gateway_host, api_port)
@@ -1010,7 +1029,7 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
             health_response = requests.get(
                 health_url,
                 timeout=5,
-                proxies={"http": None, "https": None},
+                proxies={"http": "", "https": ""},
             )
             if health_response.status_code == 200:
                 # Parse health response to check actual status
@@ -1067,6 +1086,8 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
 
             # Private mode: verify proxy connectivity to Anthropic API
             try:
+                if proxy_url is None:
+                    raise RuntimeError("proxy_url must be set in private mode")
                 proxies = {"http": proxy_url, "https": proxy_url}
                 api_response = requests.get(
                     "https://api.anthropic.com/",
@@ -1246,7 +1267,7 @@ def main() -> None:
     logger = Logger(config.quiet)
 
     # Register cleanup handler
-    def signal_handler(signum, frame):
+    def signal_handler(signum: int, frame: Any) -> None:
         cleanup_on_exit(config, logger)
         sys.exit(0)
 

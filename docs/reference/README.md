@@ -4,15 +4,6 @@ Quick reference guides for egg.
 
 ## Available References
 
-### [Slack Quick Reference](slack-quick-reference.md)
-Common Slack operations and commands.
-
-**Quick answers for:**
-- Sending test notifications
-- Checking service status
-- Troubleshooting connection issues
-- Managing channels and tokens
-
 ### [Log Persistence](log-persistence.md)
 Container log persistence and correlation.
 

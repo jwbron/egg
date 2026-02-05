@@ -37,7 +37,10 @@ from egg_logging import get_logger
 try:
     from .github_client import GitHubClient, get_github_client
 except ImportError:
-    from github_client import GitHubClient, get_github_client
+    from github_client import (  # type: ignore[no-redef, import-not-found]
+        GitHubClient,
+        get_github_client,
+    )
 
 
 logger = get_logger("gateway.policy")
@@ -170,14 +173,14 @@ class CachedPRInfo:
         return (datetime.now(UTC).timestamp() - self.fetched_at) > 300
 
 
-class BoundedCache(OrderedDict):
+class BoundedCache(OrderedDict[Any, Any]):
     """An OrderedDict with a maximum size that evicts oldest entries."""
 
     def __init__(self, max_size: int):
         super().__init__()
         self.max_size = max_size
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: Any, value: Any) -> None:
         if key in self:
             # Move to end if updating existing key
             self.move_to_end(key)
@@ -206,7 +209,7 @@ class PolicyEngine:
         """Check if author is a bot identity."""
         if isinstance(author, dict):
             # GitHub API returns author as {"login": "username"}
-            login = author.get("login", "")
+            login = str(author.get("login", ""))
         else:
             login = author
 
@@ -221,7 +224,7 @@ class PolicyEngine:
         if not TRUSTED_BRANCH_OWNERS:
             return False
         if isinstance(author, dict):
-            login = author.get("login", "")
+            login = str(author.get("login", ""))
         else:
             login = author
         return login.lower() in TRUSTED_BRANCH_OWNERS
@@ -245,7 +248,7 @@ class PolicyEngine:
     ) -> bool:
         """Check if author matches the configured user."""
         if isinstance(author, dict):
-            login = author.get("login", "")
+            login = str(author.get("login", ""))
         else:
             login = author
         return login.lower() == configured_user.lower()
@@ -255,7 +258,7 @@ class PolicyEngine:
         cache_key = (repo, pr_number)
 
         # Check cache
-        cached = self._pr_cache.get(cache_key)
+        cached: CachedPRInfo | None = self._pr_cache.get(cache_key)
         if cached and not cached.is_stale:
             return cached
 
@@ -285,7 +288,7 @@ class PolicyEngine:
         if cached:
             pr_numbers, fetched_at = cached
             if (datetime.now(UTC).timestamp() - fetched_at) < 120:
-                return pr_numbers
+                return list(pr_numbers)
 
         # Fetch from GitHub
         prs = self.github.list_prs_for_branch(repo, branch, state="open")

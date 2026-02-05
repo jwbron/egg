@@ -79,11 +79,15 @@ def get_platform() -> str:
 
 # Import shared config module for get_local_repos
 # This ensures egg and gateway use identical config parsing
-def get_local_repos() -> list[Path]:
+def get_local_repos(config_file: Path | None = None) -> list[Path]:
     """Load local repository paths from configuration.
 
     Uses the shared egg_config module for consistent config parsing.
     Falls back to local implementation if module not available.
+
+    Args:
+        config_file: Optional path to config file. If not provided, uses
+                    the default at ~/.config/egg/repositories.yaml
     """
     try:
         # Try to import from shared module
@@ -94,17 +98,19 @@ def get_local_repos() -> list[Path]:
             sys.path.insert(0, str(_script_dir))
         from egg_config import get_local_repos as _get_local_repos
 
-        return _get_local_repos()
+        result: list[Path] = _get_local_repos(config_file=config_file)
+        return result
     except ImportError:
         pass
 
     # Fallback implementation if shared module not available
-    if not Config.REPOS_CONFIG_FILE.exists():
+    config_path = config_file or Config.REPOS_CONFIG_FILE
+    if not config_path.exists():
         return []
     try:
         import yaml
 
-        with open(Config.REPOS_CONFIG_FILE) as f:
+        with open(config_path) as f:
             config = yaml.safe_load(f) or {}
         local_repos_config = config.get("local_repos", {})
         paths = local_repos_config.get("paths", []) if isinstance(local_repos_config, dict) else []

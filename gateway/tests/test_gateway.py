@@ -997,6 +997,130 @@ class TestRepoExtraction:
         )
 
 
+class TestGitApplyAndFormatPatch:
+    """Tests for git apply and format-patch operations (issue #118)."""
+
+    def test_apply_succeeds(self, client, auth_headers):
+        """git apply executes successfully through the gateway."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            response = client.post(
+                "/api/v1/git/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "apply",
+                        "args": ["--check", "patch.diff"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_args = mock_run.call_args[0][0]
+            assert "apply" in call_args
+            assert "--check" in call_args
+            assert "patch.diff" in call_args
+
+    def test_apply_rejects_unknown_flags(self, client, auth_headers):
+        """git apply rejects unknown flags."""
+        response = client.post(
+            "/api/v1/git/execute",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "repo_path": "/home/egg/repos/test",
+                    "operation": "apply",
+                    "args": ["--exec=evil"],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "not allowed" in data["message"]
+
+    def test_format_patch_succeeds(self, client, auth_headers):
+        """git format-patch executes successfully through the gateway."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="0001-test.patch\n",
+                stderr="",
+            )
+
+            response = client.post(
+                "/api/v1/git/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "format-patch",
+                        "args": ["--stdout", "-1", "HEAD"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_args = mock_run.call_args[0][0]
+            assert "format-patch" in call_args
+            assert "--stdout" in call_args
+
+    def test_format_patch_rejects_unknown_flags(self, client, auth_headers):
+        """git format-patch rejects unknown flags."""
+        response = client.post(
+            "/api/v1/git/execute",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "repo_path": "/home/egg/repos/test",
+                    "operation": "format-patch",
+                    "args": ["--exec=evil"],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "not allowed" in data["message"]
+
+    def test_apply_does_not_inject_no_verify(self, client, auth_headers):
+        """git apply should not get --no-verify (it doesn't support it)."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            response = client.post(
+                "/api/v1/git/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "apply",
+                        "args": ["patch.diff"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_args = mock_run.call_args[0][0]
+            assert "--no-verify" not in call_args
+            assert "core.hooksPath=/dev/null" in call_args
+
+
 class TestGitHookDisabling:
     """Tests for git hook disabling (issue #58 security fix).
 
@@ -1006,7 +1130,10 @@ class TestGitHookDisabling:
 
     1. Primary: core.hooksPath=/dev/null disables ALL hooks for all git operations
     2. Belt-and-suspenders: --no-verify for operations that support it (commit,
-       merge, cherry-pick, am, push)
+       merge, am, push)
+
+    Note: cherry-pick is NOT included in --no-verify injection because git <2.36
+    does not support it (see issue #118).
     """
 
     def test_commit_injects_no_verify(self, client, auth_headers):
@@ -1066,8 +1193,13 @@ class TestGitHookDisabling:
             call_args = mock_run.call_args[0][0]
             assert "--no-verify" in call_args
 
-    def test_cherry_pick_injects_no_verify(self, client, auth_headers):
-        """Cherry-pick operations get --no-verify to disable hooks."""
+    def test_cherry_pick_does_not_inject_no_verify(self, client, auth_headers):
+        """Cherry-pick does NOT get --no-verify (unsupported on git <2.36).
+
+        The --no-verify flag was added to cherry-pick in git 2.36. Older versions
+        reject it with a usage error. The primary protection (core.hooksPath=/dev/null)
+        already covers cherry-pick. See issue #118.
+        """
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
@@ -1090,7 +1222,10 @@ class TestGitHookDisabling:
 
             assert response.status_code == 200
             call_args = mock_run.call_args[0][0]
-            assert "--no-verify" in call_args
+            # cherry-pick should NOT have --no-verify (not supported on git <2.36)
+            assert "--no-verify" not in call_args
+            # But core.hooksPath=/dev/null should still be present
+            assert "core.hooksPath=/dev/null" in call_args
 
     def test_push_includes_no_verify(self, client, auth_headers):
         """Push operations include --no-verify to disable pre-push hooks."""

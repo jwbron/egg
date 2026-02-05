@@ -1,0 +1,78 @@
+name: egg
+description: Run egg (autonomous coding agent) in GitHub Actions
+branding:
+  icon: terminal
+  color: orange
+
+inputs:
+  prompt:
+    description: Task prompt for Claude Code
+    required: true
+  anthropic-oauth-token:
+    description: Anthropic OAuth token for Claude API
+    required: true
+  github-token:
+    description: GitHub token for git operations
+    required: true
+    default: ${{ github.token }}
+  bot-app-id:
+    description: GitHub App ID for bot identity (required for bot mode)
+    required: false
+  bot-app-private-key:
+    description: GitHub App private key PEM for bot identity (required for bot mode)
+    required: false
+  bot-app-installation-id:
+    description: GitHub App installation ID for bot identity (required for bot mode)
+    required: false
+  bot-username:
+    description: Bot GitHub username for filtering self-comments
+    required: false
+    default: egg
+  mode:
+    description: "Network mode: public, private, or auto (auto-detects from repo visibility)"
+    required: false
+    default: auto
+  timeout:
+    description: Timeout in minutes
+    required: false
+    default: "30"
+  model:
+    description: Claude model to use
+    required: false
+    default: opus
+  image-tag:
+    description: Docker image tag to use (e.g., v1.0.0 or latest)
+    required: false
+    default: latest
+
+outputs:
+  exit-code:
+    description: Sandbox container exit code (0 = success)
+    value: ${{ steps.run.outputs.exit-code }}
+  pr-url:
+    description: URL of created PR, if any
+    value: ${{ steps.run.outputs.pr-url }}
+  log-file:
+    description: Path to full Claude output log
+    value: ${{ steps.run.outputs.log-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run egg
+      id: run
+      shell: bash
+      env:
+        INPUT_PROMPT: ${{ inputs.prompt }}
+        INPUT_ANTHROPIC_OAUTH_TOKEN: ${{ inputs.anthropic-oauth-token }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_BOT_APP_ID: ${{ inputs.bot-app-id }}
+        INPUT_BOT_APP_PRIVATE_KEY: ${{ inputs.bot-app-private-key }}
+        INPUT_BOT_APP_INSTALLATION_ID: ${{ inputs.bot-app-installation-id }}
+        INPUT_BOT_USERNAME: ${{ inputs.bot-username }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
+        GITHUB_EVENT_REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
+      run: ${{ github.action_path }}/entrypoint.sh

@@ -179,6 +179,87 @@ class TestGitArgsValidation:
         assert "origin" in args
         assert "main" in args
 
+    def test_apply_allowed_flags(self):
+        """git apply accepts its allowed flags."""
+        valid, error, args = git_client.validate_git_args(
+            "apply", ["--check", "--stat", "--3way", "patch.diff"]
+        )
+        assert valid is True
+        assert error == ""
+        assert "--check" in args
+        assert "patch.diff" in args
+
+    def test_apply_rejects_unknown_flags(self):
+        """git apply rejects unknown flags."""
+        valid, error, _ = git_client.validate_git_args("apply", ["--exec=evil"])
+        assert valid is False
+        assert "not allowed" in error
+
+    def test_apply_file_paths_pass_through(self):
+        """git apply passes file path arguments through."""
+        valid, error, args = git_client.validate_git_args("apply", ["--verbose", "fix.patch"])
+        assert valid is True
+        assert "fix.patch" in args
+
+    def test_diff_filter_flag(self):
+        """git diff accepts --diff-filter flag with value."""
+        valid, error, args = git_client.validate_git_args(
+            "diff", ["--name-only", "--diff-filter=U"]
+        )
+        assert valid is True
+        assert error == ""
+        assert "--diff-filter=U" in args
+
+    def test_log_diff_filter_flag(self):
+        """git log accepts --diff-filter flag."""
+        valid, error, args = git_client.validate_git_args("log", ["--oneline", "--diff-filter=M"])
+        assert valid is True
+        assert error == ""
+
+    def test_format_patch_allowed_flags(self):
+        """git format-patch accepts its allowed flags."""
+        valid, error, args = git_client.validate_git_args("format-patch", ["--stdout", "HEAD~1"])
+        assert valid is True
+        assert error == ""
+        assert "--stdout" in args
+        assert "HEAD~1" in args
+
+    def test_format_patch_rejects_unknown_flags(self):
+        """git format-patch rejects unknown flags."""
+        valid, error, _ = git_client.validate_git_args("format-patch", ["--exec=evil"])
+        assert valid is False
+        assert "not allowed" in error
+
+    def test_format_patch_output_directory(self):
+        """git format-patch accepts -o flag for output directory."""
+        valid, error, args = git_client.validate_git_args(
+            "format-patch", ["-o", "/tmp/patches", "HEAD~3"]
+        )
+        assert valid is True
+        assert "-o" in args
+
+    def test_format_patch_numbered_long_flag(self):
+        """git format-patch accepts --numbered flag."""
+        valid, error, args = git_client.validate_git_args("format-patch", ["--numbered", "HEAD~3"])
+        assert valid is True
+        assert "--numbered" in args
+
+    def test_format_patch_short_n_rejected(self):
+        """git format-patch -n is rejected because FLAG_NORMALIZATION maps -n to --dry-run.
+
+        Users should use --numbered instead. This matches how log and reflog
+        handle the same -n normalization conflict.
+        """
+        valid, error, _ = git_client.validate_git_args("format-patch", ["-n", "HEAD~3"])
+        assert valid is False
+        assert "not allowed" in error
+
+    def test_format_patch_numeric_flag(self):
+        """git format-patch accepts numeric flags like -1, -3."""
+        valid, error, args = git_client.validate_git_args("format-patch", ["-1", "HEAD"])
+        assert valid is True
+        assert "-1" in args
+
 
 class TestFlagNormalization:
     """Tests for normalize_flag function."""
@@ -386,6 +467,28 @@ class TestGhApiPathValidation:
             "repos/owner/repo/pulls/123", method="PATCH"
         )
         assert valid is True
+
+    def test_issue_reactions_allowed(self):
+        """Issue reactions endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path("repos/owner/repo/issues/123/reactions")
+        assert valid is True
+        assert error == ""
+
+    def test_issue_comment_reactions_allowed(self):
+        """Issue comment reactions endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/issues/comments/456/reactions"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_pr_review_comment_reactions_allowed(self):
+        """PR review comment reactions endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/pulls/comments/789/reactions"
+        )
+        assert valid is True
+        assert error == ""
 
     def test_pr_number_must_be_numeric(self):
         """PR number must be numeric."""

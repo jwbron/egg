@@ -12,14 +12,12 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 from .config import (
-    EGG_EXTERNAL_NETWORK,
-    EGG_EXTERNAL_SUBNET,
-    EGG_ISOLATED_NETWORK,
-    EGG_ISOLATED_SUBNET,
     Config,
 )
+from .context import AUTO, get_context
 from .output import error, get_quiet_mode, info, success, warn
 
 # Label used to store build content hash on Docker image
@@ -33,11 +31,6 @@ def set_force_rebuild(force: bool) -> None:
     """Set the global force rebuild flag."""
     global _force_rebuild
     _force_rebuild = force
-
-
-def get_force_rebuild() -> bool:
-    """Get the current force rebuild setting."""
-    return _force_rebuild
 
 
 def check_docker_permissions() -> bool:
@@ -224,9 +217,12 @@ def create_dockerfile() -> None:
     # Resolve symlinks to find the actual project directory
     script_dir = Path(__file__).resolve().parent.parent
 
-    # Copy docker-setup.py to config directory
+    # Copy docker-setup.py to sandbox subdirectory of build context
+    # (Dockerfile references sandbox/docker-setup.py)
+    sandbox_dest = Config.CONFIG_DIR / "sandbox"
+    sandbox_dest.mkdir(parents=True, exist_ok=True)
     setup_script = script_dir / "docker-setup.py"
-    setup_dest = Config.CONFIG_DIR / "docker-setup.py"
+    setup_dest = sandbox_dest / "docker-setup.py"
 
     if setup_script.exists():
         shutil.copy(setup_script, setup_dest)
@@ -234,20 +230,22 @@ def create_dockerfile() -> None:
     else:
         warn("docker-setup.py not found, skipping dev tools installation")
 
-    # Copy claude-commands directory to config directory
+    # Copy claude-commands directory to sandbox subdirectory of build context
+    # (Dockerfile references sandbox/claude-commands/)
     # Use atomic copy with retry to handle race conditions when multiple
     # egg --exec instances run simultaneously
     commands_src = script_dir / "claude-commands"
-    commands_dest = Config.CONFIG_DIR / "claude-commands"
+    commands_dest = sandbox_dest / "claude-commands"
     if commands_src.exists():
         _copy_directory_atomic(commands_src, commands_dest, "Claude commands", quiet)
     else:
         warn("claude-commands directory not found")
 
-    # Copy claude-rules directory to build context
+    # Copy claude-rules directory to sandbox subdirectory of build context
+    # (Dockerfile references sandbox/claude-rules/)
     # Use atomic copy with retry to handle race conditions
     rules_src = script_dir / "claude-rules"
-    rules_dest = Config.CONFIG_DIR / "claude-rules"
+    rules_dest = sandbox_dest / "claude-rules"
     if rules_src.exists():
         _copy_directory_atomic(rules_src, rules_dest, "Claude rules", quiet)
     else:
@@ -256,9 +254,6 @@ def create_dockerfile() -> None:
     # Copy egg-runtime directories to build context
     # These provide container-resident executables and tools
     # The bin/ directory contains symlinks to executables (added to PATH in container)
-    sandbox_dest = Config.CONFIG_DIR / "sandbox"
-    sandbox_dest.mkdir(parents=True, exist_ok=True)
-
     runtime_dirs = ["bin", "llm", "tools", "scripts"]
     for dir_name in runtime_dirs:
         src = script_dir / dir_name
@@ -312,7 +307,7 @@ def create_dockerfile() -> None:
 
     # Copy entrypoint.py from script directory
     entrypoint_src = script_dir / "entrypoint.py"
-    entrypoint_dest = Config.CONFIG_DIR / "entrypoint.py"
+    entrypoint_dest = sandbox_dest / "entrypoint.py"
     if entrypoint_src.exists():
         shutil.copy(entrypoint_src, entrypoint_dest)
         entrypoint_dest.chmod(0o755)
@@ -379,7 +374,8 @@ def get_latest_claude_version() -> str | None:
         url = "https://registry.npmjs.org/@anthropic-ai/claude-code/latest"
         with urllib.request.urlopen(url, timeout=10) as response:
             data = json.loads(response.read().decode())
-            return data.get("version")
+            version: str | None = data.get("version")
+            return version
     except Exception:
         return None
 
@@ -411,7 +407,7 @@ def check_claude_update() -> str | None:
     return None
 
 
-def _hash_file(path: Path, hasher) -> None:
+def _hash_file(path: Path, hasher: Any) -> None:
     """Add a single file's content to the hasher."""
     try:
         with open(path, "rb") as f:
@@ -421,7 +417,7 @@ def _hash_file(path: Path, hasher) -> None:
         pass
 
 
-def _hash_directory(path: Path, hasher) -> None:
+def _hash_directory(path: Path, hasher: Any) -> None:
     """Recursively hash all files in a directory."""
     if not path.exists():
         return
@@ -581,8 +577,16 @@ def build_image() -> bool:
     Uses content hashing to detect when build files change. If the image
     exists and its stored hash matches the current files, the build is
     skipped entirely (~25 seconds saved).
+
+    When ``ctx.skip_build`` is True (GHA), the image is pre-built and
+    pulled from a registry, so this function short-circuits immediately.
     """
+    ctx = get_context()
     quiet = get_quiet_mode()
+
+    # In GHA, images are pre-pulled from GHCR — no build needed
+    if ctx.skip_build:
+        return True
 
     # Check if rebuild is needed
     needs_rebuild, reason = should_rebuild_image()
@@ -656,9 +660,10 @@ def build_image() -> bool:
 
 def image_exists() -> bool:
     """Check if Docker image exists"""
+    ctx = get_context()
     return (
         subprocess.run(
-            ["docker", "image", "inspect", Config.IMAGE_NAME], capture_output=True, check=False
+            ["docker", "image", "inspect", ctx.sandbox_image], capture_output=True, check=False
         ).returncode
         == 0
     )
@@ -670,22 +675,28 @@ def ensure_egg_network() -> bool:
     Returns:
         True if network exists or was created, False on failure
     """
+    ctx = get_context()
+    network = ctx.isolated_network
+
     # Check if network exists
     result = subprocess.run(
-        ["docker", "network", "inspect", EGG_ISOLATED_NETWORK], capture_output=True, check=False
+        ["docker", "network", "inspect", network],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if result.returncode == 0:
         return True
 
     # Create the network
     result = subprocess.run(
-        ["docker", "network", "create", EGG_ISOLATED_NETWORK],
+        ["docker", "network", "create", network],
         capture_output=True,
         text=True,
         check=False,
     )
     if result.returncode == 0:
-        info(f"Created Docker network: {EGG_ISOLATED_NETWORK}")
+        info(f"Created Docker network: {network}")
         return True
 
     error(f"Failed to create Docker network: {result.stderr}")
@@ -707,6 +718,7 @@ def _create_network(name: str, subnet: str, internal: bool = False) -> bool:
     result = subprocess.run(
         ["docker", "network", "inspect", name],
         capture_output=True,
+        text=True,
         check=False,
     )
     if result.returncode == 0:
@@ -738,6 +750,58 @@ def _create_network(name: str, subnet: str, internal: bool = False) -> bool:
     return False
 
 
+def _allocate_dynamic_subnet() -> str:
+    """Find an unused 172.x.0.0/24 subnet in the Docker network space.
+
+    Scans 172.28.0.0/24 through 172.63.255.0/24 for subnets not already
+    claimed by existing Docker networks.
+
+    Returns:
+        A subnet string like ``"172.28.0.0/24"``
+
+    Raises:
+        RuntimeError: If no unused subnet can be found.
+    """
+    # Collect subnets already in use
+    used: set[str] = set()
+    try:
+        result = subprocess.run(
+            ["docker", "network", "ls", "--format", "{{.ID}}"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        for net_id in result.stdout.strip().splitlines():
+            if not net_id:
+                continue
+            inspect = subprocess.run(
+                [
+                    "docker",
+                    "network",
+                    "inspect",
+                    net_id,
+                    "--format",
+                    "{{range .IPAM.Config}}{{.Subnet}}{{end}}",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            subnet = inspect.stdout.strip()
+            if subnet:
+                used.add(subnet)
+    except Exception:
+        pass  # Proceed with empty set — worst case we get a conflict
+
+    for major in range(28, 64):
+        for minor in range(0, 256):
+            candidate = f"172.{major}.{minor}.0/24"
+            if candidate not in used:
+                return candidate
+
+    raise RuntimeError("No unused subnet found in 172.28-63.x.0/24 range")
+
+
 def ensure_gateway_networks() -> bool:
     """Create both gateway networks if they don't exist.
 
@@ -748,15 +812,47 @@ def ensure_gateway_networks() -> bool:
     The gateway is dual-homed, connecting to both networks. Egg containers
     connect only to egg-isolated and route traffic through the gateway.
 
+    When the context subnets are set to ``"auto"``, dynamically allocate
+    unused subnets (used in GHA to avoid collisions between concurrent runs).
+    The context is updated in-place with the actual values.
+
     Returns:
         True if both networks exist or were created, False on failure
     """
-    # Create internal isolated network (no external route)
-    if not _create_network(EGG_ISOLATED_NETWORK, EGG_ISOLATED_SUBNET, internal=True):
+    ctx = get_context()
+
+    # Resolve dynamic subnets if requested
+    if ctx.isolated_subnet == AUTO:
+        ctx.isolated_subnet = _allocate_dynamic_subnet()
+        # Derive gateway IP from the allocated subnet (x.x.x.2)
+        base = ctx.isolated_subnet.rsplit(".", 1)[0]  # e.g. "172.28.0"
+        ctx.gateway_isolated_ip = f"{base}.2"
+
+    # Create internal isolated network first so the next allocation sees it
+    if not _create_network(ctx.isolated_network, ctx.isolated_subnet, internal=True):
         return False
 
+    if ctx.external_subnet == AUTO:
+        ctx.external_subnet = _allocate_dynamic_subnet()
+        base = ctx.external_subnet.rsplit(".", 1)[0]
+        ctx.gateway_external_ip = f"{base}.2"
+
     # Create external network (standard bridge)
-    if not _create_network(EGG_EXTERNAL_NETWORK, EGG_EXTERNAL_SUBNET, internal=False):
+    if not _create_network(ctx.external_network, ctx.external_subnet, internal=False):
         return False
 
     return True
+
+
+def teardown_networks() -> None:
+    """Remove ephemeral Docker networks created for this context.
+
+    Called during cleanup of ephemeral (GHA) runs.
+    """
+    ctx = get_context()
+    for network in [ctx.isolated_network, ctx.external_network]:
+        subprocess.run(
+            ["docker", "network", "rm", network],
+            capture_output=True,
+            check=False,
+        )

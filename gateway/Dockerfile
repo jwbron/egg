@@ -40,9 +40,10 @@ RUN /usr/lib/squid/security_file_certgen -c -s /var/lib/squid/ssl_db -M 16MB && 
 # Initialize Squid cache directories
 RUN /usr/sbin/squid -z -N 2>/dev/null || true
 
-# Create egg user with UID/GID 1000 so gosu can resolve HOME correctly
-# Without this, gosu sets HOME=/ when dropping to UID 1000, breaking Path.home()
-# This matches the sandbox user setup for consistency
+# Create egg user with UID/GID 1000 as default for local development.
+# In CI (GitHub Actions), HOST_UID may differ (e.g. 1001); entrypoint.sh
+# creates a passwd entry for the actual HOST_UID at runtime so gosu
+# resolves HOME=/home/egg correctly instead of defaulting to HOME=/.
 RUN groupadd -g 1000 egg && \
     useradd -m -u 1000 -g 1000 -s /bin/bash egg
 
@@ -76,7 +77,7 @@ RUN pip install --no-cache-dir flask waitress pyyaml requests PyJWT cryptography
 
 ENV PYTHONPATH="/app"
 # Expose both gateway API port and Squid proxy port
-EXPOSE 9847 3128
+EXPOSE 9848 3129
 
 COPY gateway/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

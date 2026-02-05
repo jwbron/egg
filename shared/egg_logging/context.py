@@ -41,7 +41,7 @@ class LogContext:
     workflow_type: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Generate trace_id and span_id if not provided."""
         if self.trace_id is None:
             self.trace_id = secrets.token_hex(16)

@@ -5,6 +5,7 @@ host-side startup performance.
 """
 
 import time
+from typing import Any
 
 
 class StartupTimer:
@@ -26,24 +27,24 @@ class StartupTimer:
 
     def end_phase(self) -> None:
         """End timing the current phase."""
-        if not self.enabled or self._phase_start is None:
+        if not self.enabled or self._phase_start is None or self._phase_name is None:
             return
         elapsed = (time.perf_counter() - self._phase_start) * 1000  # ms
         self.timings.append((self._phase_name, elapsed))
         self._phase_name = None
         self._phase_start = None
 
-    def phase(self, name: str):
+    def phase(self, name: str) -> Any:
         """Context manager for timing a phase."""
         timer = self
         phase_name = name
 
         class PhaseContext:
-            def __enter__(self):
+            def __enter__(self) -> "PhaseContext":
                 timer.start_phase(phase_name)
                 return self
 
-            def __exit__(self, *args):
+            def __exit__(self, *args: Any) -> None:
                 timer.end_phase()
 
         return PhaseContext()
