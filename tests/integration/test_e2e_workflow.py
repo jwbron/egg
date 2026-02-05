@@ -25,7 +25,6 @@ pytestmark = [
 ]
 
 
-@pytest.mark.e2e
 class TestE2EClaudeCode:
     """End-to-end tests running real Claude Code prompts in the egg stack."""
 
@@ -35,13 +34,13 @@ class TestE2EClaudeCode:
         if not os.environ.get("ANTHROPIC_OAUTH_TOKEN"):
             pytest.skip("ANTHROPIC_OAUTH_TOKEN not set")
 
-    def test_simple_prompt_completes(self, egg_stack, session):
+    def test_simple_prompt_completes(self, egg_stack, gateway_session):
         """A simple Claude Code prompt completes without errors.
 
         Uses 'claude --print' for non-interactive execution.
         This is a smoke test that the full stack works end-to-end.
         """
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
 
         # Build a sandbox container with Claude Code installed
         result = subprocess.run(
@@ -73,9 +72,9 @@ class TestE2EClaudeCode:
         )
         assert "hello" in result.stdout.lower(), f"Expected 'hello' in output, got: {result.stdout}"
 
-    def test_file_creation_via_prompt(self, egg_stack, session):
+    def test_file_creation_via_prompt(self, egg_stack, gateway_session):
         """Claude Code can create a file in the workspace."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
 
         result = subprocess.run(
             [
@@ -107,9 +106,9 @@ class TestE2EClaudeCode:
             f"File creation prompt failed.\nstderr: {result.stderr}"
         )
 
-    def test_git_status_via_prompt(self, egg_stack, session):
+    def test_git_status_via_prompt(self, egg_stack, gateway_session):
         """Claude Code can run git status through the gateway."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
 
         result = subprocess.run(
             [

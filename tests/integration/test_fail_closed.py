@@ -24,12 +24,12 @@ class TestFailClosed:
         with pytest.raises(requests.ConnectionError):
             requests.get(f"{bad_url}/api/v1/health", timeout=3)
 
-    def test_gateway_returns_json_errors_not_500(self, egg_stack, session):
+    def test_gateway_returns_json_errors_not_500(self, egg_stack, gateway_session):
         """Gateway returns structured JSON errors, not HTML 500 pages.
 
         Even for internal errors, the response should be machine-parseable JSON.
         """
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
 
         # Trigger an error by requesting a nonexistent repo
         resp = egg_stack.api_request(

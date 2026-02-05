@@ -3,7 +3,7 @@
 Provides:
 - EggStack dataclass with gateway URL, IPs, launcher secret, and helpers
 - egg_stack (session-scoped): starts/stops the gateway via docker compose
-- session (function-scoped): creates/destroys a gateway session per test
+- gateway_session (function-scoped): creates/destroys a gateway session per test
 - test_container: starts/stops an alpine container on a given network
 
 All Docker-dependent fixtures skip gracefully when Docker is unavailable.
@@ -333,7 +333,7 @@ def egg_stack() -> Generator[EggStack, None, None]:
 
 
 @pytest.fixture
-def session(egg_stack: EggStack) -> Generator[dict[str, Any], None, None]:
+def gateway_session(egg_stack: EggStack) -> Generator[dict[str, Any], None, None]:
     """Function-scoped fixture: create a gateway session for isolation.
 
     Creates a unique session per test and cleans it up afterwards.

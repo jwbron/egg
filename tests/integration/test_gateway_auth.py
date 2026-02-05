@@ -5,6 +5,7 @@ Verifies session and launcher auth behavior without requiring GitHub.
 """
 
 import pytest
+import requests
 
 
 @pytest.mark.integration
@@ -36,9 +37,9 @@ class TestAuthentication:
         )
         assert resp.status_code == 401
 
-    def test_valid_session_token_accepted(self, egg_stack, session):
+    def test_valid_session_token_accepted(self, egg_stack, gateway_session):
         """Requests with a valid session token are accepted (not 401)."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         assert token
 
         resp = egg_stack.api_request(
@@ -65,9 +66,9 @@ class TestAuthentication:
         body = resp.json()
         assert body.get("success") is True
 
-    def test_session_token_rejected_for_admin(self, egg_stack, session):
+    def test_session_token_rejected_for_admin(self, egg_stack, gateway_session):
         """Session tokens cannot access admin-only endpoints."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         assert token
 
         resp = egg_stack.api_request(
@@ -79,9 +80,7 @@ class TestAuthentication:
 
     def test_missing_bearer_prefix_returns_401(self, egg_stack):
         """Authorization header without 'Bearer ' prefix is rejected."""
-        import requests as req
-
-        resp = req.post(
+        resp = requests.post(
             f"{egg_stack.gateway_url}/api/v1/git/execute",
             headers={"Authorization": egg_stack.launcher_secret},
             json={

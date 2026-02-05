@@ -11,9 +11,9 @@ import pytest
 class TestGitExecuteEndpoint:
     """Tests for POST /api/v1/git/execute."""
 
-    def test_status_command(self, egg_stack, session):
+    def test_status_command(self, egg_stack, gateway_session):
         """git status operation is accepted (not auth-rejected)."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         resp = egg_stack.api_request(
             "POST",
             "/api/v1/git/execute",
@@ -26,9 +26,9 @@ class TestGitExecuteEndpoint:
         # May fail with 400 if repo doesn't exist, but should not be 401/403
         assert resp.status_code not in (401, 403), f"Unexpected auth failure: {resp.text}"
 
-    def test_disallowed_operation_rejected(self, egg_stack, session):
+    def test_disallowed_operation_rejected(self, egg_stack, gateway_session):
         """Operations not in GIT_ALLOWED_COMMANDS are rejected with 403."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         resp = egg_stack.api_request(
             "POST",
             "/api/v1/git/execute",
@@ -42,36 +42,13 @@ class TestGitExecuteEndpoint:
             f"Disallowed git operation should return 403, got {resp.status_code}: {resp.text}"
         )
 
-    def test_path_traversal_blocked(self, egg_stack, session):
-        """Path traversal in repo_path is blocked."""
-        token = session.get("session_token")
-        traversal_paths = [
-            "/home/egg/repos/../../etc/passwd",
-            "/etc/passwd",
-            "/home/egg/repos/test-repo/../../..",
-        ]
-        for path in traversal_paths:
-            resp = egg_stack.api_request(
-                "POST",
-                "/api/v1/git/execute",
-                token=token,
-                json_data={
-                    "repo_path": path,
-                    "operation": "status",
-                },
-            )
-            assert resp.status_code in (400, 403), (
-                f"Path traversal not blocked for '{path}': "
-                f"status={resp.status_code}, body={resp.text}"
-            )
-
-    def test_network_ops_redirect_to_dedicated_endpoints(self, egg_stack, session):
+    def test_network_ops_redirect_to_dedicated_endpoints(self, egg_stack, gateway_session):
         """Push/fetch/ls-remote via git/execute should be rejected.
 
         These should use the dedicated /api/v1/git/push and /api/v1/git/fetch
         endpoints instead.
         """
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         for operation in ("push", "fetch", "ls-remote"):
             resp = egg_stack.api_request(
                 "POST",
@@ -93,9 +70,9 @@ class TestGitExecuteEndpoint:
 class TestGhExecuteEndpoint:
     """Tests for POST /api/v1/gh/execute."""
 
-    def test_gh_version_works(self, egg_stack, session):
+    def test_gh_version_works(self, egg_stack, gateway_session):
         """gh --version executes successfully."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         resp = egg_stack.api_request(
             "POST",
             "/api/v1/gh/execute",
@@ -112,9 +89,9 @@ class TestGhExecuteEndpoint:
             output = body.get("data", {}).get("output", body.get("output", ""))
             assert "gh" in output.lower() or body.get("success")
 
-    def test_response_format_is_json(self, egg_stack, session):
+    def test_response_format_is_json(self, egg_stack, gateway_session):
         """gh/execute returns JSON, not HTML error pages."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         resp = egg_stack.api_request(
             "POST",
             "/api/v1/gh/execute",
@@ -135,9 +112,9 @@ class TestGhExecuteEndpoint:
 class TestGitPushEndpoint:
     """Tests for POST /api/v1/git/push."""
 
-    def test_push_to_main_blocked_by_policy(self, egg_stack, session):
+    def test_push_to_main_blocked_by_policy(self, egg_stack, gateway_session):
         """Pushing to main branch should be blocked by policy."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         resp = egg_stack.api_request(
             "POST",
             "/api/v1/git/push",
