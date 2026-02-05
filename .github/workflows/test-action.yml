@@ -27,7 +27,6 @@ jobs:
           # GITHUB_* vars are built-in GHA variables that cannot be overridden,
           # so we validate against the actual runtime values
           CONFIG_DIR="${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
-          REPO_NAME="${GITHUB_REPOSITORY#*/}"
 
           echo "=== Validating repositories.yaml ==="
           cat "$CONFIG_DIR/repositories.yaml"
@@ -39,18 +38,13 @@ jobs:
           grep -qF "bot_username: egg" "$CONFIG_DIR/repositories.yaml"
           grep -qF "${GITHUB_REPOSITORY}" "$CONFIG_DIR/repositories.yaml"
           grep -qF "auth_mode: user" "$CONFIG_DIR/repositories.yaml"
-          grep -qF "/home/egg/repos/${REPO_NAME}" "$CONFIG_DIR/repositories.yaml"
+          grep -qF "${GITHUB_WORKSPACE}" "$CONFIG_DIR/repositories.yaml"
 
           echo "=== Validating secrets.env ==="
           # Don't cat secrets, just verify they exist
           test -f "$CONFIG_DIR/secrets.env"
           grep -q "CLAUDE_CODE_OAUTH_TOKEN=" "$CONFIG_DIR/secrets.env"
-          # GITHUB_USER_TOKEN should NOT be in secrets.env — gateway reads it
-          # from the environment variable, not from this file
-          if grep -q "GITHUB_USER_TOKEN=" "$CONFIG_DIR/secrets.env"; then
-            echo "ERROR: GITHUB_USER_TOKEN should not be in secrets.env"
-            exit 1
-          fi
+          grep -q "GITHUB_USER_TOKEN=" "$CONFIG_DIR/secrets.env"
 
           echo "=== Validating launcher-secret ==="
           test -f "$CONFIG_DIR/launcher-secret"

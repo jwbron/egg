@@ -33,7 +33,6 @@ set -euo pipefail
 : "${INPUT_ANTHROPIC_OAUTH_TOKEN:?anthropic-oauth-token input is required}"
 : "${INPUT_GITHUB_TOKEN:?github-token input is required}"
 
-REPO_NAME="${GITHUB_REPOSITORY#*/}"
 BOT_USERNAME="${INPUT_BOT_USERNAME:-egg}"
 RUN_ID="${GITHUB_RUN_ID:-$$}"
 
@@ -73,7 +72,7 @@ user_mode:
 
 local_repos:
   paths:
-    - /home/egg/repos/${REPO_NAME}
+    - ${GITHUB_WORKSPACE}
 YAML
 
 # ---------------------------------------------------------------------------
@@ -82,10 +81,8 @@ YAML
 
 cat > "$CONFIG_DIR/secrets.env" <<ENV
 CLAUDE_CODE_OAUTH_TOKEN=${INPUT_ANTHROPIC_OAUTH_TOKEN}
+GITHUB_USER_TOKEN=${INPUT_GITHUB_TOKEN}
 ENV
-# NOTE: GITHUB_USER_TOKEN is intentionally omitted from secrets.env — the
-# gateway reads it from the environment variable (passed via docker run -e),
-# not from this file.
 
 # Add bot GitHub App credentials if provided
 if [[ "$AUTH_MODE" == "bot" ]]; then

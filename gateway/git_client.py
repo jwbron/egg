@@ -625,7 +625,8 @@ GIT_ALLOWED_COMMANDS = {
             "--notes",
             "--base",
             "-o",
-            "-n",
+            # Note: -n is NOT included because FLAG_NORMALIZATION maps -n → --dry-run globally.
+            # Users should use --numbered instead.
             "-N",
             "-k",
             "-s",
