@@ -240,9 +240,7 @@ class TestGitArgsValidation:
 
     def test_format_patch_numbered_long_flag(self):
         """git format-patch accepts --numbered flag."""
-        valid, error, args = git_client.validate_git_args(
-            "format-patch", ["--numbered", "HEAD~3"]
-        )
+        valid, error, args = git_client.validate_git_args("format-patch", ["--numbered", "HEAD~3"])
         assert valid is True
         assert "--numbered" in args
 
