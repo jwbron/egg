@@ -84,6 +84,53 @@ jobs:
 
           echo "Bot App credentials config generation tests passed"
 
+      - name: Test generate-config.sh with single-line PEM (literal \n)
+        env:
+          INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
+          INPUT_GITHUB_TOKEN: test-github-token
+          INPUT_BOT_APP_ID: "123456"
+          INPUT_BOT_APP_PRIVATE_KEY: "-----BEGIN RSA PRIVATE KEY-----\\ntest-key-placeholder\\n-----END RSA PRIVATE KEY-----"
+          INPUT_BOT_APP_INSTALLATION_ID: "789012"
+          INPUT_BOT_USERNAME: my-bot
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          rm -rf "${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+
+          bash action/generate-config.sh
+
+          CONFIG_DIR="${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+
+          # PEM should contain real newlines, not literal \n
+          test -f "$CONFIG_DIR/github-app.pem"
+          grep -q "BEGIN RSA PRIVATE KEY" "$CONFIG_DIR/github-app.pem"
+          grep -q "END RSA PRIVATE KEY" "$CONFIG_DIR/github-app.pem"
+          LINE_COUNT=$(wc -l < "$CONFIG_DIR/github-app.pem")
+          if [[ "$LINE_COUNT" -lt 3 ]]; then
+            echo "ERROR: PEM should have multiple lines after \\n normalization, got $LINE_COUNT"
+            exit 1
+          fi
+
+          echo "Single-line PEM normalization tests passed"
+
+      - name: Test generate-config.sh rejects invalid PEM
+        env:
+          INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
+          INPUT_GITHUB_TOKEN: test-github-token
+          INPUT_BOT_APP_ID: "123456"
+          INPUT_BOT_APP_PRIVATE_KEY: "not-a-pem-key"
+          INPUT_BOT_APP_INSTALLATION_ID: "789012"
+          INPUT_BOT_USERNAME: my-bot
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          rm -rf "${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+
+          if bash action/generate-config.sh 2>/dev/null; then
+            echo "ERROR: generate-config.sh should have failed for invalid PEM"
+            exit 1
+          fi
+
+          echo "Invalid PEM rejection test passed"
+
   shellcheck:
     name: Shellcheck
     runs-on: ubuntu-latest

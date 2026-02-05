@@ -92,9 +92,20 @@ if [[ "$AUTH_MODE" == "bot" ]]; then
   echo "GITHUB_APP_ID=${INPUT_BOT_APP_ID}" >> "$CONFIG_DIR/secrets.env"
   echo "GITHUB_APP_INSTALLATION_ID=${INPUT_BOT_APP_INSTALLATION_ID}" >> "$CONFIG_DIR/secrets.env"
 
-  # Write private key PEM to file for the gateway's token refresher
-  printf '%s\n' "$INPUT_BOT_APP_PRIVATE_KEY" > "$CONFIG_DIR/github-app.pem"
+  # Write private key PEM to file for the gateway's token refresher.
+  # Normalize literal \n sequences to real newlines — common when PEM keys
+  # are pasted as a single line into CI secret UIs.
+  PEM_CONTENT="${INPUT_BOT_APP_PRIVATE_KEY//\\n/$'\n'}"
+  printf '%s\n' "$PEM_CONTENT" > "$CONFIG_DIR/github-app.pem"
   chmod 600 "$CONFIG_DIR/github-app.pem"
+
+  # Validate PEM structure
+  if ! grep -q -- "-----BEGIN" "$CONFIG_DIR/github-app.pem"; then
+    echo "ERROR: bot-app-private-key does not appear to be valid PEM." >&2
+    echo "  Expected '-----BEGIN RSA PRIVATE KEY-----' or '-----BEGIN PRIVATE KEY-----'." >&2
+    echo "  Paste the full .pem file contents (with newlines) into the GitHub secret." >&2
+    exit 1
+  fi
 fi
 
 # Add bot identity config
