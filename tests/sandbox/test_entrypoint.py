@@ -13,10 +13,9 @@ so we focus on testing logic that can be unit tested.
 """
 
 import os
-import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 # Load the entrypoint module
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
