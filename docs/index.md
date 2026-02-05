@@ -21,14 +21,12 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 |----------|-------------|
 | [Architecture Overview](architecture/README.md) | High-level system design, components, data flows |
 | [Host-Container Boundary](architecture/host-container-boundary.md) | Security boundary between host services and container |
-| [Slack Integration](architecture/slack-integration.md) | Bidirectional Slack messaging design |
 
 ### Setup Guides
 
 | Document | Description |
 |----------|-------------|
 | [Setup Overview](setup/README.md) | Installation and configuration summary |
-| [Slack App Setup](setup/slack-app-setup.md) | Detailed Slack app configuration |
 | [GitHub App Setup](setup/github-app-setup.md) | GitHub App permissions and installation |
 
 ### Reference
@@ -54,7 +52,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Task Type | Read First | Also Helpful |
 |-----------|------------|--------------|
-| **Slack integration changes** | [Slack Integration](architecture/slack-integration.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
 | **Adding new host services** | [Architecture Overview](architecture/README.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
 | **Security-related changes** | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) | [Host-Container Boundary](architecture/host-container-boundary.md), [Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
 
@@ -71,4 +68,4 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 ---
 
-*Last updated: 2026-02-04*
+*Last updated: 2026-02-05*

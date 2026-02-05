@@ -3,7 +3,6 @@
 Complete documentation for egg: Docker sandbox for Claude Code CLI as an autonomous software engineering agent.
 
 > **For LLMs**: Start with the [Documentation Index](index.md) for efficient navigation.
-> This documentation follows the [llms.txt](https://llmstxt.org/) standard - see [llms.txt](llms.txt).
 
 > **Note**: Documentation should generally live close to code in service directories (e.g., `host-services/slack-notifier/README.md`). This directory is for general, cross-cutting documentation only.
 
@@ -12,17 +11,18 @@ Complete documentation for egg: Docker sandbox for Claude Code CLI as an autonom
 ### [Setup](setup/)
 Initial installation and configuration guides.
 
-- **[Slack App Setup](setup/slack-app-setup.md)** - Detailed Slack app configuration
+- **[GitHub App Setup](setup/github-app-setup.md)** - GitHub App permissions and installation
+- **Slash Commands** - See [.claude/commands](../sandbox/.claude/commands/README.md)
 
 ### [Architecture](architecture/)
 System design and technical details.
 
 - **[Overview](architecture/README.md)** - High-level system architecture
-- **[Slack Integration](architecture/slack-integration.md)** - Bidirectional messaging design
-- **[Host Notifier](architecture/host-slack-notifier.md)** - Notification system details
 
 ### [Reference](reference/)
 Quick reference guides and troubleshooting.
+
+- **[Log Persistence](reference/log-persistence.md)** - Container log persistence and correlation
 
 ### [Development](development/)
 For contributors and developers.
@@ -39,8 +39,8 @@ Architecture Decision Records.
 ## Quick Links
 
 **Getting Started:**
-1. Run `./setup.sh` in project root
-2. [Slack App Setup](setup/slack-app-setup.md) - Configure Slack integration
+1. Run `./setup.py` in project root
+2. [Setup Overview](setup/README.md) - Installation and configuration
 3. Start container: `bin/egg`
 
 **Common Tasks:**
@@ -48,5 +48,4 @@ Architecture Decision Records.
 
 **Architecture:**
 - [Main README](../README.md) - Project overview
-- [Slack Integration](architecture/slack-integration.md)
 - [ADR](adr/in-progress/ADR-Autonomous-Software-Engineer.md) - Full architecture details
