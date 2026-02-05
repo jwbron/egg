@@ -274,8 +274,23 @@ def run_cmd(
 
 
 def chown_recursive(path: Path, uid: int, gid: int) -> None:
-    """Recursively change ownership of a path."""
-    run_cmd(["chown", "-R", f"{uid}:{gid}", str(path)])
+    """Recursively change ownership of a path, tolerating read-only mounts."""
+    result = subprocess.run(
+        ["chown", "-R", f"{uid}:{gid}", str(path)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        # Filter out read-only filesystem errors (from bind mounts like .git shadow)
+        real_errors = [
+            line
+            for line in result.stderr.strip().splitlines()
+            if "Read-only file system" not in line
+        ]
+        if real_errors:
+            raise subprocess.CalledProcessError(
+                result.returncode, result.args, result.stdout, result.stderr
+            )
 
 
 # =============================================================================
