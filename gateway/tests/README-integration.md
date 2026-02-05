@@ -40,7 +40,7 @@ cat ~/.egg-sharing/gateway-test-results.json
 Options:
   --output FILE     Write results to FILE (default: ~/sharing/gateway-test-results.json)
   --repo PATH       Repository path (default: ~/repos/egg)
-  --gateway URL     Gateway URL (default: http://egg-gateway:9847)
+  --gateway URL     Gateway URL (default: http://egg-gateway:9848)
   -h, --help        Show help
 ```
 
@@ -77,7 +77,7 @@ For a working gateway sidecar setup:
 ```json
 {
   "timestamp": "2026-01-22T...",
-  "gateway_url": "http://egg-gateway:9847",
+  "gateway_url": "http://egg-gateway:9848",
   "repo_path": "/home/jwies/repos/egg",
   "summary": {
     "passed": 25,
@@ -101,7 +101,7 @@ For a working gateway sidecar setup:
 **Gateway connection refused**
 - Check gateway container is running: `docker ps | grep egg-gateway`
 - Check network: `docker network inspect egg-network`
-- Verify GATEWAY_URL: default is `http://egg-gateway:9847`
+- Verify GATEWAY_URL: default is `http://egg-gateway:9848`
 
 **Authentication failures**
 - Check session token exists: `ls -la ~/.config/egg/session-token`

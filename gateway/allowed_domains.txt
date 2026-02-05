@@ -8,7 +8,7 @@
 
 # IMPORTANT: api.anthropic.com is intentionally NOT in this allowlist.
 # Anthropic API traffic MUST go through the gateway's HTTP proxy endpoint
-# (via ANTHROPIC_BASE_URL=http://egg-gateway:9847), not directly through Squid.
+# (via ANTHROPIC_BASE_URL=http://egg-gateway:9848), not directly through Squid.
 # This ensures:
 # - Credentials are injected by the gateway (not stored in container)
 # - All API traffic is audited by the gateway
@@ -18,7 +18,7 @@
 
 # IMPORTANT: GitHub domains are intentionally NOT in this allowlist.
 # All GitHub/git access MUST go through the gateway sidecar's git/gh wrappers
-# (via REST API at egg-gateway:9847), not directly through the proxy.
+# (via REST API at egg-gateway:9848), not directly through the proxy.
 # This ensures policy enforcement (branch ownership, merge blocking, etc.)
 # cannot be bypassed by direct API calls.
 #

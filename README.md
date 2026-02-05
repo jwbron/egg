@@ -145,12 +145,11 @@ egg start --config egg.yaml --private
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) - System design and component overview
-- [Security Model](docs/security.md) - Threat model and security guarantees
-- [Configuration](docs/configuration.md) - Configuration file reference
-- [Setup Guide](docs/setup.md) - First-time setup walkthrough
-- [API Reference](docs/api.md) - Gateway REST API documentation
-- [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
+- [Architecture](docs/architecture/README.md) - System design and component overview
+- [Security Features](docs/FEATURES.md#security-features) - Security model and guarantees
+- [Setup Guide](docs/setup/README.md) - First-time setup and configuration
+- [Reference](docs/reference/README.md) - API documentation and quick references
+- [Troubleshooting](docs/troubleshooting/) - Common issues and solutions
 
 ### Architecture Decision Records
 

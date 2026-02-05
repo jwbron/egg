@@ -8,34 +8,34 @@ Use this checklist to track remediation progress.
 
 ## Vestigial Naming Issues
 
-### jib_config References (8 files)
+### jib_config References (8 files) - FIXED in PR #65
 
-- [ ] `shared/egg_config/README.md` - Replace "# jib_config" with "# egg_config", update all examples
-- [ ] `shared/pyproject.toml:13` - Update include list from `jib_config*`, `jib_logging*`
-- [ ] `tests/egg_config/conftest.py:1` - Update docstring
-- [ ] `tests/egg_config/test_base.py:2` - Update docstring
-- [ ] `tests/egg_config/test_cli.py:2` - Update docstring
-- [ ] `tests/egg_config/test_registry.py:2` - Update docstring
+- [x] `shared/egg_config/README.md` - Replace "# jib_config" with "# egg_config", update all examples
+- [x] `shared/pyproject.toml:13` - Update include list from `jib_config*`, `jib_logging*`
+- [x] `tests/egg_config/conftest.py:1` - Update docstring
+- [x] `tests/egg_config/test_base.py:2` - Update docstring
+- [x] `tests/egg_config/test_cli.py:2` - Update docstring
+- [x] `tests/egg_config/test_registry.py:2` - Update docstring
 
-### jib_exec References (4 files)
+### jib_exec References (4 files) - FIXED in PR #65
 
-- [ ] `scripts/check-claude-imports.py:11,159` - Update jib_exec references
-- [ ] `scripts/check-container-host-boundary.py:64` - Update jib_path comment
-- [ ] `scripts/check-gh-cli-usage.py:14,16,401-407` - Update jib_exec references
-- [ ] `scripts/check-container-paths.py` - Change error code JIB001 → EGG001
+- [x] `scripts/check-claude-imports.py:11,159` - Update jib_exec references
+- [x] `scripts/check-container-host-boundary.py:64` - Update jib_path comment
+- [x] `scripts/check-gh-cli-usage.py:14,16,401-407` - Update jib_exec references
+- [x] `scripts/check-container-paths.py` - Change error code JIB001 → EGG001
 
 ---
 
 ## Broken Documentation Links
 
-### README.md (6 links)
+### README.md (6 links) - FIXED in PR #65
 
-- [ ] `docs/architecture.md` → Change to `docs/architecture/README.md`
-- [ ] `docs/security.md` → Remove or create file
-- [ ] `docs/configuration.md` → Change to `docs/setup/README.md`
-- [ ] `docs/setup.md` → Change to `docs/setup/README.md`
-- [ ] `docs/api.md` → Remove or create `docs/reference/gateway-api.md`
-- [ ] `docs/troubleshooting.md` → Change to `docs/troubleshooting/github-auth-in-long-running-containers.md`
+- [x] `docs/architecture.md` → Changed to `docs/architecture/README.md`
+- [x] `docs/security.md` → Changed to `docs/FEATURES.md#security-features`
+- [x] `docs/configuration.md` → Consolidated into Setup Guide
+- [x] `docs/setup.md` → Changed to `docs/setup/README.md`
+- [x] `docs/api.md` → Changed to `docs/reference/README.md`
+- [x] `docs/troubleshooting.md` → Changed to `docs/troubleshooting/`
 
 ### Other Broken Links
 
@@ -49,9 +49,9 @@ Use this checklist to track remediation progress.
 
 ## Missing Documentation Files
 
-### Critical (Create First)
+### Critical (Create First) - FIXED in PR #65
 
-- [ ] `docs/reference/beads.md` - Task tracking system (referenced in CLAUDE.md as CRITICAL)
+- [x] `docs/reference/beads.md` - Task tracking system (referenced in CLAUDE.md as CRITICAL)
 
 ### High Priority
 
@@ -92,10 +92,11 @@ Use this checklist to track remediation progress.
 - [ ] Update `config/repo_config.py` function names if needed
 - [ ] Update `secrets.template.env` variable names if needed
 
-### Port Number Inconsistency
+### Port Number Inconsistency - FIXED in PR #65
 
-- [ ] `gateway/README.md:19` - Change port 9847 → 9848
-- [ ] `gateway/tests/README-integration.md:43` - Change port 9847 → 9848
+- [x] `gateway/README.md:19` - Changed port 9847 → 9848
+- [x] `gateway/tests/README-integration.md:43,80,104` - Changed port 9847 → 9848
+- [x] `gateway/allowed_domains.txt:11,21` - Changed port 9847 → 9848
 
 ---
 
@@ -148,15 +149,15 @@ Use this checklist to track remediation progress.
 
 | Category | Total | Fixed | Remaining |
 |----------|-------|-------|-----------|
-| Vestigial Naming | 12 | 0 | 12 |
-| Broken Links | 13 | 0 | 13 |
-| Missing Docs | 11 | 0 | 11 |
+| Vestigial Naming | 12 | 12 | 0 |
+| Broken Links | 13 | 6 | 7 |
+| Missing Docs | 11 | 1 | 10 |
 | Missing ADRs | 4 | 0 | 4 |
-| Config Issues | 6 | 0 | 6 |
+| Config Issues | 6 | 3 | 3 |
 | CI/CD Integration | 5 | 0 | 5 |
 | Test Coverage | 9 | 0 | 9 |
-| **Total** | **60** | **0** | **60** |
+| **Total** | **60** | **22** | **38** |
 
 ---
 
-*Last updated: 2026-02-04*
+*Last updated: 2026-02-05*
