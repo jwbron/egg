@@ -82,9 +82,11 @@ A separate agent invocation — with its own context window — reviews the impl
 - Teams that want AI work to be reviewable and auditable
 - Parallel task execution — multiple issues worked simultaneously in isolated worktrees
 
+**Better in CLI mode** (egg also runs as an interactive CLI, not just async via GitHub Actions):
+- Rapid exploratory prototyping where you want tight feedback loops
+- Tasks requiring real-time back-and-forth conversation
+
 **Less ideal:**
-- Rapid exploratory prototyping where you want tight feedback loops in an IDE
-- Tasks requiring real-time back-and-forth (use a conversational AI tool instead)
 - Trivial one-line fixes where the overhead of plan → implement → PR isn't worth it
 - Work requiring access to external services not available in the sandbox
 
