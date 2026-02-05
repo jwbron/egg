@@ -458,6 +458,7 @@ SANDBOX_CMD+=(
   "$SANDBOX_IMAGE"
   claude
   --print
+  --verbose
   --output-format stream-json
   --model "$MODEL"
   "$INPUT_PROMPT"
