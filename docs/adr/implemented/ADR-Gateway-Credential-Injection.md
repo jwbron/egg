@@ -3,7 +3,6 @@
 **Status:** Implemented
 **Date:** 2026-02-02
 **PRs:** #695 (proposal), #701 (implementation), #705 (tool filtering)
-**Task:** beads-qvldc
 
 ---
 
