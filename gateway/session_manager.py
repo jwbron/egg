@@ -228,9 +228,6 @@ class SessionManager:
 
     def _save_to_disk(self) -> None:
         """Save sessions to disk with atomic write."""
-        # Ensure directory exists
-        self._persistence_file.parent.mkdir(parents=True, exist_ok=True)
-
         # Prepare data for persistence
         sessions_data = [session.to_dict_for_persistence() for session in self._sessions.values()]
         data = {
@@ -242,6 +239,9 @@ class SessionManager:
         # Atomic write: write to temp file, then rename
         temp_file = self._persistence_file.with_suffix(".tmp")
         try:
+            # Ensure directory exists
+            self._persistence_file.parent.mkdir(parents=True, exist_ok=True)
+
             with open(temp_file, "w") as f:
                 json.dump(data, f, indent=2)
 

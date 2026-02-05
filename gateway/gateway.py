@@ -30,6 +30,7 @@ import os
 import secrets
 import subprocess
 import sys
+import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -147,6 +148,32 @@ from repo_config import get_auth_mode
 logger = get_logger("gateway")
 
 app = Flask(__name__)
+
+
+@app.errorhandler(Exception)
+def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
+    """Return JSON for all unhandled exceptions instead of Flask's default HTML."""
+    from werkzeug.exceptions import HTTPException
+
+    if isinstance(e, HTTPException):
+        # Preserve HTTP status codes for werkzeug exceptions (400, 404, etc.)
+        return jsonify({
+            "success": False,
+            "message": e.description or str(e),
+        }), e.code or 500
+
+    logger.error(
+        "Unhandled exception in request handler",
+        error=str(e),
+        error_type=type(e).__name__,
+        path=request.path if request else "unknown",
+        traceback=traceback.format_exc(),
+    )
+    return jsonify({
+        "success": False,
+        "message": f"Internal server error: {type(e).__name__}: {e}",
+    }), 500
+
 
 # Configuration
 DEFAULT_HOST = os.environ.get("GATEWAY_HOST", "0.0.0.0")  # Listen on all interfaces by default
