@@ -71,4 +71,4 @@ Claude Code will follow these instructions when users invoke the slash command s
 
 ---
 
-**Last Updated**: 2025-12-18
+**Last Updated**: 2026-02-05

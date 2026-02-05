@@ -1,6 +1,6 @@
-# Test Discovery
+# Test Workflow
 
-**ALWAYS run `discover-tests ~/repos/<repo>` first** - don't assume test commands.
+**Check for test infrastructure before assuming test commands.** Look for Makefile targets, pytest config, jest config, etc.
 
 1. Run existing tests before changes (baseline)
 2. Run tests frequently during development

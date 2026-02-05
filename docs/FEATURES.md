@@ -199,7 +199,7 @@ Provides local full-text search across all synced documentation with context and
 Provides sync status monitoring showing statistics across spaces and pages, and cleanup utilities to find and remove orphaned files.
 
 ### 20. Test Discovery Tool
-**Location:** `sandbox/scripts/discover-tests.py`, `sandbox/tools/discover-tests.py`
+**Location:** `sandbox/tools/discover-tests.py`
 
 Dynamically discovers test configurations and frameworks in any codebase. Supports Python (pytest/unittest), JavaScript (Jest/Mocha/Vitest/Playwright), Go, and Java (Gradle/Maven). Provides recommended test commands.
 
