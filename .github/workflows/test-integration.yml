@@ -1,14 +1,14 @@
-name: E2E Tests
+name: Integration Tests
 
 on:
-  workflow_dispatch:
-  schedule:
-    # Run weekly on Monday at 06:00 UTC
-    - cron: "0 6 * * 1"
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
-  e2e:
-    name: End-to-End Tests
+  integration:
+    name: Integration Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,18 +24,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
-      - name: Build containers
-        run: |
-          docker build -t egg-gateway -f gateway/Dockerfile .
-          docker build -t egg-sandbox -f sandbox/Dockerfile .
+      - name: Build gateway container
+        run: docker build -t egg-gateway -f gateway/Dockerfile .
 
-      - name: Run E2E tests
-        env:
-          ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+      - name: Run integration and security tests
         run: |
           PYTHONPATH=shared .venv/bin/pytest integration_tests -v \
-            -m e2e \
-            --timeout=600
+            -m "integration or security" \
+            --timeout=300
 
       - name: Cleanup
         if: always()
