@@ -221,6 +221,6 @@ lint-yaml-fix:
 
 build:
 	@echo "==> Building gateway container..."
-	docker build -t egg-gateway -f gateway/Dockerfile . || echo "WARNING: gateway build failed"
+	docker build -t egg-gateway -f gateway/Dockerfile .
 	@echo "==> Building sandbox container..."
-	docker build -t egg-sandbox -f sandbox/Dockerfile . || echo "WARNING: sandbox build failed"
+	docker build -t egg-sandbox -f sandbox/Dockerfile .
