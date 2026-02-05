@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Import statusbar for quiet mode
-from statusbar import status
+from statusbar import status, status_finish
 
 from .auth import get_anthropic_api_key, get_anthropic_auth_method
 from .config import (
@@ -750,7 +750,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
 
     # Final status update before launching
     if quiet:
-        status("Launching Claude...")
+        status_finish("Launching Claude Code...")
 
     # Record launch timestamp for measuring docker startup time
     # This captures the gap between host finishing and container Python starting
