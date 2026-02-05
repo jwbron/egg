@@ -786,9 +786,7 @@ def wait_for_gateway_health(timeout: int = 30, check_proxy: bool = True) -> bool
     return False
 
 
-def _confirm_gateway_restart(
-    interactive: bool, reason: str, action: str = "restart"
-) -> bool:
+def _confirm_gateway_restart(interactive: bool, reason: str, action: str = "restart") -> bool:
     """Prompt or warn before restarting the gateway.
 
     In interactive mode, shows the number of active sessions and prompts
