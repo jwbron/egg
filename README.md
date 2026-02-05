@@ -145,17 +145,16 @@ egg start --config egg.yaml --private
 
 ## Documentation
 
+- [Documentation Index](docs/index.md) - Navigation hub for all docs
 - [Architecture](docs/architecture/README.md) - System design and component overview
-- [Security Features](docs/FEATURES.md#security-features) - Security model and guarantees
 - [Setup Guide](docs/setup/README.md) - First-time setup and configuration
-- [Reference](docs/reference/README.md) - API documentation and quick references
 - [Troubleshooting](docs/troubleshooting/) - Common issues and solutions
 
 ### Architecture Decision Records
 
-- [Git Isolation Architecture](docs/adr/git-isolation-architecture.md) - Worktree isolation design
-- [Credential Injection](docs/adr/credential-injection.md) - Zero-credential sandbox design
-- [Network Isolation](docs/adr/network-isolation.md) - Public/private mode implementation
+- [Git Isolation Architecture](docs/adr/implemented/ADR-Git-Isolation-Architecture.md) - Worktree isolation design
+- [Credential Injection](docs/adr/implemented/ADR-Gateway-Credential-Injection.md) - Zero-credential sandbox design
+- [Internet Tool Access Lockdown](docs/adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) - Public/private mode implementation
 
 ## Development
 

@@ -2,53 +2,43 @@
 
 Technical design and system architecture.
 
-## Documents
+## System Overview
 
-### [Slack Integration](slack-integration.md)
-Detailed Slack bidirectional messaging design.
+egg runs as two Docker containers working together:
 
-**Covers:**
-- Notification flow (agent → Slack)
-- Incoming message flow (Slack → agent)
-- Thread-based conversations
-- File watching and triggers
+- **Gateway sidecar** (trusted) - Holds credentials, enforces policies, proxies all external access
+- **Sandbox container** (untrusted) - Where the LLM agent runs with no credentials and restricted network
 
-### [Host-Container Security Boundary](host-container-boundary.md)
-Security boundary between host services and the egg container.
+See the [main README](../../README.md) for the architecture diagram.
 
-**Covers:**
-- Why host services must not call Claude API directly
-- Correct pattern: delegate via `egg_exec`
-- Enforcement via lint checks
-
-### [Host Slack Notifier](host-slack-notifier.md)
-Implementation details of the Slack notification system.
-
-**Covers:**
-- Notifier architecture
-- Message formatting
-- Error handling
-- Systemd integration
-
-## Key Architectural Decisions
+## Key Design Principles
 
 **Sandboxing:**
 - Docker container isolation
-- No credentials in container
-- Read-write mount for code
-- Network: outbound only
+- No credentials in sandbox container
+- All git/GitHub operations proxied through gateway
+- Network restricted via Squid proxy (private mode)
 
-**Communication:**
-- Slack for human interaction
-- File-based for agent output
-- Systemd for service management
+**Credential Isolation:**
+- Gateway injects Anthropic API keys at proxy time
+- Gateway injects GitHub tokens for git/gh operations
+- Sandbox never sees raw credentials
 
-**Security:**
-- Credential isolation
-- No git push from container
-- No cloud deployment from container
-- Human reviews and approves all changes
+**Access Control:**
+- Branch ownership (agent can only push to `egg/*` branches)
+- No merge capability (gateway has no merge endpoint)
+- Force push and destructive operations blocked
+
+## Key Architectural Decisions
+
+See [ADR Overview](../adr/README.md) for the full list. Key decisions:
+
+- [Git Isolation Architecture](../adr/implemented/ADR-Git-Isolation-Architecture.md) - Worktree isolation via gateway
+- [Gateway Credential Injection](../adr/implemented/ADR-Gateway-Credential-Injection.md) - Zero-credential sandbox
+- [Anthropic API Credential Injection](../adr/implemented/ADR-Anthropic-API-Credential-Injection.md) - API key proxy
+- [Internet Tool Access Lockdown](../adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) - Public/private network modes
 
 ## See Also
+
 - [ADR: Autonomous Software Engineer](../adr/in-progress/ADR-Autonomous-Software-Engineer.md) - Full system architecture
 - [Setup Guides](../setup/) - Installation and configuration
