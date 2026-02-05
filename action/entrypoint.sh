@@ -457,6 +457,7 @@ fi
 SANDBOX_CMD+=(
   "$SANDBOX_IMAGE"
   claude
+  --dangerously-skip-permissions
   --print
   --verbose
   --output-format stream-json
