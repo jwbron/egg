@@ -67,7 +67,9 @@ def create_jwt(app_id: str, private_key: str) -> str:
         backend=default_backend(),  # type: ignore[no-untyped-call]
     )
     if not isinstance(private_key_obj, RSAPrivateKey):
-        raise TypeError(f"Expected RSA private key for RS256 signing, got {type(private_key_obj).__name__}")
+        raise TypeError(
+            f"Expected RSA private key for RS256 signing, got {type(private_key_obj).__name__}"
+        )
 
     signature = private_key_obj.sign(message, padding.PKCS1v15(), hashes.SHA256())
 
