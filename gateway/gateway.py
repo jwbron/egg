@@ -2753,7 +2753,7 @@ def main():
         app.run(host=args.host, port=args.port, debug=True)
     else:
         # Use waitress for production
-        serve(app, host=args.host, port=args.port)
+        serve(app, host=args.host, port=args.port, threads=8)
 
 
 if __name__ == "__main__":
