@@ -2,7 +2,7 @@
 
 > **Purpose:** This list documents the features available in egg for human-guided autonomous software development.
 >
-> **Total Features:** 25 top-level features
+> **Total Features:** 22 top-level features
 
 ## Table of Contents
 
@@ -54,7 +54,7 @@ Receives incoming Slack DMs via Socket Mode and triggers egg container processin
 ### 3. Slack Message Processor
 **Location:** `sandbox/egg-tasks/slack/incoming-processor.py`
 
-Container-side processor for incoming Slack messages that routes them to Claude Code for task execution. Handles thread context, YAML frontmatter parsing, automatic notifications for success/failure states, and Beads integration.
+Container-side processor for incoming Slack messages that routes them to Claude Code for task execution. Handles thread context, YAML frontmatter parsing, and automatic notifications for success/failure states.
 
 ### 4. Container Notifications Library
 **Location:** `shared/notifications.py`
@@ -95,62 +95,48 @@ Syncs Confluence documentation including ADRs, runbooks, and team docs to local 
 
 Syncs JIRA tickets to local markdown files based on configurable JQL queries. Includes ticket comments, attachment metadata, work logs, and converts Atlassian Document Format to clean markdown with incremental sync support.
 
-### 8. Beads Task Tracking System
-**Location:** `sandbox/.claude/rules/beads-usage.md`, `sandbox/.claude/rules/context-tracking.md`
-
-Persistent task tracking system that enables memory across container restarts. Provides commands for creating, updating, and completing tasks with status values, labeling conventions, and workflow patterns for ephemeral containers.
-
-### 9. JIRA Ticket Processor
+### 8. JIRA Ticket Processor
 **Location:** `sandbox/egg-tasks/jira/jira-processor.py`
 
-Monitors and analyzes JIRA tickets assigned to the user, using Claude to parse requirements, extract action items, assess scope, and send proactive Slack notifications. Creates Beads tasks for new tickets.
+Monitors and analyzes JIRA tickets assigned to the user, using Claude to parse requirements, extract action items, assess scope, and send proactive Slack notifications.
 
-### 10. Sprint Ticket Analyzer
+### 9. Sprint Ticket Analyzer
 **Location:** `sandbox/egg-tasks/jira/analyze-sprint.py`
 
 Analyzes tickets in the active sprint to provide actionable recommendations including next steps and suggestions for backlog tickets to pull in. Generates grouped Slack notifications.
 
-### 11. Beads Task Memory Initialization
-**Location:** `setup.sh`
-
-Sets up the Beads persistent task tracking system in the shared directory for task creation, progress tracking, and cross-session context.
-
 ## GitHub Integration
 
-### 12. GitHub Command Handler
+### 10. GitHub Command Handler
 **Location:** `sandbox/egg-tasks/github/command-handler.py`, `sandbox/egg-tasks/github/README.md`
 
 Processes user commands received via Slack for GitHub operations like 'review PR 123' or '/pr review 123 webapp'. Parses commands and delegates to appropriate handlers.
 
-### 13. GitHub Processor
+### 11. GitHub Processor
 **Location:** `sandbox/egg-tasks/github/github-processor.py`
 
 Container-side processor for GitHub-related tasks triggered via Slack commands.
 
-### 14. GitHub App Token Generator
+### 12. GitHub App Token Generator
 **Location:** `sandbox/tools/github-app-token.py`
 
 Generates short-lived (1 hour) GitHub App installation access tokens from stored credentials. Used by egg launcher to authenticate gh CLI and git operations without SSH keys.
 
 ## Custom Commands
 
-### 15. Claude Custom Commands
+### 13. Claude Custom Commands
 **Location:** `sandbox/.claude/commands/README.md`
 
 Slash command system for common agent operations including task status and metrics display.
 
 **Components:**
 
-- **Beads Status Command** (`sandbox/.claude/commands/beads-status.md`)
-  - Displays current Beads task status with ready, in-progress, blocked, and completed tasks plus recommendations.
-- **Beads Sync Command** (`sandbox/.claude/commands/beads-sync.md`)
-  - Commits and syncs Beads task state to git repository ensuring persistence before container shutdown.
 - **Show Metrics Command** (`sandbox/.claude/commands/show-metrics.md`)
   - Generates monitoring reports with API usage, task completion statistics, and optimization insights.
 
 ## LLM Interface
 
-### 16. Claude Code Integration
+### 14. Claude Code Integration
 **Location:**
 - `sandbox/llm/__init__.py`
 - `sandbox/llm/config.py`
@@ -174,7 +160,7 @@ Claude Code interface providing both interactive and programmatic access to Clau
 
 ## Container Infrastructure
 
-### 17. Egg Container Management System
+### 15. Egg Container Management System
 **Location:**
 - `bin/egg`
 - `bin/view-logs`
@@ -190,36 +176,36 @@ The core 'egg' command provides the primary interface for starting, managing, an
 - **Container Log Viewer** (`bin/view-logs`)
   - Provides convenient access to Docker container logs for debugging and monitoring container activity.
 
-### 18. Docker Development Environment Setup
+### 16. Docker Development Environment Setup
 **Location:** `bin/docker-setup.py`
 
 Automates complete installation of development tools in the Docker container, including Python 3.11, Node.js 20.x, Go, Java 11, PostgreSQL, Redis, and various development utilities with cross-platform support for Ubuntu and Fedora.
 
-### 19. Container Directory Communication System
+### 17. Container Directory Communication System
 **Location:** `sandbox/README.md`
 
 Shared directory structure enabling communication between container and host including notifications (agent -> human), incoming (human -> agent), responses, and context directories.
 
 ## Utilities
 
-### 20. Documentation Search Utility
+### 18. Documentation Search Utility
 **Location:** `host-services/sync/context-sync/utils/search.py`
 
 Provides local full-text search across all synced documentation with context and relevance ranking. Supports filtering by space, case-sensitive search, and statistics display.
 
-### 21. Sync Maintenance Tools
+### 19. Sync Maintenance Tools
 **Location:** `host-services/sync/context-sync/utils/maintenance.py`
 
 Provides sync status monitoring showing statistics across spaces and pages, and cleanup utilities to find and remove orphaned files.
 
-### 22. Test Discovery Tool
+### 20. Test Discovery Tool
 **Location:** `sandbox/scripts/discover-tests.py`, `sandbox/tools/discover-tests.py`
 
 Dynamically discovers test configurations and frameworks in any codebase. Supports Python (pytest/unittest), JavaScript (Jest/Mocha/Vitest/Playwright), Go, and Java (Gradle/Maven). Provides recommended test commands.
 
 ## Security Features
 
-### 23. In-Memory Token Refresh
+### 21. In-Memory Token Refresh
 **Location:** `gateway/token_refresher.py`
 
 The gateway sidecar manages GitHub App installation tokens in-memory, automatically refreshing them 15 minutes before expiry. Features include:
@@ -229,7 +215,7 @@ The gateway sidecar manages GitHub App installation tokens in-memory, automatica
 
 ## Configuration
 
-### 24. Master Setup System
+### 22. Master Setup System
 **Location:** `setup.sh`
 
 Comprehensive installation and configuration script for all egg host components. Handles initial setup, updates, and force reinstalls with interactive prompts, dependency checking, service management, and configuration validation.
@@ -237,7 +223,7 @@ Comprehensive installation and configuration script for all egg host components.
 **Components:**
 
 - **Dependency Management** (`setup.sh`)
-  - Automated detection and installation of required dependencies including Python (uv), Go, Beads, and Docker.
+  - Automated detection and installation of required dependencies including Python (uv), Go, and Docker.
 - **Systemd Service Management** (`setup.sh`)
   - Manages systemd user services for all egg components including daemon reload, service restart, and status monitoring.
 - **Shared Directory Structure Setup** (`setup.sh`)

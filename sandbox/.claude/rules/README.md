@@ -20,7 +20,7 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
 - **mission.md** - Start here
   - Your role as autonomous software engineering agent
   - Operating model (you do implementation, human does review/deploy)
-  - Workflow: beads → gather context → plan → implement → test → PR
+  - Workflow: gather context → plan → implement → test → PR
   - Decision-making framework (when to proceed vs ask)
   - Quality standards and communication style
 
@@ -30,14 +30,9 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
   - File system layout and access
   - Services and package installation
 
-- **beads-usage.md** - Persistent task tracking (MANDATORY)
-  - Quick reference for beads commands
-  - Status flow and labeling conventions
-
 - **context-tracking.md** - Persistent context for Slack/PR work
   - Slack thread context via task_id
   - GitHub PR context tracking
-  - Integration with Beads
 
 - **egg-branding.md** - Attribution and identity (IMPORTANT)
   - Commits/PRs must be attributed to "egg", not "Claude"

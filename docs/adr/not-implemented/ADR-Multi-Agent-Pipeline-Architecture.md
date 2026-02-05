@@ -7,6 +7,8 @@
 **Proposed:** November 2025
 **Status:** Proposed (Not Implemented)
 
+> **Historical Note:** This ADR references "Beads" for state management throughout. Beads task tracking has been removed from egg and is no longer supported. This ADR remains as historical documentation of a proposed design. Any future implementation would need to use an alternative state management approach.
+
 ---
 
 ## Table of Contents

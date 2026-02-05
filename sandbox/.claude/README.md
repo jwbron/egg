@@ -14,8 +14,6 @@ These are invoked with `/command-name` syntax.
 - `/save-context` - Save session learnings
 - `/create-pr` - Generate PR description
 - `/update-confluence-doc` - Prepare Confluence updates
-- `/beads-status` - Show current task status
-- `/beads-sync` - Sync beads with git
 - `/show-metrics` - Generate activity report
 
 ### rules/
@@ -26,7 +24,6 @@ These define how Claude operates within egg.
 **Core rules:**
 - `mission.md` - Agent mission, workflow, and responsibilities
 - `environment.md` - Sandbox environment constraints
-- `beads-usage.md` - Persistent task tracking (MANDATORY)
 
 **Context rules:**
 - `slack-thread-context.md` - Slack thread memory

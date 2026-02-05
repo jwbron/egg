@@ -2,16 +2,15 @@
 """
 CLI entry points for egg_logging tool wrappers.
 
-These entry points provide drop-in replacements for bd, git, gh, and claude
+These entry points provide drop-in replacements for git, gh, and claude
 commands that automatically add logging. They pass through all arguments
 to the underlying tool while capturing invocation metadata.
 
 Usage:
     # Direct Python invocation
-    python -m egg_logging.cli bd --allow-stale list
+    python -m egg_logging.cli git status
 
     # Or via installed entry points (if configured in pyproject.toml)
-    egg-bd --allow-stale list
     egg-git status
     egg-gh pr list
     egg-claude -p "Hello"
@@ -57,13 +56,6 @@ def _run_wrapper(wrapper_class, tool_name: str) -> int:
     return result.exit_code
 
 
-def bd_main() -> int:
-    """Entry point for egg-bd command."""
-    from .wrappers.bd import BdWrapper
-
-    return _run_wrapper(BdWrapper, "bd")
-
-
 def git_main() -> int:
     """Entry point for egg-git command."""
     from .wrappers.git import GitWrapper
@@ -89,7 +81,7 @@ def main() -> int:
     """Dispatcher for 'python -m egg_logging.cli <tool> [args...]'."""
     if len(sys.argv) < 2:
         print("Usage: python -m egg_logging.cli <tool> [args...]", file=sys.stderr)
-        print("Tools: bd, git, gh, claude", file=sys.stderr)
+        print("Tools: git, gh, claude", file=sys.stderr)
         return 1
 
     tool = sys.argv[1]
@@ -97,7 +89,6 @@ def main() -> int:
     sys.argv = [sys.argv[0]] + sys.argv[2:]
 
     dispatch = {
-        "bd": bd_main,
         "git": git_main,
         "gh": gh_main,
         "claude": claude_main,

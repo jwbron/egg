@@ -33,11 +33,10 @@
   - ✅ JIRA sync (hourly) - All open INFRA tickets + epics
   - ✅ GitHub sync (15 min) - PR data, checks, comments
 - ✅ Active context monitoring and analysis
-  - ✅ JIRA watcher (triggered after sync) - Analyzes tickets, creates Beads tasks
+  - ✅ JIRA watcher (triggered after sync) - Analyzes tickets
   - ✅ Confluence watcher (triggered after sync) - Monitors ADRs, identifies impact
   - ✅ GitHub watcher (triggered after sync) - Monitors PR checks, suggests fixes
 - ✅ Sprint analysis tool - On-demand ticket analysis and recommendations
-- ✅ Persistent task memory (Beads - git-backed task tracking)
 - ✅ Automated code and conversation analyzers
   - ✅ Codebase analyzer with self-improvement tracking
 - ✅ Systemd service management
@@ -323,14 +322,14 @@ Agent should demonstrate L3-L4 behaviors:
 │  └──┬──────────────┬───────────────┬───────────────────┬───┘   │
 │     │              │               │                   │        │
 │     │              │               │                   │        │
-│  ┌──▼──────┐   ┌──▼──────┐   ┌───▼──────┐   ┌────▼─────┐   ┌────▼─────┐  │
-│  │ Code    │   │ Context │   │ Prompts  │   │ Memory   │   │ Analysis │  │
-│  │ (R/W)   │   │ (R/O)   │   │ (R/O)    │   │ (R/W)    │   │ (Output) │  │
-│  │         │   │         │   │          │   │          │   │          │  │
-│  │~/repos │   │ Confl.  │   │ egg-     │   │ ~/beads  │   │ ~/sharing│  │
-│  │         │   │ JIRA    │   │ container│   │ (tasks   │   │ /notif.  │  │
-│  │         │   │         │   │ /.claude │   │  state)  │   │          │  │
-│  └─────────┘   └─────────┘   └──────────┘   └──────────┘   └──────────┘  │
+│  ┌──▼──────┐   ┌──▼──────┐   ┌───▼──────┐   ┌────▼─────┐  │
+│  │ Code    │   │ Context │   │ Prompts  │   │ Analysis │  │
+│  │ (R/W)   │   │ (R/O)   │   │ (R/O)    │   │ (Output) │  │
+│  │         │   │         │   │          │   │          │  │
+│  │~/repos │   │ Confl.  │   │ egg-     │   │ ~/sharing│  │
+│  │         │   │ JIRA    │   │ container│   │ /notif.  │  │
+│  │         │   │         │   │ /.claude │   │          │  │
+│  └─────────┘   └─────────┘   └──────────┘   └──────────┘  │
 │                                                                   │
 │  Security Boundary: No credentials, no direct push, no deploy    │
 └───────────────────────────────────────────────────────────────────┘
@@ -341,8 +340,7 @@ Agent should demonstrate L3-L4 behaviors:
 **1. egg (Docker Container)**
 - Isolated execution environment
 - Claude Code CLI with custom commands and rules
-- Mounts: code (RW), context (RO), beads (RW), sharing (RW)
-- Persistent memory: Beads git repository for task state across restarts
+- Mounts: code (RW), context (RO), sharing (RW)
 - No SSH keys, cloud credentials, or production access
 - Bridge networking: outbound HTTP only
 
@@ -446,96 +444,6 @@ Agent should demonstrate L3-L4 behaviors:
 - **Incoming Tasks:** `~/sharing/incoming/` → Agent pickup
 - **Tracking:** State management for async workflows
 
-### Persistent Memory & State Management
-
-**Challenge:** LLMs are stateless - each conversation starts fresh. Without persistent memory:
-- Work interruptions mean lost context
-- Container restarts lose all progress
-- Multiple concurrent containers can duplicate work
-- No knowledge of what's already been done
-- Cannot resume interrupted tasks
-
-**Solution: Beads (Git-Backed Task Memory)**
-
-Beads provides automatic persistent memory for the agent, solving the "LLM amnesia" problem:
-
-**Architecture:**
-```
-~/.egg-sharing/beads/          # Host storage (persists across rebuilds)
-├── issues.jsonl               # Task database (source of truth)
-├── .git/                      # Version history
-└── .beads.sqlite             # SQLite cache (disposable, auto-rebuilt)
-       ↑
-       │ Git sync
-       │
-Container 1: ~/beads/          # Symlink, shares same git repo
-Container 2: ~/beads/          # Another container, same repo
-Container N: ~/beads/          # All containers coordinate
-```
-
-**Automatic Workflow Integration:**
-
-Agent automatically (without being asked):
-1. **On startup:** Check for in-progress tasks (`bd --allow-stale list --status in_progress`)
-2. **On new task:** Create Beads entry (`bd --allow-stale create "Implement OAuth2 for JIRA-1234"`)
-3. **During work:** Update status and notes (`bd --allow-stale update bd-a3f8 --status in_progress`)
-4. **Multi-step tasks:** Break into subtasks with dependencies
-5. **On completion:** Mark closed, update dependent tasks
-
-**Key Features:**
-- **Git-backed:** All changes versioned, can review history
-- **Multi-container safe:** Hash-based IDs (bd-a3f8) prevent conflicts
-- **Dependency tracking:** Tasks can block other tasks
-- **Parent-child relationships:** Complex features broken into subtasks
-- **Automatic resumption:** Agent picks up where it left off after restarts
-- **Cross-session memory:** Context preserved indefinitely
-
-**Example Workflow:**
-
-```bash
-# Engineer sends: "Implement OAuth2 authentication for JIRA-1234"
-# Agent automatically:
-
-cd ~/beads
-bd --allow-stale search "OAuth2 JIRA-1234"  # Check if already exists
-bd --allow-stale create "Implement OAuth2 for JIRA-1234" --labels feature,jira-1234,slack
-bd --allow-stale update bd-a3f8 --status in_progress
-
-# Break into subtasks
-bd --allow-stale create "Design auth schema" --parent bd-a3f8
-bd --allow-stale create "Implement OAuth2 endpoints" --parent bd-a3f8 --deps blocks:bd-b1
-bd --allow-stale create "Write integration tests" --parent bd-a3f8 --deps blocks:bd-b2,blocks:bd-b3
-
-# Work on tasks, update progress
-bd --allow-stale update bd-b1 --status closed
-bd --allow-stale update bd-b1 --notes "Schema designed per ADR-042, using httpOnly cookies"
-bd --allow-stale dep remove bd-b2 bd-b1  # Remove dependency to unblock
-
-# Container crashes/restarts...
-
-# On resume:
-bd --allow-stale list --status in_progress
-# Shows: bd-a3f8 "Implement OAuth2..." and remaining subtasks
-bd --allow-stale show bd-a3f8  # Read all previous notes and context
-# Continue work seamlessly
-```
-
-**Benefits:**
-- **No lost work:** Container crashes don't lose context
-- **Parallel work:** Multiple containers coordinate via shared git repo
-- **Progress visibility:** Can check status of all tasks across all sessions
-- **Knowledge accumulation:** Notes on decisions, blockers, approaches persist
-- **Automatic resumption:** Agent knows exactly where to pick up
-
-**Implementation:**
-- **Storage:** `~/.egg-sharing/beads/` (git repository on host)
-- **Access:** `~/beads/` symlink in container
-- **CLI:** `beads` command (beads-cli package)
-- **Format:** JSONL (human-readable, git-friendly)
-- **Cache:** SQLite for fast queries (auto-rebuilt each session)
-
-This solves the fundamental "LLM amnesia" problem while enabling true autonomous operation across sessions and containers.
-
 ### Exec-Based Analysis Architecture
 
 **Pattern:** Event-driven analysis triggered by host services via `egg --exec`, using Claude Code for intelligent analysis
@@ -548,7 +456,7 @@ Spawn new ephemeral container (docker run --rm)
   ↓
 Analysis script collects data → Constructs prompt → Calls claude --print
   ↓
-Claude Code analyzes, creates Beads tasks, generates notifications
+Claude Code analyzes and generates notifications
   ↓
 Container automatically removed (--rm flag)
 ```
@@ -564,7 +472,7 @@ All watchers use `claude --print` for intelligent analysis instead of simple pat
 
 Each watcher constructs a comprehensive prompt including:
 - Data to analyze (check failures, tickets, documents, messages)
-- Workflow instructions per ADR (analyze → track in Beads → act → notify)
+- Workflow instructions per ADR (analyze → act → notify)
 - Context about the ephemeral container environment
 - Expected output format and actions
 
@@ -1468,7 +1376,7 @@ Cloud Run Jobs:
 
 Supporting Infrastructure:
 - Cloud Pub/Sub: slack-outgoing, slack-incoming, slack-outgoing-dlq
-- Firestore: jobs, threads, contexts, users, beads collections
+- Firestore: jobs, threads, contexts, users collections
 - Cloud Tasks: egg-tasks, egg-sync, egg-analyze queues
 - Cloud Storage: context-sync, artifacts buckets
 - Secret Manager: Slack tokens, API keys

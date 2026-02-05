@@ -4,28 +4,6 @@ This directory contains slash command documentation for Claude Code CLI in the s
 
 ## Available Commands
 
-### /beads-status
-Show current Beads task status.
-
-**Usage**: `/beads-status`
-
-**What it does**:
-- Lists in-progress and pending tasks
-- Shows task IDs for reference
-
-**File**: `beads-status.md`
-
-### /beads-sync
-Sync Beads repository with git.
-
-**Usage**: `/beads-sync`
-
-**What it does**:
-- Commits any uncommitted Beads changes
-- Syncs with remote if configured
-
-**File**: `beads-sync.md`
-
 ### /show-metrics
 Generate a monitoring report showing recent agent activity.
 
@@ -42,8 +20,8 @@ Generate a monitoring report showing recent agent activity.
 
 These commands are **slash commands** for Claude Code. They are markdown files that provide instructions to Claude on how to respond when you use the command syntax.
 
-When you say `/beads-status` in Claude Code:
-1. Claude reads the instructions from `~/.claude/commands/beads-status.md`
+When you invoke a slash command in Claude Code:
+1. Claude reads the instructions from the corresponding command file
 2. Executes the workflow described in the file
 3. Uses available tools (Read, Write, Bash, etc.) to complete the task
 
@@ -53,8 +31,6 @@ When you say `/beads-status` in Claude Code:
 
 | Correct | Incorrect |
 |---------|-----------|
-| `/beads-status` | `@beads-status` |
-| `/beads-sync` | `@beads-sync` |
 | `/show-metrics` | `@show-metrics` |
 
 ## Viewing Command Details
@@ -65,7 +41,7 @@ Inside the container:
 ls ~/.claude/commands/
 
 # View a specific command
-cat ~/.claude/commands/beads-status.md
+cat ~/.claude/commands/show-metrics.md
 
 # Or use Read tool in Claude Code
 # Read: ~/.claude/commands/show-metrics.md
