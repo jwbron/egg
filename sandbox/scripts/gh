@@ -484,6 +484,7 @@ ARGS=("$@")
 for i in "${!ARGS[@]}"; do
     ARGS[$i]="${ARGS[$i]//\\!/!}"
 done
+set -- "${ARGS[@]}"
 
 # Parse the main command
 main_cmd=""
