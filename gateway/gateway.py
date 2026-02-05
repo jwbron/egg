@@ -171,7 +171,7 @@ def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
     )
     return jsonify({
         "success": False,
-        "message": f"Internal server error: {type(e).__name__}: {e}",
+        "message": "Internal server error",
     }), 500
 
 
