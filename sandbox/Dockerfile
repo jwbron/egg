@@ -55,8 +55,7 @@ RUN pip3 install --no-cache-dir pyyaml
 COPY docker-setup.py /tmp/docker-setup.py
 RUN chmod +x /tmp/docker-setup.py && \
     apt-get update && \
-    python3 /tmp/docker-setup.py && \
-    rm /tmp/docker-setup.py
+    python3 /tmp/docker-setup.py
 
 # Install Python dependencies for egg components
 # These are required by scripts in /opt/egg-runtime/ (copied from sandbox/)
@@ -102,7 +101,7 @@ RUN pip3 install --no-cache-dir \
 # Pre-install user-configured dependencies from repositories.yaml
 # This step is placed AFTER common packages for better Docker layer caching:
 # changes to user config only rebuild this layer, not the common packages above.
-# Installs: extra system packages (apt/dnf), pip packages, and npm packages.
+# Installs pip and npm packages from docker_setup config.
 # Essential for private mode (no network at runtime) and speeds up public mode.
 COPY repositories.yaml /tmp/repositories.yaml
 RUN python3 /tmp/docker-setup.py --install-deps --config /tmp/repositories.yaml && \

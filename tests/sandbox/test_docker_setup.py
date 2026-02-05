@@ -445,10 +445,8 @@ class TestInstallDependencies:
 
     @patch.object(docker_setup, "install_npm_packages")
     @patch.object(docker_setup, "install_pip_packages")
-    @patch.object(docker_setup, "install_extra_packages")
-    @patch.object(docker_setup, "detect_distro", return_value="ubuntu")
     def test_install_dependencies_empty_config(
-        self, mock_distro, mock_sys, mock_pip, mock_npm, capsys, tmp_path
+        self, mock_pip, mock_npm, capsys, tmp_path
     ):
         """Test install_dependencies with empty config file."""
         config_file = tmp_path / "repositories.yaml"
@@ -456,16 +454,13 @@ class TestInstallDependencies:
 
         docker_setup.install_dependencies(str(config_file))
 
-        mock_sys.assert_called_once_with("ubuntu", [], [])
         mock_pip.assert_called_once_with([])
         mock_npm.assert_called_once_with([])
 
     @patch.object(docker_setup, "install_npm_packages")
     @patch.object(docker_setup, "install_pip_packages")
-    @patch.object(docker_setup, "install_extra_packages")
-    @patch.object(docker_setup, "detect_distro", return_value="ubuntu")
     def test_install_dependencies_with_packages(
-        self, mock_distro, mock_sys, mock_pip, mock_npm, capsys, tmp_path
+        self, mock_pip, mock_npm, capsys, tmp_path
     ):
         """Test install_dependencies with pip and npm packages configured."""
         import yaml
@@ -474,9 +469,6 @@ class TestInstallDependencies:
             "docker_setup": {
                 "pip": ["django", "celery"],
                 "npm": ["typescript"],
-                "extra_packages": {
-                    "apt": ["nodejs"],
-                },
             }
         }
         config_file = tmp_path / "repositories.yaml"
@@ -489,10 +481,8 @@ class TestInstallDependencies:
 
     @patch.object(docker_setup, "install_npm_packages")
     @patch.object(docker_setup, "install_pip_packages")
-    @patch.object(docker_setup, "install_extra_packages")
-    @patch.object(docker_setup, "detect_distro", return_value="ubuntu")
     def test_install_dependencies_missing_config(
-        self, mock_distro, mock_sys, mock_pip, mock_npm, capsys
+        self, mock_pip, mock_npm, capsys
     ):
         """Test install_dependencies with non-existent config file."""
         docker_setup.install_dependencies("/nonexistent/config.yaml")

@@ -178,10 +178,14 @@ def get_npm_packages(config: dict) -> list[str]:
     return docker_setup.get("npm", [])
 
 
-def install_pip_packages(packages: list[str]) -> None:
-    """Install pip packages from config."""
+def install_pip_packages(packages: list[str]) -> bool:
+    """Install pip packages from config.
+
+    Returns:
+        True if all packages installed successfully, False otherwise.
+    """
     if not packages:
-        return
+        return True
 
     print(f"\n=== Pre-installing pip packages: {', '.join(packages)} ===")
     result = run(
@@ -192,12 +196,18 @@ def install_pip_packages(packages: list[str]) -> None:
         print(f"WARNING: Some pip packages failed to install (exit code {result.returncode})")
         print("The container will still work, but some repo dependencies may be missing.")
         print("Check package names and version constraints in repositories.yaml docker_setup.pip")
+        return False
+    return True
 
 
-def install_npm_packages(packages: list[str]) -> None:
-    """Install npm packages globally from config."""
+def install_npm_packages(packages: list[str]) -> bool:
+    """Install npm packages globally from config.
+
+    Returns:
+        True if all packages installed successfully, False otherwise.
+    """
     if not packages:
-        return
+        return True
 
     # Check if npm is available
     npm_check = run_shell("which npm", check=False, capture_output=True)
@@ -209,7 +219,7 @@ def install_npm_packages(packages: list[str]) -> None:
         print("      apt:")
         print("        - nodejs")
         print("        - npm")
-        return
+        return False
 
     print(f"\n=== Pre-installing npm packages: {', '.join(packages)} ===")
     result = run(
@@ -219,14 +229,17 @@ def install_npm_packages(packages: list[str]) -> None:
     if result.returncode != 0:
         print(f"WARNING: Some npm packages failed to install (exit code {result.returncode})")
         print("Check package names in repositories.yaml docker_setup.npm")
+        return False
+    return True
 
 
 def install_dependencies(config_path: str | None = None) -> None:
-    """Install user-configured dependencies from repositories.yaml.
+    """Install user-configured pip and npm packages from repositories.yaml.
 
     This is called as a separate Docker build step (--install-deps flag)
     to install pip and npm packages specified in the config.
     Placed after base package installation for better Docker layer caching.
+    System packages (apt/dnf) are handled by the main docker-setup.py run.
 
     Args:
         config_path: Explicit path to repositories.yaml. If None, uses default search.
@@ -247,18 +260,17 @@ def install_dependencies(config_path: str | None = None) -> None:
     else:
         config = load_config()
 
-    # Install extra system packages from config (apt/dnf)
-    distro = detect_distro()
-    apt_packages, dnf_packages = get_extra_packages(config, distro)
-    install_extra_packages(distro, apt_packages, dnf_packages)
+    # Note: system packages (apt/dnf) are already installed by the main
+    # docker-setup.py run earlier in the Dockerfile. This mode only handles
+    # pip and npm packages to avoid redundant apt/dnf calls.
 
     # Install pip packages
     pip_packages = get_pip_packages(config)
-    install_pip_packages(pip_packages)
+    pip_ok = install_pip_packages(pip_packages)
 
     # Install npm packages
     npm_packages = get_npm_packages(config)
-    install_npm_packages(npm_packages)
+    npm_ok = install_npm_packages(npm_packages)
 
     # Summary
     print()
@@ -267,23 +279,21 @@ def install_dependencies(config_path: str | None = None) -> None:
     print("=" * 60)
 
     installed_any = False
-    if (distro == "ubuntu" and apt_packages) or (distro == "fedora" and dnf_packages):
-        extra = apt_packages if distro == "ubuntu" else dnf_packages
-        print("\nSystem packages:")
-        for pkg in extra:
-            print(f"  ✓ {pkg}")
-        installed_any = True
 
     if pip_packages:
-        print("\nPip packages:")
+        status = "✓" if pip_ok else "⚠"
+        label = "installed" if pip_ok else "had errors"
+        print(f"\nPip packages ({label}):")
         for pkg in pip_packages:
-            print(f"  ✓ {pkg}")
+            print(f"  {status} {pkg}")
         installed_any = True
 
     if npm_packages:
-        print("\nNpm packages:")
+        status = "✓" if npm_ok else "⚠"
+        label = "installed" if npm_ok else "had errors"
+        print(f"\nNpm packages ({label}):")
         for pkg in npm_packages:
-            print(f"  ✓ {pkg}")
+            print(f"  {status} {pkg}")
         installed_any = True
 
     if not installed_any:
@@ -294,9 +304,6 @@ def install_dependencies(config_path: str | None = None) -> None:
         print("      - package-name")
         print("    npm:")
         print("      - package-name")
-        print("    extra_packages:")
-        print("      apt:")
-        print("        - system-package")
 
     print()
 
@@ -309,7 +316,7 @@ def main():
     parser.add_argument(
         "--install-deps",
         action="store_true",
-        help="Install user-configured dependencies (pip, npm, system packages) from config",
+        help="Install user-configured pip and npm packages from config",
     )
     parser.add_argument(
         "--config",

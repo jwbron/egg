@@ -571,7 +571,7 @@ def install_repo_dependencies(config: Config, logger: Logger) -> None:
             if dep_file == "requirements.txt":
                 logger.info(f"  pip install -r {repo_dir.name}/{dep_file}")
                 result = run_cmd(
-                    ["pip3", "install", "--no-cache-dir", "-r", str(dep_path)],
+                    ["pip3", "install", "--user", "--no-cache-dir", "-r", str(dep_path)],
                     check=False,
                     as_user=user_tuple,
                     timeout=120,
@@ -603,14 +603,17 @@ def install_repo_dependencies(config: Config, logger: Logger) -> None:
                 else:
                     logger.warn(f"  {repo_dir.name}/{dep_file} had errors")
 
-            # pyproject.toml: only install if it has [project.dependencies]
+            # pyproject.toml: only install if it has [project].dependencies
             elif dep_file == "pyproject.toml":
                 try:
-                    content = dep_path.read_text()
-                    if "[project]" in content and "dependencies" in content:
+                    import tomllib
+
+                    with open(dep_path, "rb") as f:
+                        pyproject = tomllib.load(f)
+                    if pyproject.get("project", {}).get("dependencies"):
                         logger.info(f"  pip install {repo_dir.name}/ (from pyproject.toml)")
                         result = run_cmd(
-                            ["pip3", "install", "--no-cache-dir", "-e", str(repo_dir)],
+                            ["pip3", "install", "--user", "--no-cache-dir", "-e", str(repo_dir)],
                             check=False,
                             as_user=user_tuple,
                             timeout=120,

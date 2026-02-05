@@ -6,15 +6,17 @@ Tests the container initialization logic:
 - Logger with quiet mode
 - Utility functions (run_cmd, chown_recursive)
 - Setup functions with mocked filesystem
+- install_repo_dependencies dependency auto-detection
 
 Note: Most setup functions require root and container environment,
 so we focus on testing logic that can be unit tested.
 """
 
 import os
+import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 # Load the entrypoint module
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
@@ -315,3 +317,211 @@ class TestSetupClaude:
         result = json.loads(user_state_file.read_text())
         assert result["hasCompletedOnboarding"] is True
         assert result["autoUpdates"] is False
+
+
+class TestInstallRepoDependencies:
+    """Tests for install_repo_dependencies function."""
+
+    def _make_config(self, repos_dir: Path) -> MagicMock:
+        config = MagicMock()
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+        return config
+
+    def test_no_repos_dir(self, temp_dir):
+        """Test early return when repos_dir doesn't exist."""
+        config = self._make_config(temp_dir / "nonexistent")
+        logger = entrypoint.Logger(quiet=False)
+
+        # Should return without error
+        entrypoint.install_repo_dependencies(config, logger)
+
+    def test_no_dependency_files(self, temp_dir):
+        """Test early return when repos have no dependency files."""
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        (repos_dir / "myrepo").mkdir()
+        (repos_dir / "myrepo" / "README.md").write_text("# Hello")
+
+        config = self._make_config(repos_dir)
+        logger = entrypoint.Logger(quiet=False)
+
+        entrypoint.install_repo_dependencies(config, logger)
+        # No errors, no installs
+
+    def test_private_mode_skips_install(self, temp_dir, monkeypatch, capsys):
+        """Test that private mode logs guidance instead of installing."""
+        monkeypatch.setenv("PRIVATE_MODE", "true")
+
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "myrepo"
+        repo.mkdir()
+        (repo / "requirements.txt").write_text("django\n")
+
+        config = self._make_config(repos_dir)
+        logger = entrypoint.Logger(quiet=False)
+
+        with patch.object(entrypoint, "run_cmd") as mock_run:
+            entrypoint.install_repo_dependencies(config, logger)
+            # Should NOT call run_cmd for pip install
+            mock_run.assert_not_called()
+
+        captured = capsys.readouterr()
+        assert "private mode" in captured.out.lower()
+        assert "myrepo" in captured.out
+
+    @patch.object(entrypoint, "run_cmd")
+    def test_public_mode_installs_requirements_txt(self, mock_run, temp_dir, monkeypatch):
+        """Test that public mode installs from requirements.txt with --user."""
+        monkeypatch.setenv("PRIVATE_MODE", "false")
+        mock_run.return_value = MagicMock(returncode=0)
+
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "myrepo"
+        repo.mkdir()
+        (repo / "requirements.txt").write_text("django\ncelery\n")
+
+        config = self._make_config(repos_dir)
+        logger = entrypoint.Logger(quiet=False)
+
+        entrypoint.install_repo_dependencies(config, logger)
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        # Should use gosu prefix (via as_user) + pip3 install --user
+        assert "pip3" in cmd
+        assert "--user" in cmd
+        assert "-r" in cmd
+
+    @patch.object(entrypoint, "run_cmd")
+    def test_public_mode_skips_existing_node_modules(self, mock_run, temp_dir, monkeypatch, capsys):
+        """Test that npm install is skipped when node_modules exists."""
+        monkeypatch.setenv("PRIVATE_MODE", "false")
+        # which npm succeeds
+        mock_run.return_value = MagicMock(returncode=0)
+
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "myrepo"
+        repo.mkdir()
+        (repo / "package.json").write_text('{"name": "test"}')
+        (repo / "node_modules").mkdir()
+
+        config = self._make_config(repos_dir)
+        logger = entrypoint.Logger(quiet=False)
+
+        entrypoint.install_repo_dependencies(config, logger)
+
+        # Only "which npm" should be called, not "npm install"
+        assert mock_run.call_count == 1
+        assert mock_run.call_args[0][0] == ["which", "npm"]
+        captured = capsys.readouterr()
+        assert "node_modules exists" in captured.out
+
+    @patch.object(entrypoint, "run_cmd")
+    def test_public_mode_npm_install_when_no_node_modules(self, mock_run, temp_dir, monkeypatch):
+        """Test that npm install runs when node_modules doesn't exist."""
+        monkeypatch.setenv("PRIVATE_MODE", "false")
+        # First call: which npm -> found; second call: npm install -> success
+        mock_run.side_effect = [
+            MagicMock(returncode=0),  # which npm
+            MagicMock(returncode=0),  # npm install
+        ]
+
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "myrepo"
+        repo.mkdir()
+        (repo / "package.json").write_text('{"name": "test"}')
+
+        config = self._make_config(repos_dir)
+        logger = entrypoint.Logger(quiet=False)
+
+        entrypoint.install_repo_dependencies(config, logger)
+
+        assert mock_run.call_count == 2
+        npm_cmd = mock_run.call_args_list[1][0][0]
+        assert "npm" in npm_cmd
+        assert "--prefix" in npm_cmd
+
+    @patch.object(entrypoint, "run_cmd")
+    def test_public_mode_pyproject_with_dependencies(self, mock_run, temp_dir, monkeypatch):
+        """Test that pyproject.toml with [project].dependencies triggers install."""
+        monkeypatch.setenv("PRIVATE_MODE", "false")
+        mock_run.return_value = MagicMock(returncode=0)
+
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "myrepo"
+        repo.mkdir()
+        (repo / "pyproject.toml").write_text(
+            '[project]\nname = "myrepo"\ndependencies = ["requests"]\n'
+        )
+
+        config = self._make_config(repos_dir)
+        logger = entrypoint.Logger(quiet=False)
+
+        entrypoint.install_repo_dependencies(config, logger)
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert "pip3" in cmd
+        assert "--user" in cmd
+        assert "-e" in cmd
+
+    @patch.object(entrypoint, "run_cmd")
+    def test_public_mode_pyproject_without_dependencies(self, mock_run, temp_dir, monkeypatch):
+        """Test that pyproject.toml without dependencies is skipped."""
+        monkeypatch.setenv("PRIVATE_MODE", "false")
+
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "myrepo"
+        repo.mkdir()
+        # pyproject.toml with build-system only, no [project].dependencies
+        (repo / "pyproject.toml").write_text(
+            '[build-system]\nrequires = ["setuptools"]\n'
+        )
+
+        config = self._make_config(repos_dir)
+        logger = entrypoint.Logger(quiet=False)
+
+        entrypoint.install_repo_dependencies(config, logger)
+
+        mock_run.assert_not_called()
+
+    @patch.object(entrypoint, "run_cmd")
+    def test_handles_pip_failure_gracefully(self, mock_run, temp_dir, monkeypatch, capsys):
+        """Test that pip install failure is handled without raising."""
+        monkeypatch.setenv("PRIVATE_MODE", "false")
+        mock_run.return_value = MagicMock(returncode=1)
+
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "myrepo"
+        repo.mkdir()
+        (repo / "requirements.txt").write_text("nonexistent-package\n")
+
+        config = self._make_config(repos_dir)
+        logger = entrypoint.Logger(quiet=False)
+
+        entrypoint.install_repo_dependencies(config, logger)
+
+        captured = capsys.readouterr()
+        assert "errors" in captured.out.lower() or "missing" in captured.out.lower()
+
+    def test_skips_non_directory_entries(self, temp_dir, monkeypatch):
+        """Test that files in repos_dir are skipped."""
+        monkeypatch.setenv("PRIVATE_MODE", "false")
+
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        (repos_dir / "somefile.txt").write_text("not a repo")
+
+        config = self._make_config(repos_dir)
+        logger = entrypoint.Logger(quiet=False)
+
+        entrypoint.install_repo_dependencies(config, logger)
