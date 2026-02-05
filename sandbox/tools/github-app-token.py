@@ -30,6 +30,7 @@ from pathlib import Path
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
 
 def create_jwt(app_id: str, private_key: str) -> str:
@@ -59,14 +60,16 @@ def create_jwt(app_id: str, private_key: str) -> str:
     # Message to sign
     message = f"{header_b64}.{payload_b64}".encode()
 
-    # Load private key and sign
+    # Load private key and sign (must be RSA for RS256/PKCS1v15)
     private_key_obj = serialization.load_pem_private_key(
         private_key.encode(),
         password=None,
         backend=default_backend(),  # type: ignore[no-untyped-call]
     )
+    if not isinstance(private_key_obj, RSAPrivateKey):
+        raise TypeError(f"Expected RSA private key for RS256 signing, got {type(private_key_obj).__name__}")
 
-    signature = private_key_obj.sign(message, padding.PKCS1v15(), hashes.SHA256())  # type: ignore[call-arg,arg-type]
+    signature = private_key_obj.sign(message, padding.PKCS1v15(), hashes.SHA256())
 
     signature_b64 = b64url_encode(signature)
 
