@@ -19,6 +19,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
@@ -37,7 +38,7 @@ class RateLimitResult:
     remaining: int
     retry_after_seconds: int | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API response."""
         result = {
             "allowed": self.allowed,
@@ -187,7 +188,7 @@ class SlidingWindowRateLimiter:
             self._requests.clear()
             return count
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get statistics about rate limiter state.
 
@@ -287,7 +288,7 @@ def check_heartbeat_rate_limit(session_id: str) -> RateLimitResult:
     return heartbeat_limiter.is_allowed(session_id)
 
 
-def get_all_limiter_stats() -> dict:
+def get_all_limiter_stats() -> dict[str, Any]:
     """
     Get statistics for all rate limiters.
 

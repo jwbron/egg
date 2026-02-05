@@ -11,42 +11,58 @@ Thank you for your interest in contributing to egg!
    cd egg
    ```
 
-2. **Run the setup script**
+2. **Run the setup**
    ```bash
-   ./dev setup
+   make setup
    ```
 
-   This automatically:
-   - Installs uv (Python package manager) if missing
-   - Installs act (GitHub Actions runner) if missing
-   - Creates a virtual environment with all dependencies
+   This:
+   - Creates a virtual environment with all dependencies (via uv)
    - Installs pre-commit hooks
 
-3. **Verify the setup**
+3. **Install act** for running CI locally
    ```bash
-   ./dev native lint
-   ./dev native test
+   # macOS
+   brew install act
+
+   # Linux
+   curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b ~/.local/bin
+   ```
+
+   See [act documentation](https://github.com/nektos/act) for details.
+
+4. **Verify the setup**
+   ```bash
+   make lint
+   make test
    ```
 
 ## Development Workflow
 
 ### Running Commands
 
-The `./dev` script is the primary interface for all development tasks:
+The `Makefile` is the single entry point for all development tasks:
 
 | Command | What it does | Notes |
 |---------|--------------|-------|
-| `./dev setup` | Install all dependencies | Auto-runs on first use |
-| `./dev lint` | Run lint workflow | Same as CI (via act) |
-| `./dev test` | Run unit tests | Same as CI (via act) |
-| `./dev test-integration` | Run integration tests | Same as CI (via act) |
-| `./dev ci` | Run full CI pipeline | Same as CI (via act) |
-| `./dev native lint` | Run linters natively | Fast mode, no Docker |
-| `./dev native test` | Run tests natively | Fast mode, no Docker |
+| `make setup` | Install dependencies and pre-commit hooks | Run once after cloning |
+| `make lint` | Run all linters | Via act, same as GitHub Actions |
+| `make test` | Run all tests | Via act, same as GitHub Actions |
+| `make security` | Run security scan | Via act, same as GitHub Actions |
+| `make ci` | Run full CI pipeline | Via act, all jobs |
+| `make lint-fix` | Auto-fix lint issues | Native (ruff format, shfmt, YAML whitespace) |
+
+Run `make help` for the full list of targets.
 
 ### CI/Local Parity
 
-**GitHub Actions workflows are the single source of truth.** The `./dev` script runs them locally via act, guaranteeing that what passes locally will pass in CI.
+**GitHub Actions workflows are the single source of truth.** All `make lint`, `make test`, and `make security` targets delegate to the workflows via [act](https://github.com/nektos/act), guaranteeing that what passes locally will pass in CI.
+
+For quick one-off checks without Docker overhead, use the venv directly:
+```bash
+.venv/bin/ruff check .
+.venv/bin/pytest tests/test_python_syntax.py -v
+```
 
 ### Code Style
 
@@ -59,9 +75,9 @@ The pre-commit hooks will automatically check and fix most style issues.
 
 ### Testing
 
-- **Unit tests**: `tests/unit/` - Fast, isolated tests
+- **Unit tests**: `tests/` - Fast, isolated tests
+- **Gateway tests**: `gateway/tests/` - Gateway-specific tests
 - **Integration tests**: `tests/integration/` - Tests requiring Docker/containers
-- **Security tests**: `tests/security/` - Security-focused tests
 
 Coverage requirements:
 - Minimum 80% overall coverage
@@ -69,21 +85,18 @@ Coverage requirements:
 
 Run tests:
 ```bash
-# Via act (CI parity)
-./dev test
+# All tests (via act, CI parity)
+make test
 
-# Native (faster iteration)
-./dev native test
-
-# Specific test file
-.venv/bin/pytest tests/unit/test_policy.py -v
+# Specific test file (native, faster)
+.venv/bin/pytest tests/test_python_syntax.py -v
 ```
 
 ## Pull Request Process
 
 1. **Create a branch** from main
 2. **Make your changes** with clear, focused commits
-3. **Run the full CI locally**: `./dev ci`
+3. **Run the full CI locally**: `make ci`
 4. **Create a PR** with a clear description
 5. **Address review feedback**
 

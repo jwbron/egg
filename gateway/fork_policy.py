@@ -29,9 +29,9 @@ try:
     from .private_repo_policy import is_private_mode_enabled
     from .repo_visibility import get_repo_visibility
 except ImportError:
-    from error_messages import get_error_message
-    from private_repo_policy import is_private_mode_enabled
-    from repo_visibility import get_repo_visibility
+    from error_messages import get_error_message  # type: ignore[no-redef]
+    from private_repo_policy import is_private_mode_enabled  # type: ignore[no-redef]
+    from repo_visibility import get_repo_visibility  # type: ignore[no-redef]
 
 
 logger = get_logger("gateway.fork-policy")
@@ -89,7 +89,7 @@ class ForkPolicy:
 
     def _log_policy_event(
         self,
-        source_repo: str,
+        source_repo: str | None,
         target_org: str | None,
         source_visibility: str | None,
         target_visibility: str | None,
@@ -97,7 +97,7 @@ class ForkPolicy:
         reason: str,
     ) -> None:
         """Log a fork policy decision."""
-        log_data = {
+        log_data: dict[str, Any] = {
             "event_type": "fork_policy",
             "source_repository": source_repo,
             "target_organization": target_org,

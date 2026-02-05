@@ -111,7 +111,7 @@ Every operation through the gateway is logged:
 # Clone and set up
 git clone https://github.com/YOUR_USERNAME/egg.git
 cd egg
-./dev setup
+make setup
 
 # Configure credentials
 cp secrets.yaml.example ~/.config/egg/secrets.yaml
@@ -145,29 +145,26 @@ egg start --config egg.yaml --private
 
 ## Documentation
 
+- [Documentation Index](docs/index.md) - Navigation hub for all docs
 - [Architecture](docs/architecture/README.md) - System design and component overview
-- [Security Features](docs/FEATURES.md#security-features) - Security model and guarantees
 - [Setup Guide](docs/setup/README.md) - First-time setup and configuration
-- [Reference](docs/reference/README.md) - API documentation and quick references
 - [Troubleshooting](docs/troubleshooting/) - Common issues and solutions
 
 ### Architecture Decision Records
 
-- [Git Isolation Architecture](docs/adr/git-isolation-architecture.md) - Worktree isolation design
-- [Credential Injection](docs/adr/credential-injection.md) - Zero-credential sandbox design
-- [Network Isolation](docs/adr/network-isolation.md) - Public/private mode implementation
+- [Git Isolation Architecture](docs/adr/implemented/ADR-Git-Isolation-Architecture.md) - Worktree isolation design
+- [Credential Injection](docs/adr/implemented/ADR-Gateway-Credential-Injection.md) - Zero-credential sandbox design
+- [Internet Tool Access Lockdown](docs/adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) - Public/private mode implementation
 
 ## Development
 
 ```bash
-./dev setup          # Set up development environment
-./dev lint           # Run linters
-./dev test           # Run tests
-./dev ci             # Run full CI pipeline locally
-
-# Fast mode (native Python, no Docker)
-./dev native lint
-./dev native test
+make setup           # Set up development environment
+make lint            # Run all linters (via act)
+make test            # Run all tests (via act)
+make security        # Run security scan (via act)
+make ci              # Run full CI pipeline (via act)
+make lint-fix        # Auto-fix lint issues (native)
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.

@@ -22,7 +22,7 @@ import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
@@ -37,9 +37,9 @@ DEFAULT_SESSION_TTL_HOURS = 24
 DEFAULT_CLEANUP_INTERVAL_MINUTES = 15
 SESSION_TOKEN_BYTES = 32  # 256 bits
 
-# Persistence file path - use /tmp since /secrets is mounted read-only
-# Sessions are ephemeral (cleaned up when containers exit) so /tmp is fine
-SESSION_PERSISTENCE_DIR = Path("/tmp/egg-sessions")
+# Persistence file path - use a persistent volume so sessions survive gateway restarts
+# The ~/.egg-state directory is mounted from the host (see start-gateway.sh, gateway.py)
+SESSION_PERSISTENCE_DIR = Path("/home/egg/.egg-state/sessions")
 SESSION_PERSISTENCE_FILE = SESSION_PERSISTENCE_DIR / "sessions.json"
 
 # Mode type alias
@@ -104,7 +104,7 @@ class Session:
         self.last_seen = datetime.now(UTC)
         self.expires_at = self.last_seen + timedelta(hours=hours)
 
-    def to_dict_for_persistence(self) -> dict:
+    def to_dict_for_persistence(self) -> dict[str, Any]:
         """Convert to dictionary for persistence (excludes raw token)."""
         return {
             "session_token_hash": self.session_token_hash,
@@ -117,7 +117,7 @@ class Session:
         }
 
     @classmethod
-    def from_persistence(cls, data: dict) -> "Session":
+    def from_persistence(cls, data: dict[str, Any]) -> "Session":
         """Create Session from persisted data (no raw token)."""
         return cls(
             session_token=None,  # Raw token not persisted
@@ -139,9 +139,9 @@ class SessionValidationResult:
     session: Session | None = None
     error: str | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API response."""
-        result = {"valid": self.valid}
+        result: dict[str, Any] = {"valid": self.valid}
         if self.error:
             result["error"] = self.error
         if self.session:
@@ -358,7 +358,8 @@ class SessionManager:
                 )
                 # Clean up expired session
                 del self._sessions[token_hash]
-                self._token_to_hash.pop(session.session_token, None)
+                if session.session_token is not None:
+                    self._token_to_hash.pop(session.session_token, None)
                 self._save_to_disk()
                 return SessionValidationResult(
                     valid=False,
@@ -383,8 +384,12 @@ class SessionManager:
             # Extend session TTL (heartbeat on successful validation)
             session.extend_ttl(self._ttl_hours)
 
-            # Update fast lookup cache if this was a hash lookup
-            if session.session_token and session.session_token not in self._token_to_hash:
+            # Repopulate fast lookup cache after restart (session loaded from
+            # disk has session_token=None, so we store the raw token now)
+            if session.session_token is None:
+                session.session_token = token
+                self._token_to_hash[token] = token_hash
+            elif session.session_token not in self._token_to_hash:
                 self._token_to_hash[session.session_token] = token_hash
 
             return SessionValidationResult(
@@ -538,7 +543,7 @@ class SessionManager:
 
         return pruned
 
-    def list_sessions(self) -> list[dict]:
+    def list_sessions(self) -> list[dict[str, Any]]:
         """
         List all active (non-expired) sessions.
 

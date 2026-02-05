@@ -35,9 +35,9 @@ def get_quiet_mode() -> bool:
 
 
 def info(msg: str) -> None:
-    """Show info message. In quiet mode, updates statusbar instead."""
+    """Show info message. In quiet mode, updates statusbar text without advancing step."""
     if _quiet_mode:
-        status(msg)
+        status(msg, increment=False)
     else:
         print(f"{Colors.BLUE}[INFO]{Colors.NC} {msg}")
 

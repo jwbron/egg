@@ -33,7 +33,6 @@ from .config import (
     GATEWAY_PROXY_PORT,
     Config,
 )
-from .docker import get_force_rebuild
 from .output import error, info, success, warn
 
 # Launcher secret file location (for session and worktree management)
@@ -51,7 +50,7 @@ CONTAINER_HOME = "/home/egg"
 # =============================================================================
 
 
-def _hash_file(path: Path, hasher) -> None:
+def _hash_file(path: Path, hasher: Any) -> None:
     """Add a single file's content to the hasher."""
     try:
         with open(path, "rb") as f:
@@ -61,7 +60,7 @@ def _hash_file(path: Path, hasher) -> None:
         pass
 
 
-def _hash_directory(path: Path, hasher, exclude_tests: bool = False) -> None:
+def _hash_directory(path: Path, hasher: Any, exclude_tests: bool = False) -> None:
     """Recursively hash all files in a directory.
 
     Args:
@@ -239,7 +238,7 @@ def _parse_git_mounts(config_file: Path, home_dir: str) -> list[str]:
     Returns:
         List of mount specs in "source:destination" format
     """
-    mounts = []
+    mounts: list[str] = []
 
     if not config_file.exists():
         return mounts
@@ -297,37 +296,6 @@ def _get_user_git_config(config_file: Path) -> tuple[str | None, str | None]:
         return user_mode.get("git_name"), user_mode.get("git_email")
     except Exception:
         return None, None
-
-
-def _get_running_egg_containers() -> list[str]:
-    """Get list of running egg sandbox containers.
-
-    Returns:
-        List of container names that are running egg containers
-    """
-    try:
-        result = subprocess.run(
-            [
-                "docker",
-                "ps",
-                "--filter",
-                "name=egg-",
-                "--format",
-                "{{.Names}}",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        containers = []
-        for name in result.stdout.strip().split("\n"):
-            name = name.strip()
-            # Skip the gateway itself and empty lines
-            if name and name != GATEWAY_CONTAINER_NAME:
-                containers.append(name)
-        return containers
-    except Exception:
-        return []
 
 
 # =============================================================================
@@ -786,55 +754,7 @@ def wait_for_gateway_health(timeout: int = 30, check_proxy: bool = True) -> bool
     return False
 
 
-def _confirm_gateway_restart(interactive: bool, reason: str, action: str = "restart") -> bool:
-    """Prompt or warn before restarting the gateway.
-
-    In interactive mode, shows the number of active sessions and prompts
-    the user for confirmation.  In non-interactive mode, warns and returns
-    False so the caller can skip the restart.
-
-    Args:
-        interactive: Whether the user can be prompted (True for ``egg``,
-            False for ``egg --exec``).
-        reason: Human-readable explanation of why a restart is needed.
-        action: Verb describing the operation — ``"rebuild"`` when the
-            gateway image needs to be rebuilt, ``"restart"`` (default)
-            when only the container needs to be recycled.
-
-    Returns:
-        True if the restart should proceed, False to skip.
-    """
-    running = _get_running_egg_containers()
-    session_count = len(running)
-
-    if interactive:
-        warn(f"Gateway {action} needed ({reason}).")
-        if session_count > 0:
-            warn(
-                f"There {'is' if session_count == 1 else 'are'} "
-                f"{session_count} active session(s) that will be "
-                f"terminated by a {action}."
-            )
-        else:
-            warn(f"{action.capitalize()} will recreate the gateway container.")
-        try:
-            answer = input(f"{action.capitalize()} gateway now? (y/n): ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            answer = "n"
-        return answer == "y"
-
-    # Non-interactive (exec) mode: warn and skip
-    warn(f"Gateway {action} needed ({reason}).")
-    if session_count > 0:
-        warn(f"{session_count} active session(s) would be terminated by a {action}.")
-    if action == "rebuild":
-        warn("Run 'egg --rebuild' when ready to redeploy.")
-    else:
-        warn("Run 'egg' to restart the gateway.")
-    return False
-
-
-def start_gateway_container(interactive: bool = False) -> bool:
+def start_gateway_container() -> bool:
     """Ensure the gateway sidecar is running and up-to-date.
 
     This function manages the complete gateway lifecycle:
@@ -844,10 +764,6 @@ def start_gateway_container(interactive: bool = False) -> bool:
     4. Starts container with proper mounts and environment
     5. Connects to both networks (dual-homed)
     6. Waits for health check
-
-    Args:
-        interactive: If True (non-exec mode), prompt the user before
-            rebuilding when sessions are active. If False, just warn.
 
     Returns:
         True if gateway is healthy, False otherwise
@@ -864,28 +780,12 @@ def start_gateway_container(interactive: bool = False) -> bool:
                 if wait_for_gateway_health(timeout=15, check_proxy=True):
                     return True
                 # Proxy not working - need to restart
-                if not get_force_rebuild() and not _confirm_gateway_restart(
-                    interactive, "API healthy but proxy not responding"
-                ):
-                    return False
-            elif not get_force_rebuild():
-                # Rebuild needed but not forced — redeploying the gateway
-                # terminates all open sessions, so ask or warn first.
-                if not _confirm_gateway_restart(interactive, reason, action="rebuild"):
-                    if wait_for_gateway_health(timeout=15, check_proxy=True):
-                        info("Skipping rebuild — existing gateway will be used.")
-                        return True
-                    error("Existing gateway is not healthy. Run 'egg --rebuild' to redeploy.")
-                    return False
-                info(f"Gateway rebuild needed: {reason}")
+                warn("Gateway restart needed: API healthy but proxy not responding")
             else:
                 info(f"Gateway rebuild needed: {reason}")
         else:
             # Gateway container is running but API is not healthy
-            if not get_force_rebuild() and not _confirm_gateway_restart(
-                interactive, "gateway running but API not healthy"
-            ):
-                return False
+            warn("Gateway restart needed: gateway running but API not healthy")
 
     # Ensure networks exist
     if not ensure_gateway_networks():
@@ -982,6 +882,7 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     config_dir = Config.USER_CONFIG_DIR
     repos_dir = Path.home() / "repos"
     worktrees_dir = Path.home() / ".egg-worktrees"
+    state_dir = Path.home() / ".egg-state"
     git_main_dir = Path.home() / ".git-main"
     local_objects_dir = Path.home() / ".egg-local-objects"
     shared_certs_dir = Path.home() / ".egg-shared-certs"
@@ -1005,6 +906,10 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     # Worktrees directory
     worktrees_dir.mkdir(parents=True, exist_ok=True)
     mounts.extend(["-v", f"{worktrees_dir}:{CONTAINER_HOME}/.egg-worktrees"])
+
+    # State directory (session persistence across gateway restarts)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    mounts.extend(["-v", f"{state_dir}:{CONTAINER_HOME}/.egg-state"])
 
     # Git main directory
     if git_main_dir.exists():

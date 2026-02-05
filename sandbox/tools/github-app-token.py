@@ -30,6 +30,7 @@ from pathlib import Path
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
 
 def create_jwt(app_id: str, private_key: str) -> str:
@@ -59,10 +60,16 @@ def create_jwt(app_id: str, private_key: str) -> str:
     # Message to sign
     message = f"{header_b64}.{payload_b64}".encode()
 
-    # Load private key and sign
+    # Load private key and sign (must be RSA for RS256/PKCS1v15)
     private_key_obj = serialization.load_pem_private_key(
-        private_key.encode(), password=None, backend=default_backend()
+        private_key.encode(),
+        password=None,
+        backend=default_backend(),
     )
+    if not isinstance(private_key_obj, RSAPrivateKey):
+        raise TypeError(
+            f"Expected RSA private key for RS256 signing, got {type(private_key_obj).__name__}"
+        )
 
     signature = private_key_obj.sign(message, padding.PKCS1v15(), hashes.SHA256())
 
@@ -143,6 +150,10 @@ def load_config(config_dir: Path) -> tuple[str | None, str | None, str | None, s
     if missing:
         return None, None, None, f"Missing config: {', '.join(missing)}"
 
+    # At this point app_id and installation_id are guaranteed non-None
+    if app_id is None or installation_id is None:
+        return None, None, None, "app_id and installation_id are required"
+
     try:
         private_key = private_key_file.read_text()
 
@@ -160,7 +171,7 @@ def load_config(config_dir: Path) -> tuple[str | None, str | None, str | None, s
         return None, None, None, f"Failed to read config: {e}"
 
 
-def main():
+def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Generate GitHub App installation access token")
@@ -183,6 +194,11 @@ def main():
     if error:
         if not args.quiet:
             print(f"ERROR: {error}", file=sys.stderr)
+        sys.exit(1)
+
+    # At this point, error is None so all three values are set
+    if app_id is None or installation_id is None or private_key is None:
+        print("ERROR: Missing required configuration", file=sys.stderr)
         sys.exit(1)
 
     # Generate JWT

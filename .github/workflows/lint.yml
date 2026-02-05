@@ -24,6 +24,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      # ---- Python ----
+
       - name: Ruff check
         run: .venv/bin/ruff check .
 
@@ -31,18 +33,71 @@ jobs:
         run: .venv/bin/ruff format --check .
 
       - name: Mypy
-        run: .venv/bin/mypy gateway shared sandbox --exclude 'gateway/tests/' || true
+        run: .venv/bin/mypy gateway shared sandbox --exclude 'gateway/tests/'
+
+      # ---- Shell ----
 
       - name: Shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck sandbox/scripts/* || true
+          SHELL_FILES=$(find . -name "*.sh" -not -path "./.venv/*" -not -path "./.git/*")
+          # Also include extensionless scripts in sandbox/scripts/
+          if [ -d "sandbox/scripts" ]; then
+            for f in sandbox/scripts/*; do
+              [ -f "$f" ] && SHELL_FILES="$SHELL_FILES"$'\n'"$f"
+            done
+          fi
+          if [ -n "$SHELL_FILES" ]; then
+            echo "$SHELL_FILES" | sort -u | xargs shellcheck --severity=warning
+          fi
 
-      - name: Hadolint
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: gateway/Dockerfile
-        continue-on-error: true  # Don't fail if Dockerfile doesn't exist yet
+      # ---- YAML ----
 
       - name: Yamllint
-        run: .venv/bin/yamllint -c .yamllint.yaml . || true
+        run: .venv/bin/yamllint -c .yamllint.yaml .
+
+      # ---- Docker ----
+
+      - name: Hadolint
+        run: |
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64)  HADOLINT_ARCH="x86_64" ;;
+            aarch64) HADOLINT_ARCH="arm64" ;;
+            *) echo "Unsupported architecture: $ARCH" && exit 1 ;;
+          esac
+          wget -qO /usr/local/bin/hadolint \
+            "https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-${HADOLINT_ARCH}"
+          chmod +x /usr/local/bin/hadolint
+          hadolint --config .hadolint.yaml gateway/Dockerfile
+          hadolint --config .hadolint.yaml sandbox/Dockerfile
+
+      # ---- GitHub Actions ----
+
+      - name: Actionlint
+        run: |
+          ACTIONLINT_VERSION=1.7.10
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64)  ACTIONLINT_ARCH="amd64" ;;
+            aarch64) ACTIONLINT_ARCH="arm64" ;;
+            *) echo "Unsupported architecture: $ARCH" && exit 1 ;;
+          esac
+          wget -qO actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${ACTIONLINT_ARCH}.tar.gz"
+          tar xzf actionlint.tar.gz actionlint
+          ./actionlint
+
+      # ---- Custom lint scripts ----
+
+      - name: Check container paths
+        run: .venv/bin/python scripts/check-container-paths.py
+
+      - name: Check container-host boundary
+        run: .venv/bin/python scripts/check-container-host-boundary.py
+
+      - name: Check gh CLI usage
+        run: .venv/bin/python scripts/check-gh-cli-usage.py
+
+      - name: Check Claude imports
+        run: .venv/bin/python scripts/check-claude-imports.py

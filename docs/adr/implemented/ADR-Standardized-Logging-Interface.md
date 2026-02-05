@@ -760,7 +760,7 @@ January 2026 to reduce dead code.
 
 ### Phase 5: GCP Cloud Logging Integration ⏳ DEFERRED (AS PLANNED)
 
-GCP-specific functionality (Cloud Logging output handler, log router configuration, BigQuery export) will be implemented as part of the GCP migration per [ADR-GCP-Deployment-Terraform](./ADR-GCP-Deployment-Terraform.md). This ensures:
+GCP-specific functionality (Cloud Logging output handler, log router configuration, BigQuery export) will be implemented as part of the GCP migration. This ensures:
 
 1. GCP infrastructure is available before adding Cloud Logging integration
 2. Logging changes are tested alongside other GCP components
@@ -776,12 +776,10 @@ GCP-specific functionality (Cloud Logging output handler, log router configurati
 
 | ADR | Relationship |
 |-----|---------------|
-| [ADR-GCP-Deployment-Terraform](./ADR-GCP-Deployment-Terraform.md) | Defines Cloud Run deployment where logs flow to Cloud Logging |
-| [ADR-Internet-Tool-Access-Lockdown](./ADR-Internet-Tool-Access-Lockdown.md) | Tool wrappers complement gateway audit logging |
+| [ADR-Internet-Tool-Access-Lockdown](../in-progress/ADR-Internet-Tool-Access-Lockdown.md) | Tool wrappers complement gateway audit logging |
 | [ADR-Autonomous-Software-Engineer](../in-progress/ADR-Autonomous-Software-Engineer.md) | Parent ADR defining debugging and observability needs |
-| [ADR-LLM-Inefficiency-Reporting](../implemented/ADR-LLM-Inefficiency-Reporting.md) | Structured logging enables trace collection and inefficiency detection described in that ADR |
 
 ---
 
 **Last Updated:** 2026-01-27
-**Status:** Implemented (Phases 1, 3-4 Complete; Phase 2 Partial) - See [Implementation Review](./ADR-Standardized-Logging-Interface-IMPLEMENTATION-REVIEW.md)
+**Status:** Implemented (Phases 1, 3-4 Complete; Phase 2 Partial)

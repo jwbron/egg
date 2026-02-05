@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Import statusbar for quiet mode
-from statusbar import status
+from statusbar import status, status_finish
 
 from .auth import get_anthropic_api_key, get_anthropic_auth_method
 from .config import (
@@ -252,7 +252,7 @@ def _setup_repo_mounts(
     mount_args: list[str],
     quiet: bool = False,
     use_gateway_worktrees: bool = True,
-) -> dict:
+) -> dict[str, Path]:
     """Configure repository mounts for a container.
 
     In the gateway-managed worktree architecture:
@@ -271,7 +271,7 @@ def _setup_repo_mounts(
     Returns:
         Dict of repo_name -> repo_path for tracking
     """
-    repos = {}
+    repos: dict[str, Path] = {}
     local_repos = get_local_repos()
 
     if not local_repos:
@@ -393,7 +393,7 @@ def _setup_session_repos(
     mode: str,
     mount_args: list[str],
     quiet: bool = False,
-) -> tuple[str | None, dict, list[str]]:
+) -> tuple[str | None, dict[str, Path], list[str]]:
     """Configure repository mounts using session-based visibility filtering.
 
     This is the per-container repository mode flow. It:
@@ -415,7 +415,7 @@ def _setup_session_repos(
         - repos_dict: Dict of repo_name -> repo_path for tracking
         - filtered_repos: List of repos that passed visibility filtering
     """
-    repos = {}
+    repos: dict[str, Path] = {}
     local_repos = get_local_repos()
 
     if not local_repos:
@@ -549,7 +549,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
     with _host_timer.phase("start_gateway"):
         if quiet:
             status("Starting gateway sidecar...")
-        if not start_gateway_container(interactive=True):
+        if not start_gateway_container():
             error("Failed to start gateway sidecar")
             return False
 
@@ -572,7 +572,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
     else:
         info("Configuring repository mounts...")
         print()
-    mount_args = []
+    mount_args: list[str] = []
 
     # Track session token for cleanup and container env
     session_token = None
@@ -750,7 +750,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
 
     # Final status update before launching
     if quiet:
-        status("Launching Claude...")
+        status_finish("Launching Claude Code...")
 
     # Record launch timestamp for measuring docker startup time
     # This captures the gap between host finishing and container Python starting
@@ -861,7 +861,7 @@ def exec_in_new_container(
 
     # Build mount configuration
     info("Configuring repository mounts...")
-    mount_args = []
+    mount_args: list[str] = []
 
     # Track session token for cleanup and container env
     session_token = None
@@ -1001,7 +1001,7 @@ def exec_in_new_container(
     timeout_seconds = timeout_minutes * 60
     run_success = False
 
-    def cleanup_container():
+    def cleanup_container() -> None:
         """Save logs, remove container, and clean up session/worktrees."""
         try:
             # Save container logs before removal (with correlation info)

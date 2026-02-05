@@ -50,7 +50,8 @@ if [ ! -f "/secrets/launcher-secret" ]; then
 fi
 
 # Export launcher secret for authentication
-export EGG_LAUNCHER_SECRET=$(cat /secrets/launcher-secret)
+EGG_LAUNCHER_SECRET=$(cat /secrets/launcher-secret)
+export EGG_LAUNCHER_SECRET
 
 # github_client.py reads directly from /secrets/.github-token
 # No symlinks needed since we mount the directory

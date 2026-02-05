@@ -76,7 +76,25 @@ module = ["waitress", "waitress.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["egg_logging.wrappers.*"]
+module = ["egg_logging", "egg_logging.*"]
+ignore_missing_imports = true
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "repo_config",
+    "repo_config.*",
+    "token_refresher",
+    "config_validator",
+    "anthropic_credentials",
+    "error_messages",
+    "repo_visibility",
+    "proxy_monitor",
+    "fork_policy",
+    "private_repo_policy",
+    "config.host_config",
+    "statusbar",
+]
 ignore_missing_imports = true
 
 [tool.bandit]

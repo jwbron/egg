@@ -6,188 +6,120 @@ This document describes the directory structure conventions for egg.
 
 ```
 egg/
-├── bin/                    # CLI symlinks (points to actual implementations)
-├── config/                 # Central configuration (repos, filters)
+├── bin/                    # CLI entry points
+├── config/                 # Central configuration (repos, secrets template)
 ├── docs/                   # Cross-cutting documentation
-├── host-services/          # Host-side systemd services
-├── sandbox/          # Container-side code and config
-├── setup.sh                # Master setup script
-└── README.md               # Main documentation
+├── gateway/                # Gateway sidecar (trusted container)
+├── sandbox/                # Sandbox container (untrusted, runs the LLM agent)
+├── scripts/                # Validation and lint scripts
+├── shared/                 # Shared Python libraries (used by gateway + sandbox)
+├── tests/                  # Tests
+├── dev                     # Development CLI (setup, lint, test, ci)
+└── README.md
 ```
 
-## Directory Naming Conventions
+## Directory Details
 
-| Directory | Purpose | Runs On |
+| Directory | Purpose | Runs In |
 |-----------|---------|---------|
-| `host-services/slack/` | Slack communication services | Host |
-| `host-services/sync/` | Data synchronization services | Host |
-| `host-services/analysis/` | Code/conversation analysis and PR tools | Host |
-| `host-services/utilities/` | Utility services (cleanup) | Host |
-| `sandbox/egg-tasks/` | Scripts called via `egg --exec` from host services | Container (via egg --exec) |
-| `sandbox/tools/` | Interactive tools used inside the container | Container |
-| `sandbox/.claude/` | Claude Code configuration (rules, commands) | Container |
+| `bin/` | CLI entry points (`egg`, `setup-gateway`) | Host |
+| `config/` | Repository config, secrets template | Host |
+| `gateway/` | Gateway sidecar: policy enforcement, credential injection, proxying | Gateway container |
+| `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
+| `shared/` | Shared libraries: logging, config, git utilities | Both containers |
+| `scripts/` | CI/lint scripts (config validation, import checks) | CI / local |
+| `tests/` | Test suite | CI / local |
 
-## Host Service Structure
+## Gateway Structure
 
-Services in `host-services/` are organized by category:
-
-```
-host-services/
-├── slack/                     # Slack communication
-│   ├── slack-notifier/        # Outgoing notifications
-│   └── slack-receiver/        # Incoming messages
-├── sync/                      # Data synchronization
-│   └── context-sync/          # Confluence/JIRA sync
-└── utilities/                 # Utility services
-    ├── egg-logs/              # Log management
-    └── service-failure-notify/ # Service failure notifications
-```
-
-Each service directory should contain:
+The gateway sidecar holds credentials and enforces policies:
 
 ```
-<service-name>/
-├── README.md              # Required: Purpose, setup, usage
-├── setup.sh               # Required: Installation script (for systemd services)
-├── <service-name>.py      # Main implementation (if Python)
-├── <service-name>.sh      # Main implementation (if shell)
-├── <service-name>.service # Systemd service unit (if daemon)
-├── <service-name>.timer   # Systemd timer (if timer-based)
-└── requirements.txt       # Python dependencies (even if empty)
+gateway/
+├── gateway.py              # Main HTTP server
+├── git_client.py           # Git operation handler
+├── github_client.py        # GitHub API handler
+├── policy.py               # Branch ownership, push policies
+├── fork_policy.py          # Fork access policies
+├── private_repo_policy.py  # Private/public repo access
+├── token_refresher.py      # GitHub App token management
+├── anthropic_credentials.py # API key injection for Claude
+├── worktree_manager.py     # Git worktree lifecycle
+├── session_manager.py      # Agent session management
+├── proxy_monitor.py        # Squid proxy monitoring
+├── rate_limiter.py         # Rate limiting
+├── Dockerfile              # Gateway container image
+├── squid.conf              # Proxy config (private mode)
+├── scripts/                # Gateway helper scripts
+└── tests/                  # Gateway tests
 ```
 
-### When to Use Subdirectories
+## Sandbox Structure
 
-Most services should be **flat** (all files at root level). Use subdirectories only when:
-
-1. **Multiple subsystems**: Service has 2+ distinct functional areas (e.g., Confluence connector + JIRA connector)
-2. **10+ files**: Service complexity warrants organization
-3. **Shared utilities**: Multiple scripts share common code
-
-Example of justified subdirectory usage (`context-sync/`):
-```
-context-sync/
-├── connectors/         # Pluggable data source connectors
-│   ├── confluence/     # Confluence-specific code
-│   └── jira/           # JIRA-specific code
-├── docs/               # Extended documentation (8+ files)
-├── utils/              # Shared utilities
-├── README.md
-├── setup.sh
-├── requirements.txt
-├── context-sync.service
-└── context-sync.timer
-```
-
-## Container Task Structure
-
-Tasks in `sandbox/egg-tasks/` are organized by product/service:
+The sandbox container is where the LLM agent runs:
 
 ```
-sandbox/egg-tasks/
-├── github/                    # GitHub-related tasks
-│   ├── README.md
-│   ├── github-processor.py    # Processes GitHub tasks via Slack commands
-│   └── command-handler.py     # Routes GitHub commands
-├── jira/                      # JIRA-related tasks
-│   ├── README.md
-│   ├── jira-processor.py      # Analyzes JIRA tickets
-│   └── analyze-sprint.py      # Sprint analysis
-└── slack/                     # Slack-related tasks
-    ├── README.md
-    └── incoming-processor.py  # Processes incoming messages
+sandbox/
+├── entrypoint.py           # Container entry point
+├── statusbar.py            # Status bar display
+├── egg                     # Main egg script
+├── Dockerfile              # Sandbox container image
+├── docker-setup.py         # In-container tool installation
+├── bin/                    # Git/gh wrapper scripts (route to gateway)
+│   ├── git
+│   ├── gh
+│   └── git-credential-github-token
+├── egg_lib/                # Container utility libraries
+├── llm/                    # Claude Code / Agent SDK integration
+├── tools/                  # Interactive tools
+│   ├── discover-tests.py   # Test framework discovery
+│   └── github-app-token.py # Token generation utility
+├── claude-commands/        # Custom slash commands
+├── claude-rules/           # Agent behavior rules
+└── scripts/                # Container helper scripts
 ```
 
-These are called via `egg --exec` from host-side systemd services (no background processes).
+## Shared Libraries
+
+```
+shared/
+├── egg_config/             # Configuration utilities
+├── egg_git/                # Git utilities
+└── egg_logging/            # Structured logging
+```
+
+## Config Directory
+
+```
+config/
+├── repositories.yaml.example  # Repository access configuration template
+├── secrets.template.env        # Secrets template
+├── repo_config.py              # Python API for repo access
+└── README.md
+```
 
 ## File Naming Conventions
 
 | Type | Convention | Example |
 |------|------------|---------|
-| Python scripts | kebab-case | `conversation-analyzer.py` |
-| Shell scripts | kebab-case | `setup.sh`, `manage-scheduler.sh` |
-| Systemd files | `<service-name>.service`, `<service-name>.timer` | `slack-notifier.service` |
+| Python scripts | kebab-case | `discover-tests.py` |
+| Python packages | snake_case | `egg_config/`, `egg_lib/` |
+| Shell scripts | kebab-case | `setup.sh`, `start-gateway.sh` |
 | Config files | `.yaml` (not `.yml`) | `repositories.yaml` |
-| Documentation | UPPERCASE.md for guides, lowercase.md for READMEs | `SCHEDULING.md`, `README.md` |
-
-## Symlink Strategy
-
-The `bin/` directory contains symlinks for convenient CLI access:
-
-```
-bin/
-├── egg -> ../sandbox/egg
-├── setup-slack-notifier -> ../host-services/slack/slack-notifier/setup.sh
-├── view-logs -> script for viewing container logs
-└── ...
-```
-
-**Benefits**:
-- Single location for common commands
-- Actual code stays with its service
-- Easy discovery of available tools
-
-## Configuration Organization
-
-```
-config/                        # Global configuration
-├── repositories.yaml          # GitHub repo permissions (source of truth)
-├── context-filters.yaml       # Content filtering rules
-└── repo_config.py             # Python API for repo access
-
-host-services/<service>/       # Service-specific config
-└── requirements.txt           # Python dependencies
-
-~/.config/egg/                 # Runtime user config (not in repo)
-├── config.yaml                # Non-secret settings (Slack channel, etc.)
-└── secrets.env                # Secrets (Slack tokens, API keys)
-```
+| Documentation | UPPERCASE.md for guides, lowercase.md for READMEs | `STRUCTURE.md`, `README.md` |
 
 ## Documentation Organization
 
 ```
 docs/
-├── README.md                  # Documentation index
-├── adr/                       # Architecture Decision Records
-├── architecture/              # System design docs
-├── development/               # Developer guides (like this file)
-├── reference/                 # Quick reference guides
-├── setup/                     # Setup instructions
-└── user-guide/                # End-user documentation
-
-host-services/<service>/       # Component-specific docs
-└── README.md                  # Service documentation
-
-host-services/<service>/docs/  # Extended docs (only if needed)
-└── TOPIC.md                   # Detailed topic guides
+├── index.md                # Documentation navigation hub
+├── README.md               # Documentation overview
+├── adr/                    # Architecture Decision Records
+├── architecture/           # System design docs
+├── development/            # Developer guides (this file)
+├── reference/              # Quick reference guides
+├── setup/                  # Setup instructions
+└── troubleshooting/        # Common issues and solutions
 ```
 
 **Rule**: Documentation should live close to code. Only cross-cutting docs belong in the central `docs/` directory.
-
-## Adding a New Host Service
-
-1. Create directory: `host-services/<service-name>/`
-2. Add required files:
-   - `README.md` - Document purpose and usage
-   - `setup.sh` - Installation script
-   - `<service-name>.service` - Systemd unit
-   - `requirements.txt` - Dependencies (even if empty)
-3. Add symlink to `bin/` if user-facing
-4. Update main `README.md` architecture section
-5. Add to `setup.sh` components array
-
-## Adding a New Container Task
-
-1. Identify the product/service category (github, jira, confluence, slack, or new)
-2. Add script to appropriate directory: `sandbox/egg-tasks/<product>/`
-3. Add required files:
-   - `README.md` - Document purpose and usage (one per product directory)
-   - Main implementation (`.py`)
-4. Update the host-side systemd service to call via `egg --exec`
-5. Update main `README.md` container components section
-
-## Adding a New Container Tool
-
-1. Add script to `sandbox/tools/`
-2. Document in the directory's `README.md`
-3. Tools are interactive utilities used inside the container (not called via egg --exec)

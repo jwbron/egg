@@ -15,6 +15,7 @@ import logging
 import subprocess
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
+from typing import Any
 
 from llm.claude.config import ClaudeConfig
 from llm.result import AgentResult
@@ -88,7 +89,7 @@ def _classify_error(returncode: int, stderr: str) -> str:
     return stderr[:500] if stderr else f"Exit code {returncode}"
 
 
-def _extract_text_from_event(event: dict) -> str | None:
+def _extract_text_from_event(event: dict[str, Any]) -> str | None:
     """Extract text content from a stream-json event.
 
     Args:
@@ -121,12 +122,12 @@ def _extract_text_from_event(event: dict) -> str | None:
     if event_type == "result":
         result = event.get("result")
         if result:
-            return result
+            return str(result)
 
     return None
 
 
-def _extract_model_from_event(event: dict, current_model: str | None) -> str | None:
+def _extract_model_from_event(event: dict[str, Any], current_model: str | None) -> str | None:
     """Extract model information from a stream-json event.
 
     Args:
@@ -143,7 +144,7 @@ def _extract_model_from_event(event: dict, current_model: str | None) -> str | N
         model = event.get("model")
         if model:
             logger.debug(f"Model from init event: {model}")
-            return model
+            return str(model)
 
     # Assistant message has model in nested message
     if event_type == "assistant":
@@ -151,7 +152,7 @@ def _extract_model_from_event(event: dict, current_model: str | None) -> str | N
         model = message.get("model")
         if model and model != current_model:
             logger.debug(f"Model from assistant event: {model}")
-            return model
+            return str(model)
 
     return current_model
 
@@ -280,6 +281,9 @@ async def run_agent_async(
         )
 
         # Send prompt via stdin and close
+        assert process.stdin is not None
+        assert process.stdout is not None
+        assert process.stderr is not None
         process.stdin.write(prompt.encode())
         await process.stdin.drain()
         process.stdin.close()
@@ -323,7 +327,8 @@ async def run_agent_async(
         if actual_model:
             logger.info(f"Agent completed using model: {actual_model}")
 
-        if process.returncode == 0:
+        returncode = process.returncode if process.returncode is not None else -1
+        if returncode == 0:
             return AgentResult(
                 success=True,
                 stdout="\n".join(stdout_parts),
@@ -337,8 +342,8 @@ async def run_agent_async(
                 success=False,
                 stdout="\n".join(stdout_parts),
                 stderr=stderr_text,
-                returncode=process.returncode,
-                error=_classify_error(process.returncode, stderr_text),
+                returncode=returncode,
+                error=_classify_error(returncode, stderr_text),
                 metadata={"model": actual_model} if actual_model else None,
             )
 
@@ -388,7 +393,7 @@ def run_agent(
     prompt: str,
     *,
     model: str | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> AgentResult:
     """Synchronous wrapper for run_agent_async.
 
