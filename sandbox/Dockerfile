@@ -99,6 +99,15 @@ RUN pip3 install --no-cache-dir \
     # Documentation
     markdown
 
+# Pre-install user-configured dependencies from repositories.yaml
+# This step is placed AFTER common packages for better Docker layer caching:
+# changes to user config only rebuild this layer, not the common packages above.
+# Installs: extra system packages (apt/dnf), pip packages, and npm packages.
+# Essential for private mode (no network at runtime) and speeds up public mode.
+COPY repositories.yaml /tmp/repositories.yaml
+RUN python3 /tmp/docker-setup.py --install-deps --config /tmp/repositories.yaml && \
+    rm -f /tmp/docker-setup.py /tmp/repositories.yaml
+
 # Note: Claude authentication is mounted at runtime from ~/.egg/claude/ on host
 # This directory is shared across all containers for consistent authentication
 # See entrypoint script for setup and credential detection

@@ -132,7 +132,7 @@ local_repos:
 # Docker container setup configuration
 # Controls what gets installed when running docker-setup.py
 docker_setup:
-  # Extra packages to install beyond core utilities
+  # Extra system packages to install beyond core utilities
   # Core utilities (always installed): git, curl, wget, jq, unzip, vim, htop,
   #   tree, lsof, build-essential/gcc+make
   extra_packages:
@@ -154,3 +154,26 @@ docker_setup:
   #     - python3.11
   #     - golang
   #     - java-11-openjdk
+
+  # Pre-install Python packages in the Docker image
+  # These are installed at build time so they're available without network access.
+  # Essential for private mode (no PyPI access at runtime) and speeds up public mode.
+  # Common packages (pytest, requests, etc.) are already pre-installed by default.
+  # Add repo-specific dependencies here.
+  pip: []
+  # Examples:
+  #   pip:
+  #     - django>=4.0
+  #     - celery[redis]
+  #     - boto3
+  #     - sqlalchemy
+
+  # Pre-install npm packages globally in the Docker image
+  # These are installed at build time so they're available without network access.
+  # Requires nodejs to be listed in extra_packages above.
+  npm: []
+  # Examples:
+  #   npm:
+  #     - typescript
+  #     - jest
+  #     - eslint

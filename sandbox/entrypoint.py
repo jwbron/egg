@@ -515,6 +515,114 @@ def setup_worktrees(config: Config, logger: Logger) -> bool:
     return True
 
 
+def install_repo_dependencies(config: Config, logger: Logger) -> None:
+    """Detect and install repository dependencies from dependency files.
+
+    Scans each mounted repo for standard dependency files (requirements.txt,
+    package.json) and installs them automatically.
+
+    In public mode: installs dependencies (network available).
+    In private mode: skips installation and logs guidance to use
+        docker_setup.pip in repositories.yaml for preinstallation.
+    """
+    is_private_mode = os.environ.get("PRIVATE_MODE", "false").lower() == "true"
+
+    if not config.repos_dir.exists():
+        return
+
+    # Collect repos that have dependency files
+    repos_with_deps: list[tuple[Path, list[str]]] = []
+    for repo_dir in sorted(config.repos_dir.iterdir()):
+        if not repo_dir.is_dir():
+            continue
+
+        dep_files = []
+        if (repo_dir / "requirements.txt").exists():
+            dep_files.append("requirements.txt")
+        if (repo_dir / "pyproject.toml").exists():
+            dep_files.append("pyproject.toml")
+        if (repo_dir / "package.json").exists():
+            dep_files.append("package.json")
+
+        if dep_files:
+            repos_with_deps.append((repo_dir, dep_files))
+
+    if not repos_with_deps:
+        return
+
+    if is_private_mode:
+        logger.info("Repo dependencies detected (private mode - skipping runtime install):")
+        for repo_dir, dep_files in repos_with_deps:
+            logger.info(f"  {repo_dir.name}: {', '.join(dep_files)}")
+        logger.info("  To pre-install deps, add packages to repositories.yaml:")
+        logger.info("    docker_setup:")
+        logger.info("      pip:")
+        logger.info("        - <package-name>")
+        return
+
+    # Public mode: install dependencies from detected files
+    logger.info("Installing repo dependencies (public mode)...")
+    user_tuple = (config.runtime_uid, config.runtime_gid)
+
+    for repo_dir, dep_files in repos_with_deps:
+        for dep_file in dep_files:
+            dep_path = repo_dir / dep_file
+
+            if dep_file == "requirements.txt":
+                logger.info(f"  pip install -r {repo_dir.name}/{dep_file}")
+                result = run_cmd(
+                    ["pip3", "install", "--no-cache-dir", "-r", str(dep_path)],
+                    check=False,
+                    as_user=user_tuple,
+                    timeout=120,
+                )
+                if result.returncode == 0:
+                    logger.success(f"  {repo_dir.name}/{dep_file} installed")
+                else:
+                    logger.warn(f"  {repo_dir.name}/{dep_file} had errors (some deps may be missing)")
+
+            elif dep_file == "package.json":
+                # Check if npm is available
+                npm_result = run_cmd(["which", "npm"], check=False, capture=True)
+                if npm_result.returncode != 0:
+                    logger.info(f"  Skipping {repo_dir.name}/{dep_file} (npm not installed)")
+                    continue
+                # Check if node_modules already exists (deps already installed)
+                if (repo_dir / "node_modules").exists():
+                    logger.info(f"  {repo_dir.name}/{dep_file} (node_modules exists, skipping)")
+                    continue
+                logger.info(f"  npm install in {repo_dir.name}/")
+                result = run_cmd(
+                    ["npm", "install", "--prefix", str(repo_dir)],
+                    check=False,
+                    as_user=user_tuple,
+                    timeout=180,
+                )
+                if result.returncode == 0:
+                    logger.success(f"  {repo_dir.name}/{dep_file} installed")
+                else:
+                    logger.warn(f"  {repo_dir.name}/{dep_file} had errors")
+
+            # pyproject.toml: only install if it has [project.dependencies]
+            elif dep_file == "pyproject.toml":
+                try:
+                    content = dep_path.read_text()
+                    if "[project]" in content and "dependencies" in content:
+                        logger.info(f"  pip install {repo_dir.name}/ (from pyproject.toml)")
+                        result = run_cmd(
+                            ["pip3", "install", "--no-cache-dir", "-e", str(repo_dir)],
+                            check=False,
+                            as_user=user_tuple,
+                            timeout=120,
+                        )
+                        if result.returncode == 0:
+                            logger.success(f"  {repo_dir.name} installed (editable)")
+                        else:
+                            logger.warn(f"  {repo_dir.name} pyproject.toml install had errors")
+                except Exception:
+                    pass
+
+
 def setup_egg_symlink(config: Config, logger: Logger) -> None:
     """Create ~/egg symlink to runtime scripts.
 
@@ -1162,6 +1270,9 @@ def main() -> None:
             logger.error("Container startup aborted due to worktree configuration failure.")
             logger.error("Please check your egg setup and try again.")
             sys.exit(1)
+
+    with _startup_timer.phase("install_repo_deps"):
+        install_repo_dependencies(config, logger)
 
     with _startup_timer.phase("setup_agent_rules"):
         setup_agent_rules(config, logger)

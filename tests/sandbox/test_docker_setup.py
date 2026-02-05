@@ -301,6 +301,7 @@ class TestMain:
     def test_main_requires_root(self, capsys, monkeypatch):
         """Test that main requires root privileges."""
         monkeypatch.setattr(os, "geteuid", lambda: 1000)  # Non-root
+        monkeypatch.setattr("sys.argv", ["docker-setup.py"])  # Clean argv for argparse
 
         with pytest.raises(SystemExit) as excinfo:
             docker_setup.main()
@@ -308,3 +309,194 @@ class TestMain:
         captured = capsys.readouterr()
         assert "root" in captured.out
         assert excinfo.value.code == 1
+
+
+class TestGetPipPackages:
+    """Tests for pip package configuration."""
+
+    def test_get_pip_packages_empty_config(self):
+        """Test with empty config returns empty list."""
+        result = docker_setup.get_pip_packages({})
+        assert result == []
+
+    def test_get_pip_packages_with_packages(self):
+        """Test extracting pip packages from config."""
+        config = {
+            "docker_setup": {
+                "pip": ["django>=4.0", "celery[redis]", "boto3"],
+            }
+        }
+        result = docker_setup.get_pip_packages(config)
+        assert result == ["django>=4.0", "celery[redis]", "boto3"]
+
+    def test_get_pip_packages_no_docker_setup(self):
+        """Test with config that has no docker_setup key."""
+        config = {"writable_repos": ["owner/repo"]}
+        result = docker_setup.get_pip_packages(config)
+        assert result == []
+
+    def test_get_pip_packages_no_pip_key(self):
+        """Test with docker_setup but no pip key."""
+        config = {"docker_setup": {"extra_packages": {"apt": ["nodejs"]}}}
+        result = docker_setup.get_pip_packages(config)
+        assert result == []
+
+
+class TestGetNpmPackages:
+    """Tests for npm package configuration."""
+
+    def test_get_npm_packages_empty_config(self):
+        """Test with empty config returns empty list."""
+        result = docker_setup.get_npm_packages({})
+        assert result == []
+
+    def test_get_npm_packages_with_packages(self):
+        """Test extracting npm packages from config."""
+        config = {
+            "docker_setup": {
+                "npm": ["typescript", "jest", "eslint"],
+            }
+        }
+        result = docker_setup.get_npm_packages(config)
+        assert result == ["typescript", "jest", "eslint"]
+
+    def test_get_npm_packages_no_docker_setup(self):
+        """Test with config that has no docker_setup key."""
+        config = {"writable_repos": ["owner/repo"]}
+        result = docker_setup.get_npm_packages(config)
+        assert result == []
+
+
+class TestInstallPipPackages:
+    """Tests for pip package installation."""
+
+    @patch.object(docker_setup, "run")
+    def test_install_pip_packages_empty(self, mock_run):
+        """Test that empty package list doesn't call pip."""
+        docker_setup.install_pip_packages([])
+        mock_run.assert_not_called()
+
+    @patch.object(docker_setup, "run")
+    def test_install_pip_packages_calls_pip(self, mock_run, capsys):
+        """Test that pip install is called with packages."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        docker_setup.install_pip_packages(["django", "celery"])
+
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0][0]
+        assert "pip3" in call_args
+        assert "install" in call_args
+        assert "django" in call_args
+        assert "celery" in call_args
+
+    @patch.object(docker_setup, "run")
+    def test_install_pip_packages_handles_failure(self, mock_run, capsys):
+        """Test that pip install failure is handled gracefully."""
+        mock_run.return_value = MagicMock(returncode=1)
+
+        docker_setup.install_pip_packages(["nonexistent-package"])
+
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.out or "failed" in captured.out.lower()
+
+
+class TestInstallNpmPackages:
+    """Tests for npm package installation."""
+
+    @patch.object(docker_setup, "run")
+    def test_install_npm_packages_empty(self, mock_run):
+        """Test that empty package list doesn't call npm."""
+        docker_setup.install_npm_packages([])
+        mock_run.assert_not_called()
+
+    @patch.object(docker_setup, "run_shell")
+    @patch.object(docker_setup, "run")
+    def test_install_npm_packages_no_npm(self, mock_run, mock_run_shell, capsys):
+        """Test that missing npm is handled gracefully."""
+        mock_run_shell.return_value = MagicMock(returncode=1)  # npm not found
+
+        docker_setup.install_npm_packages(["typescript"])
+
+        mock_run.assert_not_called()
+        captured = capsys.readouterr()
+        assert "npm not installed" in captured.out.lower()
+
+    @patch.object(docker_setup, "run_shell")
+    @patch.object(docker_setup, "run")
+    def test_install_npm_packages_calls_npm(self, mock_run, mock_run_shell, capsys):
+        """Test that npm install is called with packages."""
+        mock_run_shell.return_value = MagicMock(returncode=0)  # npm found
+        mock_run.return_value = MagicMock(returncode=0)
+
+        docker_setup.install_npm_packages(["typescript", "jest"])
+
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0][0]
+        assert "npm" in call_args
+        assert "install" in call_args
+        assert "-g" in call_args
+        assert "typescript" in call_args
+        assert "jest" in call_args
+
+
+class TestInstallDependencies:
+    """Tests for the install_dependencies function."""
+
+    @patch.object(docker_setup, "install_npm_packages")
+    @patch.object(docker_setup, "install_pip_packages")
+    @patch.object(docker_setup, "install_extra_packages")
+    @patch.object(docker_setup, "detect_distro", return_value="ubuntu")
+    def test_install_dependencies_empty_config(
+        self, mock_distro, mock_sys, mock_pip, mock_npm, capsys, tmp_path
+    ):
+        """Test install_dependencies with empty config file."""
+        config_file = tmp_path / "repositories.yaml"
+        config_file.write_text("{}\n")
+
+        docker_setup.install_dependencies(str(config_file))
+
+        mock_sys.assert_called_once_with("ubuntu", [], [])
+        mock_pip.assert_called_once_with([])
+        mock_npm.assert_called_once_with([])
+
+    @patch.object(docker_setup, "install_npm_packages")
+    @patch.object(docker_setup, "install_pip_packages")
+    @patch.object(docker_setup, "install_extra_packages")
+    @patch.object(docker_setup, "detect_distro", return_value="ubuntu")
+    def test_install_dependencies_with_packages(
+        self, mock_distro, mock_sys, mock_pip, mock_npm, capsys, tmp_path
+    ):
+        """Test install_dependencies with pip and npm packages configured."""
+        import yaml
+
+        config = {
+            "docker_setup": {
+                "pip": ["django", "celery"],
+                "npm": ["typescript"],
+                "extra_packages": {
+                    "apt": ["nodejs"],
+                },
+            }
+        }
+        config_file = tmp_path / "repositories.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        docker_setup.install_dependencies(str(config_file))
+
+        mock_pip.assert_called_once_with(["django", "celery"])
+        mock_npm.assert_called_once_with(["typescript"])
+
+    @patch.object(docker_setup, "install_npm_packages")
+    @patch.object(docker_setup, "install_pip_packages")
+    @patch.object(docker_setup, "install_extra_packages")
+    @patch.object(docker_setup, "detect_distro", return_value="ubuntu")
+    def test_install_dependencies_missing_config(
+        self, mock_distro, mock_sys, mock_pip, mock_npm, capsys
+    ):
+        """Test install_dependencies with non-existent config file."""
+        docker_setup.install_dependencies("/nonexistent/config.yaml")
+
+        # Should still call with empty lists (graceful fallback)
+        mock_pip.assert_called_once_with([])
+        mock_npm.assert_called_once_with([])

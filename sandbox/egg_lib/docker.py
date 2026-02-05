@@ -290,6 +290,20 @@ def create_dockerfile() -> None:
         else:
             warn(f"pyproject.toml not found at {src}")
 
+    # Copy repositories.yaml to build context for dependency preinstallation
+    # docker-setup.py --install-deps reads this to install pip/npm/system packages
+    # If no config exists, create a minimal default so COPY doesn't fail in Dockerfile
+    repos_config_dest = Config.CONFIG_DIR / "repositories.yaml"
+    if Config.REPOS_CONFIG_FILE.exists():
+        shutil.copy(Config.REPOS_CONFIG_FILE, repos_config_dest)
+        if not quiet:
+            info("repositories.yaml copied to build context (for dependency preinstallation)")
+    else:
+        # Create empty config so Dockerfile COPY doesn't fail
+        repos_config_dest.write_text("{}\n")
+        if not quiet:
+            info("No repositories.yaml found, using empty default for build")
+
     # Note: Claude credentials are mounted at runtime (not copied at build time)
     # This ensures the container always uses the host's CURRENT credentials
     # Avoids issues with stale/revoked OAuth tokens from previous builds
@@ -487,6 +501,12 @@ def compute_build_hash() -> str:
         shared_pyproject = shared_path / "pyproject.toml"
         if shared_pyproject.exists():
             _hash_file(shared_pyproject, hasher)
+
+    # Include repositories.yaml in hash so dependency config changes trigger rebuild
+    repos_config = Config.REPOS_CONFIG_FILE
+    if repos_config.exists():
+        hasher.update(b"repositories.yaml")
+        _hash_file(repos_config, hasher)
 
     return hasher.hexdigest()
 

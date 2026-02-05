@@ -166,12 +166,177 @@ def configure_system(distro: str) -> None:
     run(["sysctl", "-p"], check=False)
 
 
+def get_pip_packages(config: dict) -> list[str]:
+    """Get pip packages to pre-install from config."""
+    docker_setup = config.get("docker_setup", {})
+    return docker_setup.get("pip", [])
+
+
+def get_npm_packages(config: dict) -> list[str]:
+    """Get npm packages to pre-install from config."""
+    docker_setup = config.get("docker_setup", {})
+    return docker_setup.get("npm", [])
+
+
+def install_pip_packages(packages: list[str]) -> None:
+    """Install pip packages from config."""
+    if not packages:
+        return
+
+    print(f"\n=== Pre-installing pip packages: {', '.join(packages)} ===")
+    result = run(
+        ["pip3", "install", "--no-cache-dir"] + packages,
+        check=False,
+    )
+    if result.returncode != 0:
+        print(f"WARNING: Some pip packages failed to install (exit code {result.returncode})")
+        print("The container will still work, but some repo dependencies may be missing.")
+        print("Check package names and version constraints in repositories.yaml docker_setup.pip")
+
+
+def install_npm_packages(packages: list[str]) -> None:
+    """Install npm packages globally from config."""
+    if not packages:
+        return
+
+    # Check if npm is available
+    npm_check = run_shell("which npm", check=False, capture_output=True)
+    if npm_check.returncode != 0:
+        print("\n=== Skipping npm packages: npm not installed ===")
+        print("To use npm packages, add nodejs to docker_setup.extra_packages first:")
+        print("  docker_setup:")
+        print("    extra_packages:")
+        print("      apt:")
+        print("        - nodejs")
+        print("        - npm")
+        return
+
+    print(f"\n=== Pre-installing npm packages: {', '.join(packages)} ===")
+    result = run(
+        ["npm", "install", "-g"] + packages,
+        check=False,
+    )
+    if result.returncode != 0:
+        print(f"WARNING: Some npm packages failed to install (exit code {result.returncode})")
+        print("Check package names in repositories.yaml docker_setup.npm")
+
+
+def install_dependencies(config_path: str | None = None) -> None:
+    """Install user-configured dependencies from repositories.yaml.
+
+    This is called as a separate Docker build step (--install-deps flag)
+    to install pip and npm packages specified in the config.
+    Placed after base package installation for better Docker layer caching.
+
+    Args:
+        config_path: Explicit path to repositories.yaml. If None, uses default search.
+    """
+    print("=" * 60)
+    print("Pre-installing user-configured dependencies")
+    print("=" * 60)
+
+    # Load config from explicit path or default search
+    if config_path:
+        config_file = Path(config_path)
+        if config_file.exists():
+            with config_file.open() as f:
+                config = yaml.safe_load(f) or {}
+        else:
+            print(f"Config file not found: {config_path}")
+            config = {}
+    else:
+        config = load_config()
+
+    # Install extra system packages from config (apt/dnf)
+    distro = detect_distro()
+    apt_packages, dnf_packages = get_extra_packages(config, distro)
+    install_extra_packages(distro, apt_packages, dnf_packages)
+
+    # Install pip packages
+    pip_packages = get_pip_packages(config)
+    install_pip_packages(pip_packages)
+
+    # Install npm packages
+    npm_packages = get_npm_packages(config)
+    install_npm_packages(npm_packages)
+
+    # Summary
+    print()
+    print("=" * 60)
+    print("Dependency pre-installation complete!")
+    print("=" * 60)
+
+    installed_any = False
+    if (distro == "ubuntu" and apt_packages) or (distro == "fedora" and dnf_packages):
+        extra = apt_packages if distro == "ubuntu" else dnf_packages
+        print("\nSystem packages:")
+        for pkg in extra:
+            print(f"  ✓ {pkg}")
+        installed_any = True
+
+    if pip_packages:
+        print("\nPip packages:")
+        for pkg in pip_packages:
+            print(f"  ✓ {pkg}")
+        installed_any = True
+
+    if npm_packages:
+        print("\nNpm packages:")
+        for pkg in npm_packages:
+            print(f"  ✓ {pkg}")
+        installed_any = True
+
+    if not installed_any:
+        print("\nNo user-configured dependencies to install.")
+        print("To pre-install dependencies, add to ~/.config/egg/repositories.yaml:")
+        print("  docker_setup:")
+        print("    pip:")
+        print("      - package-name")
+        print("    npm:")
+        print("      - package-name")
+        print("    extra_packages:")
+        print("      apt:")
+        print("        - system-package")
+
+    print()
+
+
 def main():
     """Main setup process"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Docker development environment setup")
+    parser.add_argument(
+        "--install-deps",
+        action="store_true",
+        help="Install user-configured dependencies (pip, npm, system packages) from config",
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Explicit path to repositories.yaml config file",
+    )
+    args = parser.parse_args()
+
     if os.geteuid() != 0:
         print("This script must be run as root (for apt/dnf installs)")
         sys.exit(1)
 
+    if args.install_deps:
+        # Dependency-only mode: install pip/npm/system packages from config
+        try:
+            install_dependencies(args.config)
+        except Exception as e:
+            print(f"\nError during dependency installation: {e}", file=sys.stderr)
+            import traceback
+
+            traceback.print_exc()
+            # Don't fail the build - missing deps are non-fatal
+            print("Continuing despite errors (dependencies can be installed at runtime)")
+        return
+
+    # Default mode: install core system packages
     print("=" * 60)
     print("Docker Development Environment Setup")
     print("=" * 60)
