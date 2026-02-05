@@ -6,7 +6,7 @@ non-allowlisted domains are blocked. Tests DNS lockdown when configured.
 
 import pytest
 
-from tests.integration.conftest import exec_in_container
+from tests.integration.conftest import GATEWAY_PORT, exec_in_container
 
 
 @pytest.mark.integration
@@ -27,7 +27,7 @@ class TestProxyEnforcement:
                 "%{http_code}",
                 "--connect-timeout",
                 "5",
-                f"http://{egg_stack.gateway_isolated_ip}:{egg_stack.gateway_port}/api/v1/health",
+                f"http://{egg_stack.gateway_isolated_ip}:{GATEWAY_PORT}/api/v1/health",
             ],
             timeout=15,
         )
@@ -185,7 +185,3 @@ class TestDNSLockdown:
         assert returncode != 0 or stdout != "200", (
             "Container with null DNS should not be able to resolve external hostnames"
         )
-
-
-# Re-export the gateway port constant for the network isolation tests above
-GATEWAY_PORT = 9848

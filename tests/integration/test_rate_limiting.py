@@ -40,28 +40,32 @@ class TestRateLimiting:
 
         for i in range(20):
             container_id = f"test-rate-flood-{i}-{time.time_ns()}"
-            result = egg_stack.create_session(container_id=container_id)
+            resp = egg_stack.api_request(
+                "POST",
+                "/api/v1/sessions/create",
+                token=egg_stack.launcher_secret,
+                json_data={
+                    "container_id": container_id,
+                    "container_ip": "172.40.0.100",
+                    "mode": "private",
+                    "repos": ["test-owner/test-repo"],
+                    "uid": 1000,
+                    "gid": 1000,
+                },
+            )
 
-            if not result.get("success"):
-                # Check if we got rate-limited
-                resp = egg_stack.api_request(
-                    "POST",
-                    "/api/v1/sessions/create",
-                    token=egg_stack.launcher_secret,
-                    json_data={
-                        "container_id": f"test-rate-check-{i}-{time.time_ns()}",
-                        "container_ip": "172.40.0.100",
-                        "mode": "private",
-                        "repos": ["test-owner/test-repo"],
-                    },
-                )
-                if resp.status_code == 429:
-                    got_429 = True
-                    break
+            if resp.status_code == 429:
+                got_429 = True
+                break
 
-            token = result.get("data", result).get("session_token")
-            if token:
-                tokens.append(token)
+            if resp.status_code == 200:
+                try:
+                    body = resp.json()
+                    token = body.get("data", body).get("session_token")
+                    if token:
+                        tokens.append(token)
+                except ValueError:
+                    pass
 
         # Cleanup
         for token in tokens:
@@ -71,22 +75,20 @@ class TestRateLimiting:
             f"Expected 429 after excessive registrations, but all {len(tokens)} requests succeeded"
         )
 
-    def test_excessive_heartbeats_trigger_429(self, egg_stack, session):
+    def test_excessive_heartbeats_trigger_429(self, egg_stack, gateway_session):
         """Rapid heartbeats eventually trigger 429."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         assert token
 
         got_429 = False
         for _i in range(150):
-            result = egg_stack.heartbeat(token)
-            if not result.get("success"):
-                resp = egg_stack.api_request(
-                    "POST",
-                    f"/api/v1/sessions/{token}/heartbeat",
-                    token=egg_stack.launcher_secret,
-                )
-                if resp.status_code == 429:
-                    got_429 = True
-                    break
+            resp = egg_stack.api_request(
+                "POST",
+                f"/api/v1/sessions/{token}/heartbeat",
+                token=egg_stack.launcher_secret,
+            )
+            if resp.status_code == 429:
+                got_429 = True
+                break
 
         assert got_429, "Expected 429 after excessive heartbeats"

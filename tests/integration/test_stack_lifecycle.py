@@ -4,6 +4,7 @@ These tests verify the gateway starts correctly and sessions can be
 created, listed, heartbeated, and deleted without any GitHub connectivity.
 """
 
+import subprocess
 import time
 
 import pytest
@@ -32,8 +33,6 @@ class TestStackStartup:
 
     def test_squid_process_running(self, egg_stack):
         """Squid proxy process is running inside the gateway container."""
-        import subprocess
-
         # Find the gateway container name
         result = subprocess.run(
             [
@@ -111,7 +110,7 @@ class TestSessionLifecycle:
         delete_again = egg_stack.delete_session(token)
         assert delete_again.get("success") is False
 
-    def test_list_shows_active_sessions(self, egg_stack, session):
+    def test_list_shows_active_sessions(self, egg_stack, gateway_session):
         """Session list includes the currently active session."""
         result = egg_stack.list_sessions()
         assert result.get("success") is True
@@ -119,9 +118,9 @@ class TestSessionLifecycle:
         sessions = data.get("sessions", [])
         assert len(sessions) >= 1
 
-    def test_heartbeat_extends_ttl(self, egg_stack, session):
+    def test_heartbeat_extends_ttl(self, egg_stack, gateway_session):
         """Heartbeat returns success and an expires_at timestamp."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         assert token
 
         result = egg_stack.heartbeat(token)

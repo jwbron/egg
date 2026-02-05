@@ -13,12 +13,12 @@ import pytest
 class TestBlockedOperations:
     """Tests that dangerous gh operations are blocked by policy."""
 
-    def test_gh_pr_merge_blocked(self, egg_stack, session):
+    def test_gh_pr_merge_blocked(self, egg_stack, gateway_session):
         """gh pr merge is blocked -- this is the PRIMARY security control.
 
         The gateway MUST block all merge operations. Human review is required.
         """
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         resp = egg_stack.api_request(
             "POST",
             "/api/v1/gh/execute",
@@ -31,9 +31,9 @@ class TestBlockedOperations:
         body = resp.json()
         assert body.get("success") is not True, "SECURITY VIOLATION: gh pr merge was not blocked"
 
-    def test_gh_repo_delete_blocked(self, egg_stack, session):
+    def test_gh_repo_delete_blocked(self, egg_stack, gateway_session):
         """gh repo delete is blocked."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         resp = egg_stack.api_request(
             "POST",
             "/api/v1/gh/execute",
@@ -45,9 +45,9 @@ class TestBlockedOperations:
         body = resp.json()
         assert body.get("success") is not True, "SECURITY VIOLATION: gh repo delete was not blocked"
 
-    def test_gh_repo_create_blocked(self, egg_stack, session):
+    def test_gh_repo_create_blocked(self, egg_stack, gateway_session):
         """gh repo create is blocked."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         resp = egg_stack.api_request(
             "POST",
             "/api/v1/gh/execute",
@@ -65,9 +65,9 @@ class TestBlockedOperations:
 class TestBranchOwnership:
     """Tests for branch ownership enforcement on git push."""
 
-    def test_push_to_non_prefixed_branch_blocked(self, egg_stack, session):
+    def test_push_to_non_prefixed_branch_blocked(self, egg_stack, gateway_session):
         """Push to a branch without the bot prefix is blocked."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         resp = egg_stack.api_request(
             "POST",
             "/api/v1/git/push",
@@ -87,7 +87,7 @@ class TestBranchOwnership:
                 "Push to non-prefixed branch should be blocked by policy"
             )
 
-    def test_push_to_egg_prefixed_branch_allowed(self, egg_stack, session):
+    def test_push_to_egg_prefixed_branch_allowed(self, egg_stack, gateway_session):
         """Push to an egg-prefixed branch is allowed by policy.
 
         Note: This test verifies the policy check passes, not that the
@@ -95,7 +95,7 @@ class TestBranchOwnership:
         The assertion is that we get past the policy check (no 403)
         and fail for a different reason (repo not found, etc).
         """
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         resp = egg_stack.api_request(
             "POST",
             "/api/v1/git/push",

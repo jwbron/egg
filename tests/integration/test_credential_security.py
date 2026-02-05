@@ -180,9 +180,9 @@ class TestPathTraversal:
         "/home/egg/repos/test-repo/../../../etc/passwd",
     ]
 
-    def test_git_execute_path_traversal(self, egg_stack, session):
+    def test_git_execute_path_traversal(self, egg_stack, gateway_session):
         """Path traversal in git/execute repo_path is blocked."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         for payload in self.TRAVERSAL_PAYLOADS:
             resp = egg_stack.api_request(
                 "POST",
@@ -198,9 +198,9 @@ class TestPathTraversal:
                 f"payload '{payload}': status={resp.status_code}"
             )
 
-    def test_git_push_path_traversal(self, egg_stack, session):
+    def test_git_push_path_traversal(self, egg_stack, gateway_session):
         """Path traversal in git/push repo_path is blocked."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         for payload in self.TRAVERSAL_PAYLOADS:
             resp = egg_stack.api_request(
                 "POST",
@@ -217,9 +217,9 @@ class TestPathTraversal:
                 f"payload '{payload}': status={resp.status_code}"
             )
 
-    def test_gh_execute_path_traversal(self, egg_stack, session):
+    def test_gh_execute_path_traversal(self, egg_stack, gateway_session):
         """Path traversal in gh/execute args is handled safely."""
-        token = session.get("session_token")
+        token = gateway_session.get("session_token")
         resp = egg_stack.api_request(
             "POST",
             "/api/v1/gh/execute",
