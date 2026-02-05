@@ -24,7 +24,7 @@ import os
 import sys
 
 
-def _run_wrapper(wrapper_class, tool_name: str) -> int:
+def _run_wrapper(wrapper_class: type, tool_name: str) -> int:
     """Run a wrapper with sys.argv arguments.
 
     Args:
@@ -53,7 +53,7 @@ def _run_wrapper(wrapper_class, tool_name: str) -> int:
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
 
-    return result.exit_code
+    return int(result.exit_code)
 
 
 def git_main() -> int:

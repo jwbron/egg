@@ -94,7 +94,8 @@ def get_local_repos() -> list[Path]:
             sys.path.insert(0, str(_script_dir))
         from egg_config import get_local_repos as _get_local_repos
 
-        return _get_local_repos()
+        result: list[Path] = _get_local_repos()
+        return result
     except ImportError:
         pass
 

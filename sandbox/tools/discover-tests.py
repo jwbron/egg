@@ -105,7 +105,7 @@ class TestDiscovery:
 
         return self.result
 
-    def _check_python_tests(self):
+    def _check_python_tests(self) -> None:
         """Check for Python test frameworks."""
         # Check for pytest
         pytest_configs = ["pytest.ini", "pyproject.toml", "setup.cfg", "conftest.py"]
@@ -135,7 +135,7 @@ class TestDiscovery:
         if not pytest_found:
             # Look for unittest-style tests
             test_dirs = self._find_test_dirs(["test", "tests"])
-            if test_dirs or list(self.project_root.glob("test_*.py")):
+            if test_dirs or any(self.project_root.glob("test_*.py")):
                 framework = TestFramework(
                     name="unittest",
                     language="python",
@@ -150,7 +150,7 @@ class TestDiscovery:
             if (self.project_root / req_file).exists():
                 self.result.notes.append(f"Test dependencies in {req_file}")
 
-    def _check_javascript_tests(self):
+    def _check_javascript_tests(self) -> None:
         """Check for JavaScript/TypeScript test frameworks."""
         package_json = self.project_root / "package.json"
         if not package_json.exists():
@@ -250,7 +250,7 @@ class TestDiscovery:
         elif "eslint" in all_deps:
             self.result.lint_command = "npx eslint ."
 
-    def _check_go_tests(self):
+    def _check_go_tests(self) -> None:
         """Check for Go tests."""
         go_mod = self.project_root / "go.mod"
         if not go_mod.exists():
@@ -268,7 +268,7 @@ class TestDiscovery:
         )
         self.result.frameworks.append(framework)
 
-    def _check_java_tests(self):
+    def _check_java_tests(self) -> None:
         """Check for Java/Gradle/Maven tests."""
         # Check for Gradle
         if (self.project_root / "build.gradle").exists() or (
@@ -302,7 +302,7 @@ class TestDiscovery:
             )
             self.result.frameworks.append(framework)
 
-    def _check_makefile(self):
+    def _check_makefile(self) -> None:
         """Check Makefile for test targets."""
         makefile_names = ["Makefile", "makefile", "GNUmakefile"]
         makefile = None
@@ -333,7 +333,7 @@ class TestDiscovery:
         if test_targets:
             self.result.notes.append(f"Makefile test targets: {', '.join(test_targets)}")
 
-    def _check_shell_scripts(self):
+    def _check_shell_scripts(self) -> None:
         """Check for test runner shell scripts."""
         scripts_dirs = [".", "scripts", "bin", "tools"]
         test_script_patterns = ["test.sh", "run-tests.sh", "run_tests.sh", "test-*.sh"]
@@ -356,7 +356,7 @@ class TestDiscovery:
                 found.append(candidate)
         return found
 
-    def _count_test_files(self):
+    def _count_test_files(self) -> None:
         """Count total test files found."""
         count = 0
         counted_files: set[Path] = set()
@@ -376,7 +376,7 @@ class TestDiscovery:
 
         self.result.test_file_count = count
 
-    def _determine_recommended_command(self):
+    def _determine_recommended_command(self) -> None:
         """Determine the best command to run all tests."""
         # Prefer Makefile test target if available
         if "test" in self.result.makefile_targets:
@@ -476,7 +476,7 @@ def format_output(result: TestDiscoveryResult, as_json: bool = False) -> str:
     return "\n".join(lines)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Discover test configurations and patterns in a codebase"
     )

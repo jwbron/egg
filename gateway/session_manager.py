@@ -22,7 +22,7 @@ import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
@@ -104,7 +104,7 @@ class Session:
         self.last_seen = datetime.now(UTC)
         self.expires_at = self.last_seen + timedelta(hours=hours)
 
-    def to_dict_for_persistence(self) -> dict:
+    def to_dict_for_persistence(self) -> dict[str, Any]:
         """Convert to dictionary for persistence (excludes raw token)."""
         return {
             "session_token_hash": self.session_token_hash,
@@ -117,7 +117,7 @@ class Session:
         }
 
     @classmethod
-    def from_persistence(cls, data: dict) -> "Session":
+    def from_persistence(cls, data: dict[str, Any]) -> "Session":
         """Create Session from persisted data (no raw token)."""
         return cls(
             session_token=None,  # Raw token not persisted
@@ -139,9 +139,9 @@ class SessionValidationResult:
     session: Session | None = None
     error: str | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API response."""
-        result = {"valid": self.valid}
+        result: dict[str, Any] = {"valid": self.valid}
         if self.error:
             result["error"] = self.error
         if self.session:
@@ -358,7 +358,8 @@ class SessionManager:
                 )
                 # Clean up expired session
                 del self._sessions[token_hash]
-                self._token_to_hash.pop(session.session_token, None)
+                if session.session_token is not None:
+                    self._token_to_hash.pop(session.session_token, None)
                 self._save_to_disk()
                 return SessionValidationResult(
                     valid=False,
@@ -538,7 +539,7 @@ class SessionManager:
 
         return pruned
 
-    def list_sessions(self) -> list[dict]:
+    def list_sessions(self) -> list[dict[str, Any]]:
         """
         List all active (non-expired) sessions.
 

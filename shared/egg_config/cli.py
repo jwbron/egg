@@ -13,7 +13,7 @@ import argparse
 import json
 import sys
 
-from .base import ConfigStatus
+from .base import ConfigStatus, ValidationResult
 from .registry import get_registry
 
 
@@ -52,7 +52,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
         return 1
 
 
-def _print_validation_result(name: str, result, *, verbose: bool = False) -> None:
+def _print_validation_result(name: str, result: "ValidationResult", *, verbose: bool = False) -> None:
     """Print a single validation result."""
     status_icons = {
         ConfigStatus.VALID: "[OK]",

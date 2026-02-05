@@ -12,6 +12,7 @@ import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from .output import get_quiet_mode, info, warn
 
@@ -28,7 +29,7 @@ def generate_container_id() -> str:
     return f"egg-{timestamp}-{pid}"
 
 
-def get_docker_log_config(container_id: str, task_id: str | None = None) -> list:
+def get_docker_log_config(container_id: str, task_id: str | None = None) -> list[str]:
     """Generate Docker logging configuration arguments.
 
     Uses the json-file logging driver with:
@@ -152,7 +153,7 @@ def update_log_index(
             content = f.read()
 
             # Load existing index
-            index = {"task_to_container": {}, "thread_to_task": {}, "entries": []}
+            index: dict[str, Any] = {"task_to_container": {}, "thread_to_task": {}, "entries": []}
             if content:
                 with contextlib.suppress(Exception):
                     index = json.loads(content)

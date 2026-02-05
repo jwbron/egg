@@ -15,7 +15,7 @@ except ImportError:
     sys.exit(0)
 
 
-def main():
+def main() -> None:
     if len(sys.argv) != 3:
         print(f"Usage: {sys.argv[0]} <config_file> <home_dir>", file=sys.stderr)
         sys.exit(1)

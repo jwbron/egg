@@ -49,7 +49,8 @@ class GitHubConfig(BaseConfig):
         # Primary token is required
         is_valid, error = validate_non_empty(self.token, "token")
         if not is_valid:
-            errors.append(error)
+            if error is not None:
+                errors.append(error)
         else:
             is_valid, error = validate_github_token(self.token)
             if not is_valid:
@@ -223,4 +224,4 @@ def _get_github_username() -> str:
     """Get GitHub username from repositories.yaml."""
     config_file = Path.home() / ".config" / "egg" / "repositories.yaml"
     config = load_yaml_file(config_file)
-    return config.get("github_username", "egg")
+    return str(config.get("github_username", "egg"))

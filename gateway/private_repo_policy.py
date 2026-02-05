@@ -59,13 +59,13 @@ try:
     )
     from .repo_visibility import get_repo_visibility
 except ImportError:
-    from error_messages import get_error_message
-    from repo_parser import (
+    from error_messages import get_error_message  # type: ignore[no-redef]
+    from repo_parser import (  # type: ignore[no-redef, import-not-found]
         RepoInfo,
         extract_repo_from_request,
         parse_owner_repo,
     )
-    from repo_visibility import get_repo_visibility
+    from repo_visibility import get_repo_visibility  # type: ignore[no-redef]
 
 
 logger = get_logger("gateway.private-repo-policy")
@@ -134,7 +134,7 @@ class PrivateRepoPolicy:
     (network lockdown), but repo visibility is per-session.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the policy engine."""
         # No state needed - mode is per-session
 
@@ -149,7 +149,7 @@ class PrivateRepoPolicy:
         """Log a policy decision."""
         repo_str = str(repo) if repo else "unknown"
 
-        log_data = {
+        log_data: dict[str, Any] = {
             "event_type": "private_repo_policy",
             "operation": operation,
             "repository": repo_str,

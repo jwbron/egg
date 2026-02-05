@@ -156,15 +156,15 @@ class RepoVisibilityChecker:
 
             if response.status_code == 200:
                 data = response.json()
-                visibility = data.get("visibility", "public")
+                visibility_str: str = str(data.get("visibility", "public"))
 
                 # Validate visibility value to prevent cache poisoning
-                if visibility not in VALID_VISIBILITIES:
+                if visibility_str not in VALID_VISIBILITIES:
                     logger.warning(
                         "Invalid visibility value from GitHub API",
                         owner=owner,
                         repo=repo,
-                        visibility=visibility,
+                        visibility=visibility_str,
                         token_source=source,
                     )
                     return None
@@ -173,10 +173,11 @@ class RepoVisibilityChecker:
                     "Fetched repository visibility",
                     owner=owner,
                     repo=repo,
-                    visibility=visibility,
+                    visibility=visibility_str,
                     token_source=source,
                 )
-                return visibility
+                # We've validated it's in VALID_VISIBILITIES above
+                return visibility_str  # type: ignore[return-value]
 
             elif response.status_code == 404:
                 # Token doesn't have access - try next token

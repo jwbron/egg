@@ -10,17 +10,18 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 
-def run(cmd: list[str], check: bool = True, **kwargs) -> subprocess.CompletedProcess:
+def run(cmd: list[str], check: bool = True, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
     """Run a command and return the result"""
     print(f"Running: {' '.join(cmd)}")
     return subprocess.run(cmd, check=check, **kwargs)
 
 
-def run_shell(cmd: str, check: bool = True, **kwargs) -> subprocess.CompletedProcess:
+def run_shell(cmd: str, check: bool = True, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
     """Run a shell command"""
     print(f"Running: {cmd}")
     return subprocess.run(cmd, shell=True, check=check, executable="/bin/bash", **kwargs)
@@ -40,7 +41,7 @@ def get_arch() -> str:
     return os.uname().machine  # x86_64, aarch64, etc
 
 
-def load_config() -> dict:
+def load_config() -> dict[str, Any]:
     """Load repository configuration to get extra packages.
 
     Search order:
@@ -74,7 +75,7 @@ def load_config() -> dict:
     return {}
 
 
-def get_extra_packages(config: dict, distro: str) -> tuple[list[str], list[str]]:
+def get_extra_packages(config: dict[str, Any], distro: str) -> tuple[list[str], list[str]]:
     """
     Get extra packages from config.
 
@@ -166,7 +167,7 @@ def configure_system(distro: str) -> None:
     run(["sysctl", "-p"], check=False)
 
 
-def main():
+def main() -> None:
     """Main setup process"""
     if os.geteuid() != 0:
         print("This script must be run as root (for apt/dnf installs)")

@@ -12,6 +12,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 from .config import (
     EGG_EXTERNAL_NETWORK,
@@ -365,7 +366,8 @@ def get_latest_claude_version() -> str | None:
         url = "https://registry.npmjs.org/@anthropic-ai/claude-code/latest"
         with urllib.request.urlopen(url, timeout=10) as response:
             data = json.loads(response.read().decode())
-            return data.get("version")
+            version: str | None = data.get("version")
+            return version
     except Exception:
         return None
 
@@ -397,7 +399,7 @@ def check_claude_update() -> str | None:
     return None
 
 
-def _hash_file(path: Path, hasher) -> None:
+def _hash_file(path: Path, hasher: Any) -> None:
     """Add a single file's content to the hasher."""
     try:
         with open(path, "rb") as f:
@@ -407,7 +409,7 @@ def _hash_file(path: Path, hasher) -> None:
         pass
 
 
-def _hash_directory(path: Path, hasher) -> None:
+def _hash_directory(path: Path, hasher: Any) -> None:
     """Recursively hash all files in a directory."""
     if not path.exists():
         return
@@ -652,7 +654,10 @@ def ensure_egg_network() -> bool:
     """
     # Check if network exists
     result = subprocess.run(
-        ["docker", "network", "inspect", EGG_ISOLATED_NETWORK], capture_output=True, check=False
+        ["docker", "network", "inspect", EGG_ISOLATED_NETWORK],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if result.returncode == 0:
         return True
@@ -687,6 +692,7 @@ def _create_network(name: str, subnet: str, internal: bool = False) -> bool:
     result = subprocess.run(
         ["docker", "network", "inspect", name],
         capture_output=True,
+        text=True,
         check=False,
     )
     if result.returncode == 0:

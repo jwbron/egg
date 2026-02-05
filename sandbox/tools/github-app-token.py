@@ -61,10 +61,10 @@ def create_jwt(app_id: str, private_key: str) -> str:
 
     # Load private key and sign
     private_key_obj = serialization.load_pem_private_key(
-        private_key.encode(), password=None, backend=default_backend()
+        private_key.encode(), password=None, backend=default_backend()  # type: ignore[no-untyped-call]
     )
 
-    signature = private_key_obj.sign(message, padding.PKCS1v15(), hashes.SHA256())
+    signature = private_key_obj.sign(message, padding.PKCS1v15(), hashes.SHA256())  # type: ignore[call-arg,arg-type]
 
     signature_b64 = b64url_encode(signature)
 
@@ -143,6 +143,10 @@ def load_config(config_dir: Path) -> tuple[str | None, str | None, str | None, s
     if missing:
         return None, None, None, f"Missing config: {', '.join(missing)}"
 
+    # At this point app_id and installation_id are guaranteed non-None
+    assert app_id is not None
+    assert installation_id is not None
+
     try:
         private_key = private_key_file.read_text()
 
@@ -160,7 +164,7 @@ def load_config(config_dir: Path) -> tuple[str | None, str | None, str | None, s
         return None, None, None, f"Failed to read config: {e}"
 
 
-def main():
+def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Generate GitHub App installation access token")
@@ -184,6 +188,11 @@ def main():
         if not args.quiet:
             print(f"ERROR: {error}", file=sys.stderr)
         sys.exit(1)
+
+    # At this point, error is None so all three values are set
+    assert app_id is not None
+    assert installation_id is not None
+    assert private_key is not None
 
     # Generate JWT
     try:

@@ -21,7 +21,7 @@ from .setup_flow import check_host_setup, setup
 from .timing import _host_timer
 
 
-def main():
+def main() -> int | None:
     parser = argparse.ArgumentParser(
         description="Run Claude Code CLI in an isolated Docker container (egg)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
