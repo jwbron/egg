@@ -1,5 +1,5 @@
 """
-Tests for jib_config.base module.
+Tests for egg_config.base module.
 """
 
 from typing import Any

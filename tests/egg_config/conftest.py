@@ -1,4 +1,4 @@
-"""Pytest fixtures for jib_config tests."""
+"""Pytest fixtures for egg_config tests."""
 
 import pytest
 

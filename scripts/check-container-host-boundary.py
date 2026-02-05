@@ -61,7 +61,7 @@ def check_file_for_host_imports(file_path: Path) -> list[tuple[int, str]]:
         # spec_from_file_location with host-services path
         r"spec_from_file_location\([^)]*host-services",
         # Path construction for module loading: Path(...) / "host-services" / ... / ".py"
-        # This catches patterns like: jib_path / "host-services" / "analysis" / "index-generator.py"
+        # This catches patterns like: egg_path / "host-services" / "analysis" / "index-generator.py"
         r'Path[^=]*[/\\]\s*["\']host-services["\'].*\.py',
         # Direct path division with host-services leading to .py file
         r'/\s*["\']host-services["\'][^"\']*\.py',

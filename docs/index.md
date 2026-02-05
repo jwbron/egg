@@ -53,6 +53,14 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 |----------|-------------|
 | [GitHub Auth Issues](troubleshooting/github-auth-in-long-running-containers.md) | Token expiry and refresh in containers |
 
+### Audits & Reviews
+
+| Document | Description |
+|----------|-------------|
+| [Audit Reports Index](audits/README.md) | Repository audits and reviews |
+| [Migration Audit (2026-02)](audits/2026-02-migration-audit.md) | Post james-in-a-box migration review |
+| [Issues Checklist](audits/issues-checklist.md) | Actionable remediation checklist |
+
 ## Task-Specific Guides
 
 | Task Type | Read First | Also Helpful |
@@ -76,4 +84,4 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 ---
 
-*Last updated: 2026-01-28*
+*Last updated: 2026-02-04*
