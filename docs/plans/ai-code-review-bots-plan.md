@@ -144,11 +144,15 @@ Review this PR for:
 For each issue found, output a structured JSON block:
 {
   "file": "path/to/file",
-  "line": <line_number_in_diff>,
+  "line": <line_number_in_file>,
   "severity": "critical|warning|suggestion",
   "category": "security|correctness|quality|standards",
   "comment": "Description of the issue and suggested fix"
 }
+
+The "line" field must be the actual line number in the file (as shown
+in the GitHub file viewer on the HEAD commit), NOT a diff-relative
+position.
 
 If the PR looks good, output:
 {"summary": "No significant issues found.", "comments": []}
@@ -170,6 +174,23 @@ Rules for comments:
 - Skip binary files, lock files, generated files (`.lock`, `.min.js`,
   `package-lock.json`, etc.)
 
+**Prompt output mechanism:** The assembled prompt can be large (up to
+100K chars). `$GITHUB_OUTPUT` uses multiline heredoc syntax and has
+practical size limits (~1 MB) where large multiline values become
+fragile. Instead of writing the prompt to `$GITHUB_OUTPUT`, the script
+writes it to a temp file (`$RUNNER_TEMP/review-prompt.txt`) and outputs
+only the file path:
+```bash
+PROMPT_FILE="$RUNNER_TEMP/review-prompt.txt"
+# ... assemble prompt into $PROMPT_FILE ...
+echo "prompt-file=$PROMPT_FILE" >> "$GITHUB_OUTPUT"
+```
+The workflow step then passes the file path to the egg Action, which
+reads the prompt from the file. This avoids `GITHUB_OUTPUT` size limits
+entirely and matches how `build-mention-prompt.sh` handles large
+prompts. The egg Action's `prompt` input would accept either inline text
+or a `file://` path (or a new `prompt-file` input could be added).
+
 #### 1.2 Review Workflow (`.github/workflows/on-pull-request.yml`)
 
 ```yaml
@@ -177,7 +198,7 @@ name: "egg: Code Review"
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review]
+    types: [opened, synchronize, ready_for_review, reopened]
 
 jobs:
   review:
@@ -227,7 +248,8 @@ jobs:
         id: egg
         uses: jwbron/egg/action@main
         with:
-          prompt: ${{ steps.prompt.outputs.prompt }}
+          prompt-file: ${{ steps.prompt.outputs.prompt-file }}
+          model: ${{ steps.prompt.outputs.model }}
           anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
@@ -267,18 +289,89 @@ Parses Claude's JSON output and posts review comments via GitHub API.
    review comment via `gh api`
 4. Post a summary comment with overall assessment
 
-**GitHub API calls:**
+**Log file format and parsing:** The egg Action's `log-file` output
+contains Claude's raw response text. Claude may wrap JSON in markdown
+code fences (`` ```json ... ``` ``), include preamble/postamble text,
+or produce multiple JSON blocks. The parser must handle all of these:
+
 ```bash
-# Create a review with inline comments
-gh api repos/{owner}/{repo}/pulls/{pr}/reviews \
-  -X POST \
-  -f event="COMMENT" \
-  -f body="$SUMMARY" \
-  --jq '.id' \
-  -f 'comments[][path]'="$FILE" \
-  -f 'comments[][position]'="$LINE" \
-  -f 'comments[][body]'="$COMMENT"
+# Extract JSON blocks from Claude's output, handling:
+# 1. JSON wrapped in ```json ... ``` code fences
+# 2. Bare JSON objects/arrays in the output
+# 3. Preamble/postamble text around JSON
+# Use grep + jq to find and validate JSON blocks:
+grep -Pzo '(?s)\{[^{}]*"file"[^{}]*\}' "$LOG_FILE" | \
+  jq -s '.' 2>/dev/null || echo '[]'
 ```
+
+For robustness, the prompt asks Claude to wrap all review output in a
+single top-level JSON object with a `comments` array. The parser first
+tries to extract this structured object. If that fails (Claude deviated
+from the format), it falls back to scanning for individual JSON comment
+blocks. If all JSON extraction fails, the raw output is posted as a
+plain PR comment (the fallback described below).
+
+**GitHub API calls:**
+
+The `gh api` CLI does not support array construction via repeated `-f`
+flags. Instead, construct a JSON payload with `jq` and pass it via
+`--input`:
+
+```bash
+# Build the review payload as JSON
+REVIEW_PAYLOAD=$(jq -n \
+  --arg event "COMMENT" \
+  --arg body "$SUMMARY" \
+  --argjson comments "$COMMENTS_JSON" \
+  '{event: $event, body: $body, comments: $comments}')
+
+# Post the review
+echo "$REVIEW_PAYLOAD" | gh api repos/{owner}/{repo}/pulls/{pr}/reviews \
+  -X POST \
+  --input -
+```
+
+Where `$COMMENTS_JSON` is a JSON array built by the parser:
+```json
+[
+  {
+    "path": "src/auth.py",
+    "line": 42,
+    "side": "RIGHT",
+    "body": "**security:** This input is not sanitized before..."
+  }
+]
+```
+
+**Line numbers vs. diff positions:** The GitHub Pull Request Reviews API
+supports two modes for positioning inline comments:
+
+1. **`position`** (legacy) — the line index within the diff hunk. This
+   requires mapping file line numbers to diff-relative offsets, which is
+   fragile and error-prone.
+2. **`subject_type: "line"` with `line` and `side`** (available since
+   2022) — accepts actual file line numbers. `side: "RIGHT"` refers to
+   the new version of the file (head commit), `side: "LEFT"` refers to
+   the old version (base commit).
+
+This plan uses the newer `line`/`side` approach. The prompt instructs
+Claude to output the file line number (not diff position), and the
+comment poster sets `side: "RIGHT"` for all comments (since reviews
+comment on the proposed code). This avoids the diff-position mapping
+entirely.
+
+The prompt's JSON output schema is updated accordingly:
+```json
+{
+  "file": "path/to/file",
+  "line": 42,
+  "severity": "critical|warning|suggestion",
+  "category": "security|correctness|quality|standards",
+  "comment": "Description of the issue and suggested fix"
+}
+```
+Where `line` is the **file line number in the head commit** (the number
+shown in the GitHub file viewer), not a diff-relative position.
 
 Using `event: COMMENT` (not `REQUEST_CHANGES` or `APPROVE`) — the bot
 provides information, not blocking decisions. Humans decide whether to
@@ -382,6 +475,13 @@ On `synchronize` events (new push to PR), only review the new changes:
 - Skip files that haven't changed since last review
 - Reference previous review comments to avoid repeating
 
+The `pull_request.synchronize` event payload includes `before` and
+`after` SHAs, which provide the previous and new head commits directly.
+This means no external state storage is needed between runs — the
+incremental diff can be computed as `git diff <before> <after>` using
+values from the event payload (`github.event.before` and
+`github.event.after`).
+
 This reduces cost and noise for iterative PRs.
 
 #### 3.3 Review Metrics Dashboard
@@ -471,19 +571,32 @@ into this:
    with many PRs, this adds up. Should we add a daily/weekly budget cap?
    Or limit reviews to PRs from certain authors?
 
-2. **Review comment threading:** Should the bot reply to its own previous
+2. **Review comment threading:** ~~Should the bot reply to its own previous
    comments when updating a review (on new push), or delete old comments
-   and post fresh? Threading preserves history but can clutter. Deleting
-   is cleaner but loses context.
+   and post fresh?~~ **Resolved:** On new pushes, dismiss (resolve) the
+   bot's previous review and post a fresh review. The GitHub API supports
+   dismissing reviews via `PUT /repos/{owner}/{repo}/pulls/{pr}/reviews/{id}/dismissals`.
+   This keeps the PR timeline clean (old reviews are collapsed/resolved)
+   while preserving history (dismissed reviews remain visible in the
+   timeline if someone wants to see them). The comment poster should
+   query for existing bot reviews and dismiss them before posting the new
+   one. This is simpler than threading (no need to match old comments to
+   new ones) and avoids the clutter of accumulated stale reviews.
 
 3. **Blocking vs. advisory:** The MVP uses `COMMENT` review events
    (advisory only). Should critical security findings use
    `REQUEST_CHANGES` to block merge? This would give the AI reviewer
    veto power, which is a significant trust escalation.
 
-4. **Model selection:** Reviews don't need the most powerful model for
-   every PR. Should we use Haiku for small/simple PRs and Opus for
-   complex ones? Or always use the same model for consistency?
+4. **Model selection:** ~~Reviews don't need the most powerful model for
+   every PR.~~ **Resolved:** Use the existing `model` input on the egg
+   Action to parameterize model selection. Default to Haiku for PRs with
+   5 or fewer changed files, Opus for larger PRs. The threshold is
+   configurable via `.egg/review-rules.md` (e.g.,
+   `model-threshold-files: 10`). The prompt builder counts changed files
+   and sets the model accordingly in the workflow output. This keeps
+   costs low for small PRs while using a more capable model when the
+   review is likely to benefit from it.
 
 5. **Review of egg's own PRs:** Should the egg repo itself use this
    reviewer? Dogfooding would be valuable, but the bot reviewing its own
