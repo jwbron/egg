@@ -220,9 +220,12 @@ def create_dockerfile() -> None:
     # Resolve symlinks to find the actual project directory
     script_dir = Path(__file__).resolve().parent.parent
 
-    # Copy docker-setup.py to config directory
+    # Copy docker-setup.py to sandbox subdirectory of build context
+    # (Dockerfile references sandbox/docker-setup.py)
+    sandbox_dest = Config.CONFIG_DIR / "sandbox"
+    sandbox_dest.mkdir(parents=True, exist_ok=True)
     setup_script = script_dir / "docker-setup.py"
-    setup_dest = Config.CONFIG_DIR / "docker-setup.py"
+    setup_dest = sandbox_dest / "docker-setup.py"
 
     if setup_script.exists():
         shutil.copy(setup_script, setup_dest)
@@ -230,20 +233,22 @@ def create_dockerfile() -> None:
     else:
         warn("docker-setup.py not found, skipping dev tools installation")
 
-    # Copy claude-commands directory to config directory
+    # Copy claude-commands directory to sandbox subdirectory of build context
+    # (Dockerfile references sandbox/claude-commands/)
     # Use atomic copy with retry to handle race conditions when multiple
     # egg --exec instances run simultaneously
     commands_src = script_dir / "claude-commands"
-    commands_dest = Config.CONFIG_DIR / "claude-commands"
+    commands_dest = sandbox_dest / "claude-commands"
     if commands_src.exists():
         _copy_directory_atomic(commands_src, commands_dest, "Claude commands", quiet)
     else:
         warn("claude-commands directory not found")
 
-    # Copy claude-rules directory to build context
+    # Copy claude-rules directory to sandbox subdirectory of build context
+    # (Dockerfile references sandbox/claude-rules/)
     # Use atomic copy with retry to handle race conditions
     rules_src = script_dir / "claude-rules"
-    rules_dest = Config.CONFIG_DIR / "claude-rules"
+    rules_dest = sandbox_dest / "claude-rules"
     if rules_src.exists():
         _copy_directory_atomic(rules_src, rules_dest, "Claude rules", quiet)
     else:
@@ -252,9 +257,6 @@ def create_dockerfile() -> None:
     # Copy egg-runtime directories to build context
     # These provide container-resident executables and tools
     # The bin/ directory contains symlinks to executables (added to PATH in container)
-    sandbox_dest = Config.CONFIG_DIR / "sandbox"
-    sandbox_dest.mkdir(parents=True, exist_ok=True)
-
     runtime_dirs = ["bin", "llm", "tools", "scripts"]
     for dir_name in runtime_dirs:
         src = script_dir / dir_name
@@ -294,7 +296,7 @@ def create_dockerfile() -> None:
 
     # Copy entrypoint.py from script directory
     entrypoint_src = script_dir / "entrypoint.py"
-    entrypoint_dest = Config.CONFIG_DIR / "entrypoint.py"
+    entrypoint_dest = sandbox_dest / "entrypoint.py"
     if entrypoint_src.exists():
         shutil.copy(entrypoint_src, entrypoint_dest)
         entrypoint_dest.chmod(0o755)
