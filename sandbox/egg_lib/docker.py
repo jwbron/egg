@@ -36,11 +36,6 @@ def set_force_rebuild(force: bool) -> None:
     _force_rebuild = force
 
 
-def get_force_rebuild() -> bool:
-    """Get the current force rebuild setting."""
-    return _force_rebuild
-
-
 def check_docker_permissions() -> bool:
     """Check if user has permission to run Docker commands"""
     result = subprocess.run(["docker", "ps"], capture_output=True, text=True, check=False)
