@@ -2740,7 +2740,7 @@ def main():
 
     # Clean up orphaned worktrees from crashed containers
     try:
-        orphans_removed = startup_cleanup(active_containers=active_container_ids or None)
+        orphans_removed = startup_cleanup(active_containers=active_container_ids)
         if orphans_removed > 0:
             logger.info(f"Startup cleanup removed {orphans_removed} orphaned worktree(s)")
     except Exception as e:

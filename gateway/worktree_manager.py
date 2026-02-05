@@ -737,9 +737,10 @@ def startup_cleanup(active_containers: set[str] | None = None) -> int:
     from containers that may have crashed.
 
     Args:
-        active_containers: Optional set of active container IDs. When provided,
-            these containers' worktrees are preserved. When None, falls back to
-            querying Docker (which may not be available inside the gateway container).
+        active_containers: Set of active container IDs whose worktrees are
+            preserved. Pass an empty set when no containers are active. When
+            None, falls back to querying Docker (which may not be available
+            inside the gateway container).
 
     Returns:
         Number of orphaned worktrees removed
