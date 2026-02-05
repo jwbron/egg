@@ -146,9 +146,16 @@ GIT_EMAIL="${EGG_USER_GIT_EMAIL:-egg@example.com}"
 
 if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; then
     echo "Dropping privileges to UID=$HOST_UID GID=$HOST_GID"
-    # Explicitly set HOME before gosu (consistent with sandbox/entrypoint.py)
-    # This ensures Path.home() resolves correctly in token_refresher.py
     export HOME=/home/egg
+
+    # Ensure the target UID has a passwd entry pointing to /home/egg.
+    # Without this, gosu defaults HOME="/" for unknown UIDs, causing
+    # git config and Path.home() to fail with Permission denied on /.gitconfig.
+    if ! getent passwd "$HOST_UID" > /dev/null 2>&1; then
+        getent group "$HOST_GID" > /dev/null 2>&1 || groupadd -g "$HOST_GID" egghost 2>/dev/null || true
+        useradd -u "$HOST_UID" -g "$HOST_GID" -d /home/egg -s /bin/bash -M -N egghost 2>/dev/null || true
+    fi
+    chown "$HOST_UID:$HOST_GID" /home/egg
 
     # Configure global git identity for gateway operations (commits, etc.)
     # Repos can override this with local config if needed
