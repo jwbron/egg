@@ -52,7 +52,9 @@ def cmd_validate(args: argparse.Namespace) -> int:
         return 1
 
 
-def _print_validation_result(name: str, result: "ValidationResult", *, verbose: bool = False) -> None:
+def _print_validation_result(
+    name: str, result: "ValidationResult", *, verbose: bool = False
+) -> None:
     """Print a single validation result."""
     status_icons = {
         ConfigStatus.VALID: "[OK]",

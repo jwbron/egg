@@ -322,7 +322,9 @@ def make_response(
     return jsonify(response), status_code
 
 
-def make_error(message: str, status_code: int = 400, details: dict[str, Any] | None = None) -> tuple[Response, int]:
+def make_error(
+    message: str, status_code: int = 400, details: dict[str, Any] | None = None
+) -> tuple[Response, int]:
     """Create an error response."""
     return make_response(False, message, details, status_code)
 

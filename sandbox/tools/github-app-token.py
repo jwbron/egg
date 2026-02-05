@@ -61,7 +61,9 @@ def create_jwt(app_id: str, private_key: str) -> str:
 
     # Load private key and sign
     private_key_obj = serialization.load_pem_private_key(
-        private_key.encode(), password=None, backend=default_backend()  # type: ignore[no-untyped-call]
+        private_key.encode(),
+        password=None,
+        backend=default_backend(),  # type: ignore[no-untyped-call]
     )
 
     signature = private_key_obj.sign(message, padding.PKCS1v15(), hashes.SHA256())  # type: ignore[call-arg,arg-type]
