@@ -473,7 +473,7 @@ def setup_anthropic_api(config: Config, logger: Logger) -> None:
 
     Reference: PR #701 - ANTHROPIC_BASE_URL credential injection plan
     """
-    gateway_url = "http://egg-gateway:9848"
+    gateway_url = os.environ.get("GATEWAY_URL", "http://egg-gateway:9848")
 
     # Placeholder OAuth token to satisfy Claude Code's startup validation
     # Must match sk-ant-oat01-* format for Claude Code to accept it
@@ -776,6 +776,12 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
     gateway_url = os.environ.get("GATEWAY_URL", "http://egg-gateway:9848")
     proxy_url = os.environ.get("HTTPS_PROXY")
 
+    # Parse gateway hostname from URL (supports dynamic names in GHA)
+    from urllib.parse import urlparse
+
+    parsed = urlparse(gateway_url)
+    gateway_host = parsed.hostname or "egg-gateway"
+
     # Detect network mode: private mode has HTTPS_PROXY set, public mode doesn't
     is_private_mode = proxy_url is not None
     if is_private_mode:
@@ -792,7 +798,6 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
         logger.info("  HTTPS_PROXY: (not set - direct internet access)")
 
     # Check hostname resolution
-    gateway_host = "egg-gateway"
     try:
         resolved_ip = socket.gethostbyname(gateway_host)
         logger.info(f"  {gateway_host} resolves to: {resolved_ip}")
@@ -872,8 +877,7 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
         except Exception as e:
             return False, f"error: {e}"
 
-    gateway_host = "egg-gateway"
-    api_port = 9848
+    api_port = parsed.port or 9848
     proxy_port = 3129
 
     api_tcp_ok, api_tcp_msg = test_tcp_port(gateway_host, api_port)
