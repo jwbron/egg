@@ -536,7 +536,10 @@ def git_push():
             original_url=remote_url,
             https_url=push_target,
         )
-    push_args = ["push"]
+    # SECURITY: Belt-and-suspenders hook prevention. The primary protection is
+    # core.hooksPath=/dev/null in git_cmd() which disables ALL hooks globally.
+    # --no-verify is added as defense-in-depth for the pre-push hook. See issue #58.
+    push_args = ["push", "--no-verify"]
     if force:
         push_args.append("--force")
     push_args.extend([push_target, refspec] if refspec else [push_target])
@@ -732,6 +735,19 @@ def git_execute():
 
     # Map container path to worktree path if container_id is provided
     exec_path = map_container_path_to_worktree(repo_path, container_id, operation)
+
+    # SECURITY: Belt-and-suspenders hook prevention for operations that support it.
+    # The primary protection is core.hooksPath=/dev/null in git_cmd() which disables
+    # ALL hooks globally. However, we also add --no-verify for operations that
+    # support it as defense-in-depth. See issue #58.
+    #
+    # Operations that support --no-verify:
+    # - commit: pre-commit, prepare-commit-msg, commit-msg, post-commit
+    # - merge: pre-merge-commit, prepare-commit-msg, commit-msg, post-merge
+    # - cherry-pick: prepare-commit-msg, commit-msg
+    # - am: pre-applypatch, applypatch-msg, post-applypatch
+    if operation in ("commit", "merge", "cherry-pick", "am"):
+        validated_args = ["--no-verify", *validated_args]
 
     # Build command
     cmd = git_cmd(operation, *validated_args)
