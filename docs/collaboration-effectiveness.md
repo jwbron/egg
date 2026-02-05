@@ -59,6 +59,17 @@ egg's sandboxed architecture is what makes the collaborative workflow trustworth
 | Network isolation in private mode | Confidential code stays confidential even with full workflow visibility |
 | Gateway enforces all policies | Controls can't be bypassed by prompt injection — they're infrastructure |
 
+### Security by design reduces developer burden
+
+Traditional AI coding tools leave safety as a human responsibility — developers must audit every interaction for credential leaks, unintended side effects, and scope violations. egg's infrastructure-enforced constraints ([security architecture](https://github.com/jwbron/james-in-a-box/pull/659)) eliminate entire categories of risk by design:
+
+- **Credentials never enter the sandbox**, so developers don't need to worry about the agent leaking tokens in commits, logs, or PR descriptions. There's nothing to leak.
+- **The agent structurally cannot merge code**, so reviewers can focus on correctness ("is this the right approach?") rather than safety ("will this accidentally ship?").
+- **Network isolation prevents data exfiltration** — even if the agent is influenced by prompt injection from a malicious issue or ticket, it can't send data anywhere unauthorized.
+- **Branch ownership is enforced at the gateway**, so there's no risk of the agent overwriting someone else's work, regardless of what instructions it receives.
+
+This shifts the reviewer's job from defensive auditing to quality assessment. You stop asking "could this agent do something dangerous?" and start asking "is this output correct?" — which is a better use of engineering time and a more sustainable model as AI-generated code volume increases.
+
 ### Structured verification
 
 A separate agent invocation — with its own context window — reviews the implementing agent's work ([#133](https://github.com/jwbron/egg/issues/133)). The implementing agent cannot mark its own work as complete. If the review cycle doesn't converge, the agent stops and escalates to a human rather than burning tokens. Work is broken into phases of ~1-2k lines, keeping PRs digestible for human reviewers.
