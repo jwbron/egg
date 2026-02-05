@@ -27,6 +27,7 @@ services:
       - "${GATEWAY_PORT:-0}:9848"
       - "${PROXY_PORT:-0}:3129"
     environment:
+      - EGG_REPO_CONFIG=/config/repositories.yaml
       - EGG_LAUNCHER_SECRET=${EGG_LAUNCHER_SECRET}
       - GITHUB_USER_TOKEN=${GITHUB_USER_TOKEN:-dummy-github-token}
       - BOT_GITHUB_TOKEN=${BOT_GITHUB_TOKEN:-}
