@@ -1,4 +1,4 @@
-"""Tests for jib_logging formatters."""
+"""Tests for egg_logging formatters."""
 
 import json
 import logging

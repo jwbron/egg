@@ -139,7 +139,7 @@ class TestPolicyEngine:
         assert result.allowed
         assert "bot-prefixed" in result.reason
 
-    def test_branch_ownership_with_jib_pr(self, policy_engine, mock_github_client):
+    def test_branch_ownership_with_egg_pr(self, policy_engine, mock_github_client):
         """Branch with open egg-authored PR is owned by egg."""
         # Mock PR list
         mock_github_client.list_prs_for_branch.return_value = [
@@ -181,7 +181,7 @@ class TestPolicyEngine:
 
     # PR ownership tests
 
-    def test_pr_ownership_jib_author(self, policy_engine, mock_github_client):
+    def test_pr_ownership_egg_author(self, policy_engine, mock_github_client):
         """PR authored by egg is owned by egg."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
@@ -194,7 +194,7 @@ class TestPolicyEngine:
         assert result.allowed
         assert "owned by egg" in result.reason
 
-    def test_pr_ownership_jib_bot_author(self, policy_engine, mock_github_client):
+    def test_pr_ownership_egg_bot_author(self, policy_engine, mock_github_client):
         """PR authored by egg[bot] is owned by egg."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
@@ -238,7 +238,7 @@ class TestPolicyEngine:
 
     # PR comment tests
 
-    def test_pr_comment_allowed_on_jib_pr(self, policy_engine, mock_github_client):
+    def test_pr_comment_allowed_on_egg_pr(self, policy_engine, mock_github_client):
         """Comments are allowed on PRs owned by egg."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,

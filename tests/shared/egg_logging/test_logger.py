@@ -218,7 +218,7 @@ class TestGetLogger:
         """Clean up after each test."""
         _loggers.clear()
 
-    def test_returns_jib_logger(self):
+    def test_returns_egg_logger(self):
         """Test that get_logger returns a EggLogger."""
         logger = get_logger("test")
         assert isinstance(logger, EggLogger)

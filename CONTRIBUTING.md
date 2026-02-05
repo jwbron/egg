@@ -6,7 +6,7 @@ Thank you for your interest in contributing to egg!
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/jwbron/egg.git
+   git clone https://github.com/YOUR_USERNAME/egg.git
    cd egg
    ```
 
