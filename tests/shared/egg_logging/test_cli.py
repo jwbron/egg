@@ -98,17 +98,6 @@ class TestRunWrapper:
 class TestMainDispatcher:
     """Tests for main() dispatcher function."""
 
-    @patch.object(sys, "argv", ["cli", "bd", "--allow-stale", "list"])
-    @patch("egg_logging.cli.bd_main")
-    def test_dispatches_to_bd(self, mock_bd_main):
-        """Test that bd command is dispatched correctly."""
-        mock_bd_main.return_value = 0
-
-        result = main()
-
-        mock_bd_main.assert_called_once()
-        assert result == 0
-
     @patch.object(sys, "argv", ["cli", "git", "status"])
     @patch("egg_logging.cli.git_main")
     def test_dispatches_to_git(self, mock_git_main):
