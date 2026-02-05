@@ -4,6 +4,11 @@
 **Issue:** #78
 **ADR PR:** #98
 
+> **Dependency note:** The ADR (PR #98) is still under review and may
+> change before merging. This plan should be re-validated against the
+> final ADR before implementation begins. If the ADR's design changes
+> materially, sections of this plan may need revision.
+
 ## Overview
 
 This plan covers the Phase 1 (MVP) implementation of running egg as a
@@ -35,11 +40,16 @@ this flow via `curl` rather than the existing Python client.
 
 ### 3. Gateway Config Requirements
 
-`repo_parser.py` expects a full `repositories.yaml` including
-`writable_repos`, `bot_username`, `repo_settings`, `user_mode`, and
-`local_repos.paths` (per `config/repositories.yaml.example`). The config
-generator must produce all required fields — a minimal config will cause
-parse failures.
+The gateway's config layer expects a full `repositories.yaml` including
+`writable_repos`, `bot_username`, `repo_settings`, `user_mode` (parsed by
+`config/repo_config.py`), and `local_repos.paths` (parsed by
+`shared/egg_config/config.py`). See `config/repositories.yaml.example`
+for the complete schema. The config generator must produce all required
+fields — a minimal config will cause parse failures.
+
+Note: `gateway/repo_parser.py` is a URL/path parsing utility for
+extracting owner/repo from GitHub URLs — it does not parse the config
+file.
 
 ### 4. Credential File Layout
 
@@ -76,7 +86,8 @@ codebase, this holds:
 - Anthropic credential injection reads from `secrets.env`, no changes
   needed
 - Policy enforcement (branch ownership, merge blocking) works as-is
-- Config parsing (`repo_parser.py`) accepts the YAML format we generate
+- Config parsing (`config/repo_config.py`, `shared/egg_config/config.py`)
+  accepts the YAML format we generate
 
 The only change to existing code is the cosmetic EXPOSE fix in
 `gateway/Dockerfile`.
@@ -122,14 +133,14 @@ The most complex deliverable. Replicates the orchestration flow from
 | Step | What | How | Existing reference |
 |------|------|-----|-------------------|
 | 1 | Pull images | `docker pull ghcr.io/jwbron/egg-gateway:<tag>` + sandbox | New |
-| 2 | Create networks | Inspect existing Docker networks, allocate unused 172.x.0.0/24 subnets, create `egg-gha-isolated-$RUN_ID` and `egg-gha-external-$RUN_ID` | `config.py:59-65` |
-| 3 | Detect mode | If `auto`: `gh api repos/{owner}/{repo} --jq .visibility` → private/internal→private, public→public | ADR spec |
+| 2 | Create networks | Inspect existing Docker networks, allocate unused 172.x.0.0/24 subnets, create `egg-gha-isolated-$RUN_ID` and `egg-gha-external-$RUN_ID`. **Note:** The local dev setup uses hardcoded subnets (`172.32.0.0/24`, `172.33.0.0/24` per `config.py:59-65`), but GHA intentionally uses dynamic allocation to avoid collisions when multiple concurrent runs share a self-hosted runner (or when a runner also runs egg locally). | `config.py:59-65` |
+| 3 | Detect mode | If `auto`: read `$GITHUB_EVENT_REPOSITORY_VISIBILITY` (set from `${{ github.event.repository.visibility }}` in `action.yml`) — `private`/`internal`→private, `public`→public. This avoids an extra API call since the visibility is already available in the workflow event context | ADR spec |
 | 4 | Generate config | Call `generate-config.sh` to produce repositories.yaml, secrets.env, launcher-secret in temp dir | New (see deliverable #3) |
 | 5 | Start gateway | `docker run -d` with mounts for config dir, workspace `.git`, worktrees dir, state dir, certs dir. Env vars: `GITHUB_USER_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `HOST_UID`, `HOST_GID`, `BOT_GITHUB_TOKEN` (if provided), gateway policy vars | `sandbox/egg_lib/gateway.py:808-831` |
 | 6 | Health check | Poll `http://<gateway-container-ip>:9848/api/v1/health` via `curl` on Docker network (no port publishing needed) | `sandbox/egg_lib/gateway.py:681-754` |
 | 7 | Allocate IP | `docker network inspect` to find assigned IPs, select next available in subnet | `sandbox/egg_lib/runtime.py:189-247` |
 | 8 | Create session | `curl -X POST http://<gateway-ip>:9848/api/v1/sessions/create` with `Authorization: Bearer <launcher-secret>`. Body: `{container_id, container_ip, mode, repos, uid, gid}`. Parse response for `session_token` and `worktrees` | `sandbox/egg_lib/gateway.py:449-508` |
-| 9 | Start sandbox | `docker run` with: worktree path from session response mounted at `/home/egg/repos/<repo>`, `.git` shadowed via bind-mount of `/dev/null`, `EGG_SESSION_TOKEN`, `ANTHROPIC_BASE_URL=http://egg-gateway:9848`, Claude Code in `--exec` mode with `--print --output-format=stream-json` | `sandbox/egg_lib/runtime.py:646-740` |
+| 9 | Start sandbox | `docker run` with: worktree path from session response mounted at `/home/egg/repos/<repo>`, `.git` shadowed via bind-mount of `/dev/null` (prevents the sandbox from accessing the full repo history or manipulating the worktree's parent repo directly — the sandbox should only interact with its isolated worktree copy), `EGG_SESSION_TOKEN`, `ANTHROPIC_BASE_URL=http://egg-gateway:9848`, Claude Code in `--exec` mode with `--print --output-format=stream-json` | `sandbox/egg_lib/runtime.py:646-740` |
 | 10 | Capture output | Tee sandbox container logs to file and `$GITHUB_STEP_SUMMARY`, extract PR URLs via regex for step outputs | New |
 | 11 | Cleanup | `trap EXIT` handler: delete session via gateway API, stop+rm containers, remove networks | `sandbox/egg_lib/runtime.py:351-388` |
 
@@ -142,8 +153,12 @@ The most complex deliverable. Replicates the orchestration flow from
   `egg-gha-external-${GITHUB_RUN_ID}`
 - **No port publishing:** Containers communicate over Docker network.
   Health checks use container IP on the network or `docker exec`
-- **Timeout:** `timeout ${TIMEOUT_MINUTES}m docker run ...` wrapping the
-  sandbox container
+- **Timeout:** Run the sandbox container with
+  `docker run --stop-timeout 30 ...` and use a background timer that
+  calls `docker stop` after `$TIMEOUT_MINUTES`. This ensures Docker
+  sends SIGTERM to PID 1 inside the container and waits for graceful
+  shutdown, rather than `timeout(1)` sending SIGTERM to the `docker`
+  client process which may not propagate cleanly to the workload
 - **Gateway dual-homing:** Start on isolated network, then
   `docker network connect` to external network (matching
   `sandbox/egg_lib/gateway.py:839-853`)
@@ -155,7 +170,7 @@ The most complex deliverable. Replicates the orchestration flow from
 Creates a temp directory (`$RUNNER_TEMP/egg-config-$RUN_ID/`) containing
 the three files the gateway needs.
 
-**`repositories.yaml`** (full format for `repo_parser.py`):
+**`repositories.yaml`** (full format for `config/repo_config.py`):
 ```yaml
 github_username: <$GITHUB_ACTOR>
 bot_username: <bot-username input, default "egg">
@@ -263,10 +278,14 @@ to match actual ports.
 4. **Sandbox Dockerfile build context:** Confirm that
    `sandbox/Dockerfile` builds correctly with repo root as context
    (the `COPY . /opt/egg-runtime/` line copies the entire repo).
-   Consider adding a `.dockerignore` to exclude unnecessary files (docs,
-   tests, `.github/`) from the sandbox image.
+   A `.dockerignore` to exclude unnecessary files (docs, tests,
+   `.github/`) would reduce image size but is a change to the existing
+   build — this should be handled in a separate PR.
 
-5. **Image tagging strategy:** Decide whether `action/action.yml`
-   references `latest` or a specific version tag. Using `latest` is
-   simpler but less reproducible. The action's `@v1` tag could correspond
-   to a specific image tag.
+5. **Image tagging strategy:** `action/action.yml` should reference a
+   pinned version tag (e.g., `:v1.0.0`) rather than `:latest`. Using
+   `latest` in a GitHub Action is unreliable — users who pin `@v1` of
+   the action would still get unpredictable image versions. The release
+   workflow should tag images with the release version, and the
+   `action.yml` should be updated as part of each release to reference
+   the corresponding image tag.
