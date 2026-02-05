@@ -64,7 +64,7 @@ def create_jwt(app_id: str, private_key: str) -> str:
     private_key_obj = serialization.load_pem_private_key(
         private_key.encode(),
         password=None,
-        backend=default_backend(),  # type: ignore[no-untyped-call]
+        backend=default_backend(),
     )
     if not isinstance(private_key_obj, RSAPrivateKey):
         raise TypeError(
