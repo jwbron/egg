@@ -90,10 +90,15 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
 
-      - name: Checkout
+      # SECURITY: Always run build-mention-prompt.sh from a trusted checkout
+      # (main branch). A malicious PR could replace this script to exfiltrate
+      # the bot token, and it would execute if the maintainer mentions the bot
+      # on that PR. By checking out main first for prompt building, then the
+      # PR branch for egg, we ensure untrusted code never runs with secrets.
+      - name: Checkout main (trusted)
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.ref.outputs.ref }}
+          ref: main
 
       - name: Build prompt
         id: prompt
@@ -101,6 +106,12 @@ jobs:
         env:
           BOT_USERNAME: james-in-a-box
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
+      - name: Checkout PR branch
+        if: steps.ref.outputs.is_pr == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
 
       - name: Run egg
         id: egg
