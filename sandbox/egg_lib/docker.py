@@ -13,7 +13,13 @@ import time
 import uuid
 from pathlib import Path
 
-from .config import EGG_ISOLATED_NETWORK, Config
+from .config import (
+    EGG_EXTERNAL_NETWORK,
+    EGG_EXTERNAL_SUBNET,
+    EGG_ISOLATED_NETWORK,
+    EGG_ISOLATED_SUBNET,
+    Config,
+)
 from .output import error, get_quiet_mode, info, success, warn
 
 # Label used to store build content hash on Docker image
@@ -664,12 +670,6 @@ def ensure_egg_network() -> bool:
 
     error(f"Failed to create Docker network: {result.stderr}")
     return False
-
-
-# Network subnet configuration for gateway architecture
-EGG_ISOLATED_SUBNET = "172.32.0.0/24"
-EGG_EXTERNAL_SUBNET = "172.33.0.0/24"
-EGG_EXTERNAL_NETWORK = "egg-external"
 
 
 def _create_network(name: str, subnet: str, internal: bool = False) -> bool:

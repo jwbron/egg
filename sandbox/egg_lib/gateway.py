@@ -883,6 +883,7 @@ def start_gateway_container() -> bool:
                     warn("Stop running sandboxes first, or use --rebuild to force.")
                     # Return True anyway - gateway is still functional
                     if wait_for_gateway_health(timeout=15, check_proxy=True):
+                        info("Skipping rebuild - existing gateway will be used")
                         return True
                 else:
                     info(f"Gateway rebuild needed: {reason}")
