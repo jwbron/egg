@@ -4,7 +4,7 @@ Policy enforcement gateway for git/gh operations in egg containers.
 
 ## Overview
 
-The gateway sidecar holds GitHub credentials and validates all GitHub operations against ownership and approval rules. Containers no longer have direct access to `GITHUB_TOKEN`; instead, they route requests through this gateway.
+The gateway sidecar is the **trusted** component that holds credentials and validates all operations against ownership and approval rules. The sandbox container has no direct access to credentials; instead, all requests route through this gateway.
 
 ## Architecture
 
@@ -13,19 +13,19 @@ The gateway sidecar holds GitHub credentials and validates all GitHub operations
 │                              HOST                                        │
 │                                                                          │
 │  ┌────────────────────────────────────────────────────────────────────┐ │
-│  │              Gateway Sidecar (systemd service)                      │ │
+│  │              Gateway Sidecar (Docker container)                     │ │
 │  │  ┌─────────────┐  ┌─────────────────┐  ┌────────────────────────┐ │ │
 │  │  │ REST API    │  │ Policy Engine   │  │ GitHub Client          │ │ │
-│  │  │ :9848       │  │ - PR ownership  │  │ - GITHUB_TOKEN holder  │ │ │
+│  │  │ :9848       │  │ - PR ownership  │  │ - Token holder         │ │ │
 │  │  │             │  │ - Branch owner  │  │ - gh CLI executor      │ │ │
 │  │  │             │  │ - Approval check│  │                        │ │ │
 │  │  └──────┬──────┘  └────────┬────────┘  └────────────┬───────────┘ │ │
 │  └─────────┼──────────────────┼────────────────────────┼──────────────┘ │
 │            │ HTTP (Docker network)                     │                │
 │  ┌─────────▼──────────────────────────────────────────────────────────┐ │
-│  │                    egg container(s)                                 │ │
+│  │                    Sandbox container(s)                             │ │
 │  │  ┌─────────────┐   ┌─────────────┐                                 │ │
-│  │  │ git wrapper │   │ gh wrapper  │   NO GITHUB_TOKEN               │ │
+│  │  │ git wrapper │   │ gh wrapper  │   NO CREDENTIALS                │ │
 │  │  │ calls API   │   │ calls API   │   Wrappers route to gateway     │ │
 │  │  └─────────────┘   └─────────────┘                                 │ │
 │  └─────────────────────────────────────────────────────────────────────┘ │
@@ -88,48 +88,38 @@ GET /api/v1/health
 ## Files
 
 ```
-host-services/gateway/
+gateway/
 ├── gateway.py              # Flask REST API server
-├── policy.py               # Policy enforcement logic
-├── github_client.py        # Wraps gh CLI with token management
-├── token_refresher.py      # In-memory GitHub App token refresh
-├── git_client.py           # Git path/arg validation, credential helpers
-├── setup.sh                # Installation script
-├── gateway.service # Systemd unit file
-├── tests/                  # Unit tests
-│   ├── test_policy.py
-│   └── test_gateway.py
+├── git_client.py           # Git operation handler
+├── github_client.py        # GitHub API handler
+├── policy.py               # Branch ownership, push policies
+├── fork_policy.py          # Fork access policies
+├── private_repo_policy.py  # Private/public repo access control
+├── token_refresher.py      # GitHub App token management
+├── anthropic_credentials.py # Anthropic API key injection
+├── worktree_manager.py     # Git worktree lifecycle
+├── session_manager.py      # Agent session management
+├── repo_parser.py          # Repository config parsing
+├── repo_visibility.py      # Repository visibility logic
+├── proxy_monitor.py        # Squid proxy monitoring
+├── rate_limiter.py         # Rate limiting
+├── config_validator.py     # Configuration validation
+├── error_messages.py       # Error message formatting
+├── Dockerfile              # Gateway container image
+├── entrypoint.sh           # Gateway startup script
+├── squid.conf              # Squid proxy config (private mode)
+├── squid-allow-all.conf    # Squid proxy config (public mode)
+├── scripts/                # Helper scripts
+├── tests/                  # Unit and integration tests
+│   ├── test_gateway.py
+│   ├── test_git_client.py
+│   ├── test_session_manager.py
+│   ├── test_rate_limiter.py
+│   ├── test_repo_parser.py
+│   ├── test_private_repo_policy.py
+│   └── README-integration.md
 └── README.md               # This file
 ```
-
-## Implementation Phases
-
-### Phase 1: Gateway Service (Foundation)
-- [x] Create directory structure
-- [x] Implement `gateway.py` - Flask app with REST endpoints
-- [x] Implement `github_client.py` - wraps `gh` CLI with token management
-- [x] Implement `token_refresher.py` - in-memory GitHub App token refresh
-- [x] Create systemd service file
-- [x] Add health check endpoint
-
-### Phase 2: Policy Engine
-- [x] Implement `policy.py` with:
-  - `check_pr_ownership(repo, pr_number)` - verify egg is author
-  - `check_branch_ownership(repo, branch)` - verify branch tied to egg's PR or bot-prefixed
-- [x] Add PR info caching to reduce GitHub API calls
-- [x] Write tests for policy logic
-
-### Phase 3: Wrapper Modifications
-- [x] Modify `sandbox/scripts/git` to call gateway for push
-- [x] Modify `sandbox/scripts/gh` to route commands through gateway
-- [x] Update `sandbox/egg` to:
-  - Add `--add-host=host.docker.internal:host-gateway` for Linux
-  - Set `GATEWAY_URL` environment variable
-
-### Phase 4: Integration
-- [x] Test full workflow: container -> gateway -> GitHub
-- [x] Add audit logging for all policy decisions
-- [x] Update CLAUDE.md rules about merge capability
 
 ## Design Decisions
 
@@ -139,28 +129,25 @@ host-services/gateway/
 
 3. **Token source**: In-memory token refresh via `token_refresher.py`. Tokens are refreshed automatically 15 minutes before expiry.
 
+4. **Dual network modes**: Squid proxy controls outbound access. Private mode restricts to Anthropic API only; public mode allows all traffic.
+
 ## Testing
 
 ```bash
-# Unit tests
-pytest host-services/gateway/tests/
+# Run gateway tests (via act, CI parity)
+make test
 
-# Manual test - push (should succeed for egg's branch)
-git push origin egg-test-branch
+# Run gateway tests directly
+.venv/bin/pytest gateway/tests/ -v
 
-# Manual test - push (should fail for main)
-git push origin main  # ERROR: branch not owned by egg
-
-# Manual test - PR comment (should succeed for egg's PR)
-gh pr comment 123 --body "test"
-
-# Manual test - merge blocked
-gh pr merge 123  # ERROR: merge not supported
+# Run specific test
+.venv/bin/pytest gateway/tests/test_policy.py -v
 ```
 
-## Installation
+## Related Documentation
 
-```bash
-./host-services/gateway/setup.sh
-systemctl --user enable --now gateway
-```
+- [Architecture Overview](../docs/architecture/README.md) - System design
+- [ADR: Git Isolation](../docs/adr/implemented/ADR-Git-Isolation-Architecture.md) - Worktree isolation design
+- [ADR: Credential Injection](../docs/adr/implemented/ADR-Gateway-Credential-Injection.md) - Zero-credential sandbox
+- [ADR: Internet Lockdown](../docs/adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) - Network modes
+- [Troubleshooting: GitHub Auth](../docs/troubleshooting/github-auth-in-long-running-containers.md) - Token refresh issues
