@@ -11,9 +11,6 @@ import os
 import subprocess
 import textwrap
 
-import pytest
-
-
 # Path to the gh wrapper script
 GH_WRAPPER = os.path.join(
     os.path.dirname(__file__), "..", "..", "sandbox", "scripts", "gh"
