@@ -29,7 +29,9 @@ from statusbar import status
 from .auth import get_anthropic_api_key, get_anthropic_auth_method
 from .config import (
     EGG_EXTERNAL_NETWORK,
+    EGG_EXTERNAL_SUBNET,
     EGG_ISOLATED_NETWORK,
+    EGG_ISOLATED_SUBNET,
     GATEWAY_CONTAINER_NAME,
     GATEWAY_EXTERNAL_IP,
     GATEWAY_ISOLATED_IP,
@@ -57,10 +59,6 @@ from .output import error, get_quiet_mode, info, warn
 from .setup_flow import add_standard_mounts
 from .timing import _host_timer
 
-# Subnet for egg-isolated network (must match docker network creation)
-EGG_ISOLATED_SUBNET = "172.32.0.0/24"
-# Subnet for egg-external network (must match docker network creation)
-EGG_EXTERNAL_SUBNET = "172.33.0.0/24"
 # Reserved IPs in each subnet
 RESERVED_ISOLATED_IPS = {
     "172.32.0.1",  # Docker gateway

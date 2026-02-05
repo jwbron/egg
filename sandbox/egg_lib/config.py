@@ -58,6 +58,8 @@ GATEWAY_PROXY_PORT = 3129
 # egg container connects only to egg-isolated and routes all traffic through gateway proxy
 EGG_ISOLATED_NETWORK = "egg-isolated"
 EGG_EXTERNAL_NETWORK = "egg-external"
+EGG_ISOLATED_SUBNET = "172.32.0.0/24"  # Subnet for egg-isolated network
+EGG_EXTERNAL_SUBNET = "172.33.0.0/24"  # Subnet for egg-external network
 EGG_CONTAINER_IP = "172.32.0.10"  # Fixed IP for egg container in isolated network
 GATEWAY_ISOLATED_IP = "172.32.0.2"  # Gateway IP in isolated network
 GATEWAY_EXTERNAL_IP = "172.33.0.2"  # Gateway IP in external network

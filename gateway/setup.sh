@@ -1,8 +1,45 @@
 #!/bin/bash
 # Setup script for Gateway Sidecar
 #
+# ============================================================================
+# DEPRECATION NOTICE
+# ============================================================================
+# This script is DEPRECATED. Gateway lifecycle is now managed automatically
+# by the `egg` binary. When you run `egg`, the gateway will:
+#   - Start automatically if not running
+#   - Rebuild if source files have changed (hash-based detection)
+#   - Create required Docker networks automatically
+#
+# This script is kept for manual debugging and backward compatibility only.
+# To migrate from systemd-managed gateway, simply run `egg` - it will
+# automatically stop the systemd service and take over management.
+#
+# For manual gateway operations, use:
+#   ./gateway/start-gateway.sh    # Start gateway manually
+#   docker logs egg-gateway       # View logs
+#   docker rm -f egg-gateway      # Stop gateway
+# ============================================================================
+#
 # Builds the gateway Docker image and installs a systemd service to manage it.
 set -e
+
+echo ""
+echo "============================================================================"
+echo "DEPRECATION NOTICE"
+echo "============================================================================"
+echo "This script is deprecated. Gateway lifecycle is now managed automatically"
+echo "by the 'egg' binary. Simply run 'egg' and the gateway will start."
+echo ""
+echo "If you have an existing systemd setup, it will be automatically migrated."
+echo "============================================================================"
+echo ""
+read -p "Continue with legacy systemd setup anyway? (y/N) " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Cancelled. Run 'egg' to use the new automatic gateway management."
+    exit 0
+fi
+echo ""
 
 COMPONENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${COMPONENT_DIR}/.." && pwd)"
