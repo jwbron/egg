@@ -14,8 +14,10 @@
 #   INPUT_GITHUB_TOKEN  — GitHub token for git operations
 #
 # Optional environment variables:
-#   INPUT_BOT_GITHUB_TOKEN — Bot GitHub App token
-#   INPUT_BOT_USERNAME     — Bot username (default: "egg")
+#   INPUT_BOT_APP_ID             — GitHub App ID for bot identity
+#   INPUT_BOT_APP_PRIVATE_KEY    — GitHub App private key PEM content
+#   INPUT_BOT_APP_INSTALLATION_ID — GitHub App installation ID
+#   INPUT_BOT_USERNAME           — Bot username (default: "egg")
 #
 # Outputs:
 #   EGG_CONFIG_DIR — path to the generated config directory (written to GITHUB_OUTPUT)
@@ -46,8 +48,8 @@ mkdir -p "$CONFIG_DIR"
 # Generate repositories.yaml
 # ---------------------------------------------------------------------------
 
-# Determine auth_mode based on whether a bot token is provided
-if [[ -n "${INPUT_BOT_GITHUB_TOKEN:-}" ]]; then
+# Determine auth_mode based on whether bot App credentials are provided
+if [[ -n "${INPUT_BOT_APP_ID:-}" && -n "${INPUT_BOT_APP_PRIVATE_KEY:-}" && -n "${INPUT_BOT_APP_INSTALLATION_ID:-}" ]]; then
   AUTH_MODE="bot"
 else
   AUTH_MODE="user"
@@ -85,9 +87,14 @@ ENV
 # gateway reads it from the environment variable (passed via docker run -e),
 # not from this file.
 
-# Add bot token if provided
-if [[ -n "${INPUT_BOT_GITHUB_TOKEN:-}" ]]; then
-  echo "BOT_GITHUB_TOKEN=${INPUT_BOT_GITHUB_TOKEN}" >> "$CONFIG_DIR/secrets.env"
+# Add bot GitHub App credentials if provided
+if [[ "$AUTH_MODE" == "bot" ]]; then
+  echo "GITHUB_APP_ID=${INPUT_BOT_APP_ID}" >> "$CONFIG_DIR/secrets.env"
+  echo "GITHUB_APP_INSTALLATION_ID=${INPUT_BOT_APP_INSTALLATION_ID}" >> "$CONFIG_DIR/secrets.env"
+
+  # Write private key PEM to file for the gateway's token refresher
+  printf '%s\n' "$INPUT_BOT_APP_PRIVATE_KEY" > "$CONFIG_DIR/github-app.pem"
+  chmod 600 "$CONFIG_DIR/github-app.pem"
 fi
 
 # Add bot identity config

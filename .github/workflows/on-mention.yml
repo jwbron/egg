@@ -34,9 +34,16 @@ jobs:
       cancel-in-progress: false
 
     steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
       - name: Acknowledge with reaction
         env:
-          GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           if [[ "${{ github.event_name }}" == "issues" ]]; then
             # React to the issue itself
@@ -80,7 +87,7 @@ jobs:
             echo "is_pr=false" >> "$GITHUB_OUTPUT"
           fi
         env:
-          GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
 
       - name: Checkout
@@ -93,7 +100,7 @@ jobs:
         run: bash action/build-mention-prompt.sh
         env:
           BOT_USERNAME: james-in-a-box
-          GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
       - name: Run egg
         id: egg
@@ -101,13 +108,15 @@ jobs:
         with:
           prompt: ${{ steps.prompt.outputs.prompt }}
           anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
-          bot-github-token: ${{ secrets.BOT_GITHUB_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: james-in-a-box
 
       - name: Post result comment
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
