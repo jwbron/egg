@@ -16,9 +16,9 @@ jobs:
     # self-triggering if authorized users list expands beyond jwbron.
     if: >-
       (
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@james-in-a-box')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@james-in-a-box')) ||
-        (github.event_name == 'issues' && contains(github.event.issue.body, '@james-in-a-box'))
+        (github.event_name == 'issue_comment' && (contains(github.event.comment.body, '@james-in-a-box') || contains(github.event.comment.body, '@egg'))) ||
+        (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '@james-in-a-box') || contains(github.event.comment.body, '@egg'))) ||
+        (github.event_name == 'issues' && (contains(github.event.issue.body, '@james-in-a-box') || contains(github.event.issue.body, '@egg')))
       ) &&
       github.event.sender.login == 'jwbron' &&
       github.event.sender.login != 'james-in-a-box' &&
