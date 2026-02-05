@@ -43,21 +43,12 @@ GitHub App configuration for automated PR creation:
 - Token configuration
 - Troubleshooting common permission errors
 
-### [Slack Quickstart](slack-quickstart.md)
-Fast setup for Slack integration. Get notifications working in 10 minutes.
-
 ### [Slack App Setup](slack-app-setup.md)
 Detailed Slack app configuration including:
 - Creating the Slack app
 - Configuring OAuth scopes
 - Setting up Socket Mode
 - Getting required tokens
-
-### [Slack Bidirectional](slack-bidirectional.md)
-Setting up two-way Slack communication:
-- Sending notifications to Slack
-- Receiving messages from Slack
-- Thread-based conversations
 
 ## Setup Order
 
