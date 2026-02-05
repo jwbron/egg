@@ -57,11 +57,12 @@ class TestConfirmGatewayRestart:
 class TestStartGatewayContainerApiUnhealthy:
     """Path 1: Gateway running but API health check fails."""
 
+    @patch(f"{MODULE}.get_force_rebuild", return_value=False)
     @patch(f"{MODULE}._confirm_gateway_restart", return_value=False)
     @patch(f"{MODULE}.wait_for_gateway_health", return_value=False)
     @patch(f"{MODULE}.is_gateway_running", return_value=True)
     def test_api_unhealthy_non_interactive_skips_restart(
-        self, mock_running, mock_health, mock_confirm
+        self, mock_running, mock_health, mock_confirm, mock_force
     ):
         """When API health fails and user declines, return False."""
         result = start_gateway_container(interactive=False)
@@ -72,6 +73,7 @@ class TestStartGatewayContainerApiUnhealthy:
     @patch(f"{MODULE}._prepare_gateway_config", return_value=([], []))
     @patch(f"{MODULE}.build_gateway_image", return_value=True)
     @patch("egg_lib.docker.ensure_gateway_networks", return_value=True)
+    @patch(f"{MODULE}.get_force_rebuild", return_value=False)
     @patch(f"{MODULE}._confirm_gateway_restart", return_value=True)
     @patch(f"{MODULE}.wait_for_gateway_health")
     @patch(f"{MODULE}.is_gateway_running", return_value=True)
@@ -80,6 +82,7 @@ class TestStartGatewayContainerApiUnhealthy:
         mock_running,
         mock_health,
         mock_confirm,
+        mock_force,
         mock_networks,
         mock_build,
         mock_config,
@@ -89,19 +92,47 @@ class TestStartGatewayContainerApiUnhealthy:
         # First call (API check) returns False, subsequent calls return True
         mock_health.side_effect = [False, True]
         mock_subprocess.run.return_value = MagicMock(returncode=0, stdout="container-id")
-        start_gateway_container(interactive=True)
+        result = start_gateway_container(interactive=True)
+        assert result is True
         mock_confirm.assert_called_once_with(True, "gateway running but API not healthy")
+
+    @patch(f"{MODULE}.subprocess")
+    @patch(f"{MODULE}._prepare_gateway_config", return_value=([], []))
+    @patch(f"{MODULE}.build_gateway_image", return_value=True)
+    @patch("egg_lib.docker.ensure_gateway_networks", return_value=True)
+    @patch(f"{MODULE}._confirm_gateway_restart")
+    @patch(f"{MODULE}.get_force_rebuild", return_value=True)
+    @patch(f"{MODULE}.wait_for_gateway_health")
+    @patch(f"{MODULE}.is_gateway_running", return_value=True)
+    def test_api_unhealthy_force_rebuild_skips_prompt(
+        self,
+        mock_running,
+        mock_health,
+        mock_force,
+        mock_confirm,
+        mock_networks,
+        mock_build,
+        mock_config,
+        mock_subprocess,
+    ):
+        """When --rebuild is set, skip prompt and proceed directly."""
+        mock_health.side_effect = [False, True]
+        mock_subprocess.run.return_value = MagicMock(returncode=0, stdout="container-id")
+        result = start_gateway_container(interactive=False)
+        assert result is True
+        mock_confirm.assert_not_called()
 
 
 class TestStartGatewayContainerProxyNotResponding:
     """Path 2: Gateway running, API healthy, but proxy not responding."""
 
+    @patch(f"{MODULE}.get_force_rebuild", return_value=False)
     @patch(f"{MODULE}._confirm_gateway_restart", return_value=False)
     @patch(f"{MODULE}.should_rebuild_gateway", return_value=(False, ""))
     @patch(f"{MODULE}.wait_for_gateway_health")
     @patch(f"{MODULE}.is_gateway_running", return_value=True)
     def test_proxy_broken_non_interactive_skips(
-        self, mock_running, mock_health, mock_rebuild, mock_confirm
+        self, mock_running, mock_health, mock_rebuild, mock_confirm, mock_force
     ):
         """When proxy fails and user declines, return False."""
         # First call (API check) returns True, second (proxy check) returns False
@@ -114,6 +145,7 @@ class TestStartGatewayContainerProxyNotResponding:
     @patch(f"{MODULE}._prepare_gateway_config", return_value=([], []))
     @patch(f"{MODULE}.build_gateway_image", return_value=True)
     @patch("egg_lib.docker.ensure_gateway_networks", return_value=True)
+    @patch(f"{MODULE}.get_force_rebuild", return_value=False)
     @patch(f"{MODULE}._confirm_gateway_restart", return_value=True)
     @patch(f"{MODULE}.should_rebuild_gateway", return_value=(False, ""))
     @patch(f"{MODULE}.wait_for_gateway_health")
@@ -124,6 +156,7 @@ class TestStartGatewayContainerProxyNotResponding:
         mock_health,
         mock_rebuild,
         mock_confirm,
+        mock_force,
         mock_networks,
         mock_build,
         mock_config,
@@ -133,8 +166,37 @@ class TestStartGatewayContainerProxyNotResponding:
         # API check True, proxy check False, post-rebuild health True
         mock_health.side_effect = [True, False, True]
         mock_subprocess.run.return_value = MagicMock(returncode=0, stdout="container-id")
-        start_gateway_container(interactive=True)
+        result = start_gateway_container(interactive=True)
+        assert result is True
         mock_confirm.assert_called_once_with(True, "API healthy but proxy not responding")
+
+    @patch(f"{MODULE}.subprocess")
+    @patch(f"{MODULE}._prepare_gateway_config", return_value=([], []))
+    @patch(f"{MODULE}.build_gateway_image", return_value=True)
+    @patch("egg_lib.docker.ensure_gateway_networks", return_value=True)
+    @patch(f"{MODULE}._confirm_gateway_restart")
+    @patch(f"{MODULE}.get_force_rebuild", return_value=True)
+    @patch(f"{MODULE}.should_rebuild_gateway", return_value=(False, ""))
+    @patch(f"{MODULE}.wait_for_gateway_health")
+    @patch(f"{MODULE}.is_gateway_running", return_value=True)
+    def test_proxy_broken_force_rebuild_skips_prompt(
+        self,
+        mock_running,
+        mock_health,
+        mock_rebuild,
+        mock_force,
+        mock_confirm,
+        mock_networks,
+        mock_build,
+        mock_config,
+        mock_subprocess,
+    ):
+        """When --rebuild is set, skip prompt and proceed directly."""
+        mock_health.side_effect = [True, False, True]
+        mock_subprocess.run.return_value = MagicMock(returncode=0, stdout="container-id")
+        result = start_gateway_container(interactive=False)
+        assert result is True
+        mock_confirm.assert_not_called()
 
 
 class TestStartGatewayContainerRebuildNeeded:
@@ -153,7 +215,7 @@ class TestStartGatewayContainerRebuildNeeded:
         mock_health.side_effect = [True, True]
         result = start_gateway_container(interactive=True)
         assert result is True
-        mock_confirm.assert_called_once_with(True, "config changed")
+        mock_confirm.assert_called_once_with(True, "config changed", action="rebuild")
 
     @patch(f"{MODULE}._confirm_gateway_restart", return_value=False)
     @patch(f"{MODULE}.wait_for_gateway_health")
