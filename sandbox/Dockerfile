@@ -99,11 +99,6 @@ RUN pip3 install --no-cache-dir \
     # Documentation
     markdown
 
-# Install beads llm issue tracker
-# When running as root, the install script puts bd directly in /usr/local/bin
-RUN curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash && \
-    which bd
-
 # Note: Claude authentication is mounted at runtime from ~/.egg/claude/ on host
 # This directory is shared across all containers for consistent authentication
 # See entrypoint script for setup and credential detection
@@ -186,6 +181,5 @@ ENTRYPOINT ["python3", "/usr/local/bin/entrypoint.py"]
 # - Git configuration and worktree setup
 # - Claude Code configuration
 # - Agent rules installation (CLAUDE.md)
-# - Beads persistent memory initialization
 # - Interactive/exec mode handling
 # =============================================================================

@@ -228,7 +228,6 @@ egg/
 │       ├── context.py            # Context management
 │       ├── wrappers/
 │       │   ├── __init__.py
-│       │   ├── bd.py             # Beads wrapper
 │       │   ├── git.py            # Git wrapper
 │       │   ├── gh.py             # GitHub CLI wrapper
 │       │   └── claude.py         # Claude Code wrapper
@@ -377,23 +376,19 @@ that need git/gh operations use subprocess directly with `get_logger()` for logg
 
 ```python
 # Usage in scripts
-from egg_logging.wrappers import bd, claude
-
-# bd wrapper for beads task tracking
-result = bd.update("bd-abc123", status="done", notes="Completed task")
-# Automatically logs:
-# {
-#   "severity": "INFO",
-#   "message": "bd update completed",
-#   "tool": "bd",
-#   "command": ["bd", "update", "bd-abc123", "--status", "done", "--notes", "..."],
-#   "exit_code": 0,
-#   "duration_ms": 45,
-#   "context": {"task_id": "bd-abc123"}
-# }
+from egg_logging.wrappers import claude
 
 # claude wrapper for Claude Code invocations
 result = claude.run("--print", "-p", "Explain this code")
+# Automatically logs:
+# {
+#   "severity": "INFO",
+#   "message": "claude run completed",
+#   "tool": "claude",
+#   "command": ["claude", "--print", "-p", "Explain this code"],
+#   "exit_code": 0,
+#   "duration_ms": 2500
+# }
 ```
 
 #### CLI Wrapper Binaries (Shell)
@@ -403,14 +398,12 @@ For transparent logging of shell commands (including those run by Claude Code ag
 **Location:** `shared/egg_logging/bin/`
 
 **Available Commands:**
-- `egg-bd` - Drop-in replacement for `bd`
 - `egg-claude` - Drop-in replacement for `claude`
 
 **Setup Option 1: Shell Aliases**
 
 ```bash
 # In .bashrc or container setup
-alias bd='egg-bd'
 alias claude='egg-claude'
 
 # Or source the setup script
@@ -422,7 +415,6 @@ source ~/repos/egg/shared/egg_logging/bin/setup-aliases.sh
 ```bash
 # Create symlinks earlier in PATH
 mkdir -p ~/.local/bin
-ln -sf ~/repos/egg/shared/egg_logging/bin/egg-bd ~/.local/bin/bd
 ln -sf ~/repos/egg/shared/egg_logging/bin/egg-claude ~/.local/bin/claude
 ```
 
@@ -430,7 +422,6 @@ ln -sf ~/repos/egg/shared/egg_logging/bin/egg-claude ~/.local/bin/claude
 
 ```bash
 # Use egg-* prefix directly
-egg-bd --allow-stale list
 egg-claude --print -p "Explain this"
 ```
 
@@ -443,24 +434,6 @@ egg-claude --print -p "Explain this"
 - **Transparent to Claude:** Agent doesn't know it's being logged
 - **Full compatibility:** All arguments pass through unchanged
 - **Same exit codes:** Wrapper returns same code as underlying tool
-
-### bd (Beads) Wrapper
-
-The beads wrapper captures task lifecycle:
-
-```json
-{
-  "severity": "INFO",
-  "message": "Task status updated",
-  "tool": "bd",
-  "command": ["bd", "update", "bd-abc123", "--status", "done"],
-  "task_id": "bd-abc123",
-  "previous_status": "in_progress",
-  "new_status": "done",
-  "duration_ms": 45
-}
-```
-
 
 ## Model Output Capture
 

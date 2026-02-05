@@ -33,7 +33,6 @@ Before running setup, you'll need:
 3. **Prerequisites**
    - Docker installed and running
    - Python 3 installed
-   - Go installed (for beads task tracker)
 
 ## Available Guides
 

@@ -4,17 +4,6 @@ Quick reference guides for egg.
 
 ## Available References
 
-### [Beads Task Tracking](beads.md)
-Persistent task memory system for autonomous agents.
-
-**Essential for:**
-- Tracking work across container restarts
-- Finding existing tasks before creating new ones
-- Recording decisions and progress
-- Linking related work (Slack threads, PRs, JIRA)
-
-**Quick start:** Always run `bd --allow-stale list --status in_progress` before starting work.
-
 ### [Slack Quick Reference](slack-quick-reference.md)
 Common Slack operations and commands.
 
