@@ -12,9 +12,7 @@ import subprocess
 import textwrap
 
 # Path to the gh wrapper script
-GH_WRAPPER = os.path.join(
-    os.path.dirname(__file__), "..", "..", "sandbox", "scripts", "gh"
-)
+GH_WRAPPER = os.path.join(os.path.dirname(__file__), "..", "..", "sandbox", "scripts", "gh")
 
 
 # The Python parsing logic embedded in call_gateway, kept in sync here for testing.
@@ -51,9 +49,7 @@ CALL_GATEWAY_PYTHON = textwrap.dedent("""\
 """)
 
 
-def run_call_gateway_raw(
-    raw_content: str, http_code: str = "200"
-) -> subprocess.CompletedProcess:
+def run_call_gateway_raw(raw_content: str, http_code: str = "200") -> subprocess.CompletedProcess:
     """Run the call_gateway Python parser against a file with raw content.
 
     Use this when testing malformed input (invalid JSON, empty files, etc.)
@@ -226,7 +222,7 @@ class TestCallGatewayParsing:
     def test_success_response_special_characters(self):
         """Output with special characters should be preserved exactly."""
         # Characters that could be mangled by echo: backslashes, -n, -e, etc.
-        special_output = 'line1\nline2\ttab\r\nwindows\n-n not a flag\n-e not a flag\n'
+        special_output = "line1\nline2\ttab\r\nwindows\n-n not a flag\n-e not a flag\n"
         response = {
             "success": True,
             "message": "Command executed",
