@@ -445,9 +445,7 @@ class TestInstallDependencies:
 
     @patch.object(docker_setup, "install_npm_packages")
     @patch.object(docker_setup, "install_pip_packages")
-    def test_install_dependencies_empty_config(
-        self, mock_pip, mock_npm, capsys, tmp_path
-    ):
+    def test_install_dependencies_empty_config(self, mock_pip, mock_npm, capsys, tmp_path):
         """Test install_dependencies with empty config file."""
         config_file = tmp_path / "repositories.yaml"
         config_file.write_text("{}\n")
@@ -459,9 +457,7 @@ class TestInstallDependencies:
 
     @patch.object(docker_setup, "install_npm_packages")
     @patch.object(docker_setup, "install_pip_packages")
-    def test_install_dependencies_with_packages(
-        self, mock_pip, mock_npm, capsys, tmp_path
-    ):
+    def test_install_dependencies_with_packages(self, mock_pip, mock_npm, capsys, tmp_path):
         """Test install_dependencies with pip and npm packages configured."""
         import yaml
 
@@ -481,9 +477,7 @@ class TestInstallDependencies:
 
     @patch.object(docker_setup, "install_npm_packages")
     @patch.object(docker_setup, "install_pip_packages")
-    def test_install_dependencies_missing_config(
-        self, mock_pip, mock_npm, capsys
-    ):
+    def test_install_dependencies_missing_config(self, mock_pip, mock_npm, capsys):
         """Test install_dependencies with non-existent config file."""
         docker_setup.install_dependencies("/nonexistent/config.yaml")
 

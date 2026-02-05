@@ -579,7 +579,9 @@ def install_repo_dependencies(config: Config, logger: Logger) -> None:
                 if result.returncode == 0:
                     logger.success(f"  {repo_dir.name}/{dep_file} installed")
                 else:
-                    logger.warn(f"  {repo_dir.name}/{dep_file} had errors (some deps may be missing)")
+                    logger.warn(
+                        f"  {repo_dir.name}/{dep_file} had errors (some deps may be missing)"
+                    )
 
             elif dep_file == "package.json":
                 # Check if npm is available

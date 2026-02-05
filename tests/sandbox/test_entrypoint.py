@@ -481,9 +481,7 @@ class TestInstallRepoDependencies:
         repo = repos_dir / "myrepo"
         repo.mkdir()
         # pyproject.toml with build-system only, no [project].dependencies
-        (repo / "pyproject.toml").write_text(
-            '[build-system]\nrequires = ["setuptools"]\n'
-        )
+        (repo / "pyproject.toml").write_text('[build-system]\nrequires = ["setuptools"]\n')
 
         config = self._make_config(repos_dir)
         logger = entrypoint.Logger(quiet=False)
