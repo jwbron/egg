@@ -219,7 +219,11 @@ def _load_secrets() -> dict[str, str]:
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, _, value = line.partition("=")
-                secrets_dict[key.strip()] = value.strip()
+                value = value.strip()
+                # Strip surrounding quotes (bash-style env files)
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                    value = value[1:-1]
+                secrets_dict[key.strip()] = value
 
     return secrets_dict
 
@@ -1039,6 +1043,12 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     secrets_dict = _load_secrets()
     if "GITHUB_USER_TOKEN" in secrets_dict:
         env_args.extend(["-e", f"GITHUB_USER_TOKEN={secrets_dict['GITHUB_USER_TOKEN']}"])
+
+    # Pass gateway configuration from secrets.env
+    # These are required for policy enforcement (bot identity, branch prefixes, trusted users)
+    for key in ["GATEWAY_BOT_NAME", "GATEWAY_BOT_BRANCH_PREFIX", "GATEWAY_TRUSTED_USERS"]:
+        if key in secrets_dict:
+            env_args.extend(["-e", f"{key}={secrets_dict[key]}"])
 
     # Git identity from config
     if config_file.exists():

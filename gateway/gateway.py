@@ -1609,8 +1609,13 @@ def gh_execute():
     if not repo and payload_repo:
         repo = payload_repo
         # Inject --repo into args so gh command uses it
-        # NOTE: Don't inject for 'gh repo' commands - they take repo as positional arg
-        if args and args[0] != "repo":
+        # NOTE: Don't inject for commands that don't support --repo flag:
+        # - 'gh repo' commands - they take repo as positional arg
+        # - 'gh auth' commands - global commands, no repo context
+        # - 'gh config' commands - global commands, no repo context
+        # - 'gh api' commands - repo is in the API path, not a flag
+        commands_without_repo_flag = {"repo", "auth", "config", "api"}
+        if args and args[0] not in commands_without_repo_flag:
             args = ["--repo", payload_repo] + list(args)
 
     # Determine auth mode (default to bot if repo not specified)
