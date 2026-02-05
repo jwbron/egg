@@ -123,8 +123,10 @@ def parse_squid_json_log(line: str) -> dict[str, Any] | None:
         Parsed log entry dict or None if parsing fails
     """
     try:
-        result: dict[str, Any] | None = json.loads(line.strip())
-        return result
+        result = json.loads(line.strip())
+        if isinstance(result, dict):
+            return result
+        return None
     except json.JSONDecodeError:
         return None
 

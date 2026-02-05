@@ -319,8 +319,8 @@ def initialize_token_refresher(
 
     try:
         private_key = resolved_private_key_path.read_text()
-        assert resolved_app_id is not None
-        assert resolved_installation_id is not None
+        if resolved_app_id is None or resolved_installation_id is None:
+            raise ValueError("app_id and installation_id are required")
         refresher = TokenRefresher(
             app_id=resolved_app_id,
             private_key=private_key,

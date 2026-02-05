@@ -954,7 +954,8 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
 
             # Private mode: verify proxy connectivity to Anthropic API
             try:
-                assert proxy_url is not None  # guaranteed by is_private_mode check
+                if proxy_url is None:
+                    raise RuntimeError("proxy_url must be set in private mode")
                 proxies = {"http": proxy_url, "https": proxy_url}
                 api_response = requests.get(
                     "https://api.anthropic.com/",

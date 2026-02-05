@@ -144,8 +144,8 @@ def load_config(config_dir: Path) -> tuple[str | None, str | None, str | None, s
         return None, None, None, f"Missing config: {', '.join(missing)}"
 
     # At this point app_id and installation_id are guaranteed non-None
-    assert app_id is not None
-    assert installation_id is not None
+    if app_id is None or installation_id is None:
+        return None, None, None, "app_id and installation_id are required"
 
     try:
         private_key = private_key_file.read_text()
@@ -190,9 +190,9 @@ def main() -> None:
         sys.exit(1)
 
     # At this point, error is None so all three values are set
-    assert app_id is not None
-    assert installation_id is not None
-    assert private_key is not None
+    if app_id is None or installation_id is None or private_key is None:
+        print("ERROR: Missing required configuration", file=sys.stderr)
+        sys.exit(1)
 
     # Generate JWT
     try:

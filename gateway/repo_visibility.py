@@ -17,7 +17,7 @@ import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import requests
 
@@ -176,8 +176,7 @@ class RepoVisibilityChecker:
                     visibility=visibility_str,
                     token_source=source,
                 )
-                # We've validated it's in VALID_VISIBILITIES above
-                return visibility_str  # type: ignore[return-value]
+                return cast(VisibilityType, visibility_str)
 
             elif response.status_code == 404:
                 # Token doesn't have access - try next token
