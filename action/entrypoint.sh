@@ -86,7 +86,8 @@ export EGG_SKIP_BUILD="true"
 export EGG_EPHEMERAL="true"
 export EGG_PUBLISH_GATEWAY_PORTS="false"
 export EGG_CONFIG_DIR="$CONFIG_DIR"
-export EGG_LAUNCHER_SECRET="$(cat "$CONFIG_DIR/launcher-secret")"
+EGG_LAUNCHER_SECRET="$(cat "$CONFIG_DIR/launcher-secret")"
+export EGG_LAUNCHER_SECRET
 
 # Add egg_lib and shared modules to Python path
 export PYTHONPATH="${SCRIPT_DIR}/../sandbox:${SCRIPT_DIR}/../shared${PYTHONPATH:+:$PYTHONPATH}"

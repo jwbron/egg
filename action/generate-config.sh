@@ -33,7 +33,6 @@ set -euo pipefail
 : "${INPUT_ANTHROPIC_OAUTH_TOKEN:?anthropic-oauth-token input is required}"
 : "${INPUT_GITHUB_TOKEN:?github-token input is required}"
 
-REPO_NAME="${GITHUB_REPOSITORY#*/}"
 BOT_USERNAME="${INPUT_BOT_USERNAME:-egg}"
 RUN_ID="${GITHUB_RUN_ID:-$$}"
 

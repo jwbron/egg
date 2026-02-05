@@ -843,12 +843,14 @@ def start_gateway_container() -> bool:
 
     # Publish ports to localhost only in local mode
     if ctx.publish_ports:
-        cmd.extend([
-            "-p",
-            f"{ctx.gateway_port}:{ctx.gateway_port}",
-            "-p",
-            f"{ctx.gateway_proxy_port}:{ctx.gateway_proxy_port}",
-        ])
+        cmd.extend(
+            [
+                "-p",
+                f"{ctx.gateway_port}:{ctx.gateway_port}",
+                "-p",
+                f"{ctx.gateway_proxy_port}:{ctx.gateway_proxy_port}",
+            ]
+        )
 
     cmd.extend(env_args)
     cmd.extend(mounts)
