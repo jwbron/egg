@@ -869,19 +869,14 @@ def start_gateway_container(interactive: bool = False) -> bool:
                     if wait_for_gateway_health(timeout=15, check_proxy=True):
                         info("Skipping rebuild — existing gateway will be used.")
                         return True
-                    error(
-                        "Existing gateway is not healthy. "
-                        "Run 'egg --rebuild' to redeploy."
-                    )
+                    error("Existing gateway is not healthy. Run 'egg --rebuild' to redeploy.")
                     return False
                 info(f"Gateway rebuild needed: {reason}")
             else:
                 info(f"Gateway rebuild needed: {reason}")
         else:
             # Gateway container is running but API is not healthy
-            if not _confirm_gateway_restart(
-                interactive, "gateway running but API not healthy"
-            ):
+            if not _confirm_gateway_restart(interactive, "gateway running but API not healthy"):
                 return False
 
     # Ensure networks exist

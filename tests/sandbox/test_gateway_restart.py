@@ -66,9 +66,7 @@ class TestStartGatewayContainerApiUnhealthy:
         """When API health fails and user declines, return False."""
         result = start_gateway_container(interactive=False)
         assert result is False
-        mock_confirm.assert_called_once_with(
-            False, "gateway running but API not healthy"
-        )
+        mock_confirm.assert_called_once_with(False, "gateway running but API not healthy")
 
     @patch(f"{MODULE}.subprocess")
     @patch(f"{MODULE}._prepare_gateway_config", return_value=([], []))
@@ -78,19 +76,21 @@ class TestStartGatewayContainerApiUnhealthy:
     @patch(f"{MODULE}.wait_for_gateway_health")
     @patch(f"{MODULE}.is_gateway_running", return_value=True)
     def test_api_unhealthy_interactive_accepts_restarts(
-        self, mock_running, mock_health, mock_confirm,
-        mock_networks, mock_build, mock_config, mock_subprocess
+        self,
+        mock_running,
+        mock_health,
+        mock_confirm,
+        mock_networks,
+        mock_build,
+        mock_config,
+        mock_subprocess,
     ):
         """When API health fails and user accepts, proceed to rebuild."""
         # First call (API check) returns False, subsequent calls return True
         mock_health.side_effect = [False, True]
-        mock_subprocess.run.return_value = MagicMock(
-            returncode=0, stdout="container-id"
-        )
+        mock_subprocess.run.return_value = MagicMock(returncode=0, stdout="container-id")
         start_gateway_container(interactive=True)
-        mock_confirm.assert_called_once_with(
-            True, "gateway running but API not healthy"
-        )
+        mock_confirm.assert_called_once_with(True, "gateway running but API not healthy")
 
 
 class TestStartGatewayContainerProxyNotResponding:
@@ -108,9 +108,7 @@ class TestStartGatewayContainerProxyNotResponding:
         mock_health.side_effect = [True, False]
         result = start_gateway_container(interactive=False)
         assert result is False
-        mock_confirm.assert_called_once_with(
-            False, "API healthy but proxy not responding"
-        )
+        mock_confirm.assert_called_once_with(False, "API healthy but proxy not responding")
 
     @patch(f"{MODULE}.subprocess")
     @patch(f"{MODULE}._prepare_gateway_config", return_value=([], []))
@@ -121,19 +119,22 @@ class TestStartGatewayContainerProxyNotResponding:
     @patch(f"{MODULE}.wait_for_gateway_health")
     @patch(f"{MODULE}.is_gateway_running", return_value=True)
     def test_proxy_broken_interactive_accepts_restarts(
-        self, mock_running, mock_health, mock_rebuild, mock_confirm,
-        mock_networks, mock_build, mock_config, mock_subprocess
+        self,
+        mock_running,
+        mock_health,
+        mock_rebuild,
+        mock_confirm,
+        mock_networks,
+        mock_build,
+        mock_config,
+        mock_subprocess,
     ):
         """When proxy fails and user accepts, proceed to rebuild."""
         # API check True, proxy check False, post-rebuild health True
         mock_health.side_effect = [True, False, True]
-        mock_subprocess.run.return_value = MagicMock(
-            returncode=0, stdout="container-id"
-        )
+        mock_subprocess.run.return_value = MagicMock(returncode=0, stdout="container-id")
         start_gateway_container(interactive=True)
-        mock_confirm.assert_called_once_with(
-            True, "API healthy but proxy not responding"
-        )
+        mock_confirm.assert_called_once_with(True, "API healthy but proxy not responding")
 
 
 class TestStartGatewayContainerRebuildNeeded:
