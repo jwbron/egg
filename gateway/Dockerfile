@@ -76,7 +76,7 @@ RUN pip install --no-cache-dir flask waitress pyyaml requests PyJWT cryptography
 
 ENV PYTHONPATH="/app"
 # Expose both gateway API port and Squid proxy port
-EXPOSE 9847 3128
+EXPOSE 9848 3129
 
 COPY gateway/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

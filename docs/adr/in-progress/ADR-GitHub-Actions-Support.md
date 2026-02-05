@@ -1,6 +1,6 @@
 # ADR: GitHub Actions Support
 
-**Status:** Proposed
+**Status:** In Progress (PR #111 — Phase 1 MVP)
 **Issue:** #78
 
 ## Context
