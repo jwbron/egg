@@ -23,7 +23,7 @@ This single command handles:
 Before running setup, you'll need:
 
 1. **Slack App** (required for notifications)
-   - See [Slack App Setup](slack-app-setup.md) for instructions
+   - Create an app at https://api.slack.com/apps
    - You'll need: Bot Token (xoxb-...) and App Token (xapp-...)
 
 2. **GitHub App** (required for PR creation)
@@ -43,16 +43,9 @@ GitHub App configuration for automated PR creation:
 - Token configuration
 - Troubleshooting common permission errors
 
-### [Slack App Setup](slack-app-setup.md)
-Detailed Slack app configuration including:
-- Creating the Slack app
-- Configuring OAuth scopes
-- Setting up Socket Mode
-- Getting required tokens
-
 ## Setup Order
 
-1. **Create Slack App** - [Slack app setup](slack-app-setup.md) (get tokens first)
+1. **Create Slack App** - Create at https://api.slack.com/apps (get tokens first)
 2. **Run Setup** - `./setup.py` (interactive, validates and installs everything)
 3. **Verify** - Check services with `systemctl --user status slack-notifier slack-receiver`
 
@@ -116,7 +109,7 @@ systemctl --user restart slack-notifier slack-receiver
 
 ### Setup fails with missing Slack tokens
 1. Create a Slack app at https://api.slack.com/apps
-2. Follow [Slack App Setup](slack-app-setup.md)
+2. Configure OAuth scopes and Socket Mode
 3. Add tokens to `~/.config/egg/secrets.env`
 4. Run `./setup.py` again
 
