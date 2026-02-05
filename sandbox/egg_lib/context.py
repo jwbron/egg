@@ -110,16 +110,16 @@ class RuntimeContext:
             ctx.gateway_image = v
         if v := _env("SANDBOX_IMAGE"):
             ctx.sandbox_image = v
-        if (v := _env_bool("SKIP_BUILD")) is not None:
-            ctx.skip_build = v
+        if (b := _env_bool("SKIP_BUILD")) is not None:
+            ctx.skip_build = b
 
         # Gateway
         if v := _env("GATEWAY_CONTAINER_NAME"):
             ctx.gateway_container_name = v
-        if (v := _env_bool("EPHEMERAL")) is not None:
-            ctx.ephemeral = v
-        if (v := _env_bool("PUBLISH_GATEWAY_PORTS")) is not None:
-            ctx.publish_ports = v
+        if (b := _env_bool("EPHEMERAL")) is not None:
+            ctx.ephemeral = b
+        if (b := _env_bool("PUBLISH_GATEWAY_PORTS")) is not None:
+            ctx.publish_ports = b
 
         # Config
         if v := _env("CONFIG_DIR"):
@@ -128,10 +128,10 @@ class RuntimeContext:
             ctx.launcher_secret = v
 
         # API
-        if (v := _env_int("GATEWAY_PORT")) is not None:
-            ctx.gateway_port = v
-        if (v := _env_int("GATEWAY_PROXY_PORT")) is not None:
-            ctx.gateway_proxy_port = v
+        if (n := _env_int("GATEWAY_PORT")) is not None:
+            ctx.gateway_port = n
+        if (n := _env_int("GATEWAY_PROXY_PORT")) is not None:
+            ctx.gateway_proxy_port = n
 
         return ctx
 
