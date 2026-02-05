@@ -16,6 +16,7 @@
 # Expected environment:
 #   GITHUB_REPOSITORY  — owner/repo
 #   GITHUB_OUTPUT      — path to output file (optional, defaults to /dev/null)
+#   GITHUB_EVENT_PATH  — path to event JSON (required by jq_raw)
 
 set -euo pipefail
 

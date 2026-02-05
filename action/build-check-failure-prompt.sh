@@ -49,7 +49,10 @@ fetch_job_logs() {
   local job_id="$1"
   # gh api returns raw log text for this endpoint
   local logs
-  logs=$(gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/logs" 2>/dev/null || echo "(logs unavailable)")
+  logs=$(gh_api_safe "repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/logs")
+  if [[ -z "$logs" ]]; then
+    logs="(logs unavailable)"
+  fi
   truncate_text "$logs" "$MAX_LOG_CHARS"
 }
 
