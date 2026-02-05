@@ -2716,22 +2716,35 @@ def main():
     else:
         logger.info("User mode config", status=validation_msg)
 
-    # Clean up orphaned worktrees from crashed containers
-    try:
-        orphans_removed = startup_cleanup()
-        if orphans_removed > 0:
-            logger.info(f"Startup cleanup removed {orphans_removed} orphaned worktree(s)")
-    except Exception as e:
-        logger.warning("Startup worktree cleanup failed", error=str(e))
-
-    # Prune expired sessions
+    # Load sessions BEFORE worktree cleanup so we know which containers are active.
+    # After a gateway restart, Docker CLI may not be available inside the container,
+    # so we derive the active container set from persisted sessions instead.
+    active_container_ids: set[str] = set()
     try:
         session_manager = get_session_manager()
         pruned = session_manager.prune_expired_sessions()
         if pruned > 0:
             logger.info(f"Startup session cleanup pruned {pruned} expired session(s)")
+        # Extract active container IDs from surviving sessions
+        for session_info in session_manager.list_sessions():
+            container_id = session_info.get("container_id")
+            if container_id:
+                active_container_ids.add(container_id)
+        if active_container_ids:
+            logger.info(
+                "Active containers from sessions",
+                count=len(active_container_ids),
+            )
     except Exception as e:
         logger.warning("Startup session cleanup failed", error=str(e))
+
+    # Clean up orphaned worktrees from crashed containers
+    try:
+        orphans_removed = startup_cleanup(active_containers=active_container_ids or None)
+        if orphans_removed > 0:
+            logger.info(f"Startup cleanup removed {orphans_removed} orphaned worktree(s)")
+    except Exception as e:
+        logger.warning("Startup worktree cleanup failed", error=str(e))
 
     # Ensure launcher secret is configured - fail startup if not
     try:
