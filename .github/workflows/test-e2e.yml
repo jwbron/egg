@@ -54,7 +54,6 @@ jobs:
   e2e-agent-fuzz:
     name: E2E Agent Fuzz Tests
     runs-on: ubuntu-latest
-    # Removed continue-on-error: true to make failures visible
     steps:
       - uses: actions/checkout@v4
 
