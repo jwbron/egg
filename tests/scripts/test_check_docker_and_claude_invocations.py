@@ -197,6 +197,19 @@ class TestNoqaSuppression:
         assert visitor is not None
         assert len(visitor.claude_cli_lines) == 0
 
+    def test_noqa_with_justification_suppresses(self, tmp_path: Path) -> None:
+        """noqa with justification (the required format) should suppress."""
+        f = _write_py(
+            tmp_path,
+            """\
+            import subprocess
+            subprocess.run(["docker", "run", "--rm", "alpine"])  # noqa: EGG100 - test helper container
+            """,
+        )
+        visitor = check_python_file(f)
+        assert visitor is not None
+        assert len(visitor.docker_run_lines) == 0
+
     def test_wrong_noqa_code_does_not_suppress(self, tmp_path: Path) -> None:
         f = _write_py(
             tmp_path,

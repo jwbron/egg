@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """
-Lint check: Ensure docker run and claude CLI invocations stay centralized.
+Lint check: Ensure docker run and claude CLI invocations are explicitly justified.
 
 PR #159 extracts a shared build_sandbox_docker_cmd() to unify container launches.
-This linter prevents future divergence by enforcing allowlists for:
+This linter prevents future divergence by requiring explicit justification for:
 
-1. Python files that may call `docker run` via subprocess
-2. Shell files that may call `docker run`
-3. Python files that may invoke the `claude` CLI via subprocess
-4. Python files that construct `["docker", "run", ...]` but aren't using
-   build_sandbox_docker_cmd() (bypass detection)
-5. Dangerous docker flags (--privileged, --network host)
+1. Python subprocess calls with `docker run`
+2. Shell commands with `docker run`
+3. Python subprocess calls invoking the `claude` CLI
+4. Dangerous docker flags (--privileged, --network host, --pid host, --ipc host)
 
 Suppression:
-    Add `# noqa: EGG100` to suppress a specific line.
+    Each invocation must have a noqa comment with justification:
+        # noqa: EGG100 - <reason why this invocation is necessary>
+
+    Examples:
+        subprocess.run(["docker", "run", ...])  # noqa: EGG100 - test helper container
+        subprocess.run(["claude", "--version"])  # noqa: EGG100 - version check
 
 Usage:
     python3 scripts/check-docker-and-claude-invocations.py
@@ -27,38 +30,6 @@ import ast
 import re
 import sys
 from pathlib import Path
-
-# ── Allowlists ──────────────────────────────────────────────────────────────
-
-# Python files allowed to contain subprocess calls with ["docker", "run", ...]
-DOCKER_RUN_PYTHON_ALLOWLIST: set[str] = {
-    "shared/egg_container/__init__.py",  # Shared sandbox cmd builder
-    "sandbox/egg_lib/gateway.py",  # Gateway container launch
-    "sandbox/egg_lib/docker.py",  # Image version extraction (--rm --entrypoint cat)
-    "integration_tests/conftest.py",  # Test helper containers (Alpine)
-    "integration_tests/test_network_isolation.py",  # Test helper containers (Alpine)
-}
-
-# Shell files allowed to contain `docker run`
-DOCKER_RUN_SHELL_ALLOWLIST: set[str] = {
-    "gateway/start-gateway.sh",  # Shell-based gateway startup
-}
-
-# Python files allowed to invoke the `claude` CLI via subprocess
-CLAUDE_CLI_PYTHON_ALLOWLIST: set[str] = {
-    "sandbox/egg_lib/cli.py",  # gha_exec() builds claude command
-    "sandbox/llm/claude/runner.py",  # Claude version check and invocation
-    "integration_tests/conftest.py",  # run_claude_structured() builds claude command
-}
-
-# Files that legitimately use docker run but NOT for sandbox containers
-# (so bypass-detection doesn't apply to them)
-NON_SANDBOX_DOCKER_FILES: set[str] = {
-    "sandbox/egg_lib/gateway.py",
-    "sandbox/egg_lib/docker.py",
-    "integration_tests/conftest.py",
-    "integration_tests/test_network_isolation.py",
-}
 
 NOQA_CODE = "EGG100"
 
@@ -326,28 +297,19 @@ def main() -> int:
 
         file_violations: list[tuple[int, str]] = []
 
-        # Check 1: docker run allowlist (with bypass suggestion if applicable)
-        if visitor.docker_run_lines and rel not in DOCKER_RUN_PYTHON_ALLOWLIST:
-            for lineno, _ in visitor.docker_run_lines:
-                # Provide actionable message: bypass suggestion for sandbox files,
-                # otherwise just report the violation
-                if rel not in NON_SANDBOX_DOCKER_FILES:
-                    file_violations.append(
-                        (lineno, "docker run: use build_sandbox_docker_cmd() instead")
-                    )
-                else:
-                    file_violations.append((lineno, "subprocess call: docker run"))
+        # docker run detection
+        for lineno, desc in visitor.docker_run_lines:
+            file_violations.append((lineno, desc))
 
-        # Check 3: claude CLI allowlist
-        if visitor.claude_cli_lines and rel not in CLAUDE_CLI_PYTHON_ALLOWLIST:
-            for lineno, desc in visitor.claude_cli_lines:
-                file_violations.append((lineno, desc))
+        # claude CLI detection
+        for lineno, desc in visitor.claude_cli_lines:
+            file_violations.append((lineno, desc))
 
-        # Check for shell=True string bypasses
+        # shell=True string bypasses
         for lineno, desc in visitor.shell_string_lines:
             file_violations.append((lineno, desc))
 
-        # Check 5: dangerous flags (always checked, even in allowlisted files)
+        # dangerous flags
         for lineno, desc in visitor.dangerous_flag_lines:
             file_violations.append((lineno, desc))
 
@@ -362,12 +324,7 @@ def main() -> int:
         docker_viols, danger_viols = check_shell_file(sh_file)
 
         file_violations = []
-
-        # Check 2: shell docker run allowlist
-        if docker_viols and rel not in DOCKER_RUN_SHELL_ALLOWLIST:
-            file_violations.extend(docker_viols)
-
-        # Check 5: dangerous flags (always checked)
+        file_violations.extend(docker_viols)
         file_violations.extend(danger_viols)
 
         if file_violations:
@@ -377,8 +334,7 @@ def main() -> int:
     if all_violations:
         print("ERROR: Found docker/claude invocation violations!\n")
         print("=" * 70)
-        print("Container launches and Claude CLI invocations must stay centralized.")
-        print("Only allowlisted files may call `docker run` or invoke `claude`.")
+        print("Each docker run / claude CLI invocation must be explicitly justified.")
         print("=" * 70)
         print()
 
@@ -389,13 +345,17 @@ def main() -> int:
             print()
 
         print("How to fix:")
-        print("  1. Use build_sandbox_docker_cmd() from shared/egg_container")
-        print("     instead of constructing docker run commands directly.")
+        print("  Add a noqa comment with justification to the flagged line:")
         print()
-        print("  2. If this is a legitimate new invocation point, add the file")
-        print("     to the allowlist in scripts/check-docker-and-claude-invocations.py")
+        print("    subprocess.run([...])  # noqa: EGG100 - <reason>")
         print()
-        print("  3. To suppress a false positive, add: # noqa: EGG100")
+        print("  Examples of valid justifications:")
+        print("    # noqa: EGG100 - test helper container for network isolation tests")
+        print("    # noqa: EGG100 - version check for Claude CLI")
+        print("    # noqa: EGG100 - gateway container startup")
+        print()
+        print("  For sandbox containers, prefer build_sandbox_docker_cmd() from")
+        print("  shared/egg_container instead of direct docker run calls.")
         print()
 
         return 1

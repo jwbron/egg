@@ -44,7 +44,7 @@ def _check_claude_version() -> str | None:
         Version string if available, None otherwise.
     """
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: EGG100 - version check for Claude CLI
             ["claude", "--version"],
             capture_output=True,
             text=True,

@@ -241,7 +241,7 @@ docker rm -f egg-gateway 2>/dev/null || true
 # Note: No --user flag - Squid needs to start as root to read its certificate,
 # then drops privileges to proxy user. This is standard Squid operation.
 echo "Starting gateway container on $ISOLATED_NETWORK..."
-docker run -d \
+docker run -d \  # noqa: EGG100 - gateway container startup from host launcher
     --name egg-gateway \
     --network "$ISOLATED_NETWORK" \
     --ip "$GATEWAY_ISOLATED_IP" \
