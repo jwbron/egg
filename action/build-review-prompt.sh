@@ -90,18 +90,24 @@ should_skip_file() {
     return 1
 }
 
-# Safe gh api wrapper
+# Safe gh api wrapper (with proper quoting in error message)
 gh_api_safe() {
     local stderr_file
     stderr_file=$(mktemp)
     local output
+    # Capture the command for error reporting (properly quoted)
+    local cmd_display
+    cmd_display=$(printf "'gh api %s'" "$*")
+
     if output=$(gh api "$@" 2>"$stderr_file"); then
         rm -f "$stderr_file"
         echo "$output"
     else
         local rc=$?
-        echo "WARNING: 'gh api $*' failed (exit $rc): $(cat "$stderr_file")" >&2
+        local stderr_content
+        stderr_content=$(cat "$stderr_file")
         rm -f "$stderr_file"
+        echo "WARNING: ${cmd_display} failed (exit $rc): ${stderr_content}" >&2
         return 0
     fi
 }
@@ -140,15 +146,36 @@ fetch_file_content() {
     local filename="$1"
     local ref="$2"
     # Fetch raw file content from the head commit
-    gh_api_safe "repos/${GITHUB_REPOSITORY}/contents/${filename}?ref=${ref}" \
-        --jq '.content // empty' 2>/dev/null | base64 -d 2>/dev/null || echo ""
+    local b64_content
+    b64_content=$(gh_api_safe "repos/${GITHUB_REPOSITORY}/contents/${filename}?ref=${ref}" \
+        --jq '.content // empty' 2>/dev/null)
+
+    if [[ -z "$b64_content" ]]; then
+        echo "WARNING: No content returned for ${filename}" >&2
+        echo ""
+        return
+    fi
+
+    # Attempt base64 decode with error handling
+    local decoded
+    if decoded=$(echo "$b64_content" | base64 -d 2>/dev/null); then
+        echo "$decoded"
+    else
+        echo "WARNING: Failed to base64 decode ${filename}" >&2
+        echo ""
+    fi
 }
 
 fetch_review_rules() {
     # Try to fetch .egg/review-rules.md from the repo
-    local content
-    content=$(gh_api_safe "repos/${GITHUB_REPOSITORY}/contents/.egg/review-rules.md?ref=main" \
-        --jq '.content // empty' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+    local b64_content
+    b64_content=$(gh_api_safe "repos/${GITHUB_REPOSITORY}/contents/.egg/review-rules.md?ref=main" \
+        --jq '.content // empty' 2>/dev/null)
+
+    local content=""
+    if [[ -n "$b64_content" ]]; then
+        content=$(echo "$b64_content" | base64 -d 2>/dev/null) || content=""
+    fi
 
     if [[ -z "$content" ]]; then
         # Default review rules
@@ -305,7 +332,7 @@ For each issue found, output a structured JSON block:
 }
 \`\`\`
 
-The \"line\" field must be the actual line number in the file (as shown in the GitHub file viewer on the HEAD commit), NOT a diff-relative position.
+The \"line\" field must be the actual line number in the file (as shown in the GitHub file viewer on the HEAD commit). The posting script will automatically convert this to the correct diff position for inline comments. If a line number is not in the diff (e.g., for context lines), the comment will be included in the review body instead.
 
 At the end, provide a summary in this format:
 \`\`\`json
