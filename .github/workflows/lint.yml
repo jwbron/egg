@@ -104,3 +104,6 @@ jobs:
 
       - name: Check docker and claude invocations
         run: .venv/bin/python scripts/check-docker-and-claude-invocations.py
+
+      - name: Check workflow secret safety
+        run: .venv/bin/python scripts/check-workflow-secrets.py
