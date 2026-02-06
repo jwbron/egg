@@ -414,6 +414,11 @@ After the MVP is running and generating useful feedback, add specialized
 modes that can be triggered explicitly or run as additional passes.
 
 **Implementation Status:** Phase 2 is complete. The following have been added:
+
+**Default Behavior:** On PR open/update, three review modes run in parallel
+by default: security, plan verification, and outsider review. Deep review
+remains manually triggered only. Specific modes can be run individually via
+workflow_dispatch.
 - `action/prompts/security-review.md` — Security-focused review prompt
 - `action/prompts/plan-verify.md` — Plan verification review prompt
 - `action/prompts/outsider-review.md` — Outsider/clarity review prompt
