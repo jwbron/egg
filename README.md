@@ -61,7 +61,7 @@ Behavioral controls (telling an LLM "don't do X") can be bypassed through prompt
 
 ## Why Use egg?
 
-egg provides a **public, async workflow** for AI-assisted development that makes AI work visible to the whole team. Every interaction happens in GitHub -- @mention to assign, review plans before implementation, full reasoning in workflow logs.
+egg provides a **public, async workflow** for AI-assisted development that makes AI work visible to the whole team. Every interaction happens in GitHub: @mention to assign, review plans before implementation, and full reasoning in workflow logs.
 
 This complements private AI tools rather than replacing them. Use egg when:
 - **Team visibility matters**: Code changes that benefit from early feedback and shared context

@@ -1,8 +1,8 @@
 # Why egg Works: Safety, Quality, and Collaboration
 
-Local AI coding tools create a paradox: they increase individual throughput while fragmenting team knowledge. Engineer A asks an assistant to refactor the auth module. A week later, Engineer B tackles the same area with different prompts, a different approach, and conflicting patterns. Neither knows what the other did or why -- the AI conversations that drove both changes vanished when the IDE sessions ended.
+Local AI coding tools create a paradox: they increase individual throughput while fragmenting team knowledge. Engineer A asks an assistant to refactor the auth module. A week later, Engineer B tackles the same area with different prompts, a different approach, and conflicting patterns. Neither knows what the other did or why. The AI conversations that drove both changes vanished when the IDE sessions ended.
 
-egg offers an alternative: a public, async workflow where every interaction happens in shared, observable spaces that the whole team can see. This complements private AI tools rather than replacing them -- use whichever mode fits the task.
+egg offers an alternative: a public, async workflow where every interaction happens in shared, observable spaces that the whole team can see. This complements private AI tools rather than replacing them. Use whichever mode fits the task.
 
 ## How It Works
 
@@ -28,7 +28,7 @@ egg adds a public, async option to your team's AI toolkit. Use it when the task 
 |---|---|
 | Feedback at PR review, after the agent has committed to an approach | Feedback at plan stage, when redirecting costs minutes instead of hours |
 | Prompt knowledge stays with individual developers | Shared prompt playbooks emerge organically from visible issue threads |
-| Reviewing AI work is a black box -- just a diff, no reasoning | Full reasoning visible in workflow logs, alongside the code |
+| Reviewing AI work is opaque: just a diff, no reasoning | Full reasoning visible in workflow logs, alongside the code |
 | Developers adopt AI tools individually | Common patterns and standards develop naturally across the team |
 
 When teams adopt the public workflow, knowledge compounds. Someone discovers that explicit acceptance criteria produce better tests. Someone else finds that referencing a specific ADR leads to more consistent architecture. These strategies spread because the artifacts are public, not locked in private chat sessions.
@@ -39,7 +39,7 @@ Junior engineers benefit most: every egg interaction is a worked example showing
 
 egg's sandboxed architecture makes the collaborative workflow trustworthy. The key principle: **security through infrastructure, not instructions.** Telling an LLM "don't push to main" can be bypassed. Removing the ability at the network layer cannot.
 
-> **The human-merge invariant:** egg cannot merge pull requests. This isn't a policy -- the gateway blocks merge commands at the network layer. Every change to your codebase requires human approval. This is the single strongest answer to "how do we maintain accountability?" and it's enforced by infrastructure, not trust.
+> **The human-merge invariant:** egg cannot merge pull requests. This isn't just a policy. The gateway blocks merge commands at the network layer. Every change to your codebase requires human approval. This is the single strongest answer to "how do we maintain accountability?" and it's enforced by infrastructure, not trust.
 
 | Constraint | Why It Enables Collaboration |
 |---|---|
