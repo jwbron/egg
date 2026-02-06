@@ -6,33 +6,10 @@ Complete documentation for egg: a hardened sandbox for autonomous LLM code agent
 
 ## Documentation Structure
 
-### [Setup](setup/)
-Installation and configuration guides.
-
-- **[Setup Overview](setup/README.md)** - Quick start and prerequisites
-- **[GitHub App Setup](setup/github-app-setup.md)** - GitHub App permissions and installation
-- **[GitHub Auth Comparison](setup/github-auth-comparison.md)** - Auth method options
-
 ### [Architecture](architecture/)
 System design and technical details.
 
 - **[Overview](architecture/README.md)** - Gateway + sandbox architecture
-
-### [Features](features/)
-Feature documentation and capabilities.
-
-- **[Container Infrastructure](features/container-infrastructure.md)** - Container management and development environment
-- **[GitHub Action](features/github-action.md)** - Running egg in GitHub Actions CI/CD
-
-### [Guides](guides/)
-How-to guides for specific tasks.
-
-- **[@mention Trigger Setup](guides/mention-trigger-setup.md)** - Trigger egg via GitHub @mentions
-
-### [Reference](reference/)
-Quick reference guides.
-
-- **[Log Persistence](reference/log-persistence.md)** - Container log persistence and correlation
 
 ### [Development](development/)
 For contributors and developers.
@@ -45,16 +22,6 @@ Architecture Decision Records.
 
 - **[ADR Index](adr/README.md)** - All decisions and their status
 - **[Autonomous Software Engineer](adr/in-progress/ADR-Autonomous-Software-Engineer.md)** - Main system architecture
-
-### [Troubleshooting](troubleshooting/)
-Common issues and solutions.
-
-- **[GitHub Auth Issues](troubleshooting/github-auth-in-long-running-containers.md)** - Token expiry and refresh
-
-### [Plans](plans/)
-Implementation plans for future work.
-
-- **[GitHub Actions Implementation](plans/github-actions-implementation-plan.md)** - GitHub Actions integration plan
 
 ## Component READMEs
 
@@ -71,7 +38,6 @@ Each component directory contains its own README with detailed documentation:
 
 **Getting Started:**
 1. [Main README](../README.md) - Project overview
-2. [Setup Overview](setup/README.md) - Installation and configuration
 
 **Understanding the System:**
 1. [Architecture Overview](architecture/README.md) - Component design
