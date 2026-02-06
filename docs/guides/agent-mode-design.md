@@ -4,7 +4,7 @@ Guidelines for designing agent workflows in egg: when to let the agent operate f
 
 ## Core Principle
 
-**The sandbox is the constraint.** The gateway sidecar enforces the security boundary: no merging, no force-pushing, branch ownership, no production access, no credential exposure. Inside those rails, the agent should be free to operate however it sees fit.
+**The sandbox is the constraint.** The gateway sidecar *technically enforces* the security boundary—these aren't just policy rules, they're blocked at the infrastructure level: merge commands fail, force-push is rejected, branch ownership is validated, credentials are held by the gateway (not exposed to the agent). Inside those rails, the agent should be free to operate however it sees fit.
 
 If a task needs constraints beyond what the sandbox enforces, that's a signal to improve the sandbox—not to add prompt-level restrictions.
 
@@ -22,7 +22,7 @@ Review PR #123. Post your review on the PR.
 Here are the diffs for PR #123. Output JSON with file/line/severity/comment fields.
 ```
 
-## The Six Principles
+## The Five Guidelines
 
 ### 1. Pre-fetching is usually wrong
 
@@ -66,11 +66,9 @@ For each issue, output severity as critical/warning/suggestion and
 category as security/correctness/quality/standards.
 ```
 
-### 5. Let the agent explore
+### 5. Let the agent explore and use judgment
 
 The agent can fetch more context if it needs it. Don't try to anticipate everything it might want to know. Provide the task and let it investigate.
-
-### 6. Trust the agent's judgment
 
 If the agent decides something isn't worth commenting on, or needs a different approach than expected, that's usually fine. The security boundary prevents harm; within that boundary, let the agent make decisions.
 
@@ -182,6 +180,13 @@ The auto-review feature (#161) exemplifies the patterns to avoid:
 2. Require structured JSON output
 3. Parse JSON and post to GitHub
 4. Detailed instructions on what to check
+
+**Specific problems from the original implementation:**
+
+- **Truncation lost signal:** Diffs were truncated at 15K/file and 100K total. Large changes lost context exactly when it mattered most.
+- **JSON schema caused shallow reviews:** Forcing `{"file", "line", "severity", "category", "comment"}` led to formulaic, checklist-style comments. Architectural concerns that don't map to single lines got missed entirely.
+- **Brittle post-processing:** The 484-line `post-review-comments.sh` script had to parse JSON from logs and do lossy line-number-to-diff-position mapping—a problem the agent would never create if posting directly.
+- **Closed-book exam:** The agent couldn't explore how changed functions were called, check test coverage, or understand architectural context. Good review requires more than staring at an isolated diff.
 
 **Improved design (right):**
 1. Tell agent: "Review PR #123, post review on GitHub"
