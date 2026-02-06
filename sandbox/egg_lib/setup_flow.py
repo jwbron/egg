@@ -217,7 +217,7 @@ def _create_secrets_config() -> bool:
     if not current_app_id or not current_install_id:
         print()
         print("Enter GitHub App credentials:")
-        print("  (See docs/setup/github-app-setup.md for instructions)")
+        print("  (See https://docs.github.com/en/apps/creating-github-apps for GitHub App setup)")
         print()
 
         app_id = input("GitHub App ID: ").strip()

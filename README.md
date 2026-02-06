@@ -135,7 +135,7 @@ egg can run as a GitHub Action for CI/CD automation:
     anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
 ```
 
-Trigger egg via @mentions in issues and PRs, or run it on any GitHub Actions event. See the [GitHub Action documentation](docs/features/github-action.md) and [@mention trigger setup guide](docs/guides/mention-trigger-setup.md) for details.
+Trigger egg via @mentions in issues and PRs, or run it on any GitHub Actions event. See the [GitHub Action documentation](action/README.md) and the [GitHub Actions ADR](docs/adr/in-progress/ADR-GitHub-Actions-Support.md) for details.
 
 ## CLI Reference
 
@@ -160,10 +160,8 @@ Trigger egg via @mentions in issues and PRs, or run it on any GitHub Actions eve
 
 - [Documentation Index](docs/index.md) - Navigation hub for all docs
 - [Architecture](docs/architecture/README.md) - System design and component overview
-- [Setup Guide](docs/setup/README.md) - First-time setup and configuration
-- [GitHub Action](docs/features/github-action.md) - CI/CD integration
-- [@mention Trigger Setup](docs/guides/mention-trigger-setup.md) - GitHub @mention automation
-- [Troubleshooting](docs/troubleshooting/) - Common issues and solutions
+- [Contributing](CONTRIBUTING.md) - Development setup and workflow
+- [GitHub Action](action/README.md) - CI/CD integration
 
 ### Component Documentation
 
