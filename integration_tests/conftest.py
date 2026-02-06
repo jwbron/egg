@@ -609,6 +609,15 @@ def run_claude_structured(
     Uses ``--output-format json`` and ``--json-schema`` to get a parsed
     verdict back from the agent. The agent identity is established via
     ``--append-system-prompt`` to separate it from the building agent.
+
+    Network configuration coupling:
+        This function constructs ``ContainerNetworkConfig`` manually from
+        ``EggStack`` values rather than calling ``_get_container_network_config()``
+        (which is internal to ``sandbox/egg_lib/runtime.py``). If that function
+        gains new fields or changes defaults, this test helper must be updated
+        to match. The shared ``build_sandbox_docker_cmd()`` ensures the *docker
+        arguments* stay in sync, but the *config dataclass population* is a
+        separate coupling point.
     """
     system_prompt = TEST_AGENT_SYSTEM_PROMPT
     if extra_system:
@@ -633,6 +642,9 @@ def run_claude_structured(
         runtime_gid=1000,
         extra_env={
             "ANTHROPIC_OAUTH_TOKEN": os.environ["ANTHROPIC_OAUTH_TOKEN"],
+            # Match production: always set auth method so sandbox startup code
+            # branches the same way in tests as in production.
+            "ANTHROPIC_AUTH_METHOD": "oauth",
         },
     )
 
