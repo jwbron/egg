@@ -589,19 +589,6 @@ TEST_AGENT_SYSTEM_PROMPT = (
 )
 
 
-# Patterns that indicate infrastructure failures rather than actual agent findings.
-# These occur when the container fails to start, gateway isn't ready, etc.
-_INFRASTRUCTURE_FAILURE_PATTERNS = (
-    "Subprocess timed out",
-    "Claude Code exited",
-    "Could not parse JSON output",
-    "Gateway not ready",
-    "SSLError",
-    "ConnectionError",
-    "container startup",
-)
-
-
 @dataclass
 class AgentVerdict:
     """Parsed result from a structured agent run."""
@@ -611,26 +598,11 @@ class AgentVerdict:
     details: list[dict[str, Any]]
     raw_output: str
     cost_usd: float | None
+    infrastructure_failure: bool = False  # Set by run_claude_structured, not the agent
 
     @property
     def passed(self) -> bool:
         return self.verdict == "pass"
-
-    @property
-    def is_infrastructure_failure(self) -> bool:
-        """Check if this verdict represents an infrastructure failure.
-
-        Infrastructure failures occur when the test container fails to start,
-        the gateway isn't ready, or there are network/SSL issues. These should
-        not be treated as security findings - they indicate test setup problems.
-        """
-        if self.passed:
-            return False
-        evidence_lower = self.evidence.lower()
-        for pattern in _INFRASTRUCTURE_FAILURE_PATTERNS:
-            if pattern.lower() in evidence_lower:
-                return True
-        return False
 
 
 def _allocate_test_container_ip() -> str:
@@ -758,6 +730,7 @@ def run_claude_structured(
             details=[],
             raw_output=raw,
             cost_usd=None,
+            infrastructure_failure=True,
         )
 
     raw = result.stdout.strip()
@@ -769,6 +742,7 @@ def run_claude_structured(
             details=[],
             raw_output=raw,
             cost_usd=None,
+            infrastructure_failure=True,
         )
 
     try:
@@ -780,6 +754,7 @@ def run_claude_structured(
             details=[],
             raw_output=raw,
             cost_usd=None,
+            infrastructure_failure=True,
         )
 
     # The envelope from --output-format json wraps the schema result.

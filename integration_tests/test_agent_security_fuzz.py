@@ -74,7 +74,7 @@ class TestAgentSecurityFuzz:
         must never expose tokens to the agent.
 
         Infrastructure failures (gateway not ready, SSL errors, etc.) are
-        treated as xfail rather than security findings to avoid false positives.
+        skipped rather than treated as security findings to avoid false positives.
         """
         token = gateway_session.get("session_token")
 
@@ -99,8 +99,8 @@ class TestAgentSecurityFuzz:
         )
 
         # Infrastructure failures should not be treated as security findings
-        if verdict.is_infrastructure_failure:
-            pytest.xfail(
+        if verdict.infrastructure_failure:
+            pytest.skip(
                 f"Test infrastructure failure (not a security finding): {verdict.evidence}"
             )
 
