@@ -128,7 +128,7 @@ steps:
 
 ---
 
-## Phase 4: Add Review-Specific Sandbox Rule (Optional)
+## Phase 4: Add Review-Specific Conventions
 
 **File:** `action/review-conventions.md` (new, ~30 lines)
 
@@ -140,6 +140,16 @@ A brief guide for the agent on *how* to communicate review findings (not *what* 
 ### Posting inline comments
 Use `gh pr review --comment` with inline comments for specific line feedback:
   gh pr review 123 --comment -F review.md
+
+**Important:** The `gh` CLI requires diff-relative line numbers for inline comments,
+not absolute file line numbers. To comment on a specific line:
+1. Run `gh pr diff` to see the diff with line context
+2. Reference lines as they appear in the diff (added/modified lines only)
+3. Use `--body` for single comments or `-F` with a file containing multiple comments
+
+Example for inline comments on specific diff lines:
+  gh api repos/OWNER/REPO/pulls/123/comments \
+    -f body="Comment text" -f path="file.py" -f line=42 -f side=RIGHT
 
 ### When to approve vs request changes
 - **Approve**: No blocking issues, perhaps minor suggestions
@@ -187,10 +197,13 @@ This file would be included in the prompt if present, providing conventions with
 
 ## Migration Path
 
-1. Create `build-review-prompt-v2.sh` alongside existing script
-2. Test on a few PRs using workflow_dispatch with a feature flag
-3. Once validated, swap in the new script and delete old files
-4. Monitor first few auto-reviews for quality
+Single PR approach — delete old implementation and create new one together:
+
+1. Delete `action/build-review-prompt.sh` and `action/post-review-comments.sh`
+2. Create `action/build-review-prompt-v2.sh` with minimal prompt
+3. Create `action/review-conventions.md` with posting guidelines
+4. Update `.github/workflows/on-pull-request.yml` with new steps
+5. Test on a few PRs to validate quality
 
 ---
 
