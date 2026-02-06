@@ -10,11 +10,10 @@ egg/
 ├── config/                 # Central configuration (repos, secrets template)
 ├── docs/                   # Cross-cutting documentation
 ├── gateway/                # Gateway sidecar (trusted container)
-├── integration_tests/      # Integration tests (require Docker)
 ├── sandbox/                # Sandbox container (untrusted, runs the LLM agent)
 ├── scripts/                # Validation and lint scripts
 ├── shared/                 # Shared Python libraries (used by gateway + sandbox)
-├── tests/                  # Unit tests
+├── tests/                  # Tests
 ├── dev                     # Development CLI (setup, lint, test, ci)
 └── README.md
 ```
@@ -26,7 +25,6 @@ egg/
 | `bin/` | CLI entry points (`egg`, `setup-gateway`) | Host |
 | `config/` | Repository config, secrets template | Host |
 | `gateway/` | Gateway sidecar: policy enforcement, credential injection, proxying | Gateway container |
-| `integration_tests/` | Integration tests requiring Docker and real containers | CI / local |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
 | `shared/` | Shared libraries: logging, config, git utilities | Both containers |
 | `scripts/` | CI/lint scripts (config validation, import checks) | CI / local |

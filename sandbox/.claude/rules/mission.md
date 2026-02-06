@@ -46,7 +46,7 @@ git push origin <branch>
 gh pr create --title "Brief description" --body "..." --base main
 ```
 
-**Commit Attribution**: Author is `egg <egg@localhost>`. NEVER include "Claude Code" or "Co-Authored-By: Claude".
+**Commit Attribution**: Author is set from GATEWAY_BOT_NAME at container startup. NEVER include "Claude Code" or "Co-Authored-By: Claude".
 
 **If push/PR fails**: Notify user via Slack with branch name, repo, and summary.
 

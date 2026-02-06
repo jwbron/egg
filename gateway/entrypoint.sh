@@ -42,7 +42,7 @@ else
     echo "Note: /shared/certs not mounted - containers will need manual CA setup"
 fi
 
-# Note: GitHub tokens are now managed in-memory by token_refresher.py
+# Note: GitHub tokens are loaded from environment variables (GITHUB_TOKEN)
 # We only need to verify the launcher secret is mounted
 if [ ! -f "/secrets/launcher-secret" ]; then
     echo "ERROR: /secrets/launcher-secret not mounted"
@@ -159,14 +159,6 @@ if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; the
         useradd -u "$HOST_UID" -g "$HOST_GID" -d /home/egg -s /bin/bash -M -N egghost 2>/dev/null || true
     fi
     chown "$HOST_UID:$HOST_GID" /home/egg
-    # Also chown Docker volume mount points - these are separate filesystems
-    # from /home/egg and are root-owned by default. The gateway process needs
-    # write access after gosu drops privileges.
-    for vol_dir in /home/egg/.egg-state /home/egg/.egg-worktrees; do
-        if [ -d "$vol_dir" ]; then
-            chown -R "$HOST_UID:$HOST_GID" "$vol_dir"
-        fi
-    done
 
     # Configure global git identity for gateway operations (commits, etc.)
     # Repos can override this with local config if needed

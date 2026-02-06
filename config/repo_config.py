@@ -304,12 +304,12 @@ def get_auth_mode(repo: str) -> str:
     Get the authentication mode for a repository.
 
     Auth modes:
-    - "bot": Use the GitHub App bot identity (default)
-    - "user": Use a personal access token with user identity
+    - "bot": Use the agent's dedicated user account PAT (default)
+    - "user": Use a different personal access token with user identity
 
-    User mode allows operations to be attributed to a personal GitHub
-    account instead of the egg bot, useful for contributing to external repos
-    where bot accounts may not be appropriate.
+    User mode allows operations to be attributed to a different personal GitHub
+    account, useful for contributing to external repos where the agent account
+    may not be appropriate.
 
     Args:
         repo: Repository in "owner/repo" format
@@ -327,8 +327,8 @@ def is_user_mode_repo(repo: str) -> bool:
     """
     Check if a repository is configured to use user mode.
 
-    In user mode, operations are attributed to a personal GitHub account
-    instead of the egg bot.
+    In user mode, operations are attributed to a different personal GitHub
+    account instead of the agent's dedicated account.
 
     Args:
         repo: Repository in "owner/repo" format

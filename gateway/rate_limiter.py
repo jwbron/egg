@@ -3,7 +3,8 @@ Rate Limiter - Thread-safe sliding window rate limiting.
 
 Provides rate limiting infrastructure for the gateway sidecar to protect against:
 - Session enumeration attacks (brute force guessing session tokens)
-- Resource exhaustion from excessive heartbeat requests
+- DoS attacks on session registration and other endpoints
+- Resource exhaustion from excessive requests
 
 Design decisions:
 - In-memory rate limiting (NOT persisted) - gateway restart clears limits
@@ -220,6 +221,14 @@ class SlidingWindowRateLimiter:
 # Pre-configured rate limiters for different operations
 # These are module-level singletons created on first import
 
+# Session registration: 10 registrations per minute per source IP
+# Prevents bulk session creation attacks
+registration_limiter = SlidingWindowRateLimiter(
+    max_requests=10,
+    window_seconds=60,
+    name="session_registration",
+)
+
 # Failed session lookups: 10 failures per minute per source IP
 # Prevents session enumeration/brute force attacks
 failed_lookup_limiter = SlidingWindowRateLimiter(
@@ -236,6 +245,19 @@ heartbeat_limiter = SlidingWindowRateLimiter(
     window_seconds=3600,
     name="session_heartbeat",
 )
+
+
+def check_registration_rate_limit(source_ip: str) -> RateLimitResult:
+    """
+    Check rate limit for session registration.
+
+    Args:
+        source_ip: The source IP address
+
+    Returns:
+        RateLimitResult
+    """
+    return registration_limiter.is_allowed(source_ip)
 
 
 def record_failed_lookup(source_ip: str) -> RateLimitResult:
@@ -274,6 +296,7 @@ def get_all_limiter_stats() -> dict[str, Any]:
         Dictionary with stats for each limiter
     """
     return {
+        "registration": registration_limiter.get_stats(),
         "failed_lookup": failed_lookup_limiter.get_stats(),
         "heartbeat": heartbeat_limiter.get_stats(),
     }

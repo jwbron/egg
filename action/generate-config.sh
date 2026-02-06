@@ -11,12 +11,9 @@
 #   GITHUB_ACTOR        — GitHub username triggering the workflow
 #   GITHUB_ACTOR_ID     — Numeric ID for noreply email
 #   INPUT_ANTHROPIC_OAUTH_TOKEN — Anthropic OAuth token
-#   INPUT_GITHUB_TOKEN  — GitHub token for git operations
+#   INPUT_GITHUB_TOKEN  — GitHub token (PAT) for git operations
 #
 # Optional environment variables:
-#   INPUT_BOT_APP_ID             — GitHub App ID for bot identity
-#   INPUT_BOT_APP_PRIVATE_KEY    — GitHub App private key PEM content
-#   INPUT_BOT_APP_INSTALLATION_ID — GitHub App installation ID
 #   INPUT_BOT_USERNAME           — Bot username (default: "egg")
 #
 # Outputs:
@@ -47,23 +44,12 @@ mkdir -p "$CONFIG_DIR"
 # Generate repositories.yaml
 # ---------------------------------------------------------------------------
 
-# Determine auth_mode based on whether bot App credentials are provided
-if [[ -n "${INPUT_BOT_APP_ID:-}" && -n "${INPUT_BOT_APP_PRIVATE_KEY:-}" && -n "${INPUT_BOT_APP_INSTALLATION_ID:-}" ]]; then
-  AUTH_MODE="bot"
-else
-  AUTH_MODE="user"
-fi
-
 cat > "$CONFIG_DIR/repositories.yaml" <<YAML
 github_username: ${GITHUB_ACTOR}
 bot_username: ${BOT_USERNAME}
 
 writable_repos:
   - ${GITHUB_REPOSITORY}
-
-repo_settings:
-  ${GITHUB_REPOSITORY}:
-    auth_mode: ${AUTH_MODE}
 
 user_mode:
   github_user: ${GITHUB_ACTOR}
@@ -81,29 +67,9 @@ YAML
 
 cat > "$CONFIG_DIR/secrets.env" <<ENV
 CLAUDE_CODE_OAUTH_TOKEN=${INPUT_ANTHROPIC_OAUTH_TOKEN}
+GITHUB_TOKEN=${INPUT_GITHUB_TOKEN}
 GITHUB_USER_TOKEN=${INPUT_GITHUB_TOKEN}
 ENV
-
-# Add bot GitHub App credentials if provided
-if [[ "$AUTH_MODE" == "bot" ]]; then
-  echo "GITHUB_APP_ID=${INPUT_BOT_APP_ID}" >> "$CONFIG_DIR/secrets.env"
-  echo "GITHUB_APP_INSTALLATION_ID=${INPUT_BOT_APP_INSTALLATION_ID}" >> "$CONFIG_DIR/secrets.env"
-
-  # Write private key PEM to file for the gateway's token refresher.
-  # Normalize literal \n sequences to real newlines — common when PEM keys
-  # are pasted as a single line into CI secret UIs.
-  PEM_CONTENT="${INPUT_BOT_APP_PRIVATE_KEY//\\n/$'\n'}"
-  printf '%s\n' "$PEM_CONTENT" > "$CONFIG_DIR/github-app.pem"
-  chmod 600 "$CONFIG_DIR/github-app.pem"
-
-  # Validate PEM structure
-  if ! grep -q -- "-----BEGIN" "$CONFIG_DIR/github-app.pem"; then
-    echo "ERROR: bot-app-private-key does not appear to be valid PEM." >&2
-    echo "  Expected '-----BEGIN RSA PRIVATE KEY-----' or '-----BEGIN PRIVATE KEY-----'." >&2
-    echo "  Paste the full .pem file contents (with newlines) into the GitHub secret." >&2
-    exit 1
-  fi
-fi
 
 # Add bot identity config
 echo "GATEWAY_BOT_NAME=${BOT_USERNAME}" >> "$CONFIG_DIR/secrets.env"

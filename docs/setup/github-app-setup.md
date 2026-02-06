@@ -1,10 +1,14 @@
-# GitHub App Setup
+# GitHub Authentication Setup
 
-This guide covers setting up the `egg` GitHub App for automated PR creation and workflow management.
+This guide covers setting up GitHub authentication for egg using a dedicated user account and Personal Access Token (PAT).
+
+## Overview
+
+Egg uses a dedicated GitHub user account (e.g., `james-in-a-box`) for all GitHub operations. This account is authenticated via a fine-grained Personal Access Token (PAT).
 
 ## Required Permissions
 
-The GitHub App requires the following permissions to function properly:
+The PAT requires the following permissions on the target repositories:
 
 ### Read-Only Permissions
 
@@ -13,9 +17,6 @@ The GitHub App requires the following permissions to function properly:
 | **Actions** | Read workflow run status and logs |
 | **Checks** | Read check run status for CI/CD monitoring |
 | **Commit statuses** | Read commit status indicators |
-| **Dependabot alerts** | Read security vulnerability alerts |
-| **Discussions** | Read repository discussions |
-| **Merge queues** | Read merge queue status |
 
 ### Read-Write Permissions
 
@@ -25,58 +26,39 @@ The GitHub App requires the following permissions to function properly:
 | **Pull requests** | Create PRs, add comments, request reviews |
 | **Workflows** | Trigger and manage GitHub Actions workflows |
 
-## Installation Steps
+## Setup Steps
 
-### 1. Create GitHub App
+### 1. Create Dedicated GitHub Account
 
-1. Go to GitHub Settings > Developer settings > GitHub Apps
-2. Click "New GitHub App"
-3. Configure:
-   - **Name**: `egg`
-   - **Homepage URL**: Your documentation URL
-   - **Webhook**: Disable unless needed
+1. Create a new GitHub account for the agent (e.g., `james-in-a-box`)
+2. Add a bio disclosing it's a machine account (GitHub ToS requirement)
+3. Add the account as a collaborator on your repositories
 
-### 2. Set Permissions
+### 2. Create Fine-Grained PAT
 
-Under "Permissions & events":
+1. Log in as the dedicated account
+2. Go to Settings > Developer settings > Personal access tokens > Fine-grained tokens
+3. Click "Generate new token"
+4. Configure:
+   - **Name**: `egg-gateway`
+   - **Expiration**: Set an appropriate expiration
+   - **Repository access**: Select the repositories egg needs access to
+   - **Permissions**: Set as listed above
 
-**Repository permissions:**
-- Actions: Read-only
-- Checks: Read-only
-- Commit statuses: Read-only
-- Contents: Read and write
-- Dependabot alerts: Read-only
-- Discussions: Read-only
-- Merge queues: Read-only
-- Pull requests: Read and write
-- Workflows: Read and write
+### 3. Configure Token
 
-### 3. Generate Private Key
-
-1. Scroll to "Private keys"
-2. Click "Generate a private key"
-3. Save the `.pem` file securely
-
-### 4. Install App
-
-1. Go to the "Install App" tab
-2. Select the repositories to grant access to
-3. Confirm installation
-
-### 5. Configure Token
-
-The GitHub token is configured in your environment:
+Add the token to your secrets configuration:
 
 ```bash
-# In your shell config or .env
-export GITHUB_TOKEN="your-token-here"
+# In ~/.config/egg/secrets.env
+GITHUB_TOKEN="github_pat_..."
+GATEWAY_BOT_NAME="james-in-a-box"
+GATEWAY_BOT_BRANCH_PREFIX="egg"
 ```
 
 The `gh` CLI and `git push` automatically use this token for authentication.
 
-## Verifying Permissions
-
-To verify the app has correct permissions:
+## Verifying Setup
 
 ```bash
 # Check token scopes
@@ -94,24 +76,17 @@ gh workflow list
 ### "Resource not accessible by integration" Error
 
 This typically means a permission is missing. Check:
-1. App permissions in GitHub Settings
-2. Installation scope (which repos have access)
-3. Token validity
-
-### Workflow Permission Errors
-
-If you see errors like "refusing to allow a GitHub App to create or update workflow":
-1. Ensure "Workflows" permission is set to "Read and write"
-2. Re-install the app to pick up new permissions
+1. PAT permissions in GitHub Settings
+2. Repository access scope
+3. Token validity / expiration
 
 ### Contents Permission Errors
 
 If pushes fail:
 1. Verify "Contents" permission is "Read and write"
 2. Check branch protection rules
-3. Ensure the app is installed on the target repository
+3. Ensure the account has collaborator access on the target repository
 
 ## Related Documentation
 
-- [GitHub Auth Comparison](github-auth-comparison.md) - Auth method options
 - [Architecture Overview](../architecture/) - System design

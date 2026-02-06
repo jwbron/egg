@@ -127,30 +127,21 @@ generate_launcher_secret() {
 
 # Check prerequisites
 check_prerequisites() {
-    # Check GitHub App credentials
-    # - App ID and Installation ID should be in secrets.env
-    # - Private key should be in github-app.pem
+    # Check GitHub token (PAT)
     SECRETS_FILE="${CONFIG_DIR}/secrets.env"
-    PRIVATE_KEY_FILE="${CONFIG_DIR}/github-app.pem"
 
-    # Check if secrets.env exists and has required values
-    HAS_APP_ID=false
-    HAS_INSTALL_ID=false
+    HAS_TOKEN=false
     if [[ -f "$SECRETS_FILE" ]]; then
-        if grep -q "^GITHUB_APP_ID=" "$SECRETS_FILE"; then
-            HAS_APP_ID=true
-        fi
-        if grep -q "^GITHUB_APP_INSTALLATION_ID=" "$SECRETS_FILE"; then
-            HAS_INSTALL_ID=true
+        if grep -q "^GITHUB_TOKEN=" "$SECRETS_FILE"; then
+            HAS_TOKEN=true
         fi
     fi
 
-    if [[ "$HAS_APP_ID" != "true" ]] || [[ "$HAS_INSTALL_ID" != "true" ]] || [[ ! -f "$PRIVATE_KEY_FILE" ]]; then
-        echo "WARNING: GitHub App credentials not fully configured."
+    if [[ "$HAS_TOKEN" != "true" ]]; then
+        echo "WARNING: GitHub token (PAT) not configured."
         echo ""
-        echo "Expected in $CONFIG_DIR/:"
-        echo "  - secrets.env with GITHUB_APP_ID and GITHUB_APP_INSTALLATION_ID"
-        echo "  - github-app.pem (private key)"
+        echo "Expected in $CONFIG_DIR/secrets.env:"
+        echo "  - GITHUB_TOKEN (PAT for the agent's dedicated GitHub user account)"
         echo ""
         echo "Run 'egg --setup' to configure credentials, or see docs/setup/github-app-setup.md"
         echo ""
@@ -161,7 +152,7 @@ check_prerequisites() {
             exit 1
         fi
     else
-        echo "GitHub App credentials found in: $CONFIG_DIR"
+        echo "GitHub token found in: $CONFIG_DIR"
     fi
 
     # Check Docker is available

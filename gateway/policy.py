@@ -52,7 +52,7 @@ MAX_BRANCH_PR_CACHE_SIZE = 200
 
 # Bot identity configuration
 # Loaded from GATEWAY_BOT_NAME environment variable (REQUIRED)
-# This should match your GitHub App name for PR ownership checks
+# This should match the GitHub username used for agent operations
 # Example: GATEWAY_BOT_NAME="james-in-a-box"
 
 # Cached values (loaded lazily on first access)
@@ -74,11 +74,8 @@ def _reset_bot_config_caches() -> None:
 def get_bot_identities() -> frozenset[str]:
     """Get bot identities, loading from environment on first access.
 
-    The bot name is used to generate identity variants that GitHub may use:
-    - "name" (plain username)
-    - "name[bot]" (GitHub App bot suffix)
-    - "app/name" (GitHub App author format in API)
-    - "apps/name" (alternate app format)
+    With dedicated user accounts (not GitHub Apps), only the plain username
+    is needed for identity matching.
 
     Raises:
         ValueError: If GATEWAY_BOT_NAME is not configured.
@@ -91,17 +88,10 @@ def get_bot_identities() -> frozenset[str]:
     if not bot_name:
         raise ValueError(
             "GATEWAY_BOT_NAME environment variable is required. "
-            "Set it to your GitHub App name (e.g., GATEWAY_BOT_NAME=james-in-a-box). "
+            "Set it to the agent's GitHub username (e.g., GATEWAY_BOT_NAME=james-in-a-box). "
             "Run 'egg --setup' to configure."
         )
-    _bot_identities_cache = frozenset(
-        {
-            bot_name,
-            f"{bot_name}[bot]",
-            f"app/{bot_name}",
-            f"apps/{bot_name}",
-        }
-    )
+    _bot_identities_cache = frozenset({bot_name})
     return _bot_identities_cache
 
 

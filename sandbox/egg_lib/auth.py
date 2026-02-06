@@ -5,7 +5,6 @@ and related authentication utilities.
 """
 
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -147,8 +146,8 @@ def get_github_token() -> str | None:
 def get_github_readonly_token() -> str | None:
     """Get read-only GitHub token for external repositories.
 
-    This token is used for repos outside the primary GitHub App's scope,
-    such as external-org/repo when the App is only installed on your-org/egg.
+    This token is used for repos outside the primary token's scope,
+    such as external-org/repo.
 
     Returns:
         Token string if found, None otherwise
@@ -170,84 +169,4 @@ def get_github_readonly_token() -> str | None:
         pass
     except Exception:
         pass
-    return None
-
-
-def _read_secrets_env() -> dict[str, str]:
-    """Read secrets.env file into a dictionary."""
-    secrets_file = Config.USER_CONFIG_DIR / "secrets.env"
-    secrets_dict: dict[str, str] = {}
-
-    if secrets_file.exists():
-        for line in secrets_file.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, value = line.partition("=")
-                secrets_dict[key.strip()] = value.strip()
-
-    return secrets_dict
-
-
-def get_github_app_token() -> str | None:
-    """Generate GitHub App installation token for container use.
-
-    Uses the github-app-token.py script to generate a fresh installation token
-    from App credentials (App ID, Installation ID, private key).
-
-    Credentials are read from:
-    - secrets.env: GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID
-    - github-app.pem: Private key file
-
-    Returns:
-        Installation token string if successful, None otherwise
-    """
-    # Check if App credentials exist
-    secrets = _read_secrets_env()
-    app_id = secrets.get("GITHUB_APP_ID")
-    installation_id = secrets.get("GITHUB_APP_INSTALLATION_ID")
-    private_key_file = Config.USER_CONFIG_DIR / "github-app.pem"
-
-    if not app_id or not installation_id or not private_key_file.exists():
-        return None  # App not configured, fall back to PAT
-
-    # Find the token generation script
-    script_dir = Path(__file__).resolve().parent.parent
-    token_script = script_dir / "tools" / "github-app-token.py"
-
-    if not token_script.exists():
-        warn(f"GitHub App token script not found: {token_script}")
-        return None
-
-    # Use the host-services venv Python which has cryptography installed
-    # Fall back to system python3 if venv doesn't exist
-    egg_root = script_dir.parent
-    venv_python = egg_root / "host-services" / ".venv" / "bin" / "python"
-    python_cmd = str(venv_python) if venv_python.exists() else "python3"
-
-    try:
-        result = subprocess.run(
-            [python_cmd, str(token_script), "--config-dir", str(Config.USER_CONFIG_DIR)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-
-        if result.returncode == 0:
-            token = result.stdout.strip()
-            if token and token.startswith("ghs_"):  # Installation tokens start with ghs_
-                return token
-            elif token:
-                # Token format might vary, accept if non-empty
-                return token
-
-        # Log error but don't fail - we can fall back to PAT
-        if result.stderr:
-            warn(f"GitHub App token generation failed: {result.stderr.strip()}")
-
-    except subprocess.TimeoutExpired:
-        warn("GitHub App token generation timed out")
-    except Exception as e:
-        warn(f"GitHub App token generation error: {e}")
-
     return None

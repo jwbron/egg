@@ -72,7 +72,7 @@ MOUNTS=()
 # Config file mount (required for repo_config.py)
 MOUNTS+=(-v "$CONFIG_FILE:/config/repositories.yaml:ro")
 
-# EGG config directory (contains secrets.env, github-app.pem, launcher-secret)
+# EGG config directory (contains secrets.env, launcher-secret)
 # Mount at /home/egg/.config/egg since gateway drops to UID 1000 with HOME=/home/egg
 # Also mount at /secrets for backward compatibility with gateway code
 MOUNTS+=(-v "$CONFIG_DIR:$CONTAINER_HOME/.config/egg:ro")
@@ -140,7 +140,7 @@ fi
 ENV_ARGS=(-e EGG_REPO_CONFIG=/config/repositories.yaml)
 
 # Set HOME for the gateway process so Path.home() resolves correctly
-# This is needed for token_refresher.py to find ~/.config/egg/
+# This is needed for gateway to find ~/.config/egg/
 ENV_ARGS+=(-e "HOME=$CONTAINER_HOME")
 
 # Pass host home directory for path translation in API responses

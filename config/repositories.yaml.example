@@ -71,8 +71,8 @@ readable_repos:
 #   - disable_auto_fix: Don't automatically attempt to fix failing CI checks
 #     Default: false (auto-fix enabled)
 #   - auth_mode: Authentication mode for this repo
-#     "bot" (default): Use GitHub App bot identity
-#     "user": Use personal access token with user identity
+#     "bot" (default): Use the agent's dedicated user account PAT
+#     "user": Use a personal access token with different user identity
 repo_settings:
   # Example:
   # YOUR_USERNAME/egg:

@@ -15,15 +15,6 @@ inputs:
     description: GitHub token for git operations
     required: true
     default: ${{ github.token }}
-  bot-app-id:
-    description: GitHub App ID for bot identity (required for bot mode)
-    required: false
-  bot-app-private-key:
-    description: GitHub App private key PEM for bot identity (required for bot mode)
-    required: false
-  bot-app-installation-id:
-    description: GitHub App installation ID for bot identity (required for bot mode)
-    required: false
   bot-username:
     description: Bot GitHub username for filtering self-comments
     required: false
@@ -66,9 +57,6 @@ runs:
         INPUT_PROMPT: ${{ inputs.prompt }}
         INPUT_ANTHROPIC_OAUTH_TOKEN: ${{ inputs.anthropic-oauth-token }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
-        INPUT_BOT_APP_ID: ${{ inputs.bot-app-id }}
-        INPUT_BOT_APP_PRIVATE_KEY: ${{ inputs.bot-app-private-key }}
-        INPUT_BOT_APP_INSTALLATION_ID: ${{ inputs.bot-app-installation-id }}
         INPUT_BOT_USERNAME: ${{ inputs.bot-username }}
         INPUT_MODE: ${{ inputs.mode }}
         INPUT_TIMEOUT: ${{ inputs.timeout }}

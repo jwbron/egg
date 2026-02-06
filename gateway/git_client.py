@@ -935,7 +935,7 @@ def get_token_for_repo(repo: str) -> tuple[str | None, str, str]:
     Get the authentication token for a repository.
 
     Determines the auth mode (bot vs user) for the repo and retrieves
-    the appropriate token.
+    the appropriate token (PAT).
 
     Args:
         repo: Repository in "owner/repo" format
@@ -960,7 +960,11 @@ def get_token_for_repo(repo: str) -> tuple[str | None, str, str]:
     else:
         token = github.get_token()
         if not token:
-            return None, auth_mode, "GitHub token not available"
+            return (
+                None,
+                auth_mode,
+                "GitHub token not available. Set GITHUB_TOKEN environment variable.",
+            )
         token_str = token.token
 
     return token_str, auth_mode, ""

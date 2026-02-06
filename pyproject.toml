@@ -24,7 +24,6 @@ dev = [
     "bandit>=1.7.0",
     "yamllint>=1.32.0",
     "pre-commit>=3.6.0",
-    "pytest-timeout>=2.2.0",
     # Type stubs
     "types-PyYAML>=6.0",
     "types-requests>=2.31",
@@ -53,7 +52,6 @@ ignore = ["E402", "E501"]
 "sandbox/egg" = ["F403"]
 # UP038: isinstance style is fine as-is in tests
 "tests/*" = ["UP038"]
-"integration_tests/*" = ["UP038"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -66,10 +64,6 @@ check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = ["tests.*"]
-disallow_untyped_defs = false
-
-[[tool.mypy.overrides]]
-module = ["integration_tests.*"]
 disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
@@ -90,7 +84,6 @@ follow_untyped_imports = true
 module = [
     "repo_config",
     "repo_config.*",
-    "token_refresher",
     "config_validator",
     "anthropic_credentials",
     "error_messages",

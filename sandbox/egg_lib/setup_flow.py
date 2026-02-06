@@ -5,7 +5,6 @@ checking host setup, and adding standard mounts.
 """
 
 import secrets
-import shutil
 from pathlib import Path
 
 import yaml
@@ -75,7 +74,6 @@ def _write_secrets_env(secrets_dict: dict[str, str]) -> None:
     # Group secrets by category
     categories = {
         "Claude Authentication": ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
-        "GitHub App": ["GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID"],
         "GitHub Tokens": ["GITHUB_TOKEN", "GITHUB_READONLY_TOKEN", "GITHUB_USER_TOKEN"],
     }
 
@@ -193,64 +191,28 @@ def _create_secrets_config() -> bool:
             else:
                 warn("No OAuth token provided.")
 
-    # --- GitHub App Credentials ---
+    # --- GitHub Token (PAT) ---
     print()
-    info("GitHub App Configuration:")
-    print("  egg uses a GitHub App for authenticated git/gh operations.")
-    print("  You need: App ID, Installation ID, and private key (.pem file)")
+    info("GitHub Token Configuration:")
+    print("  egg uses a dedicated GitHub user account with a Personal Access Token (PAT).")
+    print("  Create a fine-grained PAT for the agent's account.")
+    print("  (See docs/setup/github-app-setup.md for instructions)")
     print()
 
-    current_app_id = existing_secrets.get("GITHUB_APP_ID", "")
-    current_install_id = existing_secrets.get("GITHUB_APP_INSTALLATION_ID", "")
-    pem_file = Config.USER_CONFIG_DIR / "github-app.pem"
-    has_pem = pem_file.exists()
-
-    if current_app_id and current_install_id and has_pem:
-        success(f"GitHub App already configured (App ID: {current_app_id})")
-        response = input("Reconfigure GitHub App? (yes/no): ").strip().lower()
+    current_pat = existing_secrets.get("GITHUB_TOKEN", "")
+    if current_pat:
+        success("GitHub PAT already configured")
+        response = input("Reconfigure GitHub PAT? (yes/no): ").strip().lower()
         if response != "yes":
             print("  Keeping existing configuration.")
         else:
-            current_app_id = ""
-            current_install_id = ""
+            current_pat = ""
 
-    if not current_app_id or not current_install_id:
-        print()
-        print("Enter GitHub App credentials:")
-        print("  (See docs/setup/github-app-setup.md for instructions)")
-        print()
-
-        app_id = input("GitHub App ID: ").strip()
-        if app_id:
-            existing_secrets["GITHUB_APP_ID"] = app_id
-            updated = True
-
-        install_id = input("Installation ID: ").strip()
-        if install_id:
-            existing_secrets["GITHUB_APP_INSTALLATION_ID"] = install_id
-            updated = True
-
-        print()
-        print("Private key file (.pem):")
-        print(f"  Copy your github-app.pem file to: {pem_file}")
-        pem_path = input("Or enter path to .pem file (Enter to skip): ").strip()
-        if pem_path:
-            src_pem = Path(pem_path).expanduser().resolve()
-            if src_pem.exists() and src_pem.suffix == ".pem":
-                shutil.copy2(src_pem, pem_file)
-                pem_file.chmod(0o600)
-                success(f"Private key copied to {pem_file}")
-            else:
-                warn(f"File not found or not a .pem file: {src_pem}")
-
-    # --- Optional: GitHub Personal Access Token ---
-    print()
-    current_pat = existing_secrets.get("GITHUB_TOKEN", "")
     if not current_pat:
-        print("Optional: GitHub Personal Access Token")
-        print("  Used as fallback if GitHub App is not configured.")
+        print()
+        print("Enter GitHub Personal Access Token (PAT):")
         print("  Format: ghp_... or github_pat_...")
-        pat = input("GitHub PAT (Enter to skip): ").strip()
+        pat = input("GitHub PAT: ").strip()
         if pat and pat.startswith(("ghp_", "github_pat_")):
             existing_secrets["GITHUB_TOKEN"] = pat
             updated = True
@@ -349,18 +311,18 @@ def _create_repositories_config() -> bool:
         writable_repos.append(repo)
         success(f"Added: {repo}")
 
-    # Get bot name (GitHub App name) - REQUIRED
+    # Get bot name (agent's GitHub username) - REQUIRED
     print()
-    info("GitHub App / Bot name (REQUIRED):")
-    print("  This MUST match your GitHub App name exactly.")
-    print("  The gateway uses this to identify PRs created by the bot.")
-    print("  PRs created by the app will show author as 'app/<bot-name>'.")
+    info("Agent GitHub username (REQUIRED):")
+    print("  This is the dedicated GitHub user account for the agent.")
+    print("  The gateway uses this to identify PRs created by the agent.")
+    print("  Example: james-in-a-box")
     print()
     while True:
-        bot_name = input("Bot name: ").strip().lower()
+        bot_name = input("Agent GitHub username: ").strip().lower()
         if bot_name:
             break
-        warn("Bot name is required. Check your GitHub App settings for the name.")
+        warn("Agent username is required.")
 
     # Build config
     config = {
@@ -521,7 +483,6 @@ def setup() -> bool:
     print("    - config.yaml        (general settings)")
     print("    - repositories.yaml  (repo configuration)")
     print("    - secrets.env        (API keys, credentials)")
-    print("    - github-app.pem     (GitHub App private key)")
     print("    - launcher-secret    (gateway authentication)")
     print()
     print("Next steps:")

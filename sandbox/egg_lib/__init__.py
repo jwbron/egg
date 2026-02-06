@@ -15,9 +15,6 @@ from .auth import (
     get_anthropic_auth_method as get_anthropic_auth_method,
 )
 from .auth import (
-    get_github_app_token as get_github_app_token,
-)
-from .auth import (
     get_github_readonly_token as get_github_readonly_token,
 )
 from .auth import (

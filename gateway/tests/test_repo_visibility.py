@@ -356,14 +356,13 @@ class TestConvenienceFunctions:
         assert checker1 is checker2
 
     @patch("repo_visibility.requests.get")
-    @patch("token_refresher.get_bot_token")
-    def test_get_repo_visibility(self, mock_get_bot_token, mock_get):
+    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
+    def test_get_repo_visibility(self, mock_get):
         """get_repo_visibility convenience function should work."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"visibility": "private"}
         mock_get.return_value = mock_response
-        mock_get_bot_token.return_value = ("test-token", "bot")
 
         # Reset singleton
         import repo_visibility
@@ -374,14 +373,13 @@ class TestConvenienceFunctions:
         assert result == "private"
 
     @patch("repo_visibility.requests.get")
-    @patch("token_refresher.get_bot_token")
-    def test_is_repo_private(self, mock_get_bot_token, mock_get):
+    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
+    def test_is_repo_private(self, mock_get):
         """is_repo_private convenience function should work."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"visibility": "private"}
         mock_get.return_value = mock_response
-        mock_get_bot_token.return_value = ("test-token", "bot")
 
         # Reset singleton
         import repo_visibility

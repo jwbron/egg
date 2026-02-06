@@ -115,10 +115,8 @@ class RepoVisibilityChecker:
         """
         tokens = []
 
-        # 1. Bot token from in-memory token refresher
-        from token_refresher import get_bot_token
-
-        bot_token, _source = get_bot_token()
+        # 1. Primary token from environment (PAT)
+        bot_token = os.environ.get("GITHUB_TOKEN", "").strip()
         if bot_token:
             tokens.append((bot_token, "bot"))
 

@@ -80,14 +80,13 @@ class TestBotIdentities:
     Note: conftest.py sets these env vars for tests.
     """
 
-    def test_bot_identities_include_configured_variants(self):
-        """Test that configured bot name variants are included."""
+    def test_bot_identities_include_configured_username(self):
+        """Test that configured bot username is included."""
         # conftest.py sets GATEWAY_BOT_NAME=egg for tests
         identities = get_bot_identities()
         assert "egg" in identities
-        assert "egg[bot]" in identities
-        assert "app/egg" in identities
-        assert "apps/egg" in identities
+        # With dedicated user accounts (not GitHub Apps), only the plain username is used
+        assert len(identities) == 1
 
     def test_bot_branch_prefixes_configured(self):
         """Test that configured branch prefixes are supported."""
@@ -117,14 +116,12 @@ class TestBotIdentities:
         _reset_bot_config_caches()
 
     def test_different_bot_name_configuration(self, monkeypatch):
-        """Test that a different bot name generates correct identities."""
+        """Test that a different bot name generates correct identity."""
         _reset_bot_config_caches()
         monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
         identities = get_bot_identities()
         assert "james-in-a-box" in identities
-        assert "james-in-a-box[bot]" in identities
-        assert "app/james-in-a-box" in identities
-        assert "apps/james-in-a-box" in identities
+        assert len(identities) == 1
         # Restore for other tests
         monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
         _reset_bot_config_caches()
@@ -249,11 +246,11 @@ class TestPolicyEngine:
         assert result.allowed
         assert "owned by egg" in result.reason
 
-    def test_pr_ownership_egg_bot_author(self, policy_engine, mock_github_client):
-        """PR authored by egg[bot] is owned by egg."""
+    def test_pr_ownership_egg_exact_match(self, policy_engine, mock_github_client):
+        """PR authored by exact username match is owned by egg."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "egg[bot]"},
+            "author": {"login": "egg"},
             "state": "open",
             "headRefName": "feature",
         }

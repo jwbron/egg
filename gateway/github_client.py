@@ -2,12 +2,12 @@
 GitHub Client - Wraps gh CLI with token management and command validation.
 
 Provides:
-- Token management (bot and user modes)
+- Token management (PAT-based for both bot and user modes)
 - gh CLI command execution
 - Command validation (allowlist/blocklist)
 - API path validation
 
-Token management is handled by the in-memory token refresher (token_refresher.py).
+Token management uses PATs from environment variables (GITHUB_TOKEN, GITHUB_USER_TOKEN).
 """
 
 import json
@@ -16,7 +16,6 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -371,24 +370,9 @@ def extract_repo_from_gh_command(args: list[str]) -> str | None:
 
 @dataclass
 class GitHubToken:
-    """GitHub App installation token with metadata."""
+    """GitHub authentication token (PAT)."""
 
     token: str
-    expires_at_unix: float
-    expires_at: str
-    generated_at: str
-
-    @property
-    def is_expired(self) -> bool:
-        """Check if token is expired (with 5 minute buffer)."""
-        now = datetime.now(UTC).timestamp()
-        return now > (self.expires_at_unix - 5 * 60)
-
-    @property
-    def minutes_until_expiry(self) -> float:
-        """Minutes until token expires."""
-        now = datetime.now(UTC).timestamp()
-        return (self.expires_at_unix - now) / 60
 
 
 @dataclass
@@ -413,6 +397,9 @@ class GitHubResult:
 class GitHubClient:
     """Client for executing gh CLI commands with token management."""
 
+    # Environment variable for the primary GitHub token (PAT)
+    BOT_TOKEN_VAR = "GITHUB_TOKEN"
+
     def __init__(self, mode: str = "bot"):
         """
         Initialize the GitHub client.
@@ -426,43 +413,26 @@ class GitHubClient:
 
     def get_token(self) -> GitHubToken | None:
         """
-        Get the current GitHub token from the in-memory token refresher.
+        Get the GitHub token from environment variable.
 
-        Returns cached token if still valid.
+        Uses GITHUB_TOKEN environment variable (PAT).
         """
-        # Return cached token if still valid
-        if self._cached_token and not self._cached_token.is_expired:
+        if self._cached_token:
             return self._cached_token
 
-        # Get token from the in-memory refresher
-        try:
-            from token_refresher import get_token_refresher
+        token_str = os.environ.get(self.BOT_TOKEN_VAR, "").strip()
+        if token_str:
+            self._cached_token = GitHubToken(token=token_str)
+            logger.debug("Token loaded from environment", env_var=self.BOT_TOKEN_VAR)
+            return self._cached_token
 
-            refresher = get_token_refresher()
-            if refresher:
-                token_info = refresher.get_token_info()
-                if token_info:
-                    self._cached_token = GitHubToken(
-                        token=token_info.token,
-                        expires_at_unix=token_info.expires_at.timestamp(),
-                        expires_at=token_info.expires_at.isoformat(),
-                        generated_at=token_info.generated_at.isoformat(),
-                    )
-                    logger.debug(
-                        "Token loaded from refresher",
-                        minutes_until_expiry=f"{self._cached_token.minutes_until_expiry:.1f}",
-                    )
-                    return self._cached_token
-        except ImportError:
-            logger.error("token_refresher module not available")
-
-        logger.warning("No valid token available from token refresher")
+        logger.warning("No GitHub token available", env_var=self.BOT_TOKEN_VAR)
         return None
 
     def is_token_valid(self) -> bool:
-        """Check if we have a valid (non-expired) token."""
+        """Check if we have a valid token."""
         token = self.get_token()
-        return token is not None and not token.is_expired
+        return token is not None
 
     def get_user_token(self) -> str | None:
         """
@@ -610,7 +580,7 @@ class GitHubClient:
                 return GitHubResult(
                     success=False,
                     stdout="",
-                    stderr="GitHub token not available. Token refresher may not be initialized.",
+                    stderr=f"GitHub token not available. Set {self.BOT_TOKEN_VAR} environment variable.",
                     returncode=1,
                 )
 

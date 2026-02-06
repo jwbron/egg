@@ -59,9 +59,6 @@ echo "=== Step 2: Generate config ==="
 
 export INPUT_ANTHROPIC_OAUTH_TOKEN="${INPUT_ANTHROPIC_OAUTH_TOKEN:?anthropic-oauth-token is required}"
 export INPUT_GITHUB_TOKEN="${INPUT_GITHUB_TOKEN:?github-token is required}"
-export INPUT_BOT_APP_ID="${INPUT_BOT_APP_ID:-}"
-export INPUT_BOT_APP_PRIVATE_KEY="${INPUT_BOT_APP_PRIVATE_KEY:-}"
-export INPUT_BOT_APP_INSTALLATION_ID="${INPUT_BOT_APP_INSTALLATION_ID:-}"
 export INPUT_BOT_USERNAME="${INPUT_BOT_USERNAME:-egg}"
 
 "$SCRIPT_DIR/generate-config.sh"
