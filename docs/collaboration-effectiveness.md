@@ -1,17 +1,18 @@
 # Why egg Works: Safety, Quality, and Collaboration
 
-Engineer A asks an AI assistant to refactor the auth module. It works great. A week later, Engineer B tackles the same area: different prompts, different approach, conflicting patterns. Neither knows what the other did or why. The AI conversations that drove both changes vanished when the IDE sessions ended.
+Private AI coding tools create a paradox: they increase individual throughput while fragmenting team knowledge. Engineer A asks an assistant to refactor the auth module. A week later, Engineer B tackles the same area with different prompts, a different approach, and conflicting patterns. Neither knows what the other did or why—the AI conversations that drove both changes vanished when the IDE sessions ended.
 
-This is the core problem with private AI coding tools: **the work is visible, but the process is invisible.** egg takes a different approach: every interaction happens in shared, observable spaces that the whole team can see.
+This is a question of engineering culture, not just productivity. As AI-assisted development scales, organizations must choose: do these tools strengthen or weaken how teams build shared understanding?
+
+egg takes a different approach: every interaction happens in shared, observable spaces that the whole team can see.
 
 ## How It Works
 
 ```
-@mention in issue ──→ Plan (posted as comment) ──→ Implement ──→ PR ──→ Review ──→ Human merges
-       ↑                        ↑                                  ↑
-  Team sees scope         Team reviews approach             Team reviews code
-  and can redirect        before code is written            with full context
+@mention → Plan → Implement → PR → Review → Human merges
 ```
+
+At each stage, the team has visibility and can intervene: redirect scope at mention, review approach at plan, review code at PR.
 
 **Task assignment is public.** Work starts with an @mention in a GitHub issue or PR comment. Anyone watching the repo sees the request, understands the scope, and can weigh in before the agent starts.
 
@@ -23,17 +24,22 @@ This is the core problem with private AI coding tools: **the work is visible, bu
 
 ## What Changes for the Team
 
-**Feedback moves earlier.** Without visibility, feedback comes at PR review, after the agent has already committed to an approach. With egg, teammates see the plan *before* code is written and can redirect the approach at low cost.
+| Before | After |
+|---|---|
+| Feedback comes at PR review, after the agent has committed to an approach | Feedback at plan stage, when redirecting costs minutes instead of hours |
+| Prompt knowledge stays siloed—what worked for one developer stays invisible | Shared prompt playbooks emerge organically from visible issue threads |
+| Reviewing AI work is a black box—just a diff, no reasoning | Full reasoning visible in workflow logs, alongside the code |
+| Developers either adopt AI privately or don't; no team standard | New role definitions that preserve engineering judgment while leveraging AI |
 
-**Prompt strategies become shared knowledge.** When prompts and results are visible in issue threads, the team develops a shared understanding of what works. Someone discovers that explicit acceptance criteria produce better tests. Someone else finds that referencing a specific ADR leads to more consistent architecture. These strategies spread organically because the artifacts are public.
+The visibility model shifts how teams build shared knowledge. Someone discovers that explicit acceptance criteria produce better tests. Someone else finds that referencing a specific ADR leads to more consistent architecture. These strategies spread because the artifacts are public, not locked in private chat sessions.
 
-**Reviewing AI work becomes more informed.** Clicking through to the workflow run often reveals issues the diff alone doesn't. The agent might have misunderstood a requirement and produced technically correct but functionally wrong code. The reasoning is available, not just the result.
-
-**Roles shift, not shrink.** Developers spend more time on specification and plan review. Reviewers review with full context (logs, plan, reasoning), not just a diff. Junior engineers learn from visible reasoning chains; every egg interaction is a worked example.
+Junior engineers benefit most: every egg interaction is a worked example showing how senior engineers think through problems, write specifications, and review AI output.
 
 ## Trust Through Constraints
 
 egg's sandboxed architecture makes the collaborative workflow trustworthy. The key principle: **security through infrastructure, not instructions.** Telling an LLM "don't push to main" can be bypassed. Removing the ability at the network layer cannot.
+
+> **The human-merge invariant:** egg cannot merge pull requests. This isn't a policy—the gateway blocks merge commands at the network layer. Every change to your codebase requires human approval. This is the single strongest answer to "how do we maintain accountability?" and it's enforced by infrastructure, not trust.
 
 | Constraint | Why It Enables Collaboration |
 |---|---|
@@ -62,10 +68,16 @@ These mechanisms compound: by the time a human reviewer sees the PR, the most co
 
 **Use the plan phase.** For anything beyond a trivial fix, ask egg to plan first. Loop in teammates who own adjacent systems.
 
-**Let the agent fail visibly.** Resist redoing work privately when egg produces a bad result. Post feedback in the issue thread, refine the instructions, let it try again. The failed attempt and correction are valuable signal.
+**Iterate in the open.** When egg produces a suboptimal result, post feedback in the issue thread rather than redoing the work privately. Refine the instructions, let it try again. The iteration history becomes valuable signal for the team.
 
 ## When To Use It
 
 **Good fit:** Well-defined tasks with clear acceptance criteria. Refactors, new features, bug fixes with known root cause. Parallel task execution across isolated worktrees. Work that benefits from plan review before implementation.
 
+**When the investment pays off:** Teams with two or more engineers working on the same codebase see the most benefit from the visibility model. Solo developers still gain the safety guarantees and async workflow, but the collaboration benefits compound with team size.
+
 **Interactive CLI mode:** egg also runs as an interactive CLI for rapid prototyping and real-time back-and-forth, where the async workflow's overhead isn't worth it.
+
+## Looking Forward
+
+As AI capabilities expand, organizations face a scaling challenge: more AI-generated code means more code to review, verify, and maintain. egg's constraint-based trust model addresses this by shifting verification earlier (plans before code) and making reasoning visible (logs alongside diffs). The safety model scales without requiring organizations to choose between automation and oversight.
