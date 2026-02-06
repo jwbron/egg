@@ -742,6 +742,15 @@ GIT_ALLOWED_COMMANDS = {
             "-l",
         ],
     },
+    "merge-base": {
+        "allowed_flags": [
+            "--all",
+            "--octopus",
+            "--independent",
+            "--is-ancestor",
+            "--fork-point",
+        ],
+    },
 }
 
 # Flag normalization: map short flags to long form for consistent validation
