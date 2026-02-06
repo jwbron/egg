@@ -88,11 +88,14 @@ Don't rely on "Don't do X" instructions for security-critical constraints. Eithe
 
 **Example:** If an agent shouldn't post to external services, run it in private mode—don't just tell it not to.
 
-### Hard business rules
+### Hard business rules: enforce in the sidecar
 
-Non-negotiable requirements that the agent shouldn't decide on its own:
-- "Never approve PRs automatically, only COMMENT reviews"
-- "Always include a test plan in PR descriptions"
+Non-negotiable requirements shouldn't be prompt-level instructions—agents can ignore them. If a rule is truly non-negotiable, extend the gateway sidecar to enforce it technically:
+
+- **PR approval blocking:** The gateway already blocks `gh pr merge`. To also block approving reviews, add a filter that rejects `gh pr review --approve` and only allows `--comment` or `--request-changes`.
+- **Required PR fields:** If every PR must have a test plan, validate this in the gateway before allowing `gh pr create` to succeed.
+
+Don't rely on "Always do X" or "Never do Y" instructions for hard business rules. Either the gateway enforces it, or accept that it's a soft guideline the agent might occasionally miss.
 
 ### Machine-readable output for genuine automation
 
