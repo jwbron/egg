@@ -144,6 +144,11 @@ def check_workflow(workflow_path: Path) -> list[str]:
             if not script_path:
                 continue
 
+            # Scripts run from $RUNNER_TEMP are saved copies from the
+            # trusted checkout — they cannot be replaced by a PR.
+            if "$RUNNER_TEMP" in str(run_cmd) or "${RUNNER_TEMP}" in str(run_cmd):
+                continue
+
             secret_keys = has_secret_env(step)
             if not secret_keys:
                 continue
@@ -162,8 +167,8 @@ def check_workflow(workflow_path: Path) -> list[str]:
                 f"    Script: {script_path}\n"
                 f"    Secrets in env: {', '.join(secret_keys)}\n"
                 f"    Last checkout was NOT trusted (not ref: main or fixed SHA)\n"
-                f"    Fix: Copy the script to $RUNNER_TEMP before the untrusted "
-                f"checkout, then run from $RUNNER_TEMP"
+                f"    Fix: Save action/ to $RUNNER_TEMP/trusted-action before the "
+                f"untrusted checkout, then run from the saved copy"
             )
 
     return violations
@@ -200,10 +205,10 @@ def main() -> int:
             print(v)
             print()
         print("How to fix:")
-        print("  1. Before the untrusted checkout, copy the script to $RUNNER_TEMP:")
-        print('     run: cp <script> "$RUNNER_TEMP/<script>"')
+        print("  1. Before the untrusted checkout, save the entire action/ dir:")
+        print('     run: cp -r action "$RUNNER_TEMP/trusted-action"')
         print("  2. After the untrusted checkout, run from the saved copy:")
-        print('     run: bash "$RUNNER_TEMP/<script>"')
+        print('     run: bash "$RUNNER_TEMP/trusted-action/<script>"')
         print()
         return 1
     else:

@@ -67,8 +67,8 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
 
-      - name: Save trusted post-review script
-        run: cp action/post-review-comments.sh "$RUNNER_TEMP/post-review-comments.sh"
+      - name: Save trusted action scripts
+        run: cp -r action "$RUNNER_TEMP/trusted-action"
 
       - name: Checkout PR branch
         uses: actions/checkout@v4
@@ -96,7 +96,7 @@ jobs:
 
       - name: Post review comments
         if: always() && steps.egg.outputs.exit-code == '0'
-        run: bash "$RUNNER_TEMP/post-review-comments.sh"
+        run: bash "$RUNNER_TEMP/trusted-action/post-review-comments.sh"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
