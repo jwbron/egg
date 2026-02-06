@@ -25,7 +25,11 @@ from typing import Any
 
 import pytest
 import requests
-from egg_container import ContainerNetworkConfig, build_sandbox_docker_cmd
+from egg_container import (
+    LIFECYCLE_FLAGS_INDEX,
+    ContainerNetworkConfig,
+    build_sandbox_docker_cmd,
+)
 
 # Project root (one level up from integration_tests/)
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -38,6 +42,10 @@ GATEWAY_ISOLATED_IP = "172.40.0.2"
 GATEWAY_EXTERNAL_IP = "172.41.0.2"
 GATEWAY_PORT = 9848
 PROXY_PORT = 3129
+
+# Counter for allocating unique container IPs within the test subnet.
+# Starts at 100 to leave room for gateway (.2) and other infrastructure.
+_next_container_ip_suffix = 100
 
 
 @dataclass
@@ -594,6 +602,25 @@ class AgentVerdict:
         return self.verdict == "pass"
 
 
+def _allocate_test_container_ip() -> str:
+    """Allocate a unique IP address for a test container.
+
+    Production uses ``_allocate_container_ip()`` which inspects the docker
+    network to find available IPs. For tests, we use a simple counter to
+    avoid the subprocess overhead and race conditions in parallel tests.
+
+    Returns:
+        An IP in the 172.40.0.100+ range (test isolated subnet).
+    """
+    global _next_container_ip_suffix
+    ip = f"172.40.0.{_next_container_ip_suffix}"
+    _next_container_ip_suffix += 1
+    # Wrap around if we somehow allocate >155 containers in one session
+    if _next_container_ip_suffix > 254:
+        _next_container_ip_suffix = 100
+    return ip
+
+
 def run_claude_structured(
     egg_stack: "EggStack",
     session_token: str,
@@ -633,10 +660,16 @@ def run_claude_structured(
         repo_mode="private",
         proxy_url=f"http://egg-gateway:{PROXY_PORT}",
     )
+
+    # Allocate a static IP for this container — matches production behavior
+    # where sessions are bound to specific container IPs for request verification.
+    container_ip = _allocate_test_container_ip()
+
     cmd = build_sandbox_docker_cmd(
         container_name=f"test-claude-{os.getpid()}-{time.time_ns()}",
         image="egg-sandbox:latest",
         network=net_config,
+        container_ip=container_ip,
         session_token=session_token,
         runtime_uid=1000,
         runtime_gid=1000,
@@ -648,8 +681,8 @@ def run_claude_structured(
         },
     )
 
-    # Lifecycle flags
-    cmd[2:2] = ["--rm"]
+    # Lifecycle flags — use the module constant to avoid hardcoding the index
+    cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = ["--rm"]
 
     # Claude CLI command after image name
     cmd.extend(

@@ -23,7 +23,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from egg_container import ContainerNetworkConfig, build_sandbox_docker_cmd
+from egg_container import (
+    LIFECYCLE_FLAGS_INDEX,
+    ContainerNetworkConfig,
+    build_sandbox_docker_cmd,
+)
 
 # Import statusbar for quiet mode
 from statusbar import status, status_finish
@@ -653,7 +657,7 @@ def run_claude(repo_mode: str | None = None) -> bool:
     )
 
     # Insert lifecycle flags after "docker run"
-    cmd[2:2] = ["--rm", "-it"]
+    cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = ["--rm", "-it"]
 
     # Insert mount arguments before the image name (last element)
     cmd[-1:-1] = mount_args

@@ -1,6 +1,10 @@
 """Tests for egg_container.build_sandbox_docker_cmd()."""
 
-from egg_container import ContainerNetworkConfig, build_sandbox_docker_cmd
+from egg_container import (
+    LIFECYCLE_FLAGS_INDEX,
+    ContainerNetworkConfig,
+    build_sandbox_docker_cmd,
+)
 
 
 def _private_config(**overrides):
@@ -257,14 +261,19 @@ class TestPublicMode:
 class TestCallerConventions:
     """Test that the output supports the documented caller conventions."""
 
+    def test_lifecycle_flags_index_constant(self):
+        """LIFECYCLE_FLAGS_INDEX should be 2 (after 'docker run')."""
+        assert LIFECYCLE_FLAGS_INDEX == 2
+
     def test_lifecycle_flags_insertion(self):
-        """Callers insert --rm/-it at cmd[2:2]."""
+        """Callers insert --rm/-it at LIFECYCLE_FLAGS_INDEX."""
         cmd = build_sandbox_docker_cmd(
             container_name="c",
             image="img",
             network=_public_config(),
         )
-        cmd[2:2] = ["--rm", "-it"]
+        idx = LIFECYCLE_FLAGS_INDEX
+        cmd[idx:idx] = ["--rm", "-it"]
         assert cmd[:4] == ["docker", "run", "--rm", "-it"]
         assert cmd[-1] == "img"
 

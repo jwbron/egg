@@ -10,6 +10,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# Index where lifecycle flags (--rm, -it, -d) should be inserted.
+# The returned command always has ["docker", "run", ...], so index 2 is
+# immediately after "run". This constant makes the convention explicit
+# and allows callers to reference it instead of hardcoding the magic number.
+LIFECYCLE_FLAGS_INDEX = 2
+
 
 @dataclass(frozen=True)
 class ContainerNetworkConfig:
@@ -40,7 +46,8 @@ def build_sandbox_docker_cmd(
     The returned list starts with ``["docker", "run"]`` and ends with the
     *image* name.  Callers typically:
 
-    * Insert lifecycle flags (``--rm``, ``-it``) at ``cmd[2:2]``.
+    * Insert lifecycle flags (``--rm``, ``-it``) at ``cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX]``.
+      Use the module constant to avoid hardcoding the index.
     * Insert mount arguments before the image: ``cmd[-1:-1] = mount_args``.
     * Append the command to execute after the image name.
 
