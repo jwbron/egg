@@ -69,6 +69,20 @@ export INPUT_BOT_USERNAME="${INPUT_BOT_USERNAME:-egg}"
 CONFIG_DIR="${RUNNER_TEMP:-/tmp}/egg-config-${RUN_ID}"
 
 # ---------------------------------------------------------------------------
+# Step 2b: Resolve prompt from file if needed
+# ---------------------------------------------------------------------------
+
+if [[ -n "${INPUT_PROMPT_FILE:-}" && -f "${INPUT_PROMPT_FILE}" ]]; then
+  echo "Reading prompt from file: ${INPUT_PROMPT_FILE}"
+  export INPUT_PROMPT
+  INPUT_PROMPT=$(cat "${INPUT_PROMPT_FILE}")
+  echo "Prompt loaded: ${#INPUT_PROMPT} chars"
+elif [[ -z "${INPUT_PROMPT:-}" ]]; then
+  echo "ERROR: Either prompt or prompt-file input is required" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # Step 3: Run Python orchestration
 # ---------------------------------------------------------------------------
 
