@@ -21,6 +21,12 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Internet Tool Access Lockdown](adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) | Public/private network modes |
 | [GitHub Actions Support](adr/in-progress/ADR-GitHub-Actions-Support.md) | Running egg as a GitHub Action |
 
+### Strategy
+
+| Document | Description |
+|----------|-------------|
+| [Why egg Works](collaboration-effectiveness.md) | How the public, sandboxed, async model delivers safety, quality, and collaboration |
+
 ### Architecture
 
 | Document | Description |
