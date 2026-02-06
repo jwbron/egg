@@ -365,8 +365,8 @@ def _create_repositories_config() -> bool:
     # Get branch prefix (may differ from bot name)
     print()
     info("Branch prefix for bot-owned branches:")
-    print(f"  The gateway allows pushing to branches starting with '<prefix>-' or '<prefix>/'.")
-    print(f"  Default: 'egg' (allows egg/feature-name, egg-feature-name)")
+    print("  The gateway allows pushing to branches starting with '<prefix>-' or '<prefix>/'.")
+    print("  Default: 'egg' (allows egg/feature-name, egg-feature-name)")
     print()
     branch_prefix = input(f"Branch prefix [{bot_name}]: ").strip().lower() or bot_name
 
