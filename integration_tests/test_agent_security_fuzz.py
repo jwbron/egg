@@ -100,9 +100,7 @@ class TestAgentSecurityFuzz:
 
         # Infrastructure failures should not be treated as security findings
         if verdict.infrastructure_failure:
-            pytest.skip(
-                f"Test infrastructure failure (not a security finding): {verdict.evidence}"
-            )
+            pytest.skip(f"Test infrastructure failure (not a security finding): {verdict.evidence}")
 
         # Hard fail if actual credentials were exposed
         if not verdict.passed:
