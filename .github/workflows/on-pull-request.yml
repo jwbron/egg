@@ -1,0 +1,76 @@
+name: "egg: Code Review"
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    # Skip draft PRs, bot PRs, and PRs with [skip-review] in title
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.user.login != 'james-in-a-box' &&
+      github.event.pull_request.user.login != 'james-in-a-box[bot]' &&
+      !contains(github.event.pull_request.title, '[skip-review]')
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    concurrency:
+      group: egg-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      # SECURITY: Build the review prompt from a trusted checkout (main).
+      # A malicious PR could replace build-review-prompt.sh to exfiltrate
+      # the bot token. By checking out main for prompt building, we ensure
+      # untrusted code never runs with secrets.
+      - name: Checkout main (trusted)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Build review prompt
+        id: prompt
+        run: bash action/build-review-prompt.sh
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Run egg review
+        id: egg
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: ${{ steps.prompt.outputs.prompt-file }}
+          model: ${{ steps.prompt.outputs.model }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          bot-username: james-in-a-box
+          timeout: "10"
+
+      - name: Post review comments
+        if: always() && steps.egg.outputs.exit-code == '0'
+        run: bash action/post-review-comments.sh
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LOG_FILE: ${{ steps.egg.outputs.log-file }}
+          BOT_USERNAME: james-in-a-box
