@@ -101,3 +101,6 @@ jobs:
 
       - name: Check Claude imports
         run: .venv/bin/python scripts/check-claude-imports.py
+
+      - name: Check docker and claude invocations
+        run: .venv/bin/python scripts/check-docker-and-claude-invocations.py

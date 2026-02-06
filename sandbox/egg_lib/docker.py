@@ -322,7 +322,7 @@ def get_installed_claude_version() -> str | None:
         return None
 
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: EGG100 - extract version from sandbox image
             [
                 "docker",
                 "run",
