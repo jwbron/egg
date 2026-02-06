@@ -1,6 +1,6 @@
 # Why egg Works: Safety, Quality, and Collaboration
 
-Private AI coding tools create a paradox: they increase individual throughput while fragmenting team knowledge. Engineer A asks an assistant to refactor the auth module. A week later, Engineer B tackles the same area with different prompts, a different approach, and conflicting patterns. Neither knows what the other did or why—the AI conversations that drove both changes vanished when the IDE sessions ended.
+AI coding tools create a paradox: they increase individual throughput while fragmenting team knowledge. Engineer A asks an assistant to refactor the auth module. A week later, Engineer B tackles the same area with different prompts, a different approach, and conflicting patterns. Neither knows what the other did or why—the AI conversations that drove both changes vanished when the IDE sessions ended.
 
 This is a question of engineering culture, not just productivity. As AI-assisted development scales, organizations must choose: do these tools strengthen or weaken how teams build shared understanding?
 
