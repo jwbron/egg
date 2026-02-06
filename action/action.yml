@@ -6,8 +6,11 @@ branding:
 
 inputs:
   prompt:
-    description: Task prompt for Claude Code
-    required: true
+    description: Task prompt for Claude Code (mutually exclusive with prompt-file)
+    required: false
+  prompt-file:
+    description: Path to file containing task prompt (for large prompts, mutually exclusive with prompt)
+    required: false
   anthropic-oauth-token:
     description: Anthropic OAuth token for Claude API
     required: true
@@ -64,6 +67,7 @@ runs:
       shell: bash
       env:
         INPUT_PROMPT: ${{ inputs.prompt }}
+        INPUT_PROMPT_FILE: ${{ inputs.prompt-file }}
         INPUT_ANTHROPIC_OAUTH_TOKEN: ${{ inputs.anthropic-oauth-token }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
         INPUT_BOT_APP_ID: ${{ inputs.bot-app-id }}
