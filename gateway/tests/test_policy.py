@@ -617,3 +617,441 @@ class TestPolicyResult:
         d = result.to_dict()
         assert d["allowed"] is False
         assert d["details"] == {"key": "value"}
+
+
+class TestProtectedBranches:
+    """Tests for protected branch enforcement."""
+
+    @pytest.fixture
+    def mock_github_client(self):
+        """Create a mock GitHub client."""
+        return MagicMock()
+
+    @pytest.fixture
+    def policy_engine(self, mock_github_client):
+        """Create a policy engine with mocked GitHub client."""
+        return PolicyEngine(github_client=mock_github_client)
+
+    def test_push_to_main_blocked_bot_mode(self, policy_engine):
+        """Push to main branch is always blocked in bot mode."""
+        result = policy_engine.check_branch_ownership("owner/repo", "main", auth_mode="bot")
+        assert not result.allowed
+        assert "protected" in result.reason.lower()
+        assert result.details is not None
+        assert result.details.get("branch") == "main"
+
+    def test_push_to_main_blocked_user_mode(self, policy_engine):
+        """Push to main branch is always blocked in user mode."""
+        result = policy_engine.check_branch_ownership("owner/repo", "main", auth_mode="user")
+        assert not result.allowed
+        assert "protected" in result.reason.lower()
+
+    def test_push_to_master_blocked(self, policy_engine):
+        """Push to master branch is always blocked."""
+        result = policy_engine.check_branch_ownership("owner/repo", "master")
+        assert not result.allowed
+        assert "protected" in result.reason.lower()
+
+    def test_protected_branch_hint_suggests_feature_branch(self, policy_engine):
+        """Protected branch denial provides helpful hint."""
+        result = policy_engine.check_branch_ownership("owner/repo", "main")
+        assert not result.allowed
+        assert result.details is not None
+        assert "hint" in result.details
+        assert "feature branch" in result.details["hint"].lower()
+
+
+class TestUserModeBranchOwnership:
+    """Tests for user mode branch ownership logic."""
+
+    @pytest.fixture
+    def mock_github_client(self):
+        """Create a mock GitHub client."""
+        return MagicMock()
+
+    @pytest.fixture
+    def policy_engine(self, mock_github_client, monkeypatch):
+        """Create a policy engine with mocked GitHub client and configured user."""
+        engine = PolicyEngine(github_client=mock_github_client)
+        monkeypatch.setattr(engine, "_get_configured_user", lambda: "testuser")
+        return engine
+
+    def test_user_mode_new_branch_allowed(self, policy_engine, mock_github_client):
+        """User mode allows push to new branch (doesn't exist upstream)."""
+        mock_github_client.branch_exists.return_value = False
+
+        result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
+        assert result.allowed
+        assert "new branch" in result.reason.lower()
+        assert result.details is not None
+        assert result.details.get("reason") == "new_branch"
+
+    def test_user_mode_existing_branch_no_pr_denied(self, policy_engine, mock_github_client):
+        """User mode denies push to existing branch with no PR."""
+        mock_github_client.branch_exists.return_value = True
+        mock_github_client.list_prs_for_branch.return_value = []
+
+        result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
+        assert not result.allowed
+        assert "no open pr" in result.reason.lower()
+
+    def test_user_mode_existing_branch_with_bot_pr_allowed(
+        self, policy_engine, mock_github_client
+    ):
+        """User mode allows push to branch with bot's PR."""
+        mock_github_client.branch_exists.return_value = True
+        mock_github_client.list_prs_for_branch.return_value = [
+            {"number": 123, "author": {"login": "egg"}, "state": "open", "headRefName": "feature"}
+        ]
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "egg"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
+        assert result.allowed
+        assert result.details is not None
+        assert result.details.get("reason") == "bot_pr"
+
+    def test_user_mode_existing_branch_with_configured_user_pr_allowed(
+        self, policy_engine, mock_github_client
+    ):
+        """User mode allows push to branch with configured user's PR."""
+        mock_github_client.branch_exists.return_value = True
+        mock_github_client.list_prs_for_branch.return_value = [
+            {
+                "number": 456,
+                "author": {"login": "testuser"},
+                "state": "open",
+                "headRefName": "feature",
+            }
+        ]
+        mock_github_client.get_pr_info.return_value = {
+            "number": 456,
+            "author": {"login": "testuser"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
+        assert result.allowed
+        assert result.details is not None
+        assert result.details.get("reason") == "configured_user_pr"
+
+    def test_user_mode_api_error_fails_closed(self, policy_engine, mock_github_client):
+        """User mode fails closed when branch existence check fails (API error)."""
+        mock_github_client.branch_exists.return_value = None  # API error
+
+        result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
+        assert not result.allowed
+        assert "could not verify" in result.reason.lower()
+        assert "api error" in result.reason.lower()
+
+    def test_user_mode_unrelated_pr_denied(self, policy_engine, mock_github_client):
+        """User mode denies push when PR exists but by unrelated author."""
+        mock_github_client.branch_exists.return_value = True
+        mock_github_client.list_prs_for_branch.return_value = [
+            {
+                "number": 789,
+                "author": {"login": "randomuser"},
+                "state": "open",
+                "headRefName": "feature",
+            }
+        ]
+        mock_github_client.get_pr_info.return_value = {
+            "number": 789,
+            "author": {"login": "randomuser"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
+        assert not result.allowed
+        assert result.details is not None
+        assert "hint" in result.details
+
+
+class TestBotAuthorFormats:
+    """Tests for different author data formats (string vs dict)."""
+
+    @pytest.fixture
+    def mock_github_client(self):
+        """Create a mock GitHub client."""
+        return MagicMock()
+
+    @pytest.fixture
+    def policy_engine(self, mock_github_client):
+        """Create a policy engine with mocked GitHub client."""
+        return PolicyEngine(github_client=mock_github_client)
+
+    def test_author_as_dict_with_login(self, policy_engine, mock_github_client):
+        """Author provided as dict with login key is handled correctly."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "egg"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_ownership("owner/repo", 123)
+        assert result.allowed
+
+    def test_author_as_string(self, policy_engine, mock_github_client):
+        """Author provided as string is handled correctly."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": "egg",  # String format
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_ownership("owner/repo", 123)
+        # Should handle string author gracefully
+        # The implementation handles both formats via isinstance check
+        assert result.allowed
+
+    def test_author_dict_empty_login(self, policy_engine, mock_github_client):
+        """Author dict with empty login is handled correctly."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": ""},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_ownership("owner/repo", 123)
+        assert not result.allowed
+
+    def test_author_case_insensitive_matching(self, policy_engine, mock_github_client):
+        """Author matching is case insensitive."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "EGG"},  # Uppercase
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_ownership("owner/repo", 123)
+        assert result.allowed
+
+    def test_bot_suffix_variants(self, policy_engine, mock_github_client):
+        """All bot suffix variants are recognized."""
+        variants = ["egg", "egg[bot]", "app/egg", "apps/egg"]
+
+        for variant in variants:
+            mock_github_client.get_pr_info.return_value = {
+                "number": 123,
+                "author": {"login": variant},
+                "state": "open",
+                "headRefName": "feature",
+            }
+            result = policy_engine.check_pr_ownership("owner/repo", 123)
+            assert result.allowed, f"Variant '{variant}' should be recognized as bot"
+
+
+class TestBoundedCache:
+    """Tests for BoundedCache behavior."""
+
+    def test_cache_evicts_oldest_when_full(self):
+        """BoundedCache evicts oldest entries when max size exceeded."""
+        from policy import BoundedCache
+
+        cache = BoundedCache(max_size=3)
+        cache["a"] = 1
+        cache["b"] = 2
+        cache["c"] = 3
+        cache["d"] = 4  # Should evict "a"
+
+        assert "a" not in cache
+        assert "b" in cache
+        assert "c" in cache
+        assert "d" in cache
+
+    def test_cache_update_moves_to_end(self):
+        """Updating existing key moves it to end (LRU behavior)."""
+        from policy import BoundedCache
+
+        cache = BoundedCache(max_size=3)
+        cache["a"] = 1
+        cache["b"] = 2
+        cache["c"] = 3
+        cache["a"] = 10  # Update "a", moves to end
+        cache["d"] = 4  # Should evict "b" (now oldest)
+
+        assert "a" in cache
+        assert "b" not in cache
+        assert "c" in cache
+        assert "d" in cache
+
+    def test_cache_respects_max_size(self):
+        """Cache never exceeds max size."""
+        from policy import BoundedCache
+
+        cache = BoundedCache(max_size=5)
+        for i in range(100):
+            cache[f"key_{i}"] = i
+
+        assert len(cache) == 5
+
+
+class TestCachedPRInfoStaleness:
+    """Tests for CachedPRInfo staleness detection."""
+
+    def test_fresh_entry_not_stale(self):
+        """Recently fetched entry is not stale."""
+        info = CachedPRInfo(
+            pr_number=1,
+            author="egg",
+            state="open",
+            head_branch="feature",
+            fetched_at=datetime.now(UTC).timestamp(),
+        )
+        assert not info.is_stale
+
+    def test_entry_becomes_stale_after_5_minutes(self):
+        """Entry becomes stale after 5 minutes."""
+        # 5 minutes + 1 second ago
+        old_time = datetime.now(UTC).timestamp() - 301
+        info = CachedPRInfo(
+            pr_number=1,
+            author="egg",
+            state="open",
+            head_branch="feature",
+            fetched_at=old_time,
+        )
+        assert info.is_stale
+
+    def test_entry_just_under_5_minutes_not_stale(self):
+        """Entry just under 5 minutes is not yet stale."""
+        # 4 minutes 59 seconds ago (299 seconds)
+        boundary_time = datetime.now(UTC).timestamp() - 299
+        info = CachedPRInfo(
+            pr_number=1,
+            author="egg",
+            state="open",
+            head_branch="feature",
+            fetched_at=boundary_time,
+        )
+        assert not info.is_stale
+
+
+class TestPRCacheBehavior:
+    """Tests for policy engine PR caching behavior."""
+
+    @pytest.fixture
+    def mock_github_client(self):
+        """Create a mock GitHub client."""
+        return MagicMock()
+
+    @pytest.fixture
+    def policy_engine(self, mock_github_client):
+        """Create a policy engine with mocked GitHub client."""
+        return PolicyEngine(github_client=mock_github_client)
+
+    def test_pr_info_cached_on_fetch(self, policy_engine, mock_github_client):
+        """PR info is cached after fetching from GitHub."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "egg"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        # First call - should fetch from GitHub
+        policy_engine.check_pr_ownership("owner/repo", 123)
+        assert mock_github_client.get_pr_info.call_count == 1
+
+        # Second call - should use cache
+        policy_engine.check_pr_ownership("owner/repo", 123)
+        assert mock_github_client.get_pr_info.call_count == 1  # No additional calls
+
+    def test_stale_cache_refetches(self, policy_engine, mock_github_client):
+        """Stale cache entries trigger refetch."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "egg"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        # First call
+        policy_engine.check_pr_ownership("owner/repo", 123)
+
+        # Manually stale the cache entry
+        cache_key = ("owner/repo", 123)
+        if cache_key in policy_engine._pr_cache:
+            cached = policy_engine._pr_cache[cache_key]
+            # Set fetched_at to 10 minutes ago
+            policy_engine._pr_cache[cache_key] = CachedPRInfo(
+                pr_number=cached.pr_number,
+                author=cached.author,
+                state=cached.state,
+                head_branch=cached.head_branch,
+                fetched_at=datetime.now(UTC).timestamp() - 600,
+            )
+
+        # Second call - should refetch due to stale cache
+        policy_engine.check_pr_ownership("owner/repo", 123)
+        assert mock_github_client.get_pr_info.call_count == 2
+
+    def test_branch_pr_cache_populates_pr_cache(self, policy_engine, mock_github_client):
+        """Fetching PRs for a branch also populates the PR info cache."""
+        mock_github_client.list_prs_for_branch.return_value = [
+            {
+                "number": 123,
+                "author": {"login": "egg"},
+                "state": "open",
+                "headRefName": "feature",
+            },
+            {
+                "number": 456,
+                "author": {"login": "other"},
+                "state": "open",
+                "headRefName": "feature",
+            },
+        ]
+
+        # Trigger branch ownership check which fetches PRs
+        policy_engine.check_branch_ownership("owner/repo", "feature")
+
+        # Both PRs should now be in the cache
+        assert ("owner/repo", 123) in policy_engine._pr_cache
+        assert ("owner/repo", 456) in policy_engine._pr_cache
+
+
+class TestPRCreatePolicy:
+    """Tests for PR creation policy."""
+
+    @pytest.fixture
+    def mock_github_client(self):
+        """Create a mock GitHub client."""
+        return MagicMock()
+
+    @pytest.fixture
+    def policy_engine(self, mock_github_client, monkeypatch):
+        """Create a policy engine with mocked GitHub client."""
+        engine = PolicyEngine(github_client=mock_github_client)
+        monkeypatch.setattr(engine, "_get_configured_user", lambda: "testuser")
+        return engine
+
+    def test_pr_create_allowed_bot_mode(self, policy_engine):
+        """PR creation is allowed in bot mode."""
+        result = policy_engine.check_pr_create_allowed("owner/repo", auth_mode="bot")
+        assert result.allowed
+        assert "bot mode" in result.reason.lower()
+
+    def test_pr_create_blocked_user_mode(self, policy_engine):
+        """PR creation is blocked in user mode."""
+        result = policy_engine.check_pr_create_allowed("owner/repo", auth_mode="user")
+        assert not result.allowed
+        assert "user mode" in result.reason.lower()
+        assert "github ui" in result.reason.lower()
+
+    def test_pr_create_user_mode_provides_hint(self, policy_engine):
+        """PR creation denial in user mode provides helpful hint."""
+        result = policy_engine.check_pr_create_allowed("owner/repo", auth_mode="user")
+        assert not result.allowed
+        assert result.details is not None
+        assert "hint" in result.details
