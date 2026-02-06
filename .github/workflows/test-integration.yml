@@ -1,0 +1,40 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Build gateway container
+        run: docker build -t egg-gateway -f gateway/Dockerfile .
+
+      - name: Run integration and security tests
+        run: |
+          PYTHONPATH=shared .venv/bin/pytest integration_tests -v \
+            -m "integration or security" \
+            --timeout=300
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f integration_tests/docker-compose.yml down -v --remove-orphans 2>/dev/null || true
+          docker network prune -f 2>/dev/null || true

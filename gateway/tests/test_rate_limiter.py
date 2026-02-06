@@ -14,12 +14,10 @@ from rate_limiter import (
     RateLimitResult,
     SlidingWindowRateLimiter,
     check_heartbeat_rate_limit,
-    check_registration_rate_limit,
     failed_lookup_limiter,
     get_all_limiter_stats,
     heartbeat_limiter,
     record_failed_lookup,
-    registration_limiter,
 )
 
 
@@ -226,13 +224,6 @@ class TestSlidingWindowRateLimiterThreadSafety:
 class TestPreConfiguredLimiters:
     """Tests for pre-configured rate limiters."""
 
-    def test_registration_limiter_exists(self):
-        """Test registration limiter is configured."""
-        stats = registration_limiter.get_stats()
-        assert stats["name"] == "session_registration"
-        assert stats["max_requests"] == 10
-        assert stats["window_seconds"] == 60
-
     def test_failed_lookup_limiter_exists(self):
         """Test failed lookup limiter is configured."""
         stats = failed_lookup_limiter.get_stats()
@@ -251,13 +242,6 @@ class TestPreConfiguredLimiters:
 class TestConvenienceFunctions:
     """Tests for module-level convenience functions."""
 
-    def test_check_registration_rate_limit(self):
-        """Test registration rate limit check."""
-        # Reset to ensure clean state
-        registration_limiter.reset("test-ip-1")
-        result = check_registration_rate_limit("test-ip-1")
-        assert result.allowed is True
-
     def test_record_failed_lookup(self):
         """Test failed lookup recording."""
         # Reset to ensure clean state
@@ -275,6 +259,5 @@ class TestConvenienceFunctions:
     def test_get_all_limiter_stats(self):
         """Test getting all limiter stats."""
         stats = get_all_limiter_stats()
-        assert "registration" in stats
         assert "failed_lookup" in stats
         assert "heartbeat" in stats

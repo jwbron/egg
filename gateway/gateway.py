@@ -30,6 +30,7 @@ import os
 import secrets
 import subprocess
 import sys
+import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -83,7 +84,6 @@ try:
     )
     from .rate_limiter import (
         check_heartbeat_rate_limit,
-        check_registration_rate_limit,
         record_failed_lookup,
     )
     from .repo_parser import parse_owner_repo
@@ -125,7 +125,6 @@ except ImportError:
     )
     from rate_limiter import (  # type: ignore[no-redef, import-not-found]
         check_heartbeat_rate_limit,
-        check_registration_rate_limit,
         record_failed_lookup,
     )
     from repo_parser import parse_owner_repo  # type: ignore[no-redef, import-not-found]
@@ -149,6 +148,36 @@ from repo_config import get_auth_mode
 logger = get_logger("gateway")
 
 app = Flask(__name__)
+
+
+@app.errorhandler(Exception)
+def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
+    """Return JSON for all unhandled exceptions instead of Flask's default HTML."""
+    from werkzeug.exceptions import HTTPException
+
+    if isinstance(e, HTTPException):
+        # Preserve HTTP status codes for werkzeug exceptions (400, 404, etc.)
+        return jsonify(
+            {
+                "success": False,
+                "message": e.description or str(e),
+            }
+        ), e.code or 500
+
+    logger.error(
+        "Unhandled exception in request handler",
+        error=str(e),
+        error_type=type(e).__name__,
+        path=request.path if request else "unknown",
+        traceback=traceback.format_exc(),
+    )
+    return jsonify(
+        {
+            "success": False,
+            "message": "Internal server error",
+        }
+    ), 500
+
 
 # Configuration
 DEFAULT_HOST = os.environ.get("GATEWAY_HOST", "0.0.0.0")  # Listen on all interfaces by default
@@ -388,6 +417,7 @@ def health_check() -> Response:
             "auth_configured": launcher_secret_configured,
             "active_sessions": active_sessions,
             "service": "gateway",
+            "client_ip": request.remote_addr,
         }
     )
 
@@ -2018,19 +2048,7 @@ def session_create() -> tuple[Response, int] | Response:
         }
 
     Auth: Bearer {launcher_secret}
-    Rate limit: 10 registrations per minute per source IP
     """
-    # Rate limit check
-    rate_result = check_registration_rate_limit(request.remote_addr or "")
-    if not rate_result.allowed:
-        return make_error(
-            "Rate limit exceeded for session registration",
-            status_code=429,
-            details={
-                "retry_after_seconds": rate_result.retry_after_seconds,
-            },
-        )
-
     data = request.get_json()
     if not data:
         return make_error("Missing request body")

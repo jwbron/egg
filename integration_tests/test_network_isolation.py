@@ -15,7 +15,7 @@ Requirements:
 - egg-gateway container must be running
 - Both egg-isolated and egg-external networks must exist
 
-Run with: pytest tests/integration/test_network_isolation.py -v
+Run with: pytest integration_tests/test_network_isolation.py -v
 Skip in CI: pytest -m "not integration"
 """
 
