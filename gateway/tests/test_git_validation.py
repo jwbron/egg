@@ -490,6 +490,172 @@ class TestGhApiPathValidation:
         assert valid is True
         assert error == ""
 
+    def test_actions_runs_list_allowed(self):
+        """Actions runs list endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path("repos/owner/repo/actions/runs")
+        assert valid is True
+        assert error == ""
+
+    def test_actions_run_by_id_allowed(self):
+        """Specific actions run endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/runs/21738507325"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_actions_run_jobs_allowed(self):
+        """Actions run jobs endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/runs/12345/jobs"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_actions_run_logs_allowed(self):
+        """Actions run logs endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/runs/12345/logs"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_actions_run_artifacts_allowed(self):
+        """Actions run artifacts endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/runs/12345/artifacts"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_actions_job_by_id_allowed(self):
+        """Specific actions job endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/jobs/98765"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_actions_job_logs_allowed(self):
+        """Actions job logs endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/jobs/98765/logs"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_actions_workflows_list_allowed(self):
+        """Actions workflows list endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/workflows"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_actions_workflow_by_id_allowed(self):
+        """Specific actions workflow endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/workflows/456"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_actions_workflow_runs_allowed(self):
+        """Actions workflow runs endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/workflows/456/runs"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_actions_artifacts_list_allowed(self):
+        """Actions repo artifacts endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/artifacts"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_actions_artifact_by_id_allowed(self):
+        """Specific actions artifact endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/artifacts/789"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_check_run_by_id_allowed(self):
+        """Check run endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/check-runs/12345"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_check_suite_by_id_allowed(self):
+        """Check suite endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/check-suites/67890"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_check_suite_check_runs_allowed(self):
+        """Check runs in suite endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/check-suites/67890/check-runs"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_commit_check_runs_allowed(self):
+        """Check runs for commit endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/commits/abc123def/check-runs"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_commit_check_suites_allowed(self):
+        """Check suites for commit endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/commits/abc123def/check-suites"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_actions_run_cancel_blocked(self):
+        """Actions run cancel endpoint is NOT allowed (not in allowlist)."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/runs/12345/cancel"
+        )
+        assert valid is False
+        assert "not in allowlist" in error
+
+    def test_actions_run_rerun_blocked(self):
+        """Actions run rerun endpoint is NOT allowed (not in allowlist)."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/runs/12345/rerun"
+        )
+        assert valid is False
+        assert "not in allowlist" in error
+
+    def test_actions_workflow_dispatches_blocked(self):
+        """Actions workflow dispatch endpoint is NOT allowed (not in allowlist)."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/workflows/456/dispatches"
+        )
+        assert valid is False
+        assert "not in allowlist" in error
+
+    def test_actions_run_id_must_be_numeric(self):
+        """Actions run ID must be numeric."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/runs/abc"
+        )
+        assert valid is False
+        assert "not in allowlist" in error
+
     def test_pr_number_must_be_numeric(self):
         """PR number must be numeric."""
         valid, error = github_client.validate_gh_api_path("repos/owner/repo/pulls/abc")
