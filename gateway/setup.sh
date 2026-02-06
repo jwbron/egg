@@ -259,7 +259,7 @@ install_service() {
     cat > "$SYSTEMD_DIR/$SERVICE_NAME" << EOF
 [Unit]
 Description=Egg Gateway Sidecar - Git/GitHub policy enforcement for egg containers
-Documentation=file://${REPO_ROOT}/gateway/README.md
+Documentation=file://$REPO_ROOT/gateway/README.md
 After=network-online.target
 Wants=network-online.target
 
@@ -272,7 +272,7 @@ Environment=IMAGE_NAME=egg-gateway
 ExecStartPre=-/usr/bin/docker rm -f egg-gateway
 
 # Run container via startup script
-ExecStart=${COMPONENT_DIR}/start-gateway.sh
+ExecStart=$COMPONENT_DIR/start-gateway.sh
 
 ExecStop=/usr/bin/docker stop egg-gateway
 

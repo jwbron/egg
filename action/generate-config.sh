@@ -55,24 +55,24 @@ else
 fi
 
 cat > "$CONFIG_DIR/repositories.yaml" <<YAML
-github_username: ${GITHUB_ACTOR}
-bot_username: ${BOT_USERNAME}
+github_username: $GITHUB_ACTOR
+bot_username: $BOT_USERNAME
 
 writable_repos:
-  - ${GITHUB_REPOSITORY}
+  - $GITHUB_REPOSITORY
 
 repo_settings:
-  ${GITHUB_REPOSITORY}:
-    auth_mode: ${AUTH_MODE}
+  $GITHUB_REPOSITORY:
+    auth_mode: $AUTH_MODE
 
 user_mode:
-  github_user: ${GITHUB_ACTOR}
-  git_name: ${GITHUB_ACTOR}
-  git_email: ${GITHUB_ACTOR_ID:-0}+${GITHUB_ACTOR}@users.noreply.github.com
+  github_user: $GITHUB_ACTOR
+  git_name: $GITHUB_ACTOR
+  git_email: ${GITHUB_ACTOR_ID:-0}+$GITHUB_ACTOR@users.noreply.github.com
 
 local_repos:
   paths:
-    - ${GITHUB_WORKSPACE}
+    - $GITHUB_WORKSPACE
 YAML
 
 # ---------------------------------------------------------------------------
@@ -80,8 +80,8 @@ YAML
 # ---------------------------------------------------------------------------
 
 cat > "$CONFIG_DIR/secrets.env" <<ENV
-CLAUDE_CODE_OAUTH_TOKEN=${INPUT_ANTHROPIC_OAUTH_TOKEN}
-GITHUB_USER_TOKEN=${INPUT_GITHUB_TOKEN}
+CLAUDE_CODE_OAUTH_TOKEN=$INPUT_ANTHROPIC_OAUTH_TOKEN
+GITHUB_USER_TOKEN=$INPUT_GITHUB_TOKEN
 ENV
 
 # Add bot GitHub App credentials if provided
