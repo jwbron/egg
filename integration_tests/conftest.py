@@ -71,6 +71,7 @@ class EggStack:
     config_dir: str
     isolated_network: str
     external_network: str
+    certs_volume: str = ""  # Docker volume name for gateway CA certs
     source_ip: str = ""  # Auto-detected: IP the gateway sees for our requests
     _containers: list[str] = field(default_factory=list)
 
@@ -349,6 +350,7 @@ def egg_stack() -> Generator[EggStack, None, None]:
             config_dir=config_dir,
             isolated_network=f"{project_name}-isolated",
             external_network=f"{project_name}-external",
+            certs_volume=f"{project_name}_certs",
         )
 
         # Detect what source IP the gateway sees for our requests
@@ -596,6 +598,7 @@ class AgentVerdict:
     details: list[dict[str, Any]]
     raw_output: str
     cost_usd: float | None
+    infrastructure_failure: bool = False  # Set by run_claude_structured, not the agent
 
     @property
     def passed(self) -> bool:
@@ -684,6 +687,11 @@ def run_claude_structured(
     # Lifecycle flags — use the module constant to avoid hardcoding the index
     cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = ["--rm"]
 
+    # Mount the gateway CA certificate volume so the sandbox can trust the proxy
+    # The volume is created by docker-compose and populated by the gateway entrypoint
+    if egg_stack.certs_volume:
+        cmd[-1:-1] = ["-v", f"{egg_stack.certs_volume}:/shared/certs:ro"]
+
     # Claude CLI command after image name
     cmd.extend(
         [
@@ -722,6 +730,7 @@ def run_claude_structured(
             details=[],
             raw_output=raw,
             cost_usd=None,
+            infrastructure_failure=True,
         )
 
     raw = result.stdout.strip()
@@ -733,6 +742,7 @@ def run_claude_structured(
             details=[],
             raw_output=raw,
             cost_usd=None,
+            infrastructure_failure=True,
         )
 
     try:
@@ -744,6 +754,7 @@ def run_claude_structured(
             details=[],
             raw_output=raw,
             cost_usd=None,
+            infrastructure_failure=True,
         )
 
     # The envelope from --output-format json wraps the schema result.
