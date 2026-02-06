@@ -30,6 +30,9 @@ jobs:
       group: egg-review-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
       cancel-in-progress: true
 
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+
     steps:
       - name: Generate bot token
         id: bot-token
@@ -44,9 +47,21 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         id: pr-meta
         run: |
-          pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.inputs.pr_number }})
+          pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
           echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')" >> "$GITHUB_OUTPUT"
           echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
+      # Dismiss previous bot reviews before starting new review
+      - name: Dismiss previous bot reviews
+        run: |
+          gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
+            --jq '[.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.state | test("PENDING|COMMENTED|CHANGES_REQUESTED"))] | .[].id' \
+          | while read -r id; do
+              gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews/$id/dismissals" \
+                -X PUT -f message="Superseded by new review" || true
+            done
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
@@ -65,10 +80,7 @@ jobs:
         run: bash action/build-review-prompt.sh
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
-
-      - name: Save trusted action scripts
-        run: cp -r action "$RUNNER_TEMP/trusted-action"
+          PR_NUMBER: ${{ env.PR_NUMBER }}
 
       - name: Checkout PR branch
         uses: actions/checkout@v4
@@ -76,10 +88,6 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name || steps.pr-meta.outputs.head-repo }}
           ref: ${{ github.event.pull_request.head.ref || steps.pr-meta.outputs.head-ref }}
           persist-credentials: false
-
-      - name: Capture actual HEAD SHA
-        id: head
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Run egg review
         id: egg
@@ -94,12 +102,14 @@ jobs:
           bot-username: james-in-a-box
           timeout: "10"
 
-      - name: Post review comments
-        if: always() && steps.egg.outputs.exit-code == '0'
-        run: bash "$RUNNER_TEMP/trusted-action/post-review-comments.sh"
+      - name: Post status comment
+        if: always()
+        run: |
+          if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
+            BODY="egg review completed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          else
+            BODY="egg review failed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          fi
+          gh pr comment "${{ env.PR_NUMBER }}" --body "$BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
-          HEAD_SHA: ${{ steps.head.outputs.sha }}
-          LOG_FILE: ${{ steps.egg.outputs.log-file }}
-          BOT_USERNAME: james-in-a-box
