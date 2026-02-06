@@ -34,6 +34,12 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Project Structure](development/STRUCTURE.md) | Directory conventions and organization |
 | [Contributing](../CONTRIBUTING.md) | Development setup, workflow, and PR process |
 
+### Guides
+
+| Document | Description |
+|----------|-------------|
+| [Agent-Mode Design](guides/agent-mode-design.md) | When to let egg operate freely vs. when constraints are appropriate |
+
 ## Component Documentation
 
 Each major component has its own README with detailed documentation:
@@ -58,6 +64,7 @@ Each major component has its own README with detailed documentation:
 | **Configuration changes** | [Config README](../config/README.md) | [egg_config README](../shared/egg_config/README.md) |
 | **GitHub Action setup** | [ADR: GitHub Actions](adr/in-progress/ADR-GitHub-Actions-Support.md) | [Architecture Overview](architecture/README.md) |
 | **Adding tests** | [Contributing](../CONTRIBUTING.md) | [Project Structure](development/STRUCTURE.md) |
+| **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
 
 ## Quick Navigation
 
@@ -72,4 +79,4 @@ Each major component has its own README with detailed documentation:
 
 ---
 
-*Last updated: 2026-02-05*
+*Last updated: 2026-02-06*
