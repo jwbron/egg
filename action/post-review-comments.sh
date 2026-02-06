@@ -116,14 +116,20 @@ gh_api_safe() {
 extract_review_json() {
     local log_content="$1"
 
-    # Use Python for robust JSON extraction that handles nested braces correctly
+    # Use Python for robust JSON extraction that handles nested braces correctly.
+    # The log file contains stream-json output from Claude Code, with lines like:
+    #   {"type":"user","message":{"content":[...]}}      ← prompt (may contain PR diff!)
+    #   {"type":"assistant","message":{"content":[...]}}  ← Claude's response
+    #   {"type":"result","result":"<Claude's final text>"}
+    # We must extract from the "result" event only, otherwise template JSON
+    # embedded in the PR diff (e.g. security-review.md examples) can be matched.
     local json_block
     json_block=$(echo "$log_content" | python3 -c "
 import sys
 import re
 import json
 
-content = sys.stdin.read()
+raw_input = sys.stdin.read()
 
 def find_json_objects(text):
     '''Find all valid JSON objects in text using bracket matching.'''
@@ -168,34 +174,60 @@ def find_json_objects(text):
             i += 1
     return objects
 
-# First, try to extract from markdown code blocks
-code_block_pattern = r'\`\`\`(?:json)?\s*\n(.*?)\n\`\`\`'
-code_blocks = re.findall(code_block_pattern, content, re.DOTALL)
+def search_for_review(text):
+    '''Search text for a review JSON object. Returns it or None.'''
+    # First, try to extract from markdown code blocks
+    code_block_pattern = r'\`\`\`(?:json)?\s*\n(.*?)\n\`\`\`'
+    code_blocks = re.findall(code_block_pattern, text, re.DOTALL)
 
-# Check code blocks first (in reverse order to get the final summary)
-for block in reversed(code_blocks):
-    for obj in find_json_objects(block):
+    # Check code blocks first (in reverse order to get the final summary)
+    for block in reversed(code_blocks):
+        for obj in find_json_objects(block):
+            if 'summary' in obj and 'comments' in obj:
+                return obj
+
+    # Then check for bare JSON
+    all_objects = find_json_objects(text)
+
+    # Look for the summary object (should have summary, verdict, comments)
+    for obj in reversed(all_objects):
         if 'summary' in obj and 'comments' in obj:
-            print(json.dumps(obj))
-            sys.exit(0)
+            return obj
 
-# Then check the full content for bare JSON
-all_objects = find_json_objects(content)
+    # Fallback: try to find any object with comments array
+    for obj in reversed(all_objects):
+        if 'comments' in obj and isinstance(obj.get('comments'), list):
+            obj.setdefault('summary', 'Review completed.')
+            obj.setdefault('verdict', 'comment')
+            return obj
 
-# Look for the summary object (should have summary, verdict, comments)
-for obj in reversed(all_objects):
-    if 'summary' in obj and 'comments' in obj:
-        print(json.dumps(obj))
+    return None
+
+# Step 1: Try to extract from stream-json result events.
+# This narrows the search to Claude's actual output, avoiding prompt content.
+result_text = None
+for line in raw_input.splitlines():
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        event = json.loads(line)
+        if isinstance(event, dict) and event.get('type') == 'result' and 'result' in event:
+            result_text = str(event['result'])
+    except (json.JSONDecodeError, TypeError):
+        continue
+
+if result_text is not None:
+    review = search_for_review(result_text)
+    if review is not None:
+        print(json.dumps(review))
         sys.exit(0)
 
-# Fallback: try to find any object with comments array
-for obj in reversed(all_objects):
-    if 'comments' in obj and isinstance(obj.get('comments'), list):
-        # Add missing fields
-        obj.setdefault('summary', 'Review completed.')
-        obj.setdefault('verdict', 'comment')
-        print(json.dumps(obj))
-        sys.exit(0)
+# Step 2: Fallback — scan full content (backward compat for non-stream-json logs)
+review = search_for_review(raw_input)
+if review is not None:
+    print(json.dumps(review))
+    sys.exit(0)
 
 # No structured output found
 print(json.dumps({
