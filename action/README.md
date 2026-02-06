@@ -26,6 +26,6 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
 
 ## Documentation
 
-For full usage documentation including all inputs, outputs, examples, and security considerations, see the [GitHub Action feature documentation](../docs/features/github-action.md).
+For design details, inputs, outputs, and implementation notes, see the [GitHub Actions Support ADR](../docs/adr/in-progress/ADR-GitHub-Actions-Support.md).
 
-For setting up @mention triggers, see the [@mention trigger setup guide](../docs/guides/mention-trigger-setup.md).
+For the existing @mention trigger workflow, see [`.github/workflows/on-mention.yml`](../.github/workflows/on-mention.yml) and [`build-mention-prompt.sh`](build-mention-prompt.sh).

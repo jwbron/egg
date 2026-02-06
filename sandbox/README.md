@@ -136,7 +136,6 @@ Container setup is automated via `docker-setup.py`, which runs on container star
 
 ## Related Documentation
 
-- [Container Infrastructure Features](../docs/features/container-infrastructure.md) - Feature overview
 - [Claude Code Configuration](.claude/README.md) - Agent rules and commands
 - [Gateway Sidecar](../gateway/README.md) - Policy enforcement gateway
 - [Architecture Overview](../docs/architecture/README.md) - System design
