@@ -413,7 +413,9 @@ def _create_repositories_config() -> bool:
     existing_secrets["GATEWAY_BOT_NAME"] = bot_name
     existing_secrets["GATEWAY_BOT_BRANCH_PREFIX"] = branch_prefix
     _write_secrets_env(existing_secrets)
-    info(f"Updated secrets.env with GATEWAY_BOT_NAME={bot_name}, GATEWAY_BOT_BRANCH_PREFIX={branch_prefix}")
+    info(
+        f"Updated secrets.env with GATEWAY_BOT_NAME={bot_name}, GATEWAY_BOT_BRANCH_PREFIX={branch_prefix}"
+    )
 
     return True
 
