@@ -25,6 +25,7 @@ from typing import Any
 
 import pytest
 import requests
+from egg_container import ContainerNetworkConfig, build_sandbox_docker_cmd
 
 # Project root (one level up from integration_tests/)
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -615,19 +616,31 @@ def run_claude_structured(
 
     schema_json = json.dumps(VERDICT_SCHEMA)
 
-    cmd = [
-        "docker",
-        "run",
-        "--rm",
-        "--network",
-        egg_stack.isolated_network,
-        "--add-host",
-        f"egg-gateway:{egg_stack.gateway_isolated_ip}",
-        "-e",
-        "GATEWAY_URL=http://egg-gateway:9848",
-        "-e",
-        f"EGG_SESSION_TOKEN={session_token}",
-        "egg-sandbox:latest",
+    net_config = ContainerNetworkConfig(
+        network_name=egg_stack.isolated_network,
+        gateway_hostname="egg-gateway",
+        gateway_ip=egg_stack.gateway_isolated_ip,
+        gateway_port=GATEWAY_PORT,
+        repo_mode="private",
+        proxy_url=f"http://egg-gateway:{PROXY_PORT}",
+    )
+    cmd = build_sandbox_docker_cmd(
+        container_name=f"test-claude-{os.getpid()}-{time.time_ns()}",
+        image="egg-sandbox:latest",
+        network=net_config,
+        session_token=session_token,
+        runtime_uid=1000,
+        runtime_gid=1000,
+        extra_env={
+            "ANTHROPIC_OAUTH_TOKEN": os.environ["ANTHROPIC_OAUTH_TOKEN"],
+        },
+    )
+
+    # Lifecycle flags
+    cmd[2:2] = ["--rm"]
+
+    # Claude CLI command after image name
+    cmd.extend([
         "claude",
         "--print",
         "--output-format",
@@ -643,7 +656,7 @@ def run_claude_structured(
         model,
         "--dangerously-skip-permissions",
         prompt,
-    ]
+    ])
 
     try:
         result = subprocess.run(

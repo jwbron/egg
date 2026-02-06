@@ -23,6 +23,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from egg_container import ContainerNetworkConfig, build_sandbox_docker_cmd
+
 # Import statusbar for quiet mode
 from statusbar import status, status_finish
 
@@ -92,7 +94,7 @@ def _validate_repo_mode(repo_mode: str | None) -> None:
 
 def _get_container_network_config(
     repo_mode: str | None,
-) -> tuple[str, str, list[str]]:
+) -> ContainerNetworkConfig:
     """Get network configuration for a container based on repo_mode.
 
     This centralizes the network selection logic to prevent divergence between
@@ -102,49 +104,27 @@ def _get_container_network_config(
         repo_mode: Repository visibility mode ("private" or "public")
 
     Returns:
-        Tuple of (network_name, gateway_ip, extra_docker_args):
-        - network_name: Docker network to use (egg-isolated or egg-external)
-        - gateway_ip: IP address of the gateway on that network
-        - extra_docker_args: Mode-specific docker arguments (DNS, proxy settings)
+        A ContainerNetworkConfig with all mode-specific network parameters.
     """
     ctx = get_context()
-    proxy_url = f"http://{ctx.gateway_container_name}:{ctx.gateway_proxy_port}"
 
     if repo_mode == "private":
-        # PRIVATE: Internal isolated network with proxy (locked to api.anthropic.com)
-        # DNS is disabled (0.0.0.0) to prevent direct hostname resolution.
-        # HTTP clients using HTTP_PROXY/HTTPS_PROXY send CONNECT requests to the
-        # proxy with the hostname, and Squid resolves DNS on behalf of the client.
-        # If a tool bypasses the proxy, its requests fail with DNS errors (fail closed).
-        extra_args = [
-            # Disable DNS (no external DNS resolution - fail closed)
-            "--dns",
-            "0.0.0.0",
-            # Set PRIVATE_MODE env var so container knows its mode
-            "-e",
-            "PRIVATE_MODE=true",
-            # HTTP/HTTPS proxy environment variables for network lockdown
-            "-e",
-            f"HTTP_PROXY={proxy_url}",
-            "-e",
-            f"HTTPS_PROXY={proxy_url}",
-            "-e",
-            f"http_proxy={proxy_url}",
-            "-e",
-            f"https_proxy={proxy_url}",
-            # Bypass proxy for local connections to gateway
-            "-e",
-            f"NO_PROXY=localhost,127.0.0.1,{ctx.gateway_container_name}",
-            "-e",
-            f"no_proxy=localhost,127.0.0.1,{ctx.gateway_container_name}",
-        ]
-        return ctx.isolated_network, ctx.gateway_isolated_ip, extra_args
+        return ContainerNetworkConfig(
+            network_name=ctx.isolated_network,
+            gateway_hostname=ctx.gateway_container_name,
+            gateway_ip=ctx.gateway_isolated_ip,
+            gateway_port=ctx.gateway_port,
+            repo_mode="private",
+            proxy_url=f"http://{ctx.gateway_container_name}:{ctx.gateway_proxy_port}",
+        )
     else:
-        # PUBLIC: External network with direct internet access (no proxy)
-        # Uses Docker's default DNS. No proxy env vars set.
-        # Container can access the internet directly.
-        # Set PRIVATE_MODE=false so container knows its mode
-        return ctx.external_network, ctx.gateway_external_ip, ["-e", "PRIVATE_MODE=false"]
+        return ContainerNetworkConfig(
+            network_name=ctx.external_network,
+            gateway_hostname=ctx.gateway_container_name,
+            gateway_ip=ctx.gateway_external_ip,
+            gateway_port=ctx.gateway_port,
+            repo_mode="public",
+        )
 
 
 def _get_repo_owner_name(repo_path: Path) -> str | None:
@@ -585,12 +565,12 @@ def run_claude(repo_mode: str | None = None) -> bool:
     container_ip = None
 
     # Get network configuration based on mode (centralized in helper to prevent divergence)
-    container_network, gateway_ip, network_extra_args = _get_container_network_config(repo_mode)
+    net_config = _get_container_network_config(repo_mode)
 
     # Choose mount strategy based on repo_mode
     if repo_mode:
         # Per-container session mode: allocate IP first for session binding
-        container_ip = _allocate_container_ip(network=container_network)
+        container_ip = _allocate_container_ip(network=net_config.network_name)
         if not container_ip:
             error("Failed to allocate container IP for session mode")
             return False
@@ -649,53 +629,34 @@ def run_claude(repo_mode: str | None = None) -> bool:
     # Build docker run command
     _host_timer.start_phase("build_docker_cmd")
 
-    cmd = [
-        "docker",
-        "run",
-        "--rm",  # Auto-remove container after exit
-        "-it",  # Interactive with TTY
-        "--security-opt",
-        "label=disable",  # Disable SELinux labeling for faster startup
-        "--name",
-        container_id,
-        # Network selection based on mode
-        "--network",
-        container_network,
-    ]
+    # Caller-specific env vars that don't belong in the shared builder
+    caller_env: dict[str, str] = {
+        "EGG_QUIET": "1" if quiet else "0",
+        "EGG_TIMING": "1" if _host_timer.enabled else "0",
+    }
 
-    # If session mode with pre-allocated IP, use static IP assignment
-    # This binds the container to the session for security verification
-    if container_ip:
-        cmd.extend(["--ip", container_ip])
+    # Add Anthropic auth configuration
+    anthropic_auth_method = get_anthropic_auth_method()
+    caller_env["ANTHROPIC_AUTH_METHOD"] = anthropic_auth_method
+    if api_key:
+        caller_env["ANTHROPIC_API_KEY"] = api_key
 
-    # Add gateway hostname for API access (both modes need this)
-    cmd.extend(
-        [
-            "--add-host",
-            f"{ctx.gateway_container_name}:{gateway_ip}",
-            # Environment variables
-            "-e",
-            f"RUNTIME_UID={os.getuid()}",
-            "-e",
-            f"RUNTIME_GID={os.getgid()}",
-            "-e",
-            f"CONTAINER_ID={container_id}",
-            "-e",
-            f"EGG_QUIET={'1' if quiet else '0'}",
-            "-e",
-            f"EGG_TIMING={'1' if _host_timer.enabled else '0'}",
-            "-e",
-            f"GATEWAY_URL=http://{ctx.gateway_container_name}:{ctx.gateway_port}",
-        ]
+    cmd = build_sandbox_docker_cmd(
+        container_name=container_id,
+        image=ctx.sandbox_image,
+        network=net_config,
+        container_ip=container_ip,
+        session_token=session_token,
+        runtime_uid=os.getuid(),
+        runtime_gid=os.getgid(),
+        extra_env=caller_env,
     )
 
-    # Mode-specific network settings (DNS, proxy) from centralized helper
-    if network_extra_args:
-        cmd.extend(network_extra_args)
+    # Insert lifecycle flags after "docker run"
+    cmd[2:2] = ["--rm", "-it"]
 
-    # If session mode, pass session token for container authentication
-    if session_token:
-        cmd.extend(["-e", f"EGG_SESSION_TOKEN={session_token}"])
+    # Insert mount arguments before the image name (last element)
+    cmd[-1:-1] = mount_args
 
     # GitHub authentication is handled by the gateway sidecar
     # The container does NOT receive GITHUB_TOKEN - all git/gh operations
@@ -703,23 +664,15 @@ def run_claude(repo_mode: str | None = None) -> bool:
     if not quiet:
         info("GitHub auth: Via gateway sidecar (credentials not in container)")
 
-    # Add Anthropic auth configuration
-    anthropic_auth_method = get_anthropic_auth_method()
-    cmd.extend(["-e", f"ANTHROPIC_AUTH_METHOD={anthropic_auth_method}"])
-
-    # Set Anthropic API key if available
-    if api_key:
-        cmd.extend(["-e", f"ANTHROPIC_API_KEY={api_key}"])
-
     if not quiet:
         info(f"Claude auth method: {anthropic_auth_method}")
         if repo_mode == "private":
             info("Network mode: PRIVATE (isolated network, proxy filtering)")
             if container_ip:
-                print(f"  Network: {container_network} (IP: {container_ip})")
+                print(f"  Network: {net_config.network_name} (IP: {container_ip})")
             else:
-                print(f"  Network: {container_network} (IP assigned dynamically)")
-            print(f"  Gateway: {ctx.gateway_container_name} at {gateway_ip}")
+                print(f"  Network: {net_config.network_name} (IP assigned dynamically)")
+            print(f"  Gateway: {ctx.gateway_container_name} at {net_config.gateway_ip}")
             print(f"  Gateway API: http://{ctx.gateway_container_name}:{ctx.gateway_port}")
             print(f"  Proxy: http://{ctx.gateway_container_name}:{ctx.gateway_proxy_port}")
             print("  Container can: Access Claude API, GitHub (via gateway sidecar)")
@@ -727,22 +680,16 @@ def run_claude(repo_mode: str | None = None) -> bool:
         else:
             info("Network mode: PUBLIC (direct internet access)")
             if container_ip:
-                print(f"  Network: {container_network} (IP: {container_ip})")
+                print(f"  Network: {net_config.network_name} (IP: {container_ip})")
             else:
-                print(f"  Network: {container_network} (IP assigned dynamically)")
-            print(f"  Gateway: {ctx.gateway_container_name} at {gateway_ip}")
+                print(f"  Network: {net_config.network_name} (IP assigned dynamically)")
+            print(f"  Gateway: {ctx.gateway_container_name} at {net_config.gateway_ip}")
             print(f"  Gateway API: http://{ctx.gateway_container_name}:{ctx.gateway_port}")
             print("  Container can: Access internet directly, GitHub (via gateway sidecar)")
             print("  Container cannot: Access private repos")
         if session_token:
             print(f"  Session: Active ({repo_mode} mode)")
         print()
-
-    # Add mount arguments
-    cmd.extend(mount_args)
-
-    # Add image name
-    cmd.append(ctx.sandbox_image)
 
     # End timing for command build
     _host_timer.end_phase()  # build_docker_cmd
@@ -876,12 +823,12 @@ def exec_in_new_container(
     container_ip = None
 
     # Get network configuration based on mode (centralized in helper to prevent divergence)
-    container_network, gateway_ip, network_extra_args = _get_container_network_config(repo_mode)
+    net_config = _get_container_network_config(repo_mode)
 
     # Choose mount strategy based on repo_mode
     if repo_mode:
         # Per-container session mode: allocate IP first for session binding
-        container_ip = _allocate_container_ip(network=container_network)
+        container_ip = _allocate_container_ip(network=net_config.network_name)
         if not container_ip:
             error("Failed to allocate container IP for session mode")
             return False
@@ -927,82 +874,47 @@ def exec_in_new_container(
     # Build docker run command
     # Note: We don't use --rm so we can save logs before cleanup
 
-    cmd = [
-        "docker",
-        "run",
-        "--security-opt",
-        "label=disable",  # Disable SELinux labeling for faster startup
-        "--name",
-        container_id,
-        # Network selection based on mode
-        "--network",
-        container_network,
-    ]
-
-    # If session mode with pre-allocated IP, use static IP assignment
-    if container_ip:
-        cmd.extend(["--ip", container_ip])
-
-    # Add gateway hostname for API access (both modes need this)
-    cmd.extend(
-        [
-            "--add-host",
-            f"{ctx.gateway_container_name}:{gateway_ip}",
-            # Environment variables
-            "-e",
-            f"RUNTIME_UID={os.getuid()}",
-            "-e",
-            f"RUNTIME_GID={os.getgid()}",
-            "-e",
-            f"CONTAINER_ID={container_id}",
-            "-e",
-            "PYTHONUNBUFFERED=1",  # Force Python to use unbuffered output
-            "-e",
-            f"GATEWAY_URL=http://{ctx.gateway_container_name}:{ctx.gateway_port}",
-        ]
-    )
-
-    # Mode-specific network settings (DNS, proxy) from centralized helper
-    if network_extra_args:
-        cmd.extend(network_extra_args)
-
-    # If session mode, pass session token for container authentication
-    if session_token:
-        cmd.extend(["-e", f"EGG_SESSION_TOKEN={session_token}"])
-
-    # Add logging configuration for log persistence
-    log_config = get_docker_log_config(container_id, task_id)
-    cmd.extend(log_config)
+    # Caller-specific env vars
+    caller_env: dict[str, str] = {
+        "PYTHONUNBUFFERED": "1",
+    }
 
     # Add correlation environment variables for log tracing
     if task_id:
-        cmd.extend(["-e", f"EGG_TASK_ID={task_id}"])
+        caller_env["EGG_TASK_ID"] = task_id
     if thread_ts:
-        cmd.extend(["-e", f"EGG_THREAD_TS={thread_ts}"])
-
-    # GitHub authentication is handled by the gateway sidecar
-    # The container does NOT receive GITHUB_TOKEN - all git/gh operations
-    # route through the gateway which holds the credentials
+        caller_env["EGG_THREAD_TS"] = thread_ts
 
     # Add Anthropic auth configuration based on CLI auth_mode
-    # Map CLI values to ANTHROPIC_AUTH_METHOD values
     auth_method_map = {"api-key": "api_key", "oauth-token": "oauth"}
     anthropic_auth_method = auth_method_map[auth_mode]
-    cmd.extend(["-e", f"ANTHROPIC_AUTH_METHOD={anthropic_auth_method}"])
+    caller_env["ANTHROPIC_AUTH_METHOD"] = anthropic_auth_method
 
     # Pass API key when using api-key auth mode
     if auth_mode == "api-key":
         api_key = get_anthropic_api_key()
         if api_key:
-            cmd.extend(["-e", f"ANTHROPIC_API_KEY={api_key}"])
+            caller_env["ANTHROPIC_API_KEY"] = api_key
 
-    # Add mount arguments
-    cmd.extend(mount_args)
+    # Add logging configuration for log persistence
+    log_config = get_docker_log_config(container_id, task_id)
 
-    # Add image name
-    cmd.append(ctx.sandbox_image)
+    cmd = build_sandbox_docker_cmd(
+        container_name=container_id,
+        image=ctx.sandbox_image,
+        network=net_config,
+        container_ip=container_ip,
+        session_token=session_token,
+        runtime_uid=os.getuid(),
+        runtime_gid=os.getgid(),
+        extra_env=caller_env,
+        extra_args=log_config,
+    )
 
-    # Add the command to execute
+    # Insert mount arguments before the image name (last element)
+    cmd[-1:-1] = mount_args
+
+    # Add the command to execute (after image name)
     cmd.extend(command)
 
     # Run container with configurable timeout
