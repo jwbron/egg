@@ -59,6 +59,19 @@ Behavioral controls (telling an LLM "don't do X") can be bypassed through prompt
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+## Why Use egg?
+
+egg provides a **public, async workflow** for AI-assisted development that makes AI work visible to the whole team. Every interaction happens in GitHub: @mention to assign, review plans before implementation, and full reasoning in workflow logs.
+
+This complements private AI tools rather than replacing them. Use egg when:
+- **Team visibility matters**: Code changes that benefit from early feedback and shared context
+- **Async execution fits**: Tasks you can hand off and review later
+- **Audit trails help**: Work where seeing the reasoning alongside the code is valuable
+
+Private AI tools remain ideal for rapid prototyping, exploratory coding, and individual productivity.
+
+See [Why egg Works: Safety, Quality, and Collaboration](docs/collaboration-effectiveness.md) for the full picture.
+
 ## Key Features
 
 ### Zero Credential Exposure
