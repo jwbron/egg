@@ -50,6 +50,14 @@ build_prompt() {
     local review_rules
     review_rules=$(fetch_review_rules)
 
+    # Load review conventions if available
+    local conventions_file
+    conventions_file="$(dirname "$0")/review-conventions.md"
+    local conventions=""
+    if [[ -f "$conventions_file" ]]; then
+        conventions=$(cat "$conventions_file")
+    fi
+
     local prompt
     prompt="Review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
 
@@ -60,17 +68,9 @@ changed code interacts with the rest of the codebase.
 
 ${review_rules}
 
-## How to Post Your Review
+## Review Conventions
 
-Post your review using \`gh pr review ${PR_NUMBER}\`. Use inline comments where
-the feedback applies to specific lines. Use --approve if the PR looks good,
---request-changes for blocking issues, or --comment for advisory feedback.
-
-Focus on issues that require human judgment. Skip style issues that linters
-catch (ruff, eslint, prettier). Be specific and suggest fixes. If the PR
-looks good, approve it.
-
-Sign your review with: — Authored by egg
+${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --approve if the PR looks good, --request-changes for blocking issues, or --comment for advisory feedback. Be specific and suggest fixes. Sign your review with: — Authored by egg}
 "
 
     # Write prompt to temp file
