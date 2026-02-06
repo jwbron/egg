@@ -74,6 +74,7 @@ class DockerClaudeVisitor(ast.NodeVisitor):
         self.docker_run_lines: list[tuple[int, str]] = []
         self.claude_cli_lines: list[tuple[int, str]] = []
         self.dangerous_flag_lines: list[tuple[int, str]] = []
+        self.shell_string_lines: list[tuple[int, str]] = []
 
     def _has_noqa(self, lineno: int) -> bool:
         """Check if a line has a noqa: EGG100 comment."""
@@ -119,7 +120,7 @@ class DockerClaudeVisitor(ast.NodeVisitor):
         return result
 
     def _check_dangerous_flags(self, elts: list[str | None], lineno: int) -> None:
-        """Check for --privileged or --network host in command elements."""
+        """Check for dangerous docker flags in command elements."""
         if self._has_noqa(lineno):
             return
         for i, val in enumerate(elts):
@@ -131,6 +132,55 @@ class DockerClaudeVisitor(ast.NodeVisitor):
                 self.dangerous_flag_lines.append(
                     (lineno, "Dangerous flag: --network host")
                 )
+            elif val == "--network=host":
+                self.dangerous_flag_lines.append(
+                    (lineno, "Dangerous flag: --network=host")
+                )
+            elif val == "--pid" and i + 1 < len(elts) and elts[i + 1] == "host":
+                self.dangerous_flag_lines.append(
+                    (lineno, "Dangerous flag: --pid host")
+                )
+            elif val == "--pid=host":
+                self.dangerous_flag_lines.append(
+                    (lineno, "Dangerous flag: --pid=host")
+                )
+            elif val == "--ipc" and i + 1 < len(elts) and elts[i + 1] == "host":
+                self.dangerous_flag_lines.append(
+                    (lineno, "Dangerous flag: --ipc host")
+                )
+            elif val == "--ipc=host":
+                self.dangerous_flag_lines.append(
+                    (lineno, "Dangerous flag: --ipc=host")
+                )
+
+    def _has_shell_true(self, node: ast.Call) -> bool:
+        """Check if a subprocess call has shell=True."""
+        for kw in node.keywords:
+            if kw.arg == "shell" and isinstance(kw.value, ast.Constant):
+                return kw.value.value is True
+        return False
+
+    def _check_string_command(self, node: ast.Call) -> None:
+        """Check string-based subprocess calls with shell=True for docker run/claude."""
+        if not node.args:
+            return
+        first_arg = node.args[0]
+        if not isinstance(first_arg, ast.Constant) or not isinstance(first_arg.value, str):
+            return
+        if not self._has_shell_true(node):
+            return
+        if self._has_noqa(node.lineno):
+            return
+
+        cmd = first_arg.value
+        if re.search(r"\bdocker\s+run\b", cmd):
+            self.shell_string_lines.append(
+                (node.lineno, "shell=True string: docker run (use list form)")
+            )
+        if re.search(r"\bclaude\b", cmd):
+            self.shell_string_lines.append(
+                (node.lineno, "shell=True string: claude CLI (use list form)")
+            )
 
     def visit_Call(self, node: ast.Call) -> None:
         """Check subprocess calls for docker run and claude CLI usage."""
@@ -143,6 +193,12 @@ class DockerClaudeVisitor(ast.NodeVisitor):
             return
 
         first_arg = node.args[0]
+        # Check for string commands with shell=True
+        if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+            self._check_string_command(node)
+            self.generic_visit(node)
+            return
+
         if not isinstance(first_arg, ast.List) or not first_arg.elts:
             self.generic_visit(node)
             return
@@ -169,11 +225,15 @@ class DockerClaudeVisitor(ast.NodeVisitor):
 
         # Also detect claude embedded in docker run commands
         # e.g. ["docker", "run", ..., "image", "claude", "--print", ...]
-        if elts[0] == "docker" and elts[1] == "run" and "claude" in elts[2:]:
-            if not self._has_noqa(node.lineno):
-                self.claude_cli_lines.append(
-                    (node.lineno, 'docker run with embedded "claude" CLI')
-                )
+        # Only detect if "claude" is a standalone element (not part of an env var like CLAUDE_KEY=abc)
+        if elts[0] == "docker" and elts[1] == "run":
+            for elt in elts[2:]:
+                if elt == "claude":
+                    if not self._has_noqa(node.lineno):
+                        self.claude_cli_lines.append(
+                            (node.lineno, 'docker run with embedded "claude" CLI')
+                        )
+                    break
 
         self.generic_visit(node)
 
@@ -229,8 +289,12 @@ def check_shell_file(
         # Dangerous flags in shell
         if re.search(r"--privileged\b", line):
             dangerous_violations.append((i, "Dangerous flag: --privileged"))
-        if re.search(r"--network\s+host\b", line):
+        if re.search(r"--network[\s=]+host\b", line):
             dangerous_violations.append((i, "Dangerous flag: --network host"))
+        if re.search(r"--pid[\s=]+host\b", line):
+            dangerous_violations.append((i, "Dangerous flag: --pid host"))
+        if re.search(r"--ipc[\s=]+host\b", line):
+            dangerous_violations.append((i, "Dangerous flag: --ipc host"))
 
     return docker_violations, dangerous_violations
 
@@ -262,27 +326,26 @@ def main() -> int:
 
         file_violations: list[tuple[int, str]] = []
 
-        # Check 1: docker run allowlist
+        # Check 1: docker run allowlist (with bypass suggestion if applicable)
         if visitor.docker_run_lines and rel not in DOCKER_RUN_PYTHON_ALLOWLIST:
-            for lineno, desc in visitor.docker_run_lines:
-                file_violations.append((lineno, desc))
+            for lineno, _ in visitor.docker_run_lines:
+                # Provide actionable message: bypass suggestion for sandbox files,
+                # otherwise just report the violation
+                if rel not in NON_SANDBOX_DOCKER_FILES:
+                    file_violations.append(
+                        (lineno, "docker run: use build_sandbox_docker_cmd() instead")
+                    )
+                else:
+                    file_violations.append((lineno, "subprocess call: docker run"))
 
         # Check 3: claude CLI allowlist
         if visitor.claude_cli_lines and rel not in CLAUDE_CLI_PYTHON_ALLOWLIST:
             for lineno, desc in visitor.claude_cli_lines:
                 file_violations.append((lineno, desc))
 
-        # Check 4: bypass detection — file has docker run but is NOT in allowlist
-        # and is NOT a known non-sandbox file
-        if (
-            visitor.docker_run_lines
-            and rel not in DOCKER_RUN_PYTHON_ALLOWLIST
-            and rel not in NON_SANDBOX_DOCKER_FILES
-        ):
-            for lineno, _ in visitor.docker_run_lines:
-                file_violations.append(
-                    (lineno, "Use build_sandbox_docker_cmd() instead of raw docker run")
-                )
+        # Check for shell=True string bypasses
+        for lineno, desc in visitor.shell_string_lines:
+            file_violations.append((lineno, desc))
 
         # Check 5: dangerous flags (always checked, even in allowlisted files)
         for lineno, desc in visitor.dangerous_flag_lines:

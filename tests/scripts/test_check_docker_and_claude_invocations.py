@@ -1,12 +1,9 @@
 """Tests for scripts/check-docker-and-claude-invocations.py."""
 
-import textwrap
-from pathlib import Path
-
-import pytest
-
 # Import the linter module
 import importlib.util
+import textwrap
+from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location(
     "check_docker_and_claude_invocations",
@@ -90,8 +87,8 @@ class TestDockerRunPython:
         assert visitor is not None
         assert len(visitor.docker_run_lines) == 0
 
-    def test_ignores_string_arg(self, tmp_path: Path) -> None:
-        """String commands are not checked (only list form)."""
+    def test_detects_shell_true_string_docker_run(self, tmp_path: Path) -> None:
+        """String commands with shell=True are now detected."""
         f = _write_py(
             tmp_path,
             """\
@@ -101,7 +98,21 @@ class TestDockerRunPython:
         )
         visitor = check_python_file(f)
         assert visitor is not None
-        assert len(visitor.docker_run_lines) == 0
+        assert len(visitor.shell_string_lines) == 1
+        assert "docker run" in visitor.shell_string_lines[0][1]
+
+    def test_ignores_string_without_shell_true(self, tmp_path: Path) -> None:
+        """String commands without shell=True are not checked."""
+        f = _write_py(
+            tmp_path,
+            """\
+            import subprocess
+            subprocess.run("docker run alpine")
+            """,
+        )
+        visitor = check_python_file(f)
+        assert visitor is not None
+        assert len(visitor.shell_string_lines) == 0
 
 
 # ── Python claude CLI detection ────────────────────────────────────────────
@@ -138,6 +149,19 @@ class TestClaudeCLIPython:
             tmp_path,
             """\
             x = "claude is great"
+            """,
+        )
+        visitor = check_python_file(f)
+        assert visitor is not None
+        assert len(visitor.claude_cli_lines) == 0
+
+    def test_ignores_claude_in_env_var(self, tmp_path: Path) -> None:
+        """Should not flag CLAUDE_KEY=abc as embedded claude CLI."""
+        f = _write_py(
+            tmp_path,
+            """\
+            import subprocess
+            subprocess.run(["docker", "run", "--env", "CLAUDE_KEY=abc", "alpine"])
             """,
         )
         visitor = check_python_file(f)
@@ -313,6 +337,115 @@ class TestDangerousFlags:
         visitor = check_python_file(f)
         assert visitor is not None
         assert len(visitor.dangerous_flag_lines) == 0
+
+    def test_detects_network_equals_host_python(self, tmp_path: Path) -> None:
+        """--network=host (equals syntax) is detected."""
+        f = _write_py(
+            tmp_path,
+            """\
+            import subprocess
+            subprocess.run(["docker", "run", "--network=host", "alpine"])
+            """,
+        )
+        visitor = check_python_file(f)
+        assert visitor is not None
+        assert len(visitor.dangerous_flag_lines) == 1
+        assert "--network=host" in visitor.dangerous_flag_lines[0][1]
+
+    def test_detects_network_equals_host_shell(self, tmp_path: Path) -> None:
+        """--network=host (equals syntax) is detected in shell."""
+        f = _write_sh(
+            tmp_path,
+            """\
+            #!/bin/bash
+            docker run --network=host alpine
+            """,
+        )
+        _, danger_viols = check_shell_file(f)
+        assert len(danger_viols) == 1
+        assert "--network host" in danger_viols[0][1]
+
+    def test_detects_pid_host_python(self, tmp_path: Path) -> None:
+        """--pid host is detected."""
+        f = _write_py(
+            tmp_path,
+            """\
+            import subprocess
+            subprocess.run(["docker", "run", "--pid", "host", "alpine"])
+            """,
+        )
+        visitor = check_python_file(f)
+        assert visitor is not None
+        assert len(visitor.dangerous_flag_lines) == 1
+        assert "--pid host" in visitor.dangerous_flag_lines[0][1]
+
+    def test_detects_pid_equals_host_python(self, tmp_path: Path) -> None:
+        """--pid=host is detected."""
+        f = _write_py(
+            tmp_path,
+            """\
+            import subprocess
+            subprocess.run(["docker", "run", "--pid=host", "alpine"])
+            """,
+        )
+        visitor = check_python_file(f)
+        assert visitor is not None
+        assert len(visitor.dangerous_flag_lines) == 1
+        assert "--pid=host" in visitor.dangerous_flag_lines[0][1]
+
+    def test_detects_ipc_host_python(self, tmp_path: Path) -> None:
+        """--ipc host is detected."""
+        f = _write_py(
+            tmp_path,
+            """\
+            import subprocess
+            subprocess.run(["docker", "run", "--ipc", "host", "alpine"])
+            """,
+        )
+        visitor = check_python_file(f)
+        assert visitor is not None
+        assert len(visitor.dangerous_flag_lines) == 1
+        assert "--ipc host" in visitor.dangerous_flag_lines[0][1]
+
+    def test_detects_ipc_equals_host_python(self, tmp_path: Path) -> None:
+        """--ipc=host is detected."""
+        f = _write_py(
+            tmp_path,
+            """\
+            import subprocess
+            subprocess.run(["docker", "run", "--ipc=host", "alpine"])
+            """,
+        )
+        visitor = check_python_file(f)
+        assert visitor is not None
+        assert len(visitor.dangerous_flag_lines) == 1
+        assert "--ipc=host" in visitor.dangerous_flag_lines[0][1]
+
+    def test_detects_pid_host_shell(self, tmp_path: Path) -> None:
+        """--pid host is detected in shell."""
+        f = _write_sh(
+            tmp_path,
+            """\
+            #!/bin/bash
+            docker run --pid=host alpine
+            """,
+        )
+        _, danger_viols = check_shell_file(f)
+        assert len(danger_viols) == 1
+        assert "--pid host" in danger_viols[0][1]
+
+    def test_detects_ipc_host_shell(self, tmp_path: Path) -> None:
+        """--ipc host is detected in shell."""
+        f = _write_sh(
+            tmp_path,
+            """\
+            #!/bin/bash
+            docker run --ipc host alpine
+            """,
+        )
+        _, danger_viols = check_shell_file(f)
+        assert len(danger_viols) == 1
+        assert "--ipc host" in danger_viols[0][1]
 
 
 # ── Syntax error handling ────────────────────────────────────────────────
