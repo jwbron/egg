@@ -10,16 +10,16 @@ on:
         required: true
         type: number
       review_mode:
-        description: 'Review mode (leave empty for all default modes)'
+        description: 'Review mode (all = security+plan+outsider)'
         required: false
         type: choice
         options:
-          - ''
+          - all
           - security
           - plan
           - outsider
           - deep
-        default: ''
+        default: all
       linked_issue:
         description: 'Linked issue number (for plan verification mode)'
         required: false
@@ -48,7 +48,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.review_mode != '' && fromJson(format('["{0}"]', github.event.inputs.review_mode)) || fromJson('["security", "plan", "outsider"]') }}
+        mode: >-
+          ${{
+            github.event_name == 'workflow_dispatch' &&
+            github.event.inputs.review_mode != 'all'
+            && fromJson(format('["{0}"]', github.event.inputs.review_mode))
+            || fromJson('["security", "plan", "outsider"]')
+          }}
 
     concurrency:
       group: egg-review-${{ github.event.pull_request.number || github.event.inputs.pr_number }}-${{ matrix.mode }}
