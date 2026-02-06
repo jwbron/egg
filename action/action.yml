@@ -31,6 +31,10 @@ inputs:
     description: Bot GitHub username for filtering self-comments
     required: false
     default: egg
+  bot-branch-prefix:
+    description: Branch name prefix for bot-owned branches (gateway allows push to <prefix>- and <prefix>/ branches)
+    required: false
+    default: egg
   mode:
     description: "Network mode: public, private, or auto (auto-detects from repo visibility)"
     required: false
@@ -74,6 +78,7 @@ runs:
         INPUT_BOT_APP_PRIVATE_KEY: ${{ inputs.bot-app-private-key }}
         INPUT_BOT_APP_INSTALLATION_ID: ${{ inputs.bot-app-installation-id }}
         INPUT_BOT_USERNAME: ${{ inputs.bot-username }}
+        INPUT_BOT_BRANCH_PREFIX: ${{ inputs.bot-branch-prefix }}
         INPUT_MODE: ${{ inputs.mode }}
         INPUT_TIMEOUT: ${{ inputs.timeout }}
         INPUT_MODEL: ${{ inputs.model }}

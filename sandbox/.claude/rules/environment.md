@@ -40,7 +40,7 @@ In this mode:
 All git/gh operations are routed through the gateway sidecar. You do NOT have direct access to GitHub tokens — credentials are held by the gateway.
 
 Key restrictions enforced by the gateway:
-- `git push`: Only to branches you own (egg-prefixed or has your open PR)
+- `git push`: Only to branches you own (`egg/` or `egg-` prefixed, or has your open PR)
 - `git worktree add/remove`: **Unsupported** — use `git checkout -b` instead
 - `gh pr merge`: **Blocked** — human must merge via GitHub UI
 
