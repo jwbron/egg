@@ -38,9 +38,6 @@ changed code interacts with the rest of the codebase.
 
 [include .egg/review-rules.md if present, else brief defaults]
 
-Before posting your review, dismiss any previous reviews from [BOT_USERNAME]
-using: gh api repos/[GITHUB_REPOSITORY]/pulls/[PR_NUMBER]/reviews --jq '...'
-
 Post your review using `gh pr review [PR_NUMBER]`. Use inline comments where
 the feedback applies to specific lines. Use --approve if the PR looks good,
 --request-changes for blocking issues, or --comment for advisory feedback.
@@ -91,16 +88,15 @@ steps:
 
   - name: Dismiss previous bot reviews        # NEW - moved from post-processing
     run: |
-      gh api "repos/REPO/pulls/PR_NUMBER/reviews" \
-        --jq '[.[] | select(.user.login == "BOT_USERNAME" or .user.login == "BOT_USERNAME[bot]") | select(.state | test("PENDING|COMMENTED|CHANGES_REQUESTED"))] | .[].id' \
+      gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
+        --jq '[.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.state | test("PENDING|COMMENTED|CHANGES_REQUESTED"))] | .[].id' \
       | while read -r id; do
-          gh api "repos/REPO/pulls/PR_NUMBER/reviews/ID/dismissals" \
+          gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews/$id/dismissals" \
             -X PUT -f message="Superseded by new review" || true
         done
     env:
-      GH_TOKEN: (bot token)
-      PR_NUMBER: (from event)
-      BOT_USERNAME: james-in-a-box
+      GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
 
   - name: Build review prompt
     run: bash action/build-review-prompt-v2.sh   # NEW script
@@ -119,12 +115,15 @@ steps:
   - name: Post status comment                   # SIMPLIFIED
     if: always()
     run: |
-      if [[ "EXIT_CODE" == "0" ]]; then
-        BODY="egg review completed. [View run logs](RUN_URL)"
+      if [[ "${{ steps.run-egg.outcome }}" == "success" ]]; then
+        BODY="egg review completed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
       else
-        BODY="egg review failed (exit code: EXIT_CODE). [View run logs](RUN_URL)"
+        BODY="egg review failed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
       fi
-      gh issue comment PR_NUMBER --body "BODY"
+      gh issue comment "${{ env.PR_NUMBER }}" --body "$BODY"
+    env:
+      GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
 ```
 
 ---
