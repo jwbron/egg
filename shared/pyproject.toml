@@ -10,4 +10,4 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["beads*", "egg_config*", "egg_git*", "egg_logging*", "enrichment*", "git_utils*", "notifications*", "text_utils*"]
+include = ["beads*", "egg_config*", "egg_container*", "egg_git*", "egg_logging*", "enrichment*", "git_utils*", "notifications*", "text_utils*"]

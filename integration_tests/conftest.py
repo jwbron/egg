@@ -25,6 +25,11 @@ from typing import Any
 
 import pytest
 import requests
+from egg_container import (
+    LIFECYCLE_FLAGS_INDEX,
+    ContainerNetworkConfig,
+    build_sandbox_docker_cmd,
+)
 
 # Project root (one level up from integration_tests/)
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -37,6 +42,10 @@ GATEWAY_ISOLATED_IP = "172.40.0.2"
 GATEWAY_EXTERNAL_IP = "172.41.0.2"
 GATEWAY_PORT = 9848
 PROXY_PORT = 3129
+
+# Counter for allocating unique container IPs within the test subnet.
+# Starts at 100 to leave room for gateway (.2) and other infrastructure.
+_next_container_ip_suffix = 100
 
 
 @dataclass
@@ -593,6 +602,25 @@ class AgentVerdict:
         return self.verdict == "pass"
 
 
+def _allocate_test_container_ip() -> str:
+    """Allocate a unique IP address for a test container.
+
+    Production uses ``_allocate_container_ip()`` which inspects the docker
+    network to find available IPs. For tests, we use a simple counter to
+    avoid the subprocess overhead and race conditions in parallel tests.
+
+    Returns:
+        An IP in the 172.40.0.100+ range (test isolated subnet).
+    """
+    global _next_container_ip_suffix
+    ip = f"172.40.0.{_next_container_ip_suffix}"
+    _next_container_ip_suffix += 1
+    # Wrap around if we somehow allocate >155 containers in one session
+    if _next_container_ip_suffix > 254:
+        _next_container_ip_suffix = 100
+    return ip
+
+
 def run_claude_structured(
     egg_stack: "EggStack",
     session_token: str,
@@ -608,6 +636,15 @@ def run_claude_structured(
     Uses ``--output-format json`` and ``--json-schema`` to get a parsed
     verdict back from the agent. The agent identity is established via
     ``--append-system-prompt`` to separate it from the building agent.
+
+    Network configuration coupling:
+        This function constructs ``ContainerNetworkConfig`` manually from
+        ``EggStack`` values rather than calling ``_get_container_network_config()``
+        (which is internal to ``sandbox/egg_lib/runtime.py``). If that function
+        gains new fields or changes defaults, this test helper must be updated
+        to match. The shared ``build_sandbox_docker_cmd()`` ensures the *docker
+        arguments* stay in sync, but the *config dataclass population* is a
+        separate coupling point.
     """
     system_prompt = TEST_AGENT_SYSTEM_PROMPT
     if extra_system:
@@ -615,35 +652,58 @@ def run_claude_structured(
 
     schema_json = json.dumps(VERDICT_SCHEMA)
 
-    cmd = [
-        "docker",
-        "run",
-        "--rm",
-        "--network",
-        egg_stack.isolated_network,
-        "--add-host",
-        f"egg-gateway:{egg_stack.gateway_isolated_ip}",
-        "-e",
-        "GATEWAY_URL=http://egg-gateway:9848",
-        "-e",
-        f"EGG_SESSION_TOKEN={session_token}",
-        "egg-sandbox:latest",
-        "claude",
-        "--print",
-        "--output-format",
-        "json",
-        "--json-schema",
-        schema_json,
-        "--append-system-prompt",
-        system_prompt,
-        "--no-session-persistence",
-        "--max-budget-usd",
-        str(max_budget_usd),
-        "--model",
-        model,
-        "--dangerously-skip-permissions",
-        prompt,
-    ]
+    net_config = ContainerNetworkConfig(
+        network_name=egg_stack.isolated_network,
+        gateway_hostname="egg-gateway",
+        gateway_ip=egg_stack.gateway_isolated_ip,
+        gateway_port=GATEWAY_PORT,
+        repo_mode="private",
+        proxy_url=f"http://egg-gateway:{PROXY_PORT}",
+    )
+
+    # Allocate a static IP for this container — matches production behavior
+    # where sessions are bound to specific container IPs for request verification.
+    container_ip = _allocate_test_container_ip()
+
+    cmd = build_sandbox_docker_cmd(
+        container_name=f"test-claude-{os.getpid()}-{time.time_ns()}",
+        image="egg-sandbox:latest",
+        network=net_config,
+        container_ip=container_ip,
+        session_token=session_token,
+        runtime_uid=1000,
+        runtime_gid=1000,
+        extra_env={
+            "ANTHROPIC_OAUTH_TOKEN": os.environ["ANTHROPIC_OAUTH_TOKEN"],
+            # Match production: always set auth method so sandbox startup code
+            # branches the same way in tests as in production.
+            "ANTHROPIC_AUTH_METHOD": "oauth",
+        },
+    )
+
+    # Lifecycle flags — use the module constant to avoid hardcoding the index
+    cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = ["--rm"]
+
+    # Claude CLI command after image name
+    cmd.extend(
+        [
+            "claude",
+            "--print",
+            "--output-format",
+            "json",
+            "--json-schema",
+            schema_json,
+            "--append-system-prompt",
+            system_prompt,
+            "--no-session-persistence",
+            "--max-budget-usd",
+            str(max_budget_usd),
+            "--model",
+            model,
+            "--dangerously-skip-permissions",
+            prompt,
+        ]
+    )
 
     try:
         result = subprocess.run(
