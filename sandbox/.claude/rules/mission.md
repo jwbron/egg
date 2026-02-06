@@ -35,6 +35,8 @@ Before complex tasks, consult `~/repos/egg/docs/index.md` for task-specific guid
 
 **Gather context**: Check `~/repos/egg/docs/index.md` for task-specific guides.
 
+**Branch naming**: Always use `egg/<description>` format (e.g., `egg/fix-auth-bug`, `egg/add-retry-logic`). The gateway only allows pushing to branches with the `egg/` or `egg-` prefix.
+
 **Git Worktrees**: You're already in an isolated worktree on a temp branch. Commit directly, then PR.
 
 **DO NOT use `git worktree add/remove`**. The gateway manages worktrees — manual worktree commands will fail or create inaccessible directories. To work on a different branch, use `git checkout -b <name> origin/<branch>`. To push a local branch to a differently-named remote branch, use `git push origin local-name:remote-branch-name`.
@@ -42,7 +44,7 @@ Before complex tasks, consult `~/repos/egg/docs/index.md` for task-specific guid
 **Commit & PR**:
 ```bash
 git add <files> && git commit -m "Brief description"
-git push origin <branch>
+git push origin egg/<description>
 gh pr create --title "Brief description" --body "..." --base main
 ```
 
@@ -57,7 +59,7 @@ gh pr create --title "Brief description" --body "..." --base main
 git branch --show-current && git log --oneline -3
 ```
 
-**WORKTREE WARNING**: `git checkout main` FAILS. Always use: `git checkout -b <name> origin/main`
+**WORKTREE WARNING**: `git checkout main` FAILS. Always use: `git checkout -b egg/<name> origin/main`
 
 **Wrong branch fix**: `git log --oneline -1` (save hash), create correct branch, `git cherry-pick <hash>`
 
