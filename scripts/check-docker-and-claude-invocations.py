@@ -134,7 +134,7 @@ class DockerClaudeVisitor(ast.NodeVisitor):
             self.shell_string_lines.append(
                 (node.lineno, "shell=True string: docker run (use list form)")
             )
-        if re.search(r"\bclaude\b", cmd):
+        if re.search(r"\bclaude\s+-", cmd):
             self.shell_string_lines.append(
                 (node.lineno, "shell=True string: claude CLI (use list form)")
             )

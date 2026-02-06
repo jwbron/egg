@@ -101,6 +101,33 @@ class TestDockerRunPython:
         assert len(visitor.shell_string_lines) == 1
         assert "docker run" in visitor.shell_string_lines[0][1]
 
+    def test_detects_shell_true_string_claude(self, tmp_path: Path) -> None:
+        """String commands with shell=True invoking claude CLI are detected."""
+        f = _write_py(
+            tmp_path,
+            """\
+            import subprocess
+            subprocess.run("claude --print hello", shell=True)
+            """,
+        )
+        visitor = check_python_file(f)
+        assert visitor is not None
+        assert len(visitor.shell_string_lines) == 1
+        assert "claude CLI" in visitor.shell_string_lines[0][1]
+
+    def test_ignores_claude_word_in_shell_string(self, tmp_path: Path) -> None:
+        """Strings containing 'claude' as a word (not CLI) should not be flagged."""
+        f = _write_py(
+            tmp_path,
+            """\
+            import subprocess
+            subprocess.run("echo 'claude is cool'", shell=True)
+            """,
+        )
+        visitor = check_python_file(f)
+        assert visitor is not None
+        assert len(visitor.shell_string_lines) == 0
+
     def test_ignores_string_without_shell_true(self, tmp_path: Path) -> None:
         """String commands without shell=True are not checked."""
         f = _write_py(
