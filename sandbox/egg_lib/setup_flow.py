@@ -362,6 +362,14 @@ def _create_repositories_config() -> bool:
             break
         warn("Bot name is required. Check your GitHub App settings for the name.")
 
+    # Get branch prefix (may differ from bot name)
+    print()
+    info("Branch prefix for bot-owned branches:")
+    print(f"  The gateway allows pushing to branches starting with '<prefix>-' or '<prefix>/'.")
+    print(f"  Default: 'egg' (allows egg/feature-name, egg-feature-name)")
+    print()
+    branch_prefix = input(f"Branch prefix [{bot_name}]: ").strip().lower() or bot_name
+
     # Build config
     config = {
         "github_username": github_username,
@@ -399,11 +407,13 @@ def _create_repositories_config() -> bool:
 
     # Update secrets.env with gateway bot configuration (REQUIRED)
     # This is needed for the gateway sidecar's policy enforcement
+    # GATEWAY_BOT_NAME = GitHub identity (for PR author checks)
+    # GATEWAY_BOT_BRANCH_PREFIX = branch namespace (for push ownership checks)
     existing_secrets = _read_secrets_env()
     existing_secrets["GATEWAY_BOT_NAME"] = bot_name
-    existing_secrets["GATEWAY_BOT_BRANCH_PREFIX"] = bot_name
+    existing_secrets["GATEWAY_BOT_BRANCH_PREFIX"] = branch_prefix
     _write_secrets_env(existing_secrets)
-    info(f"Updated secrets.env with GATEWAY_BOT_NAME={bot_name}")
+    info(f"Updated secrets.env with GATEWAY_BOT_NAME={bot_name}, GATEWAY_BOT_BRANCH_PREFIX={branch_prefix}")
 
     return True
 
