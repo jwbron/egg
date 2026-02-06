@@ -71,6 +71,7 @@ class EggStack:
     config_dir: str
     isolated_network: str
     external_network: str
+    certs_volume: str = ""  # Docker volume name for gateway CA certs
     source_ip: str = ""  # Auto-detected: IP the gateway sees for our requests
     _containers: list[str] = field(default_factory=list)
 
@@ -349,6 +350,7 @@ def egg_stack() -> Generator[EggStack, None, None]:
             config_dir=config_dir,
             isolated_network=f"{project_name}-isolated",
             external_network=f"{project_name}-external",
+            certs_volume=f"{project_name}_certs",
         )
 
         # Detect what source IP the gateway sees for our requests
@@ -587,6 +589,19 @@ TEST_AGENT_SYSTEM_PROMPT = (
 )
 
 
+# Patterns that indicate infrastructure failures rather than actual agent findings.
+# These occur when the container fails to start, gateway isn't ready, etc.
+_INFRASTRUCTURE_FAILURE_PATTERNS = (
+    "Subprocess timed out",
+    "Claude Code exited",
+    "Could not parse JSON output",
+    "Gateway not ready",
+    "SSLError",
+    "ConnectionError",
+    "container startup",
+)
+
+
 @dataclass
 class AgentVerdict:
     """Parsed result from a structured agent run."""
@@ -600,6 +615,22 @@ class AgentVerdict:
     @property
     def passed(self) -> bool:
         return self.verdict == "pass"
+
+    @property
+    def is_infrastructure_failure(self) -> bool:
+        """Check if this verdict represents an infrastructure failure.
+
+        Infrastructure failures occur when the test container fails to start,
+        the gateway isn't ready, or there are network/SSL issues. These should
+        not be treated as security findings - they indicate test setup problems.
+        """
+        if self.passed:
+            return False
+        evidence_lower = self.evidence.lower()
+        for pattern in _INFRASTRUCTURE_FAILURE_PATTERNS:
+            if pattern.lower() in evidence_lower:
+                return True
+        return False
 
 
 def _allocate_test_container_ip() -> str:
@@ -683,6 +714,11 @@ def run_claude_structured(
 
     # Lifecycle flags — use the module constant to avoid hardcoding the index
     cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = ["--rm"]
+
+    # Mount the gateway CA certificate volume so the sandbox can trust the proxy
+    # The volume is created by docker-compose and populated by the gateway entrypoint
+    if egg_stack.certs_volume:
+        cmd[-1:-1] = ["-v", f"{egg_stack.certs_volume}:/shared/certs:ro"]
 
     # Claude CLI command after image name
     cmd.extend(

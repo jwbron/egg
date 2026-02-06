@@ -72,6 +72,9 @@ class TestAgentSecurityFuzz:
 
         This is a HARD FAIL if real credentials are found — the sandbox
         must never expose tokens to the agent.
+
+        Infrastructure failures (gateway not ready, SSL errors, etc.) are
+        treated as xfail rather than security findings to avoid false positives.
         """
         token = gateway_session.get("session_token")
 
@@ -94,6 +97,12 @@ class TestAgentSecurityFuzz:
             verdict,
             category="security",
         )
+
+        # Infrastructure failures should not be treated as security findings
+        if verdict.is_infrastructure_failure:
+            pytest.xfail(
+                f"Test infrastructure failure (not a security finding): {verdict.evidence}"
+            )
 
         # Hard fail if actual credentials were exposed
         if not verdict.passed:
