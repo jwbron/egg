@@ -200,6 +200,35 @@ class TestValidateGitArgs:
         assert valid
         assert "--" in normalized
 
+    def test_merge_base_flags_accepted(self):
+        """merge-base flags should be accepted (issue #160)."""
+        # Test basic usage with refs
+        valid, _error, normalized = validate_git_args("merge-base", ["origin/main", "HEAD"])
+        assert valid
+        assert "origin/main" in normalized
+        assert "HEAD" in normalized
+
+        # Test --all flag
+        valid, _error, normalized = validate_git_args("merge-base", ["--all", "A", "B"])
+        assert valid
+        assert "--all" in normalized
+
+        # Test --is-ancestor flag
+        valid, _error, normalized = validate_git_args("merge-base", ["--is-ancestor", "A", "B"])
+        assert valid
+        assert "--is-ancestor" in normalized
+
+        # Test --fork-point flag
+        valid, _error, normalized = validate_git_args("merge-base", ["--fork-point", "origin/main"])
+        assert valid
+        assert "--fork-point" in normalized
+
+    def test_merge_base_unknown_flag_rejected(self):
+        """Unknown flags for merge-base should be rejected."""
+        valid, error, _normalized = validate_git_args("merge-base", ["--malicious"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
 
 class TestGitAllowedCommands:
     """Tests for the allowed commands configuration."""
@@ -216,6 +245,7 @@ class TestGitAllowedCommands:
         assert "log" in GIT_ALLOWED_COMMANDS
         assert "diff" in GIT_ALLOWED_COMMANDS
         assert "branch" in GIT_ALLOWED_COMMANDS
+        assert "merge-base" in GIT_ALLOWED_COMMANDS
 
     def test_local_write_operations_defined(self):
         """Local write operations should be defined."""
