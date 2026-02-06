@@ -227,13 +227,30 @@ def check_shell_file(
         print(f"Warning: Could not read {file_path}: {e}", file=sys.stderr)
         return docker_violations, dangerous_violations
 
-    for i, line in enumerate(content.split("\n"), start=1):
+    lines = content.split("\n")
+
+    def has_noqa(lineno: int) -> bool:
+        """Check if line or preceding line has noqa comment.
+
+        In shell scripts, noqa comments can be on the same line or the
+        preceding line (since inline comments after backslash continuations
+        are not valid shell syntax).
+        """
+        idx = lineno - 1
+        if 0 <= idx < len(lines) and f"noqa: {NOQA_CODE}" in lines[idx]:
+            return True
+        # Also check preceding line for shell scripts
+        if 0 <= idx - 1 < len(lines) and f"noqa: {NOQA_CODE}" in lines[idx - 1]:
+            return True
+        return False
+
+    for i, line in enumerate(lines, start=1):
         stripped = line.strip()
         # Skip comments
         if stripped.startswith("#"):
             continue
-        # Skip noqa lines
-        if f"noqa: {NOQA_CODE}" in line:
+        # Skip noqa lines (same line or preceding line)
+        if has_noqa(i):
             continue
 
         if re.search(r"docker\s+run\b", line):
