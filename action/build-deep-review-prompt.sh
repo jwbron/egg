@@ -21,7 +21,6 @@ set -euo pipefail
 # Configuration
 # ---------------------------------------------------------------------------
 
-MAX_DIFF_SUMMARY_CHARS=30000     # Diff summary limit (less detail than standard)
 MAX_CONTEXT_CHARS=50000          # Context limit for deep review
 
 # Files to skip (same as build-review-prompt.sh)
@@ -190,12 +189,11 @@ build_deep_review_prompt() {
     local pr_details
     pr_details=$(fetch_pr_details)
 
-    local title body base head head_sha user html_url
+    local title body base head user html_url
     title=$(echo "$pr_details" | jq -r '.title // "Untitled"')
     body=$(echo "$pr_details" | jq -r '.body // ""')
     base=$(echo "$pr_details" | jq -r '.base // "main"')
     head=$(echo "$pr_details" | jq -r '.head // "unknown"')
-    head_sha=$(echo "$pr_details" | jq -r '.head_sha // ""')
     user=$(echo "$pr_details" | jq -r '.user // "unknown"')
     html_url=$(echo "$pr_details" | jq -r '.html_url // ""')
 
