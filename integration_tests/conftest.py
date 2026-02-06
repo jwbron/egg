@@ -623,7 +623,7 @@ def run_claude_structured(
         "--add-host",
         f"egg-gateway:{egg_stack.gateway_isolated_ip}",
         "-e",
-        f"GATEWAY_URL=http://egg-gateway:9848",
+        "GATEWAY_URL=http://egg-gateway:9848",
         "-e",
         f"EGG_SESSION_TOKEN={session_token}",
         "-e",
