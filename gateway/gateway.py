@@ -554,7 +554,11 @@ def git_push() -> tuple[Response, int] | Response:
     if force:
         push_args.append("--force")
     push_args.extend([push_target, refspec] if refspec else [push_target])
-    cmd = git_cmd(*push_args)
+    # Clear any http.extraheader from .git/config to ensure the gateway's
+    # credential helper (GIT_ASKPASS) is used. actions/checkout@v4 persists
+    # GITHUB_TOKEN as an extraheader by default, which takes precedence over
+    # GIT_ASKPASS and may lack permissions (e.g., workflows scope).
+    cmd = git_cmd("-c", "http.extraheader=", *push_args)
 
     # NOTE: Git author/committer info is set at COMMIT time, not push time.
     # For user mode, the user must configure their local git:
