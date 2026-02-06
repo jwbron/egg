@@ -208,13 +208,14 @@ local_repos:
 """
     )
 
-    # secrets.env -- dummy credentials (most tests don't need real tokens)
+    # secrets.env -- gateway needs real Anthropic credentials for E2E tests
+    # so it can inject them into proxied API requests from the sandbox.
+    # Non-E2E tests use dummy credentials (they don't call the real API).
+    anthropic_token = os.environ.get("ANTHROPIC_OAUTH_TOKEN", "dummy-anthropic-token")
     (config_path / "secrets.env").write_text(
-        """\
-CLAUDE_CODE_OAUTH_TOKEN=dummy-anthropic-token
-GATEWAY_BOT_NAME=egg
-GATEWAY_BOT_BRANCH_PREFIX=egg
-"""
+        f"CLAUDE_CODE_OAUTH_TOKEN={anthropic_token}\n"
+        "GATEWAY_BOT_NAME=egg\n"
+        "GATEWAY_BOT_BRANCH_PREFIX=egg\n"
     )
     os.chmod(config_path / "secrets.env", 0o600)
 
@@ -626,8 +627,6 @@ def run_claude_structured(
         "GATEWAY_URL=http://egg-gateway:9848",
         "-e",
         f"EGG_SESSION_TOKEN={session_token}",
-        "-e",
-        f"ANTHROPIC_OAUTH_TOKEN={os.environ['ANTHROPIC_OAUTH_TOKEN']}",
         "egg-sandbox:latest",
         "claude",
         "--print",
@@ -646,13 +645,24 @@ def run_claude_structured(
         prompt,
     ]
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as e:
+        raw = (e.stdout or "")[:2000] if e.stdout else ""
+        stderr = (e.stderr or "")[:500] if e.stderr else ""
+        return AgentVerdict(
+            verdict="fail",
+            evidence=f"Subprocess timed out after {timeout}s. stderr: {stderr}",
+            details=[],
+            raw_output=raw,
+            cost_usd=None,
+        )
 
     raw = result.stdout.strip()
 
