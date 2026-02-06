@@ -146,7 +146,7 @@ def check_workflow(workflow_path: Path) -> list[str]:
 
             # Scripts run from $RUNNER_TEMP are saved copies from the
             # trusted checkout — they cannot be replaced by a PR.
-            if "$RUNNER_TEMP" in str(run_cmd) or "${RUNNER_TEMP}" in str(run_cmd):
+            if script_path.startswith('"$RUNNER_TEMP') or script_path.startswith("$RUNNER_TEMP"):
                 continue
 
             secret_keys = has_secret_env(step)
