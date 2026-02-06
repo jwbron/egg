@@ -14,13 +14,11 @@ jobs:
   review:
     name: AI Code Review
     runs-on: ubuntu-latest
-    # Skip draft PRs, bot PRs, and PRs with [skip-review] in title
+    # Skip draft PRs and PRs with [skip-review] in title
     # For workflow_dispatch, always run (manual trigger implies intent)
     if: >-
       github.event_name == 'workflow_dispatch' || (
         !github.event.pull_request.draft &&
-        github.event.pull_request.user.login != 'james-in-a-box' &&
-        github.event.pull_request.user.login != 'james-in-a-box[bot]' &&
         !contains(github.event.pull_request.title, '[skip-review]')
       )
 
