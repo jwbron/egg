@@ -123,6 +123,25 @@ GH_API_ALLOWED_PATHS = [
     re.compile(r"^repos/[^/]+/[^/]+/issues/\d+/reactions$"),  # Issue reactions
     re.compile(r"^repos/[^/]+/[^/]+/issues/comments/\d+/reactions$"),  # Comment reactions
     re.compile(r"^repos/[^/]+/[^/]+/pulls/comments/\d+/reactions$"),  # PR review comment reactions
+    # GitHub Actions (read-only: runs, jobs, workflows, artifacts)
+    re.compile(r"^repos/[^/]+/[^/]+/actions/runs$"),  # List workflow runs
+    re.compile(r"^repos/[^/]+/[^/]+/actions/runs/\d+$"),  # Get workflow run
+    re.compile(r"^repos/[^/]+/[^/]+/actions/runs/\d+/jobs$"),  # List jobs for run
+    re.compile(r"^repos/[^/]+/[^/]+/actions/runs/\d+/logs$"),  # Download run logs
+    re.compile(r"^repos/[^/]+/[^/]+/actions/runs/\d+/artifacts$"),  # List run artifacts
+    re.compile(r"^repos/[^/]+/[^/]+/actions/jobs/\d+$"),  # Get job
+    re.compile(r"^repos/[^/]+/[^/]+/actions/jobs/\d+/logs$"),  # Download job logs
+    re.compile(r"^repos/[^/]+/[^/]+/actions/workflows$"),  # List workflows
+    re.compile(r"^repos/[^/]+/[^/]+/actions/workflows/\d+$"),  # Get workflow
+    re.compile(r"^repos/[^/]+/[^/]+/actions/workflows/\d+/runs$"),  # List runs for workflow
+    re.compile(r"^repos/[^/]+/[^/]+/actions/artifacts$"),  # List repo artifacts
+    re.compile(r"^repos/[^/]+/[^/]+/actions/artifacts/\d+$"),  # Get artifact
+    # Check runs and check suites
+    re.compile(r"^repos/[^/]+/[^/]+/check-runs/\d+$"),  # Get check run
+    re.compile(r"^repos/[^/]+/[^/]+/check-suites/\d+$"),  # Get check suite
+    re.compile(r"^repos/[^/]+/[^/]+/check-suites/\d+/check-runs$"),  # List check runs in suite
+    re.compile(r"^repos/[^/]+/[^/]+/commits/[a-f0-9]+/check-runs$"),  # Check runs for ref
+    re.compile(r"^repos/[^/]+/[^/]+/commits/[a-f0-9]+/check-suites$"),  # Check suites for ref
     # User info
     re.compile(r"^user$"),  # Current user
     re.compile(r"^users/[^/]+$"),  # User info
