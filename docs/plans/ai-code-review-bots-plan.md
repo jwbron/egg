@@ -454,6 +454,125 @@ A reviewer that deliberately operates without internal project knowledge:
 **Trigger:** Manual via `@egg outsider-review`. Useful for code that will
 be maintained by people outside the original team.
 
+#### 2.4 Deep Review Mode
+
+A review mode that gives the bot direct PR access for multi-turn analysis
+and exploratory investigation, rather than constraining it to structured
+JSON output.
+
+**Rationale:** The Phase 1 structured output approach is predictable and
+testable, but constrains what the bot can do. Some reviews benefit from:
+- Running tests to validate suspected issues
+- Exploring the codebase to understand impact
+- Cross-referencing related files not in the diff
+- Multi-turn analysis: "I found X, let me check if Y is also affected..."
+- Posting inline code suggestions using GitHub's suggestion blocks
+
+**Capabilities:**
+- **Test execution:** Run `make test` or specific test files to validate
+  concerns (e.g., "This change might break the auth flow — let me run
+  the auth tests to confirm")
+- **Codebase exploration:** Read files outside the diff to understand
+  context, check for similar patterns, or verify assumptions
+- **Multi-turn reasoning:** Follow chains of investigation rather than
+  producing a single-pass output
+- **Inline suggestions:** Post GitHub suggestion blocks for concrete fixes:
+  ```suggestion
+  with open(path) as f:
+      data = f.read()
+  ```
+- **Direct PR interaction:** Post comments directly via `gh pr review`
+  rather than through post-processing
+
+**Architecture:**
+
+```
+PR opened/updated (with deep-review trigger)
+  │
+  ▼
+on-pull-request.yml workflow (deep-review mode)
+  │
+  ├── Build deep-review prompt (action/build-deep-review-prompt.sh)
+  │   ├── Fetch PR diff and metadata
+  │   ├── Load review rules
+  │   └── Assemble prompt with direct-posting instructions
+  │
+  └── Run egg Action with extended permissions
+      └── Claude Code with full PR access:
+          ├── Reads files beyond the diff
+          ├── Runs tests to validate concerns
+          ├── Posts comments directly via gh
+          └── Can do multi-turn exploration
+```
+
+**Key differences from Phase 1:**
+| Aspect | Phase 1 (Structured) | Deep Review |
+|--------|---------------------|-------------|
+| Output | JSON → post-processor | Direct `gh` calls |
+| Scope | Changed files only | Full codebase access |
+| Analysis | Single pass | Multi-turn exploration |
+| Test execution | No | Yes (read-only) |
+| Suggestions | Schema extension | Native GitHub blocks |
+| Predictability | High | Lower |
+| Cost | Lower (faster) | Higher (longer runs) |
+| Debugging | Inspect JSON output | Review action logs |
+
+**Guardrails:**
+- **Time limit:** 30-minute timeout (vs 10 minutes for structured review)
+- **Comment limit:** Maximum 10 inline comments per review to prevent spam
+- **Test scope:** Can only run tests, not modify code or push commits
+- **No self-approval:** Cannot approve or request changes, only comment
+
+**Trigger:** Manual via `@egg deep-review`. Not automatic — use for:
+- Complex PRs that touch many subsystems
+- PRs where the structured review flagged potential issues worth
+  investigating
+- Security-sensitive changes that warrant deeper analysis
+- PRs from new contributors where extra scrutiny is valuable
+
+**Prompt structure:**
+```
+You are performing a deep review of PR #{number}: "{title}" in {owner}/{repo}.
+
+## PR Description
+{description}
+
+## Changed Files
+{diff summary}
+
+## Instructions
+
+You have full access to the repository and can:
+1. Read any file in the codebase (use the Read tool)
+2. Run tests to validate concerns (use Bash with pytest/jest)
+3. Post review comments directly (use `gh pr review`)
+
+Review this PR thoroughly. For each issue you find:
+1. Investigate to confirm it's a real problem (check related code, run tests)
+2. Post an inline comment explaining the issue
+3. If you have a concrete fix, use a GitHub suggestion block
+
+For suggestions, use this format in your comment:
+\`\`\`suggestion
+corrected code here
+\`\`\`
+
+Limit yourself to the 10 most important findings. Focus on:
+- Security vulnerabilities
+- Correctness bugs
+- Significant code quality issues
+
+Do NOT comment on style issues or things linters would catch.
+```
+
+**Implementation notes:**
+- Uses the same egg Action infrastructure but with a longer timeout
+- Prompt builder sets `mode: deep-review` which the action recognizes
+- The action grants additional tool permissions (Read for all files, Bash
+  for test execution)
+- Comment posting happens inline during the review, not as post-processing
+- The workflow captures the action log for debugging but doesn't parse it
+
 ### Phase 3: Review Infrastructure Improvements
 
 #### 3.1 False Positive Management
@@ -560,6 +679,7 @@ into this:
 | 2 | Security review mode | `action/prompts/security-review.md` | `build-review-prompt.sh` |
 | 2 | Plan verification mode | `action/prompts/plan-verify.md` | `build-review-prompt.sh` |
 | 2 | Outsider review mode | `action/prompts/outsider-review.md` | `build-review-prompt.sh` |
+| 2 | Deep review mode | `action/build-deep-review-prompt.sh` | `on-pull-request.yml`, `action.yml` |
 | 3 | Feedback tracking | `.egg/review-feedback.json` convention | `build-review-prompt.sh` |
 | 3 | Incremental review | — | `on-pull-request.yml`, `build-review-prompt.sh` |
 | 3 | Metrics dashboard | `action/review-metrics.sh` | — |
