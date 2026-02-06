@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-review-prompt-v2.sh — Build a minimal review prompt for agent-driven code review
+# build-review-prompt.sh — Build a minimal review prompt for agent-driven code review
 #
 # This script creates a minimal prompt that tells Claude to fetch what it needs
 # and post its own review directly via `gh pr review`. This replaces the old

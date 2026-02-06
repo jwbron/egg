@@ -66,7 +66,7 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
       # SECURITY: Build the review prompt from a trusted checkout (main).
-      # A malicious PR could replace build-review-prompt-v2.sh to exfiltrate
+      # A malicious PR could replace build-review-prompt.sh to exfiltrate
       # the bot token. By checking out main for prompt building, we ensure
       # untrusted code never runs with secrets.
       - name: Checkout main (trusted)
@@ -77,7 +77,7 @@ jobs:
 
       - name: Build review prompt
         id: prompt
-        run: bash action/build-review-prompt-v2.sh
+        run: bash action/build-review-prompt.sh
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_NUMBER: ${{ env.PR_NUMBER }}
