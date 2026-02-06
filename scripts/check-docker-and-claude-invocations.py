@@ -96,33 +96,19 @@ class DockerClaudeVisitor(ast.NodeVisitor):
             return
         for i, val in enumerate(elts):
             if val == "--privileged":
-                self.dangerous_flag_lines.append(
-                    (lineno, "Dangerous flag: --privileged")
-                )
+                self.dangerous_flag_lines.append((lineno, "Dangerous flag: --privileged"))
             elif val == "--network" and i + 1 < len(elts) and elts[i + 1] == "host":
-                self.dangerous_flag_lines.append(
-                    (lineno, "Dangerous flag: --network host")
-                )
+                self.dangerous_flag_lines.append((lineno, "Dangerous flag: --network host"))
             elif val == "--network=host":
-                self.dangerous_flag_lines.append(
-                    (lineno, "Dangerous flag: --network=host")
-                )
+                self.dangerous_flag_lines.append((lineno, "Dangerous flag: --network=host"))
             elif val == "--pid" and i + 1 < len(elts) and elts[i + 1] == "host":
-                self.dangerous_flag_lines.append(
-                    (lineno, "Dangerous flag: --pid host")
-                )
+                self.dangerous_flag_lines.append((lineno, "Dangerous flag: --pid host"))
             elif val == "--pid=host":
-                self.dangerous_flag_lines.append(
-                    (lineno, "Dangerous flag: --pid=host")
-                )
+                self.dangerous_flag_lines.append((lineno, "Dangerous flag: --pid=host"))
             elif val == "--ipc" and i + 1 < len(elts) and elts[i + 1] == "host":
-                self.dangerous_flag_lines.append(
-                    (lineno, "Dangerous flag: --ipc host")
-                )
+                self.dangerous_flag_lines.append((lineno, "Dangerous flag: --ipc host"))
             elif val == "--ipc=host":
-                self.dangerous_flag_lines.append(
-                    (lineno, "Dangerous flag: --ipc=host")
-                )
+                self.dangerous_flag_lines.append((lineno, "Dangerous flag: --ipc=host"))
 
     def _has_shell_true(self, node: ast.Call) -> bool:
         """Check if a subprocess call has shell=True."""
@@ -183,16 +169,12 @@ class DockerClaudeVisitor(ast.NodeVisitor):
         if elts[0] == "docker" and elts[1] == "run":
             self._check_dangerous_flags(elts, node.lineno)
             if not self._has_noqa(node.lineno):
-                self.docker_run_lines.append(
-                    (node.lineno, "subprocess call: docker run")
-                )
+                self.docker_run_lines.append((node.lineno, "subprocess call: docker run"))
 
         # Check 3: claude CLI detection — "claude" as first command element
         if elts[0] == "claude":
             if not self._has_noqa(node.lineno):
-                self.claude_cli_lines.append(
-                    (node.lineno, 'subprocess call: "claude" CLI')
-                )
+                self.claude_cli_lines.append((node.lineno, 'subprocess call: "claude" CLI'))
 
         # Also detect claude embedded in docker run commands
         # e.g. ["docker", "run", ..., "image", "claude", "--print", ...]
