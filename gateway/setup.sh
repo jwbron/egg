@@ -152,7 +152,7 @@ check_prerequisites() {
         echo "  - secrets.env with GITHUB_APP_ID and GITHUB_APP_INSTALLATION_ID"
         echo "  - github-app.pem (private key)"
         echo ""
-        echo "Run 'egg --setup' to configure credentials, or see docs/setup/github-app-setup.md"
+        echo "Run 'egg --setup' to configure credentials"
         echo ""
         read -p "Continue anyway? (y/N) " -n 1 -r
         echo

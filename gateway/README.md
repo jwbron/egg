@@ -158,4 +158,3 @@ make test
 - [ADR: Git Isolation](../docs/adr/implemented/ADR-Git-Isolation-Architecture.md) - Worktree isolation design
 - [ADR: Credential Injection](../docs/adr/implemented/ADR-Gateway-Credential-Injection.md) - Zero-credential sandbox
 - [ADR: Internet Lockdown](../docs/adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) - Network modes
-- [Troubleshooting: GitHub Auth](../docs/troubleshooting/github-auth-in-long-running-containers.md) - Token refresh issues

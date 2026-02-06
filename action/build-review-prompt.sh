@@ -24,7 +24,6 @@ set -euo pipefail
 MAX_DIFF_CHARS=15000        # Per-file diff limit
 MAX_FILE_CHARS=30000        # Per-file content limit
 MAX_PROMPT_CHARS=100000     # Overall prompt limit
-MODEL_THRESHOLD_FILES=5     # Use opus for PRs with more than this many files
 
 # Security-sensitive file patterns (triggers auto security mode if many match)
 SECURITY_PATTERNS=(
@@ -302,11 +301,8 @@ build_prompt() {
     local file_count
     file_count=$(echo "$files_json" | jq 'length')
 
-    # Determine model based on file count
-    local model="haiku"
-    if [[ "$file_count" -gt "$MODEL_THRESHOLD_FILES" ]]; then
-        model="opus"
-    fi
+    # Always use opus for reviews
+    local model="opus"
 
     # Determine review mode (can be set via env or auto-detected)
     local review_mode="${REVIEW_MODE:-}"
