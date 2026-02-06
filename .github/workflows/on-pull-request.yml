@@ -9,6 +9,21 @@ on:
         description: 'PR number to review'
         required: true
         type: number
+      review_mode:
+        description: 'Review mode'
+        required: false
+        type: choice
+        options:
+          - standard
+          - security
+          - plan
+          - outsider
+          - deep
+        default: standard
+      linked_issue:
+        description: 'Linked issue number (for plan verification mode)'
+        required: false
+        type: number
 
 jobs:
   review:
@@ -64,10 +79,18 @@ jobs:
 
       - name: Build review prompt
         id: prompt
-        run: bash action/build-review-prompt.sh
+        run: |
+          REVIEW_MODE="${{ github.event.inputs.review_mode || 'standard' }}"
+          if [[ "$REVIEW_MODE" == "deep" ]]; then
+            bash action/build-deep-review-prompt.sh
+          else
+            bash action/build-review-prompt.sh
+          fi
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+          REVIEW_MODE: ${{ github.event.inputs.review_mode }}
+          LINKED_ISSUE: ${{ github.event.inputs.linked_issue }}
 
       - name: Checkout PR branch
         uses: actions/checkout@v4
@@ -91,7 +114,8 @@ jobs:
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: james-in-a-box
-          timeout: "10"
+          # Deep review gets 30min timeout, standard review gets 10min
+          timeout: ${{ steps.prompt.outputs.timeout || '10' }}
 
       - name: Post review comments
         if: always() && steps.egg.outputs.exit-code == '0'

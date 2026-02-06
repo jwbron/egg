@@ -9,9 +9,11 @@
 #   GITHUB_REPOSITORY  — owner/repo
 #   GH_TOKEN           — GitHub token for API access
 #   RUNNER_TEMP        — Temp directory for large prompt file
+#   REVIEW_MODE        — (optional) security|plan|outsider for specialized modes
+#   LINKED_ISSUE       — (optional) Issue number for plan verification mode
 #
 # Output:
-#   Sets 'prompt-file' and 'model' in $GITHUB_OUTPUT
+#   Sets 'prompt-file', 'model', and 'review-mode' in $GITHUB_OUTPUT
 
 set -euo pipefail
 
@@ -23,6 +25,27 @@ MAX_DIFF_CHARS=15000        # Per-file diff limit
 MAX_FILE_CHARS=30000        # Per-file content limit
 MAX_PROMPT_CHARS=100000     # Overall prompt limit
 MODEL_THRESHOLD_FILES=5     # Use opus for PRs with more than this many files
+
+# Security-sensitive file patterns (triggers auto security mode if many match)
+SECURITY_PATTERNS=(
+    'auth'
+    'login'
+    'password'
+    'token'
+    'secret'
+    'cred'
+    'middleware'
+    'permission'
+    'role'
+    'api'
+    'endpoint'
+    'route'
+    'handler'
+    'docker'
+    'workflow'
+    'ci/'
+    '.github/'
+)
 
 # Files to skip (generated, binary, lock files)
 SKIP_PATTERNS=(
@@ -166,6 +189,64 @@ fetch_file_content() {
     fi
 }
 
+is_security_sensitive() {
+    local filename="$1"
+    for pattern in "${SECURITY_PATTERNS[@]}"; do
+        if [[ "$filename" =~ $pattern ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+count_security_sensitive_files() {
+    local files_json="$1"
+    local count=0
+    while IFS= read -r file_entry; do
+        local filename
+        filename=$(echo "$file_entry" | jq -r '.filename')
+        if is_security_sensitive "$filename"; then
+            ((count++)) || true
+        fi
+    done < <(echo "$files_json" | jq -c '.[]')
+    echo "$count"
+}
+
+fetch_issue_content() {
+    local issue_number="$1"
+    if [[ -z "$issue_number" ]]; then
+        echo ""
+        return
+    fi
+
+    gh_api_safe "repos/${GITHUB_REPOSITORY}/issues/${issue_number}" \
+        --jq '{title: .title, body: .body}' 2>/dev/null || echo ""
+}
+
+load_specialized_prompt() {
+    local mode="$1"
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+    case "$mode" in
+        security)
+            if [[ -f "${script_dir}/prompts/security-review.md" ]]; then
+                cat "${script_dir}/prompts/security-review.md"
+            fi
+            ;;
+        plan)
+            if [[ -f "${script_dir}/prompts/plan-verify.md" ]]; then
+                cat "${script_dir}/prompts/plan-verify.md"
+            fi
+            ;;
+        outsider)
+            if [[ -f "${script_dir}/prompts/outsider-review.md" ]]; then
+                cat "${script_dir}/prompts/outsider-review.md"
+            fi
+            ;;
+    esac
+}
+
 fetch_review_rules() {
     # Try to fetch .egg/review-rules.md from the repo
     local b64_content
@@ -227,9 +308,44 @@ build_prompt() {
         model="opus"
     fi
 
-    # Fetch review rules
-    local review_rules
-    review_rules=$(fetch_review_rules)
+    # Determine review mode (can be set via env or auto-detected)
+    local review_mode="${REVIEW_MODE:-}"
+    local security_sensitive_count
+    security_sensitive_count=$(count_security_sensitive_files "$files_json")
+
+    # Auto-detect security mode if many security-sensitive files changed
+    if [[ -z "$review_mode" ]] && [[ "$security_sensitive_count" -ge 3 ]]; then
+        review_mode="security"
+        model="opus"  # Use opus for security reviews
+        echo "Auto-detected security mode: ${security_sensitive_count} security-sensitive files"
+    fi
+
+    # Fetch review rules (skip for outsider mode which deliberately ignores context)
+    local review_rules=""
+    if [[ "$review_mode" != "outsider" ]]; then
+        review_rules=$(fetch_review_rules)
+    fi
+
+    # Fetch linked issue content for plan verification mode
+    local linked_content=""
+    if [[ "$review_mode" == "plan" ]] && [[ -n "${LINKED_ISSUE:-}" ]]; then
+        local issue_data
+        issue_data=$(fetch_issue_content "$LINKED_ISSUE")
+        if [[ -n "$issue_data" ]]; then
+            local issue_title issue_body
+            issue_title=$(echo "$issue_data" | jq -r '.title // ""')
+            issue_body=$(echo "$issue_data" | jq -r '.body // ""')
+            linked_content="### Issue #${LINKED_ISSUE}: ${issue_title}
+
+${issue_body}"
+        fi
+    fi
+
+    # Load specialized prompt template if applicable
+    local specialized_prompt=""
+    if [[ -n "$review_mode" ]]; then
+        specialized_prompt=$(load_specialized_prompt "$review_mode")
+    fi
 
     # Build changed files section
     local changed_files_section=""
@@ -277,7 +393,24 @@ $(truncate_text "$content" "$MAX_FILE_CHARS")
 
     # Assemble the full prompt
     local prompt
-    prompt="You are reviewing PR #${PR_NUMBER}: \"${title}\" in ${GITHUB_REPOSITORY}.
+
+    # If we have a specialized prompt, use it with substitutions
+    if [[ -n "$specialized_prompt" ]]; then
+        # Build the prompt using the specialized template
+        prompt="$specialized_prompt"
+
+        # Substitute placeholders
+        prompt="${prompt//\{pr_number\}/$PR_NUMBER}"
+        prompt="${prompt//\{title\}/$title}"
+        prompt="${prompt//\{owner\}/${GITHUB_REPOSITORY%%/*}}"
+        prompt="${prompt//\{repo\}/${GITHUB_REPOSITORY##*/}}"
+        prompt="${prompt//\{pr_description\}/${body:-No description provided.}}"
+        prompt="${prompt//\{linked_content\}/$linked_content}"
+        prompt="${prompt//\{changed_files\}/$changed_files_section}"
+        prompt="${prompt//\{file_contents\}/$file_contents_section}"
+    else
+        # Use default prompt structure
+        prompt="You are reviewing PR #${PR_NUMBER}: \"${title}\" in ${GITHUB_REPOSITORY}.
 
 Author: ${user}
 Branch: ${head} -> ${base}
@@ -286,33 +419,49 @@ URL: ${html_url}
 ## PR Description
 
 ${body:-No description provided.}
+"
 
+        # Add linked content if available (for plan mode)
+        if [[ -n "$linked_content" ]]; then
+            prompt="${prompt}
+## Linked Issue/Plan
+
+${linked_content}
+"
+        fi
+
+        # Add review rules (skip for outsider mode)
+        if [[ -n "$review_rules" ]]; then
+            prompt="${prompt}
 ## Review Rules
 
 ${review_rules}
+"
+        fi
 
+        prompt="${prompt}
 ## Changed Files (${file_count} files)
 ${changed_files_section}
 "
 
-    # Add file contents section if we have any
-    if [[ -n "$file_contents_section" ]]; then
-        prompt="${prompt}
+        # Add file contents section if we have any
+        if [[ -n "$file_contents_section" ]]; then
+            prompt="${prompt}
 ## Full File Context
 ${file_contents_section}
 "
-    fi
+        fi
 
-    # Add skipped files note
-    if [[ -n "$skipped_files" ]]; then
-        prompt="${prompt}
+        # Add skipped files note
+        if [[ -n "$skipped_files" ]]; then
+            prompt="${prompt}
 ## Skipped Files
 $(echo -e "$skipped_files")
 "
-    fi
+        fi
 
-    # Add review instructions
-    prompt="${prompt}
+        # Add review instructions
+        prompt="${prompt}
 ## Instructions
 
 Review this PR for:
@@ -357,6 +506,7 @@ If the PR looks good with no significant issues, output:
 {\"summary\": \"No significant issues found. The changes look good.\", \"verdict\": \"approve\", \"comments\": []}
 \`\`\`
 "
+    fi
 
     # Truncate overall prompt if needed
     prompt=$(truncate_text "$prompt" "$MAX_PROMPT_CHARS")
@@ -369,9 +519,10 @@ If the PR looks good with no significant issues, output:
     {
         echo "prompt-file=${prompt_file}"
         echo "model=${model}"
+        echo "review-mode=${review_mode:-standard}"
     } >> "${GITHUB_OUTPUT:-/dev/null}"
 
-    echo "Review prompt built: ${#prompt} chars, ${file_count} files, model=${model}"
+    echo "Review prompt built: ${#prompt} chars, ${file_count} files, model=${model}, mode=${review_mode:-standard}"
 }
 
 # ---------------------------------------------------------------------------

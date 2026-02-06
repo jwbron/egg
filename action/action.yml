@@ -47,6 +47,10 @@ inputs:
     description: Docker image tag to use (e.g., v1.0.0 or latest)
     required: false
     default: latest
+  review-mode:
+    description: "Review mode: standard, security, plan, outsider, or deep"
+    required: false
+    default: standard
 
 outputs:
   exit-code:
@@ -78,5 +82,6 @@ runs:
         INPUT_TIMEOUT: ${{ inputs.timeout }}
         INPUT_MODEL: ${{ inputs.model }}
         INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
+        INPUT_REVIEW_MODE: ${{ inputs.review-mode }}
         GITHUB_EVENT_REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
       run: ${{ github.action_path }}/entrypoint.sh
