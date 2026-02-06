@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""
+Lint check: Ensure docker run and claude CLI invocations stay centralized.
+
+PR #159 extracts a shared build_sandbox_docker_cmd() to unify container launches.
+This linter prevents future divergence by enforcing allowlists for:
+
+1. Python files that may call `docker run` via subprocess
+2. Shell files that may call `docker run`
+3. Python files that may invoke the `claude` CLI via subprocess
+4. Python files that construct `["docker", "run", ...]` but aren't using
+   build_sandbox_docker_cmd() (bypass detection)
+5. Dangerous docker flags (--privileged, --network host)
+
+Suppression:
+    Add `# noqa: EGG100` to suppress a specific line.
+
+Usage:
+    python3 scripts/check-docker-and-claude-invocations.py
+
+Exit codes:
+    0 - No violations found
+    1 - Found violations
+"""
+
+import ast
+import re
+import sys
+from pathlib import Path
+
+# ── Allowlists ──────────────────────────────────────────────────────────────
+
+# Python files allowed to contain subprocess calls with ["docker", "run", ...]
+DOCKER_RUN_PYTHON_ALLOWLIST: set[str] = {
+    "shared/egg_container/__init__.py",  # Shared sandbox cmd builder
+    "sandbox/egg_lib/gateway.py",  # Gateway container launch
+    "sandbox/egg_lib/docker.py",  # Image version extraction (--rm --entrypoint cat)
+    "integration_tests/conftest.py",  # Test helper containers (Alpine)
+    "integration_tests/test_network_isolation.py",  # Test helper containers (Alpine)
+}
+
+# Shell files allowed to contain `docker run`
+DOCKER_RUN_SHELL_ALLOWLIST: set[str] = {
+    "gateway/start-gateway.sh",  # Shell-based gateway startup
+}
+
+# Python files allowed to invoke the `claude` CLI via subprocess
+CLAUDE_CLI_PYTHON_ALLOWLIST: set[str] = {
+    "sandbox/egg_lib/cli.py",  # gha_exec() builds claude command
+    "sandbox/llm/claude/runner.py",  # Claude version check and invocation
+    "integration_tests/conftest.py",  # run_claude_structured() builds claude command
+}
+
+# Files that legitimately use docker run but NOT for sandbox containers
+# (so bypass-detection doesn't apply to them)
+NON_SANDBOX_DOCKER_FILES: set[str] = {
+    "sandbox/egg_lib/gateway.py",
+    "sandbox/egg_lib/docker.py",
+    "integration_tests/conftest.py",
+    "integration_tests/test_network_isolation.py",
+}
+
+NOQA_CODE = "EGG100"
+
+
+# ── AST Visitor ─────────────────────────────────────────────────────────────
+
+
+class DockerClaudeVisitor(ast.NodeVisitor):
+    """AST visitor that detects docker run and claude CLI subprocess calls."""
+
+    def __init__(self, source_lines: list[str]):
+        self.source_lines = source_lines
+        self.docker_run_lines: list[tuple[int, str]] = []
+        self.claude_cli_lines: list[tuple[int, str]] = []
+        self.dangerous_flag_lines: list[tuple[int, str]] = []
+
+    def _has_noqa(self, lineno: int) -> bool:
+        """Check if a line has a noqa: EGG100 comment."""
+        if 1 <= lineno <= len(self.source_lines):
+            line = self.source_lines[lineno - 1]
+            return f"noqa: {NOQA_CODE}" in line
+        return False
+
+    def _get_call_name(self, node: ast.Call) -> str:
+        """Extract the full dotted name of a function call."""
+        if isinstance(node.func, ast.Name):
+            return node.func.id
+        elif isinstance(node.func, ast.Attribute):
+            parts: list[str] = []
+            current: ast.expr = node.func
+            while isinstance(current, ast.Attribute):
+                parts.append(current.attr)
+                current = current.value
+            if isinstance(current, ast.Name):
+                parts.append(current.id)
+            return ".".join(reversed(parts))
+        return ""
+
+    def _is_subprocess_call(self, node: ast.Call) -> bool:
+        """Check if node is a subprocess invocation."""
+        name = self._get_call_name(node)
+        return name in (
+            "subprocess.run",
+            "subprocess.call",
+            "subprocess.check_call",
+            "subprocess.check_output",
+            "subprocess.Popen",
+        )
+
+    def _get_list_string_elements(self, node: ast.List) -> list[str | None]:
+        """Extract string values from a list literal. Non-string elements become None."""
+        result: list[str | None] = []
+        for elt in node.elts:
+            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                result.append(elt.value)
+            else:
+                result.append(None)
+        return result
+
+    def _check_dangerous_flags(self, elts: list[str | None], lineno: int) -> None:
+        """Check for --privileged or --network host in command elements."""
+        if self._has_noqa(lineno):
+            return
+        for i, val in enumerate(elts):
+            if val == "--privileged":
+                self.dangerous_flag_lines.append(
+                    (lineno, "Dangerous flag: --privileged")
+                )
+            elif val == "--network" and i + 1 < len(elts) and elts[i + 1] == "host":
+                self.dangerous_flag_lines.append(
+                    (lineno, "Dangerous flag: --network host")
+                )
+
+    def visit_Call(self, node: ast.Call) -> None:
+        """Check subprocess calls for docker run and claude CLI usage."""
+        if not self._is_subprocess_call(node):
+            self.generic_visit(node)
+            return
+
+        if not node.args:
+            self.generic_visit(node)
+            return
+
+        first_arg = node.args[0]
+        if not isinstance(first_arg, ast.List) or not first_arg.elts:
+            self.generic_visit(node)
+            return
+
+        elts = self._get_list_string_elements(first_arg)
+        if len(elts) < 2:
+            self.generic_visit(node)
+            return
+
+        # Check 1: docker run detection
+        if elts[0] == "docker" and elts[1] == "run":
+            self._check_dangerous_flags(elts, node.lineno)
+            if not self._has_noqa(node.lineno):
+                self.docker_run_lines.append(
+                    (node.lineno, "subprocess call: docker run")
+                )
+
+        # Check 3: claude CLI detection — "claude" as first command element
+        if elts[0] == "claude":
+            if not self._has_noqa(node.lineno):
+                self.claude_cli_lines.append(
+                    (node.lineno, 'subprocess call: "claude" CLI')
+                )
+
+        # Also detect claude embedded in docker run commands
+        # e.g. ["docker", "run", ..., "image", "claude", "--print", ...]
+        if elts[0] == "docker" and elts[1] == "run" and "claude" in elts[2:]:
+            if not self._has_noqa(node.lineno):
+                self.claude_cli_lines.append(
+                    (node.lineno, 'docker run with embedded "claude" CLI')
+                )
+
+        self.generic_visit(node)
+
+
+# ── File Checkers ───────────────────────────────────────────────────────────
+
+
+def check_python_file(file_path: Path) -> DockerClaudeVisitor | None:
+    """Parse a Python file and return the visitor with findings."""
+    try:
+        content = file_path.read_text()
+        tree = ast.parse(content, filename=str(file_path))
+        lines = content.split("\n")
+        visitor = DockerClaudeVisitor(lines)
+        visitor.visit(tree)
+        return visitor
+    except SyntaxError as e:
+        print(f"Warning: Could not parse {file_path}: {e}", file=sys.stderr)
+        return None
+    except Exception as e:
+        print(f"Warning: Could not read {file_path}: {e}", file=sys.stderr)
+        return None
+
+
+def check_shell_file(
+    file_path: Path,
+) -> tuple[list[tuple[int, str]], list[tuple[int, str]]]:
+    """Check a shell file for docker run and dangerous flags using regex.
+
+    Returns (docker_run_violations, dangerous_flag_violations).
+    """
+    docker_violations: list[tuple[int, str]] = []
+    dangerous_violations: list[tuple[int, str]] = []
+
+    try:
+        content = file_path.read_text()
+    except Exception as e:
+        print(f"Warning: Could not read {file_path}: {e}", file=sys.stderr)
+        return docker_violations, dangerous_violations
+
+    for i, line in enumerate(content.split("\n"), start=1):
+        stripped = line.strip()
+        # Skip comments
+        if stripped.startswith("#"):
+            continue
+        # Skip noqa lines
+        if f"noqa: {NOQA_CODE}" in line:
+            continue
+
+        if re.search(r"docker\s+run\b", line):
+            docker_violations.append((i, "shell command: docker run"))
+
+        # Dangerous flags in shell
+        if re.search(r"--privileged\b", line):
+            dangerous_violations.append((i, "Dangerous flag: --privileged"))
+        if re.search(r"--network\s+host\b", line):
+            dangerous_violations.append((i, "Dangerous flag: --network host"))
+
+    return docker_violations, dangerous_violations
+
+
+# ── Main ────────────────────────────────────────────────────────────────────
+
+
+def main() -> int:
+    """Run all checks and report violations."""
+    script_dir = Path(__file__).resolve().parent
+    repo_root = script_dir.parent
+
+    all_violations: list[tuple[str, list[tuple[int, str]]]] = []
+
+    # Directories to skip entirely
+    skip_dirs = {".venv", ".git", "__pycache__", "node_modules", ".mypy_cache"}
+
+    def should_skip(path: Path) -> bool:
+        return any(part in skip_dirs for part in path.parts)
+
+    # ── Check Python files ──────────────────────────────────────────────
+    py_files = [f for f in repo_root.rglob("*.py") if not should_skip(f)]
+
+    for py_file in py_files:
+        rel = str(py_file.relative_to(repo_root))
+        visitor = check_python_file(py_file)
+        if visitor is None:
+            continue
+
+        file_violations: list[tuple[int, str]] = []
+
+        # Check 1: docker run allowlist
+        if visitor.docker_run_lines and rel not in DOCKER_RUN_PYTHON_ALLOWLIST:
+            for lineno, desc in visitor.docker_run_lines:
+                file_violations.append((lineno, desc))
+
+        # Check 3: claude CLI allowlist
+        if visitor.claude_cli_lines and rel not in CLAUDE_CLI_PYTHON_ALLOWLIST:
+            for lineno, desc in visitor.claude_cli_lines:
+                file_violations.append((lineno, desc))
+
+        # Check 4: bypass detection — file has docker run but is NOT in allowlist
+        # and is NOT a known non-sandbox file
+        if (
+            visitor.docker_run_lines
+            and rel not in DOCKER_RUN_PYTHON_ALLOWLIST
+            and rel not in NON_SANDBOX_DOCKER_FILES
+        ):
+            for lineno, _ in visitor.docker_run_lines:
+                file_violations.append(
+                    (lineno, "Use build_sandbox_docker_cmd() instead of raw docker run")
+                )
+
+        # Check 5: dangerous flags (always checked, even in allowlisted files)
+        for lineno, desc in visitor.dangerous_flag_lines:
+            file_violations.append((lineno, desc))
+
+        if file_violations:
+            all_violations.append((rel, file_violations))
+
+    # ── Check Shell files ───────────────────────────────────────────────
+    sh_files = [f for f in repo_root.rglob("*.sh") if not should_skip(f)]
+
+    for sh_file in sh_files:
+        rel = str(sh_file.relative_to(repo_root))
+        docker_viols, danger_viols = check_shell_file(sh_file)
+
+        file_violations = []
+
+        # Check 2: shell docker run allowlist
+        if docker_viols and rel not in DOCKER_RUN_SHELL_ALLOWLIST:
+            file_violations.extend(docker_viols)
+
+        # Check 5: dangerous flags (always checked)
+        file_violations.extend(danger_viols)
+
+        if file_violations:
+            all_violations.append((rel, file_violations))
+
+    # ── Report ──────────────────────────────────────────────────────────
+    if all_violations:
+        print("ERROR: Found docker/claude invocation violations!\n")
+        print("=" * 70)
+        print("Container launches and Claude CLI invocations must stay centralized.")
+        print("Only allowlisted files may call `docker run` or invoke `claude`.")
+        print("=" * 70)
+        print()
+
+        for file_path, violations in sorted(all_violations):
+            print(f"File: {file_path}")
+            for lineno, desc in sorted(violations):
+                print(f"  Line {lineno}: {desc}")
+            print()
+
+        print("How to fix:")
+        print("  1. Use build_sandbox_docker_cmd() from shared/egg_container")
+        print("     instead of constructing docker run commands directly.")
+        print()
+        print("  2. If this is a legitimate new invocation point, add the file")
+        print("     to the allowlist in scripts/check-docker-and-claude-invocations.py")
+        print()
+        print("  3. To suppress a false positive, add: # noqa: EGG100")
+        print()
+
+        return 1
+    else:
+        print("OK: No docker/claude invocation violations found")
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
