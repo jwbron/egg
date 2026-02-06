@@ -76,11 +76,17 @@ If the agent decides something isn't worth commenting on, or needs a different a
 
 Not all constraints are bad. These are legitimate reasons to restrict agent behavior:
 
-### Security boundaries the sandbox doesn't cover
+### When you need a security boundary: extend the sandbox
 
-If there's a security concern the gateway doesn't enforce, add explicit instructions:
-- "Don't post to external services"
-- "Don't include credentials in PR descriptions"
+Prompt-level instructions aren't security controls—agents can ignore them. If you need to enforce a security boundary:
+
+1. **Network isolation:** Use private mode to block external network access entirely
+2. **Credential isolation:** The sandbox already holds credentials in the gateway, not exposed to agents
+3. **Operation blocking:** Extend the gateway sidecar to reject specific operations
+
+Don't rely on "Don't do X" instructions for security-critical constraints. Either the sandbox enforces it technically, or you accept the risk that the agent might do it anyway.
+
+**Example:** If an agent shouldn't post to external services, run it in private mode—don't just tell it not to.
 
 ### Hard business rules
 
@@ -151,25 +157,27 @@ Review PR #123 and post your review comments directly on GitHub.
 
 The agent can call the GitHub API itself. No parsing needed.
 
-### Anti-pattern 3: Prescriptive checklist
+### Generalized vs. specialized workflows
 
-**Wrong approach:**
-```
-Review this PR. Check for:
-1. Are all functions documented?
-2. Are there any TODO comments?
-3. Is error handling present?
-4. Are imports sorted?
-...
-```
+This isn't strictly an anti-pattern—it's a design choice with tradeoffs.
 
-**Right approach:**
+**Generalized workflows** give broad objectives and let the agent decide what matters:
 ```
 Review this PR for issues that would affect correctness, security, or maintainability.
 Skip style issues that automated linters handle. Post your review on the PR.
 ```
 
-Let the agent use judgment about what matters.
+**Specialized workflows** focus the agent on specific concerns:
+```
+Review this PR specifically for SQL injection vulnerabilities. Check all database queries
+for proper parameterization. Post your findings on the PR.
+```
+
+**The tradeoff:** Adding checklist items to a generalized workflow dilutes focus. Every item you add competes for attention with everything else. A 20-item checklist produces shallow coverage of everything rather than deep analysis of what matters.
+
+**Better approach:** One generalized review bot for broad coverage, plus specialized bots for specific concerns (security audit, performance review, accessibility check). Each bot does one thing well rather than one bot doing everything shallowly.
+
+**When checklists make sense:** Specialized workflows benefit from focused guidelines. A security review bot *should* have specific things to check—that's its purpose. The anti-pattern is overloading a generalized bot with prescriptive checklists.
 
 ## Case Study: Auto-Review Redesign
 
