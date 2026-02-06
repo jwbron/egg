@@ -71,18 +71,22 @@ def build_sandbox_docker_cmd(
         cmd.extend(["--ip", container_ip])
 
     # Gateway hostname resolution
-    cmd.extend([
-        "--add-host",
-        f"{network.gateway_hostname}:{network.gateway_ip}",
-    ])
+    cmd.extend(
+        [
+            "--add-host",
+            f"{network.gateway_hostname}:{network.gateway_ip}",
+        ]
+    )
 
     # --- Environment variables ---
 
     # Gateway API URL
-    cmd.extend([
-        "-e",
-        f"GATEWAY_URL=http://{network.gateway_hostname}:{network.gateway_port}",
-    ])
+    cmd.extend(
+        [
+            "-e",
+            f"GATEWAY_URL=http://{network.gateway_hostname}:{network.gateway_port}",
+        ]
+    )
 
     # Container identity
     cmd.extend(["-e", f"CONTAINER_ID={container_name}"])
@@ -102,17 +106,27 @@ def build_sandbox_docker_cmd(
     if network.repo_mode == "private":
         proxy = network.proxy_url or f"http://{network.gateway_hostname}:3129"
         no_proxy = f"localhost,127.0.0.1,{network.gateway_hostname}"
-        cmd.extend([
-            # Disable DNS — fail closed
-            "--dns", "0.0.0.0",
-            "-e", "PRIVATE_MODE=true",
-            "-e", f"HTTP_PROXY={proxy}",
-            "-e", f"HTTPS_PROXY={proxy}",
-            "-e", f"http_proxy={proxy}",
-            "-e", f"https_proxy={proxy}",
-            "-e", f"NO_PROXY={no_proxy}",
-            "-e", f"no_proxy={no_proxy}",
-        ])
+        cmd.extend(
+            [
+                # Disable DNS — fail closed
+                "--dns",
+                "0.0.0.0",
+                "-e",
+                "PRIVATE_MODE=true",
+                "-e",
+                f"HTTP_PROXY={proxy}",
+                "-e",
+                f"HTTPS_PROXY={proxy}",
+                "-e",
+                f"http_proxy={proxy}",
+                "-e",
+                f"https_proxy={proxy}",
+                "-e",
+                f"NO_PROXY={no_proxy}",
+                "-e",
+                f"no_proxy={no_proxy}",
+            ]
+        )
     else:
         cmd.extend(["-e", "PRIVATE_MODE=false"])
 

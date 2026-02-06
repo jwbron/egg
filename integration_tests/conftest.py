@@ -640,23 +640,25 @@ def run_claude_structured(
     cmd[2:2] = ["--rm"]
 
     # Claude CLI command after image name
-    cmd.extend([
-        "claude",
-        "--print",
-        "--output-format",
-        "json",
-        "--json-schema",
-        schema_json,
-        "--append-system-prompt",
-        system_prompt,
-        "--no-session-persistence",
-        "--max-budget-usd",
-        str(max_budget_usd),
-        "--model",
-        model,
-        "--dangerously-skip-permissions",
-        prompt,
-    ])
+    cmd.extend(
+        [
+            "claude",
+            "--print",
+            "--output-format",
+            "json",
+            "--json-schema",
+            schema_json,
+            "--append-system-prompt",
+            system_prompt,
+            "--no-session-persistence",
+            "--max-budget-usd",
+            str(max_budget_usd),
+            "--model",
+            model,
+            "--dangerously-skip-permissions",
+            prompt,
+        ]
+    )
 
     try:
         result = subprocess.run(
