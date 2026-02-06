@@ -530,9 +530,7 @@ class TestGhApiPathValidation:
 
     def test_actions_job_by_id_allowed(self):
         """Specific actions job endpoint is allowed."""
-        valid, error = github_client.validate_gh_api_path(
-            "repos/owner/repo/actions/jobs/98765"
-        )
+        valid, error = github_client.validate_gh_api_path("repos/owner/repo/actions/jobs/98765")
         assert valid is True
         assert error == ""
 
@@ -546,17 +544,13 @@ class TestGhApiPathValidation:
 
     def test_actions_workflows_list_allowed(self):
         """Actions workflows list endpoint is allowed."""
-        valid, error = github_client.validate_gh_api_path(
-            "repos/owner/repo/actions/workflows"
-        )
+        valid, error = github_client.validate_gh_api_path("repos/owner/repo/actions/workflows")
         assert valid is True
         assert error == ""
 
     def test_actions_workflow_by_id_allowed(self):
         """Specific actions workflow endpoint is allowed."""
-        valid, error = github_client.validate_gh_api_path(
-            "repos/owner/repo/actions/workflows/456"
-        )
+        valid, error = github_client.validate_gh_api_path("repos/owner/repo/actions/workflows/456")
         assert valid is True
         assert error == ""
 
@@ -570,33 +564,25 @@ class TestGhApiPathValidation:
 
     def test_actions_artifacts_list_allowed(self):
         """Actions repo artifacts endpoint is allowed."""
-        valid, error = github_client.validate_gh_api_path(
-            "repos/owner/repo/actions/artifacts"
-        )
+        valid, error = github_client.validate_gh_api_path("repos/owner/repo/actions/artifacts")
         assert valid is True
         assert error == ""
 
     def test_actions_artifact_by_id_allowed(self):
         """Specific actions artifact endpoint is allowed."""
-        valid, error = github_client.validate_gh_api_path(
-            "repos/owner/repo/actions/artifacts/789"
-        )
+        valid, error = github_client.validate_gh_api_path("repos/owner/repo/actions/artifacts/789")
         assert valid is True
         assert error == ""
 
     def test_check_run_by_id_allowed(self):
         """Check run endpoint is allowed."""
-        valid, error = github_client.validate_gh_api_path(
-            "repos/owner/repo/check-runs/12345"
-        )
+        valid, error = github_client.validate_gh_api_path("repos/owner/repo/check-runs/12345")
         assert valid is True
         assert error == ""
 
     def test_check_suite_by_id_allowed(self):
         """Check suite endpoint is allowed."""
-        valid, error = github_client.validate_gh_api_path(
-            "repos/owner/repo/check-suites/67890"
-        )
+        valid, error = github_client.validate_gh_api_path("repos/owner/repo/check-suites/67890")
         assert valid is True
         assert error == ""
 
@@ -650,9 +636,7 @@ class TestGhApiPathValidation:
 
     def test_actions_run_id_must_be_numeric(self):
         """Actions run ID must be numeric."""
-        valid, error = github_client.validate_gh_api_path(
-            "repos/owner/repo/actions/runs/abc"
-        )
+        valid, error = github_client.validate_gh_api_path("repos/owner/repo/actions/runs/abc")
         assert valid is False
         assert "not in allowlist" in error
 
