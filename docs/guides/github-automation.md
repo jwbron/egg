@@ -1,0 +1,238 @@
+# GitHub Automation Guide
+
+egg includes GitHub Actions workflows that automate development tasks. Each workflow
+runs inside the sandbox with full security controls — the agent cannot access
+credentials, merge PRs, or push outside its branch namespace.
+
+## Workflows Overview
+
+| Workflow | Trigger | What It Does |
+|----------|---------|--------------|
+| [AI Code Review](#ai-code-review) | PR opened/updated | Reviews code changes, posts feedback via `gh pr review` |
+| [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
+| [@mention Response](#mention-response) | `@egg` in issues/PR comments | Runs arbitrary tasks requested by authorized users |
+| [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
+| [Self-Improvement](#self-improvement) | Nightly schedule (2 AM UTC) | Analyzes failed runs, creates tracking issues |
+
+## AI Code Review
+
+**Workflow:** [`.github/workflows/on-pull-request.yml`](../../.github/workflows/on-pull-request.yml)
+**Framework:** [`.github/workflows/reusable-review.yml`](../../.github/workflows/reusable-review.yml)
+
+Triggers on `pull_request` events (`opened`, `synchronize`, `ready_for_review`, `reopened`)
+and via `workflow_dispatch` with a PR number.
+
+### How It Works
+
+1. **Skip checks** — Skips draft PRs and PRs with `[skip-review]` in the title.
+2. **Re-review detection** — Searches for an `<!-- egg-automated-review bot=<name> commit=<sha> -->`
+   marker in previous reviews/comments to identify the last reviewed commit. On re-review,
+   the agent uses `git diff <last-commit>..HEAD` to focus on new changes only.
+3. **Stale review dismissal** — Dismisses previous bot reviews before posting a new one.
+4. **Trusted prompt build** — Checks out `main` (not the PR branch) to run
+   `build-review-prompt.sh`, preventing prompt injection from malicious PRs.
+5. **Agent review** — Checks out the PR branch and runs egg with the review prompt.
+   The agent reads the diff, examines context, and posts its review via `gh pr review`.
+
+### Review Decisions
+
+The agent chooses one of:
+- **Approve** — No blocking issues found.
+- **Request changes** — Security vulnerabilities, logic errors, or breaking changes.
+- **Comment** — Advisory feedback, questions, suggestions.
+
+### Customization
+
+Place a `.egg/review-rules.md` file in your repository to override the default review
+focus areas. Default rules focus on security, correctness, and code quality while
+skipping linter-handled style issues.
+
+### Reusable Framework
+
+`reusable-review.yml` is a `workflow_call` workflow that any caller can invoke with:
+- `pr_number` — PR to review
+- `bot_name` — Identifier for marker tracking and concurrency
+- `prompt_script` — Path to the prompt builder (default: `action/build-review-prompt.sh`)
+- `timeout` — Minutes before the review times out
+
+This enables multiple specialized reviewers (e.g., security-focused, design-focused)
+by providing different prompt scripts while sharing the review infrastructure.
+
+## Design Review
+
+**Workflow:** [`.github/workflows/on-pull-request-agent-mode-design.yml`](../../.github/workflows/on-pull-request-agent-mode-design.yml)
+
+A specialized reviewer that checks PRs for alignment with [agent-mode design principles](agent-mode-design.md).
+Uses the same reusable framework as AI Code Review but with a focused prompt.
+
+### Trigger Scope
+
+Only runs on PRs that modify agent-related files:
+- `action/**` — Action code and prompt builders
+- `.github/workflows/**` — Workflow definitions
+- `sandbox/**/*.md` — Sandbox documentation
+- `docs/guides/agent-mode-design.md` — The design guide itself
+
+### What It Reviews
+
+This is a **specialized** review, not a general code review. The base AI Code Review
+handles correctness, security, and style. Design Review focuses exclusively on:
+
+| Anti-Pattern | Description |
+|--------------|-------------|
+| Excessive pre-fetching | Baking large diffs (10KB+) or full file contents into prompts |
+| Structured output for humans | Requiring JSON when output goes directly to PR comments |
+| Post-processing pipelines | Scripts that parse agent output to take actions the agent could take directly |
+| Rigid procedures | Micromanaging step-by-step procedures when objectives would suffice |
+| Prompt-level security | Using instructions for constraints that should be sandbox-enforced |
+
+### Review Philosophy
+
+The reviewer applies guidelines with judgment, not as absolute rules:
+- **Orienting vs constraining** — Lightweight metadata that helps the agent is fine;
+  large pre-fetched data that constrains exploration is not.
+- **Practical balance** — A design that's 80% aligned but works is better than 100%
+  pure but fragile.
+- **Benefit of the doubt** — Borderline cases lean toward the charitable interpretation.
+
+If a PR has no agent-mode concerns, the reviewer approves with a brief note rather
+than providing general feedback that duplicates the base review.
+
+## @mention Response
+
+**Workflow:** [`.github/workflows/on-mention.yml`](../../.github/workflows/on-mention.yml)
+
+Triggers when an authorized user mentions `@egg` or `@james-in-a-box` in:
+- Issue comments
+- PR comments
+- PR review comments (inline)
+- New issues
+
+### How It Works
+
+1. **Authorization** — Only runs for authorized users (currently `jwbron`).
+   Bot self-triggers are blocked as defense-in-depth.
+2. **Acknowledgment** — Reacts to the comment/issue with an eyes emoji.
+3. **Context detection** — Determines whether the mention is on a PR (checks out PR branch)
+   or an issue (checks out `main`).
+4. **Trusted prompt build** — Builds the prompt from `main`, then checks out the PR branch
+   for execution if applicable.
+5. **Execution** — Runs egg with the context of the mention. The agent can read code,
+   make changes, push commits, create PRs, and post comments.
+
+### Concurrency
+
+Mentions on the same issue/PR are queued (not cancelled) via concurrency groups,
+so each request is processed.
+
+## Check Autofixer
+
+**Workflow:** [`.github/workflows/on-check-failure.yml`](../../.github/workflows/on-check-failure.yml)
+
+Triggers when `Lint` or `Test` workflows fail on a PR, or via `workflow_dispatch`.
+
+### How It Works
+
+1. **Skip check** — Skips PRs with `[skip-autofix]` in the title.
+2. **Comment cleanup** — Minimizes previous "investigating" comments to reduce clutter.
+3. **Acknowledgment** — Posts a comment linking to the failed workflow run.
+4. **Trusted prompt build** — Builds the autofixer prompt from `main` using
+   `build-autofixer-prompt.sh`, which includes the failed workflow name and run ID.
+5. **Investigation** — The agent uses `gh pr checks` to list failures, examines logs
+   via `gh run view <id> --log-failed`, and reads workflow files for context.
+6. **Fix or report** — Auto-fixable issues (lint, formatting, simple type errors) are
+   fixed, committed, and pushed. Complex issues get a comment explaining the problem
+   and suggested next steps.
+
+### Auto-Fix vs Report
+
+The agent follows these rules (customizable via `.egg/autofixer-rules.md`):
+
+| Action | When |
+|--------|------|
+| **Auto-fix** | Lint errors, formatting, import order, type errors with clear fixes, simple test failures |
+| **Report only** | Complex logic errors, security issues, unclear requirements, missing environment config |
+
+## Self-Improvement
+
+**Workflow:** [`.github/workflows/self-improvement.yml`](../../.github/workflows/self-improvement.yml)
+
+Runs nightly at 2 AM UTC (and via `workflow_dispatch`) to analyze recent workflow failures.
+
+### How It Works
+
+1. **Failure scan** — The agent uses `gh run list` to find failed runs from the last 24 hours
+   across egg-related workflows (mention, review, autofixer).
+2. **Log analysis** — For each failure, examines logs via `gh run view <id> --log` to
+   understand what went wrong.
+3. **Pattern detection** — Identifies recurring problems: gateway failures, auth issues,
+   rate limiting, infrastructure problems, tool failures.
+4. **Issue management** — Creates GitHub issues with the `self-improvement` label.
+   Checks for existing open issues to avoid duplicates, updating them with new occurrences
+   instead.
+
+### Manual Trigger Options
+
+- `since_hours` — Analyze runs from the last N hours (default: 24)
+- `dry_run` — Analyze only, don't create issues
+
+## Custom Linters
+
+egg includes project-specific safety checks in `scripts/` that run as part of CI:
+
+| Script | What It Checks |
+|--------|----------------|
+| `check-bin-symlinks.py` | `bin/` symlinks point to existing targets |
+| `check-claude-imports.py` | Host services don't import Claude/Anthropic directly |
+| `check-container-host-boundary.py` | Sandbox code doesn't import from host services |
+| `check-container-paths.py` | No `sys.path` patterns that break in containers |
+| `check-docker-and-claude-invocations.py` | Docker/Claude CLI invocations have `noqa` justification |
+| `check-gh-cli-usage.py` | `gh` CLI write operations only run inside the container |
+| `check-workflow-secrets.py` | No untrusted script execution with secrets in workflows |
+
+These enforce the container/host security boundary and architectural invariants that
+generic linters can't catch.
+
+## Configuration
+
+### Required Secrets
+
+All workflows need these GitHub Actions secrets:
+
+| Secret | Purpose |
+|--------|---------|
+| `BOT_APP_ID` | GitHub App ID for bot authentication |
+| `BOT_APP_PRIVATE_KEY` | GitHub App private key |
+| `BOT_APP_INSTALLATION_ID` | GitHub App installation ID |
+| `ANTHROPIC_OAUTH_TOKEN` | Anthropic API authentication |
+
+### Per-Repository Customization
+
+| File | Purpose |
+|------|---------|
+| `.egg/review-rules.md` | Custom review focus areas (overrides defaults) |
+| `.egg/autofixer-rules.md` | Custom auto-fix vs report rules (overrides defaults) |
+
+### Skip Labels
+
+| Marker | Effect |
+|--------|--------|
+| `[skip-review]` in PR title | Skips AI code review |
+| `[skip-autofix]` in PR title | Skips check autofixer |
+
+## Security Model
+
+All workflows follow the same security pattern:
+
+1. **Trusted prompt build** — Prompt scripts run from `main`, not from PR branches,
+   preventing prompt injection via malicious PRs.
+2. **Sandboxed execution** — The agent runs inside the egg sandbox with no credential access.
+3. **Gateway enforcement** — All git/GitHub operations go through the gateway sidecar
+   which enforces branch ownership, blocks merges, and injects credentials.
+
+## Design Philosophy
+
+These workflows follow [agent-mode design principles](agent-mode-design.md): give the
+agent a clear objective and let it figure out how to accomplish it. Prompts are minimal —
+they describe *what* to do, not *how*. The agent fetches what it needs via `gh` CLI and
+takes action directly, rather than receiving pre-parsed data through a rigid pipeline.

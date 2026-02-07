@@ -72,6 +72,23 @@ Private AI tools remain ideal for rapid prototyping, exploratory coding, and ind
 
 See [Why egg Works: Safety, Quality, and Collaboration](docs/collaboration-effectiveness.md) for the full picture.
 
+## GitHub Automation
+
+egg includes GitHub Actions workflows that automate development tasks — each running
+inside the sandbox with full security controls:
+
+| Capability | Description |
+|-----------|-------------|
+| **AI Code Review** | Automatic PR reviews with reusable framework and specialized reviewers |
+| **@mention Response** | Trigger tasks by mentioning egg in issues or PR comments |
+| **Check Autofixer** | Diagnoses and fixes CI failures on PRs automatically |
+| **Self-Improvement** | Nightly failure analysis with automatic issue creation |
+| **Custom Linters** | Project-specific safety checks (container boundaries, invocations, secrets) |
+
+Workflows are customizable per-repo via `.egg/review-rules.md` and `.egg/autofixer-rules.md`.
+
+See [GitHub Automation Guide](docs/guides/github-automation.md) for setup and configuration.
+
 ## Key Features
 
 ### Zero Credential Exposure
@@ -175,6 +192,7 @@ Trigger egg via @mentions in issues and PRs, or run it on any GitHub Actions eve
 - [Architecture](docs/architecture/README.md) - System design and component overview
 - [Contributing](CONTRIBUTING.md) - Development setup and workflow
 - [GitHub Action](action/README.md) - CI/CD integration
+- [GitHub Automation](docs/guides/github-automation.md) - Review bots, autofixer, @mention, self-improvement
 
 ### Component Documentation
 
