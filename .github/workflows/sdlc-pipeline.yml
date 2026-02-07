@@ -241,7 +241,9 @@ jobs:
           persist-credentials: false
 
       - name: Save trusted action scripts
-        run: cp -r action "$RUNNER_TEMP/trusted-action"
+        run: |
+          cp -r action "$RUNNER_TEMP/trusted-action"
+          cp -r shared "$RUNNER_TEMP/trusted-shared"
 
       - name: Build implement prompt
         id: prompt
@@ -258,6 +260,33 @@ jobs:
         with:
           ref: ${{ env.BRANCH_NAME }}
           token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Configure git identity
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "james-in-a-box[bot]"
+          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+
+      - name: Populate contract tasks from plan
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Use trusted scripts from main checkout
+          pip install -q pyyaml pydantic 2>/dev/null || true
+          PYTHONPATH="${RUNNER_TEMP}/trusted-shared:${PYTHONPATH:-}" \
+            python3 "${RUNNER_TEMP}/trusted-action/populate-contract-tasks.py"
+
+          # Commit if contract was updated
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          if ! git diff --quiet "$CONTRACT_PATH" 2>/dev/null; then
+            git add "$CONTRACT_PATH"
+            git commit -m "Populate contract tasks from plan for issue #${ISSUE_NUMBER}"
+            git push origin "${BRANCH_NAME}"
+          fi
 
       - name: Run egg implementer
         id: egg
