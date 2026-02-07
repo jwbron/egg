@@ -36,8 +36,19 @@ _rate_limiter: types.ModuleType | None = None
 
 
 def _get_session_manager() -> types.ModuleType:
-    """Lazy import of session_manager module."""
+    """Lazy import of session_manager module.
+
+    Always checks sys.modules first to ensure tests can patch the module.
+    Checks both 'session_manager' (conftest.py loader) and 'gateway.session_manager'
+    (package import) naming conventions.
+    """
     global _session_manager
+    # Always prefer the module from sys.modules if available, to allow test patching
+    # Check both naming conventions used in different test contexts
+    if "session_manager" in sys.modules:
+        return sys.modules["session_manager"]
+    if "gateway.session_manager" in sys.modules:
+        return sys.modules["gateway.session_manager"]
     if _session_manager is None:
         try:
             from . import session_manager as sm
@@ -51,8 +62,19 @@ def _get_session_manager() -> types.ModuleType:
 
 
 def _get_rate_limiter() -> types.ModuleType:
-    """Lazy import of rate_limiter module."""
+    """Lazy import of rate_limiter module.
+
+    Always checks sys.modules first to ensure tests can patch the module.
+    Checks both 'rate_limiter' (conftest.py loader) and 'gateway.rate_limiter'
+    (package import) naming conventions.
+    """
     global _rate_limiter
+    # Always prefer the module from sys.modules if available, to allow test patching
+    # Check both naming conventions used in different test contexts
+    if "rate_limiter" in sys.modules:
+        return sys.modules["rate_limiter"]
+    if "gateway.rate_limiter" in sys.modules:
+        return sys.modules["gateway.rate_limiter"]
     if _rate_limiter is None:
         try:
             from . import rate_limiter as rl

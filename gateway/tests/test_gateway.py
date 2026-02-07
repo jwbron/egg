@@ -49,7 +49,14 @@ def auth_headers():
 
     Session-protected endpoints require valid session tokens. This fixture
     mocks session validation and private repo policy to allow tests to proceed.
+
+    Note: We patch sys.modules entries directly to handle cases where other tests
+    may have loaded different module instances into sys.modules.
     """
+    import sys
+
+    import auth
+
     mock_session = MagicMock()
     mock_session.mode = "public"
     mock_session.container_id = "test-container"
@@ -66,8 +73,23 @@ def auth_headers():
         visibility="public",
     )
 
+    # Clear auth module's cached references so it picks up our patched module
+    auth._session_manager = None
+    auth._rate_limiter = None
+
+    # Also clear any package-style cached references
+    if "gateway.auth" in sys.modules:
+        sys.modules["gateway.auth"]._session_manager = None
+        sys.modules["gateway.auth"]._rate_limiter = None
+
+    # Patch the module that's currently in sys.modules, not the one we imported at module load time.
+    # This handles cases where other tests may have loaded different instances.
+    current_session_manager = sys.modules.get("session_manager", session_manager)
+
     with (
-        patch.object(session_manager, "validate_session_for_request", return_value=mock_result),
+        patch.object(
+            current_session_manager, "validate_session_for_request", return_value=mock_result
+        ),
         patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
     ):
         yield {"Authorization": "Bearer test-session-token"}
@@ -842,6 +864,10 @@ class TestGhExecutePrivateMode:
     @pytest.fixture
     def private_mode_auth_headers(self):
         """Auth headers with private mode session."""
+        import sys
+
+        import auth
+
         mock_session = MagicMock()
         mock_session.mode = "private"  # Private mode session
         mock_session.container_id = "test-container"
@@ -849,8 +875,20 @@ class TestGhExecutePrivateMode:
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
+        # Clear auth module's cached references so it picks up our patched module
+        auth._session_manager = None
+        auth._rate_limiter = None
+
+        # Also clear any package-style cached references
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        # Patch the module that's currently in sys.modules, not the one we imported at module load time.
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
         with patch.object(
-            session_manager, "validate_session_for_request", return_value=mock_result
+            current_session_manager, "validate_session_for_request", return_value=mock_result
         ):
             yield {"Authorization": "Bearer test-session-token"}
 

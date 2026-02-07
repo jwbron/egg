@@ -78,6 +78,8 @@ def _load_module_with_replaced_imports(
     exec(code, module.__dict__)
 
     sys.modules[name] = module
+    # Also register under gateway. prefix so package-style imports work with patches
+    sys.modules[f"gateway.{name}"] = module
     return module
 
 
@@ -189,6 +191,9 @@ auth = _load_module_with_replaced_imports(
         "from .session_manager import": "from session_manager import",
     },
 )
+# Reset auth module's cached module references to ensure it uses our loaded modules
+auth._session_manager = None
+auth._rate_limiter = None
 
 # contract_api imports from auth and egg_contracts
 contract_api = _load_module_with_replaced_imports(
