@@ -73,13 +73,16 @@ def _load_module_with_replaced_imports(
     module.__loader__ = None
     module.__package__ = ""
 
+    # Register the module BEFORE executing so that decorators like @dataclass
+    # can find the module in sys.modules when looking up the class's __module__
+    sys.modules[name] = module
+    # Also register under gateway. prefix so package-style imports work with patches
+    sys.modules[f"gateway.{name}"] = module
+
     # Execute the modified source
     code = compile(source, path, "exec")
     exec(code, module.__dict__)
 
-    sys.modules[name] = module
-    # Also register under gateway. prefix so package-style imports work with patches
-    sys.modules[f"gateway.{name}"] = module
     return module
 
 
@@ -201,6 +204,36 @@ contract_api = _load_module_with_replaced_imports(
     GATEWAY_DIR / "contract_api.py",
     import_replacements={
         "from .auth import": "from auth import",
+        "from .git_client import": "from git_client import",
+    },
+)
+
+# phase_filter imports from error_messages
+phase_filter = _load_module_with_replaced_imports(
+    "phase_filter",
+    GATEWAY_DIR / "phase_filter.py",
+    import_replacements={
+        "from .error_messages import": "from error_messages import",
+    },
+)
+
+# phase_transition imports from phase_filter
+phase_transition = _load_module_with_replaced_imports(
+    "phase_transition",
+    GATEWAY_DIR / "phase_transition.py",
+    import_replacements={
+        "from .phase_filter import": "from phase_filter import",
+    },
+)
+
+# phase_api imports from auth, phase_filter, phase_transition
+phase_api = _load_module_with_replaced_imports(
+    "phase_api",
+    GATEWAY_DIR / "phase_api.py",
+    import_replacements={
+        "from .auth import": "from auth import",
+        "from .phase_filter import": "from phase_filter import",
+        "from .phase_transition import": "from phase_transition import",
     },
 )
 
@@ -214,6 +247,7 @@ gateway = _load_module_with_replaced_imports(
         "from .contract_api import": "from contract_api import",
         "from .git_client import": "from git_client import",
         "from .github_client import": "from github_client import",
+        "from .phase_api import": "from phase_api import",
         "from .policy import": "from policy import",
         "from .private_repo_policy import": "from private_repo_policy import",
         "from .repo_parser import": "from repo_parser import",

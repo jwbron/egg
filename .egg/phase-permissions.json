@@ -1,0 +1,147 @@
+{
+  "schemaVersion": "1.0",
+  "phases": {
+    "refine": {
+      "allowed_operations": [
+        {
+          "type": "gh",
+          "pattern": "issue comment *",
+          "description": "Comment on issues"
+        },
+        {
+          "type": "gh",
+          "pattern": "issue edit *",
+          "description": "Edit issues"
+        },
+        {
+          "type": "egg-contract",
+          "pattern": "add-decision *",
+          "description": "Create HITL decision points"
+        },
+        {
+          "type": "egg-contract",
+          "pattern": "show *",
+          "description": "View contract state"
+        }
+      ],
+      "blocked_operations": [
+        {
+          "type": "git",
+          "pattern": "push *",
+          "description": "Cannot push code during refine phase"
+        },
+        {
+          "type": "gh",
+          "pattern": "pr create*",
+          "description": "Cannot create PRs during refine phase"
+        }
+      ],
+      "exit_requires": "human"
+    },
+    "plan": {
+      "allowed_operations": [
+        {
+          "type": "gh",
+          "pattern": "issue comment *",
+          "description": "Comment on issues"
+        },
+        {
+          "type": "gh",
+          "pattern": "issue edit *",
+          "description": "Edit issues"
+        },
+        {
+          "type": "egg-contract",
+          "pattern": "add-decision *",
+          "description": "Create HITL decision points"
+        },
+        {
+          "type": "egg-contract",
+          "pattern": "show *",
+          "description": "View contract state"
+        }
+      ],
+      "blocked_operations": [
+        {
+          "type": "git",
+          "pattern": "push *",
+          "description": "Cannot push code during plan phase"
+        },
+        {
+          "type": "gh",
+          "pattern": "pr create*",
+          "description": "Cannot create PRs during plan phase"
+        }
+      ],
+      "exit_requires": "human"
+    },
+    "implement": {
+      "allowed_operations": [
+        {
+          "type": "git",
+          "pattern": "push *",
+          "description": "Push code to remote"
+        },
+        {
+          "type": "egg-contract",
+          "pattern": "add-commit *",
+          "description": "Link commits to tasks"
+        },
+        {
+          "type": "egg-contract",
+          "pattern": "update-notes *",
+          "description": "Add implementation notes"
+        },
+        {
+          "type": "egg-contract",
+          "pattern": "mark-task *",
+          "description": "Mark task status (reviewer only)"
+        },
+        {
+          "type": "egg-contract",
+          "pattern": "mark-phase *",
+          "description": "Mark phase status (reviewer only)"
+        },
+        {
+          "type": "egg-contract",
+          "pattern": "show *",
+          "description": "View contract state"
+        }
+      ],
+      "blocked_operations": [
+        {
+          "type": "gh",
+          "pattern": "pr create*",
+          "description": "Cannot create PRs until implementation is complete"
+        }
+      ],
+      "exit_requires": "reviewer"
+    },
+    "pr": {
+      "allowed_operations": [
+        {
+          "type": "gh",
+          "pattern": "pr create*",
+          "description": "Create pull requests"
+        },
+        {
+          "type": "gh",
+          "pattern": "pr edit *",
+          "description": "Edit pull requests"
+        },
+        {
+          "type": "git",
+          "pattern": "push *",
+          "description": "Push code to remote"
+        },
+        {
+          "type": "egg-contract",
+          "pattern": "show *",
+          "description": "View contract state"
+        }
+      ],
+      "blocked_operations": [],
+      "exit_requires": "human"
+    }
+  }
+}

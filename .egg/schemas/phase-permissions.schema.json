@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jwbron/egg/schemas/phase-permissions.schema.json",
+  "title": "SDLC Phase Permissions",
+  "description": "Defines operation permissions for each pipeline phase",
+  "type": "object",
+  "required": ["schemaVersion", "phases"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Schema version",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "default": "1.0"
+    },
+    "phases": {
+      "type": "object",
+      "description": "Permission definitions for each phase",
+      "additionalProperties": {
+        "$ref": "#/$defs/phasePermissions"
+      },
+      "properties": {
+        "refine": {
+          "$ref": "#/$defs/phasePermissions"
+        },
+        "plan": {
+          "$ref": "#/$defs/phasePermissions"
+        },
+        "implement": {
+          "$ref": "#/$defs/phasePermissions"
+        },
+        "pr": {
+          "$ref": "#/$defs/phasePermissions"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "phasePermissions": {
+      "type": "object",
+      "description": "Permission set for a single phase",
+      "required": ["allowed_operations", "blocked_operations", "exit_requires"],
+      "properties": {
+        "allowed_operations": {
+          "type": "array",
+          "description": "Operations allowed in this phase",
+          "items": {
+            "$ref": "#/$defs/operation"
+          }
+        },
+        "blocked_operations": {
+          "type": "array",
+          "description": "Operations explicitly blocked in this phase",
+          "items": {
+            "$ref": "#/$defs/operation"
+          }
+        },
+        "exit_requires": {
+          "type": "string",
+          "description": "Role required to exit this phase",
+          "enum": ["human", "reviewer", "implementer"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "operation": {
+      "type": "object",
+      "description": "An operation that can be allowed or blocked",
+      "required": ["type", "pattern"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Operation type",
+          "enum": ["git", "gh", "egg-contract"]
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Command pattern to match (supports wildcards)",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the operation"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
