@@ -1,7 +1,11 @@
-"""Tests for self_improvement module."""
+"""Tests for self_improvement module.
+
+The self_improvement module provides log collection utilities for egg's
+self-improvement cycle. The actual analysis and issue creation is handled
+by egg itself, following agent-mode design principles.
+"""
 
 import json
-import os
 import sys
 import tempfile
 from datetime import UTC, datetime, timedelta
@@ -20,7 +24,6 @@ from egg_lib.self_improvement.config import (
     BOT_USERNAME,
     DEFAULT_SINCE_HOURS,
     EGG_WORKFLOWS,
-    ISSUE_LABEL_PREFIX,
 )
 
 
@@ -85,7 +88,6 @@ class TestConfig:
     def test_default_values(self):
         """Config has expected default values."""
         assert DEFAULT_SINCE_HOURS == 24
-        assert ISSUE_LABEL_PREFIX == "self-improvement"
         assert "on-mention.yml" in EGG_WORKFLOWS
         assert "on-pull-request.yml" in EGG_WORKFLOWS
 
@@ -247,112 +249,3 @@ class TestGHALogCollector:
         # Should only include the on-mention workflow
         assert len(runs) == 1
         assert runs[0]["id"] == 1
-
-
-class TestAnalyzeModule:
-    """Tests for analyze.py module."""
-
-    def test_generate_summary_empty_runs(self):
-        """Summary handles empty run list."""
-        from egg_lib.self_improvement.analyze import generate_summary
-
-        since = datetime.now(UTC)
-        summary = generate_summary([], since)
-        assert "No runs found" in summary
-
-    def test_generate_summary_with_runs(self):
-        """Summary includes run statistics."""
-        from egg_lib.self_improvement.analyze import generate_summary
-
-        now = datetime.now(UTC)
-        runs = [
-            RunLog(
-                run_id="1",
-                source="gha",
-                started_at=now,
-                completed_at=now,
-                status="success",
-                trigger="issue_comment",
-                logs="",
-            ),
-            RunLog(
-                run_id="2",
-                source="gha",
-                started_at=now,
-                completed_at=now,
-                status="failure",
-                trigger="pull_request",
-                logs="Error: test failed",
-            ),
-        ]
-
-        since = now - timedelta(hours=1)
-        summary = generate_summary(runs, since)
-
-        assert "Total runs: 2" in summary
-        assert "Successful: 1" in summary
-        assert "Failed: 1" in summary
-
-    def test_generate_json_output(self):
-        """JSON output is valid and contains expected fields."""
-        from egg_lib.self_improvement.analyze import generate_json
-
-        now = datetime.now(UTC)
-        runs = [
-            RunLog(
-                run_id="test-1",
-                source="gha",
-                started_at=now,
-                completed_at=now,
-                status="success",
-                trigger="issue_comment",
-                logs="test logs content",
-            ),
-        ]
-
-        since = now - timedelta(hours=1)
-        output = generate_json(runs, since)
-
-        data = json.loads(output)
-        assert "summary" in data
-        assert data["summary"]["total_runs"] == 1
-        assert data["summary"]["successful_runs"] == 1
-        assert "runs" in data
-        assert len(data["runs"]) == 1
-        assert data["runs"][0]["run_id"] == "test-1"
-        # Logs should not be included in JSON output
-        assert "logs" not in data["runs"][0]
-
-    def test_select_collector_gha(self):
-        """Selects GHALogCollector for gha source."""
-        from egg_lib.self_improvement.analyze import select_collector
-
-        collector = select_collector("gha", repo="test/repo")
-        assert isinstance(collector, GHALogCollector)
-
-    def test_select_collector_local(self):
-        """Selects LocalLogCollector for local source."""
-        from egg_lib.self_improvement.analyze import select_collector
-
-        collector = select_collector("local")
-        assert isinstance(collector, LocalLogCollector)
-
-    @patch.dict("os.environ", {"GITHUB_ACTIONS": "true"})
-    def test_select_collector_auto_in_gha(self):
-        """Auto-selects GHA collector in GitHub Actions environment."""
-        from egg_lib.self_improvement.analyze import select_collector
-
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="test/repo\n")
-            collector = select_collector("auto")
-            assert isinstance(collector, GHALogCollector)
-
-    @patch.dict("os.environ", {}, clear=True)
-    def test_select_collector_auto_outside_gha(self):
-        """Auto-selects Local collector outside GitHub Actions."""
-        from egg_lib.self_improvement.analyze import select_collector
-
-        os.environ.pop("GITHUB_ACTIONS", None)
-
-        collector = select_collector("auto")
-        assert isinstance(collector, LocalLogCollector)

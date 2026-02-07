@@ -1,5 +1,10 @@
 name: "egg: Self-Improvement Analysis"
 
+# This workflow follows agent-mode design principles:
+# - Give egg a clear objective and let it analyze + take action
+# - No rigid detection pipeline - egg reasons about problems intelligently
+# - egg fetches logs directly via gh CLI when it needs them
+
 on:
   schedule:
     - cron: "0 2 * * *" # 2 AM UTC daily
@@ -10,14 +15,20 @@ on:
         required: false
         default: "24"
         type: string
+      dry_run:
+        description: "Dry run mode (analyze only, don't create issues)"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   analyze:
-    name: Analyze egg runs
+    name: Analyze with egg
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read
+      issues: write
 
     steps:
       - name: Checkout
@@ -30,53 +41,112 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Run analysis
+      - name: Build task prompt
+        id: prompt
         env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          PYTHONPATH: sandbox
+          SINCE_HOURS: ${{ github.event.inputs.since_hours || '24' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |
-          set -o pipefail
-          SINCE_HOURS="${{ github.event.inputs.since_hours || '24' }}"
+          # Build a prompt file for egg (using file avoids shell escaping issues)
+          cat > task_prompt.md << 'PROMPT_EOF'
+          # Self-Improvement Analysis Task
 
+          Analyze recent GitHub Actions runs for this repository to identify recurring
+          problems or patterns that need attention.
+
+          ## Objective
+
+          1. Use `gh run list` to find failed workflow runs from the last SINCE_HOURS_PLACEHOLDER hours
+             - Filter to egg-related workflows: on-mention.yml, on-pull-request.yml, on-check-failure.yml
+          2. For failed runs, use `gh run view <run-id> --log` to examine the logs
+          3. Identify recurring problems or patterns across runs
+          4. For issues that warrant tracking, create GitHub issues with:
+             - Clear description of the problem
+             - Evidence from the logs
+             - Suggested actions if obvious
+             - Label: `self-improvement`
+          5. Before creating issues, search for existing open issues with the `self-improvement`
+             label to avoid duplicates. You can update existing issues with new occurrences.
+
+          ## Guidance
+
+          Pay particular attention to:
+          - Gateway/sidecar connection failures
+          - Authentication or credential issues
+          - API rate limiting
+          - Infrastructure problems (Docker, network, etc.)
+          - Recurring tool failures
+          - Patterns that suggest code or configuration problems
+
+          Use your judgment about what's worth creating an issue for. A single transient
+          failure may not need an issue, but a pattern across multiple runs does.
+
+          A run that *successfully debugged and fixed an error* contains "error" many times
+          but isn't a failure - look at the run conclusion, not just log content.
+          PROMPT_EOF
+
+          # Substitute the environment variables
+          sed -i "s/SINCE_HOURS_PLACEHOLDER/${SINCE_HOURS}/g" task_prompt.md
+
+          # Add dry run instruction if applicable
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            cat >> task_prompt.md << 'DRYRUN_EOF'
+
+          ## Dry Run Mode
+
+          This is a dry run. Analyze the failures and describe what issues you WOULD
+          create, but do NOT actually create any GitHub issues. Just report your findings.
+          DRYRUN_EOF
+          fi
+
+          # Output the prompt file path
+          echo "prompt_file=task_prompt.md" >> "$GITHUB_OUTPUT"
+
+          # Show what we're asking egg to do
           {
-            echo "## Self-Improvement Analysis"
+            echo "## Self-Improvement Analysis Task"
             echo ""
-            echo "Analyzing runs from the last ${SINCE_HOURS} hours..."
+            echo "Dispatching to egg for intelligent analysis..."
             echo ""
+            echo "<details><summary>Task prompt</summary>"
+            echo ""
+            echo '```markdown'
+            cat task_prompt.md
+            echo '```'
+            echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          # Run analysis once with both outputs (avoids duplicate API calls)
-          python -m egg_lib.self_improvement.analyze \
-            --source gha \
-            --since-hours "${SINCE_HOURS}" \
-            --output both \
-            --json-file analysis_report.json | tee analysis_output.txt
-
-          {
-            echo '```'
-            cat analysis_output.txt
-            echo '```'
-            echo ""
-            echo "### JSON Report"
-            echo ""
-            echo '<details><summary>Click to expand JSON report</summary>'
-            echo ''
-            echo '```json'
-            cat analysis_report.json
-            echo '```'
-            echo '</details>'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload analysis artifact
-        uses: actions/upload-artifact@v4
+      - name: Run egg
+        id: egg
+        uses: jwbron/egg/action@main
         with:
-          name: self-improvement-report
-          path: |
-            analysis_output.txt
-            analysis_report.json
-          retention-days: 30
+          prompt-file: ${{ steps.prompt.outputs.prompt_file }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          github-token: ${{ steps.bot-token.outputs.token }}
+          timeout: "30"
+
+      - name: Report result
+        if: always()
+        env:
+          EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
+            {
+              echo ""
+              echo "## Result"
+              echo ""
+              echo "✅ egg completed successfully. [View full logs](${RUN_URL})"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo ""
+              echo "## Result"
+              echo ""
+              echo "❌ egg run failed (exit code: ${EGG_EXIT_CODE:-unknown}). [View full logs](${RUN_URL})"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
