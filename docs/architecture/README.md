@@ -26,6 +26,7 @@ See the [main README](../../README.md) for the architecture diagram.
 
 **Access Control:**
 - Branch ownership (agent can only push to `egg/*` branches)
+- Phase-based operation restrictions (git/gh operations filtered by SDLC phase)
 - No merge capability (gateway has no merge endpoint)
 - Force push and destructive operations blocked
 
