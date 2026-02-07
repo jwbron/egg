@@ -105,11 +105,31 @@ All mutations route through gateway endpoint for role enforcement.
 - Brief guidance on contract CLI usage
 - Track progress via `egg-contract` commands
 
-### 3.3 Prompt Builder
+### 3.3 Document Templates
+
+**Create** `docs/templates/analysis.md`:
+- Standard template for refine phase output
+- Sections: Problem Statement, Current Behavior, Constraints, Options Considered, Recommended Approach, Open Questions
+
+**Create** `docs/templates/plan.md`:
+- Standard template for plan phase output
+- Sections: Summary, Implementation Phases (with Goal, Tasks, Dependencies, Exit criteria), Test Strategy, Rollback/Risk, Migration
+
+### 3.4 Prompt Builder
 
 **Create** `action/build-sdlc-prompt.sh`:
 - Provide orientation context (issue number, current phase, branch)
 - Tell agent to use `egg-contract` CLI for state updates
+- Include phase-specific document template in prompt
+- For refine phase: instruct agent to follow analysis template
+- For plan phase: instruct agent to follow plan template
+
+### 3.5 Plan-to-Contract Extraction
+
+**Add to** `shared/egg_contracts/`:
+- `plan_parser.py` - Parse plan document to extract phases and tasks
+- Extract task IDs, descriptions, acceptance criteria, and file paths from plan markdown
+- Write extracted tasks to contract `phases[].tasks[]` on plan approval
 
 ---
 
@@ -216,6 +236,8 @@ All mutations route through gateway endpoint for role enforcement.
 3. E2E test passes for full SDLC pipeline
 4. Manual verification of HITL checkbox flow
 5. Documentation complete with ADR
+6. Document templates produce consistent analysis and plan outputs
+7. Plan parser correctly extracts tasks into contract JSON
 
 ---
 

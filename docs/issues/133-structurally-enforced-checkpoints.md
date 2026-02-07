@@ -50,7 +50,89 @@ This prevents the [#202 incident](https://github.com/jwbron/egg/issues/202) by m
 
 ---
 
-## Part 2: Task Collection and Role-Based Enforcement
+## Part 2: Document Standards for Pipeline Phases
+
+The pipeline produces structured documents at each phase gate. These documents are what humans review, and the contract JSON tracks their status.
+
+### Analysis Document (Refine Phase Output)
+
+The refine phase produces an analysis committed to `docs/issues/{number}-analysis.md`.
+
+```markdown
+# Issue #{number}: Analysis
+
+## Problem Statement
+What is broken or missing, stated from the user's perspective.
+
+## Current Behavior
+How the system works today (or doesn't). Include relevant code paths.
+
+## Constraints
+- Technical constraints (compatibility, performance, existing patterns)
+- Policy constraints (security model, gateway enforcement, etc.)
+- Scope constraints (what's explicitly out of scope)
+
+## Options Considered
+For each option:
+- Description
+- Pros/cons
+- Risk assessment
+
+## Recommended Approach
+Which option and why. This becomes the input to the plan phase.
+
+## Open Questions
+Anything that needs human input before planning can begin.
+```
+
+**Exit criteria for refine phase:** Analysis document exists, recommended approach is selected, no unresolved open questions (or they've been converted to HITL decisions).
+
+### Plan Document (Plan Phase Output)
+
+The plan phase produces a plan committed to `docs/issues/{number}-plan.md`. This plan is what gets decomposed into the contract's `phases[].tasks[]`.
+
+```markdown
+# Issue #{number}: Plan
+
+## Summary
+One paragraph: what will be built and why (references the analysis).
+
+## Implementation Phases
+For each phase:
+
+### Phase N: {Name}
+- **Goal**: What this phase achieves
+- **Tasks**:
+  - Task ID, description, acceptance criteria, files affected
+- **Dependencies**: What must be true before this phase starts
+- **Exit criteria**: How the reviewer knows this phase is complete
+
+## Test Strategy
+- What tests will be added/modified
+- How to verify the change end-to-end
+
+## Rollback / Risk
+- What could go wrong
+- How to revert if needed
+
+## Migration (if applicable)
+- Breaking changes and migration path
+```
+
+**Exit criteria for plan phase:** Plan document exists, all phases have tasks with acceptance criteria, human has approved via HITL checkpoint.
+
+### How Documents Connect to the Contract JSON
+
+When the plan is approved and the pipeline transitions to the implement phase:
+1. The plan's phases and tasks get written into the contract JSON as `phases[].tasks[]`
+2. Each task's acceptance criteria from the plan become the basis for reviewer evaluation
+3. The analysis document's recommended approach provides context for both implementer and reviewer
+
+The contract JSON tracks *status*, while the documents provide *content and context*.
+
+---
+
+## Part 4: Task Collection and Role-Based Enforcement
 
 ### Contract Structure
 
@@ -138,7 +220,7 @@ egg-contract resolve-decision --decision decision-1 --resolution approved
 
 ---
 
-## Part 3: Human-in-the-Loop Decision System
+## Part 4: Human-in-the-Loop Decision System
 
 ### Checkbox-Based HITL Decisions
 
@@ -181,7 +263,7 @@ Please select one option:
 
 ---
 
-## Part 4: Circuit Breaker and Escalation
+## Part 5: Circuit Breaker and Escalation
 
 ### Thresholds
 
@@ -232,7 +314,7 @@ Please select one option:
 
 ---
 
-## Part 5: Resume After HITL
+## Part 6: Resume After HITL
 
 ### Resume Triggers
 
@@ -258,7 +340,7 @@ When resuming:
 
 ---
 
-## Part 6: Reviewer Workflow Architecture
+## Part 7: Reviewer Workflow Architecture
 
 ### Reviewer Kick-Back Pattern
 
@@ -394,6 +476,14 @@ Located at `sandbox/.claude/reviewer-rules.md`:
 - [ ] Escalation labels issue and posts context comment
 - [ ] Pipeline resumes correctly after HITL resolution
 
+### Document Standards
+- [ ] Refine phase produces analysis document at `docs/issues/{number}-analysis.md`
+- [ ] Analysis document follows standard template (Problem Statement, Current Behavior, Constraints, Options, Recommended Approach, Open Questions)
+- [ ] Plan phase produces plan document at `docs/issues/{number}-plan.md`
+- [ ] Plan document follows standard template (Summary, Implementation Phases with tasks and acceptance criteria, Test Strategy, Rollback/Risk)
+- [ ] Prompt builder (`action/build-sdlc-prompt.sh`) instructs agent to follow document templates
+- [ ] Plan tasks are extracted into contract JSON `phases[].tasks[]` on plan approval
+
 ---
 
 ## Resolved Open Questions
@@ -409,6 +499,7 @@ Located at `sandbox/.claude/reviewer-rules.md`:
 | Task-to-commit? | 1:1 preferred, enforced by CLI | Clean traceability |
 | HITL debounce? | 30-second period | Allows human to finish edits |
 | Reviewer workflow? | Separate reusable workflow | Clean separation, `workflow_call` |
+| Phase outputs? | Structured documents (analysis, plan) | Consistent reviewer experience, clear exit criteria |
 
 ---
 
