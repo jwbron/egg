@@ -282,7 +282,7 @@ jobs:
 
               # Retry push with rebase on conflict
               MAX_RETRIES=3
-              for i in $(seq 1 $MAX_RETRIES); do
+              for _ in $(seq 1 $MAX_RETRIES); do
                 if git push origin "${BRANCH_NAME}"; then
                   break
                 else
@@ -453,7 +453,7 @@ jobs:
 
           # Retry push with rebase on conflict (handles race conditions)
           MAX_RETRIES=3
-          for i in $(seq 1 $MAX_RETRIES); do
+          for _ in $(seq 1 $MAX_RETRIES); do
             if git push origin "${BRANCH_NAME}"; then
               break
             else
