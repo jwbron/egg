@@ -128,6 +128,39 @@ GET /api/v1/phase/permissions/<phase>
   Description: Get allowed/blocked operations for a phase
 ```
 
+### Contract Operations
+
+The contract API provides role-based access to SDLC contracts that track issue progress through phases, tasks, and decisions.
+
+```
+GET /api/v1/contract/<issue_number>
+  Query: ?repo_path=<path>&include_audit_log=<bool>
+  Policy: session_auth
+  Description: Get contract state for an issue
+
+POST /api/v1/contract/mutate
+  Request: {issue_number, field_path, new_value, repo_path?, actor?, reason?}
+  Policy: session_auth + role_based
+  Description: Apply a mutation to a contract (role determines allowed fields)
+
+POST /api/v1/contract/validate
+  Request: {field_path, new_value}
+  Policy: session_auth
+  Description: Validate a mutation without applying it
+
+GET /api/v1/contract/exists/<issue_number>
+  Query: ?repo_path=<path>
+  Policy: session_auth
+  Description: Check if a contract exists for an issue
+```
+
+**Role-based field ownership**: Mutations are validated against the caller's role:
+- `implementer`: Can modify `tasks[].commit`, `tasks[].notes`
+- `reviewer`: Can modify `tasks[].status`, `phases[].status`, `acceptance_criteria[].verified`
+- `human`: Can modify `decisions[].resolved` and all other fields
+
+Role is determined from workflow context (session metadata), not request body, preventing privilege escalation.
+
 ### Health
 
 ```
@@ -148,6 +181,8 @@ gateway/
 ├── phase_filter.py         # Phase-based operation filtering
 ├── phase_transition.py     # Phase transition validation
 ├── phase_api.py            # Phase API endpoints
+├── contract_api.py         # Contract API endpoints
+├── auth.py                 # Session authentication
 ├── token_refresher.py      # GitHub App token management
 ├── anthropic_credentials.py # Anthropic API key injection
 ├── worktree_manager.py     # Git worktree lifecycle
@@ -180,6 +215,7 @@ gateway/
 │   ├── test_phase_filter.py
 │   ├── test_phase_transition.py
 │   ├── test_phase_api.py
+│   ├── test_contract_api.py
 │   ├── integration_test.sh
 │   └── README-integration.md
 └── README.md               # This file
@@ -196,6 +232,8 @@ gateway/
 4. **Token source**: In-memory token refresh via `token_refresher.py`. Tokens are refreshed automatically 15 minutes before expiry.
 
 5. **Dual network modes**: Squid proxy controls outbound access. Private mode restricts to Anthropic API only; public mode allows all traffic.
+
+6. **Role-based contract mutations**: Contract field ownership is tied to roles (implementer, reviewer, human). Role is determined from workflow context via session metadata, not request body, preventing privilege escalation. The `egg_contracts` shared library provides Pydantic models and validation.
 
 ## Testing
 
