@@ -319,7 +319,24 @@ jobs:
 
               git add "$CONTRACT_PATH"
               git commit -m "Checkpoint state before timeout (${REMAINING_MINUTES}m remaining)" || true
-              git push origin "${BRANCH_NAME}" || true
+
+              # Retry push with rebase on conflict
+              MAX_RETRIES=3
+              for i in $(seq 1 $MAX_RETRIES); do
+                if git push origin "${BRANCH_NAME}"; then
+                  echo "Push succeeded"
+                  break
+                elif [[ $i -eq $MAX_RETRIES ]]; then
+                  echo "::warning::Checkpoint push failed after $MAX_RETRIES attempts"
+                  break
+                else
+                  echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
+                  git pull --rebase origin "${BRANCH_NAME}" || {
+                    echo "::warning::Rebase failed, checkpoint may be lost"
+                    break
+                  }
+                fi
+              done
             fi
           else
             echo "checkpointed=false" >> "$GITHUB_OUTPUT"
@@ -623,7 +640,7 @@ jobs:
           Please review the contract state and incomplete tasks, then provide guidance.
 
           --- Authored by egg"
-              gh issue label add "needs-human-intervention" --issue "${ISSUE_NUMBER}" 2>/dev/null || true
+              gh issue edit "${ISSUE_NUMBER}" --add-label "needs-human-intervention" 2>/dev/null || true
               ;;
             *)
               BODY="Pipeline check complete.

@@ -114,7 +114,7 @@ STUCK_PHASES=$(jq -r '
 
 log_info "Adding 'needs-human-intervention' label to issue #$ISSUE_NUMBER"
 
-gh issue label add "needs-human-intervention" --issue "$ISSUE_NUMBER" 2>/dev/null || {
+gh issue edit "$ISSUE_NUMBER" --add-label "needs-human-intervention" 2>/dev/null || {
     log_info "Label may already exist or could not be added"
 }
 
@@ -200,5 +200,31 @@ jq --arg ts "$TIMESTAMP" '
         "reason": "Circuit breaker opened - human intervention required"
     }]
 ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+
+# Commit and push the contract update
+cd "$REPO_PATH"
+git add "$CONTRACT_PATH"
+git commit -m "Record escalation trigger for issue #${ISSUE_NUMBER}" || {
+    log_info "No changes to commit or commit failed"
+}
+
+# Retry push with rebase on conflict
+BRANCH_NAME=$(git branch --show-current)
+MAX_RETRIES=3
+for i in $(seq 1 $MAX_RETRIES); do
+    if git push origin "$BRANCH_NAME"; then
+        log_info "Push succeeded"
+        break
+    elif [[ $i -eq $MAX_RETRIES ]]; then
+        log_error "Push failed after $MAX_RETRIES attempts"
+        break
+    else
+        log_info "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
+        git pull --rebase origin "$BRANCH_NAME" || {
+            log_error "Rebase failed, contract update may be lost"
+            break
+        }
+    fi
+done
 
 log_info "Escalation complete"

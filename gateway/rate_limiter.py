@@ -14,7 +14,7 @@ Design decisions:
 
 import sys
 import threading
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -338,9 +338,8 @@ class GitHubAPIRateTracker:
         self._lock = threading.Lock()
         # Track rate limits per resource type (core, search, graphql, etc.)
         self._limits: dict[str, GitHubRateLimitInfo] = {}
-        # Track rate limit events for logging
-        self._events: list[dict[str, Any]] = []
-        self._max_events = 100  # Keep last 100 events
+        # Track rate limit events for logging (use deque to avoid memory leak from list slicing)
+        self._events: deque[dict[str, Any]] = deque(maxlen=100)
 
     def update_from_headers(
         self,
@@ -420,10 +419,6 @@ class GitHubAPIRateTracker:
         }
         self._events.append(event)
 
-        # Trim old events
-        if len(self._events) > self._max_events:
-            self._events = self._events[-self._max_events :]
-
         # Log warning
         logger.warning(
             "GitHub API rate limit event",
@@ -441,10 +436,21 @@ class GitHubAPIRateTracker:
             resource: The rate limit resource
 
         Returns:
-            GitHubRateLimitInfo or None if not tracked
+            GitHubRateLimitInfo copy or None if not tracked
         """
         with self._lock:
-            return self._limits.get(resource)
+            info = self._limits.get(resource)
+            if info is None:
+                return None
+            # Return a copy to prevent external mutation (thread safety)
+            return GitHubRateLimitInfo(
+                limit=info.limit,
+                remaining=info.remaining,
+                reset_at=info.reset_at,
+                used=info.used,
+                resource=info.resource,
+                last_updated=info.last_updated,
+            )
 
     def is_rate_limited(self, resource: str = "core") -> bool:
         """
