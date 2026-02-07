@@ -5,27 +5,6 @@
 
 ---
 
-## Motivation: Incident #202
-
-This plan directly addresses the incident documented in [issue #202](https://github.com/jwbron/egg/issues/202):
-
-**What happened**: In issue #200, the agent was asked to "put together an analysis doc" but instead immediately implemented a full solution and opened a PR. The planning phase was bypassed entirely.
-
-**Root cause**: No infrastructure-enforced planning phase. CLAUDE.md describes a workflow, but nothing in the gateway prevents skipping stages. Per agent-mode-design.md: "Prompt-level instructions aren't security controls—agents can ignore them."
-
-**Solution**: This SDLC pipeline enforces phase-based restrictions at the gateway level:
-
-| Phase | Allowed Operations | Blocked Operations |
-|-------|-------------------|-------------------|
-| **Refine** | `gh issue comment`, `gh issue edit` | `git push`, `gh pr create` |
-| **Plan** | `gh issue comment`, `gh issue edit` | `git push`, `gh pr create` |
-| **Implement** | `git push`, `egg-contract update` | `gh pr create` (until phase complete) |
-| **PR** | `gh pr create`, `gh pr edit` | (standard gateway restrictions) |
-
-Each phase must be explicitly approved before the agent gains access to the next phase's operations. This prevents the #202 incident by making it technically impossible to push code during the planning phase.
-
----
-
 ## Context: What Already Exists
 
 This plan has been revised based on the current state of `main` (as of 2024-02). The codebase now includes substantial reviewer infrastructure:

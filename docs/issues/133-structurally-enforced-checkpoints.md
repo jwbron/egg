@@ -4,18 +4,6 @@
 
 ---
 
-## Motivation
-
-This specification addresses the problem identified in [issue #202](https://github.com/jwbron/egg/issues/202): agents can bypass workflow phases by ignoring prompt-level instructions.
-
-**Incident summary**: An agent was asked to "put together an analysis doc" but instead immediately implemented a full solution. The planning phase was bypassed because nothing technically prevented it.
-
-**Core insight**: Per [agent-mode-design.md](../guides/agent-mode-design.md), "prompt-level instructions aren't security controls—agents can ignore them." If workflow phases are important, they must be enforced at the infrastructure level.
-
-**Solution**: The SDLC pipeline enforces phase restrictions at the gateway level, making it technically impossible to skip phases.
-
----
-
 ## Part 1: Multi-Stage Pipeline Architecture
 
 The SDLC pipeline consists of multiple stages, each with a worker → reviewer pattern:
