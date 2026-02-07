@@ -82,7 +82,39 @@ class TestInitialReview:
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "456")
             assert "## Review Rules" in prompt
-            assert "Security issues" in prompt
+            assert "Security" in prompt
+
+    def test_emphasizes_thoroughness(self) -> None:
+        """Initial review emphasizes thorough, comprehensive review."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="456",
+                github_repository="owner/repo",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "456")
+            # Check for thoroughness emphasis
+            assert "thorough" in prompt.lower()
+            assert "ALL issues" in prompt or "all issues" in prompt.lower()
+            # Check for systematic review instructions
+            assert "every" in prompt.lower()
+            # Check for research/context instructions
+            assert "context" in prompt.lower()
+
+    def test_instructs_direct_feedback(self) -> None:
+        """Initial review instructs direct, unsoftened feedback."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="456",
+                github_repository="owner/repo",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "456")
+            assert "direct" in prompt.lower() or "Direct" in prompt
 
     def test_includes_review_conventions(self) -> None:
         """Initial review includes review conventions section."""
@@ -163,7 +195,7 @@ class TestReReview:
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "123")
             assert "Verify issues addressed" in prompt
-            assert "previous review have been addressed" in prompt
+            assert "previous review" in prompt
 
     def test_includes_focus_on_delta(self) -> None:
         """Re-review instructs to focus on the delta."""
@@ -177,8 +209,8 @@ class TestReReview:
 
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "123")
-            assert "Focus on the delta" in prompt
-            assert "not re-review unchanged code" in prompt
+            assert "Review the delta" in prompt
+            assert "changed since your last review" in prompt
 
     def test_includes_full_pr_context_fallback(self) -> None:
         """Re-review includes fallback to full PR diff if needed."""
@@ -194,6 +226,36 @@ class TestReReview:
             prompt = read_prompt_file(tmpdir, "123")
             assert "gh pr diff 123" in prompt
             assert "full pr context" in prompt.lower()
+
+    def test_rereview_emphasizes_thoroughness(self) -> None:
+        """Re-review also emphasizes thorough review of new changes."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            # Check for thoroughness emphasis
+            assert "thorough" in prompt.lower()
+            assert "ALL issues" in prompt or "all issues" in prompt.lower()
+
+    def test_rereview_instructs_direct_feedback(self) -> None:
+        """Re-review instructs direct, unsoftened feedback."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            assert "direct" in prompt.lower() or "Direct" in prompt
 
 
 class TestRequiredVariables:
