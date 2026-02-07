@@ -16,38 +16,28 @@ from flask import Blueprint, Response, g, jsonify, request
 try:
     from .auth import require_session_auth
     from .phase_filter import (
-        FilterResult,
         OperationType,
         PipelinePhase,
         filter_operation,
         get_phase_filter,
     )
     from .phase_transition import (
-        TransitionRequest,
-        TransitionResult,
         TransitionRole,
         can_transition_to,
-        create_audit_entry,
         get_next_phase,
-        validate_transition,
     )
 except ImportError:
     from auth import require_session_auth  # type: ignore[no-redef, import-not-found]
     from phase_filter import (  # type: ignore[no-redef, import-not-found]
-        FilterResult,
         OperationType,
         PipelinePhase,
         filter_operation,
         get_phase_filter,
     )
     from phase_transition import (  # type: ignore[no-redef, import-not-found]
-        TransitionRequest,
-        TransitionResult,
         TransitionRole,
         can_transition_to,
-        create_audit_entry,
         get_next_phase,
-        validate_transition,
     )
 
 # Add shared directory to path for egg_contracts

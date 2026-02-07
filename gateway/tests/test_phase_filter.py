@@ -12,18 +12,15 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
 import phase_filter
+import pytest
 from phase_filter import (
-    FilterResult,
     Operation,
     OperationType,
     PhaseFilter,
     PhasePermissions,
     PipelinePhase,
     filter_operation,
-    get_phase_filter,
     is_operation_blocked,
 )
 

@@ -8,10 +8,8 @@ Tests cover:
 - GET /api/v1/phase/permissions/<phase> - Get phase permissions
 """
 
-import json
 import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 

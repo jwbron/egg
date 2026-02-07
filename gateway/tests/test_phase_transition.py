@@ -8,19 +8,17 @@ Tests cover:
 - Audit entry generation
 """
 
-import pytest
-
+from phase_filter import PipelinePhase
 from phase_transition import (
+    VALID_TRANSITIONS,
     TransitionRequest,
     TransitionResult,
     TransitionRole,
-    VALID_TRANSITIONS,
     can_transition_to,
     create_audit_entry,
     get_next_phase,
     validate_transition,
 )
-from phase_filter import PipelinePhase
 
 
 class TestTransitionResult:
