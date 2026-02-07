@@ -112,7 +112,7 @@ jobs:
           else
             BODY="egg is investigating check failures for this PR..."
           fi
-          gh pr comment "${{ env.PR_NUMBER }}" --body "$BODY"
+          gh pr comment "${{ env.PR_NUMBER }}" --repo "${{ github.repository }}" --body "$BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
@@ -170,6 +170,6 @@ jobs:
             BODY="egg autofix encountered an issue. [View run logs](${RUN_URL})"
           fi
 
-          gh pr comment "${{ env.PR_NUMBER }}" --body "$BODY"
+          gh pr comment "${{ env.PR_NUMBER }}" --repo "${{ github.repository }}" --body "$BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
