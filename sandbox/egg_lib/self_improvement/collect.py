@@ -66,10 +66,10 @@ def truncate_logs(logs: str, max_chars: int = MAX_LOG_EXCERPT_CHARS) -> str:
 def partition_runs(
     runs: list[dict[str, Any]], max_runs: int = MAX_RUNS_PER_PARTITION
 ) -> list[list[dict[str, Any]]]:
-    """Partition failed run summaries into batches for separate egg instances.
+    """Partition run summaries into batches for separate egg instances.
 
     Args:
-        runs: List of failed run summaries
+        runs: List of run summaries (both failed and successful)
         max_runs: Maximum runs per partition
 
     Returns:
@@ -84,6 +84,51 @@ def partition_runs(
     return partitions
 
 
+def _build_run_summary(
+    run: Any, total_log_chars: int, max_total: int = MAX_TOTAL_LOG_CHARS
+) -> tuple[dict[str, Any], int]:
+    """Build a summary for a single run with log excerpt.
+
+    Args:
+        run: RunLog instance
+        total_log_chars: Current total log characters used
+        max_total: Maximum total log characters allowed
+
+    Returns:
+        Tuple of (summary dict, updated total_log_chars)
+    """
+    # Truncate individual run logs
+    log_excerpt = truncate_logs(run.logs)
+    logs_omitted = False
+
+    # Track total and potentially further truncate
+    if total_log_chars + len(log_excerpt) > max_total:
+        remaining = max_total - total_log_chars
+        if remaining > 500:  # Only include if we can fit meaningful content
+            log_excerpt = truncate_logs(run.logs, remaining)
+        else:
+            log_excerpt = "[logs omitted - total context limit reached]"
+            logs_omitted = True
+
+    total_log_chars += len(log_excerpt)
+
+    summary = {
+        "run_id": run.run_id,
+        "workflow": run.metadata.get("workflow", "unknown"),
+        "workflow_path": run.metadata.get("workflow_path", ""),
+        "trigger": run.trigger,
+        "status": run.status,
+        "started_at": run.started_at.isoformat(),
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+        "branch": run.metadata.get("head_branch", ""),
+        "url": run.metadata.get("html_url", ""),
+        "run_number": run.metadata.get("run_number", 0),
+        "log_excerpt": log_excerpt,
+        "logs_omitted": logs_omitted,
+    }
+    return summary, total_log_chars
+
+
 def collect_run_summary(collector: GHALogCollector, since: datetime) -> dict[str, Any]:
     """Collect a summary of runs for analysis.
 
@@ -96,57 +141,26 @@ def collect_run_summary(collector: GHALogCollector, since: datetime) -> dict[str
     """
     runs = collector.collect(since)
 
-    # Separate by status
+    # Separate by status for statistics
     failed_runs = [r for r in runs if r.status == "failure"]
     success_runs = [r for r in runs if r.status == "success"]
     other_runs = [r for r in runs if r.status not in ("success", "failure")]
 
-    # Build summaries for failed runs (with log excerpts)
-    failed_summaries = []
+    # Build summaries for ALL runs with log excerpts
+    # Failed runs first (highest priority), then successful runs
+    # We analyze all runs because even successful runs may have issues like tool call errors
+    all_run_summaries = []
     total_log_chars = 0
 
+    # Process failed runs first
     for run in failed_runs:
-        # Truncate individual run logs
-        log_excerpt = truncate_logs(run.logs)
-        logs_omitted = False
+        summary, total_log_chars = _build_run_summary(run, total_log_chars)
+        all_run_summaries.append(summary)
 
-        # Track total and potentially further truncate
-        if total_log_chars + len(log_excerpt) > MAX_TOTAL_LOG_CHARS:
-            remaining = MAX_TOTAL_LOG_CHARS - total_log_chars
-            if remaining > 500:  # Only include if we can fit meaningful content
-                log_excerpt = truncate_logs(run.logs, remaining)
-            else:
-                log_excerpt = "[logs omitted - total context limit reached]"
-                logs_omitted = True
-
-        total_log_chars += len(log_excerpt)
-
-        summary = {
-            "run_id": run.run_id,
-            "workflow": run.metadata.get("workflow", "unknown"),
-            "workflow_path": run.metadata.get("workflow_path", ""),
-            "trigger": run.trigger,
-            "started_at": run.started_at.isoformat(),
-            "completed_at": run.completed_at.isoformat() if run.completed_at else None,
-            "branch": run.metadata.get("head_branch", ""),
-            "url": run.metadata.get("html_url", ""),
-            "run_number": run.metadata.get("run_number", 0),
-            "log_excerpt": log_excerpt,
-            "logs_omitted": logs_omitted,
-        }
-        failed_summaries.append(summary)
-
-    # Build lightweight summaries for successful runs (no logs)
-    success_summaries = []
+    # Process successful runs (they may still have issues worth investigating)
     for run in success_runs:
-        summary = {
-            "run_id": run.run_id,
-            "workflow": run.metadata.get("workflow", "unknown"),
-            "trigger": run.trigger,
-            "started_at": run.started_at.isoformat(),
-            "url": run.metadata.get("html_url", ""),
-        }
-        success_summaries.append(summary)
+        summary, total_log_chars = _build_run_summary(run, total_log_chars)
+        all_run_summaries.append(summary)
 
     return {
         "collected_at": datetime.now(UTC).isoformat(),
@@ -159,8 +173,11 @@ def collect_run_summary(collector: GHALogCollector, since: datetime) -> dict[str
             "other_runs": len(other_runs),
             "workflows_analyzed": EGG_WORKFLOWS,
         },
-        "failed_runs": failed_summaries,
-        "successful_runs": success_summaries,
+        # All runs to analyze (failed + successful, with log excerpts)
+        "runs_to_analyze": all_run_summaries,
+        # Keep these for backwards compatibility and statistics display
+        "failed_runs": [r for r in all_run_summaries if r["status"] == "failure"],
+        "successful_runs": [r for r in all_run_summaries if r["status"] == "success"],
     }
 
 
@@ -191,18 +208,23 @@ def format_markdown_summary(data: dict[str, Any]) -> str:
     lines.append(f"- Other (cancelled/running): {stats['other_runs']}")
     lines.append("")
 
-    if data["failed_runs"]:
-        lines.append("### Failed Runs (with log excerpts)")
+    # Get all runs to analyze
+    runs_to_analyze = data.get("runs_to_analyze", data.get("failed_runs", []))
+
+    if runs_to_analyze:
+        lines.append("### Runs to Analyze (with log excerpts)")
         lines.append("")
         lines.append(
-            "The following runs failed. Log excerpts are included below. "
-            "Use `gh run view <run_id> --log` for full logs if needed."
+            "All runs are included below with log excerpts. Even successful runs may have "
+            "issues like tool call errors. Use `gh run view <run_id> --log` for full logs if needed."
         )
         lines.append("")
 
-        for run in data["failed_runs"]:
-            lines.append(f"#### Run {run['run_id']}: {run['workflow']}")
+        for run in runs_to_analyze:
+            status_emoji = "❌" if run.get("status") == "failure" else "✅"
+            lines.append(f"#### {status_emoji} Run {run['run_id']}: {run['workflow']}")
             lines.append("")
+            lines.append(f"- **Status:** {run.get('status', 'unknown')}")
             lines.append(f"- **Trigger:** {run['trigger']}")
             lines.append(f"- **Branch:** {run['branch']}")
             lines.append(f"- **Started:** {run['started_at']}")
@@ -222,25 +244,9 @@ def format_markdown_summary(data: dict[str, Any]) -> str:
             lines.append("</details>")
             lines.append("")
     else:
-        lines.append("### No Failed Runs")
+        lines.append("### No Runs to Analyze")
         lines.append("")
-        lines.append(
-            "No failed runs found in the analysis window. All egg workflows completed successfully."
-        )
-        lines.append("")
-
-    if data["successful_runs"]:
-        lines.append("### Successful Runs (for reference)")
-        lines.append("")
-        lines.append("| Run ID | Workflow | Trigger | Started |")
-        lines.append("|--------|----------|---------|---------|")
-        for run in data["successful_runs"][:10]:  # Limit to 10
-            lines.append(
-                f"| {run['run_id']} | {run['workflow']} | "
-                f"{run['trigger']} | {run['started_at'][:16]} |"
-            )
-        if len(data["successful_runs"]) > 10:
-            lines.append(f"| ... | ({len(data['successful_runs']) - 10} more) | ... | ... |")
+        lines.append("No runs found in the analysis window.")
         lines.append("")
 
     return "\n".join(lines)
@@ -252,10 +258,10 @@ def format_partition_markdown(
     total_partitions: int,
     base_data: dict[str, Any],
 ) -> str:
-    """Format a single partition of failed runs as markdown.
+    """Format a single partition of runs as markdown.
 
     Args:
-        partition: List of failed run summaries for this partition
+        partition: List of run summaries for this partition (failed and successful)
         partition_index: 0-based index of this partition
         total_partitions: Total number of partitions
         base_data: Original collected data (for metadata and stats)
@@ -266,6 +272,10 @@ def format_partition_markdown(
     lines = []
     stats = base_data["statistics"]
 
+    # Count failed/successful in this partition
+    failed_in_partition = len([r for r in partition if r.get("status") == "failure"])
+    success_in_partition = len([r for r in partition if r.get("status") == "success"])
+
     lines.append("## Pre-Collected Run Data")
     lines.append("")
     lines.append(f"**Repository:** {base_data['repository']}")
@@ -273,7 +283,7 @@ def format_partition_markdown(
     lines.append(f"**Collected at:** {base_data['collected_at']}")
     lines.append(
         f"**Partition:** {partition_index + 1} of {total_partitions} "
-        f"({len(partition)} runs in this batch)"
+        f"({len(partition)} runs in this batch: {failed_in_partition} failed, {success_in_partition} successful)"
     )
     lines.append("")
 
@@ -281,22 +291,24 @@ def format_partition_markdown(
     lines.append("")
     lines.append(f"- Total runs analyzed: {stats['total_runs']}")
     lines.append(f"- Total failed runs: {stats['failed_runs']}")
-    lines.append(f"- Successful runs: {stats['successful_runs']}")
+    lines.append(f"- Total successful runs: {stats['successful_runs']}")
     lines.append(f"- Other (cancelled/running): {stats['other_runs']}")
     lines.append("")
 
-    lines.append("### Failed Runs in This Batch")
+    lines.append("### Runs in This Batch")
     lines.append("")
     lines.append(
-        f"This batch contains {len(partition)} of {stats['failed_runs']} total failed runs. "
-        "Log excerpts are included below. "
+        f"This batch contains {len(partition)} of {stats['total_runs']} total runs. "
+        "Log excerpts are included below. Even successful runs may have issues like tool call errors. "
         "Use `gh run view <run_id> --log` for full logs if needed."
     )
     lines.append("")
 
     for run in partition:
-        lines.append(f"#### Run {run['run_id']}: {run['workflow']}")
+        status_emoji = "❌" if run.get("status") == "failure" else "✅"
+        lines.append(f"#### {status_emoji} Run {run['run_id']}: {run['workflow']}")
         lines.append("")
+        lines.append(f"- **Status:** {run.get('status', 'unknown')}")
         lines.append(f"- **Trigger:** {run['trigger']}")
         lines.append(f"- **Branch:** {run['branch']}")
         lines.append(f"- **Started:** {run['started_at']}")
@@ -390,10 +402,12 @@ def main() -> int:
 
     # Handle partitioned output
     if args.partition:
-        partitions = partition_runs(data["failed_runs"], args.max_runs_per_partition)
+        # Partition all runs (failed + successful) for analysis
+        # Even successful runs may have issues like tool call errors
+        partitions = partition_runs(data["runs_to_analyze"], args.max_runs_per_partition)
 
         if not partitions:
-            # No failed runs, output summary indicating this
+            # No runs to analyze, output summary indicating this
             output = format_markdown_summary(data)
             if args.output:
                 # Write a single file with partition count = 0

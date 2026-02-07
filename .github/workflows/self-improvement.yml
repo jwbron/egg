@@ -93,9 +93,12 @@ jobs:
             cat > "${PROMPT_FILE}" << 'PROMPT_EOF'
           # Self-Improvement Analysis Task
 
-          Analyze the failed GitHub Actions runs assigned to this batch. This is part of
+          Analyze the GitHub Actions runs assigned to this batch. This is part of
           a partitioned analysis - you are responsible for analyzing the runs in this batch
           and creating issues for any problems you identify.
+
+          **Important:** Analyze ALL runs, not just failed ones. Even successful runs may
+          contain issues like tool call errors, warnings, or patterns worth investigating.
 
           ## Pre-Collected Data
 
@@ -115,7 +118,9 @@ jobs:
 
           1. Review the pre-collected run data above to understand what happened
           2. For runs that need deeper analysis, use `gh run view <run-id> --log`
-          3. Identify problems in the runs assigned to this batch
+          3. Identify problems in ALL runs assigned to this batch (failed AND successful)
+             - Failed runs: Look for root causes and patterns
+             - Successful runs: Look for tool call errors, warnings, retries, or concerning patterns
           4. For issues that warrant tracking, create GitHub issues with:
              - Clear description of the problem
              - Evidence from the logs
@@ -140,14 +145,17 @@ jobs:
           - Authentication or credential issues
           - API rate limiting
           - Infrastructure problems (Docker, network, etc.)
-          - Recurring tool failures
+          - Recurring tool failures (even in successful runs)
+          - Tool call errors that were retried or worked around
           - Patterns that suggest code or configuration problems
+          - Warnings or deprecation notices
 
           Use your judgment about what's worth creating an issue for. A single transient
           failure may not need an issue, but a pattern across multiple runs does.
 
-          A run that *successfully debugged and fixed an error* contains "error" many times
-          but isn't a failure - look at the run conclusion, not just log content.
+          Note: A "successful" run may still have issues worth tracking. Look for tool
+          errors that were retried, warnings, or suboptimal behavior even if the run
+          ultimately succeeded.
           PROMPT_EOF
 
             # Add dry run instruction if applicable
@@ -207,7 +215,7 @@ jobs:
             partitions/
           retention-days: 1
 
-      - name: Report no failures
+      - name: Report no runs
         if: fromJSON(steps.collect.outputs.partition_count) == 0
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -215,7 +223,7 @@ jobs:
             echo ""
             echo "## Result"
             echo ""
-            echo "ℹ️ No failed runs to analyze. [View logs](${RUN_URL})"
+            echo "ℹ️ No runs to analyze in the specified time window. [View logs](${RUN_URL})"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # Job 2: Run egg instances dynamically based on partition count

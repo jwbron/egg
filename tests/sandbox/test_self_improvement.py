@@ -333,21 +333,29 @@ class TestCollect:
         assert "statistics" in result
         assert "failed_runs" in result
         assert "successful_runs" in result
+        assert "runs_to_analyze" in result
 
         # Check statistics
         assert result["statistics"]["total_runs"] == 2
         assert result["statistics"]["failed_runs"] == 1
         assert result["statistics"]["successful_runs"] == 1
 
-        # Check failed run details
+        # Check runs_to_analyze includes all runs with log excerpts
+        assert len(result["runs_to_analyze"]) == 2
+        # Failed runs come first
+        assert result["runs_to_analyze"][0]["run_id"] == "123"
+        assert result["runs_to_analyze"][0]["status"] == "failure"
+        assert "log_excerpt" in result["runs_to_analyze"][0]
+        # Successful runs have log excerpts too (for analyzing tool errors)
+        assert result["runs_to_analyze"][1]["run_id"] == "456"
+        assert result["runs_to_analyze"][1]["status"] == "success"
+        assert "log_excerpt" in result["runs_to_analyze"][1]
+
+        # Check failed_runs and successful_runs are still present (backwards compat)
         assert len(result["failed_runs"]) == 1
         assert result["failed_runs"][0]["run_id"] == "123"
-        assert "log_excerpt" in result["failed_runs"][0]
-
-        # Check successful run (no logs)
         assert len(result["successful_runs"]) == 1
         assert result["successful_runs"][0]["run_id"] == "456"
-        assert "log_excerpt" not in result["successful_runs"][0]
 
     @patch.object(GHALogCollector, "collect")
     def test_collect_run_summary_empty(self, mock_collect: MagicMock):
@@ -362,6 +370,7 @@ class TestCollect:
         assert result["statistics"]["failed_runs"] == 0
         assert result["failed_runs"] == []
         assert result["successful_runs"] == []
+        assert result["runs_to_analyze"] == []
 
     @patch.object(GHALogCollector, "collect")
     def test_format_markdown_summary_with_failures(self, mock_collect: MagicMock):
@@ -394,14 +403,28 @@ class TestCollect:
         # Check key sections are present
         assert "## Pre-Collected Run Data" in markdown
         assert "### Statistics" in markdown
-        assert "### Failed Runs" in markdown
+        assert "### Runs to Analyze" in markdown
         assert "Run 123" in markdown
         assert "on-mention.yml" in markdown
         assert "gateway connection failed" in markdown
+        # Failed runs should have failure emoji
+        assert "❌" in markdown
 
     @patch.object(GHALogCollector, "collect")
-    def test_format_markdown_summary_no_failures(self, mock_collect: MagicMock):
-        """format_markdown_summary indicates when no failures."""
+    def test_format_markdown_summary_no_runs(self, mock_collect: MagicMock):
+        """format_markdown_summary indicates when no runs to analyze."""
+        mock_collect.return_value = []
+
+        collector = GHALogCollector(repo="test/repo")
+        since = datetime.now(UTC) - timedelta(hours=1)
+        data = collect_run_summary(collector, since)
+        markdown = format_markdown_summary(data)
+
+        assert "### No Runs to Analyze" in markdown
+
+    @patch.object(GHALogCollector, "collect")
+    def test_format_markdown_summary_includes_successful_runs(self, mock_collect: MagicMock):
+        """format_markdown_summary includes successful runs with log excerpts."""
         now = datetime.now(UTC)
         mock_collect.return_value = [
             RunLog(
@@ -411,8 +434,12 @@ class TestCollect:
                 completed_at=now,
                 status="success",
                 trigger="push",
-                logs="All good",
-                metadata={"workflow": "on-pull-request.yml"},
+                logs="Tool error: retry succeeded",
+                metadata={
+                    "workflow": "on-pull-request.yml",
+                    "head_branch": "main",
+                    "html_url": "https://github.com/test/repo/actions/runs/456",
+                },
             ),
         ]
 
@@ -421,8 +448,11 @@ class TestCollect:
         data = collect_run_summary(collector, since)
         markdown = format_markdown_summary(data)
 
-        assert "### No Failed Runs" in markdown
-        assert "All egg workflows completed successfully" in markdown
+        # Successful runs should be included with their logs
+        assert "Run 456" in markdown
+        assert "retry succeeded" in markdown
+        # Success runs should have success emoji
+        assert "✅" in markdown
 
     def test_self_improvement_workflow_in_egg_workflows(self):
         """self-improvement.yml is included in EGG_WORKFLOWS for self-reflection."""
@@ -432,7 +462,7 @@ class TestCollect:
     def test_collect_run_summary_logs_omitted_flag(self, mock_collect: MagicMock):
         """collect_run_summary sets logs_omitted flag when context limit reached."""
         now = datetime.now(UTC)
-        # Create many failed runs with large logs to trigger context limit
+        # Create many runs with large logs to trigger context limit
         # Each run has 20k chars, truncated to ~3.4k per run after truncation message
         # After ~15 runs we exceed MAX_TOTAL_LOG_CHARS (50k), later runs get omitted
         mock_collect.return_value = [
@@ -458,10 +488,10 @@ class TestCollect:
         result = collect_run_summary(collector, since)
 
         # Early runs should have logs_omitted=False
-        assert result["failed_runs"][0]["logs_omitted"] is False
+        assert result["runs_to_analyze"][0]["logs_omitted"] is False
 
         # At least one later run should have logs_omitted=True
-        omitted_runs = [r for r in result["failed_runs"] if r["logs_omitted"]]
+        omitted_runs = [r for r in result["runs_to_analyze"] if r["logs_omitted"]]
         assert len(omitted_runs) > 0
 
     @patch.object(GHALogCollector, "collect")
@@ -547,6 +577,7 @@ class TestPartitioning:
             {
                 "run_id": "123",
                 "workflow": "test.yml",
+                "status": "failure",
                 "trigger": "push",
                 "branch": "main",
                 "started_at": "2024-01-01T00:00:00Z",
@@ -573,6 +604,8 @@ class TestPartitioning:
         assert "1 runs in this batch" in result
         assert "Run 123" in result
         assert "Total failed runs: 3" in result
+        # Should include status emoji for failed run
+        assert "❌" in result
 
     def test_format_partition_markdown_shows_logs_omitted(self):
         """format_partition_markdown shows warning for omitted logs."""
@@ -580,6 +613,7 @@ class TestPartitioning:
             {
                 "run_id": "456",
                 "workflow": "test.yml",
+                "status": "failure",
                 "trigger": "push",
                 "branch": "main",
                 "started_at": "2024-01-01T00:00:00Z",
@@ -609,16 +643,16 @@ class TestPartitioning:
     def test_collect_run_summary_with_partitioning(self, mock_collect: MagicMock):
         """Collected runs can be partitioned correctly."""
         now = datetime.now(UTC)
-        # Create 7 failed runs
+        # Create 7 runs (mix of failed and successful)
         mock_collect.return_value = [
             RunLog(
                 run_id=str(i),
                 source="gha",
                 started_at=now,
                 completed_at=now,
-                status="failure",
+                status="failure" if i % 2 == 0 else "success",
                 trigger="push",
-                logs=f"Error in run {i}",
+                logs=f"Log content for run {i}",
                 metadata={
                     "workflow": "test.yml",
                     "head_branch": "main",
@@ -632,10 +666,60 @@ class TestPartitioning:
         since = now - timedelta(hours=1)
         data = collect_run_summary(collector, since)
 
-        # Partition the failed runs
-        partitions = partition_runs(data["failed_runs"], max_runs=3)
+        # Partition all runs (failed come first, then successful)
+        partitions = partition_runs(data["runs_to_analyze"], max_runs=3)
 
         assert len(partitions) == 3
         assert len(partitions[0]) == 3
         assert len(partitions[1]) == 3
         assert len(partitions[2]) == 1
+
+    @patch.object(GHALogCollector, "collect")
+    def test_runs_to_analyze_order_failed_first(self, mock_collect: MagicMock):
+        """runs_to_analyze has failed runs before successful runs."""
+        now = datetime.now(UTC)
+        mock_collect.return_value = [
+            RunLog(
+                run_id="success1",
+                source="gha",
+                started_at=now,
+                completed_at=now,
+                status="success",
+                trigger="push",
+                logs="Success log",
+                metadata={"workflow": "test.yml"},
+            ),
+            RunLog(
+                run_id="failure1",
+                source="gha",
+                started_at=now,
+                completed_at=now,
+                status="failure",
+                trigger="push",
+                logs="Failure log",
+                metadata={"workflow": "test.yml"},
+            ),
+            RunLog(
+                run_id="success2",
+                source="gha",
+                started_at=now,
+                completed_at=now,
+                status="success",
+                trigger="push",
+                logs="Success log 2",
+                metadata={"workflow": "test.yml"},
+            ),
+        ]
+
+        collector = GHALogCollector(repo="test/repo")
+        since = now - timedelta(hours=1)
+        data = collect_run_summary(collector, since)
+
+        # Failed runs should come first
+        assert data["runs_to_analyze"][0]["run_id"] == "failure1"
+        assert data["runs_to_analyze"][0]["status"] == "failure"
+        # Then successful runs
+        assert data["runs_to_analyze"][1]["run_id"] == "success1"
+        assert data["runs_to_analyze"][1]["status"] == "success"
+        assert data["runs_to_analyze"][2]["run_id"] == "success2"
+        assert data["runs_to_analyze"][2]["status"] == "success"
