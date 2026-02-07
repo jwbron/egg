@@ -208,13 +208,10 @@ contract_api = _load_module_with_replaced_imports(
     },
 )
 
-# phase_filter imports from error_messages
+# phase_filter has no relative imports to other gateway modules
 phase_filter = _load_module_with_replaced_imports(
     "phase_filter",
     GATEWAY_DIR / "phase_filter.py",
-    import_replacements={
-        "from .error_messages import": "from error_messages import",
-    },
 )
 
 # phase_transition imports from phase_filter

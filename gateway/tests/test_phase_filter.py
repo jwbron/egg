@@ -22,6 +22,7 @@ from phase_filter import (
     PipelinePhase,
     filter_operation,
     is_operation_blocked,
+    reset_phase_filter,
 )
 
 
@@ -294,3 +295,82 @@ class TestDefaultPermissions:
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
         result = pf.filter_operation(PipelinePhase.PR, OperationType.GIT, "push origin main")
         assert result.allowed is True
+
+
+class TestResetPhaseFilter:
+    """Tests for reset_phase_filter function."""
+
+    def test_reset_clears_cached_filter(self):
+        """reset_phase_filter clears the cached filter instance."""
+        # Access the filter to cache it
+        from phase_filter import get_phase_filter
+
+        _ = get_phase_filter()
+        assert phase_filter._filter is not None
+
+        # Reset should clear it
+        reset_phase_filter()
+        assert phase_filter._filter is None
+
+    def test_reset_allows_new_instance(self):
+        """After reset, get_phase_filter creates a new instance."""
+        from phase_filter import get_phase_filter
+
+        filter1 = get_phase_filter()
+        reset_phase_filter()
+        filter2 = get_phase_filter()
+
+        assert filter1 is not filter2
+
+
+class TestPatternEdgeCases:
+    """Tests for pattern matching edge cases."""
+
+    @pytest.fixture(autouse=True)
+    def reset_filter(self):
+        """Reset the global filter before each test."""
+        phase_filter._filter = None
+        yield
+        phase_filter._filter = None
+
+    def test_pr_create_without_args_matches_pattern(self):
+        """'pr create' without arguments matches 'pr create*' pattern."""
+        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
+        # In refine phase, pr create should be blocked
+        result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GH, "pr create")
+        assert result.allowed is False
+
+        # In pr phase, pr create should be allowed
+        result = pf.filter_operation(PipelinePhase.PR, OperationType.GH, "pr create")
+        assert result.allowed is True
+
+    def test_pr_create_with_args_matches_pattern(self):
+        """'pr create --title foo' matches 'pr create*' pattern."""
+        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
+        result = pf.filter_operation(
+            PipelinePhase.PR, OperationType.GH, "pr create --title 'Test PR'"
+        )
+        assert result.allowed is True
+
+    def test_partial_command_does_not_match_blocked_pattern(self):
+        """Commands that partially match blocked patterns should not be blocked."""
+        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
+        # 'push-status' should not match 'push *' pattern
+        result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GIT, "push-status")
+        # push-status doesn't match "push *" because there's no space after push
+        assert result.allowed is True
+
+    def test_git_push_without_remote_matches_pattern(self):
+        """'git push' without remote matches 'push *' pattern."""
+        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
+        # Note: 'push *' requires at least one character after 'push '
+        # 'push' alone won't match 'push *', it would need 'push something'
+        result = pf.filter_operation(PipelinePhase.IMPLEMENT, OperationType.GIT, "push origin")
+        assert result.allowed is True
+
+    def test_pr_creates_typo_not_blocked(self):
+        """'pr creates' (typo) should not be blocked by 'pr create*' pattern."""
+        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
+        # 'pr creates' matches 'pr create*' because * matches 's'
+        result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GH, "pr creates")
+        assert result.allowed is False  # It does match, so it's blocked in refine

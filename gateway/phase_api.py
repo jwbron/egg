@@ -73,6 +73,44 @@ logger = get_logger("gateway.phase")
 # Blueprint for phase endpoints
 phase_bp = Blueprint("phase", __name__, url_prefix="/api/v1/phase")
 
+# Allowed base paths for repository access
+# In production, contracts should be in the worktree directory or /app
+ALLOWED_REPO_BASES = [
+    Path("/app"),
+    Path("/home/egg/repos"),
+    Path.home() / "repos",
+]
+
+
+def validate_repo_path(repo_path: Path) -> tuple[bool, str]:
+    """Validate that a repo path is within allowed directories.
+
+    Args:
+        repo_path: The repository path to validate
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    try:
+        resolved = repo_path.resolve()
+    except (OSError, ValueError) as e:
+        return False, f"Invalid path: {e}"
+
+    # Allow current directory (.)
+    if repo_path == Path("."):
+        return True, ""
+
+    # Check if path is within any allowed base
+    for base in ALLOWED_REPO_BASES:
+        try:
+            resolved_base = base.resolve()
+            if resolved_base.exists() and resolved.is_relative_to(resolved_base):
+                return True, ""
+        except (OSError, ValueError):
+            continue
+
+    return False, f"Path '{repo_path}' is not within allowed directories"
+
 
 def get_role_from_context() -> TransitionRole | None:
     """Get the agent role from workflow context.
@@ -167,6 +205,12 @@ def advance_phase() -> tuple[Response, int]:
         return make_phase_error("Missing issue_number")
 
     repo_path = Path(data.get("repo_path", "."))
+
+    # Validate repo_path to prevent path traversal
+    is_valid, error = validate_repo_path(repo_path)
+    if not is_valid:
+        return make_phase_error(error, status_code=400)
+
     reason = data.get("reason")
     actor = data.get("actor", "agent")
 
@@ -312,6 +356,11 @@ def filter_phase_operation() -> tuple[Response, int]:
 
     repo_path = Path(data.get("repo_path", "."))
 
+    # Validate repo_path to prevent path traversal
+    is_valid, error = validate_repo_path(repo_path)
+    if not is_valid:
+        return make_phase_error(error, status_code=400)
+
     # Validate operation type
     try:
         op_type = OperationType(operation_type)
@@ -346,7 +395,7 @@ def filter_phase_operation() -> tuple[Response, int]:
             data={"allowed": True, "phase": current_phase.value},
         )
     else:
-        logger.info(
+        logger.warning(
             "Operation blocked by phase filter",
             issue=issue_number,
             phase=current_phase.value,
@@ -382,6 +431,11 @@ def get_current_phase(issue_number: int) -> tuple[Response, int]:
         {"success": true, "data": {"phase": "implement", "exit_requires": "reviewer"}}
     """
     repo_path = Path(request.args.get("repo_path", "."))
+
+    # Validate repo_path to prevent path traversal
+    is_valid, error = validate_repo_path(repo_path)
+    if not is_valid:
+        return make_phase_error(error, status_code=400)
 
     try:
         contract = load_contract(issue_number, repo_path)

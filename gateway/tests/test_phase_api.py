@@ -455,3 +455,168 @@ class TestGetRoleFromContext:
             role = phase_api.get_role_from_context()
 
         assert role is None
+
+
+# ---------------------------------------------------------------------------
+# Path traversal security tests
+# ---------------------------------------------------------------------------
+
+
+class TestPathTraversalProtection:
+    """Tests for path traversal attack prevention."""
+
+    def test_advance_phase_path_traversal_rejected(self, client, auth_headers):
+        """Path traversal in advance phase is rejected."""
+        response = client.post(
+            "/api/v1/phase/advance",
+            headers=auth_headers,
+            json={
+                "issue_number": 123,
+                "repo_path": "../../../etc",
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["success"] is False
+        assert "not within allowed" in data["message"].lower() or "path" in data["message"].lower()
+
+    def test_advance_phase_absolute_path_outside_allowed(self, client, auth_headers):
+        """Absolute path outside allowed directories is rejected."""
+        response = client.post(
+            "/api/v1/phase/advance",
+            headers=auth_headers,
+            json={
+                "issue_number": 123,
+                "repo_path": "/etc/passwd",
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["success"] is False
+
+    def test_filter_path_traversal_rejected(self, client, auth_headers):
+        """Path traversal in filter endpoint is rejected."""
+        response = client.post(
+            "/api/v1/phase/filter",
+            headers=auth_headers,
+            json={
+                "issue_number": 123,
+                "repo_path": "../../..",
+                "operation_type": "git",
+                "command": "push origin main",
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["success"] is False
+
+    def test_current_phase_path_traversal_rejected(self, client, auth_headers):
+        """Path traversal in current phase endpoint is rejected."""
+        response = client.get(
+            "/api/v1/phase/current/123?repo_path=../../../etc",
+            headers=auth_headers,
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["success"] is False
+
+    def test_allowed_repo_path_accepted(self, client, auth_headers, mock_contract):
+        """Allowed repo path (current directory) is accepted."""
+        with patch("phase_api.load_contract", return_value=mock_contract):
+            response = client.get(
+                "/api/v1/phase/current/123?repo_path=.",
+                headers=auth_headers,
+            )
+        assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Integration test for reviewer advancing implement→PR
+# ---------------------------------------------------------------------------
+
+
+class TestReviewerPhaseTransitionIntegration:
+    """Integration tests for reviewer phase transitions.
+
+    These tests use real contract mutations (not mocked) to verify
+    that reviewer can actually advance from implement to PR phase.
+    """
+
+    def test_reviewer_can_advance_implement_to_pr(self, client):
+        """Reviewer can advance from implement to PR phase with real mutation."""
+        import tempfile
+
+        from egg_contracts import save_contract
+        from egg_contracts.models import Contract, IssueInfo, PipelinePhase
+
+        # Create a contract in implement phase
+        contract = Contract(
+            schemaVersion="1.0",
+            issue=IssueInfo(
+                number=999,
+                title="Test Issue",
+                url="https://github.com/test/repo/issues/999",
+            ),
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+
+        # Save to temp directory
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            save_contract(contract, tmppath)
+
+            # Create a session with reviewer role
+            mock_session = MagicMock()
+            mock_session.mode = "public"
+            mock_session.container_id = "test-container"
+            mock_session.expires_at = None
+            mock_session.agent_role = "reviewer"
+
+            mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+            from private_repo_policy import PrivateRepoPolicyResult
+
+            mock_policy_result = PrivateRepoPolicyResult(
+                allowed=True,
+                reason="Test mode",
+                visibility="public",
+            )
+
+            auth._session_manager = None
+            auth._rate_limiter = None
+
+            current_session_manager = sys.modules.get("session_manager", session_manager)
+
+            # Patch the allowed paths to include our temp directory
+            with (
+                patch.object(
+                    current_session_manager,
+                    "validate_session_for_request",
+                    return_value=mock_result,
+                ),
+                patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+                patch.object(
+                    phase_api, "ALLOWED_REPO_BASES", [Path(tmpdir), Path("/app"), Path.home() / "repos"]
+                ),
+            ):
+                response = client.post(
+                    "/api/v1/phase/advance",
+                    headers={"Authorization": "Bearer test-token"},
+                    json={
+                        "issue_number": 999,
+                        "repo_path": tmpdir,
+                        "reason": "Implementation complete",
+                    },
+                )
+
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.get_json()}"
+            data = response.get_json()
+            assert data["success"] is True
+            assert data["data"]["from_phase"] == "implement"
+            assert data["data"]["to_phase"] == "pr"
+
+            # Verify the contract was actually updated
+            from egg_contracts import load_contract
+
+            updated_contract = load_contract(999, tmppath)
+            assert updated_contract.current_phase == PipelinePhase.PR

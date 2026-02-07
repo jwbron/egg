@@ -25,7 +25,11 @@ class OperationType(StrEnum):
 
 
 class PipelinePhase(StrEnum):
-    """Pipeline phases."""
+    """Pipeline phases.
+
+    Note: This duplicates egg_contracts.models.PipelinePhase to avoid import
+    complexity in the gateway module. Values must be kept in sync.
+    """
 
     REFINE = "refine"
     PLAN = "plan"
@@ -227,7 +231,7 @@ class PhaseFilter:
             ),
             PipelinePhase.PR: PhasePermissions(
                 allowed_operations=[
-                    Operation(OperationType.GH, "pr create *", "Create PRs"),
+                    Operation(OperationType.GH, "pr create*", "Create PRs"),
                     Operation(OperationType.GH, "pr edit *", "Edit PRs"),
                     Operation(OperationType.GIT, "push *", "Push code"),
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
@@ -365,6 +369,17 @@ def get_phase_filter() -> PhaseFilter:
     if _filter is None:
         _filter = PhaseFilter()
     return _filter
+
+
+def reset_phase_filter() -> None:
+    """Reset the global PhaseFilter instance.
+
+    This clears the cached filter, causing the next call to get_phase_filter()
+    to create a fresh instance. Useful for testing and when configuration
+    files are updated.
+    """
+    global _filter
+    _filter = None
 
 
 def filter_operation(
