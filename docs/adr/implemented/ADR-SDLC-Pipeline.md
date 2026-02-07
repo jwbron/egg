@@ -1,6 +1,6 @@
 # ADR: Structurally Enforced SDLC Pipeline for Autonomous Agents
 
-**Status:** In Progress
+**Status:** Implemented
 **Date:** 2026-02-07
 
 ---
@@ -8,6 +8,8 @@
 ## Executive Summary
 
 This document describes the architecture for structurally enforced agent checkpoints and verification gates in the egg autonomous software engineering system. The SDLC (Software Development Lifecycle) Pipeline ensures that agents follow a defined workflow with mandatory review points, preventing uncontrolled execution and ensuring human oversight.
+
+For operational details, CLI commands, and triggering instructions, see the [SDLC Pipeline Guide](../../guides/sdlc-pipeline.md).
 
 **The core guarantee**: An agent cannot bypass verification gates or self-approve its own work. All state transitions are enforced structurally through role-based mutations and gateway policy enforcement.
 
@@ -341,7 +343,7 @@ Long-running jobs checkpoint state before timeout:
 
 ## Implementation Status
 
-### Completed
+All components have been implemented:
 
 - [x] Contract JSON schema
 - [x] Pydantic models for contracts
@@ -357,11 +359,7 @@ Long-running jobs checkpoint state before timeout:
 - [x] Circuit breaker logic
 - [x] External failure handling
 - [x] Integration tests
-
-### Remaining
-
-- [ ] E2E testing with real agent execution
-- [ ] Documentation updates
+- [x] Documentation (this ADR + [operational guide](../../guides/sdlc-pipeline.md))
 
 ---
 
