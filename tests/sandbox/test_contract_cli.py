@@ -22,6 +22,7 @@ from egg_lib.contract_cli import (
     main,
     parse_phase_id,
     parse_task_id,
+    validate_commit_sha,
 )
 
 
@@ -409,7 +410,60 @@ class TestErrorPaths:
     def test_add_commit_no_issue_number(self, capsys):
         """Test add-commit without issue number."""
         with patch.dict("os.environ", {}, clear=True):
-            result = main(["add-commit", "--task", "task-1", "--commit", "abc123"])
+            result = main(["add-commit", "--task", "task-1", "--commit", "abc1234"])
         assert result == 1
         captured = capsys.readouterr()
         assert "Issue number required" in captured.err
+
+    def test_add_commit_invalid_commit_sha(self, capsys):
+        """Test add-commit with invalid commit SHA."""
+        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
+            result = main(["add-commit", "--task", "task-1", "--commit", "not-a-sha"])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Invalid commit SHA" in captured.err
+
+    def test_add_commit_too_short_sha(self, capsys):
+        """Test add-commit with commit SHA that's too short."""
+        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
+            result = main(["add-commit", "--task", "task-1", "--commit", "abc12"])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Invalid commit SHA" in captured.err
+
+
+class TestCommitShaValidation:
+    """Tests for commit SHA validation."""
+
+    def test_valid_short_sha(self):
+        """Test valid 7-character SHA."""
+        assert validate_commit_sha("abc1234") == "abc1234"
+
+    def test_valid_full_sha(self):
+        """Test valid 40-character SHA."""
+        sha = "a" * 40
+        assert validate_commit_sha(sha) == sha
+
+    def test_valid_mixed_case(self):
+        """Test valid SHA with mixed case."""
+        assert validate_commit_sha("AbC1234DeF") == "AbC1234DeF"
+
+    def test_invalid_too_short(self):
+        """Test SHA that's too short."""
+        with pytest.raises(ValueError, match="Invalid commit SHA"):
+            validate_commit_sha("abc12")
+
+    def test_invalid_too_long(self):
+        """Test SHA that's too long."""
+        with pytest.raises(ValueError, match="Invalid commit SHA"):
+            validate_commit_sha("a" * 41)
+
+    def test_invalid_non_hex(self):
+        """Test SHA with non-hexadecimal characters."""
+        with pytest.raises(ValueError, match="Invalid commit SHA"):
+            validate_commit_sha("ghijklm")
+
+    def test_invalid_with_spaces(self):
+        """Test SHA with spaces."""
+        with pytest.raises(ValueError, match="Invalid commit SHA"):
+            validate_commit_sha("abc 123")

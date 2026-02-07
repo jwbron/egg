@@ -23,12 +23,16 @@ Commands:
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+# Regex for validating git commit SHAs (7-40 hex characters)
+COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 
 def get_gateway_url() -> str:
@@ -122,6 +126,25 @@ def parse_phase_id(phase_id: str) -> int:
         if "must be >= 1" in str(e):
             raise
         raise ValueError(f"Invalid phase ID '{phase_id}': expected numeric value") from e
+
+
+def validate_commit_sha(commit: str) -> str:
+    """Validate a git commit SHA.
+
+    Args:
+        commit: Git commit SHA (7-40 hex characters)
+
+    Returns:
+        The validated commit SHA
+
+    Raises:
+        ValueError: If the commit SHA format is invalid
+    """
+    if not COMMIT_SHA_PATTERN.match(commit):
+        raise ValueError(
+            f"Invalid commit SHA '{commit}': expected 7-40 hexadecimal characters"
+        )
+    return commit
 
 
 def make_gateway_request(
@@ -269,6 +292,12 @@ def cmd_add_commit(args: argparse.Namespace) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    try:
+        validate_commit_sha(args.commit)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
     field_path = f"phases.{phase_idx}.tasks.{task_idx}.commit"
 
     result = make_gateway_request(
@@ -329,7 +358,12 @@ def cmd_update_notes(args: argparse.Namespace) -> int:
 
 
 def cmd_mark_task(args: argparse.Namespace) -> int:
-    """Mark task status (reviewer only)."""
+    """Mark task status.
+
+    Note: This operation requires REVIEWER role. Agents running as IMPLEMENTER
+    will receive a role authorization error from the gateway. This command is
+    included for reviewer agents or human reviewers using the CLI.
+    """
     issue_number = args.issue or get_issue_number()
     if not issue_number:
         print("Error: Issue number required", file=sys.stderr)
@@ -365,7 +399,12 @@ def cmd_mark_task(args: argparse.Namespace) -> int:
 
 
 def cmd_mark_phase(args: argparse.Namespace) -> int:
-    """Mark phase status (reviewer only)."""
+    """Mark phase status.
+
+    Note: This operation requires REVIEWER role. Agents running as IMPLEMENTER
+    will receive a role authorization error from the gateway. This command is
+    included for reviewer agents or human reviewers using the CLI.
+    """
     issue_number = args.issue or get_issue_number()
     if not issue_number:
         print("Error: Issue number required", file=sys.stderr)
@@ -402,13 +441,22 @@ def cmd_mark_phase(args: argparse.Namespace) -> int:
 
 
 def cmd_add_decision(args: argparse.Namespace) -> int:
-    """Create a HITL decision point."""
+    """Create a HITL decision point.
+
+    Note: There is a potential race condition between reading the current
+    decision count and submitting the mutation. If concurrent agents both
+    call add-decision simultaneously, they may compute the same decision ID.
+    The gateway should handle conflicts by rejecting duplicate indices or
+    assigning IDs server-side. This is documented as a known limitation.
+    """
     issue_number = args.issue or get_issue_number()
     if not issue_number:
         print("Error: Issue number required", file=sys.stderr)
         return 1
 
-    # First, get the current contract to determine the next decision ID
+    # Get the current contract to determine the next decision ID
+    # NOTE: TOCTOU race condition exists here - concurrent calls may get same ID.
+    # The gateway should handle conflicts appropriately.
     endpoint = f"/api/v1/contract/{issue_number}"
     if args.repo_path:
         endpoint += "?" + urlencode({"repo_path": args.repo_path})
@@ -452,7 +500,7 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
             "field_path": f"decisions.{len(decisions)}",
             "new_value": new_decision,
             "actor": "egg",
-            "reason": f"Created HITL decision: {args.question[:50]}...",
+            "reason": f"Created HITL decision: {args.question[:50]}{'...' if len(args.question) > 50 else ''}",
         },
     )
 
@@ -500,8 +548,10 @@ def create_parser() -> argparse.ArgumentParser:
     notes_parser.add_argument("--notes", required=True, help="Implementation notes")
     notes_parser.set_defaults(func=cmd_update_notes)
 
-    # mark-task command
-    mark_task_parser = subparsers.add_parser("mark-task", help="Mark task status")
+    # mark-task command (requires REVIEWER role)
+    mark_task_parser = subparsers.add_parser(
+        "mark-task", help="Mark task status (requires REVIEWER role)"
+    )
     mark_task_parser.add_argument("--task", required=True, help="Task ID")
     mark_task_parser.add_argument(
         "--status",
@@ -511,8 +561,10 @@ def create_parser() -> argparse.ArgumentParser:
     )
     mark_task_parser.set_defaults(func=cmd_mark_task)
 
-    # mark-phase command
-    mark_phase_parser = subparsers.add_parser("mark-phase", help="Mark phase status")
+    # mark-phase command (requires REVIEWER role)
+    mark_phase_parser = subparsers.add_parser(
+        "mark-phase", help="Mark phase status (requires REVIEWER role)"
+    )
     mark_phase_parser.add_argument("--phase", required=True, help="Phase ID (e.g., phase-1)")
     mark_phase_parser.add_argument(
         "--passed",
