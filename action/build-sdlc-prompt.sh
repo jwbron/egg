@@ -350,7 +350,7 @@ Create a pull request for this implementation.
 ## PR Format
 
 \`\`\`bash
-gh pr create --title "Brief description" --body "\$(cat <<'EOF'
+gh pr create --title "Brief description" --body "\$(cat <<'BODY'
 ## Summary
 <1-3 bullet points>
 
@@ -360,7 +360,7 @@ gh pr create --title "Brief description" --body "\$(cat <<'EOF'
 Issue: ${issue_url}
 
 Authored-by: egg
-EOF
+BODY
 )"
 \`\`\`
 
