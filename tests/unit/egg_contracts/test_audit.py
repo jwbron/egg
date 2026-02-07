@@ -1,8 +1,7 @@
 """Tests for audit logging."""
 
-import pytest
 import sys
-from datetime import datetime, UTC
+from datetime import datetime
 from pathlib import Path
 
 # Add shared to path for imports
@@ -16,7 +15,7 @@ from egg_contracts.audit import (
     log_blocked_operation,
     log_mutation,
 )
-from egg_contracts.models import AuditAction, AuditEntry, Contract, Issue
+from egg_contracts.models import AuditAction, Contract, Issue
 from egg_contracts.roles import Role
 
 
@@ -167,15 +166,9 @@ class TestGetActorHistory:
 
     def test_get_actor_history(self, sample_contract):
         # Log mutations from different actors
-        log_mutation(
-            sample_contract, actor="alice", role="human", field_path="a", new_value="1"
-        )
-        log_mutation(
-            sample_contract, actor="bob", role="human", field_path="b", new_value="2"
-        )
-        log_mutation(
-            sample_contract, actor="alice", role="human", field_path="c", new_value="3"
-        )
+        log_mutation(sample_contract, actor="alice", role="human", field_path="a", new_value="1")
+        log_mutation(sample_contract, actor="bob", role="human", field_path="b", new_value="2")
+        log_mutation(sample_contract, actor="alice", role="human", field_path="c", new_value="3")
 
         history = get_actor_history(sample_contract, "alice")
         assert len(history) == 2

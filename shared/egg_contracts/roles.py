@@ -7,11 +7,11 @@ Enforces which roles can modify which fields:
 - Human: Can modify all fields including decisions
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 
-class Role(str, Enum):
+class Role(StrEnum):
     """Agent/actor roles."""
 
     IMPLEMENTER = "implementer"
@@ -19,7 +19,7 @@ class Role(str, Enum):
     HUMAN = "human"
 
 
-class FieldAccess(str, Enum):
+class FieldAccess(StrEnum):
     """Field access levels."""
 
     IMPLEMENTER = "implementer"

@@ -13,15 +13,13 @@ State transitions:
 """
 
 from dataclasses import dataclass
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from .models import (
     CircuitBreaker,
     CircuitBreakerStatus,
     Contract,
-    Phase,
-    Task,
     TaskStatus,
 )
 

@@ -13,7 +13,6 @@ to prevent privilege escalation.
 
 import os
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -40,20 +39,12 @@ try:
         Decision,
         DecisionType,
         Issue,
-        Phase,
-        PhaseStatus,
         PipelinePhase,
         Role,
-        Task,
-        TaskStatus,
-        ValidationError,
-        create_audit_entry,
-        get_contract_path,
         load_contract,
         save_contract,
     )
     from egg_contracts.audit import log_blocked_operation, log_mutation
-    from egg_contracts.models import AuditAction
 except ImportError:
     # Contracts not yet installed - provide stubs for tests
     Contract = None  # type: ignore

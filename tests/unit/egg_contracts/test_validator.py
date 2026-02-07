@@ -1,12 +1,14 @@
 """Tests for contract mutation validation."""
 
-import pytest
 import sys
 from pathlib import Path
+
+import pytest
 
 # Add shared to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))
 
+from egg_contracts.roles import Role
 from egg_contracts.validator import (
     ContractValidator,
     MutationResult,
@@ -15,7 +17,6 @@ from egg_contracts.validator import (
     raise_if_not_allowed,
     validate_contract_mutation,
 )
-from egg_contracts.roles import Role
 
 
 class TestContractValidator:

@@ -30,8 +30,8 @@ except ImportError:
 
 try:
     from egg_contracts import Contract, load_contract
-    from egg_contracts.models import PipelinePhase
     from egg_contracts.audit import log_blocked_operation
+    from egg_contracts.models import PipelinePhase
 except ImportError:
     Contract = None  # type: ignore
     load_contract = None  # type: ignore
@@ -99,9 +99,7 @@ class PhasePermissions:
         if self._loaded:
             return
 
-        paths_to_try = (
-            [self._permissions_path] if self._permissions_path else self._default_paths
-        )
+        paths_to_try = [self._permissions_path] if self._permissions_path else self._default_paths
 
         for path in paths_to_try:
             if path and path.exists():

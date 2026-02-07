@@ -149,7 +149,9 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(json.dumps(contract, indent=2))
     else:
         # Pretty print summary
-        print(f"Issue: #{contract.get('issue', {}).get('number')} - {contract.get('issue', {}).get('title')}")
+        print(
+            f"Issue: #{contract.get('issue', {}).get('number')} - {contract.get('issue', {}).get('title')}"
+        )
         print(f"Phase: {contract.get('currentPhase', 'unknown')}")
         print(f"Branch: {contract.get('branch', 'not set')}")
         print()

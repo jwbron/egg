@@ -1,25 +1,16 @@
 """Tests for phase transition logic."""
 
-import pytest
 import sys
 import tempfile
 from pathlib import Path
+
+import pytest
 
 # Add gateway and shared to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "gateway"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))
 
-from phase_transition import (
-    PHASE_TRANSITIONS,
-    TransitionResult,
-    can_transition,
-    check_implementation_complete,
-    execute_transition,
-    get_current_phase,
-    get_exit_requirement,
-    get_next_phase,
-    validate_transition,
-)
+from egg_contracts import save_contract
 from egg_contracts.models import (
     Contract,
     Issue,
@@ -29,7 +20,16 @@ from egg_contracts.models import (
     Task,
     TaskStatus,
 )
-from egg_contracts import save_contract
+from phase_transition import (
+    TransitionResult,
+    can_transition,
+    check_implementation_complete,
+    execute_transition,
+    get_current_phase,
+    get_exit_requirement,
+    get_next_phase,
+    validate_transition,
+)
 
 
 @pytest.fixture

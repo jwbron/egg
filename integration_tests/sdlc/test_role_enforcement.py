@@ -1,9 +1,10 @@
 """Integration tests for role-based enforcement."""
 
-import pytest
 import sys
 import tempfile
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 
@@ -14,7 +15,6 @@ from egg_contracts import (
     Phase,
     Task,
     ValidationError,
-    load_contract,
     save_contract,
 )
 from egg_contracts.models import PhaseStatus, PipelinePhase, TaskStatus

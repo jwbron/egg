@@ -1,10 +1,10 @@
 """Integration test for SDLC pipeline happy path."""
 
-import json
-import pytest
 import sys
 import tempfile
 from pathlib import Path
+
+import pytest
 
 # Add paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
@@ -153,9 +153,7 @@ class TestHappyPath:
         contract = load_contract(temp_repo, 100)
         assert contract.currentPhase == PipelinePhase.PR
         assert all(
-            task.status == TaskStatus.COMPLETE
-            for phase in contract.phases
-            for task in phase.tasks
+            task.status == TaskStatus.COMPLETE for phase in contract.phases for task in phase.tasks
         )
 
 

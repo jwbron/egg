@@ -1,16 +1,15 @@
 """Tests for contract Pydantic models."""
 
-import pytest
-from datetime import datetime, UTC
-
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
+
+import pytest
 
 # Add shared to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))
 
 from egg_contracts.models import (
-    AcceptanceCriterion,
     AuditAction,
     AuditEntry,
     CircuitBreaker,
@@ -235,9 +234,7 @@ class TestContract:
                     tasks=[Task(id="task-1", description="Create files")],
                 )
             ],
-            decisions=[
-                Decision(id="decision-1", question="Approve?", type=DecisionType.HITL)
-            ],
+            decisions=[Decision(id="decision-1", question="Approve?", type=DecisionType.HITL)],
             circuit_breaker=CircuitBreaker(),
             audit_log=[],
         )

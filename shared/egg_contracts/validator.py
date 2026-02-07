@@ -10,8 +10,7 @@ Validates that mutations are allowed based on:
 from dataclasses import dataclass, field
 from typing import Any
 
-from .models import Contract
-from .roles import Role, can_modify, get_field_owner, FieldAccess
+from .roles import Role, can_modify, get_field_owner
 
 
 class ValidationError(Exception):
@@ -156,7 +155,7 @@ class ContractValidator:
         """
         # We don't know the phase index, so use a generic path
         # The actual path validation happens in the gateway
-        field_path = f"phases.*.tasks.*.commit"
+        field_path = "phases.*.tasks.*.commit"
         return self.validate_mutation(field_path, commit_sha)
 
     def check_task_status(self, task_id: str, status: str) -> MutationResult:
@@ -170,7 +169,7 @@ class ContractValidator:
         Returns:
             MutationResult
         """
-        field_path = f"phases.*.tasks.*.status"
+        field_path = "phases.*.tasks.*.status"
         return self.validate_mutation(field_path, status)
 
 

@@ -1,10 +1,11 @@
 """Tests for phase-based operation filtering."""
 
 import json
-import pytest
 import sys
 import tempfile
 from pathlib import Path
+
+import pytest
 
 # Add gateway and shared to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "gateway"))
@@ -13,8 +14,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))
 from phase_filter import (
     PhaseFilterResult,
     PhasePermissions,
-    check_phase_operation,
-    get_phase_permissions,
 )
 
 

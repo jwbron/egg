@@ -1,9 +1,10 @@
 """Pytest fixtures for egg_contracts tests."""
 
-import pytest
 import sys
 import tempfile
 from pathlib import Path
+
+import pytest
 
 # Add shared to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))

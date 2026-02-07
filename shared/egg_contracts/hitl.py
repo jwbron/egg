@@ -9,8 +9,7 @@ Provides utilities for:
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, UTC
-from typing import Any
+from datetime import UTC, datetime, timedelta
 
 from .models import Contract, Decision, DecisionOption, DecisionType
 
@@ -100,7 +99,7 @@ def generate_phase_approval_block(phase_name: str) -> str:
     return generate_checkbox_block(
         f"Approve {phase_name} phase?",
         [
-            {"label": "Approve", "description": f"Proceed to next phase"},
+            {"label": "Approve", "description": "Proceed to next phase"},
             {"label": "Request changes", "description": "I'll provide feedback below"},
             {"label": "Reject", "description": "This approach won't work"},
         ],

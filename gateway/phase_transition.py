@@ -29,8 +29,8 @@ except ImportError:
 
 try:
     from egg_contracts import Contract, load_contract, save_contract
-    from egg_contracts.models import PipelinePhase, PhaseStatus, TaskStatus
     from egg_contracts.audit import log_mutation
+    from egg_contracts.models import PipelinePhase, TaskStatus
     from egg_contracts.roles import Role
 except ImportError:
     Contract = None  # type: ignore
@@ -165,7 +165,9 @@ def validate_transition(
             to_phase=target_phase,
             details={
                 "valid_next_phase": next_phase,
-                "hint": f"Must transition to {next_phase} first" if next_phase else "No further transitions",
+                "hint": f"Must transition to {next_phase} first"
+                if next_phase
+                else "No further transitions",
             },
         )
 

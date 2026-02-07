@@ -1,20 +1,14 @@
 """Integration tests for circuit breaker functionality."""
 
-import pytest
 import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 
-from egg_contracts import Contract, Issue, Phase, Task, save_contract, load_contract
-from egg_contracts.models import (
-    CircuitBreaker,
-    CircuitBreakerStatus,
-    PhaseStatus,
-    PipelinePhase,
-    TaskStatus,
-)
+from egg_contracts import Contract, Issue, Phase, Task, load_contract, save_contract
 from egg_contracts.circuit_breaker import (
     check_circuit_breaker,
     get_circuit_status,
@@ -24,6 +18,13 @@ from egg_contracts.circuit_breaker import (
     is_circuit_open,
     reset_circuit_breaker,
     trip_circuit_breaker,
+)
+from egg_contracts.models import (
+    CircuitBreaker,
+    CircuitBreakerStatus,
+    PhaseStatus,
+    PipelinePhase,
+    TaskStatus,
 )
 
 

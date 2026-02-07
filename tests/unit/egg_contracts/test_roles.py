@@ -1,6 +1,5 @@
 """Tests for role-based field access control."""
 
-import pytest
 import sys
 from pathlib import Path
 

@@ -4,7 +4,7 @@ Audit logging for contract modifications.
 All contract mutations are logged to the audit_log field for traceability.
 """
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from .models import AuditAction, AuditEntry, Contract

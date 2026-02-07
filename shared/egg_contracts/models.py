@@ -6,13 +6,13 @@ and provide type-safe manipulation of contract data.
 """
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Task completion status."""
 
     PENDING = "pending"
@@ -22,7 +22,7 @@ class TaskStatus(str, Enum):
     FAILED = "failed"
 
 
-class PhaseStatus(str, Enum):
+class PhaseStatus(StrEnum):
     """Phase completion status."""
 
     PENDING = "pending"
@@ -31,7 +31,7 @@ class PhaseStatus(str, Enum):
     FAILED = "failed"
 
 
-class PipelinePhase(str, Enum):
+class PipelinePhase(StrEnum):
     """Pipeline phase identifiers."""
 
     REFINE = "refine"
@@ -40,21 +40,21 @@ class PipelinePhase(str, Enum):
     PR = "pr"
 
 
-class DecisionType(str, Enum):
+class DecisionType(StrEnum):
     """Decision type - whether human input is required."""
 
     HITL = "hitl"
     AUTO = "auto"
 
 
-class CircuitBreakerStatus(str, Enum):
+class CircuitBreakerStatus(StrEnum):
     """Circuit breaker state."""
 
     CLOSED = "closed"
     OPEN = "open"
 
 
-class AuditAction(str, Enum):
+class AuditAction(StrEnum):
     """Types of auditable actions."""
 
     CREATE = "create"

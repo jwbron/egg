@@ -1,9 +1,11 @@
 """Tests for contract loading and saving."""
 
 import json
-import pytest
 import sys
 from pathlib import Path
+
+import pydantic
+import pytest
 
 # Add shared to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))
@@ -14,7 +16,7 @@ from egg_contracts.loader import (
     load_contract,
     save_contract,
 )
-from egg_contracts.models import Contract, Issue, Phase, Task, PipelinePhase
+from egg_contracts.models import Contract, Issue, Phase, PipelinePhase, Task
 
 
 class TestGetContractPath:
@@ -54,9 +56,7 @@ class TestSaveAndLoadContract:
         contracts_dir.rmdir()
         (temp_repo / ".egg").rmdir()
 
-        contract = Contract(
-            issue=Issue(number=1, title="Test", url="https://example.com/1")
-        )
+        contract = Contract(issue=Issue(number=1, title="Test", url="https://example.com/1"))
         path = save_contract(contract, temp_repo, create_dirs=True)
         assert path.exists()
 
@@ -125,5 +125,5 @@ class TestContractValidation:
             json.dump({"invalid": "schema"}, f)
 
         # Pydantic should raise validation error
-        with pytest.raises(Exception):  # ValidationError from pydantic
+        with pytest.raises(pydantic.ValidationError):
             load_contract(temp_repo, 101)
