@@ -425,3 +425,71 @@ class TestCollect:
     def test_self_improvement_workflow_in_egg_workflows(self):
         """self-improvement.yml is included in EGG_WORKFLOWS for self-reflection."""
         assert "self-improvement.yml" in EGG_WORKFLOWS
+
+    @patch.object(GHALogCollector, "collect")
+    def test_collect_run_summary_logs_omitted_flag(self, mock_collect: MagicMock):
+        """collect_run_summary sets logs_omitted flag when context limit reached."""
+        now = datetime.now(UTC)
+        # Create many failed runs with large logs to trigger context limit
+        # Each run has 20k chars, truncated to ~3.4k per run after truncation message
+        # After ~15 runs we exceed MAX_TOTAL_LOG_CHARS (50k), later runs get omitted
+        mock_collect.return_value = [
+            RunLog(
+                run_id=str(i),
+                source="gha",
+                started_at=now,
+                completed_at=now,
+                status="failure",
+                trigger="issue_comment",
+                logs="x" * 20000,  # Large logs
+                metadata={
+                    "workflow": "on-mention.yml",
+                    "head_branch": "main",
+                    "html_url": f"https://github.com/test/repo/actions/runs/{i}",
+                },
+            )
+            for i in range(20)  # 20 runs ensures we hit the limit
+        ]
+
+        collector = GHALogCollector(repo="test/repo")
+        since = now - timedelta(hours=1)
+        result = collect_run_summary(collector, since)
+
+        # Early runs should have logs_omitted=False
+        assert result["failed_runs"][0]["logs_omitted"] is False
+
+        # At least one later run should have logs_omitted=True
+        omitted_runs = [r for r in result["failed_runs"] if r["logs_omitted"]]
+        assert len(omitted_runs) > 0
+
+    @patch.object(GHALogCollector, "collect")
+    def test_format_markdown_summary_shows_logs_omitted(self, mock_collect: MagicMock):
+        """format_markdown_summary shows warning when logs are omitted."""
+        now = datetime.now(UTC)
+        # Create many failed runs with large logs to trigger context limit
+        mock_collect.return_value = [
+            RunLog(
+                run_id=str(i),
+                source="gha",
+                started_at=now,
+                completed_at=now,
+                status="failure",
+                trigger="issue_comment",
+                logs="x" * 20000,
+                metadata={
+                    "workflow": "on-mention.yml",
+                    "head_branch": "main",
+                    "html_url": f"https://github.com/test/repo/actions/runs/{i}",
+                },
+            )
+            for i in range(20)  # 20 runs ensures we hit the limit
+        ]
+
+        collector = GHALogCollector(repo="test/repo")
+        since = now - timedelta(hours=1)
+        data = collect_run_summary(collector, since)
+        markdown = format_markdown_summary(data)
+
+        # Should contain warning about omitted logs with fetch instructions
+        assert "Logs omitted" in markdown
+        assert "gh run view" in markdown

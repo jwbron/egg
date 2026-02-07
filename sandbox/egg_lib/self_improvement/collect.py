@@ -21,7 +21,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-# Add sandbox to path for imports
+# Add sandbox to path for imports when running this module directly (e.g., python collect.py).
+# When invoked via `python -m egg_lib.self_improvement.collect` with PYTHONPATH=sandbox (as in
+# the workflow), this is redundant but harmless.
 sandbox_path = Path(__file__).parent.parent.parent
 if str(sandbox_path) not in sys.path:
     sys.path.insert(0, str(sandbox_path))
@@ -83,6 +85,7 @@ def collect_run_summary(collector: GHALogCollector, since: datetime) -> dict[str
     for run in failed_runs:
         # Truncate individual run logs
         log_excerpt = truncate_logs(run.logs)
+        logs_omitted = False
 
         # Track total and potentially further truncate
         if total_log_chars + len(log_excerpt) > MAX_TOTAL_LOG_CHARS:
@@ -91,6 +94,7 @@ def collect_run_summary(collector: GHALogCollector, since: datetime) -> dict[str
                 log_excerpt = truncate_logs(run.logs, remaining)
             else:
                 log_excerpt = "[logs omitted - total context limit reached]"
+                logs_omitted = True
 
         total_log_chars += len(log_excerpt)
 
@@ -105,6 +109,7 @@ def collect_run_summary(collector: GHALogCollector, since: datetime) -> dict[str
             "url": run.metadata.get("html_url", ""),
             "run_number": run.metadata.get("run_number", 0),
             "log_excerpt": log_excerpt,
+            "logs_omitted": logs_omitted,
         }
         failed_summaries.append(summary)
 
@@ -179,6 +184,11 @@ def format_markdown_summary(data: dict[str, Any]) -> str:
             lines.append(f"- **Branch:** {run['branch']}")
             lines.append(f"- **Started:** {run['started_at']}")
             lines.append(f"- **URL:** {run['url']}")
+            if run.get("logs_omitted"):
+                lines.append(
+                    "- **⚠️ Logs omitted:** Use `gh run view "
+                    f"{run['run_id']} --log` to fetch full logs"
+                )
             lines.append("")
             lines.append("<details><summary>Log excerpt</summary>")
             lines.append("")
