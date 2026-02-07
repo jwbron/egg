@@ -318,6 +318,7 @@ jobs:
           SHOULD_ADVANCE: ${{ steps.advance.outputs.should_advance }}
           NEXT_PHASE: ${{ steps.advance.outputs.next_phase }}
         run: |
+          set -euo pipefail
           # Use printf to safely construct comment body (prevents command injection)
           if [[ "$SHOULD_ADVANCE" == "true" ]]; then
             BODY=$(printf 'Decision **%s** resolved: %s\n\nAll pending decisions resolved. Advancing to **%s** phase.\n\n--- Authored by egg' \
@@ -497,6 +498,7 @@ jobs:
           PREVIOUS_PHASE: ${{ steps.approve.outputs.previous_phase }}
           SENDER_LOGIN: ${{ github.event.sender.login }}
         run: |
+          set -euo pipefail
           # Use printf to safely construct comment body (prevents command injection)
           BODY=$(printf 'Phase **%s** approved by @%s.\n\nAdvancing to **%s** phase.\n\n--- Authored by egg' \
             "$PREVIOUS_PHASE" "$SENDER_LOGIN" "$NEXT_PHASE")

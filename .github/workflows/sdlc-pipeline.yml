@@ -69,6 +69,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          set -euo pipefail
           pip install pydantic==2.10.* pyyaml==6.0.*
 
       - name: Setup pipeline
@@ -186,6 +187,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
+          set -euo pipefail
           BODY="SDLC Pipeline initialized for this issue.
 
           **Branch:** \`${{ steps.setup.outputs.branch_name }}\`
@@ -276,6 +278,7 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
         run: |
+          set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
@@ -328,6 +331,7 @@ jobs:
       - name: Build review prompt
         id: prompt
         run: |
+          set -euo pipefail
           # Build a review-specific prompt
           cat > /tmp/review-prompt.txt << 'EOF'
           You are a REVIEWER agent in the SDLC pipeline.
@@ -533,6 +537,7 @@ jobs:
           NEXT_ACTION: ${{ steps.check.outputs.next_action }}
           CYCLE_COUNT: ${{ steps.check.outputs.cycle_count }}
         run: |
+          set -euo pipefail
           case "$NEXT_ACTION" in
             pr)
               BODY="All tasks verified by reviewer. Advancing to PR phase.
@@ -664,6 +669,7 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_URL: ${{ steps.egg.outputs.pr-url }}
         run: |
+          set -euo pipefail
           if [[ -n "$PR_URL" ]]; then
             BODY="Pull request created: ${PR_URL}
 
@@ -743,6 +749,7 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
         run: |
+          set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
@@ -824,6 +831,7 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
         run: |
+          set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
