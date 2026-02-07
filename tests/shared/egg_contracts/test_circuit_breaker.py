@@ -10,7 +10,6 @@ from egg_contracts.circuit_breaker import (
     check_task_threshold,
     close_circuit_breaker,
     get_escalation_summary,
-    increment_phase_cycle,
     increment_pipeline_cycle,
     increment_task_cycle,
     open_circuit_breaker,
@@ -23,7 +22,6 @@ from egg_contracts.models import (
     Contract,
     IssueInfo,
     Phase,
-    PhaseStatus,
     Task,
     TaskStatus,
 )

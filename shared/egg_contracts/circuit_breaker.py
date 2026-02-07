@@ -16,7 +16,6 @@ State transitions:
 - OPEN → CLOSED: Human provides guidance, cycle resumes
 """
 
-from datetime import UTC, datetime
 from typing import Any
 
 from .models import (
@@ -24,7 +23,6 @@ from .models import (
     CircuitBreakerStatus,
     Contract,
     Phase,
-    PhaseStatus,
     Task,
     TaskStatus,
 )

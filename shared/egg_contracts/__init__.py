@@ -40,6 +40,36 @@ from .audit import (
     create_update_entry,
     format_audit_log,
 )
+from .circuit_breaker import (
+    CircuitBreakerConfig,
+    CircuitBreakerResult,
+    check_all_thresholds,
+    check_phase_threshold,
+    check_pipeline_threshold,
+    check_task_threshold,
+    close_circuit_breaker,
+    get_escalation_summary,
+    increment_phase_cycle,
+    increment_pipeline_cycle,
+    increment_task_cycle,
+    open_circuit_breaker,
+    should_escalate,
+)
+from .hitl import (
+    DEFAULT_DEBOUNCE_SECONDS,
+    HitlCheckboxState,
+    HitlDecisionCategory,
+    HitlOption,
+    HitlOptionId,
+    calculate_debounce_remaining,
+    generate_checkbox_block,
+    generate_debounce_notice,
+    generate_full_hitl_block,
+    parse_checkbox_state,
+    should_process_decision,
+    start_debounce,
+    update_comment_with_countdown,
+)
 from .loader import (
     ContractNotFoundError,
     ContractValidationError,
@@ -81,6 +111,19 @@ from .plan_parser import (
     parse_plan,
     parse_plan_file,
 )
+from .resilience import (
+    CheckpointState,
+    RateLimitHandler,
+    RateLimitInfo,
+    RetryableError,
+    RetryConfig,
+    TimeoutCheckpoint,
+    calculate_backoff_delay,
+    create_timeout_checkpoint,
+    parse_rate_limit_headers,
+    retry_with_backoff,
+    should_checkpoint_now,
+)
 from .roles import (
     FIELD_OWNERSHIP,
     Role,
@@ -96,49 +139,6 @@ from .validator import (
     validate_mutation,
     validate_phase_mutation,
     validate_task_mutation,
-)
-from .circuit_breaker import (
-    CircuitBreakerConfig,
-    CircuitBreakerResult,
-    check_all_thresholds,
-    check_phase_threshold,
-    check_pipeline_threshold,
-    check_task_threshold,
-    close_circuit_breaker,
-    get_escalation_summary,
-    increment_phase_cycle,
-    increment_pipeline_cycle,
-    increment_task_cycle,
-    open_circuit_breaker,
-    should_escalate,
-)
-from .hitl import (
-    DEFAULT_DEBOUNCE_SECONDS,
-    HitlCheckboxState,
-    HitlDecisionCategory,
-    HitlOption,
-    HitlOptionId,
-    calculate_debounce_remaining,
-    generate_checkbox_block,
-    generate_debounce_notice,
-    generate_full_hitl_block,
-    parse_checkbox_state,
-    should_process_decision,
-    start_debounce,
-    update_comment_with_countdown,
-)
-from .resilience import (
-    CheckpointState,
-    RateLimitHandler,
-    RateLimitInfo,
-    RetryableError,
-    RetryConfig,
-    TimeoutCheckpoint,
-    calculate_backoff_delay,
-    create_timeout_checkpoint,
-    parse_rate_limit_headers,
-    retry_with_backoff,
-    should_checkpoint_now,
 )
 
 __all__ = [

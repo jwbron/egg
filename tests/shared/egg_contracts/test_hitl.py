@@ -2,7 +2,6 @@
 
 from datetime import UTC, datetime, timedelta
 
-import pytest
 from egg_contracts.hitl import (
     DEFAULT_DEBOUNCE_SECONDS,
     HitlCheckboxState,
