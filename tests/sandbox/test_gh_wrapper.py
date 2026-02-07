@@ -588,3 +588,102 @@ class TestPrReviewEmptyCommitWarning:
         assert result.returncode == 0
         assert "WARNING" not in result.stderr
         assert "done" in result.stdout
+
+
+class TestPrReviewHandler:
+    """Test the handle_pr_review function's JSON escaping logic.
+
+    This tests the Python JSON escaping that prevents body content
+    from being corrupted when it contains special characters like
+    curly braces {} (issue #193).
+    """
+
+    # Extract just the Python escaping logic from handle_pr_review
+    PR_REVIEW_PYTHON = textwrap.dedent("""\
+        import json
+        import sys
+
+        pr_number = sys.argv[2]
+        body = sys.argv[3]
+        review_type = sys.argv[4]
+
+        args = ['pr', 'review', pr_number, '--repo', sys.argv[1], '--body', body]
+
+        if review_type == 'approve':
+            args.append('--approve')
+        elif review_type == 'request-changes':
+            args.append('--request-changes')
+        elif review_type == 'comment':
+            args.append('--comment')
+
+        print(json.dumps({'args': args}))
+    """)
+
+    def _run_pr_review_escaper(
+        self, repo: str, pr_number: str, body: str, review_type: str
+    ) -> dict:
+        """Run the PR review JSON escaping and return the parsed result."""
+        result = subprocess.run(
+            ["python3", "-c", self.PR_REVIEW_PYTHON, repo, pr_number, body, review_type],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        return json.loads(result.stdout)
+
+    def test_simple_body(self):
+        """Simple body text should be escaped correctly."""
+        result = self._run_pr_review_escaper("owner/repo", "123", "Looks good!", "approve")
+        assert result["args"] == [
+            "pr",
+            "review",
+            "123",
+            "--repo",
+            "owner/repo",
+            "--body",
+            "Looks good!",
+            "--approve",
+        ]
+
+    def test_body_with_curly_braces(self):
+        """Body with curly braces should be properly escaped (issue #193)."""
+        body = "The workflow uses ${{ github.repository }} syntax"
+        result = self._run_pr_review_escaper("owner/repo", "456", body, "comment")
+        # Verify the body is preserved exactly
+        assert result["args"][6] == body
+        assert "${{" in result["args"][6]
+
+    def test_body_with_json_content(self):
+        """Body containing JSON should be properly escaped."""
+        body = '{"key": "value", "nested": {"a": 1}}'
+        result = self._run_pr_review_escaper("owner/repo", "789", body, "request-changes")
+        assert result["args"][6] == body
+
+    def test_body_with_special_characters(self):
+        """Body with various special characters should be preserved."""
+        body = "Fix: `code` with 'quotes' and \"double quotes\" and $vars"
+        result = self._run_pr_review_escaper("owner/repo", "101", body, "comment")
+        assert result["args"][6] == body
+
+    def test_approve_review_type(self):
+        """approve review type should use --approve flag."""
+        result = self._run_pr_review_escaper("owner/repo", "123", "LGTM", "approve")
+        assert "--approve" in result["args"]
+
+    def test_request_changes_review_type(self):
+        """request-changes review type should use --request-changes flag."""
+        result = self._run_pr_review_escaper("owner/repo", "123", "Needs fixes", "request-changes")
+        assert "--request-changes" in result["args"]
+
+    def test_comment_review_type(self):
+        """comment review type should use --comment flag."""
+        result = self._run_pr_review_escaper("owner/repo", "123", "Some notes", "comment")
+        assert "--comment" in result["args"]
+
+    def test_multiline_body(self):
+        """Multi-line body should be preserved."""
+        body = "## Summary\n\n- Point 1\n- Point 2\n\nSigned: egg"
+        result = self._run_pr_review_escaper("owner/repo", "123", body, "comment")
+        assert result["args"][6] == body
+        assert "\n" in result["args"][6]
