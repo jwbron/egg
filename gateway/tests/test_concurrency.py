@@ -475,7 +475,9 @@ class TestPolicyEngineCacheConcurrency:
             with lock:
                 call_count["list_prs_for_branch"] += 1
             time.sleep(0.01)
-            return [{"number": 123, "author": {"login": "egg"}, "state": "open", "headRefName": branch}]
+            return [
+                {"number": 123, "author": {"login": "egg"}, "state": "open", "headRefName": branch}
+            ]
 
         client.get_pr_info = mock_get_pr_info
         client.list_prs_for_branch = mock_list_prs_for_branch
