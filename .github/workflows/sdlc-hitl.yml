@@ -1,0 +1,193 @@
+name: SDLC HITL Decision Handler
+
+on:
+  issue_comment:
+    types: [edited]
+
+jobs:
+  detect-decision:
+    name: Detect Checkbox Decision
+    runs-on: ubuntu-latest
+    # Only run on bot comments (from egg)
+    if: >-
+      github.event.comment.user.type == 'Bot' &&
+      contains(github.event.comment.body, '- [')
+    outputs:
+      has_decision: ${{ steps.detect.outputs.has_decision }}
+      decision_type: ${{ steps.detect.outputs.decision_type }}
+      issue_number: ${{ steps.detect.outputs.issue_number }}
+      debounce_key: ${{ steps.detect.outputs.debounce_key }}
+
+    steps:
+      - name: Detect checkbox change
+        id: detect
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.comment.body;
+            const issueNumber = context.payload.issue.number;
+
+            // Look for checked checkboxes
+            const checkedPattern = /- \[x\] \*\*([^*]+)\*\*/gi;
+            const matches = [...body.matchAll(checkedPattern)];
+
+            if (matches.length === 0) {
+              console.log('No checked checkboxes found');
+              core.setOutput('has_decision', 'false');
+              return;
+            }
+
+            // Get the first checked option
+            const decision = matches[0][1].trim();
+            console.log(`Decision detected: ${decision}`);
+
+            // Determine decision type based on content
+            let decisionType = 'unknown';
+            if (body.includes('Approve plan') || body.includes('Approve the')) {
+              decisionType = 'phase_approval';
+            } else if (body.includes('Continue') || body.includes('Skip') || body.includes('Abort')) {
+              decisionType = 'escalation_response';
+            } else if (body.includes('Request changes')) {
+              decisionType = 'feedback_request';
+            }
+
+            // Create debounce key
+            const debounceKey = `hitl-${issueNumber}-${context.payload.comment.id}`;
+
+            core.setOutput('has_decision', 'true');
+            core.setOutput('decision_type', decisionType);
+            core.setOutput('issue_number', issueNumber.toString());
+            core.setOutput('debounce_key', debounceKey);
+
+  # Debounce - wait 30 seconds for additional edits
+  debounce:
+    name: Debounce (30s)
+    needs: detect-decision
+    if: needs.detect-decision.outputs.has_decision == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.debounce.outputs.proceed }}
+
+    steps:
+      - name: Wait for debounce period
+        id: debounce
+        run: |
+          echo "Waiting 30 seconds for debounce..."
+          sleep 30
+
+          # Check if comment was edited again during debounce
+          # (In a real implementation, this would check a cache/store)
+          echo "proceed=true" >> $GITHUB_OUTPUT
+
+  # Process the decision
+  process-decision:
+    name: Process Decision
+    needs: [detect-decision, debounce]
+    if: needs.debounce.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    env:
+      EGG_WORKFLOW_ROLE: human
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get issue branch
+        id: branch
+        run: |
+          ISSUE="${{ needs.detect-decision.outputs.issue_number }}"
+          BRANCH="egg/issue-${ISSUE}"
+
+          # Check if branch exists
+          if git ls-remote --heads origin "${BRANCH}" | grep -q "${BRANCH}"; then
+            echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout issue branch
+        if: steps.branch.outputs.exists == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.branch.outputs.branch }}
+
+      - name: Update contract decision
+        if: steps.branch.outputs.exists == 'true'
+        run: |
+          ISSUE="${{ needs.detect-decision.outputs.issue_number }}"
+          CONTRACT_FILE=".egg/contracts/${ISSUE}.json"
+          DECISION_TYPE="${{ needs.detect-decision.outputs.decision_type }}"
+
+          if [[ ! -f "$CONTRACT_FILE" ]]; then
+            echo "Contract not found"
+            exit 0
+          fi
+
+          # Parse the decision from comment body
+          COMMENT_BODY='${{ github.event.comment.body }}'
+
+          # Find checked option
+          CHECKED_OPTION=$(echo "$COMMENT_BODY" | grep -oP '\- \[x\] \*\*\K[^*]+' | head -1)
+
+          echo "Processing decision: ${CHECKED_OPTION}"
+          echo "Decision type: ${DECISION_TYPE}"
+
+          # Update contract based on decision type
+          case "$DECISION_TYPE" in
+            phase_approval)
+              # Find pending decision and resolve it
+              jq --arg resolution "$CHECKED_OPTION" --arg actor "${{ github.actor }}" '
+                .decisions = [.decisions[] | if .resolved == false then
+                  .resolved = true |
+                  .resolution = $resolution |
+                  .resolved_by = $actor |
+                  .resolved_at = (now | todate)
+                else . end]
+              ' "$CONTRACT_FILE" > tmp.json && mv tmp.json "$CONTRACT_FILE"
+
+              # Advance phase if approved
+              if [[ "$CHECKED_OPTION" == *"Approve"* ]]; then
+                CURRENT_PHASE=$(jq -r '.currentPhase' "$CONTRACT_FILE")
+                case "$CURRENT_PHASE" in
+                  refine) NEXT_PHASE="plan" ;;
+                  plan) NEXT_PHASE="implement" ;;
+                  *) NEXT_PHASE="$CURRENT_PHASE" ;;
+                esac
+                jq --arg phase "$NEXT_PHASE" '.currentPhase = $phase' "$CONTRACT_FILE" > tmp.json && mv tmp.json "$CONTRACT_FILE"
+                echo "Advanced phase to: ${NEXT_PHASE}"
+              fi
+              ;;
+
+            escalation_response)
+              if [[ "$CHECKED_OPTION" == *"Continue"* ]]; then
+                # Reset circuit breaker
+                jq '.circuit_breaker.total_cycles = 0 | .circuit_breaker.status = "closed"' "$CONTRACT_FILE" > tmp.json && mv tmp.json "$CONTRACT_FILE"
+              elif [[ "$CHECKED_OPTION" == *"Skip"* ]]; then
+                # Mark current task as failed
+                jq '
+                  .phases = [.phases[] | .tasks = [.tasks[] |
+                    if .status == "in_progress" or .status == "incomplete" then
+                      .status = "failed"
+                    else . end
+                  ]]
+                ' "$CONTRACT_FILE" > tmp.json && mv tmp.json "$CONTRACT_FILE"
+              fi
+              ;;
+          esac
+
+          # Commit changes
+          git add "$CONTRACT_FILE"
+          git commit -m "Process HITL decision for issue #${ISSUE}: ${CHECKED_OPTION}"
+          git push origin ${{ steps.branch.outputs.branch }}
+
+      - name: Trigger pipeline resume
+        if: steps.branch.outputs.exists == 'true'
+        run: |
+          ISSUE="${{ needs.detect-decision.outputs.issue_number }}"
+
+          # Trigger pipeline workflow
+          gh workflow run sdlc-pipeline.yml \
+            -f issue_number="${ISSUE}" \
+            -f phase=auto
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

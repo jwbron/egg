@@ -1,0 +1,85 @@
+name: SDLC Review
+
+on:
+  workflow_call:
+    inputs:
+      issue_number:
+        required: true
+        type: number
+      phase_id:
+        required: true
+        type: string
+      branch:
+        required: true
+        type: string
+
+jobs:
+  review:
+    name: Review Implementation
+    runs-on: ubuntu-latest
+    env:
+      EGG_AGENT_ROLE: reviewer
+      EGG_WORKFLOW_ROLE: reviewer
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Run reviewer agent
+        uses: ./action
+        with:
+          role: reviewer
+          prompt: |
+            Review implementation for issue #${{ inputs.issue_number }}.
+
+            Check `egg-contract show` for current tasks and their status.
+
+            For each task:
+            1. Check if the implementation meets the acceptance criteria
+            2. If complete: `egg-contract mark-task --task <id> --status complete`
+            3. If incomplete: `egg-contract mark-task --task <id> --status incomplete --feedback "Specific feedback"`
+
+            Be specific in feedback - tell the implementer exactly what needs to be fixed.
+
+            Do NOT implement any changes yourself - only review and mark tasks.
+          timeout: 900
+
+      - name: Increment cycle count
+        run: |
+          ISSUE="${{ inputs.issue_number }}"
+          CONTRACT_FILE=".egg/contracts/${ISSUE}.json"
+
+          if [[ -f "$CONTRACT_FILE" ]]; then
+            # Increment total cycles
+            jq '.circuit_breaker.total_cycles = ((.circuit_breaker.total_cycles // 0) + 1)' \
+              "$CONTRACT_FILE" > tmp.json && mv tmp.json "$CONTRACT_FILE"
+
+            git add "$CONTRACT_FILE"
+            git commit -m "Increment review cycle for issue #${ISSUE}" || true
+            git push origin ${{ inputs.branch }} || true
+          fi
+
+      - name: Check for incomplete tasks
+        id: check
+        run: |
+          ISSUE="${{ inputs.issue_number }}"
+          CONTRACT_FILE=".egg/contracts/${ISSUE}.json"
+
+          if [[ ! -f "$CONTRACT_FILE" ]]; then
+            echo "has_incomplete_tasks=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          INCOMPLETE=$(jq '[.phases[].tasks[] | select(.status == "incomplete" or .status == "pending")] | length' "$CONTRACT_FILE")
+
+          if [[ "$INCOMPLETE" -gt 0 ]]; then
+            echo "has_incomplete_tasks=true" >> $GITHUB_OUTPUT
+            echo "Found ${INCOMPLETE} incomplete tasks"
+          else
+            echo "has_incomplete_tasks=false" >> $GITHUB_OUTPUT
+            echo "All tasks complete"
+          fi
+
+    outputs:
+      has_incomplete_tasks: ${{ steps.check.outputs.has_incomplete_tasks }}

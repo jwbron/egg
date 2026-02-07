@@ -1,0 +1,301 @@
+name: SDLC Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to process'
+        required: true
+        type: number
+      phase:
+        description: 'Starting phase (default: auto-detect from contract)'
+        required: false
+        type: choice
+        options:
+          - auto
+          - refine
+          - plan
+          - implement
+          - pr
+        default: auto
+
+  issues:
+    types: [labeled]
+
+env:
+  EGG_ISSUE_NUMBER: ${{ inputs.issue_number || github.event.issue.number }}
+
+jobs:
+  # Initialize contract and determine starting phase
+  init:
+    name: Initialize Pipeline
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && github.event.label.name == 'egg-sdlc')
+    outputs:
+      issue_number: ${{ steps.init.outputs.issue_number }}
+      phase: ${{ steps.init.outputs.phase }}
+      branch: ${{ steps.init.outputs.branch }}
+      has_contract: ${{ steps.init.outputs.has_contract }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize contract
+        id: init
+        run: |
+          ISSUE="${{ env.EGG_ISSUE_NUMBER }}"
+          BRANCH="egg/issue-${ISSUE}"
+          CONTRACT_FILE=".egg/contracts/${ISSUE}.json"
+
+          echo "issue_number=${ISSUE}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+
+          # Check if contract exists
+          if [[ -f "$CONTRACT_FILE" ]]; then
+            echo "has_contract=true" >> $GITHUB_OUTPUT
+            PHASE=$(jq -r '.currentPhase // "refine"' "$CONTRACT_FILE")
+          else
+            echo "has_contract=false" >> $GITHUB_OUTPUT
+            PHASE="refine"
+
+            # Create initial contract
+            mkdir -p .egg/contracts
+            cat > "$CONTRACT_FILE" << EOF
+          {
+            "schemaVersion": "1.0",
+            "issue": {
+              "number": ${ISSUE},
+              "title": "${{ github.event.issue.title || 'Issue' }}",
+              "url": "${{ github.event.issue.html_url || format('https://github.com/{0}/issues/{1}', github.repository, env.EGG_ISSUE_NUMBER) }}"
+            },
+            "currentPhase": "refine",
+            "branch": "${BRANCH}",
+            "phases": [],
+            "decisions": [],
+            "audit_log": []
+          }
+          EOF
+          fi
+
+          # Override if explicitly specified
+          if [[ "${{ inputs.phase }}" != "auto" && -n "${{ inputs.phase }}" ]]; then
+            PHASE="${{ inputs.phase }}"
+          fi
+
+          echo "phase=${PHASE}" >> $GITHUB_OUTPUT
+          echo "Initialized pipeline for issue #${ISSUE} at phase: ${PHASE}"
+
+      - name: Create branch if needed
+        run: |
+          BRANCH="${{ steps.init.outputs.branch }}"
+          if ! git ls-remote --heads origin "${BRANCH}" | grep -q "${BRANCH}"; then
+            git checkout -b "${BRANCH}"
+            git push origin "${BRANCH}"
+          fi
+
+  # Implement phase - execute tasks
+  implement:
+    name: Implement Tasks
+    needs: init
+    if: needs.init.outputs.phase == 'implement'
+    runs-on: ubuntu-latest
+    env:
+      EGG_AGENT_ROLE: implementer
+      EGG_WORKFLOW_ROLE: implementer
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.init.outputs.branch }}
+
+      - name: Run implementer agent
+        uses: ./action
+        with:
+          prompt: |
+            Implement tasks for issue #${{ needs.init.outputs.issue_number }}.
+
+            Check `egg-contract show` for current tasks.
+            For each pending task:
+            1. Implement the change
+            2. Commit with descriptive message
+            3. Link commit: `egg-contract add-commit --task <id> --commit $(git rev-parse HEAD)`
+
+            Push all changes when done.
+          role: implementer
+          timeout: 1800
+
+      - name: Push changes
+        run: git push origin ${{ needs.init.outputs.branch }}
+
+  # Review phase - evaluate implementation
+  review:
+    name: Review Implementation
+    needs: [init, implement]
+    if: always() && needs.implement.result == 'success'
+    uses: ./.github/workflows/sdlc-review.yml
+    with:
+      issue_number: ${{ needs.init.outputs.issue_number }}
+      phase_id: current
+      branch: ${{ needs.init.outputs.branch }}
+
+  # Check if review passed or needs retry
+  check-review:
+    name: Check Review Results
+    needs: [init, review]
+    if: always() && needs.review.result == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      all_complete: ${{ steps.check.outputs.all_complete }}
+      retry_needed: ${{ steps.check.outputs.retry_needed }}
+      cycle_count: ${{ steps.check.outputs.cycle_count }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.init.outputs.branch }}
+
+      - name: Check task status
+        id: check
+        run: |
+          ISSUE="${{ needs.init.outputs.issue_number }}"
+          CONTRACT_FILE=".egg/contracts/${ISSUE}.json"
+
+          if [[ ! -f "$CONTRACT_FILE" ]]; then
+            echo "Contract not found"
+            echo "all_complete=false" >> $GITHUB_OUTPUT
+            echo "retry_needed=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Count incomplete tasks
+          INCOMPLETE=$(jq '[.phases[].tasks[] | select(.status != "complete" and .status != "failed")] | length' "$CONTRACT_FILE")
+          CYCLES=$(jq '.circuit_breaker.total_cycles // 0' "$CONTRACT_FILE")
+
+          echo "cycle_count=${CYCLES}" >> $GITHUB_OUTPUT
+
+          if [[ "$INCOMPLETE" -eq 0 ]]; then
+            echo "all_complete=true" >> $GITHUB_OUTPUT
+            echo "retry_needed=false" >> $GITHUB_OUTPUT
+          else
+            echo "all_complete=false" >> $GITHUB_OUTPUT
+
+            # Check if under cycle limit
+            MAX_CYCLES=10
+            if [[ "$CYCLES" -lt "$MAX_CYCLES" ]]; then
+              echo "retry_needed=true" >> $GITHUB_OUTPUT
+            else
+              echo "retry_needed=false" >> $GITHUB_OUTPUT
+              echo "::warning::Circuit breaker triggered - max cycles reached"
+            fi
+          fi
+
+  # Retry loop if review found incomplete tasks
+  retry:
+    name: Retry Implementation
+    needs: [init, check-review]
+    if: needs.check-review.outputs.retry_needed == 'true'
+    uses: ./.github/workflows/sdlc-pipeline.yml
+    with:
+      issue_number: ${{ needs.init.outputs.issue_number }}
+      phase: implement
+
+  # Escalate if circuit breaker triggered
+  escalate:
+    name: Escalate to Human
+    needs: [init, check-review]
+    if: >-
+      needs.check-review.outputs.all_complete == 'false' &&
+      needs.check-review.outputs.retry_needed == 'false'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.init.outputs.branch }}
+
+      - name: Run escalation
+        run: |
+          ISSUE="${{ needs.init.outputs.issue_number }}"
+
+          # Add label
+          gh issue edit "$ISSUE" --add-label "needs-human-intervention"
+
+          # Post comment
+          gh issue comment "$ISSUE" --body "$(cat << 'EOF'
+          ## Pipeline Escalation
+
+          The SDLC pipeline has reached its retry limit for issue #${{ needs.init.outputs.issue_number }}.
+
+          **Cycle count**: ${{ needs.check-review.outputs.cycle_count }}
+
+          Please review the implementation and provide guidance:
+
+          - [ ] **Continue** - Reset cycle count and retry
+          - [ ] **Skip task** - Mark current task as failed and continue
+          - [ ] **Abort** - Cancel the pipeline
+
+          — Authored by egg
+          EOF
+          )"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Create PR when all tasks complete
+  create-pr:
+    name: Create Pull Request
+    needs: [init, check-review]
+    if: needs.check-review.outputs.all_complete == 'true'
+    runs-on: ubuntu-latest
+    env:
+      EGG_AGENT_ROLE: implementer
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.init.outputs.branch }}
+
+      - name: Update contract phase
+        run: |
+          ISSUE="${{ needs.init.outputs.issue_number }}"
+          CONTRACT_FILE=".egg/contracts/${ISSUE}.json"
+
+          # Update phase to PR
+          jq '.currentPhase = "pr"' "$CONTRACT_FILE" > tmp.json && mv tmp.json "$CONTRACT_FILE"
+          git add "$CONTRACT_FILE"
+          git commit -m "Advance to PR phase for issue #${ISSUE}"
+          git push origin ${{ needs.init.outputs.branch }}
+
+      - name: Create PR
+        run: |
+          ISSUE="${{ needs.init.outputs.issue_number }}"
+          BRANCH="${{ needs.init.outputs.branch }}"
+
+          # Check if PR already exists
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number // empty')
+
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "PR #${EXISTING_PR} already exists"
+          else
+            gh pr create \
+              --title "Issue #${ISSUE}: Implementation" \
+              --body "$(cat << EOF
+          ## Summary
+
+          Implementation for issue #${ISSUE}.
+
+          ## Details
+
+          See the contract at \`.egg/contracts/${ISSUE}.json\` for task completion status.
+
+          Issue: #${ISSUE}
+
+          Authored-by: egg
+          EOF
+          )" \
+              --base main \
+              --head "$BRANCH"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
