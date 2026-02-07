@@ -458,7 +458,24 @@ jobs:
             mv /tmp/contract.json "$CONTRACT_PATH"
             git add "$CONTRACT_PATH"
             git commit -m "Open circuit breaker after ${TOTAL_CYCLES} cycles"
-            git push origin "${BRANCH_NAME}"
+
+            # Retry push with rebase on conflict
+            MAX_RETRIES=3
+            for i in $(seq 1 $MAX_RETRIES); do
+              if git push origin "${BRANCH_NAME}"; then
+                echo "Push succeeded"
+                break
+              elif [[ $i -eq $MAX_RETRIES ]]; then
+                echo "Push failed after $MAX_RETRIES attempts"
+                exit 1
+              else
+                echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
+                git pull --rebase origin "${BRANCH_NAME}" || {
+                  echo "Rebase failed, cannot resolve conflict automatically"
+                  exit 1
+                }
+              fi
+            done
             exit 0
           fi
 
@@ -473,7 +490,24 @@ jobs:
           mv /tmp/contract.json "$CONTRACT_PATH"
           git add "$CONTRACT_PATH"
           git commit -m "Increment pipeline cycle to ${NEW_CYCLES}"
-          git push origin "${BRANCH_NAME}"
+
+          # Retry push with rebase on conflict
+          MAX_RETRIES=3
+          for i in $(seq 1 $MAX_RETRIES); do
+            if git push origin "${BRANCH_NAME}"; then
+              echo "Push succeeded"
+              break
+            elif [[ $i -eq $MAX_RETRIES ]]; then
+              echo "Push failed after $MAX_RETRIES attempts"
+              exit 1
+            else
+              echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
+              git pull --rebase origin "${BRANCH_NAME}" || {
+                echo "Rebase failed, cannot resolve conflict automatically"
+                exit 1
+              }
+            fi
+          done
 
       - name: Post loop status
         env:
@@ -580,13 +614,31 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
+          set -euo pipefail
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
           if [[ -f "$CONTRACT_PATH" ]]; then
             jq '.current_phase = "pr"' "$CONTRACT_PATH" > /tmp/contract.json
             mv /tmp/contract.json "$CONTRACT_PATH"
             git add "$CONTRACT_PATH"
             git commit -m "Advance to PR phase for issue #${ISSUE_NUMBER}"
-            git push origin "${BRANCH_NAME}"
+
+            # Retry push with rebase on conflict
+            MAX_RETRIES=3
+            for i in $(seq 1 $MAX_RETRIES); do
+              if git push origin "${BRANCH_NAME}"; then
+                echo "Push succeeded"
+                break
+              elif [[ $i -eq $MAX_RETRIES ]]; then
+                echo "Push failed after $MAX_RETRIES attempts"
+                exit 1
+              else
+                echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
+                git pull --rebase origin "${BRANCH_NAME}" || {
+                  echo "Rebase failed, cannot resolve conflict automatically"
+                  exit 1
+                }
+              fi
+            done
           fi
 
       - name: Post completion comment

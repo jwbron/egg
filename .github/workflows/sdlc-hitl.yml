@@ -15,6 +15,11 @@ permissions:
   contents: write
   issues: write
 
+# Prevent concurrent HITL runs for the same issue
+concurrency:
+  group: sdlc-hitl-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
   handle-decision:
     name: Handle HITL decision
@@ -216,6 +221,10 @@ jobs:
             if git push origin "${BRANCH_NAME}"; then
               echo "Push succeeded"
               break
+            elif [[ $i -eq $MAX_RETRIES ]]; then
+              echo "Push failed after $MAX_RETRIES attempts"
+              echo "contract_updated=false" >> "$GITHUB_OUTPUT"
+              exit 1
             else
               echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
               git pull --rebase origin "${BRANCH_NAME}" || {
@@ -223,11 +232,6 @@ jobs:
                 echo "contract_updated=false" >> "$GITHUB_OUTPUT"
                 exit 1
               }
-            fi
-            if [[ $i -eq $MAX_RETRIES ]]; then
-              echo "Push failed after $MAX_RETRIES attempts"
-              echo "contract_updated=false" >> "$GITHUB_OUTPUT"
-              exit 1
             fi
           done
 
@@ -282,11 +286,19 @@ jobs:
 
               # Retry push with rebase on conflict
               MAX_RETRIES=3
-              for _ in $(seq 1 $MAX_RETRIES); do
+              for i in $(seq 1 $MAX_RETRIES); do
                 if git push origin "${BRANCH_NAME}"; then
+                  echo "Push succeeded"
                   break
+                elif [[ $i -eq $MAX_RETRIES ]]; then
+                  echo "Push failed after $MAX_RETRIES attempts"
+                  exit 1
                 else
-                  git pull --rebase origin "${BRANCH_NAME}" || exit 1
+                  echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
+                  git pull --rebase origin "${BRANCH_NAME}" || {
+                    echo "Rebase failed, cannot resolve conflict automatically"
+                    exit 1
+                  }
                 fi
               done
             else
@@ -453,11 +465,21 @@ jobs:
 
           # Retry push with rebase on conflict (handles race conditions)
           MAX_RETRIES=3
-          for _ in $(seq 1 $MAX_RETRIES); do
+          for i in $(seq 1 $MAX_RETRIES); do
             if git push origin "${BRANCH_NAME}"; then
+              echo "Push succeeded"
               break
+            elif [[ $i -eq $MAX_RETRIES ]]; then
+              echo "Push failed after $MAX_RETRIES attempts"
+              echo "approved=false" >> "$GITHUB_OUTPUT"
+              exit 1
             else
-              git pull --rebase origin "${BRANCH_NAME}" || exit 1
+              echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
+              git pull --rebase origin "${BRANCH_NAME}" || {
+                echo "Rebase failed, cannot resolve conflict automatically"
+                echo "approved=false" >> "$GITHUB_OUTPUT"
+                exit 1
+              }
             fi
           done
 
@@ -473,12 +495,11 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           NEXT_PHASE: ${{ steps.approve.outputs.next_phase }}
           PREVIOUS_PHASE: ${{ steps.approve.outputs.previous_phase }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
         run: |
-          BODY="Phase **${PREVIOUS_PHASE}** approved by @${{ github.event.sender.login }}.
-
-          Advancing to **${NEXT_PHASE}** phase.
-
-          --- Authored by egg"
+          # Use printf to safely construct comment body (prevents command injection)
+          BODY=$(printf 'Phase **%s** approved by @%s.\n\nAdvancing to **%s** phase.\n\n--- Authored by egg' \
+            "$PREVIOUS_PHASE" "$SENDER_LOGIN" "$NEXT_PHASE")
 
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
 
