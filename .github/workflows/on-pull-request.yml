@@ -141,6 +141,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
+          # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
             --jq --arg bot "$BOT_USERNAME" \
             '[.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.state | test("PENDING|COMMENTED|CHANGES_REQUESTED"))] | .[].id' \
