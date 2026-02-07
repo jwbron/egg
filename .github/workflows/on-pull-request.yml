@@ -53,6 +53,27 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
+      # Capture last bot review info before dismissing (for re-review context)
+      - name: Get last review info
+        id: last-review
+        run: |
+          # Get the most recent bot review (sorted by submitted_at descending)
+          # This gives us the commit SHA that was last reviewed
+          last_review=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
+            --jq '[.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]")] | sort_by(.submitted_at) | reverse | .[0]')
+
+          if [[ -n "$last_review" && "$last_review" != "null" ]]; then
+            echo "commit-sha=$(echo "$last_review" | jq -r '.commit_id')" >> "$GITHUB_OUTPUT"
+            echo "review-id=$(echo "$last_review" | jq -r '.id')" >> "$GITHUB_OUTPUT"
+            echo "Found previous review at commit $(echo "$last_review" | jq -r '.commit_id')"
+          else
+            echo "commit-sha=" >> "$GITHUB_OUTPUT"
+            echo "review-id=" >> "$GITHUB_OUTPUT"
+            echo "No previous bot review found"
+          fi
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
       # Dismiss previous bot reviews before starting new review
       - name: Dismiss previous bot reviews
         run: |
@@ -81,6 +102,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_NUMBER: ${{ env.PR_NUMBER }}
+          LAST_REVIEW_COMMIT: ${{ steps.last-review.outputs.commit-sha }}
 
       - name: Checkout PR branch
         uses: actions/checkout@v4

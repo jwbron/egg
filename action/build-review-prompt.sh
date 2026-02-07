@@ -9,6 +9,7 @@
 #   PR_NUMBER          — Pull request number to review
 #   GITHUB_REPOSITORY  — owner/repo
 #   RUNNER_TEMP        — Temp directory for prompt file
+#   LAST_REVIEW_COMMIT — (Optional) Commit SHA of last bot review, for re-reviews
 #
 # Output:
 #   Sets 'prompt-file' and 'model' in $GITHUB_OUTPUT
@@ -59,7 +60,34 @@ build_prompt() {
     fi
 
     local prompt
-    prompt="Review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
+    local is_rereview=false
+
+    # Check if this is a re-review (we have a previous review commit)
+    if [[ -n "${LAST_REVIEW_COMMIT:-}" ]]; then
+        is_rereview=true
+        prompt="Re-review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
+
+This is a **re-review** — you previously reviewed this PR at commit \`${LAST_REVIEW_COMMIT}\`.
+
+## Your Task
+
+1. **Review only new changes**: Use \`git diff ${LAST_REVIEW_COMMIT}..HEAD\` to see what changed since your last review.
+2. **Check previous feedback**: Use \`gh pr view ${PR_NUMBER} --comments\` to see previous review comments.
+3. **Verify issues addressed**: Confirm that any concerns from your previous review have been addressed.
+4. **Focus on the delta**: Your new review should focus on the changes since \`${LAST_REVIEW_COMMIT}\`, not re-review unchanged code.
+
+For full PR context if needed: \`gh pr diff ${PR_NUMBER}\`
+
+## Review Rules
+
+${review_rules}
+
+## Review Conventions
+
+${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --approve if the PR looks good, --request-changes for blocking issues, or --comment for advisory feedback. Be specific and suggest fixes. Sign your review with: — Authored by egg}
+"
+    else
+        prompt="Review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
 
 Use \`gh pr diff ${PR_NUMBER}\` to see the changes. Read files for context. Check how
 changed code interacts with the rest of the codebase.
@@ -72,6 +100,7 @@ ${review_rules}
 
 ${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --approve if the PR looks good, --request-changes for blocking issues, or --comment for advisory feedback. Be specific and suggest fixes. Sign your review with: — Authored by egg}
 "
+    fi
 
     # Write prompt to temp file
     local prompt_file="${RUNNER_TEMP:-/tmp}/review-prompt-${PR_NUMBER}.txt"
@@ -86,7 +115,11 @@ ${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --appro
         echo "model=${model}"
     } >> "${GITHUB_OUTPUT:-/dev/null}"
 
-    echo "Review prompt built: ${#prompt} chars, model=${model}"
+    local review_type="initial"
+    if [[ "$is_rereview" == "true" ]]; then
+        review_type="re-review (since ${LAST_REVIEW_COMMIT:0:7})"
+    fi
+    echo "Review prompt built: ${#prompt} chars, model=${model}, type=${review_type}"
 }
 
 # ---------------------------------------------------------------------------
