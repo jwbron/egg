@@ -383,5 +383,8 @@ class TestAnalyzeModule:
         output = generate_json(runs, since)
 
         data = json.loads(output)
-        assert data["runs"][0]["metadata"]["html_url"] == "https://github.com/owner/repo/actions/runs/12345"
+        assert (
+            data["runs"][0]["metadata"]["html_url"]
+            == "https://github.com/owner/repo/actions/runs/12345"
+        )
         assert data["runs"][0]["metadata"]["workflow"] == "on-mention.yml"
