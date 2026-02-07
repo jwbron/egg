@@ -106,6 +106,8 @@ action/
 ├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder
 ├── build-sdlc-prompt.sh                    # SDLC pipeline prompt builder
 ├── contract-state.sh                       # Contract state management utility
+├── autofixer-conventions.md                # Guidelines for autofixer behavior
+├── review-conventions.md                   # Guidelines for review communication
 └── README.md
 ```
 
