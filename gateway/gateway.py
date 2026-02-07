@@ -159,6 +159,7 @@ except ImportError:
 
     app.register_blueprint(contract_bp)
 
+
 @app.errorhandler(Exception)
 def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
     """Return JSON for all unhandled exceptions instead of Flask's default HTML."""
