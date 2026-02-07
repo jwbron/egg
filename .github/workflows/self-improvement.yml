@@ -63,13 +63,15 @@ jobs:
 
           mkdir -p partitions prompts
 
-          # Capture stderr (partition count) and write partitions
+          # Capture stderr (partition count) while still showing it in logs.
+          # The collect script writes PARTITION_COUNT=N to stderr, but may also
+          # write errors there — tee ensures both are visible in CI output.
           PYTHONPATH=sandbox python -m egg_lib.self_improvement.collect \
             --since-hours "${SINCE_HOURS}" \
             --format markdown \
             --partition \
             --output "partitions/partition_{partition}.md" \
-            2> partition_info.txt
+            2> >(tee partition_info.txt >&2)
 
           # Extract partition count from stderr (use tail -1 to handle any extra output)
           # Use || echo "0" to ensure we get "0" if grep fails (empty file or no match)
