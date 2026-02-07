@@ -21,6 +21,21 @@ on:
         required: false
         type: string
         default: "10"
+      is_draft:
+        description: 'Whether the PR is a draft'
+        required: false
+        type: boolean
+        default: false
+      pr_title:
+        description: 'PR title (for skip-review check)'
+        required: false
+        type: string
+        default: ""
+      event_name:
+        description: 'The triggering event name (pull_request or workflow_dispatch)'
+        required: false
+        type: string
+        default: "pull_request"
     secrets:
       BOT_APP_ID:
         required: true
@@ -32,7 +47,41 @@ on:
         required: true
 
 jobs:
+  should-run:
+    name: Check if review should run
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - name: Check if PR is ready for review
+        id: check
+        env:
+          PR_TITLE: ${{ inputs.pr_title }}
+        run: |
+          # For workflow_dispatch, always run
+          if [[ "${{ inputs.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Skip draft PRs
+          if [[ "${{ inputs.is_draft }}" == "true" ]]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Skip if [skip-review] in title
+          if [[ "$PR_TITLE" == *"[skip-review]"* ]]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
   review:
+    name: Run review
+    needs: should-run
+    if: needs.should-run.outputs.run == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
