@@ -942,6 +942,7 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
     try:
         timeout = int(timeout_str)
     except ValueError:
+        logger.warn(f"Invalid EGG_GATEWAY_TIMEOUT '{timeout_str}', using default 60s")
         timeout = 60
     interval = 2  # seconds
     elapsed = 0

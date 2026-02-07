@@ -844,6 +844,7 @@ def run_claude_structured(
     try:
         envelope = json.loads(raw)
     except json.JSONDecodeError:
+        _cleanup_container()
         return AgentVerdict(
             verdict="fail",
             evidence=f"Could not parse JSON output: {raw[:500]}",
