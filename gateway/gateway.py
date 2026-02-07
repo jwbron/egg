@@ -159,6 +159,16 @@ except ImportError:
 
     app.register_blueprint(contract_bp)
 
+# Register phase API blueprint
+try:
+    from .phase_api import phase_bp
+
+    app.register_blueprint(phase_bp)
+except ImportError:
+    from phase_api import phase_bp  # type: ignore[import-not-found, no-redef]
+
+    app.register_blueprint(phase_bp)
+
 
 @app.errorhandler(Exception)
 def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:

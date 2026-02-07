@@ -59,7 +59,11 @@ class TestGetFieldOwner:
         """Test fields with default system ownership."""
         assert get_field_owner("issue.number") == Role.SYSTEM
         assert get_field_owner("schemaVersion") == Role.SYSTEM
-        assert get_field_owner("current_phase") == Role.SYSTEM
+
+    def test_current_phase_reviewer_owned(self):
+        """Test current_phase is owned by reviewer for phase transitions."""
+        # current_phase is owned by reviewer to allow implement→pr advancement
+        assert get_field_owner("current_phase") == Role.REVIEWER
 
 
 class TestCanModify:

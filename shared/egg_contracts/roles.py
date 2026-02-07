@@ -38,6 +38,8 @@ FIELD_OWNERSHIP: dict[str, Role] = {
     "phases.*.review_feedback.*": Role.REVIEWER,
     # Acceptance criteria owned by reviewer
     "acceptance_criteria.*.verified": Role.REVIEWER,
+    # Pipeline phase transitions owned by reviewer (allows implement→pr advancement)
+    "current_phase": Role.REVIEWER,
     # Decisions owned by human
     "decisions.*.resolved": Role.HUMAN,
     "decisions.*.resolution": Role.HUMAN,
