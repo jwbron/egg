@@ -82,26 +82,22 @@ ${changed_files}
 
 ## Your Task
 
+**Important**: Most code changes do NOT require documentation updates. Only create a
+doc update PR if documentation would be actively misleading without the change.
+
 1. **Analyze the changes**: Read the changed files and understand what was modified.
    Use \`git diff ${base_commit}..HEAD -- <file>\` to see specific changes.
 
-2. **Check documentation impact**: For each significant change, determine if any
-   documentation needs to be updated. Consider:
+2. **Check documentation impact**: Determine if any documentation would be **incorrect**
+   without updates. Only proceed if the change:
 
-   - **Component READMEs**: If code in \`gateway/\`, \`sandbox/\`, \`shared/\`, \`action/\`,
-     \`bin/\`, or \`config/\` changed, check if the corresponding README needs updates.
+   - **Breaks documented behavior**: The docs say X happens, but now Y happens.
+   - **Adds new user-facing features**: New capabilities users need to know about.
+   - **Changes configuration/API**: New options, changed parameters, removed functionality.
+   - **Restructures architecture**: Major design changes that affect documented architecture.
 
-   - **Architecture docs**: If system design or security model changed, check
-     \`docs/architecture/\` and relevant ADRs.
-
-   - **Development docs**: If project structure, build process, or workflows changed,
-     check \`docs/development/\`.
-
-   - **Task-specific guides**: If a new workflow or capability was added, consider
-     if \`docs/index.md\` task-specific guides need updating.
-
-   - **API changes**: If gateway endpoints or CLI arguments changed, check the
-     relevant component documentation.
+   Skip updates for: prompt tuning, behavioral refinements, internal refactoring,
+   performance improvements, bug fixes, or "nice to document" enhancements.
 
 3. **If updates are needed**:
    - Create a new branch: \`egg/doc-update-<short-description>\`
@@ -117,12 +113,35 @@ ${changed_files}
 
 ## Guidelines
 
-- Only update docs that are actually outdated. Don't make unnecessary changes.
-- Keep doc updates minimal and focused. Don't rewrite entire sections.
+**Be conservative about creating doc updates.** Most code changes do NOT need doc updates.
+
+### When to skip doc updates (common cases)
+- **Behavioral refinements**: If the code change tweaks HOW something works but doesn't
+  change WHAT it does from a user's perspective, skip the doc update.
+- **Internal implementation details**: Refactoring, performance improvements, test changes.
+- **Prompt/config tuning**: Changes to prompts, thresholds, or internal configuration
+  that don't change the documented interface or capabilities.
+- **Bug fixes**: Unless the bug was documented as expected behavior.
+- **Minor enhancements**: Small improvements that don't introduce new concepts or change
+  existing documented behavior.
+
+### When docs DO need updates
+- **New features**: Genuinely new capabilities users need to know about.
+- **Breaking changes**: Changes that make existing documentation incorrect.
+- **New configuration options**: Options users can set.
+- **API changes**: New endpoints, changed parameters, removed functionality.
+
+### How to update docs
+- **Modify existing content** rather than appending new sections. If a change refines
+  existing behavior, update the existing description in place.
+- **Don't add new sections** unless introducing genuinely new concepts.
+- **Keep it brief**: A one-line clarification is often better than a new paragraph.
+- **Remove outdated content**: If behavior changed, remove or update the old description.
+
+### General principles
 - Preserve existing doc style and formatting.
-- Don't add new documentation for minor internal changes.
 - Focus on user-facing docs and architectural changes.
-- If a change is purely internal (refactoring, tests), docs likely don't need updates.
+- When in doubt, skip the update. Unnecessary doc PRs create noise.
 
 ## PR Format (if creating one)
 
