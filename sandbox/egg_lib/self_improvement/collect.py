@@ -303,8 +303,7 @@ def format_partition_markdown(
         lines.append(f"- **URL:** {run['url']}")
         if run.get("logs_omitted"):
             lines.append(
-                "- **⚠️ Logs omitted:** Use `gh run view "
-                f"{run['run_id']} --log` to fetch full logs"
+                f"- **⚠️ Logs omitted:** Use `gh run view {run['run_id']} --log` to fetch full logs"
             )
         lines.append("")
         lines.append("<details><summary>Log excerpt</summary>")
