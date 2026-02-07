@@ -18,6 +18,11 @@ from tests.utils.factories import (
     make_pr_info,
     make_session,
 )
+from tests.utils.gateway_client import (
+    GatewayClientMixin,
+    docker_available,
+    wait_for_healthy,
+)
 
 __all__ = [
     # Factories
@@ -31,4 +36,8 @@ __all__ = [
     "assert_blocked",
     "assert_session_invalid",
     "assert_session_valid",
+    # Gateway client utilities
+    "GatewayClientMixin",
+    "docker_available",
+    "wait_for_healthy",
 ]

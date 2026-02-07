@@ -306,13 +306,22 @@ class TestSessionStateConsistency:
     def test_rapid_create_delete_cycle(self, session_lifecycle_tester):
         """Rapid create/delete cycles maintain state consistency."""
         for i in range(5):
-            result = session_lifecycle_tester("create", container_id=f"rapid-{i}-{time.time_ns()}")
+            container_id = f"rapid-{i}-{time.time_ns()}"
+            result = session_lifecycle_tester("create", container_id=container_id)
             assert result.get("success") is True
             token = result.get("data", result).get("session_token")
             assert token
 
             delete_result = session_lifecycle_tester("delete", token=token)
             assert delete_result.get("success") is True
+
+            # Verify session is fully deleted before creating next one
+            list_result = session_lifecycle_tester("list")
+            sessions = list_result.get("data", list_result).get("sessions", [])
+            container_ids = [s.get("container_id") for s in sessions]
+            assert container_id not in container_ids, (
+                f"Session {container_id} still present after delete"
+            )
 
     def test_many_concurrent_sessions(self, session_lifecycle_tester):
         """Multiple concurrent sessions are tracked correctly."""

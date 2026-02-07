@@ -191,12 +191,40 @@ class TestGhCommandBlocking:
     """Tests for gh commands that should be blocked."""
 
     def test_gh_auth_token_blocked(self, gh_command_tester):
-        """gh auth token should not expose credentials."""
+        """gh auth token should not expose credentials.
+
+        The gateway should either:
+        1. Block the command entirely (403/401 status)
+        2. Return a dummy/sanitized token that clearly isn't real
+        """
         result = gh_command_tester(["auth", "token"])
-        # Should either fail or not expose real tokens
-        if result.success:
-            # If it "succeeds", it shouldn't contain real tokens
-            assert "dummy" in result.output or len(result.output.strip()) == 0
+
+        # Prefer explicit blocking - this is the secure path
+        if result.status_code in (401, 403):
+            # Command was blocked - this is the expected behavior
+            return
+
+        # If command "succeeded", verify no real tokens leaked
+        # Real GitHub tokens have specific patterns we should NOT see
+        output = result.output.strip()
+        if output:
+            # GitHub tokens start with specific prefixes
+            assert not output.startswith("ghp_"), (
+                "Real GitHub personal access token exposed"
+            )
+            assert not output.startswith("gho_"), (
+                "Real GitHub OAuth token exposed"
+            )
+            assert not output.startswith("ghs_"), (
+                "Real GitHub server-to-server token exposed"
+            )
+            assert not output.startswith("ghu_"), (
+                "Real GitHub user-to-server token exposed"
+            )
+            # Should only contain dummy/test tokens
+            assert "dummy" in output.lower() or len(output) < 10, (
+                f"Unexpected token output: {output[:50]}..."
+            )
 
 
 @pytest.mark.functional

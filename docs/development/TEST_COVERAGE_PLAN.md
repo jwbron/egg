@@ -229,7 +229,7 @@ def test_git_command_parsing_never_crashes(command: list[str]):
 2. ✅ Implement git wrapper command tests
 3. ✅ Implement session lifecycle tests
 4. ✅ Implement network mode tests
-5. ⏳ Update CI threshold: 40% → 50%
+5. ⏳ Update CI threshold: 40% → 50% (follow-up PR after functional tests verified)
 
 ---
 

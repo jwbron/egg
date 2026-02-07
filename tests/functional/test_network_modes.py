@@ -8,6 +8,8 @@ These tests verify that private and public modes behave correctly:
 Focus: mode-specific behavior, mode transitions, mode validation.
 """
 
+import time
+
 import pytest
 
 
@@ -54,7 +56,7 @@ class TestNetworkModeCreation:
             "/api/v1/sessions/create",
             token=minimal_gateway.launcher_secret,
             json_data={
-                "container_id": f"test-no-mode-{id(self)}",
+                "container_id": f"test-no-mode-{time.time_ns()}",
                 "container_ip": "172.42.0.100",
                 # No "mode" field
                 "repos": ["test-owner/test-repo"],
@@ -93,7 +95,7 @@ class TestPublicModeOperations:
         """Can create and use a public mode session."""
         # Create public mode session
         result = minimal_gateway.create_session(
-            container_id=f"public-test-{id(self)}",
+            container_id=f"public-test-{time.time_ns()}",
             mode="public",
         )
         assert result.get("success") is True
@@ -157,10 +159,10 @@ class TestModeIsolation:
         """Private and public sessions can coexist."""
         # Create both types
         private_result = session_lifecycle_tester(
-            "create", mode="private", container_id=f"private-{id(self)}"
+            "create", mode="private", container_id=f"private-{time.time_ns()}"
         )
         public_result = session_lifecycle_tester(
-            "create", mode="public", container_id=f"public-{id(self)}"
+            "create", mode="public", container_id=f"public-{time.time_ns()}"
         )
 
         assert private_result.get("success") is True
