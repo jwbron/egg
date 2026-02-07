@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import requests
 from egg_container import (
     ContainerNetworkConfig,
     build_sandbox_docker_cmd,
