@@ -20,6 +20,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Standardized Logging Interface](adr/implemented/ADR-Standardized-Logging-Interface.md) | Structured JSON logging |
 | [Internet Tool Access Lockdown](adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) | Public/private network modes |
 | [GitHub Actions Support](adr/in-progress/ADR-GitHub-Actions-Support.md) | Running egg as a GitHub Action |
+| [SDLC Pipeline](adr/ADR-SDLC-Pipeline.md) | Structurally enforced agent checkpoints |
 
 ### Strategy
 
@@ -71,6 +72,7 @@ Each major component has its own README with detailed documentation:
 | **GitHub Action setup** | [ADR: GitHub Actions](adr/in-progress/ADR-GitHub-Actions-Support.md) | [Architecture Overview](architecture/README.md) |
 | **Adding tests** | [Contributing](../CONTRIBUTING.md) | [Project Structure](development/STRUCTURE.md) |
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
+| **SDLC Pipeline setup** | [ADR: SDLC Pipeline](adr/ADR-SDLC-Pipeline.md) | [Issue #133 Spec](issues/133-structurally-enforced-checkpoints.md) |
 
 ## Quick Navigation
 
