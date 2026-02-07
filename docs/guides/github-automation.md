@@ -12,7 +12,8 @@ credentials, merge PRs, or push outside its branch namespace.
 | [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
 | [@mention Response](#mention-response) | `@egg` in issues/PR comments | Runs arbitrary tasks requested by authorized users |
 | [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
-| [Self-Improvement](#self-improvement) | Nightly schedule (2 AM UTC) | Analyzes failed runs, creates tracking issues |
+| [Self-Improvement](#self-improvement) | Nightly schedule (2 AM UTC) | Analyzes all runs for issues, creates tracking issues |
+| [Doc Updater](#doc-updater) | Push to main | Checks if code changes require documentation updates |
 
 ## AI Code Review
 
@@ -157,24 +158,79 @@ The agent follows these rules (customizable via `.egg/autofixer-rules.md`):
 
 **Workflow:** [`.github/workflows/self-improvement.yml`](../../.github/workflows/self-improvement.yml)
 
-Runs nightly at 2 AM UTC (and via `workflow_dispatch`) to analyze recent workflow failures.
+Runs nightly at 2 AM UTC (and via `workflow_dispatch`) to analyze recent workflow runs.
 
 ### How It Works
 
-1. **Failure scan** — The agent uses `gh run list` to find failed runs from the last 24 hours
-   across egg-related workflows (mention, review, autofixer).
-2. **Log analysis** — For each failure, examines logs via `gh run view <id> --log` to
-   understand what went wrong.
-3. **Pattern detection** — Identifies recurring problems: gateway failures, auth issues,
-   rate limiting, infrastructure problems, tool failures.
-4. **Issue management** — Creates GitHub issues with the `self-improvement` label.
-   Checks for existing open issues to avoid duplicates, updating them with new occurrences
-   instead.
+1. **Run collection** — Pre-collects data from all egg-related workflow runs (mention,
+   review, autofixer, self-improvement) from the last 24 hours. Analyzes both failed
+   AND successful runs, since successful runs may contain tool errors, warnings, or
+   patterns worth investigating.
+2. **Partitioned analysis** — Run data is partitioned across multiple egg instances
+   that analyze in parallel. Each partition receives a subset of runs to ensure all
+   runs fit within context limits.
+3. **Log analysis** — For each run, examines logs via `gh run view <id> --log` to
+   understand what happened. Looks for gateway failures, auth issues, rate limiting,
+   infrastructure problems, tool failures, warnings, and recurring patterns.
+4. **Self-reflection** — The workflow analyzes its own runs. When self-improvement
+   workflow failures are detected, the agent pays special attention to improving
+   the self-improvement process itself.
+5. **Issue management** — Creates GitHub issues with the `self-improvement` label.
+   Checks for existing open issues to avoid duplicates, updating them with new
+   occurrences instead.
+
+### What It Looks For
+
+The agent uses judgment to identify issues worth tracking:
+
+| Category | Examples |
+|----------|----------|
+| **Infrastructure** | Gateway/sidecar failures, Docker issues, network problems |
+| **Authentication** | Credential issues, token expiration, permission errors |
+| **Rate limiting** | API limits, throttling patterns |
+| **Tool failures** | Tool call errors (even in successful runs), retries |
+| **Patterns** | Recurring warnings, deprecation notices, concerning trends |
+
+A single transient failure may not need an issue, but recurring patterns do.
 
 ### Manual Trigger Options
 
 - `since_hours` — Analyze runs from the last N hours (default: 24)
 - `dry_run` — Analyze only, don't create issues
+
+## Doc Updater
+
+**Workflow:** [`.github/workflows/on-push-doc-updater.yml`](../../.github/workflows/on-push-doc-updater.yml)
+
+Runs after PRs are merged to main. Analyzes code changes to determine if documentation
+needs updating, and creates a PR if so.
+
+### How It Works
+
+1. **Trigger filtering** — Only runs on pushes to `main` that include code changes.
+   Skips doc-only changes to prevent infinite loops.
+2. **Change analysis** — Examines the merged commit to understand what changed.
+3. **Impact assessment** — Determines if documentation would be **incorrect** without
+   updates. Most code changes do NOT require doc updates.
+4. **PR creation** — If updates are needed, creates a PR with the documentation changes.
+   PRs are tagged with `[doc-updater]` to prevent re-triggering.
+
+### When Docs Get Updated
+
+The doc-updater is intentionally conservative. It only creates PRs when documentation
+would be actively misleading without the change:
+
+| Update | Skip |
+|--------|------|
+| Breaking documented behavior | Prompt/config tuning |
+| New user-facing features | Internal refactoring |
+| Configuration/API changes | Performance improvements |
+| Architecture restructuring | Bug fixes |
+
+### Manual Trigger Options
+
+- `commit_sha` — Analyze changes from this specific commit (defaults to HEAD~1)
+- `dry_run` — Analyze only, don't create PR
 
 ## Custom Linters
 
