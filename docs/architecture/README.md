@@ -63,9 +63,9 @@ Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib
 | `egg-contract show` | Display current contract state |
 | `egg-contract add-commit --task <id> --commit <sha>` | Link commit to task |
 | `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes |
-| `egg-contract mark-task --task <id> --status <status>` | Mark task status (reviewer only) |
+| `egg-contract mark-task --task <id> --status <status>` | Mark task status: pending, in_progress, complete, incomplete, blocked (reviewer only) |
 | `egg-contract mark-phase --phase <id> --passed <bool>` | Mark phase status (reviewer only) |
-| `egg-contract add-decision --question <text>` | Create HITL decision point |
+| `egg-contract add-decision --question <text> [--options ...]` | Create HITL decision point, optionally with predefined choices |
 
 ### Plan Parser
 
