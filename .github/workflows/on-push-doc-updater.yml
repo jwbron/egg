@@ -1,0 +1,106 @@
+name: "egg: Doc Updater"
+
+# This workflow follows agent-mode design principles:
+# - Runs after PRs are merged to main
+# - Analyzes code changes and checks if documentation needs updating
+# - If updates are needed, creates a PR with the doc changes
+#
+# Triggered by:
+# - Push to main (after PR merge)
+# - Manual workflow_dispatch for testing
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      # Don't trigger on doc-only changes (avoid infinite loops)
+      - "docs/**"
+      - "**/*.md"
+      - ".github/workflows/on-push-doc-updater.yml"
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: "Analyze changes from this commit (defaults to HEAD~1)"
+        required: false
+        type: string
+      dry_run:
+        description: "Dry run mode (analyze only, don't create PR)"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  doc-update-check:
+    name: Check if docs need updating
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    # Avoid running on merge commits from doc-updater PRs
+    if: "!contains(github.event.head_commit.message, '[doc-updater]')"
+
+    concurrency:
+      group: egg-doc-updater-${{ github.sha }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0  # Need history to compare commits
+
+      - name: Build task prompt
+        id: prompt
+        env:
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha || '' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: bash action/build-doc-updater-prompt.sh
+
+      - name: Run egg
+        id: egg
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: ${{ steps.prompt.outputs.prompt_file }}
+          model: ${{ steps.prompt.outputs.model }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          github-token: ${{ steps.bot-token.outputs.token }}
+          timeout: "20"
+        env:
+          EGG_BOT_NAME: doc-updater
+
+      - name: Report result
+        if: always()
+        env:
+          EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
+          PR_URL: ${{ steps.egg.outputs.pr-url }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          {
+            echo "## Doc Updater Result"
+            echo ""
+            if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
+              echo "egg completed successfully."
+              if [[ -n "${PR_URL:-}" ]]; then
+                echo ""
+                echo "Created PR: ${PR_URL}"
+              fi
+            else
+              echo "egg run failed (exit code: ${EGG_EXIT_CODE:-unknown})."
+            fi
+            echo ""
+            echo "[View full logs](${RUN_URL})"
+          } >> "$GITHUB_STEP_SUMMARY"
