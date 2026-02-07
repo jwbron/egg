@@ -1369,3 +1369,120 @@ class TestGitHookDisabling:
                 assert "core.hooksPath=/dev/null" in call_args, (
                     f"core.hooksPath=/dev/null missing for {operation}: {call_args}"
                 )
+
+
+class TestGitPushFileProtection:
+    """Tests for file protection during git push."""
+
+    def test_push_file_protection_new_branch_falls_back_to_origin_main(self, client, auth_headers):
+        """File protection works for new branches by falling back to origin/main.
+
+        When pushing to a new branch that doesn't exist on remote yet, the diff
+        should fall back to origin/main instead of failing silently.
+        """
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_file_protection_policy") as mock_file_policy,
+        ):
+            # Track which commands are called
+            commands_called = []
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                commands_called.append(cmd)
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                result.stdout = ""
+
+                if "remote" in cmd and "get-url" in cmd:
+                    result.stdout = "https://github.com/owner/repo.git\n"
+                elif "rev-parse" in cmd and "--verify" in cmd:
+                    # origin/egg-new-feature doesn't exist
+                    if "origin/egg-new-feature" in cmd:
+                        result.returncode = 1  # Branch doesn't exist on remote
+                    else:
+                        result.returncode = 0
+                elif "diff" in cmd:
+                    # Return a diff that modifies a protected file
+                    result.stdout = """diff --git a/.coveragerc b/.coveragerc
+--- a/.coveragerc
++++ b/.coveragerc
+@@ -1,3 +1,3 @@
+ [report]
+-fail_under = 80
++fail_under = 50
+ exclude_lines =
+"""
+                return result
+
+            mock_run.side_effect = run_side_effect
+
+            # Mock policy approval
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned by egg",
+                details={"branch": "egg-new-feature"},
+            )
+            mock_policy.return_value = mock_engine
+
+            # Mock file protection policy with protected .coveragerc
+            mock_policy_obj = MagicMock()
+            mock_policy_obj.protected_files = [
+                MagicMock(
+                    path=".coveragerc",
+                    lines=None,
+                    reason="Test coverage configuration",
+                    level="immutable",
+                )
+            ]
+            # Make check_diff_for_violations return a violation
+            violation_result = MagicMock()
+            violation_result.allowed = False
+            violation_result.violations = [
+                MagicMock(
+                    file=".coveragerc",
+                    lines=None,
+                    reason="Test coverage configuration",
+                )
+            ]
+            violation_result.to_dict.return_value = {
+                "violations": [{"file": ".coveragerc", "reason": "Test coverage configuration"}]
+            }
+            mock_policy_obj.check_diff_for_violations.return_value = violation_result
+            mock_file_policy.return_value = mock_policy_obj
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg-new-feature",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            # The push should be blocked due to file protection
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "protected" in data["message"].lower()
+            assert data["success"] is False
+
+            # Verify that rev-parse was called to check if branch exists
+            rev_parse_calls = [c for c in commands_called if "rev-parse" in c and "--verify" in c]
+            assert len(rev_parse_calls) >= 1, "Should check if branch exists on remote"
+
+            # Verify that diff was called with origin/main (fallback) since
+            # egg-new-feature doesn't exist on remote
+            diff_calls = [c for c in commands_called if "diff" in c]
+            assert len(diff_calls) >= 1, "Should run diff command"
+            diff_cmd = diff_calls[0]
+            # Check that we're diffing against origin/main (the fallback)
+            assert "origin/main" in " ".join(diff_cmd), (
+                f"Should fall back to origin/main for new branch, got: {diff_cmd}"
+            )

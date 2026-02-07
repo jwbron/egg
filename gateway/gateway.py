@@ -570,9 +570,24 @@ def git_push() -> tuple[Response, int] | Response:
     file_policy = get_file_protection_policy(repo)
     if file_policy.protected_files:
         try:
+            # Determine the diff base: use origin/branch if it exists, otherwise fall
+            # back to origin/main. This handles new branches that don't exist on remote
+            # yet, which is the common case for egg/ prefixed branches.
+            diff_base = f"origin/{branch}"
+            check_exists = subprocess.run(
+                git_cmd("rev-parse", "--verify", diff_base),
+                cwd=exec_path,
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+            if check_exists.returncode != 0:
+                # Branch doesn't exist on remote, fall back to origin/main
+                diff_base = "origin/main"
+
             # Get diff between what's on remote and what we're pushing
             diff_result = subprocess.run(
-                git_cmd("diff", f"origin/{branch}...HEAD"),
+                git_cmd("diff", f"{diff_base}...HEAD"),
                 cwd=exec_path,
                 capture_output=True,
                 text=True,
@@ -603,9 +618,13 @@ def git_push() -> tuple[Response, int] | Response:
                         details=file_check.to_dict(),
                     )
         except subprocess.TimeoutExpired:
-            logger.warning("File protection diff check timed out", repo=repo, branch=branch)
+            logger.error(
+                "File protection diff check timed out, allowing push",
+                repo=repo,
+                branch=branch,
+            )
         except Exception as e:
-            logger.warning(
+            logger.error(
                 "File protection check failed, allowing push",
                 repo=repo,
                 branch=branch,
