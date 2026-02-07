@@ -12,6 +12,7 @@ on:
     types: [edited]
 
 permissions:
+  actions: write
   contents: write
   issues: write
 
@@ -333,7 +334,7 @@ jobs:
       - name: Trigger pipeline continuation
         if: steps.advance.outputs.should_advance == 'true'
         env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           NEXT_PHASE: ${{ steps.advance.outputs.next_phase }}
         run: |
           set -euo pipefail
@@ -508,7 +509,7 @@ jobs:
       - name: Trigger pipeline continuation
         if: steps.approve.outputs.approved == 'true'
         env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           NEXT_PHASE: ${{ steps.approve.outputs.next_phase }}
         run: |
           set -euo pipefail
