@@ -99,7 +99,13 @@ def apply_mutation(
 
     # Get the old value and apply the mutation
     try:
-        old_value = _get_value(contract, field_path)
+        # Try to get old value, but handle append case where index doesn't exist yet
+        try:
+            old_value = _get_value(contract, field_path)
+        except IndexError:
+            # This is likely an append operation (index == len of array)
+            # Set old_value to None for audit log
+            old_value = None
         _set_value(contract, field_path, new_value)
     except (KeyError, IndexError, AttributeError) as e:
         return MutationResult(
@@ -191,7 +197,16 @@ def _set_value(obj: Any, path: str, value: Any) -> None:
     final_part = parts[-1]
     if isinstance(current, list):
         idx = int(final_part)
-        current[idx] = value
+        # Support appending to arrays when idx == len(current)
+        if idx == len(current):
+            current.append(value)
+        elif idx < len(current):
+            current[idx] = value
+        else:
+            raise IndexError(
+                f"Array index {idx} out of range (length {len(current)}). "
+                "Can only set existing indices or append at the end."
+            )
     elif hasattr(current, final_part):
         setattr(current, final_part, value)
     elif isinstance(current, dict):

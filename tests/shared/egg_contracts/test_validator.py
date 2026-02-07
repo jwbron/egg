@@ -262,3 +262,104 @@ class TestErrorMessages:
         )
         assert result.valid is False
         assert "human" in result.message.lower()
+
+
+class TestArrayAppend:
+    """Tests for array append functionality in _set_value."""
+
+    @pytest.fixture
+    def contract_with_decisions(self):
+        """Create a contract with an empty decisions list."""
+        return Contract(
+            issue=IssueInfo(
+                number=133,
+                title="Test",
+                url="https://example.com",
+            ),
+            phases=[
+                Phase(
+                    id="phase-1",
+                    name="Setup",
+                    tasks=[
+                        Task(
+                            id="task-1",
+                            description="First task",
+                            status=TaskStatus.PENDING,
+                        ),
+                    ],
+                ),
+            ],
+            decisions=[],
+        )
+
+    def test_append_to_empty_array(self, contract_with_decisions):
+        """Test appending to an empty decisions array."""
+        decision = {
+            "id": "decision-1",
+            "question": "Test question",
+            "resolved": False,
+        }
+        result = apply_mutation(
+            contract=contract_with_decisions,
+            role=Role.IMPLEMENTER,
+            actor="egg",
+            field_path="decisions.0",
+            new_value=decision,
+            reason="Created decision",
+        )
+        assert result.success is True
+        assert len(result.contract.decisions) == 1
+        assert result.contract.decisions[0]["id"] == "decision-1"
+
+    def test_append_to_existing_array(self, contract_with_decisions):
+        """Test appending a second item to an array."""
+        # First add one decision
+        decision1 = {"id": "decision-1", "question": "Q1", "resolved": False}
+        contract_with_decisions.decisions.append(decision1)
+
+        # Now append another
+        decision2 = {"id": "decision-2", "question": "Q2", "resolved": False}
+        result = apply_mutation(
+            contract=contract_with_decisions,
+            role=Role.IMPLEMENTER,
+            actor="egg",
+            field_path="decisions.1",
+            new_value=decision2,
+            reason="Created second decision",
+        )
+        assert result.success is True
+        assert len(result.contract.decisions) == 2
+        assert result.contract.decisions[1]["id"] == "decision-2"
+
+    def test_overwrite_existing_array_element(self, contract_with_decisions):
+        """Test overwriting an existing array element."""
+        # Add a decision
+        decision1 = {"id": "decision-1", "question": "Q1", "resolved": False}
+        contract_with_decisions.decisions.append(decision1)
+
+        # Overwrite it (IMPLEMENTER can modify decisions.*)
+        updated = {"id": "decision-1", "question": "Updated Q1", "resolved": False}
+        result = apply_mutation(
+            contract=contract_with_decisions,
+            role=Role.IMPLEMENTER,
+            actor="egg",
+            field_path="decisions.0",
+            new_value=updated,
+            reason="Updated decision",
+        )
+        assert result.success is True
+        assert result.contract.decisions[0]["question"] == "Updated Q1"
+
+    def test_append_with_gap_fails(self, contract_with_decisions):
+        """Test that appending with a gap in indices fails."""
+        decision = {"id": "decision-2", "question": "Q2", "resolved": False}
+        result = apply_mutation(
+            contract=contract_with_decisions,
+            role=Role.IMPLEMENTER,
+            actor="egg",
+            field_path="decisions.2",  # Gap: no index 0 or 1
+            new_value=decision,
+            reason="Created decision",
+        )
+        assert result.success is False
+        assert "out of range" in result.message.lower()

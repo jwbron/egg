@@ -72,6 +72,15 @@ from .models import (
     Task,
     TaskStatus,
 )
+from .plan_parser import (
+    ParsedPhase,
+    ParsedTask,
+    ParseResult,
+    ParseWarning,
+    format_warnings_for_comment,
+    parse_plan,
+    parse_plan_file,
+)
 from .roles import (
     FIELD_OWNERSHIP,
     Role,
@@ -139,4 +148,12 @@ __all__ = [
     "validate_phase_mutation",
     # Validator
     "validate_task_mutation",
+    # Plan Parser
+    "ParsedPhase",
+    "ParsedTask",
+    "ParseResult",
+    "ParseWarning",
+    "format_warnings_for_comment",
+    "parse_plan",
+    "parse_plan_file",
 ]
