@@ -312,9 +312,11 @@ jobs:
           acceptance criteria, not on stylistic preferences.
           EOF
 
-          echo "prompt<<EOF" >> "$GITHUB_OUTPUT"
-          cat /tmp/review-prompt.txt >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          {
+            echo "prompt<<EOF"
+            cat /tmp/review-prompt.txt
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Checkout issue branch
         uses: actions/checkout@v4

@@ -78,7 +78,6 @@ jobs:
           # Implement 30-second debounce
           # Check if there's a recent workflow run for this decision
 
-          CURRENT_TIME=$(date +%s)
           DEBOUNCE_SECONDS=30
 
           # Look for recent runs of this workflow for the same issue
@@ -387,9 +386,11 @@ jobs:
           git commit -m "Approve and advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
           git push origin "${BRANCH_NAME}"
 
-          echo "approved=true" >> "$GITHUB_OUTPUT"
-          echo "next_phase=${NEXT_PHASE}" >> "$GITHUB_OUTPUT"
-          echo "previous_phase=${CURRENT_PHASE}" >> "$GITHUB_OUTPUT"
+          {
+            echo "approved=true"
+            echo "next_phase=${NEXT_PHASE}"
+            echo "previous_phase=${CURRENT_PHASE}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Post approval comment
         if: steps.approve.outputs.approved == 'true'
