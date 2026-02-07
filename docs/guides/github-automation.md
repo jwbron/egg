@@ -209,23 +209,31 @@ needs updating, and creates a PR if so.
 
 1. **Trigger filtering** — Only runs on pushes to `main` that include code changes.
    Skips doc-only changes to prevent infinite loops.
-2. **Change analysis** — Examines the merged commit to understand what changed.
-3. **Impact assessment** — Determines if documentation would be **incorrect** without
-   updates. Most code changes do NOT require doc updates.
-4. **PR creation** — If updates are needed, creates a PR with the documentation changes.
+2. **Change analysis** — Examines the merged commit, including diff stats and newly
+   added files, to understand what changed.
+3. **Impact assessment** — Checks if documentation needs updating based on the nature
+   of changes. Focuses on new features, new files, and breaking changes.
+4. **Doc verification** — Reads `docs/development/STRUCTURE.md`, `docs/architecture/README.md`,
+   and `docs/index.md` to check if they cover new components or features.
+5. **PR creation** — If updates are needed, creates a PR with the documentation changes.
    PRs are tagged with `[doc-updater]` to prevent re-triggering.
 
 ### When Docs Get Updated
 
-The doc-updater is intentionally conservative. It only creates PRs when documentation
-would be actively misleading without the change:
+The doc-updater analyzes both the magnitude of changes and newly added files to catch
+features that need documentation. It creates PRs when:
 
-| Update | Skip |
-|--------|------|
-| Breaking documented behavior | Prompt/config tuning |
-| New user-facing features | Internal refactoring |
-| Configuration/API changes | Performance improvements |
-| Architecture restructuring | Bug fixes |
+| Update Docs | Skip Updates |
+|-------------|--------------|
+| New files introduce tools, CLIs, or components not in STRUCTURE.md or architecture/README.md | Internal refactoring that doesn't change interfaces |
+| New features or capabilities users/agents need to know about | Performance improvements |
+| Breaking changes that make existing docs incorrect | Bug fixes (unless the bug was documented behavior) |
+| New configuration options or API changes | Test-only changes |
+| Architecture changes affecting documented system design | Prompt/config tuning that doesn't change documented interfaces |
+
+The agent pays special attention to newly added files - commits adding 500+ lines of
+new code often introduce components that should be documented in the project structure
+and architecture docs.
 
 ### Manual Trigger Options
 
