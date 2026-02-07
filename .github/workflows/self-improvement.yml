@@ -125,7 +125,8 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          timeout: "15"
+          github-token: ${{ steps.bot-token.outputs.token }}
+          timeout: "30"
 
       - name: Report result
         if: always()
