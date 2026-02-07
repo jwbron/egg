@@ -136,6 +136,7 @@ action/
 ├── build-sdlc-prompt.sh                    # SDLC pipeline prompt builder
 ├── contract-state.sh                       # Contract state management utility
 ├── escalate.sh                             # SDLC pipeline escalation handler
+├── populate-contract-tasks.py              # Populates contract tasks from plan document
 ├── autofixer-conventions.md                # Guidelines for autofixer behavior
 ├── review-conventions.md                   # Guidelines for review communication
 └── README.md

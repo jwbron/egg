@@ -20,6 +20,7 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
 | `build-sdlc-prompt.sh` | Builds phase-specific prompts for SDLC pipeline workflows |
 | `contract-state.sh` | Contract state management utility for SDLC pipeline |
 | `escalate.sh` | SDLC pipeline escalation handler (circuit breaker triggers HITL intervention) |
+| `populate-contract-tasks.py` | Populates contract tasks from plan document (runs before implement phase) |
 | `generate-config.sh` | Generates runtime configuration from action inputs |
 
 ## Quick Start
