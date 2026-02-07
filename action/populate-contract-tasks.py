@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""
+Populate contract tasks from the plan document.
+
+Fetches the plan comment from the GitHub issue, parses it with plan_parser,
+and writes the extracted phases/tasks into the contract JSON.
+
+This script is idempotent: if the contract already has tasks, it exits
+without changes.
+
+Environment variables:
+    ISSUE_NUMBER    — GitHub issue number (required)
+    GITHUB_REPOSITORY — owner/repo (required)
+    GH_TOKEN        — GitHub token for API access (required)
+
+Exit codes:
+    0 — Tasks populated (or already present)
+    1 — Error (no plan found, parse failure, etc.)
+"""
+
+import json
+import os
+import subprocess
+import sys
+
+from egg_contracts.plan_parser import parse_plan
+
+
+def get_issue_comments(repo: str, issue_number: str, token: str) -> list[dict]:
+    """Fetch all comments on a GitHub issue."""
+    result = subprocess.run(
+        [
+            "gh", "api",
+            f"repos/{repo}/issues/{issue_number}/comments",
+            "--paginate",
+            "--jq", ".[].body",
+        ],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "GH_TOKEN": token},
+    )
+    if result.returncode != 0:
+        print(f"Failed to fetch comments: {result.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+    return [body for body in result.stdout.strip().split("\n") if body.strip()]
+
+
+def find_plan_comment(comments: list[str]) -> str | None:
+    """Find the plan document comment by looking for task markers."""
+    for comment in reversed(comments):
+        if "[TASK-" in comment and ("## Phase" in comment or "Phase 1:" in comment):
+            return comment
+    return None
+
+
+def main() -> None:
+    issue_number = os.environ.get("ISSUE_NUMBER")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    token = os.environ.get("GH_TOKEN")
+
+    if not all([issue_number, repo, token]):
+        print("Missing required environment variables", file=sys.stderr)
+        sys.exit(1)
+
+    contract_path = f".egg-state/contracts/{issue_number}.json"
+
+    if not os.path.exists(contract_path):
+        print(f"Contract not found: {contract_path}", file=sys.stderr)
+        sys.exit(1)
+
+    with open(contract_path) as f:
+        contract = json.load(f)
+
+    # Check if tasks already exist
+    total_tasks = sum(len(phase.get("tasks", [])) for phase in contract.get("phases", []))
+    if total_tasks > 0:
+        print(f"Contract already has {total_tasks} tasks, skipping population")
+        sys.exit(0)
+
+    # Fetch plan comment
+    print("Fetching issue comments to find plan document...")
+    comments = get_issue_comments(repo, issue_number, token)
+
+    plan_content = find_plan_comment(comments)
+    if not plan_content:
+        print("No plan document found in issue comments", file=sys.stderr)
+        sys.exit(1)
+
+    # Parse plan
+    print("Parsing plan document...")
+    result = parse_plan(plan_content)
+
+    if not result.success:
+        print(f"Plan parsing failed: {result.error}", file=sys.stderr)
+        sys.exit(1)
+
+    if result.warnings:
+        for warning in result.warnings:
+            print(f"  Warning: {warning.message}")
+
+    # Convert to contract format
+    phases_data = []
+    total_tasks = 0
+    for phase in result.phases:
+        contract_phase = phase.to_contract_phase()
+        phase_dict = {
+            "id": contract_phase.id,
+            "name": contract_phase.name,
+            "status": str(contract_phase.status),
+            "tasks": [],
+        }
+        for task in contract_phase.tasks:
+            task_dict = {
+                "id": task.id,
+                "description": task.description,
+                "status": str(task.status),
+                "acceptance_criteria": task.acceptance_criteria,
+                "files_affected": task.files_affected,
+                "commit": None,
+                "review_cycles": 0,
+                "max_cycles": 3,
+                "notes": "",
+            }
+            phase_dict["tasks"].append(task_dict)
+            total_tasks += 1
+        phases_data.append(phase_dict)
+
+    if total_tasks == 0:
+        print("No tasks extracted from plan document", file=sys.stderr)
+        sys.exit(1)
+
+    # Update contract
+    contract["phases"] = phases_data
+
+    with open(contract_path, "w") as f:
+        json.dump(contract, f, indent=2)
+
+    print(f"Populated contract with {len(phases_data)} phases and {total_tasks} tasks")
+
+
+if __name__ == "__main__":
+    main()
