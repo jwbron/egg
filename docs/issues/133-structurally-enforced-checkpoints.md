@@ -119,7 +119,8 @@ egg-contract resolve-decision --decision decision-1 --resolution approved
 
 - The gateway reads role from **workflow context** (GitHub Actions job metadata), not environment variables set by the agent
 - The `egg-contract` CLI communicates with the gateway, which validates the mutation against the caller's role
-- Pre-commit hooks provide defense-in-depth validation
+
+> **Note**: Pre-commit hooks are currently disabled in the sidecar architecture due to security concerns (see [issue #58](https://github.com/jwbron/egg/issues/58)). Defense-in-depth validation via pre-commit hooks is tracked in [issue #199](https://github.com/jwbron/egg/issues/199).
 
 ---
 
@@ -325,9 +326,10 @@ Located at `sandbox/.claude/reviewer-rules.md`:
 ### Structural Enforcement
 - [ ] Contract CLI (`egg-contract`) rejects unauthorized field modifications
 - [ ] Gateway validates role before allowing contract mutations
-- [ ] Pre-commit hook validates contract changes respect role ownership
 - [ ] Implementer role cannot mark tasks as complete (verified by test)
 - [ ] Reviewer role cannot modify task commits (verified by test)
+
+> **Deferred**: Pre-commit hook validation is blocked pending resolution of [issue #199](https://github.com/jwbron/egg/issues/199) (enabling pre-commit hooks in sidecar architecture).
 
 ### Task Collection
 - [ ] Contract schema supports phases, tasks, and acceptance criteria

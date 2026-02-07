@@ -301,7 +301,7 @@ The following items from the original plan are **no longer needed** because they
 | Separate reviewer workflow (`sdlc-review.yml`) | Existing `on-pull-request.yml` pattern handles reviews |
 | Reviewer system prompt | Existing `review-conventions.md` provides guidance |
 | Structured verdict output parser | Agents take action directly per agent-mode-design.md |
-| Pre-commit hook for contract validation | Gateway enforces role access; pre-commit is defense-in-depth at most |
+| Pre-commit hook for contract validation | Hooks are disabled in sidecar due to security concerns ([issue #58](https://github.com/jwbron/egg/issues/58)); tracked in [issue #199](https://github.com/jwbron/egg/issues/199) |
 | Stage-specific prompt builders (refine, plan, implement, review) | Single prompt builder with orientation context; agent fetches what it needs |
 | Reviewer output parser | No structured output to parse; agent uses `gh pr review` directly |
 
