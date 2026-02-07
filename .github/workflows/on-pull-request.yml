@@ -55,86 +55,85 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
       # Capture last bot review info before dismissing (for re-review context)
-      # The bot may post reviews via the Reviews API (normal PRs) or as issue
-      # comments (self-reviews, where GitHub blocks bots from reviewing their
-      # own PRs). We check both sources and use the most recent.
+      # The gh wrapper adds a marker to all automated reviews:
+      #   <!-- egg-automated-review bot=<name> commit=<sha> -->
+      # We search for this marker in reviews and comments to find the last review.
       - name: Get last review info
         id: last-review
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
-          # Get the most recent bot review from the Reviews API
-          # This works for reviews on PRs the bot didn't author
-          last_review=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
-            --jq --arg bot "$BOT_USERNAME" \
-            '[.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]"))] | sort_by(.submitted_at) | last')
+          # Regex to extract commit SHA from the automated review marker
+          # Format: <!-- egg-automated-review bot=<name> commit=<sha> -->
+          marker_regex='<!-- egg-automated-review bot=[^ ]+ commit=([a-f0-9]+) -->'
 
-          review_commit=""
-          review_time=""
-          if [[ -n "$last_review" && "$last_review" != "null" ]]; then
-            review_commit=$(echo "$last_review" | jq -r '.commit_id')
-            review_time=$(echo "$last_review" | jq -r '.submitted_at')
-            echo "Found review API entry at commit $review_commit"
+          # Check reviews from the Reviews API for the marker
+          # The marker is in the review body
+          last_review_commit=""
+          last_review_time=""
+          reviews=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
+            --jq '[.[] | {body: .body, submitted_at: .submitted_at}]')
+
+          while IFS= read -r review; do
+            body=$(echo "$review" | jq -r '.body // ""')
+            submitted_at=$(echo "$review" | jq -r '.submitted_at')
+            if [[ "$body" =~ $marker_regex ]]; then
+              commit="${BASH_REMATCH[1]}"
+              # Keep track of the most recent one
+              if [[ -z "$last_review_time" || "$submitted_at" > "$last_review_time" ]]; then
+                last_review_commit="$commit"
+                last_review_time="$submitted_at"
+              fi
+            fi
+          done < <(echo "$reviews" | jq -c '.[]')
+
+          if [[ -n "$last_review_commit" ]]; then
+            echo "Found automated review marker in Reviews API: commit=$last_review_commit at $last_review_time"
           fi
 
-          # Also check issue comments for self-reviews (when bot reviews its own PR)
-          # We identify review comments by the signature "— Authored by egg"
-          # and exclude status comments like "egg review completed/failed"
-          last_comment=$(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq --arg bot "$BOT_USERNAME" \
-            '[.[] | select(
-              (.user.login == $bot or .user.login == ($bot + "[bot]")) and
-              (.body | test("— Authored by egg$")) and
-              (.body | test("^egg review (completed|failed)") | not)
-            )] | sort_by(.created_at) | last')
+          # Also check issue comments for the marker (for self-reviews where
+          # GitHub blocks bots from using the Reviews API on their own PRs)
+          last_comment_commit=""
+          last_comment_time=""
+          comments=$(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            --jq '[.[] | {body: .body, created_at: .created_at}]')
 
-          comment_time=""
-          if [[ -n "$last_comment" && "$last_comment" != "null" ]]; then
-            comment_time=$(echo "$last_comment" | jq -r '.created_at')
-            echo "Found review comment at $comment_time"
+          while IFS= read -r comment; do
+            body=$(echo "$comment" | jq -r '.body // ""')
+            created_at=$(echo "$comment" | jq -r '.created_at')
+            if [[ "$body" =~ $marker_regex ]]; then
+              commit="${BASH_REMATCH[1]}"
+              # Keep track of the most recent one
+              if [[ -z "$last_comment_time" || "$created_at" > "$last_comment_time" ]]; then
+                last_comment_commit="$commit"
+                last_comment_time="$created_at"
+              fi
+            fi
+          done < <(echo "$comments" | jq -c '.[]')
+
+          if [[ -n "$last_comment_commit" ]]; then
+            echo "Found automated review marker in issue comments: commit=$last_comment_commit at $last_comment_time"
           fi
 
           # Use whichever is more recent (review or comment)
-          # For comments, we need to look up the commit SHA at that time
-          if [[ -n "$review_commit" && -z "$comment_time" ]]; then
-            # Only have review API result
-            echo "commit-sha=$review_commit" >> "$GITHUB_OUTPUT"
-            echo "Using review API result"
-          elif [[ -z "$review_commit" && -n "$comment_time" ]]; then
-            # Only have comment result - need to find commit at that time
-            # Get commits up to that timestamp and take the most recent
-            commit_sha=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/commits" \
-              --jq --arg ts "$comment_time" \
-              '[.[] | select(.commit.committer.date <= $ts)] | last | .sha')
-            if [[ -n "$commit_sha" && "$commit_sha" != "null" ]]; then
-              echo "commit-sha=$commit_sha" >> "$GITHUB_OUTPUT"
-              echo "Using comment result, resolved to commit $commit_sha"
+          if [[ -n "$last_review_commit" && -z "$last_comment_commit" ]]; then
+            echo "commit-sha=$last_review_commit" >> "$GITHUB_OUTPUT"
+            echo "Using review marker result"
+          elif [[ -z "$last_review_commit" && -n "$last_comment_commit" ]]; then
+            echo "commit-sha=$last_comment_commit" >> "$GITHUB_OUTPUT"
+            echo "Using comment marker result"
+          elif [[ -n "$last_review_commit" && -n "$last_comment_commit" ]]; then
+            # Compare timestamps to find the most recent
+            if [[ "$last_comment_time" > "$last_review_time" ]]; then
+              echo "commit-sha=$last_comment_commit" >> "$GITHUB_OUTPUT"
+              echo "Using comment marker result (newer)"
             else
-              echo "commit-sha=" >> "$GITHUB_OUTPUT"
-              echo "Could not resolve comment to commit"
-            fi
-          elif [[ -n "$review_commit" && -n "$comment_time" ]]; then
-            # Have both - compare timestamps
-            if [[ "$comment_time" > "$review_time" ]]; then
-              # Comment is newer
-              commit_sha=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/commits" \
-                --jq --arg ts "$comment_time" \
-                '[.[] | select(.commit.committer.date <= $ts)] | last | .sha')
-              if [[ -n "$commit_sha" && "$commit_sha" != "null" ]]; then
-                echo "commit-sha=$commit_sha" >> "$GITHUB_OUTPUT"
-                echo "Using comment result (newer), resolved to commit $commit_sha"
-              else
-                echo "commit-sha=$review_commit" >> "$GITHUB_OUTPUT"
-                echo "Comment newer but couldn't resolve, falling back to review"
-              fi
-            else
-              # Review is newer or same time
-              echo "commit-sha=$review_commit" >> "$GITHUB_OUTPUT"
-              echo "Using review API result (newer or same)"
+              echo "commit-sha=$last_review_commit" >> "$GITHUB_OUTPUT"
+              echo "Using review marker result (newer or same)"
             fi
           else
             echo "commit-sha=" >> "$GITHUB_OUTPUT"
-            echo "No previous bot review found"
+            echo "No automated review marker found"
           fi
 
       # Dismiss previous bot reviews before starting new review
