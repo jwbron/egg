@@ -96,7 +96,7 @@ try:
     from .worktree_manager import WorktreeManager, startup_cleanup
 except ImportError:
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
-    from file_policy import get_file_protection_policy  # type: ignore[no-redef]
+    from file_policy import get_file_protection_policy  # type: ignore[no-redef, import-not-found]
     from git_client import (  # type: ignore[no-redef, import-not-found]
         GIT_ALLOWED_COMMANDS,
         cleanup_credential_helper,
