@@ -93,6 +93,7 @@ jobs:
           fi
 
           # Run analysis with detection enabled
+          # shellcheck disable=SC2086  # Word splitting is intentional for ARGS
           python -m egg_lib.self_improvement.analyze ${ARGS} | tee analysis_output.txt
 
           {
