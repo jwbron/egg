@@ -168,6 +168,18 @@ worktree_manager = _load_module_with_replaced_imports(
     GATEWAY_DIR / "worktree_manager.py",
 )
 
+# proxy_monitor has no relative imports to other gateway modules
+proxy_monitor = _load_module_with_replaced_imports(
+    "proxy_monitor",
+    GATEWAY_DIR / "proxy_monitor.py",
+)
+
+# config_validator has no relative imports to other gateway modules
+config_validator = _load_module_with_replaced_imports(
+    "config_validator",
+    GATEWAY_DIR / "config_validator.py",
+)
+
 # gateway imports from all
 gateway = _load_module_with_replaced_imports(
     "gateway",
