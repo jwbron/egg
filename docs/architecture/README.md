@@ -54,6 +54,30 @@ Contracts are JSON documents that track issue progress through SDLC phases, task
 
 The gateway enforces role-based mutations via the `/api/v1/contract/` endpoints. Role is determined from workflow context, preventing privilege escalation.
 
+### Contract CLI
+
+Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib/contract_cli.py`):
+
+| Command | Purpose |
+|---------|---------|
+| `egg-contract show` | Display current contract state |
+| `egg-contract add-commit --task <id> --commit <sha>` | Link commit to task |
+| `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes |
+| `egg-contract mark-task --task <id> --status <status>` | Mark task status (reviewer only) |
+| `egg-contract mark-phase --phase <id> --passed <bool>` | Mark phase status (reviewer only) |
+| `egg-contract add-decision --question <text>` | Create HITL decision point |
+
+### Plan Parser
+
+The plan parser (`shared/egg_contracts/plan_parser.py`) extracts tasks from plan documents:
+- Parses `[TASK-X-Y]` patterns from markdown
+- Supports YAML front matter for structured task definitions
+- Generates placeholder tasks for empty phases
+
+### SDLC Prompt Builder
+
+The prompt builder (`action/build-sdlc-prompt.sh`) provides phase-specific context and instructions to the agent during SDLC pipeline runs, including orientation context (issue number, current phase, branch) and document templates for the refine and plan phases.
+
 ## Key Architectural Decisions
 
 See [ADR Overview](../adr/README.md) for the full list. Key decisions:

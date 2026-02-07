@@ -72,6 +72,7 @@ sandbox/
 │   ├── gh
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
+│   └── contract_cli.py     # SDLC contract CLI (egg-contract)
 ├── llm/                    # Claude Code / Agent SDK integration
 ├── tools/                  # Interactive tools
 │   ├── discover-tests.py   # Test framework discovery
@@ -86,6 +87,7 @@ sandbox/
 ```
 shared/
 ├── egg_config/             # Configuration utilities
+├── egg_contracts/          # SDLC contract models, plan parser, role-based validation
 ├── egg_git/                # Git utilities
 └── egg_logging/            # Structured logging
 ```
@@ -121,6 +123,7 @@ docs/
 ├── development/            # Developer guides (this file)
 ├── reference/              # Quick reference guides
 ├── setup/                  # Setup instructions
+├── templates/              # SDLC phase document templates (analysis, plan)
 └── troubleshooting/        # Common issues and solutions
 ```
 

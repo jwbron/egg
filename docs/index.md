@@ -47,6 +47,13 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Agent-Mode Design](guides/agent-mode-design.md) | When to let egg operate freely vs. when constraints are appropriate |
 | [GitHub Automation](guides/github-automation.md) | Built-in review bots, autofixer, @mention, and self-improvement workflows |
 
+### SDLC Pipeline Templates
+
+| Document | Description |
+|----------|-------------|
+| [Analysis Template](templates/analysis.md) | Problem analysis template for the refine phase |
+| [Plan Template](templates/plan.md) | Implementation plan template with task ID format for the plan phase |
+
 ## Component Documentation
 
 Each major component has its own README with detailed documentation:
@@ -55,7 +62,7 @@ Each major component has its own README with detailed documentation:
 |-----------|----------|-------------|
 | [Gateway Sidecar](../gateway/README.md) | `gateway/` | Policy enforcement, credential injection, API endpoints |
 | [Sandbox Container](../sandbox/README.md) | `sandbox/` | Agent environment, tools, entrypoint |
-| [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, and git utilities |
+| [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, and SDLC contracts |
 | [Configuration](../config/README.md) | `config/` | Repository and host configuration |
 | [CLI Entry Points](../bin/README.md) | `bin/` | `egg` and `setup-gateway` commands |
 | [GitHub Action](../action/README.md) | `action/` | Composite action for GitHub Actions |
@@ -74,6 +81,7 @@ Each major component has its own README with detailed documentation:
 | **Setting up GitHub automation** | [GitHub Automation](guides/github-automation.md) | [Agent-Mode Design](guides/agent-mode-design.md), [GitHub Action](../action/README.md) |
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
 | **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
+| **SDLC pipeline changes** | [Architecture Overview](architecture/README.md) | [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md) |
 
 ## Quick Navigation
 
