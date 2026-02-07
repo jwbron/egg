@@ -1,21 +1,82 @@
-# Issue #133: Implementation Plan
+# Issue #133: Implementation Plan (Revised)
 
 > Detailed implementation plan for Structurally Enforced Agent Checkpoints and Verification Gates.
 > See [133-structurally-enforced-checkpoints.md](./133-structurally-enforced-checkpoints.md) for the full specification.
 
 ---
 
-## Overview
+## Context: What Already Exists
 
-This plan breaks down the implementation into 5 phases with specific tasks, file locations, dependencies, and acceptance criteria. Each phase builds on the previous one, with clear handoff points.
+This plan has been revised based on the current state of `main` (as of 2024-02). The codebase now includes substantial reviewer infrastructure:
 
-**Estimated scope**: ~25-35 files, spanning Python libraries, shell scripts, GitHub Actions workflows, and JSON schemas.
+### Existing Reviewer System
+
+| Component | Location | Description |
+|-----------|----------|-------------|
+| PR review workflow | `.github/workflows/on-pull-request.yml` | Automated code review on PRs |
+| Review prompt builder | `action/build-review-prompt.sh` | Minimal prompt telling agent to use `gh pr diff` |
+| Review conventions | `action/review-conventions.md` | Guidelines for `gh pr review` usage |
+| Autofixer workflow | `.github/workflows/on-check-failure.yml` | Auto-fix failing CI checks |
+| Mention handler | `.github/workflows/on-mention.yml` | Respond to @mentions |
+
+### Design Guidelines
+
+Per `docs/guides/agent-mode-design.md`, the existing infrastructure follows these principles:
+
+1. **Agent-mode over structured output**: Agents take action directly (post reviews, push code) rather than outputting JSON for post-processing
+2. **Minimal prompts**: Tell agent *what* to do, not *how*—let it fetch its own context
+3. **Sandbox is the constraint**: Security enforced at infrastructure level (gateway sidecar), not prompt-level instructions
+
+### What This Changes
+
+The original plan proposed parallel infrastructure (separate reviewer agent, structured verdict output, new CLI). **This revised plan integrates with existing systems instead.**
+
+Key changes:
+- **Remove**: Separate reviewer workflow (use existing `on-pull-request.yml` patterns)
+- **Remove**: Structured verdict output parsing (agents take action directly)
+- **Keep**: Contract schema and role-based field ownership
+- **Keep**: Circuit breaker and HITL decision system
+- **Adapt**: Use existing prompt builder patterns
 
 ---
 
-## Phase 1: Contract Schema and Validation (Foundation)
+## Revised Architecture
 
-**Goal**: Establish the contract data model, JSON schema, and CLI with role-based enforcement.
+The SDLC pipeline will extend the existing reviewer infrastructure rather than replace it:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           SDLC PIPELINE                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌──────────┐ │
+│  │   REFINE    │───▶│    PLAN     │───▶│  IMPLEMENT  │───▶│ CREATE   │ │
+│  │   ISSUE     │    │             │    │  (per phase)│    │   PR     │ │
+│  └─────────────┘    └─────────────┘    └─────────────┘    └──────────┘ │
+│        │                  │                  │                  │       │
+│        ▼                  ▼                  ▼                  ▼       │
+│   ┌─────────┐        ┌─────────┐        ┌─────────┐        ┌─────────┐ │
+│   │ REVIEW  │        │ REVIEW  │        │ REVIEW  │        │  HUMAN  │ │
+│   │  (egg)  │        │ (HITL?) │        │  (egg)  │        │  MERGE  │ │
+│   └─────────┘        └─────────┘        └─────────┘        └─────────┘ │
+│                                                                          │
+│   Contract tracks state; existing on-pull-request.yml handles reviews   │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Integration Approach
+
+1. **Contract schema**: New—tracks phases, tasks, decisions, audit log
+2. **Role-based enforcement**: New—gateway validates mutations based on workflow context
+3. **Pipeline orchestration**: New—coordinates phases using existing building blocks
+4. **Review step**: Reuse—existing `on-pull-request.yml` workflow pattern
+5. **Circuit breaker**: New—escalation thresholds and HITL triggers
+
+---
+
+## Phase 1: Contract Schema and Core Library
+
+**Goal**: Establish the contract data model with role-based enforcement at the gateway level.
 
 ### 1.1 Contract JSON Schema
 
@@ -27,22 +88,6 @@ This plan breaks down the implementation into 5 phases with specific tasks, file
 - [ ] Include field-level annotations for role ownership (`x-role-owner`)
 - [ ] Add validation constraints (required fields, enum values, patterns)
 
-**Schema structure**:
-```json
-{
-  "$schema": "https://json-schema.org/draft-07/schema#",
-  "type": "object",
-  "properties": {
-    "schemaVersion": { "type": "string", "const": "1.0" },
-    "issue": { "$ref": "#/definitions/issue" },
-    "phases": { "type": "array", "items": { "$ref": "#/definitions/phase" } },
-    "decisions": { "type": "array", "items": { "$ref": "#/definitions/decision" } },
-    "circuit_breaker": { "$ref": "#/definitions/circuitBreaker" },
-    "audit_log": { "type": "array", "items": { "$ref": "#/definitions/auditEntry" } }
-  }
-}
-```
-
 ### 1.2 Contract Library
 
 **Directory**: `shared/egg_contracts/`
@@ -53,62 +98,24 @@ This plan breaks down the implementation into 5 phases with specific tasks, file
 - [ ] `shared/egg_contracts/loader.py` - Load/save contract from `.egg/contracts/{issue}.json`
 - [ ] `shared/egg_contracts/roles.py` - Role enum and field ownership mapping
 - [ ] `shared/egg_contracts/validator.py` - Validate mutations against role permissions
-- [ ] `shared/egg_contracts/audit.py` - Audit log entry creation and formatting
+- [ ] `shared/egg_contracts/audit.py` - Audit log entry creation
 
-**Role ownership mapping** (in `roles.py`):
-```python
-FIELD_OWNERSHIP = {
-    "tasks.*.commit": Role.IMPLEMENTER,
-    "tasks.*.notes": Role.IMPLEMENTER,
-    "tasks.*.status": Role.REVIEWER,
-    "phases.*.review_feedback": Role.REVIEWER,
-    "acceptance_criteria.*.verified": Role.REVIEWER,
-    "decisions.*.resolved": Role.HUMAN,
-    "decisions.*.resolution": Role.HUMAN,
-}
-```
+### 1.3 Gateway Contract Endpoint
 
-### 1.3 Contract CLI
+**File**: `gateway/contract.py` (new module, integrated into existing `gateway/gateway.py`)
 
-**File**: `sandbox/egg_lib/contract_cli.py`
-
-**Commands**:
-- [ ] `egg-contract init --issue <number>` - Initialize contract from issue
-- [ ] `egg-contract add-commit --task <id> --commit <sha>` - Link commit to task (implementer)
-- [ ] `egg-contract update-notes --task <id> --notes <text>` - Add notes (implementer)
-- [ ] `egg-contract mark-task --task <id> --status <status>` - Mark task status (reviewer)
-- [ ] `egg-contract mark-phase --phase <id> --passed <bool>` - Mark phase (reviewer)
-- [ ] `egg-contract resolve-decision --decision <id> --resolution <value>` - Resolve HITL (human only via gateway)
-- [ ] `egg-contract show` - Display current contract state
-
-**CLI integration**:
-- [ ] Register CLI as entry point in `sandbox/pyproject.toml`
-- [ ] Route mutations through gateway for role validation
-
-### 1.4 Gateway Contract Endpoint
-
-**File**: `gateway/contract.py` (new)
-
-**Endpoints** (added to `gateway/gateway.py`):
+**Endpoints**:
 - [ ] `POST /api/v1/contract/mutate` - Validate role and apply mutation
 - [ ] `GET /api/v1/contract/{issue}` - Retrieve contract state
 
 **Role determination**:
-- Read from `EGG_AGENT_ROLE` header (set by GitHub Actions job context)
-- Validate against allowed mutations for that role
-- Reject with structured error if unauthorized
+- Read from GitHub Actions workflow context (job metadata), not agent-set env vars
+- Validate mutations against allowed fields for that role
+- Return structured error if unauthorized
 
-### 1.5 Pre-commit Hook
+**Note**: The gateway is Python-based (see existing `gateway/gateway.py`). Contract endpoints follow the same patterns.
 
-**File**: `.egg/hooks/validate-contract.sh`
-
-**Validation**:
-- [ ] Parse contract diff to identify modified fields
-- [ ] Check modifications against expected role (from commit metadata or env)
-- [ ] Block commits that violate role boundaries
-- [ ] Allow bypass with `--no-verify` for human overrides
-
-### 1.6 Unit Tests
+### 1.4 Unit Tests
 
 **Directory**: `tests/unit/egg_contracts/`
 
@@ -116,7 +123,6 @@ FIELD_OWNERSHIP = {
 - [ ] `test_models.py` - Pydantic model validation
 - [ ] `test_roles.py` - Role ownership enforcement
 - [ ] `test_validator.py` - Mutation validation logic
-- [ ] `test_cli.py` - CLI command parsing and execution
 
 **Key test cases**:
 - Implementer cannot modify `tasks[].status`
@@ -126,77 +132,46 @@ FIELD_OWNERSHIP = {
 
 ---
 
-## Phase 2: Review Agent Infrastructure
+## Phase 2: Agent CLI and Prompt Integration
 
-**Goal**: Create the reviewer agent with its own system prompt and action support.
+**Goal**: Give agents a way to interact with contracts, following agent-mode principles.
 
-### 2.1 Reviewer System Prompt
+### 2.1 Contract CLI
 
-**File**: `sandbox/.claude/rules/reviewer.md`
+**File**: `sandbox/egg_lib/contract_cli.py`
 
-**Content**:
-- [ ] Define reviewer role and constraints
-- [ ] Specify what reviewers can and cannot do
-- [ ] Provide structured output format for verdicts
-- [ ] Reference `egg-contract` CLI commands
+**Design principle**: The CLI is a *tool* the agent uses, not a constraint on agent behavior. Per agent-mode-design.md, the sandbox enforces constraints—the CLI just provides an interface.
 
-**Key rules**:
-```markdown
-# Reviewer Role
+**Commands**:
+- [ ] `egg-contract show` - Display current contract state
+- [ ] `egg-contract add-commit --task <id> --commit <sha>` - Link commit to task
+- [ ] `egg-contract update-notes --task <id> --notes <text>` - Add implementation notes
+- [ ] `egg-contract mark-task --task <id> --status <status>` - Mark task status
+- [ ] `egg-contract mark-phase --phase <id> --passed <bool>` - Mark phase status
+- [ ] `egg-contract add-decision --question <text>` - Create HITL decision point
 
-You are a code reviewer agent. Your job is to evaluate implementation quality.
+**CLI routing**: All mutations go through the gateway endpoint, which enforces role-based access.
 
-## Constraints
-- You CANNOT modify code, only review it
-- You CANNOT mark your own work as complete
-- You MUST use `egg-contract` CLI to record verdicts
+### 2.2 Agent Rules Update
 
-## Output Format
-Provide structured verdict:
-- PASS: All acceptance criteria met
-- FAIL: List specific issues to address
-- ESCALATE: Cannot determine, human review needed
-```
+**File**: `sandbox/.claude/rules/contract.md` (new)
 
-### 2.2 Action Role Support
+**Content**: Brief guidance on contract usage, not prescriptive procedures. Per agent-mode-design.md section 4, specify *what* (track progress in contract, use CLI to update), not *how* (step-by-step instructions).
 
-**File**: `action/action.yml` (modify)
+### 2.3 Prompt Builder Extension
 
-**Changes**:
-- [ ] Add `role` input parameter (implementer, reviewer)
-- [ ] Add `rules-file` input for role-specific rules
-- [ ] Pass role to container via environment variable
+**File**: `action/build-sdlc-prompt.sh` (new)
 
-**File**: `action/entrypoint.sh` (modify)
-
-**Changes**:
-- [ ] Set `EGG_AGENT_ROLE` environment variable from input
-- [ ] Load role-specific rules file if specified
-- [ ] Pass role to gateway health check
-
-### 2.3 Reviewer Output Parser
-
-**File**: `shared/egg_contracts/reviewer_output.py`
-
-**Functionality**:
-- [ ] Parse structured verdict from reviewer agent output
-- [ ] Extract pass/fail status and feedback
-- [ ] Map feedback to specific tasks/phases
-- [ ] Generate contract update commands
-
-### 2.4 Integration Tests
-
-**Directory**: `tests/integration/`
-
-**Test files**:
-- [ ] `test_reviewer_role.py` - Verify reviewer restrictions work end-to-end
-- [ ] `test_role_handoff.py` - Verify implementer → reviewer handoff
+**Purpose**: Build minimal prompt for SDLC pipeline stages. Follows existing `build-review-prompt.sh` pattern:
+- Orientation context only (issue number, current phase, branch)
+- Tells agent to use `egg-contract` CLI for state updates
+- Agent fetches its own context (issue details, diff, etc.)
 
 ---
 
 ## Phase 3: Pipeline Workflow
 
-**Goal**: Create GitHub Actions workflows for the full SDLC pipeline.
+**Goal**: Orchestrate the SDLC pipeline using GitHub Actions, building on existing patterns.
 
 ### 3.1 Main Pipeline Workflow
 
@@ -210,59 +185,24 @@ Provide structured verdict:
 ```yaml
 jobs:
   init:
-    # Initialize contract from issue
+    # Initialize contract from issue, create branch
 
-  refine:
+  work:
     needs: init
-    # Refine issue requirements (implementer)
+    # Single agent invocation per phase
+    # Agent decides how to approach the work
+    # Uses egg-contract CLI to track progress
 
-  refine-review:
-    needs: refine
-    uses: ./.github/workflows/sdlc-review.yml
-    # Auto-review refinement
-
-  plan:
-    needs: refine-review
-    # Create implementation plan (implementer)
-
-  plan-review:
-    needs: plan
-    uses: ./.github/workflows/sdlc-review.yml
-    # Review plan (may trigger HITL)
-
-  implement:
-    needs: plan-review
-    strategy:
-      matrix:
-        phase: ${{ fromJson(needs.plan-review.outputs.phases) }}
-    # Implement each phase (implementer)
-
-  implement-review:
-    needs: implement
-    uses: ./.github/workflows/sdlc-review.yml
-    # Review implementation (reviewer)
-
-  create-pr:
-    needs: implement-review
-    # Create pull request
+  review:
+    needs: work
+    # Reuses patterns from on-pull-request.yml
+    # Agent reviews implementation, updates contract
+    # Creates HITL decision if needed
 ```
 
-### 3.2 Reviewer Workflow (Reusable)
+**Design note**: Per agent-mode-design.md, avoid pre-fetching data or specifying output formats. The workflow provides orientation context; agents fetch what they need.
 
-**File**: `.github/workflows/sdlc-review.yml`
-
-**Inputs**:
-- [ ] `issue_number` - Issue being worked on
-- [ ] `phase_id` - Phase to review
-- [ ] `branch` - Branch with implementation
-- [ ] `review_type` - auto, hitl, or both
-
-**Outputs**:
-- [ ] `verdict` - PASS, FAIL, or ESCALATE
-- [ ] `feedback` - Structured feedback JSON
-- [ ] `requires_hitl` - Whether HITL decision is needed
-
-### 3.3 HITL Decision Workflow
+### 3.2 HITL Decision Workflow
 
 **File**: `.github/workflows/sdlc-hitl.yml`
 
@@ -270,48 +210,31 @@ jobs:
 - [ ] `issue_comment.edited` - Detect checkbox changes
 
 **Logic**:
-- [ ] Parse comment for checkbox state changes
+- [ ] Parse comment for checkbox state changes (follows existing marker pattern from `on-pull-request.yml`)
 - [ ] Implement 30-second debounce
-- [ ] Update contract with resolution
+- [ ] Update contract via gateway endpoint (human role)
 - [ ] Trigger pipeline resume
 
-### 3.4 Stage-Specific Prompt Builders
-
-**Directory**: `action/prompts/`
-
-**Files**:
-- [ ] `action/prompts/refine.sh` - Build refinement prompt
-- [ ] `action/prompts/plan.sh` - Build planning prompt
-- [ ] `action/prompts/implement.sh` - Build implementation prompt
-- [ ] `action/prompts/review.sh` - Build review prompt
-
-### 3.5 Contract State Management
+### 3.3 Contract State Management
 
 **File**: `action/contract-state.sh`
 
 **Functionality**:
 - [ ] Load contract from branch
-- [ ] Determine current phase and task
-- [ ] Pass state to agent via prompt context
+- [ ] Determine current phase/task
 - [ ] Commit contract updates after agent run
 
 ---
 
 ## Phase 4: Circuit Breaker and Escalation
 
-**Goal**: Implement safeguards against infinite loops and escalation to humans.
+**Goal**: Prevent infinite loops and escalate to humans when needed.
 
 ### 4.1 Circuit Breaker Logic
 
 **File**: `shared/egg_contracts/circuit_breaker.py`
 
-**State machine**:
-- [ ] CLOSED → OPEN when threshold exceeded
-- [ ] OPEN → HALF-OPEN on human intervention
-- [ ] HALF-OPEN → CLOSED on next pass
-- [ ] HALF-OPEN → OPEN on next fail
-
-**Thresholds** (configurable per-repository or per-issue via `.egg/config.json`):
+**Thresholds** (configurable via `.egg/config.json`):
 ```python
 DEFAULT_THRESHOLDS = {
     "per_phase_cycles": 3,
@@ -320,10 +243,11 @@ DEFAULT_THRESHOLDS = {
 }
 ```
 
-**Configuration support**:
-- [ ] Load threshold overrides from `.egg/config.json` if present
-- [ ] Allow per-issue overrides in contract metadata
-- [ ] Fall back to defaults if not configured
+**State transitions**:
+- CLOSED → OPEN: Threshold exceeded
+- OPEN → HALF-OPEN: Human intervention
+- HALF-OPEN → CLOSED: Next review passes
+- HALF-OPEN → OPEN: Next review fails
 
 ### 4.2 Escalation Actions
 
@@ -331,143 +255,82 @@ DEFAULT_THRESHOLDS = {
 
 **Actions**:
 - [ ] Label issue with `needs-human-intervention`
-- [ ] Post context comment with:
-  - Current phase and task
-  - Review feedback history
-  - Suggested resolution paths
+- [ ] Post context comment with current state and review history
 - [ ] Create HITL decision checkboxes
-- [ ] Notify via configured channels (Slack if available)
 
-### 4.3 HITL Checkbox Rendering
+### 4.3 HITL Checkbox Handling
 
 **File**: `shared/egg_contracts/hitl.py`
 
 **Functionality**:
 - [ ] Generate markdown checkbox block for decisions
 - [ ] Parse checkbox state from comment body
-- [ ] Track which option was selected
-- [ ] Handle edge cases (multiple checked, unchecked after resolve)
-
-### 4.4 Debounce Implementation
-
-**File**: `.github/workflows/sdlc-hitl.yml` (modify)
-
-**Logic**:
-- [ ] On checkbox change detection, set `debounce_until` in contract
-- [ ] Wait 30 seconds before processing
-- [ ] If comment edited during wait, reset timer
-- [ ] Only resolve when debounce expires with stable state
-
-### 4.5 Resume Logic
-
-**File**: `action/resume.sh`
-
-**Functionality**:
-- [ ] Load contract and find last completed task/phase
-- [ ] Determine resume point
-- [ ] Build resume prompt with context
-- [ ] Trigger appropriate workflow stage
+- [ ] Handle debounce timing
 
 ---
 
 ## Phase 5: Integration and Testing
 
-**Goal**: End-to-end testing, documentation, and observability.
+**Goal**: Validate the full pipeline with tests and documentation.
 
-### 5.1 Integration Test Suite
+### 5.1 Integration Tests
 
 **Directory**: `integration_tests/sdlc/`
 
 **Test scenarios**:
 - [ ] `test_happy_path.py` - Full pipeline success
-- [ ] `test_review_rejection.py` - Reviewer rejects, implementer fixes
+- [ ] `test_review_rejection.py` - Review fails, implements fixes
 - [ ] `test_circuit_breaker.py` - Escalation triggers correctly
-- [ ] `test_hitl_flow.py` - Human decision pauses and resumes pipeline
-- [ ] `test_role_enforcement.py` - Role violations are blocked
+- [ ] `test_hitl_flow.py` - Human decision pauses and resumes
+- [ ] `test_role_enforcement.py` - Gateway blocks unauthorized mutations
 
-### 5.2 E2E Test Workflow
-
-**File**: `.github/workflows/test-sdlc-e2e.yml`
-
-**Functionality**:
-- [ ] Create test issue with known requirements
-- [ ] Trigger pipeline
-- [ ] Verify contract state at each stage
-- [ ] Clean up test artifacts
-
-### 5.3 Observability
+### 5.2 Documentation
 
 **Files**:
-- [ ] `shared/egg_contracts/metrics.py` - Contract state metrics
-- [ ] `action/log-contract-state.sh` - Log contract at each stage
-
-**Metrics to track**:
-- Pipeline stage durations
-- Review cycle counts
-- Escalation rates
-- HITL decision latencies
-
-### 5.4 Documentation
-
-**Files**:
-- [ ] `docs/adr/in-progress/ADR-Structurally-Enforced-Checkpoints.md` - Architecture decision record
-- [ ] `docs/guides/sdlc-pipeline.md` - User guide for pipeline usage
-- [ ] Update `docs/index.md` - Add links to new documentation
-
-### 5.5 Migration and Rollout
-
-**Tasks**:
-- [ ] Feature flag for gradual rollout
-- [ ] Migration script for existing in-flight issues
-- [ ] Rollback procedure documentation
+- [ ] `docs/adr/ADR-SDLC-Pipeline.md` - Architecture decision record
+- [ ] Update `docs/index.md` - Add SDLC pipeline documentation links
 
 ---
 
-## Dependency Graph
+## What Was Removed from Original Plan
 
-```
-Phase 1 (Foundation)
-    │
-    ├── 1.1 Schema ──────────┐
-    ├── 1.2 Library ─────────┼── Required for all other phases
-    ├── 1.3 CLI ─────────────┤
-    └── 1.4 Gateway ─────────┘
-           │
-           ▼
-Phase 2 (Review Agent)
-    │
-    ├── 2.1 System Prompt
-    ├── 2.2 Action Role Support
-    └── 2.3 Output Parser
-           │
-           ▼
-Phase 3 (Pipeline) ◄──────── Phase 4 (Circuit Breaker)
-    │                              │
-    ├── 3.1 Main Workflow          ├── 4.1 Circuit Breaker Logic
-    ├── 3.2 Review Workflow        ├── 4.2 Escalation
-    ├── 3.3 HITL Workflow          ├── 4.3 Checkbox Rendering
-    └── 3.4 Prompt Builders        └── 4.4 Debounce
-           │                              │
-           └──────────┬───────────────────┘
-                      ▼
-              Phase 5 (Integration)
-                      │
-                      ├── 5.1 Integration Tests
-                      ├── 5.2 E2E Workflow
-                      └── 5.3 Documentation
-```
+The following items from the original plan are **no longer needed** because they duplicate existing infrastructure or contradict agent-mode-design principles:
+
+| Original Item | Reason Removed |
+|---------------|----------------|
+| Separate reviewer workflow (`sdlc-review.yml`) | Existing `on-pull-request.yml` pattern handles reviews |
+| Reviewer system prompt | Existing `review-conventions.md` provides guidance |
+| Structured verdict output parser | Agents take action directly per agent-mode-design.md |
+| Pre-commit hook for contract validation | Gateway enforces role access; pre-commit is defense-in-depth at most |
+| Stage-specific prompt builders (refine, plan, implement, review) | Single prompt builder with orientation context; agent fetches what it needs |
+| Reviewer output parser | No structured output to parse; agent uses `gh pr review` directly |
 
 ---
 
-## Risk Mitigation
+## Implementation Priorities
 
-| Risk | Mitigation |
-|------|------------|
-| Role bypass via env var manipulation | Gateway validates role from workflow context, not env vars |
-| Infinite review loops | Circuit breaker with hard limits, escalation to human |
-| HITL decision missed | Label issue, post prominent comment, optional Slack notify |
-| Contract corruption | Schema validation on every load/save, audit log for forensics |
-| Workflow complexity | Modular design, reusable workflows, comprehensive testing |
+**Phase 1 is foundational** and should be completed first. The contract schema and gateway enforcement enable all other phases.
+
+**Phases 2-4 can proceed in parallel** once Phase 1 is complete:
+- Phase 2 (CLI) enables agent interaction with contracts
+- Phase 3 (Workflow) orchestrates the pipeline
+- Phase 4 (Circuit breaker) adds safety rails
+
+**Phase 5 validates** the complete system and should be last.
+
+---
+
+## Alignment with Agent-Mode Design
+
+This plan follows the principles in `docs/guides/agent-mode-design.md`:
+
+| Principle | How This Plan Applies It |
+|-----------|-------------------------|
+| **Pre-fetching is usually wrong** | Prompt builders provide orientation only; agents fetch context |
+| **No structured output for human-facing** | Agents post reviews directly via `gh pr review` |
+| **No post-processing pipelines** | Agents take action directly; no parsing of agent output |
+| **Specify what, not how** | Contract rules define *what* fields can be modified, not *how* to do the work |
+| **Sandbox is the constraint** | Gateway enforces role-based access; prompts don't try to enforce behavior |
 
 ---
 
@@ -475,20 +338,11 @@ Phase 3 (Pipeline) ◄──────── Phase 4 (Circuit Breaker)
 
 Before considering implementation complete:
 
-1. **Unit tests pass** for all new modules (100% coverage on role enforcement)
-2. **Integration tests pass** for worker ↔ reviewer handoff
-3. **E2E test passes** for full pipeline happy path
+1. **Unit tests pass** for contract library with role enforcement
+2. **Integration tests pass** for gateway mutation validation
+3. **E2E test passes** for full SDLC pipeline
 4. **Manual verification** of HITL checkbox flow
-5. **Documentation complete** with ADR and user guide
-6. **Rollout plan approved** by stakeholders
-
----
-
-## Next Steps
-
-1. **Review this plan** - Confirm approach and priorities
-2. **Phase 1 implementation** - Start with schema and library
-3. **Iterative delivery** - Ship each phase incrementally with tests
+5. **Documentation** complete with ADR
 
 ---
 
