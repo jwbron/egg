@@ -168,7 +168,7 @@ class TestRaiseIfNotAllowed:
                 "complete",
             )
         error = exc_info.value
-        assert error.field_path == "phases.*.tasks.*.status"
+        assert error.field_path == "phases.0.tasks.0.status"
         assert error.role == "implementer"
         assert error.owner == "reviewer"
 
