@@ -8,6 +8,7 @@ contract_api.py needs the require_session_auth decorator.
 import functools
 import logging
 import sys
+import types
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar
@@ -16,24 +17,25 @@ from flask import Response, g, jsonify, request
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-# Set up logging
+# Set up logging - use egg_logging if available, otherwise standard logging
+_shared_path = Path(__file__).parent.parent / "shared"
+if _shared_path.exists() and str(_shared_path) not in sys.path:
+    sys.path.insert(0, str(_shared_path))
+
 try:
-    _shared_path = Path(__file__).parent.parent / "shared"
-    if _shared_path.exists() and str(_shared_path) not in sys.path:
-        sys.path.insert(0, str(_shared_path))
     from egg_logging import get_logger
 
     _logger = get_logger("gateway.auth")
 except ImportError:
-    _logger = logging.getLogger("gateway.auth")
+    _logger = logging.getLogger("gateway.auth")  # type: ignore[assignment]
 
 # Import session validation lazily to avoid circular imports at module load time
 # These are imported as modules so that tests can patch session_manager.validate_session_for_request
-_session_manager = None
-_rate_limiter = None
+_session_manager: types.ModuleType | None = None
+_rate_limiter: types.ModuleType | None = None
 
 
-def _get_session_manager():
+def _get_session_manager() -> types.ModuleType:
     """Lazy import of session_manager module."""
     global _session_manager
     if _session_manager is None:
@@ -48,7 +50,7 @@ def _get_session_manager():
     return _session_manager
 
 
-def _get_rate_limiter():
+def _get_rate_limiter() -> types.ModuleType:
     """Lazy import of rate_limiter module."""
     global _rate_limiter
     if _rate_limiter is None:

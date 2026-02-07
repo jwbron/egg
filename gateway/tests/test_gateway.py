@@ -894,7 +894,7 @@ class TestGhExecutePrivateMode:
 
     def test_gh_repo_view_public_blocked_in_private_mode(self, client, private_mode_auth_headers):
         """gh repo view of public repo blocked in private mode (full integration)."""
-        with patch.object(gateway, "get_repo_visibility", return_value="public"):
+        with patch("private_repo_policy.get_repo_visibility", return_value="public"):
             response = client.post(
                 "/api/v1/gh/execute",
                 headers=private_mode_auth_headers,
@@ -908,7 +908,7 @@ class TestGhExecutePrivateMode:
 
     def test_gh_api_repos_path_blocked_in_private_mode(self, client, private_mode_auth_headers):
         """gh api /repos/owner/repo/... blocked for public repos in private mode."""
-        with patch.object(gateway, "get_repo_visibility", return_value="public"):
+        with patch("private_repo_policy.get_repo_visibility", return_value="public"):
             response = client.post(
                 "/api/v1/gh/execute",
                 headers=private_mode_auth_headers,
