@@ -450,3 +450,141 @@ class TestExclamationUnescaping:
         lines = self._run_unescape(self.GIT_UNESCAPE, args)
         assert lines[0] == "path\\to\\file"
         assert lines[1] == "tab\\there"
+
+
+class TestPrReviewMarker:
+    """Test that handle_pr_review adds the automated review marker.
+
+    The gh wrapper adds a hidden HTML comment marker to all reviews posted
+    via `gh pr review`. This allows workflows to identify automated reviews
+    by looking for the marker rather than relying on username heuristics.
+
+    Marker format: <!-- egg-automated-review bot=<name> commit=<sha> -->
+    """
+
+    # Extract the handle_pr_review logic for marker generation
+    # This tests the marker construction without needing a real gateway
+    MARKER_GENERATION = textwrap.dedent("""\
+        # Simulate the marker generation from handle_pr_review
+        commit_sha="${1:-abc123def456}"
+        bot_name="${EGG_BOT_NAME:-egg}"
+        body="${2:-}"
+
+        marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} -->"
+        if [ -n "$body" ]; then
+            echo "${body}
+
+${marker}"
+        else
+            echo "${marker}"
+        fi
+    """)
+
+    def _run_marker_generation(
+        self, commit_sha: str = "abc123def456", body: str = "", bot_name: str = ""
+    ) -> str:
+        """Run the marker generation logic and return the result."""
+        env = os.environ.copy()
+        if bot_name:
+            env["EGG_BOT_NAME"] = bot_name
+
+        result = subprocess.run(
+            ["bash", "-c", self.MARKER_GENERATION, "_", commit_sha, body],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        return result.stdout.rstrip("\n")
+
+    def test_marker_format_no_body(self):
+        """Marker alone should have correct format."""
+        output = self._run_marker_generation(commit_sha="abc123", body="")
+        assert output == "<!-- egg-automated-review bot=egg commit=abc123 -->"
+
+    def test_marker_format_with_body(self):
+        """Marker should be appended after body with blank line."""
+        output = self._run_marker_generation(commit_sha="def456", body="LGTM!")
+        assert output == "LGTM!\n\n<!-- egg-automated-review bot=egg commit=def456 -->"
+
+    def test_marker_uses_custom_bot_name(self):
+        """Marker should use EGG_BOT_NAME if set."""
+        output = self._run_marker_generation(
+            commit_sha="abc123", body="", bot_name="james-in-a-box"
+        )
+        assert output == "<!-- egg-automated-review bot=james-in-a-box commit=abc123 -->"
+
+    def test_marker_with_multiline_body(self):
+        """Marker should work with multiline review body."""
+        body = "Great changes!\n\nSome minor suggestions:\n- Fix typo on line 10"
+        output = self._run_marker_generation(commit_sha="789abc", body=body)
+        expected = f"{body}\n\n<!-- egg-automated-review bot=egg commit=789abc -->"
+        assert output == expected
+
+    def test_marker_is_parseable_by_workflow(self):
+        """Marker should be parseable by the workflow regex."""
+        import re
+
+        output = self._run_marker_generation(commit_sha="abc123def456789", body="LGTM!")
+        # This is the regex used in on-pull-request.yml
+        marker_regex = r"<!-- egg-automated-review bot=([^ ]+) commit=([a-f0-9]+) -->"
+        match = re.search(marker_regex, output)
+        assert match is not None
+        assert match.group(1) == "egg"
+        assert match.group(2) == "abc123def456789"
+
+    def test_empty_commit_sha_not_parseable(self):
+        """Marker with empty commit SHA should not match the workflow regex.
+
+        This verifies that if git rev-parse HEAD fails and returns empty,
+        the workflow won't incorrectly match a malformed marker.
+        """
+        import re
+
+        # Generate marker with empty commit SHA directly (bypass default in helper)
+        marker = "<!-- egg-automated-review bot=egg commit= -->"
+        # The workflow regex requires at least one hex char: commit=([a-f0-9]+)
+        marker_regex = r"<!-- egg-automated-review bot=([^ ]+) commit=([a-f0-9]+) -->"
+        match = re.search(marker_regex, marker)
+        assert match is None, "Empty commit SHA should not match workflow regex"
+
+
+class TestPrReviewEmptyCommitWarning:
+    """Test that handle_pr_review warns when commit SHA is empty."""
+
+    # Bash snippet that simulates the warning logic from handle_pr_review
+    WARNING_LOGIC = textwrap.dedent("""\
+        commit_sha="${1:-}"
+
+        if [ -z "$commit_sha" ]; then
+            echo "WARNING: Could not determine commit SHA for review marker (git rev-parse HEAD failed)" >&2
+        fi
+
+        echo "done"
+    """)
+
+    def test_warning_on_empty_commit_sha(self):
+        """Empty commit SHA should produce a warning on stderr."""
+        result = subprocess.run(
+            ["bash", "-c", self.WARNING_LOGIC, "_", ""],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+        assert "WARNING" in result.stderr
+        assert "Could not determine commit SHA" in result.stderr
+        assert "done" in result.stdout
+
+    def test_no_warning_on_valid_commit_sha(self):
+        """Valid commit SHA should not produce a warning."""
+        result = subprocess.run(
+            ["bash", "-c", self.WARNING_LOGIC, "_", "abc123def456"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+        assert "WARNING" not in result.stderr
+        assert "done" in result.stdout

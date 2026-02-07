@@ -440,6 +440,108 @@ print(json.dumps({
     call_gateway "/api/v1/gh/pr/close" "$payload"
 }
 
+# Function to handle PR review - adds automated review marker
+# This allows workflows to identify bot reviews by looking for the marker
+# rather than relying on username heuristics.
+handle_pr_review() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Get current commit SHA for the marker
+    local commit_sha
+    commit_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+
+    if [ -z "$commit_sha" ]; then
+        echo "WARNING: Could not determine commit SHA for review marker (git rev-parse HEAD failed)" >&2
+    fi
+
+    # Get bot name from environment (set by egg launcher) or use default
+    local bot_name="${EGG_BOT_NAME:-egg}"
+
+    # Parse args for PR number, body, and review type
+    local pr_number="" body="" review_type="" body_file=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
+                ;;
+            --approve|-a)
+                review_type="approve"
+                ;;
+            --request-changes|-r)
+                review_type="request-changes"
+                ;;
+            --comment|-c)
+                review_type="comment"
+                ;;
+            [0-9]*)
+                if [ -z "$pr_number" ]; then
+                    pr_number="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$pr_number" ]; then
+        echo "ERROR: Missing PR number" >&2
+        return 1
+    fi
+
+    # If body_file is specified, read the body from the file
+    if [ -n "$body_file" ] && [ -f "$body_file" ]; then
+        body=$(cat "$body_file")
+    fi
+
+    # Add automated review marker to the body
+    # Format: <!-- egg-automated-review bot=<name> commit=<sha> -->
+    # This marker is hidden in rendered markdown but can be parsed by workflows
+    local marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} -->"
+    if [ -n "$body" ]; then
+        body="${body}
+
+${marker}"
+    else
+        body="${marker}"
+    fi
+
+    # Build args array for gateway execute with properly escaped content
+    local escaped_args
+    escaped_args=$(python3 -c "
+import json
+import sys
+
+pr_number = sys.argv[2]
+body = sys.argv[3]
+review_type = sys.argv[4]
+
+args = ['pr', 'review', pr_number, '--repo', sys.argv[1], '--body', body]
+
+if review_type == 'approve':
+    args.append('--approve')
+elif review_type == 'request-changes':
+    args.append('--request-changes')
+elif review_type == 'comment':
+    args.append('--comment')
+
+print(json.dumps({'args': args}))
+" "$repo" "$pr_number" "$body" "$review_type")
+
+    call_gateway "/api/v1/gh/execute" "$escaped_args"
+}
+
 # Function to handle issue create - uses proper JSON escaping
 handle_issue_create() {
     local repo
@@ -818,6 +920,10 @@ case "$main_cmd" in
                 ;;
             close)
                 handle_pr_close
+                exit $?
+                ;;
+            review)
+                handle_pr_review
                 exit $?
                 ;;
             *)
