@@ -47,45 +47,77 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-      - name: Collect run data
+      - name: Collect and partition run data
         id: collect
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           SINCE_HOURS: ${{ github.event.inputs.since_hours || '24' }}
         run: |
-          # Pre-collect run data to provide context for egg
+          # Pre-collect run data and partition for parallel egg instances
           # This follows agent-mode design: provide orientation, not constraint
+          # Partitioning ensures each egg instance can process all runs in its context
+
+          mkdir -p partitions
+
+          # Capture stderr (partition count) and write partitions
           PYTHONPATH=sandbox python -m egg_lib.self_improvement.collect \
             --since-hours "${SINCE_HOURS}" \
             --format markdown \
-            --output collected_data.md
+            --partition \
+            --output "partitions/partition_{partition}.md" \
+            2> partition_info.txt
 
-          echo "data_file=collected_data.md" >> "$GITHUB_OUTPUT"
+          # Extract partition count from stderr
+          PARTITION_COUNT=$(grep "PARTITION_COUNT=" partition_info.txt | cut -d= -f2)
+          echo "partition_count=${PARTITION_COUNT}" >> "$GITHUB_OUTPUT"
 
           # Show what we collected
           {
             echo "## Pre-Collected Run Data"
             echo ""
-            echo "<details><summary>View collected data</summary>"
+            echo "**Partitions:** ${PARTITION_COUNT}"
             echo ""
-            cat collected_data.md
-            echo ""
-            echo "</details>"
+            for f in partitions/partition_*.md; do
+              if [[ -f "$f" ]]; then
+                partition_num=$(basename "$f" .md | sed 's/partition_//')
+                echo "<details><summary>Partition $((partition_num + 1))</summary>"
+                echo ""
+                cat "$f"
+                echo ""
+                echo "</details>"
+                echo ""
+              fi
+            done
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Build task prompt
+      - name: Build task prompts for each partition
         id: prompt
         env:
           SINCE_HOURS: ${{ github.event.inputs.since_hours || '24' }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          PARTITION_COUNT: ${{ steps.collect.outputs.partition_count }}
         run: |
-          # Build a prompt file for egg (using file avoids shell escaping issues)
-          cat > task_prompt.md << 'PROMPT_EOF'
+          mkdir -p prompts
+
+          # Handle case with no failed runs
+          if [[ "${PARTITION_COUNT}" == "0" ]]; then
+            echo "No failed runs to analyze"
+            echo "skip_egg=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "skip_egg=false" >> "$GITHUB_OUTPUT"
+
+          # Build a prompt file for each partition
+          for i in $(seq 0 $((PARTITION_COUNT - 1))); do
+            PROMPT_FILE="prompts/task_prompt_${i}.md"
+
+            cat > "${PROMPT_FILE}" << 'PROMPT_EOF'
           # Self-Improvement Analysis Task
 
-          Analyze recent GitHub Actions runs for this repository to identify recurring
-          problems or patterns that need attention. This includes analyzing the
-          self-improvement workflow itself (self-reflection).
+          Analyze the failed GitHub Actions runs assigned to this batch. This is part of
+          a partitioned analysis - you are responsible for analyzing the runs in this batch
+          and creating issues for any problems you identify.
 
           ## Pre-Collected Data
 
@@ -96,16 +128,16 @@ jobs:
 
           PROMPT_EOF
 
-          # Append the collected data
-          cat collected_data.md >> task_prompt.md
+            # Append the partition data
+            cat "partitions/partition_${i}.md" >> "${PROMPT_FILE}"
 
-          cat >> task_prompt.md << 'PROMPT_EOF'
+            cat >> "${PROMPT_FILE}" << 'PROMPT_EOF'
 
           ## Objective
 
           1. Review the pre-collected run data above to understand what happened
           2. For runs that need deeper analysis, use `gh run view <run-id> --log`
-          3. Identify recurring problems or patterns across runs
+          3. Identify problems in the runs assigned to this batch
           4. For issues that warrant tracking, create GitHub issues with:
              - Clear description of the problem
              - Evidence from the logs
@@ -140,42 +172,115 @@ jobs:
           but isn't a failure - look at the run conclusion, not just log content.
           PROMPT_EOF
 
-          # Substitute the environment variables
-          sed -i "s/SINCE_HOURS_PLACEHOLDER/${SINCE_HOURS}/g" task_prompt.md
+            # Substitute the environment variables
+            sed -i "s/SINCE_HOURS_PLACEHOLDER/${SINCE_HOURS}/g" "${PROMPT_FILE}"
 
-          # Add dry run instruction if applicable
-          if [[ "${DRY_RUN}" == "true" ]]; then
-            cat >> task_prompt.md << 'DRYRUN_EOF'
+            # Add dry run instruction if applicable
+            if [[ "${DRY_RUN}" == "true" ]]; then
+              cat >> "${PROMPT_FILE}" << 'DRYRUN_EOF'
 
           ## Dry Run Mode
 
           This is a dry run. Analyze the failures and describe what issues you WOULD
           create, but do NOT actually create any GitHub issues. Just report your findings.
           DRYRUN_EOF
-          fi
-
-          # Output the prompt file path
-          echo "prompt_file=task_prompt.md" >> "$GITHUB_OUTPUT"
+            fi
+          done
 
           # Show what we're asking egg to do
           {
             echo "## Self-Improvement Analysis Task"
             echo ""
-            echo "Dispatching to egg for intelligent analysis..."
+            echo "Dispatching ${PARTITION_COUNT} egg instance(s) for intelligent analysis..."
             echo ""
-            echo "<details><summary>Task prompt</summary>"
-            echo ""
-            echo '```markdown'
-            cat task_prompt.md
-            echo '```'
-            echo "</details>"
+            for i in $(seq 0 $((PARTITION_COUNT - 1))); do
+              echo "<details><summary>Task prompt (Partition $((i + 1)))</summary>"
+              echo ""
+              echo '```markdown'
+              cat "prompts/task_prompt_${i}.md"
+              echo '```'
+              echo "</details>"
+              echo ""
+            done
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Run egg
-        id: egg
+      # Run egg instances sequentially with 5-second delays
+      # GitHub Actions doesn't support dynamic action calls in loops, so we use
+      # conditional steps for up to 5 partitions (25 failed runs max with 5 per partition)
+      - name: Run egg (Partition 1)
+        id: egg-0
+        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 1
         uses: jwbron/egg/action@main
         with:
-          prompt-file: ${{ steps.prompt.outputs.prompt_file }}
+          prompt-file: prompts/task_prompt_0.md
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          github-token: ${{ steps.bot-token.outputs.token }}
+          timeout: "30"
+
+      - name: Delay before partition 2
+        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 2
+        run: sleep 5
+
+      - name: Run egg (Partition 2)
+        id: egg-1
+        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 2
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: prompts/task_prompt_1.md
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          github-token: ${{ steps.bot-token.outputs.token }}
+          timeout: "30"
+
+      - name: Delay before partition 3
+        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 3
+        run: sleep 5
+
+      - name: Run egg (Partition 3)
+        id: egg-2
+        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 3
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: prompts/task_prompt_2.md
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          github-token: ${{ steps.bot-token.outputs.token }}
+          timeout: "30"
+
+      - name: Delay before partition 4
+        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 4
+        run: sleep 5
+
+      - name: Run egg (Partition 4)
+        id: egg-3
+        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 4
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: prompts/task_prompt_3.md
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          github-token: ${{ steps.bot-token.outputs.token }}
+          timeout: "30"
+
+      - name: Delay before partition 5
+        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 5
+        run: sleep 5
+
+      - name: Run egg (Partition 5)
+        id: egg-4
+        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 5
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: prompts/task_prompt_4.md
           anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
@@ -186,22 +291,66 @@ jobs:
       - name: Report result
         if: always()
         env:
-          EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
+          PARTITION_COUNT: ${{ steps.collect.outputs.partition_count }}
+          SKIP_EGG: ${{ steps.prompt.outputs.skip_egg }}
+          EGG_0_EXIT: ${{ steps.egg-0.outputs.exit-code }}
+          EGG_1_EXIT: ${{ steps.egg-1.outputs.exit-code }}
+          EGG_2_EXIT: ${{ steps.egg-2.outputs.exit-code }}
+          EGG_3_EXIT: ${{ steps.egg-3.outputs.exit-code }}
+          EGG_4_EXIT: ${{ steps.egg-4.outputs.exit-code }}
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
+          if [[ "${SKIP_EGG}" == "true" ]]; then
             {
               echo ""
               echo "## Result"
               echo ""
-              echo "✅ egg completed successfully. [View full logs](${RUN_URL})"
+              echo "ℹ️ No failed runs to analyze. [View logs](${RUN_URL})"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Collect exit codes for all partitions
+          ALL_SUCCESS=true
+          RESULTS=""
+
+          for i in $(seq 0 $((PARTITION_COUNT - 1))); do
+            case $i in
+              0) EXIT_CODE="${EGG_0_EXIT:-}" ;;
+              1) EXIT_CODE="${EGG_1_EXIT:-}" ;;
+              2) EXIT_CODE="${EGG_2_EXIT:-}" ;;
+              3) EXIT_CODE="${EGG_3_EXIT:-}" ;;
+              4) EXIT_CODE="${EGG_4_EXIT:-}" ;;
+              *) EXIT_CODE="" ;;
+            esac
+
+            if [[ -z "${EXIT_CODE}" ]]; then
+              RESULTS="${RESULTS}- Partition $((i + 1)): ⏭️ skipped\n"
+            elif [[ "${EXIT_CODE}" == "0" ]]; then
+              RESULTS="${RESULTS}- Partition $((i + 1)): ✅ success\n"
+            else
+              RESULTS="${RESULTS}- Partition $((i + 1)): ❌ failed (exit code: ${EXIT_CODE})\n"
+              ALL_SUCCESS=false
+            fi
+          done
+
+          if [[ "${ALL_SUCCESS}" == "true" ]]; then
+            {
+              echo ""
+              echo "## Result"
+              echo ""
+              echo "✅ All ${PARTITION_COUNT} egg instance(s) completed successfully. [View full logs](${RUN_URL})"
+              echo ""
+              echo -e "${RESULTS}"
             } >> "$GITHUB_STEP_SUMMARY"
           else
             {
               echo ""
               echo "## Result"
               echo ""
-              echo "❌ egg run failed (exit code: ${EGG_EXIT_CODE:-unknown}). [View full logs](${RUN_URL})"
+              echo "⚠️ Some egg instances failed. [View full logs](${RUN_URL})"
+              echo ""
+              echo -e "${RESULTS}"
             } >> "$GITHUB_STEP_SUMMARY"
           fi

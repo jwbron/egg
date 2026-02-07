@@ -22,8 +22,10 @@ from egg_lib.self_improvement import (
     RunLog,
     collect_run_summary,
     format_markdown_summary,
+    format_partition_markdown,
+    partition_runs,
 )
-from egg_lib.self_improvement.collect import truncate_logs
+from egg_lib.self_improvement.collect import MAX_RUNS_PER_PARTITION, truncate_logs
 from egg_lib.self_improvement.collectors.gha import GHALogCollector
 from egg_lib.self_improvement.collectors.local import LocalLogCollector
 from egg_lib.self_improvement.config import (
@@ -493,3 +495,147 @@ class TestCollect:
         # Should contain warning about omitted logs with fetch instructions
         assert "Logs omitted" in markdown
         assert "gh run view" in markdown
+
+
+class TestPartitioning:
+    """Tests for run partitioning functionality."""
+
+    def test_partition_runs_empty(self):
+        """partition_runs returns empty list for empty input."""
+        result = partition_runs([])
+        assert result == []
+
+    def test_partition_runs_single_partition(self):
+        """partition_runs returns single partition when runs fit."""
+        runs = [{"run_id": str(i)} for i in range(3)]
+        result = partition_runs(runs, max_runs=5)
+
+        assert len(result) == 1
+        assert len(result[0]) == 3
+
+    def test_partition_runs_multiple_partitions(self):
+        """partition_runs splits runs across multiple partitions."""
+        runs = [{"run_id": str(i)} for i in range(12)]
+        result = partition_runs(runs, max_runs=5)
+
+        assert len(result) == 3
+        assert len(result[0]) == 5
+        assert len(result[1]) == 5
+        assert len(result[2]) == 2
+
+    def test_partition_runs_exact_fit(self):
+        """partition_runs handles exact multiple of max_runs."""
+        runs = [{"run_id": str(i)} for i in range(10)]
+        result = partition_runs(runs, max_runs=5)
+
+        assert len(result) == 2
+        assert len(result[0]) == 5
+        assert len(result[1]) == 5
+
+    def test_partition_runs_default_max(self):
+        """partition_runs uses default MAX_RUNS_PER_PARTITION."""
+        runs = [{"run_id": str(i)} for i in range(MAX_RUNS_PER_PARTITION + 1)]
+        result = partition_runs(runs)
+
+        assert len(result) == 2
+        assert len(result[0]) == MAX_RUNS_PER_PARTITION
+        assert len(result[1]) == 1
+
+    def test_format_partition_markdown_includes_partition_info(self):
+        """format_partition_markdown includes partition metadata."""
+        partition = [
+            {
+                "run_id": "123",
+                "workflow": "test.yml",
+                "trigger": "push",
+                "branch": "main",
+                "started_at": "2024-01-01T00:00:00Z",
+                "url": "https://example.com/run/123",
+                "log_excerpt": "Error: test failed",
+                "logs_omitted": False,
+            }
+        ]
+        base_data = {
+            "repository": "test/repo",
+            "since": "2024-01-01T00:00:00Z",
+            "collected_at": "2024-01-01T01:00:00Z",
+            "statistics": {
+                "total_runs": 10,
+                "failed_runs": 3,
+                "successful_runs": 7,
+                "other_runs": 0,
+            },
+        }
+
+        result = format_partition_markdown(partition, 0, 3, base_data)
+
+        assert "Partition:** 1 of 3" in result
+        assert "1 runs in this batch" in result
+        assert "Run 123" in result
+        assert "Total failed runs: 3" in result
+
+    def test_format_partition_markdown_shows_logs_omitted(self):
+        """format_partition_markdown shows warning for omitted logs."""
+        partition = [
+            {
+                "run_id": "456",
+                "workflow": "test.yml",
+                "trigger": "push",
+                "branch": "main",
+                "started_at": "2024-01-01T00:00:00Z",
+                "url": "https://example.com/run/456",
+                "log_excerpt": "[logs omitted]",
+                "logs_omitted": True,
+            }
+        ]
+        base_data = {
+            "repository": "test/repo",
+            "since": "2024-01-01T00:00:00Z",
+            "collected_at": "2024-01-01T01:00:00Z",
+            "statistics": {
+                "total_runs": 5,
+                "failed_runs": 1,
+                "successful_runs": 4,
+                "other_runs": 0,
+            },
+        }
+
+        result = format_partition_markdown(partition, 0, 1, base_data)
+
+        assert "Logs omitted" in result
+        assert "gh run view 456 --log" in result
+
+    @patch.object(GHALogCollector, "collect")
+    def test_collect_run_summary_with_partitioning(self, mock_collect: MagicMock):
+        """Collected runs can be partitioned correctly."""
+        now = datetime.now(UTC)
+        # Create 7 failed runs
+        mock_collect.return_value = [
+            RunLog(
+                run_id=str(i),
+                source="gha",
+                started_at=now,
+                completed_at=now,
+                status="failure",
+                trigger="push",
+                logs=f"Error in run {i}",
+                metadata={
+                    "workflow": "test.yml",
+                    "head_branch": "main",
+                    "html_url": f"https://example.com/runs/{i}",
+                },
+            )
+            for i in range(7)
+        ]
+
+        collector = GHALogCollector(repo="test/repo")
+        since = now - timedelta(hours=1)
+        data = collect_run_summary(collector, since)
+
+        # Partition the failed runs
+        partitions = partition_runs(data["failed_runs"], max_runs=3)
+
+        assert len(partitions) == 3
+        assert len(partitions[0]) == 3
+        assert len(partitions[1]) == 3
+        assert len(partitions[2]) == 1

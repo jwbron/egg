@@ -33,8 +33,10 @@ from egg_lib.self_improvement.config import DEFAULT_SINCE_HOURS, EGG_WORKFLOWS
 
 # Maximum log excerpt length per run (to avoid overwhelming context)
 MAX_LOG_EXCERPT_CHARS = 5000
-# Maximum total log chars across all runs
+# Maximum total log chars across all runs (per partition)
 MAX_TOTAL_LOG_CHARS = 50000
+# Maximum failed runs per partition (to ensure egg can process all in one context)
+MAX_RUNS_PER_PARTITION = 5
 
 
 def truncate_logs(logs: str, max_chars: int = MAX_LOG_EXCERPT_CHARS) -> str:
@@ -59,6 +61,27 @@ def truncate_logs(logs: str, max_chars: int = MAX_LOG_EXCERPT_CHARS) -> str:
     truncated_chars = len(logs) - head_chars - tail_chars
 
     return f"{head}\n\n[... {truncated_chars:,} characters truncated ...]\n\n{tail}"
+
+
+def partition_runs(
+    runs: list[dict[str, Any]], max_runs: int = MAX_RUNS_PER_PARTITION
+) -> list[list[dict[str, Any]]]:
+    """Partition failed run summaries into batches for separate egg instances.
+
+    Args:
+        runs: List of failed run summaries
+        max_runs: Maximum runs per partition
+
+    Returns:
+        List of partitions, each containing up to max_runs run summaries
+    """
+    if not runs:
+        return []
+
+    partitions = []
+    for i in range(0, len(runs), max_runs):
+        partitions.append(runs[i : i + max_runs])
+    return partitions
 
 
 def collect_run_summary(collector: GHALogCollector, since: datetime) -> dict[str, Any]:
@@ -223,6 +246,79 @@ def format_markdown_summary(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_partition_markdown(
+    partition: list[dict[str, Any]],
+    partition_index: int,
+    total_partitions: int,
+    base_data: dict[str, Any],
+) -> str:
+    """Format a single partition of failed runs as markdown.
+
+    Args:
+        partition: List of failed run summaries for this partition
+        partition_index: 0-based index of this partition
+        total_partitions: Total number of partitions
+        base_data: Original collected data (for metadata and stats)
+
+    Returns:
+        Markdown-formatted summary for this partition
+    """
+    lines = []
+    stats = base_data["statistics"]
+
+    lines.append("## Pre-Collected Run Data")
+    lines.append("")
+    lines.append(f"**Repository:** {base_data['repository']}")
+    lines.append(f"**Analysis window:** Since {base_data['since']}")
+    lines.append(f"**Collected at:** {base_data['collected_at']}")
+    lines.append(
+        f"**Partition:** {partition_index + 1} of {total_partitions} "
+        f"({len(partition)} runs in this batch)"
+    )
+    lines.append("")
+
+    lines.append("### Overall Statistics")
+    lines.append("")
+    lines.append(f"- Total runs analyzed: {stats['total_runs']}")
+    lines.append(f"- Total failed runs: {stats['failed_runs']}")
+    lines.append(f"- Successful runs: {stats['successful_runs']}")
+    lines.append(f"- Other (cancelled/running): {stats['other_runs']}")
+    lines.append("")
+
+    lines.append("### Failed Runs in This Batch")
+    lines.append("")
+    lines.append(
+        f"This batch contains {len(partition)} of {stats['failed_runs']} total failed runs. "
+        "Log excerpts are included below. "
+        "Use `gh run view <run_id> --log` for full logs if needed."
+    )
+    lines.append("")
+
+    for run in partition:
+        lines.append(f"#### Run {run['run_id']}: {run['workflow']}")
+        lines.append("")
+        lines.append(f"- **Trigger:** {run['trigger']}")
+        lines.append(f"- **Branch:** {run['branch']}")
+        lines.append(f"- **Started:** {run['started_at']}")
+        lines.append(f"- **URL:** {run['url']}")
+        if run.get("logs_omitted"):
+            lines.append(
+                "- **⚠️ Logs omitted:** Use `gh run view "
+                f"{run['run_id']} --log` to fetch full logs"
+            )
+        lines.append("")
+        lines.append("<details><summary>Log excerpt</summary>")
+        lines.append("")
+        lines.append("```")
+        lines.append(run["log_excerpt"])
+        lines.append("```")
+        lines.append("")
+        lines.append("</details>")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def main() -> int:
     """CLI entry point for data collection.
 
@@ -248,13 +344,25 @@ def main() -> int:
         "--output",
         type=str,
         default=None,
-        help="Output file path (default: stdout)",
+        help="Output file path (default: stdout). For partitioned output, use a "
+        "pattern with {partition} placeholder (e.g., 'partition_{partition}.md')",
     )
     parser.add_argument(
         "--format",
         choices=["markdown", "json"],
         default="markdown",
         help="Output format (default: markdown)",
+    )
+    parser.add_argument(
+        "--partition",
+        action="store_true",
+        help="Partition failed runs into separate files for parallel egg instances",
+    )
+    parser.add_argument(
+        "--max-runs-per-partition",
+        type=int,
+        default=MAX_RUNS_PER_PARTITION,
+        help=f"Maximum failed runs per partition (default: {MAX_RUNS_PER_PARTITION})",
     )
 
     args = parser.parse_args()
@@ -270,7 +378,48 @@ def main() -> int:
         print(f"Error collecting data: {e}", file=sys.stderr)
         return 1
 
-    # Format output
+    # Handle partitioned output
+    if args.partition:
+        partitions = partition_runs(data["failed_runs"], args.max_runs_per_partition)
+
+        if not partitions:
+            # No failed runs, output summary indicating this
+            output = format_markdown_summary(data)
+            if args.output:
+                # Write a single file with partition count = 0
+                output_path = args.output.replace("{partition}", "0")
+                Path(output_path).write_text(output)
+            else:
+                print(output)
+            # Output partition count for the workflow
+            print(f"PARTITION_COUNT=0", file=sys.stderr)
+            return 0
+
+        # Output partition count for the workflow to parse
+        print(f"PARTITION_COUNT={len(partitions)}", file=sys.stderr)
+
+        for i, partition in enumerate(partitions):
+            if args.format == "json":
+                partition_data = {
+                    **data,
+                    "partition": {"index": i, "total": len(partitions)},
+                    "failed_runs": partition,
+                }
+                output = json.dumps(partition_data, indent=2)
+            else:
+                output = format_partition_markdown(partition, i, len(partitions), data)
+
+            if args.output:
+                output_path = args.output.replace("{partition}", str(i))
+                Path(output_path).write_text(output)
+            else:
+                print(f"--- Partition {i + 1}/{len(partitions)} ---")
+                print(output)
+                print()
+
+        return 0
+
+    # Non-partitioned output (original behavior)
     if args.format == "json":
         output = json.dumps(data, indent=2)
     else:
