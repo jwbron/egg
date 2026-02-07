@@ -8,9 +8,9 @@ Tests the review rejection scenario where:
 """
 
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from datetime import datetime, UTC
 
 import pytest
 
@@ -20,7 +20,6 @@ if str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 from egg_contracts import (
-    AuditRole,
     Contract,
     IssueInfo,
     Phase,
@@ -31,7 +30,6 @@ from egg_contracts import (
     Task,
     TaskStatus,
     apply_mutation,
-    create_contract,
     increment_task_cycle,
     load_contract,
     save_contract,
@@ -291,9 +289,7 @@ class TestReviewCycleWorkflow:
         assert not cb1.should_trip
         assert not cb2.should_trip
 
-    def test_phase_blocked_when_task_incomplete(
-        self, temp_repo, contract_in_implement_phase
-    ):
+    def test_phase_blocked_when_task_incomplete(self, temp_repo, contract_in_implement_phase):
         """Phase cannot be marked complete while tasks are incomplete."""
         # Mark first task complete but second incomplete
         contract_in_implement_phase.phases[0].tasks[0].status = TaskStatus.COMPLETE
@@ -306,18 +302,14 @@ class TestReviewCycleWorkflow:
         contract = load_contract(200, temp_repo)
 
         # This tests the data model - actual enforcement would be in pipeline logic
-        incomplete_tasks = [
-            t for t in contract.phases[0].tasks if t.status != TaskStatus.COMPLETE
-        ]
+        incomplete_tasks = [t for t in contract.phases[0].tasks if t.status != TaskStatus.COMPLETE]
         assert len(incomplete_tasks) > 0
 
 
 class TestReviewFeedbackManagement:
     """Tests for managing review feedback across cycles."""
 
-    def test_feedback_accumulates_across_cycles(
-        self, temp_repo, contract_in_implement_phase
-    ):
+    def test_feedback_accumulates_across_cycles(self, temp_repo, contract_in_implement_phase):
         """Multiple feedback entries accumulate in the phase."""
         save_contract(contract_in_implement_phase, temp_repo)
 
@@ -378,11 +370,7 @@ class TestReviewFeedbackManagement:
 
         # Verify feedback is separated by task
         final = load_contract(200, temp_repo)
-        task1_feedback = [
-            f for f in final.phases[0].review_feedback if f.task_id == "task-1-1"
-        ]
-        task2_feedback = [
-            f for f in final.phases[0].review_feedback if f.task_id == "task-1-2"
-        ]
+        task1_feedback = [f for f in final.phases[0].review_feedback if f.task_id == "task-1-1"]
+        task2_feedback = [f for f in final.phases[0].review_feedback if f.task_id == "task-1-2"]
         assert len(task1_feedback) == 1
         assert len(task2_feedback) == 1

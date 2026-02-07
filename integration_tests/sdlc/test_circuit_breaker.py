@@ -128,9 +128,7 @@ class TestTaskThreshold:
         assert result.recommendation is not None
         assert "Clarifying requirements" in result.recommendation
 
-    def test_increment_task_cycle_below_threshold(
-        self, temp_repo, contract_with_tasks
-    ):
+    def test_increment_task_cycle_below_threshold(self, temp_repo, contract_with_tasks):
         """Incrementing cycle below threshold keeps circuit breaker closed."""
         save_contract(contract_with_tasks, temp_repo)
 
@@ -141,9 +139,7 @@ class TestTaskThreshold:
         assert updated.phases[0].tasks[0].review_cycles == 1
         assert updated.circuit_breaker.status == CircuitBreakerStatus.CLOSED
 
-    def test_increment_task_cycle_triggers_threshold(
-        self, temp_repo, contract_with_tasks
-    ):
+    def test_increment_task_cycle_triggers_threshold(self, temp_repo, contract_with_tasks):
         """Incrementing cycle at threshold opens circuit breaker."""
         contract_with_tasks.phases[0].tasks[0].review_cycles = 2  # Next will be 3
         save_contract(contract_with_tasks, temp_repo)
@@ -178,9 +174,7 @@ class TestPhaseThreshold:
         assert result.should_trip
         assert "phase-1" in result.affected_phases
 
-    def test_increment_phase_cycle_triggers_threshold(
-        self, temp_repo, contract_with_tasks
-    ):
+    def test_increment_phase_cycle_triggers_threshold(self, temp_repo, contract_with_tasks):
         """Incrementing phase cycle at threshold opens circuit breaker."""
         contract_with_tasks.phases[0].review_cycles = 2
         contract_with_tasks.phases[0].max_cycles = 3
@@ -314,8 +308,7 @@ class TestCircuitBreakerStateTransitions:
 
         # Verify audit entries
         transition_entries = [
-            e for e in updated.audit_log
-            if e.field_path == "circuit_breaker.status"
+            e for e in updated.audit_log if e.field_path == "circuit_breaker.status"
         ]
         assert len(transition_entries) == 2
 
@@ -402,9 +395,7 @@ class TestCircuitBreakerIntegration:
         assert reloaded.circuit_breaker.status == CircuitBreakerStatus.OPEN
         assert reloaded.phases[0].tasks[0].escalated is True
 
-    def test_human_closes_circuit_breaker_persists(
-        self, temp_repo, contract_with_tasks
-    ):
+    def test_human_closes_circuit_breaker_persists(self, temp_repo, contract_with_tasks):
         """Human closing circuit breaker persists correctly."""
         contract_with_tasks.circuit_breaker.status = CircuitBreakerStatus.OPEN
         save_contract(contract_with_tasks, temp_repo)
