@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
-# build-review-prompt.sh — Build a review prompt for agent-driven code review
+# build-review-prompt.sh — Build a minimal review prompt for agent-driven code review
 #
-# This script creates a prompt that tells Claude what to review and provides
-# context for re-reviews. It follows agent-mode design principles: specifying
-# "what" (outcomes) rather than "how" (procedures).
+# This script creates a minimal prompt that tells Claude to fetch what it needs
+# and post its own review directly via `gh pr review`. This replaces the old
+# approach of pre-fetching all PR data and parsing structured JSON output.
 #
 # Environment variables:
 #   PR_NUMBER          — Pull request number to review
 #   GITHUB_REPOSITORY  — owner/repo
 #   RUNNER_TEMP        — Temp directory for prompt file
 #   LAST_REVIEW_COMMIT — (Optional) Commit SHA of last bot review, for re-reviews
-#   REVIEW_FOCUS       — (Optional) Specialized focus area (e.g., "agent-mode-design")
 #
 # Output:
 #   Sets 'prompt-file' and 'model' in $GITHUB_OUTPUT
@@ -63,54 +62,45 @@ build_prompt() {
     local prompt
     local is_rereview=false
 
-    # Build the base prompt
-    prompt="Review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}."
-
     # Check if this is a re-review (we have a previous review commit)
     if [[ -n "${LAST_REVIEW_COMMIT:-}" ]]; then
         is_rereview=true
-        prompt="${prompt}
+        prompt="Re-review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
 
-## Re-Review Context
+This is a **re-review** — you previously reviewed this PR at commit \`${LAST_REVIEW_COMMIT}\`.
 
-This is a **re-review**. You previously reviewed this PR at commit \`${LAST_REVIEW_COMMIT}\`.
+## Your Task
 
-- Focus on changes since your last review
-- Check whether previous feedback was addressed
-- Don't repeat comments on unchanged code"
-    fi
+1. **Review only new changes**: Use \`git diff ${LAST_REVIEW_COMMIT}..HEAD\` to see what changed since your last review.
+2. **Check previous feedback**: Use \`gh pr view ${PR_NUMBER} --comments\` to see previous review comments.
+3. **Verify issues addressed**: Confirm that any concerns from your previous review have been addressed.
+4. **Focus on the delta**: Your new review should focus on the changes since \`${LAST_REVIEW_COMMIT}\`, not re-review unchanged code.
 
-    # Add specialized focus if provided
-    if [[ -n "${REVIEW_FOCUS:-}" ]]; then
-        case "${REVIEW_FOCUS}" in
-            agent-mode-design)
-                prompt="${prompt}
-
-## Focus Area
-
-Read \`docs/guides/agent-mode-design.md\` for context on what to check.
-Review this PR specifically for alignment with agent-mode design principles."
-                ;;
-            *)
-                # Unknown focus, ignore
-                ;;
-        esac
-    else
-        # Standard review - add review rules
-        prompt="${prompt}
+For full PR context if needed: \`gh pr diff ${PR_NUMBER}\`
 
 ## Review Rules
 
-${review_rules}"
-    fi
-
-    # Add conventions
-    prompt="${prompt}
+${review_rules}
 
 ## Review Conventions
 
 ${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --approve if the PR looks good, --request-changes for blocking issues, or --comment for advisory feedback. Be specific and suggest fixes. Sign your review with: — Authored by egg}
 "
+    else
+        prompt="Review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
+
+Use \`gh pr diff ${PR_NUMBER}\` to see the changes. Read files for context. Check how
+changed code interacts with the rest of the codebase.
+
+## Review Rules
+
+${review_rules}
+
+## Review Conventions
+
+${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --approve if the PR looks good, --request-changes for blocking issues, or --comment for advisory feedback. Be specific and suggest fixes. Sign your review with: — Authored by egg}
+"
+    fi
 
     # Write prompt to temp file
     local prompt_file="${RUNNER_TEMP:-/tmp}/review-prompt-${PR_NUMBER}.txt"

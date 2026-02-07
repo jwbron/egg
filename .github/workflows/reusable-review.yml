@@ -11,11 +11,11 @@ on:
         description: 'Bot name for status messages and marker detection'
         required: true
         type: string
-      review_focus:
-        description: 'Specialized focus area (e.g., "agent-mode-design"). If empty, uses standard review rules.'
+      prompt_script:
+        description: 'Path to prompt builder script (relative to repo root)'
         required: false
         type: string
-        default: ""
+        default: "action/build-review-prompt.sh"
       timeout:
         description: 'Timeout in minutes'
         required: false
@@ -38,6 +38,10 @@ jobs:
       contents: read
       pull-requests: write
 
+    concurrency:
+      group: egg-${{ inputs.bot_name }}-${{ inputs.pr_number }}
+      cancel-in-progress: true
+
     env:
       PR_NUMBER: ${{ inputs.pr_number }}
       BOT_USERNAME: james-in-a-box
@@ -50,7 +54,9 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-      - name: Fetch PR head ref
+      # For workflow_dispatch, fetch PR metadata via API since
+      # github.event.pull_request is not available
+      - name: Fetch PR metadata
         id: pr-meta
         run: |
           pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
@@ -59,19 +65,21 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
-      # Find the last bot review commit for re-review context.
+      # Capture last bot review info before dismissing (for re-review context)
       # The gh wrapper adds a marker to all automated reviews:
       #   <!-- egg-automated-review bot=<name> commit=<sha> -->
-      # We search for this marker in reviews and comments.
+      # We search for this marker in reviews and comments to find the last review.
       - name: Get last review info
         id: last-review
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           # Regex to extract commit SHA from the automated review marker
+          # Format: <!-- egg-automated-review bot=<name> commit=<sha> -->
           marker_regex='<!-- egg-automated-review bot=${{ inputs.bot_name }} commit=([a-f0-9]+) -->'
 
-          # Check reviews from the Reviews API
+          # Check reviews from the Reviews API for the marker
+          # The marker is in the review body
           last_review_commit=""
           last_review_time=""
           reviews=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
@@ -82,6 +90,7 @@ jobs:
             submitted_at=$(echo "$review" | jq -r '.submitted_at')
             if [[ "$body" =~ $marker_regex ]]; then
               commit="${BASH_REMATCH[1]}"
+              # Keep track of the most recent one
               if [[ -z "$last_review_time" || "$submitted_at" > "$last_review_time" ]]; then
                 last_review_commit="$commit"
                 last_review_time="$submitted_at"
@@ -89,8 +98,12 @@ jobs:
             fi
           done < <(echo "$reviews" | jq -c '.[]')
 
-          # Also check issue comments (for self-reviews where GitHub blocks
-          # bots from using the Reviews API on their own PRs)
+          if [[ -n "$last_review_commit" ]]; then
+            echo "Found automated review marker in Reviews API: commit=$last_review_commit at $last_review_time"
+          fi
+
+          # Also check issue comments for the marker (for self-reviews where
+          # GitHub blocks bots from using the Reviews API on their own PRs)
           last_comment_commit=""
           last_comment_time=""
           comments=$(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
@@ -101,6 +114,7 @@ jobs:
             created_at=$(echo "$comment" | jq -r '.created_at')
             if [[ "$body" =~ $marker_regex ]]; then
               commit="${BASH_REMATCH[1]}"
+              # Keep track of the most recent one
               if [[ -z "$last_comment_time" || "$created_at" > "$last_comment_time" ]]; then
                 last_comment_commit="$commit"
                 last_comment_time="$created_at"
@@ -108,20 +122,31 @@ jobs:
             fi
           done < <(echo "$comments" | jq -c '.[]')
 
-          # Use whichever is more recent
+          if [[ -n "$last_comment_commit" ]]; then
+            echo "Found automated review marker in issue comments: commit=$last_comment_commit at $last_comment_time"
+          fi
+
+          # Use whichever is more recent (review or comment)
           if [[ -n "$last_review_commit" && -z "$last_comment_commit" ]]; then
             echo "commit-sha=$last_review_commit" >> "$GITHUB_OUTPUT"
+            echo "Using review marker result"
           elif [[ -z "$last_review_commit" && -n "$last_comment_commit" ]]; then
             echo "commit-sha=$last_comment_commit" >> "$GITHUB_OUTPUT"
+            echo "Using comment marker result"
           elif [[ -n "$last_review_commit" && -n "$last_comment_commit" ]]; then
+            # Compare timestamps to find the most recent
+            # Note: ISO 8601 timestamps (YYYY-MM-DDTHH:MM:SSZ) can be compared
+            # as strings since lexicographic ordering matches chronological ordering
             if [[ "$last_comment_time" > "$last_review_time" ]]; then
               echo "commit-sha=$last_comment_commit" >> "$GITHUB_OUTPUT"
+              echo "Using comment marker result (newer)"
             else
               echo "commit-sha=$last_review_commit" >> "$GITHUB_OUTPUT"
+              echo "Using review marker result (newer or same)"
             fi
           else
             echo "commit-sha=" >> "$GITHUB_OUTPUT"
-            echo "No previous automated review found"
+            echo "No automated review marker found"
           fi
 
       # Dismiss previous bot reviews before starting new review
@@ -150,12 +175,11 @@ jobs:
 
       - name: Build review prompt
         id: prompt
-        run: bash action/build-review-prompt.sh
+        run: bash ${{ inputs.prompt_script }}
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_NUMBER: ${{ env.PR_NUMBER }}
           LAST_REVIEW_COMMIT: ${{ steps.last-review.outputs.commit-sha }}
-          REVIEW_FOCUS: ${{ inputs.review_focus }}
 
       - name: Checkout PR branch
         uses: actions/checkout@v4
