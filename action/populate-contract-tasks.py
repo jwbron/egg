@@ -23,7 +23,9 @@ import os
 import subprocess
 import sys
 
+from egg_contracts.models import Contract
 from egg_contracts.plan_parser import parse_plan
+from pydantic import ValidationError
 
 
 def get_issue_comments(repo: str, issue_number: str, token: str) -> list[dict]:
@@ -111,6 +113,11 @@ def main() -> None:
             "name": contract_phase.name,
             "status": str(contract_phase.status),
             "tasks": [],
+            "review_cycles": 0,
+            "max_cycles": 3,
+            "escalated": False,
+            "escalation_reason": None,
+            "review_feedback": [],
         }
         for task in contract_phase.tasks:
             task_dict = {
@@ -122,6 +129,7 @@ def main() -> None:
                 "commit": None,
                 "review_cycles": 0,
                 "max_cycles": 3,
+                "escalated": False,
                 "notes": "",
             }
             phase_dict["tasks"].append(task_dict)
@@ -132,8 +140,14 @@ def main() -> None:
         print("No tasks extracted from plan document", file=sys.stderr)
         sys.exit(1)
 
-    # Update contract
+    # Update contract and validate
     contract["phases"] = phases_data
+
+    try:
+        Contract.model_validate(contract)
+    except ValidationError as e:
+        print(f"Generated contract is invalid: {e}", file=sys.stderr)
+        sys.exit(1)
 
     with open(contract_path, "w") as f:
         json.dump(contract, f, indent=2)
