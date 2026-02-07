@@ -127,7 +127,11 @@ class TestAgentModeDesignReview:
             prompt = read_prompt_file(tmpdir, "123")
 
             # Should mention skipping general code quality
-            assert "Skip general code quality" in prompt or "Skip general" in prompt or "skip" in prompt.lower()
+            assert (
+                "Skip general code quality" in prompt
+                or "Skip general" in prompt
+                or "skip" in prompt.lower()
+            )
 
     def test_supports_rereview(self) -> None:
         """Re-review mode works with agent-mode design bot."""
