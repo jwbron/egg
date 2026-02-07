@@ -61,8 +61,10 @@ The gateway enforces phase-specific operation restrictions based on the current 
 |-------|-------------------|-------------------|---------------|
 | **refine** | `gh issue comment/edit`, `egg-contract add-decision` | `git push`, `gh pr create` | Human approval |
 | **plan** | `gh issue comment/edit`, `egg-contract add-decision` | `git push`, `gh pr create` | Human approval |
-| **implement** | `git push`, `egg-contract add-commit/mark-task` | `gh pr create` | Reviewer approval |
+| **implement** | `git push`, `egg-contract add-commit/mark-task/update-notes/mark-phase` | `gh pr create` | Reviewer approval |
 | **pr** | `gh pr create/edit`, `git push` | — | Human merge |
+
+> **Note:** `egg-contract show *` is allowed in all phases for contract state viewing.
 
 Phase transitions require specific roles (human, reviewer, implementer) as defined in the phase configuration.
 
@@ -109,7 +111,7 @@ POST /api/v1/gh/execute
 
 ```
 POST /api/v1/phase/advance
-  Request: {issue_number, repo_path?, reason?}
+  Request: {issue_number, repo_path?, reason?, actor?}
   Policy: session_auth
   Description: Advance pipeline to next phase
 
@@ -155,9 +157,9 @@ GET /api/v1/contract/exists/<issue_number>
 ```
 
 **Role-based field ownership**: Mutations are validated against the caller's role:
-- `implementer`: Can modify `tasks[].commit`, `tasks[].notes`
-- `reviewer`: Can modify `tasks[].status`, `phases[].status`, `acceptance_criteria[].verified`
-- `human`: Can modify `decisions[].resolved` and all other fields
+- `implementer`: Can modify `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected`
+- `reviewer`: Can modify `tasks[].status`, `phases[].status`, `phases[].review_feedback`, `acceptance_criteria[].verified`, `current_phase`
+- `human`: Can modify `decisions[].resolved`, `decisions[].resolution`, `decisions[].resolved_by`, `decisions[].resolved_at`, and all other fields
 
 Role is determined from workflow context (session metadata), not request body, preventing privilege escalation.
 

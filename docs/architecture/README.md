@@ -47,9 +47,9 @@ Contracts are JSON documents that track issue progress through SDLC phases, task
 **Schema**: `.egg/schemas/contract.schema.json`
 
 **Role-based ownership**: Each contract field is owned by a specific role:
-- `implementer`: `tasks[].commit`, `tasks[].notes`
-- `reviewer`: `tasks[].status`, `phases[].status`, `acceptance_criteria[].verified`
-- `human`: `decisions[].resolved`, all other fields
+- `implementer`: `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected`
+- `reviewer`: `tasks[].status`, `phases[].status`, `phases[].review_feedback`, `acceptance_criteria[].verified`, `current_phase`
+- `human`: `decisions[].resolved`, `decisions[].resolution`, `decisions[].resolved_by`, `decisions[].resolved_at`, all other fields
 - `system`: Structural fields (`issue`, `schemaVersion`)
 
 The gateway enforces role-based mutations via the `/api/v1/contract/` endpoints. Role is determined from workflow context, preventing privilege escalation.
