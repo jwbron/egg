@@ -137,7 +137,11 @@ class LocalLogCollector(LogCollector):
             # Resolve relative paths against logs_dir
             if not log_path.is_absolute():
                 log_path = self.logs_dir / log_path
-            if log_path.exists():
+            # Resolve to canonical path and validate it's within logs_dir
+            # to prevent path traversal attacks via malicious index entries
+            log_path = log_path.resolve()
+            logs_dir_resolved = self.logs_dir.resolve()
+            if log_path.is_relative_to(logs_dir_resolved) and log_path.exists():
                 with contextlib.suppress(OSError):
                     logs = log_path.read_text(errors="replace")
 
@@ -148,7 +152,7 @@ class LocalLogCollector(LogCollector):
             run_id=container_id,
             source="local",
             started_at=timestamp,
-            completed_at=timestamp,  # Local logs don't track completion separately
+            completed_at=None,  # Local logs don't track completion time
             status=status,
             trigger="exec",  # Local runs are from egg --exec
             logs=logs,
