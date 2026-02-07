@@ -66,7 +66,7 @@ class TestInitialReview:
 
             prompt = read_prompt_file(tmpdir, "123")
             assert "Check PR #123" in prompt
-            assert "agent-mode design anti-patterns" in prompt
+            assert "agent-mode design alignment" in prompt
             assert "gh pr diff 123" in prompt
             assert "re-review" not in prompt.lower()
 
@@ -83,8 +83,8 @@ class TestInitialReview:
             prompt = read_prompt_file(tmpdir, "456")
             assert "## What to Look For" in prompt
             assert "docs/guides/agent-mode-design.md" in prompt
-            assert "Pre-fetching" in prompt
-            assert "How vs what" in prompt
+            assert "pre-fetching" in prompt.lower()
+            assert "Rigid procedures" in prompt
 
     def test_includes_review_conventions(self) -> None:
         """Initial review includes review conventions section."""
@@ -119,6 +119,25 @@ class TestInitialReview:
             assert "## What to Skip" in prompt
             assert "base review bot covers this" in prompt
 
+    def test_includes_review_philosophy(self) -> None:
+        """Prompt includes review philosophy emphasizing balanced judgment."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            # Must include philosophy section
+            assert "## Review Philosophy" in prompt
+            # Key principles
+            assert "guidelines, not absolute rules" in prompt
+            assert "Orienting vs constraining" in prompt
+            assert "Practical balance" in prompt
+            assert "Benefit of the doubt" in prompt
+
 
 class TestReReview:
     """Tests for re-review (with LAST_REVIEW_COMMIT)."""
@@ -139,7 +158,7 @@ class TestReReview:
 
             prompt = read_prompt_file(tmpdir, "123")
             assert "Check PR #123" in prompt
-            assert "agent-mode design anti-patterns" in prompt
+            assert "agent-mode design alignment" in prompt
             assert "This is a **re-review**" in prompt
             assert "abc123def456" in prompt
 
