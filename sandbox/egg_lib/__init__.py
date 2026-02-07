@@ -220,8 +220,7 @@ except ImportError as e:
 
     if any(dep in str(_missing) for dep in _OPTIONAL_DEPS):
         _logging.debug(
-            "egg_lib: Optional dependency not available, "
-            "some exports unavailable: %s",
+            "egg_lib: Optional dependency not available, some exports unavailable: %s",
             e,
         )
     else:
