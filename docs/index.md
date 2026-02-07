@@ -20,6 +20,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Standardized Logging Interface](adr/implemented/ADR-Standardized-Logging-Interface.md) | Structured JSON logging |
 | [Internet Tool Access Lockdown](adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) | Public/private network modes |
 | [GitHub Actions Support](adr/in-progress/ADR-GitHub-Actions-Support.md) | Running egg as a GitHub Action |
+| [SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md) | Structurally enforced agent checkpoints and verification gates |
 
 ### Strategy
 
@@ -46,6 +47,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 |----------|-------------|
 | [Agent-Mode Design](guides/agent-mode-design.md) | When to let egg operate freely vs. when constraints are appropriate |
 | [GitHub Automation](guides/github-automation.md) | Built-in review bots, autofixer, @mention, and self-improvement workflows |
+| [SDLC Pipeline](guides/sdlc-pipeline.md) | Operational guide for the structurally enforced SDLC pipeline |
 
 ### SDLC Pipeline Templates
 
@@ -81,7 +83,7 @@ Each major component has its own README with detailed documentation:
 | **Setting up GitHub automation** | [GitHub Automation](guides/github-automation.md) | [Agent-Mode Design](guides/agent-mode-design.md), [GitHub Action](../action/README.md) |
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
 | **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
-| **SDLC pipeline changes** | [Architecture Overview](architecture/README.md) | [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), workflows in `.github/workflows/sdlc-*.yml` |
+| **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [ADR: SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), workflows in `.github/workflows/sdlc-*.yml` |
 
 ## Quick Navigation
 
