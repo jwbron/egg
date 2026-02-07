@@ -145,7 +145,6 @@ jobs:
       - name: Test build-autofixer-prompt.sh
         env:
           PR_NUMBER: "123"
-          GITHUB_REPOSITORY: "test/repo"
           FAILED_WORKFLOW: "Lint"
           FAILED_RUN_ID: "456789"
           RUNNER_TEMP: ${{ runner.temp }}
@@ -159,8 +158,10 @@ jobs:
           test -s "$PROMPT_FILE"
 
           # Verify prompt contains expected content
+          # Note: GITHUB_REPOSITORY is a default GHA env var that cannot be
+          # overridden at the step level, so we assert against its actual value.
           grep -q "PR #123" "$PROMPT_FILE"
-          grep -q "test/repo" "$PROMPT_FILE"
+          grep -q "$GITHUB_REPOSITORY" "$PROMPT_FILE"
           grep -q "Lint" "$PROMPT_FILE"
           grep -q "gh pr checks" "$PROMPT_FILE"
 
@@ -169,7 +170,6 @@ jobs:
       - name: Test build-autofixer-prompt.sh with custom rules
         env:
           PR_NUMBER: "456"
-          GITHUB_REPOSITORY: "test/repo"
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
           # Create custom autofixer rules
@@ -193,7 +193,6 @@ jobs:
       - name: Test build-review-prompt.sh
         env:
           PR_NUMBER: "789"
-          GITHUB_REPOSITORY: "test/repo"
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
           bash action/build-review-prompt.sh
