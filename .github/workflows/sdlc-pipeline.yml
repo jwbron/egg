@@ -162,6 +162,7 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           BRANCH_NAME: ${{ steps.setup.outputs.branch_name }}
         run: |
+          set -euo pipefail
           # Retry push with rebase on conflict
           MAX_RETRIES=3
           for i in $(seq 1 $MAX_RETRIES); do
