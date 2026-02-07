@@ -33,19 +33,25 @@ truncate_text() {
   fi
 }
 
-# Wrapper around gh api that warns on failure instead of silently swallowing errors
+# Wrapper around gh api that warns on failure and returns empty JSON object
+# Sets GH_API_FAILED=1 if the API call fails, allowing callers to check
+GH_API_FAILED=0
 gh_api_safe() {
   local stderr_file
   stderr_file=$(mktemp)
   local output
   if output=$(gh api "$@" 2>"$stderr_file"); then
     rm -f "$stderr_file"
+    GH_API_FAILED=0
     echo "$output"
   else
     local rc=$?
-    echo "WARNING: 'gh api $1' failed (exit $rc): $(cat "$stderr_file")" >&2
+    echo "ERROR: 'gh api $1' failed (exit $rc): $(cat "$stderr_file")" >&2
+    echo "The prompt will be built with placeholder values for issue metadata." >&2
     rm -f "$stderr_file"
-    return 0
+    GH_API_FAILED=1
+    # Return empty JSON object so jq doesn't fail
+    echo "{}"
   fi
 }
 

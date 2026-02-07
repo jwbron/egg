@@ -20,6 +20,8 @@ from egg_lib.contract_cli import (
     get_issue_number,
     get_repo_path,
     main,
+    parse_phase_id,
+    parse_task_id,
 )
 
 
@@ -165,6 +167,85 @@ class TestEnvironmentHelpers:
             assert path == "/home/test/repo"
 
 
+class TestTaskIdParsing:
+    """Tests for task ID parsing."""
+
+    def test_simple_task_id(self):
+        """Test parsing simple task ID (task-N)."""
+        phase_idx, task_idx = parse_task_id("task-1")
+        assert phase_idx == 0
+        assert task_idx == 0
+
+    def test_full_task_id(self):
+        """Test parsing full task ID (task-P-T)."""
+        phase_idx, task_idx = parse_task_id("task-2-3")
+        assert phase_idx == 1
+        assert task_idx == 2
+
+    def test_task_id_case_insensitive(self):
+        """Test that task ID parsing is case insensitive."""
+        phase_idx, task_idx = parse_task_id("TASK-1-2")
+        assert phase_idx == 0
+        assert task_idx == 1
+
+    def test_task_id_invalid_format_too_many_parts(self):
+        """Test that task ID with too many parts raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_task_id("task-1-2-3")
+        assert "Invalid task ID format" in str(exc_info.value)
+
+    def test_task_id_non_numeric(self):
+        """Test that non-numeric task ID raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_task_id("task-abc")
+        assert "Invalid task ID" in str(exc_info.value)
+
+    def test_task_id_zero_task_number(self):
+        """Test that task number 0 raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_task_id("task-0")
+        assert "must be >= 1" in str(exc_info.value)
+
+    def test_task_id_zero_phase_number(self):
+        """Test that phase number 0 raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_task_id("task-0-1")
+        assert "must be >= 1" in str(exc_info.value)
+
+    def test_task_id_negative_numbers(self):
+        """Test that negative numbers in task ID raise ValueError."""
+        # Negative numbers in the ID format won't parse correctly
+        # because the split creates multiple parts
+        with pytest.raises(ValueError):
+            parse_task_id("task--1")
+
+
+class TestPhaseIdParsing:
+    """Tests for phase ID parsing."""
+
+    def test_valid_phase_id(self):
+        """Test parsing valid phase ID."""
+        phase_idx = parse_phase_id("phase-1")
+        assert phase_idx == 0
+
+    def test_phase_id_case_insensitive(self):
+        """Test that phase ID parsing is case insensitive."""
+        phase_idx = parse_phase_id("PHASE-2")
+        assert phase_idx == 1
+
+    def test_phase_id_non_numeric(self):
+        """Test that non-numeric phase ID raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_phase_id("phase-abc")
+        assert "Invalid phase ID" in str(exc_info.value)
+
+    def test_phase_id_zero(self):
+        """Test that phase number 0 raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_phase_id("phase-0")
+        assert "must be >= 1" in str(exc_info.value)
+
+
 class TestMainNoCommand:
     """Tests for main function without command."""
 
@@ -196,7 +277,9 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         """Handle POST requests."""
         content_length = int(self.headers.get("Content-Length", 0))
-        _body = self.rfile.read(content_length) if content_length else b""  # noqa: F841
+        # Read and discard the body to complete the request
+        if content_length:
+            self.rfile.read(content_length)
 
         response = self.responses.get(("POST", self.path), {"success": True})
         self.send_response(200)
@@ -262,3 +345,71 @@ class TestWithMockGateway:
         assert result == 0
         captured = capsys.readouterr()
         assert "abc1234" in captured.out or "task-1" in captured.out
+
+
+class TestErrorPaths:
+    """Tests for error handling paths."""
+
+    def test_add_commit_invalid_task_id(self, capsys):
+        """Test add-commit with invalid task ID."""
+        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
+            result = main(["add-commit", "--task", "task-abc", "--commit", "abc1234"])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Invalid task ID" in captured.err
+
+    def test_add_commit_zero_task_number(self, capsys):
+        """Test add-commit with zero task number."""
+        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
+            result = main(["add-commit", "--task", "task-0", "--commit", "abc1234"])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "must be >= 1" in captured.err
+
+    def test_mark_task_invalid_task_id(self, capsys):
+        """Test mark-task with invalid task ID."""
+        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
+            result = main(["mark-task", "--task", "task-not-valid", "--status", "complete"])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Invalid task ID" in captured.err
+
+    def test_mark_phase_invalid_phase_id(self, capsys):
+        """Test mark-phase with invalid phase ID."""
+        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
+            result = main(["mark-phase", "--phase", "phase-abc", "--passed", "true"])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Invalid phase ID" in captured.err
+
+    def test_mark_phase_zero_phase(self, capsys):
+        """Test mark-phase with zero phase number."""
+        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
+            result = main(["mark-phase", "--phase", "phase-0", "--passed", "true"])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "must be >= 1" in captured.err
+
+    def test_update_notes_invalid_task_id(self, capsys):
+        """Test update-notes with invalid task ID."""
+        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
+            result = main(["update-notes", "--task", "task-xyz", "--notes", "Some notes"])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Invalid task ID" in captured.err
+
+    def test_show_no_issue_number(self, capsys):
+        """Test show command without issue number."""
+        with patch.dict("os.environ", {}, clear=True):
+            result = main(["show"])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Issue number required" in captured.err
+
+    def test_add_commit_no_issue_number(self, capsys):
+        """Test add-commit without issue number."""
+        with patch.dict("os.environ", {}, clear=True):
+            result = main(["add-commit", "--task", "task-1", "--commit", "abc123"])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Issue number required" in captured.err

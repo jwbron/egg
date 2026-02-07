@@ -26,7 +26,7 @@ class TestParsedTask:
             files_affected=["schema.json"],
         )
         task = parsed.to_contract_task()
-        assert task.id == "task-1"
+        assert task.id == "task-1-1"
         assert task.description == "Create schema"
         assert task.acceptance_criteria == "Schema validates"
         assert task.files_affected == ["schema.json"]
@@ -362,3 +362,116 @@ class TestFormatWarnings:
         result = format_warnings_for_comment(warnings)
         assert "General warning" in result
         assert "Line" not in result
+
+
+class TestEdgeCases:
+    """Tests for edge cases in plan parsing."""
+
+    def test_duplicate_task_ids_in_same_phase(self):
+        """Test handling of duplicate task IDs in the same phase."""
+        content = """
+### Phase 1: Setup
+
+- [TASK-1-1] First task — Acceptance: Done
+- [TASK-1-1] Duplicate task — Acceptance: Also done
+"""
+        result = parse_plan(content)
+        assert result.success
+        # Both tasks should be parsed (parser doesn't dedupe)
+        assert len(result.phases[0].tasks) == 2
+
+    def test_task_references_nonexistent_phase(self):
+        """Test that tasks referencing nonexistent phases create the phase."""
+        content = """
+### Phase 1: Setup
+
+- [TASK-3-1] Task for phase 3 — Acceptance: Done
+"""
+        result = parse_plan(content)
+        assert result.success
+        # Phase 3 should be created for the orphan task
+        phase_numbers = [p.number for p in result.phases]
+        assert 3 in phase_numbers
+
+    def test_large_phase_and_task_numbers(self):
+        """Test handling of large phase and task numbers."""
+        content = """
+### Phase 99: Large Phase
+
+- [TASK-99-999] Large numbered task — Acceptance: Done
+"""
+        result = parse_plan(content)
+        assert result.success
+        assert result.phases[0].number == 99
+        assert result.phases[0].tasks[0].task_number == 999
+
+    def test_whitespace_only_content(self):
+        """Test that whitespace-only content fails."""
+        result = parse_plan("   \n\t\n   ")
+        assert not result.success
+        assert "empty" in result.error.lower()
+
+    def test_malformed_yaml_frontmatter(self):
+        """Test handling of malformed YAML frontmatter."""
+        content = """---
+tasks:
+  - id: TASK-1-1
+    description: Valid task
+  - invalid yaml here: [
+---
+
+# Plan
+
+- [TASK-1-2] Fallback task — Acceptance: Done
+"""
+        # Malformed YAML should fall back to markdown parsing
+        result = parse_plan(content)
+        # Should still succeed by falling back to markdown
+        assert result.success
+
+    def test_task_with_special_characters_in_description(self):
+        """Test parsing task with special characters in description."""
+        content = "- [TASK-1-1] Handle `code` & <html> chars — Acceptance: Works"
+        tasks, _ = parse_tasks_from_markdown(content)
+        assert len(tasks) == 1
+        assert "`code`" in tasks[0].description
+
+    def test_placeholder_task_uses_valid_numbering(self):
+        """Test that placeholder tasks use valid 1-based numbering."""
+        content = """
+### Phase 1: Empty Phase
+
+**Goal**: Nothing to do here
+
+"""
+        result = parse_plan(content)
+        assert result.success
+        # Placeholder should use task_number=1, not 0
+        placeholder = result.phases[0].tasks[0]
+        assert placeholder.task_number == 1
+        assert placeholder.id == "TASK-1-1"
+
+    def test_task_id_generated_includes_phase_number(self):
+        """Test that generated contract task IDs include phase number."""
+        parsed = ParsedTask(
+            id="TASK-2-3",
+            phase_number=2,
+            task_number=3,
+            description="Test task",
+            acceptance_criteria="Pass",
+        )
+        contract_task = parsed.to_contract_task()
+        assert contract_task.id == "task-2-3"
+
+    def test_empty_phases_list(self):
+        """Test parsing document with tasks but no phase headers."""
+        content = """
+# Plan Document
+
+- [TASK-1-1] Orphan task — Acceptance: Done
+"""
+        result = parse_plan(content)
+        assert result.success
+        # Should create a phase for the orphan task
+        assert len(result.phases) == 1
+        assert result.phases[0].tasks[0].description == "Orphan task"

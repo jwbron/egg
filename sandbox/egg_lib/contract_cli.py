@@ -27,6 +27,7 @@ import sys
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
@@ -64,6 +65,63 @@ def get_session_token() -> str | None:
         return token_file.read_text().strip()
 
     return None
+
+
+def parse_task_id(task_id: str) -> tuple[int, int]:
+    """Parse task ID and return (phase_idx, task_idx).
+
+    Args:
+        task_id: Task ID in format "task-N" or "task-P-T"
+
+    Returns:
+        Tuple of (phase_idx, task_idx) as 0-based indices
+
+    Raises:
+        ValueError: If task ID format is invalid or numbers are out of range
+    """
+    task_parts = task_id.lower().replace("task-", "").split("-")
+    try:
+        if len(task_parts) == 1:
+            # Simple format: task-N (assumes phase-1)
+            phase_idx = 0
+            task_idx = int(task_parts[0]) - 1
+        elif len(task_parts) == 2:
+            # Full format: task-P-T
+            phase_idx = int(task_parts[0]) - 1
+            task_idx = int(task_parts[1]) - 1
+        else:
+            raise ValueError(f"Invalid task ID format: {task_id}")
+
+        if phase_idx < 0 or task_idx < 0:
+            raise ValueError(f"Task/phase numbers must be >= 1: {task_id}")
+        return phase_idx, task_idx
+    except ValueError as e:
+        if "Invalid task ID" in str(e) or "must be >= 1" in str(e):
+            raise
+        raise ValueError(f"Invalid task ID '{task_id}': expected numeric values") from e
+
+
+def parse_phase_id(phase_id: str) -> int:
+    """Parse phase ID and return phase_idx.
+
+    Args:
+        phase_id: Phase ID in format "phase-N"
+
+    Returns:
+        Phase index as 0-based
+
+    Raises:
+        ValueError: If phase ID format is invalid or number is out of range
+    """
+    try:
+        phase_num = int(phase_id.lower().replace("phase-", ""))
+        if phase_num < 1:
+            raise ValueError(f"Phase number must be >= 1: {phase_id}")
+        return phase_num - 1
+    except ValueError as e:
+        if "must be >= 1" in str(e):
+            raise
+        raise ValueError(f"Invalid phase ID '{phase_id}': expected numeric value") from e
 
 
 def make_gateway_request(
@@ -128,15 +186,15 @@ def cmd_show(args: argparse.Namespace) -> int:
         print("Error: Issue number required. Set EGG_ISSUE_NUMBER or use --issue", file=sys.stderr)
         return 1
 
-    params = []
+    params: dict[str, str] = {}
     if args.repo_path:
-        params.append(f"repo_path={args.repo_path}")
+        params["repo_path"] = args.repo_path
     if args.audit:
-        params.append("include_audit_log=true")
+        params["include_audit_log"] = "true"
 
     endpoint = f"/api/v1/contract/{issue_number}"
     if params:
-        endpoint += "?" + "&".join(params)
+        endpoint += "?" + urlencode(params)
 
     result = make_gateway_request(endpoint)
 
@@ -205,18 +263,11 @@ def cmd_add_commit(args: argparse.Namespace) -> int:
         print("Error: Issue number required", file=sys.stderr)
         return 1
 
-    # Parse task ID to get phase and task indices
-    # Task IDs are like "task-1" which maps to phases[0].tasks[0]
-    # or "task-1-2" which maps to phases[0].tasks[1]
-    task_parts = args.task.replace("task-", "").split("-")
-    if len(task_parts) == 1:
-        # Simple format: task-N (assumes phase-1)
-        phase_idx = 0
-        task_idx = int(task_parts[0]) - 1
-    else:
-        # Full format: task-P-T
-        phase_idx = int(task_parts[0]) - 1
-        task_idx = int(task_parts[1]) - 1
+    try:
+        phase_idx, task_idx = parse_task_id(args.task)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     field_path = f"phases.{phase_idx}.tasks.{task_idx}.commit"
 
@@ -248,14 +299,11 @@ def cmd_update_notes(args: argparse.Namespace) -> int:
         print("Error: Issue number required", file=sys.stderr)
         return 1
 
-    # Parse task ID
-    task_parts = args.task.replace("task-", "").split("-")
-    if len(task_parts) == 1:
-        phase_idx = 0
-        task_idx = int(task_parts[0]) - 1
-    else:
-        phase_idx = int(task_parts[0]) - 1
-        task_idx = int(task_parts[1]) - 1
+    try:
+        phase_idx, task_idx = parse_task_id(args.task)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     field_path = f"phases.{phase_idx}.tasks.{task_idx}.notes"
 
@@ -287,14 +335,11 @@ def cmd_mark_task(args: argparse.Namespace) -> int:
         print("Error: Issue number required", file=sys.stderr)
         return 1
 
-    # Parse task ID
-    task_parts = args.task.replace("task-", "").split("-")
-    if len(task_parts) == 1:
-        phase_idx = 0
-        task_idx = int(task_parts[0]) - 1
-    else:
-        phase_idx = int(task_parts[0]) - 1
-        task_idx = int(task_parts[1]) - 1
+    try:
+        phase_idx, task_idx = parse_task_id(args.task)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     field_path = f"phases.{phase_idx}.tasks.{task_idx}.status"
 
@@ -326,8 +371,11 @@ def cmd_mark_phase(args: argparse.Namespace) -> int:
         print("Error: Issue number required", file=sys.stderr)
         return 1
 
-    # Parse phase ID
-    phase_idx = int(args.phase.replace("phase-", "")) - 1
+    try:
+        phase_idx = parse_phase_id(args.phase)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     field_path = f"phases.{phase_idx}.status"
     new_status = "complete" if args.passed else "incomplete"
@@ -363,7 +411,7 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
     # First, get the current contract to determine the next decision ID
     endpoint = f"/api/v1/contract/{issue_number}"
     if args.repo_path:
-        endpoint += f"?repo_path={args.repo_path}"
+        endpoint += "?" + urlencode({"repo_path": args.repo_path})
 
     contract_result = make_gateway_request(endpoint)
     if not contract_result.get("success"):

@@ -40,7 +40,7 @@ class ParsedTask:
     def to_contract_task(self) -> Task:
         """Convert to a contract Task model."""
         return Task(
-            id=f"task-{self.task_number}",
+            id=f"task-{self.phase_number}-{self.task_number}",
             description=self.description,
             status=TaskStatus.PENDING,
             acceptance_criteria=self.acceptance_criteria,
@@ -334,9 +334,9 @@ def parse_plan(content: str) -> ParseResult:
             )
             phase.tasks.append(
                 ParsedTask(
-                    id=f"TASK-{phase.number}-0",
+                    id=f"TASK-{phase.number}-1",
                     phase_number=phase.number,
-                    task_number=0,
+                    task_number=1,
                     description=f"Review phase '{phase.name}' manually",
                     acceptance_criteria="Human verification",
                 )

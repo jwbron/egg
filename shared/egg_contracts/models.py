@@ -100,7 +100,11 @@ class ReviewFeedback(BaseModel):
 class Task(BaseModel):
     """A task within a phase."""
 
-    id: str = Field(..., pattern=r"^task-[0-9]+$", description="Unique task identifier")
+    id: str = Field(
+        ...,
+        pattern=r"^task-[0-9]+(-[0-9]+)?$",
+        description="Unique task identifier (task-N or task-P-N format)",
+    )
     description: str = Field(..., min_length=1, description="Task description")
     status: TaskStatus = Field(default=TaskStatus.PENDING, description="Task status")
     commit: str | None = Field(
