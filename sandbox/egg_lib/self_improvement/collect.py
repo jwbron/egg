@@ -367,7 +367,7 @@ def main() -> int:
     parser.add_argument(
         "--partition",
         action="store_true",
-        help="Partition failed runs into separate files for parallel egg instances",
+        help="Partition runs into separate files for parallel egg instances",
     )
     parser.add_argument(
         "--max-runs-per-partition",
@@ -427,7 +427,7 @@ def main() -> int:
                 partition_data = {
                     **data,
                     "partition": {"index": i, "total": len(partitions)},
-                    "failed_runs": partition,
+                    "runs_to_analyze": partition,
                 }
                 output = json.dumps(partition_data, indent=2)
             else:
