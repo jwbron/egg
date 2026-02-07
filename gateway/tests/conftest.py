@@ -180,12 +180,33 @@ config_validator = _load_module_with_replaced_imports(
     GATEWAY_DIR / "config_validator.py",
 )
 
+# auth imports from session_manager and rate_limiter
+auth = _load_module_with_replaced_imports(
+    "auth",
+    GATEWAY_DIR / "auth.py",
+    import_replacements={
+        "from .rate_limiter import": "from rate_limiter import",
+        "from .session_manager import": "from session_manager import",
+    },
+)
+
+# contract_api imports from auth and egg_contracts
+contract_api = _load_module_with_replaced_imports(
+    "contract_api",
+    GATEWAY_DIR / "contract_api.py",
+    import_replacements={
+        "from .auth import": "from auth import",
+    },
+)
+
 # gateway imports from all
 gateway = _load_module_with_replaced_imports(
     "gateway",
     GATEWAY_DIR / "gateway.py",
     import_replacements={
         "from .anthropic_credentials import": "from anthropic_credentials import",
+        "from .auth import": "from auth import",
+        "from .contract_api import": "from contract_api import",
         "from .git_client import": "from git_client import",
         "from .github_client import": "from github_client import",
         "from .policy import": "from policy import",

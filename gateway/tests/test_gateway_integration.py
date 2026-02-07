@@ -92,7 +92,7 @@ class TestGitExecuteEndpoint:
         )
         assert response.status_code == 401
 
-    @patch("gateway.validate_session_for_request", side_effect=_mock_session_validation)
+    @patch("session_manager.validate_session_for_request", side_effect=_mock_session_validation)
     def test_missing_body(self, mock_session, client):
         """Missing request body should return error."""
         response = client.post(
@@ -102,7 +102,7 @@ class TestGitExecuteEndpoint:
         )
         assert response.status_code == 400
 
-    @patch("gateway.validate_session_for_request", side_effect=_mock_session_validation)
+    @patch("session_manager.validate_session_for_request", side_effect=_mock_session_validation)
     def test_missing_repo_path(self, mock_session, client):
         """Missing repo_path should return error."""
         response = client.post(
@@ -114,7 +114,7 @@ class TestGitExecuteEndpoint:
         data = json.loads(response.data)
         assert "repo_path" in data["message"].lower()
 
-    @patch("gateway.validate_session_for_request", side_effect=_mock_session_validation)
+    @patch("session_manager.validate_session_for_request", side_effect=_mock_session_validation)
     def test_missing_operation(self, mock_session, client):
         """Missing operation should return error."""
         response = client.post(
@@ -126,7 +126,7 @@ class TestGitExecuteEndpoint:
         data = json.loads(response.data)
         assert "operation" in data["message"].lower()
 
-    @patch("gateway.validate_session_for_request", side_effect=_mock_session_validation)
+    @patch("session_manager.validate_session_for_request", side_effect=_mock_session_validation)
     @patch("gateway.validate_repo_path", return_value=(True, ""))
     @patch("subprocess.run")
     def test_status_command_executed(self, mock_run, mock_validate, mock_session, client):
@@ -151,7 +151,9 @@ class TestGitExecuteEndpoint:
         data = json.loads(response.data)
         assert data["success"] is True
 
-    @patch("gateway.validate_session_for_request", side_effect=_mock_session_validation_public)
+    @patch(
+        "session_manager.validate_session_for_request", side_effect=_mock_session_validation_public
+    )
     @patch("gateway.validate_repo_path", return_value=(True, ""))
     @patch("subprocess.run")
     def test_status_command_with_public_mode(self, mock_run, mock_validate, mock_session, client):
@@ -175,7 +177,7 @@ class TestGitExecuteEndpoint:
         data = json.loads(response.data)
         assert data["success"] is True
 
-    @patch("gateway.validate_session_for_request", side_effect=_mock_session_validation)
+    @patch("session_manager.validate_session_for_request", side_effect=_mock_session_validation)
     def test_disallowed_operation_rejected(self, mock_session, client):
         """Operations not in allowlist should be rejected."""
         response = client.post(
@@ -191,7 +193,7 @@ class TestGitExecuteEndpoint:
         data = json.loads(response.data)
         assert "not allowed" in data["message"].lower()
 
-    @patch("gateway.validate_session_for_request", side_effect=_mock_session_validation)
+    @patch("session_manager.validate_session_for_request", side_effect=_mock_session_validation)
     def test_network_ops_redirected(self, mock_session, client):
         """Network operations should be redirected to dedicated endpoints."""
         for op in ["push", "fetch", "ls-remote"]:
@@ -305,7 +307,7 @@ class TestWorktreeListEndpoint:
 class TestPathValidation:
     """Tests for path validation in endpoints."""
 
-    @patch("gateway.validate_session_for_request", side_effect=_mock_session_validation)
+    @patch("session_manager.validate_session_for_request", side_effect=_mock_session_validation)
     def test_path_traversal_blocked(self, mock_session, client):
         """Path traversal attempts should be blocked."""
         response = client.post(
@@ -321,7 +323,7 @@ class TestPathValidation:
         data = json.loads(response.data)
         assert "allowed directories" in data["message"].lower()
 
-    @patch("gateway.validate_session_for_request", side_effect=_mock_session_validation)
+    @patch("session_manager.validate_session_for_request", side_effect=_mock_session_validation)
     def test_repos_parent_directory_rejected(self, mock_session, client):
         """Git operations from repos parent directory should fail with clear error.
 

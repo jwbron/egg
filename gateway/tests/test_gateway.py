@@ -21,6 +21,8 @@ import pytest
 
 # Import the test secrets and modules (loaded by conftest.py)
 TEST_LAUNCHER_SECRET = os.environ.get("EGG_LAUNCHER_SECRET", "test-launcher-secret-12345")
+
+import session_manager
 from policy import PolicyResult
 from session_manager import SessionValidationResult
 
@@ -65,7 +67,7 @@ def auth_headers():
     )
 
     with (
-        patch.object(gateway, "validate_session_for_request", return_value=mock_result),
+        patch.object(session_manager, "validate_session_for_request", return_value=mock_result),
         patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
     ):
         yield {"Authorization": "Bearer test-session-token"}
@@ -847,7 +849,9 @@ class TestGhExecutePrivateMode:
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
-        with patch.object(gateway, "validate_session_for_request", return_value=mock_result):
+        with patch.object(
+            session_manager, "validate_session_for_request", return_value=mock_result
+        ):
             yield {"Authorization": "Bearer test-session-token"}
 
     def test_search_blocked_in_private_mode(self, client, private_mode_auth_headers):
