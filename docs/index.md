@@ -71,6 +71,7 @@ Each major component has its own README with detailed documentation:
 | **GitHub Action setup** | [ADR: GitHub Actions](adr/in-progress/ADR-GitHub-Actions-Support.md) | [Architecture Overview](architecture/README.md) |
 | **Adding tests** | [Contributing](../CONTRIBUTING.md) | [Project Structure](development/STRUCTURE.md) |
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
+| **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
 
 ## Quick Navigation
 
@@ -85,4 +86,4 @@ Each major component has its own README with detailed documentation:
 
 ---
 
-*Last updated: 2026-02-06*
+*Last updated: 2026-02-07*
