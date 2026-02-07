@@ -58,7 +58,7 @@ environment_errors:
 
 tool_failures:
   - id: file_read_failures
-    pattern: "Read tool.*file not found|FileNotFoundError|No such file or directory"
+    pattern: "Read tool.*file not found|Read tool.*FileNotFoundError|Read tool.*No such file or directory|Error reading file.*No such file|failed to read.*FileNotFoundError"
     severity: medium
     threshold: 3
     title: "Excessive file read failures"

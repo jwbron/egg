@@ -4,12 +4,18 @@ This module provides the core detection logic that scans collected logs
 for error patterns, inefficiencies, and behavioral issues.
 """
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
+
+if TYPE_CHECKING:
+    from ..collectors.base import RunLog
 
 
 class Severity(Enum):
@@ -153,7 +159,7 @@ class DetectionEngine:
                 )
                 self.rules.append(rule)
 
-    def analyze(self, runs: list) -> list[Detection]:
+    def analyze(self, runs: list[RunLog]) -> list[Detection]:
         """Analyze collected runs and return detected issues.
 
         Args:
