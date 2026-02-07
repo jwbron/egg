@@ -54,7 +54,6 @@ jobs:
   e2e-agent-fuzz:
     name: E2E Agent Fuzz Tests
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -82,7 +81,7 @@ jobs:
           PYTHONPATH=shared .venv/bin/pytest integration_tests -v \
             -m "e2e and agent_flaky" \
             --timeout=600 \
-            --junitxml=e2e-agent-fuzz-results.xml || true
+            --junitxml=e2e-agent-fuzz-results.xml
 
       - name: Upload fuzz results
         if: always()

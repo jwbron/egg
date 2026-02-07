@@ -89,7 +89,7 @@ def start_test_container(
     """
     container_id = f"egg-test-{name_suffix}-{int(time.time())}"
 
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: EGG100 - test helper container for network isolation tests
         [
             "docker",
             "run",

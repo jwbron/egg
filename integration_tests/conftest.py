@@ -26,9 +26,14 @@ from typing import Any
 import pytest
 import requests
 from egg_container import (
-    LIFECYCLE_FLAGS_INDEX,
     ContainerNetworkConfig,
     build_sandbox_docker_cmd,
+)
+
+from tests.utils.gateway_client import (
+    GatewayClientMixin,
+    docker_available,
+    wait_for_healthy,
 )
 
 # Project root (one level up from integration_tests/)
@@ -58,8 +63,12 @@ class ContainerInfo:
 
 
 @dataclass
-class EggStack:
-    """Running integration test stack state."""
+class EggStack(GatewayClientMixin):
+    """Running integration test stack state.
+
+    Inherits common API methods from GatewayClientMixin to reduce
+    duplication with tests/functional/conftest.py:MinimalGateway.
+    """
 
     gateway_url: str
     gateway_isolated_ip: str
@@ -71,115 +80,9 @@ class EggStack:
     config_dir: str
     isolated_network: str
     external_network: str
+    certs_volume: str = ""  # Docker volume name for gateway CA certs
     source_ip: str = ""  # Auto-detected: IP the gateway sees for our requests
     _containers: list[str] = field(default_factory=list)
-
-    def health_check(self, timeout: int = 5) -> dict[str, Any]:
-        """Query the gateway health endpoint."""
-        resp = requests.get(
-            f"{self.gateway_url}/api/v1/health",
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        return resp.json()
-
-    def detect_source_ip(self) -> str:
-        """Detect the IP the gateway sees for requests from this host.
-
-        Uses the client_ip field from the health endpoint response.
-        """
-        health = self.health_check()
-        ip = health.get("client_ip", "")
-        if not ip:
-            raise RuntimeError("Gateway health endpoint did not return client_ip")
-        self.source_ip = ip
-        return ip
-
-    def create_session(
-        self,
-        container_id: str | None = None,
-        container_ip: str | None = None,
-        mode: str = "private",
-        repos: list[str] | None = None,
-    ) -> dict[str, Any]:
-        """Create a session via the gateway API.
-
-        Returns the full response JSON including session_token.
-        """
-        if container_id is None:
-            container_id = f"test-{os.getpid()}-{time.time_ns()}"
-        if container_ip is None:
-            container_ip = self.source_ip or "172.40.0.100"
-
-        resp = requests.post(
-            f"{self.gateway_url}/api/v1/sessions/create",
-            headers={"Authorization": f"Bearer {self.launcher_secret}"},
-            json={
-                "container_id": container_id,
-                "container_ip": container_ip,
-                "mode": mode,
-                "repos": repos or ["test-owner/test-repo"],
-                "uid": 1000,
-                "gid": 1000,
-            },
-            timeout=10,
-        )
-        try:
-            return resp.json()
-        except requests.exceptions.JSONDecodeError:
-            return {
-                "success": False,
-                "message": f"Non-JSON response (HTTP {resp.status_code})",
-                "data": {},
-            }
-
-    def delete_session(self, session_token: str) -> dict[str, Any]:
-        """Delete a session via the gateway API."""
-        resp = requests.delete(
-            f"{self.gateway_url}/api/v1/sessions/{session_token}",
-            headers={"Authorization": f"Bearer {self.launcher_secret}"},
-            timeout=10,
-        )
-        return resp.json()
-
-    def list_sessions(self) -> dict[str, Any]:
-        """List active sessions."""
-        resp = requests.get(
-            f"{self.gateway_url}/api/v1/sessions",
-            headers={"Authorization": f"Bearer {self.launcher_secret}"},
-            timeout=10,
-        )
-        return resp.json()
-
-    def heartbeat(self, session_token: str) -> dict[str, Any]:
-        """Send a heartbeat for a session."""
-        resp = requests.post(
-            f"{self.gateway_url}/api/v1/sessions/{session_token}/heartbeat",
-            headers={"Authorization": f"Bearer {self.launcher_secret}"},
-            timeout=10,
-        )
-        return resp.json()
-
-    def api_request(
-        self,
-        method: str,
-        path: str,
-        *,
-        token: str | None = None,
-        json_data: dict[str, Any] | None = None,
-        timeout: int = 10,
-    ) -> requests.Response:
-        """Make an authenticated API request to the gateway."""
-        headers: dict[str, str] = {}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        return requests.request(
-            method,
-            f"{self.gateway_url}{path}",
-            headers=headers,
-            json=json_data,
-            timeout=timeout,
-        )
 
 
 def _write_test_config(config_dir: str, launcher_secret: str) -> None:
@@ -233,34 +136,6 @@ local_repos:
     os.chmod(config_path / "launcher-secret", 0o600)
 
 
-def _docker_available() -> bool:
-    """Check if Docker is available and running."""
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
-
-
-def _wait_for_healthy(url: str, timeout: int = 120) -> bool:
-    """Wait for the gateway health endpoint to return 200."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            resp = requests.get(f"{url}/api/v1/health", timeout=3)
-            if resp.status_code == 200:
-                return True
-        except requests.ConnectionError:
-            pass
-        time.sleep(2)
-    return False
-
-
 @pytest.fixture(scope="session")
 def egg_stack() -> Generator[EggStack, None, None]:
     """Session-scoped fixture: start the gateway stack via docker compose.
@@ -268,7 +143,7 @@ def egg_stack() -> Generator[EggStack, None, None]:
     Builds the gateway image, starts it on test networks, waits for health,
     and tears everything down after the test session.
     """
-    if not _docker_available():
+    if not docker_available():
         pytest.skip("Docker is not available")
 
     compose_file = PROJECT_ROOT / "integration_tests" / "docker-compose.yml"
@@ -324,7 +199,7 @@ def egg_stack() -> Generator[EggStack, None, None]:
         gateway_url = f"http://localhost:{host_port}"
 
         # Wait for gateway to become healthy
-        if not _wait_for_healthy(gateway_url, timeout=120):
+        if not wait_for_healthy(gateway_url, timeout=120):
             # Dump logs for debugging
             logs = subprocess.run(
                 [*compose_cmd, "logs", "gateway"],
@@ -349,6 +224,7 @@ def egg_stack() -> Generator[EggStack, None, None]:
             config_dir=config_dir,
             isolated_network=f"{project_name}-isolated",
             external_network=f"{project_name}-external",
+            certs_volume=f"{project_name}_certs",
         )
 
         # Detect what source IP the gateway sees for our requests
@@ -596,6 +472,7 @@ class AgentVerdict:
     details: list[dict[str, Any]]
     raw_output: str
     cost_usd: float | None
+    infrastructure_failure: bool = False  # Set by run_claude_structured, not the agent
 
     @property
     def passed(self) -> bool:
@@ -619,6 +496,54 @@ def _allocate_test_container_ip() -> str:
     if _next_container_ip_suffix > 254:
         _next_container_ip_suffix = 100
     return ip
+
+
+def _capture_container_logs(container_name: str) -> str:
+    """Capture logs from a container (even if it crashed or is still running).
+
+    Used for post-mortem diagnostics when tests timeout or fail unexpectedly.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "logs", "--tail", "200", container_name],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        logs = []
+        if result.stdout:
+            logs.append(f"=== STDOUT ===\n{result.stdout}")
+        if result.stderr:
+            logs.append(f"=== STDERR ===\n{result.stderr}")
+        return "\n".join(logs) if logs else "(no logs captured)"
+    except subprocess.TimeoutExpired:
+        return "(log capture timed out)"
+    except Exception as e:
+        return f"(log capture failed: {e})"
+
+
+def _preflight_gateway_check(egg_stack: "EggStack", timeout: int = 10) -> tuple[bool, str]:
+    """Perform a pre-flight health check on the gateway before spawning containers.
+
+    This catches infrastructure issues early (before the 180s test timeout)
+    and provides clear diagnostics when the gateway is not ready.
+
+    Returns:
+        (success, message) tuple
+    """
+    try:
+        health = egg_stack.health_check(timeout=timeout)
+        status = health.get("status", "unknown")
+        if status == "healthy":
+            return True, "Gateway healthy"
+        return False, f"Gateway status: {status} (expected: healthy)"
+    except requests.exceptions.ConnectionError as e:
+        return False, f"Gateway unreachable: {e}"
+    except requests.exceptions.Timeout:
+        return False, f"Gateway health check timed out after {timeout}s"
+    except Exception as e:
+        return False, f"Gateway health check failed: {type(e).__name__}: {e}"
 
 
 def run_claude_structured(
@@ -646,6 +571,19 @@ def run_claude_structured(
         arguments* stay in sync, but the *config dataclass population* is a
         separate coupling point.
     """
+    # Pre-flight check: verify gateway is healthy before spawning container
+    # This catches infrastructure issues early with clear diagnostics
+    preflight_ok, preflight_msg = _preflight_gateway_check(egg_stack)
+    if not preflight_ok:
+        return AgentVerdict(
+            verdict="fail",
+            evidence=f"Pre-flight gateway check failed: {preflight_msg}",
+            details=[{"check": "gateway_preflight", "passed": False, "note": preflight_msg}],
+            raw_output="",
+            cost_usd=None,
+            infrastructure_failure=True,
+        )
+
     system_prompt = TEST_AGENT_SYSTEM_PROMPT
     if extra_system:
         system_prompt = f"{system_prompt} {extra_system}"
@@ -665,8 +603,11 @@ def run_claude_structured(
     # where sessions are bound to specific container IPs for request verification.
     container_ip = _allocate_test_container_ip()
 
+    # Generate a predictable container name so we can capture logs on timeout
+    container_name = f"test-claude-{os.getpid()}-{time.time_ns()}"
+
     cmd = build_sandbox_docker_cmd(
-        container_name=f"test-claude-{os.getpid()}-{time.time_ns()}",
+        container_name=container_name,
         image="egg-sandbox:latest",
         network=net_config,
         container_ip=container_ip,
@@ -678,11 +619,24 @@ def run_claude_structured(
             # Match production: always set auth method so sandbox startup code
             # branches the same way in tests as in production.
             "ANTHROPIC_AUTH_METHOD": "oauth",
+            # Reduce gateway health check timeout for faster test feedback
+            # (default 60s is too long when debugging test failures)
+            "EGG_GATEWAY_TIMEOUT": "30",
+            # Enable debug logging for startup phases (logs to stderr)
+            # This helps diagnose container hangs by showing which phase stalled
+            "EGG_DEBUG": "1",
         },
     )
 
-    # Lifecycle flags — use the module constant to avoid hardcoding the index
-    cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = ["--rm"]
+    # Note: We intentionally do NOT use --rm here so we can capture logs on timeout.
+    # Production uses the LIFECYCLE_FLAGS_INDEX pattern in build_sandbox_docker_cmd()
+    # to include --rm; we diverge here because tests need post-mortem log access.
+    # Cleanup happens in the finally block below.
+
+    # Mount the gateway CA certificate volume so the sandbox can trust the proxy
+    # The volume is created by docker-compose and populated by the gateway entrypoint
+    if egg_stack.certs_volume:
+        cmd[-1:-1] = ["-v", f"{egg_stack.certs_volume}:/shared/certs:ro"]
 
     # Claude CLI command after image name
     cmd.extend(
@@ -705,6 +659,16 @@ def run_claude_structured(
         ]
     )
 
+    def _cleanup_container() -> None:
+        """Remove the test container (best-effort)."""
+        subprocess.run(
+            ["docker", "rm", "-f", container_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+            check=False,
+        )
+
     try:
         result = subprocess.run(
             cmd,
@@ -714,26 +678,45 @@ def run_claude_structured(
             check=False,
         )
     except subprocess.TimeoutExpired as e:
+        # Capture container logs before cleanup for post-mortem analysis
+        container_logs = _capture_container_logs(container_name)
+        _cleanup_container()
+
         raw = (e.stdout or "")[:2000] if e.stdout else ""
         stderr = (e.stderr or "")[:500] if e.stderr else ""
         return AgentVerdict(
             verdict="fail",
-            evidence=f"Subprocess timed out after {timeout}s. stderr: {stderr}",
+            evidence=(
+                f"Subprocess timed out after {timeout}s.\n"
+                f"stderr: {stderr}\n"
+                f"Container logs:\n{container_logs[:3000]}"
+            ),
             details=[],
             raw_output=raw,
             cost_usd=None,
+            infrastructure_failure=True,
         )
 
     raw = result.stdout.strip()
 
     if result.returncode != 0:
+        # Capture container logs for debugging non-zero exit
+        container_logs = _capture_container_logs(container_name)
+        _cleanup_container()
         return AgentVerdict(
             verdict="fail",
-            evidence=f"Claude Code exited {result.returncode}: {result.stderr[:500]}",
+            evidence=(
+                f"Claude Code exited {result.returncode}: {result.stderr[:500]}\n"
+                f"Container logs:\n{container_logs[:3000]}"
+            ),
             details=[],
             raw_output=raw,
             cost_usd=None,
+            infrastructure_failure=True,
         )
+
+    # Success path - cleanup container
+    _cleanup_container()
 
     try:
         envelope = json.loads(raw)
@@ -744,6 +727,7 @@ def run_claude_structured(
             details=[],
             raw_output=raw,
             cost_usd=None,
+            infrastructure_failure=True,
         )
 
     # The envelope from --output-format json wraps the schema result.

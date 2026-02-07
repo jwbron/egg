@@ -6,6 +6,7 @@ on:
     paths:
       - "action/**"
       - ".github/workflows/test-action.yml"
+      - ".github/workflows/on-check-failure.yml"
   workflow_dispatch:
 
 jobs:
@@ -133,7 +134,76 @@ jobs:
 
       - name: Run shellcheck on action scripts
         run: |
-          shellcheck --severity=warning action/entrypoint.sh action/generate-config.sh action/build-mention-prompt.sh
+          shellcheck --severity=warning action/entrypoint.sh action/generate-config.sh action/build-mention-prompt.sh action/build-review-prompt.sh action/build-autofixer-prompt.sh
+
+  prompt-builders:
+    name: Prompt Builder Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test build-autofixer-prompt.sh
+        env:
+          PR_NUMBER: "123"
+          FAILED_WORKFLOW: "Lint"
+          FAILED_RUN_ID: "456789"
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          bash action/build-autofixer-prompt.sh
+
+          PROMPT_FILE="${RUNNER_TEMP}/autofixer-prompt-123.txt"
+
+          # Verify prompt file was created
+          test -f "$PROMPT_FILE"
+          test -s "$PROMPT_FILE"
+
+          # Verify prompt contains expected content
+          # Note: GITHUB_REPOSITORY is a default GHA env var that cannot be
+          # overridden at the step level, so we assert against its actual value.
+          grep -q "PR #123" "$PROMPT_FILE"
+          grep -q "$GITHUB_REPOSITORY" "$PROMPT_FILE"
+          grep -q "Lint" "$PROMPT_FILE"
+          grep -q "gh pr checks" "$PROMPT_FILE"
+
+          echo "build-autofixer-prompt.sh test passed"
+
+      - name: Test build-autofixer-prompt.sh with custom rules
+        env:
+          PR_NUMBER: "456"
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          # Create custom autofixer rules
+          mkdir -p .egg
+          cat > .egg/autofixer-rules.md << 'RULES'
+          ## Custom Rules
+          - Always run `make format` before committing
+          - Never auto-fix security issues
+          RULES
+
+          bash action/build-autofixer-prompt.sh
+
+          PROMPT_FILE="${RUNNER_TEMP}/autofixer-prompt-456.txt"
+
+          # Verify custom rules were included
+          grep -q "Custom Rules" "$PROMPT_FILE"
+          grep -q "make format" "$PROMPT_FILE"
+
+          echo "Custom autofixer rules test passed"
+
+      - name: Test build-review-prompt.sh
+        env:
+          PR_NUMBER: "789"
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          bash action/build-review-prompt.sh
+
+          PROMPT_FILE="${RUNNER_TEMP}/review-prompt-789.txt"
+
+          test -f "$PROMPT_FILE"
+          grep -q "PR #789" "$PROMPT_FILE"
+          grep -q "gh pr diff" "$PROMPT_FILE"
+
+          echo "build-review-prompt.sh test passed"
 
   integration-test:
     name: Integration Test

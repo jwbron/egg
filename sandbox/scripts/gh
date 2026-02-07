@@ -440,6 +440,396 @@ print(json.dumps({
     call_gateway "/api/v1/gh/pr/close" "$payload"
 }
 
+# Function to handle PR review - adds automated review marker
+# This allows workflows to identify bot reviews by looking for the marker
+# rather than relying on username heuristics.
+handle_pr_review() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Get current commit SHA for the marker
+    local commit_sha
+    commit_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+
+    if [ -z "$commit_sha" ]; then
+        echo "WARNING: Could not determine commit SHA for review marker (git rev-parse HEAD failed)" >&2
+    fi
+
+    # Get bot name from environment (set by egg launcher) or use default
+    local bot_name="${EGG_BOT_NAME:-egg}"
+
+    # Parse args for PR number, body, and review type
+    local pr_number="" body="" review_type="" body_file=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
+                ;;
+            --approve|-a)
+                review_type="approve"
+                ;;
+            --request-changes|-r)
+                review_type="request-changes"
+                ;;
+            --comment|-c)
+                review_type="comment"
+                ;;
+            [0-9]*)
+                if [ -z "$pr_number" ]; then
+                    pr_number="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$pr_number" ]; then
+        echo "ERROR: Missing PR number" >&2
+        return 1
+    fi
+
+    # If body_file is specified, read the body from the file
+    if [ -n "$body_file" ] && [ -f "$body_file" ]; then
+        body=$(cat "$body_file")
+    fi
+
+    # Add automated review marker to the body
+    # Format: <!-- egg-automated-review bot=<name> commit=<sha> -->
+    # This marker is hidden in rendered markdown but can be parsed by workflows
+    local marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} -->"
+    if [ -n "$body" ]; then
+        body="${body}
+
+${marker}"
+    else
+        body="${marker}"
+    fi
+
+    # Build args array for gateway execute with properly escaped content
+    local escaped_args
+    escaped_args=$(python3 -c "
+import json
+import sys
+
+pr_number = sys.argv[2]
+body = sys.argv[3]
+review_type = sys.argv[4]
+
+args = ['pr', 'review', pr_number, '--repo', sys.argv[1], '--body', body]
+
+if review_type == 'approve':
+    args.append('--approve')
+elif review_type == 'request-changes':
+    args.append('--request-changes')
+elif review_type == 'comment':
+    args.append('--comment')
+
+print(json.dumps({'args': args}))
+" "$repo" "$pr_number" "$body" "$review_type")
+
+    call_gateway "/api/v1/gh/execute" "$escaped_args"
+}
+
+# Function to handle issue create - uses proper JSON escaping
+handle_issue_create() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for title, body, labels, assignees
+    local title="" body="" labels="" assignees=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --title|-t)
+                ((i++))
+                title="${ARGS[$i]}"
+                ;;
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            --label|-l)
+                ((i++))
+                if [ -n "$labels" ]; then
+                    labels="$labels,${ARGS[$i]}"
+                else
+                    labels="${ARGS[$i]}"
+                fi
+                ;;
+            --assignee|-a)
+                ((i++))
+                if [ -n "$assignees" ]; then
+                    assignees="$assignees,${ARGS[$i]}"
+                else
+                    assignees="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$title" ]; then
+        echo "ERROR: Missing --title for issue create" >&2
+        return 1
+    fi
+
+    # Build args array for gateway execute with properly escaped content
+    # We use execute endpoint but with properly escaped args
+    local escaped_args
+    escaped_args=$(python3 -c "
+import json
+import sys
+
+args = ['issue', 'create', '--repo', sys.argv[1], '--title', sys.argv[2]]
+if sys.argv[3]:
+    args.extend(['--body', sys.argv[3]])
+if sys.argv[4]:
+    for label in sys.argv[4].split(','):
+        args.extend(['--label', label])
+if sys.argv[5]:
+    for assignee in sys.argv[5].split(','):
+        args.extend(['--assignee', assignee])
+
+print(json.dumps({'args': args}))
+" "$repo" "$title" "$body" "$labels" "$assignees")
+
+    call_gateway "/api/v1/gh/execute" "$escaped_args"
+}
+
+# Function to handle issue comment - uses proper JSON escaping
+handle_issue_comment() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for issue number and body
+    local issue_number="" body=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            [0-9]*)
+                if [ -z "$issue_number" ]; then
+                    issue_number="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$issue_number" ]; then
+        echo "ERROR: Missing issue number" >&2
+        return 1
+    fi
+
+    if [ -z "$body" ]; then
+        echo "ERROR: Missing --body for issue comment" >&2
+        return 1
+    fi
+
+    # Build args array for gateway execute with properly escaped content
+    local escaped_args
+    escaped_args=$(python3 -c "
+import json
+import sys
+
+args = ['issue', 'comment', sys.argv[2], '--repo', sys.argv[1], '--body', sys.argv[3]]
+print(json.dumps({'args': args}))
+" "$repo" "$issue_number" "$body")
+
+    call_gateway "/api/v1/gh/execute" "$escaped_args"
+}
+
+# Function to handle issue edit - uses proper JSON escaping
+# This is the key fix for issue #180 - prevents body wipe due to shell escaping issues
+handle_issue_edit() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for issue number, title, body
+    local issue_number="" title="" body="" add_label="" remove_label="" add_assignee="" remove_assignee=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --title|-t)
+                ((i++))
+                title="${ARGS[$i]}"
+                ;;
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            --add-label)
+                ((i++))
+                if [ -n "$add_label" ]; then
+                    add_label="$add_label,${ARGS[$i]}"
+                else
+                    add_label="${ARGS[$i]}"
+                fi
+                ;;
+            --remove-label)
+                ((i++))
+                if [ -n "$remove_label" ]; then
+                    remove_label="$remove_label,${ARGS[$i]}"
+                else
+                    remove_label="${ARGS[$i]}"
+                fi
+                ;;
+            --add-assignee)
+                ((i++))
+                if [ -n "$add_assignee" ]; then
+                    add_assignee="$add_assignee,${ARGS[$i]}"
+                else
+                    add_assignee="${ARGS[$i]}"
+                fi
+                ;;
+            --remove-assignee)
+                ((i++))
+                if [ -n "$remove_assignee" ]; then
+                    remove_assignee="$remove_assignee,${ARGS[$i]}"
+                else
+                    remove_assignee="${ARGS[$i]}"
+                fi
+                ;;
+            [0-9]*)
+                if [ -z "$issue_number" ]; then
+                    issue_number="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$issue_number" ]; then
+        echo "ERROR: Missing issue number" >&2
+        return 1
+    fi
+
+    # Build args array for gateway execute with properly escaped content
+    local escaped_args
+    escaped_args=$(python3 -c "
+import json
+import sys
+
+issue_number = sys.argv[2]
+title = sys.argv[3]
+body = sys.argv[4]
+add_labels = sys.argv[5]
+remove_labels = sys.argv[6]
+add_assignees = sys.argv[7]
+remove_assignees = sys.argv[8]
+
+args = ['issue', 'edit', issue_number, '--repo', sys.argv[1]]
+
+if title:
+    args.extend(['--title', title])
+if body:
+    args.extend(['--body', body])
+if add_labels:
+    for label in add_labels.split(','):
+        args.extend(['--add-label', label])
+if remove_labels:
+    for label in remove_labels.split(','):
+        args.extend(['--remove-label', label])
+if add_assignees:
+    for assignee in add_assignees.split(','):
+        args.extend(['--add-assignee', assignee])
+if remove_assignees:
+    for assignee in remove_assignees.split(','):
+        args.extend(['--remove-assignee', assignee])
+
+print(json.dumps({'args': args}))
+" "$repo" "$issue_number" "$title" "$body" "$add_label" "$remove_label" "$add_assignee" "$remove_assignee")
+
+    call_gateway "/api/v1/gh/execute" "$escaped_args"
+}
+
+# Function to handle issue close - uses proper JSON escaping
+handle_issue_close() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for issue number and reason
+    local issue_number="" reason=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --reason|-r)
+                ((i++))
+                reason="${ARGS[$i]}"
+                ;;
+            [0-9]*)
+                if [ -z "$issue_number" ]; then
+                    issue_number="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$issue_number" ]; then
+        echo "ERROR: Missing issue number" >&2
+        return 1
+    fi
+
+    # Build args array for gateway execute with properly escaped content
+    local escaped_args
+    escaped_args=$(python3 -c "
+import json
+import sys
+
+issue_number = sys.argv[2]
+reason = sys.argv[3]
+
+args = ['issue', 'close', issue_number, '--repo', sys.argv[1]]
+
+if reason:
+    args.extend(['--reason', reason])
+
+print(json.dumps({'args': args}))
+" "$repo" "$issue_number" "$reason")
+
+    call_gateway "/api/v1/gh/execute" "$escaped_args"
+}
+
 # Function to execute via gateway passthrough - uses proper JSON escaping
 execute_via_gateway() {
     local container_cwd
@@ -532,8 +922,39 @@ case "$main_cmd" in
                 handle_pr_close
                 exit $?
                 ;;
+            review)
+                handle_pr_review
+                exit $?
+                ;;
             *)
                 # Other PR commands - pass through via gateway execute
+                execute_via_gateway
+                exit $?
+                ;;
+        esac
+        ;;
+    issue)
+        # Issue commands use dedicated handlers for proper JSON escaping
+        # This prevents body content from being wiped due to shell escaping issues (issue #180)
+        case "$sub_cmd" in
+            create)
+                handle_issue_create
+                exit $?
+                ;;
+            comment)
+                handle_issue_comment
+                exit $?
+                ;;
+            edit)
+                handle_issue_edit
+                exit $?
+                ;;
+            close)
+                handle_issue_close
+                exit $?
+                ;;
+            *)
+                # Other issue commands - pass through via gateway execute
                 execute_via_gateway
                 exit $?
                 ;;

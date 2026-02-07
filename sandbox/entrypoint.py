@@ -25,6 +25,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
@@ -182,6 +183,7 @@ class Config:
     runtime_uid: int = field(default_factory=lambda: int(os.environ.get("RUNTIME_UID", "1000")))
     runtime_gid: int = field(default_factory=lambda: int(os.environ.get("RUNTIME_GID", "1000")))
     quiet: bool = field(default_factory=lambda: os.environ.get("EGG_QUIET", "0") == "1")
+    debug: bool = field(default_factory=lambda: os.environ.get("EGG_DEBUG", "0") == "1")
 
     # LLM configuration
     # Auth method: "api_key" (default) or "oauth"
@@ -223,10 +225,15 @@ class Config:
 
 
 class Logger:
-    """Simple logger with quiet mode support."""
+    """Simple logger with quiet mode and debug mode support.
 
-    def __init__(self, quiet: bool = False):
+    Debug mode (EGG_DEBUG=1) logs each startup phase to stderr for
+    post-mortem analysis when containers hang or timeout.
+    """
+
+    def __init__(self, quiet: bool = False, debug: bool = False):
         self.quiet = quiet
+        self.debug = debug
 
     def info(self, msg: str) -> None:
         """Info message (hidden in quiet mode)."""
@@ -245,6 +252,39 @@ class Logger:
     def error(self, msg: str) -> None:
         """Error message (always shown, to stderr)."""
         print(f"✗ {msg}", file=sys.stderr)
+
+    def phase_start(self, phase: str) -> None:
+        """Log the start of a startup phase (debug mode only, to stderr).
+
+        These messages go to stderr so they're captured even if the
+        container hangs during startup (stdout may be buffered).
+        """
+        if self.debug:
+            elapsed_ms = (time.time() - _CONTAINER_START_TIME) * 1000
+            print(f"[DEBUG +{elapsed_ms:7.0f}ms] Starting: {phase}", file=sys.stderr)
+            sys.stderr.flush()
+
+    def phase_end(self, phase: str) -> None:
+        """Log the end of a startup phase (debug mode only, to stderr)."""
+        if self.debug:
+            elapsed_ms = (time.time() - _CONTAINER_START_TIME) * 1000
+            print(f"[DEBUG +{elapsed_ms:7.0f}ms] Finished: {phase}", file=sys.stderr)
+            sys.stderr.flush()
+
+
+@contextlib.contextmanager
+def timed_phase(name: str, logger: Logger) -> Generator[None, None, None]:
+    """Context manager that combines startup timing with debug logging.
+
+    Wraps both _startup_timer.phase() and logger.phase_start/phase_end
+    to reduce repetition in the main startup sequence.
+    """
+    logger.phase_start(name)
+    try:
+        with _startup_timer.phase(name):
+            yield
+    finally:
+        logger.phase_end(name)
 
 
 # =============================================================================
@@ -897,7 +937,14 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
 
     logger.info("Waiting for gateway readiness...")
 
-    timeout = 60  # seconds
+    # Timeout is configurable via EGG_GATEWAY_TIMEOUT for faster test feedback
+    # Default 60s for production, but tests can set lower values
+    timeout_str = os.environ.get("EGG_GATEWAY_TIMEOUT", "60")
+    try:
+        timeout = int(timeout_str)
+    except ValueError:
+        logger.warn(f"Invalid EGG_GATEWAY_TIMEOUT '{timeout_str}', using default 60s")
+        timeout = 60
     interval = 2  # seconds
     elapsed = 0
 
@@ -1151,7 +1198,10 @@ def run_exec(config: Config, logger: Logger, args: list[str]) -> None:
 def main() -> None:
     """Main entry point."""
     config = Config()
-    logger = Logger(config.quiet)
+    logger = Logger(config.quiet, config.debug)
+
+    if config.debug:
+        logger.phase_start("entrypoint_init")
 
     # Register cleanup handler
     def signal_handler(signum: int, frame: Any) -> None:
@@ -1162,39 +1212,40 @@ def main() -> None:
     signal.signal(signal.SIGINT, signal_handler)
 
     # Run setup with timing instrumentation
-    with _startup_timer.phase("setup_user"):
+    # Debug logging goes to stderr for capture even on container hang
+    with timed_phase("setup_user", logger):
         setup_user(config, logger)
 
-    with _startup_timer.phase("setup_environment"):
+    with timed_phase("setup_environment", logger):
         setup_environment(config)
 
-    with _startup_timer.phase("setup_egg_symlink"):
+    with timed_phase("setup_egg_symlink", logger):
         setup_egg_symlink(config, logger)
 
-    with _startup_timer.phase("setup_git"):
+    with timed_phase("setup_git", logger):
         setup_git(config, logger)
 
-    with _startup_timer.phase("setup_gateway_ca"):
+    with timed_phase("setup_gateway_ca", logger):
         setup_gateway_ca(config, logger)
 
-    with _startup_timer.phase("setup_worktrees"):
+    with timed_phase("setup_worktrees", logger):
         if not setup_worktrees(config, logger):
             logger.error("")
             logger.error("Container startup aborted due to worktree configuration failure.")
             logger.error("Please check your egg setup and try again.")
             sys.exit(1)
 
-    with _startup_timer.phase("setup_agent_rules"):
+    with timed_phase("setup_agent_rules", logger):
         setup_agent_rules(config, logger)
 
-    with _startup_timer.phase("setup_claude"):
+    with timed_phase("setup_claude", logger):
         setup_claude(config, logger)
 
-    with _startup_timer.phase("setup_bashrc"):
+    with timed_phase("setup_bashrc", logger):
         setup_bashrc(config, logger)
 
     # Wait for gateway readiness (network lockdown mode)
-    with _startup_timer.phase("check_gateway"):
+    with timed_phase("check_gateway", logger):
         if not check_gateway_health(config, logger):
             logger.error("")
             logger.error("Container startup aborted: gateway not ready.")
@@ -1202,7 +1253,7 @@ def main() -> None:
             sys.exit(1)
 
     # Configure Anthropic API to route through gateway
-    with _startup_timer.phase("setup_anthropic_api"):
+    with timed_phase("setup_anthropic_api", logger):
         setup_anthropic_api(config, logger)
 
     # Run appropriate mode (timing summary is printed inside each mode)
