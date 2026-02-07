@@ -87,9 +87,9 @@ FIELD_OWNERSHIP = {
 
 ### 1.4 Gateway Contract Endpoint
 
-**File**: `gateway/internal/handlers/contract.go` (new)
+**File**: `gateway/contract.py` (new)
 
-**Endpoints**:
+**Endpoints** (added to `gateway/gateway.py`):
 - [ ] `POST /api/v1/contract/mutate` - Validate role and apply mutation
 - [ ] `GET /api/v1/contract/{issue}` - Retrieve contract state
 
@@ -311,14 +311,19 @@ jobs:
 - [ ] HALF-OPEN → CLOSED on next pass
 - [ ] HALF-OPEN → OPEN on next fail
 
-**Thresholds**:
+**Thresholds** (configurable per-repository or per-issue via `.egg/config.json`):
 ```python
-THRESHOLDS = {
+DEFAULT_THRESHOLDS = {
     "per_phase_cycles": 3,
     "total_cycles": 10,
     "consecutive_failures": 2,
 }
 ```
+
+**Configuration support**:
+- [ ] Load threshold overrides from `.egg/config.json` if present
+- [ ] Allow per-issue overrides in contract metadata
+- [ ] Fall back to defaults if not configured
 
 ### 4.2 Escalation Actions
 
