@@ -1,0 +1,68 @@
+"""
+Egg Contracts - Role-based contract management for SDLC pipelines.
+
+This package provides:
+- Contract models (Pydantic) for type-safe contract manipulation
+- Role-based field access enforcement
+- Contract loading/saving utilities
+- Audit logging for all modifications
+"""
+
+from .models import (
+    AcceptanceCriterion,
+    AuditEntry,
+    CircuitBreaker,
+    Contract,
+    Decision,
+    DecisionOption,
+    Phase,
+    ReviewFeedback,
+    Task,
+)
+from .roles import FieldAccess, Role, get_field_owner
+from .loader import load_contract, save_contract, get_contract_path
+from .validator import ContractValidator, ValidationError
+from .audit import create_audit_entry
+from .plan_parser import (
+    ParsedPlan,
+    ParsedPhase,
+    ParsedTask,
+    extract_tasks_to_contract,
+    load_plan_from_file,
+    parse_plan_document,
+    sync_contract_from_plan,
+)
+
+__all__ = [
+    # Models
+    "AcceptanceCriterion",
+    "AuditEntry",
+    "CircuitBreaker",
+    "Contract",
+    "Decision",
+    "DecisionOption",
+    "Phase",
+    "ReviewFeedback",
+    "Task",
+    # Roles
+    "FieldAccess",
+    "Role",
+    "get_field_owner",
+    # Loader
+    "load_contract",
+    "save_contract",
+    "get_contract_path",
+    # Validator
+    "ContractValidator",
+    "ValidationError",
+    # Audit
+    "create_audit_entry",
+    # Plan Parser
+    "ParsedPlan",
+    "ParsedPhase",
+    "ParsedTask",
+    "extract_tasks_to_contract",
+    "load_plan_from_file",
+    "parse_plan_document",
+    "sync_contract_from_plan",
+]

@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "1.0",
+  "phases": {
+    "refine": {
+      "description": "Analysis phase - refine requirements and produce analysis document",
+      "allowed": [
+        {"type": "gh", "pattern": "issue comment *", "description": "Comment on issue"},
+        {"type": "gh", "pattern": "issue edit *", "description": "Edit issue"},
+        {"type": "gh", "pattern": "issue view *", "description": "View issue"},
+        {"type": "gh", "pattern": "api *", "description": "Read-only GitHub API calls"},
+        {"type": "git", "pattern": "fetch *", "description": "Fetch from remote"},
+        {"type": "git", "pattern": "log *", "description": "View git log"},
+        {"type": "git", "pattern": "diff *", "description": "View diffs"},
+        {"type": "git", "pattern": "show *", "description": "Show objects"},
+        {"type": "git", "pattern": "status", "description": "Check status"},
+        {"type": "egg-contract", "pattern": "show", "description": "View contract state"},
+        {"type": "egg-contract", "pattern": "add-decision *", "description": "Create HITL decision"}
+      ],
+      "blocked": [
+        {"type": "git", "pattern": "push *", "description": "Cannot push during refinement"},
+        {"type": "git", "pattern": "commit *", "description": "Cannot commit during refinement"},
+        {"type": "gh", "pattern": "pr create *", "description": "Cannot create PR during refinement"},
+        {"type": "egg-contract", "pattern": "add-commit *", "description": "Cannot link commits"},
+        {"type": "egg-contract", "pattern": "mark-task *", "description": "Cannot mark tasks"}
+      ],
+      "exit_requires": "human"
+    },
+    "plan": {
+      "description": "Planning phase - produce implementation plan document",
+      "allowed": [
+        {"type": "gh", "pattern": "issue comment *", "description": "Comment on issue"},
+        {"type": "gh", "pattern": "issue edit *", "description": "Edit issue"},
+        {"type": "gh", "pattern": "issue view *", "description": "View issue"},
+        {"type": "gh", "pattern": "api *", "description": "GitHub API calls"},
+        {"type": "git", "pattern": "fetch *", "description": "Fetch from remote"},
+        {"type": "git", "pattern": "log *", "description": "View git log"},
+        {"type": "git", "pattern": "diff *", "description": "View diffs"},
+        {"type": "git", "pattern": "show *", "description": "Show objects"},
+        {"type": "git", "pattern": "status", "description": "Check status"},
+        {"type": "egg-contract", "pattern": "show", "description": "View contract state"},
+        {"type": "egg-contract", "pattern": "add-decision *", "description": "Create HITL decision"}
+      ],
+      "blocked": [
+        {"type": "git", "pattern": "push *", "description": "Cannot push during planning"},
+        {"type": "git", "pattern": "commit *", "description": "Cannot commit during planning"},
+        {"type": "gh", "pattern": "pr create *", "description": "Cannot create PR during planning"},
+        {"type": "egg-contract", "pattern": "add-commit *", "description": "Cannot link commits"},
+        {"type": "egg-contract", "pattern": "mark-task *", "description": "Cannot mark tasks"}
+      ],
+      "exit_requires": "human"
+    },
+    "implement": {
+      "description": "Implementation phase - execute tasks and push code",
+      "allowed": [
+        {"type": "git", "pattern": "push *", "description": "Push to remote"},
+        {"type": "git", "pattern": "commit *", "description": "Create commits"},
+        {"type": "git", "pattern": "add *", "description": "Stage changes"},
+        {"type": "git", "pattern": "fetch *", "description": "Fetch from remote"},
+        {"type": "git", "pattern": "log *", "description": "View git log"},
+        {"type": "git", "pattern": "diff *", "description": "View diffs"},
+        {"type": "git", "pattern": "show *", "description": "Show objects"},
+        {"type": "git", "pattern": "status", "description": "Check status"},
+        {"type": "git", "pattern": "checkout *", "description": "Checkout files"},
+        {"type": "git", "pattern": "reset *", "description": "Reset changes"},
+        {"type": "gh", "pattern": "issue comment *", "description": "Comment on issue"},
+        {"type": "gh", "pattern": "issue view *", "description": "View issue"},
+        {"type": "gh", "pattern": "api *", "description": "GitHub API calls"},
+        {"type": "egg-contract", "pattern": "show", "description": "View contract state"},
+        {"type": "egg-contract", "pattern": "add-commit *", "description": "Link commit to task"},
+        {"type": "egg-contract", "pattern": "update-notes *", "description": "Add implementation notes"}
+      ],
+      "blocked": [
+        {"type": "gh", "pattern": "pr create *", "description": "Cannot create PR until implementation complete"},
+        {"type": "egg-contract", "pattern": "mark-task *", "description": "Only reviewer can mark tasks"},
+        {"type": "egg-contract", "pattern": "mark-phase *", "description": "Only reviewer can mark phases"}
+      ],
+      "exit_requires": "reviewer"
+    },
+    "pr": {
+      "description": "PR phase - create and update pull request",
+      "allowed": [
+        {"type": "gh", "pattern": "pr create *", "description": "Create pull request"},
+        {"type": "gh", "pattern": "pr edit *", "description": "Edit pull request"},
+        {"type": "gh", "pattern": "pr view *", "description": "View pull request"},
+        {"type": "gh", "pattern": "pr comment *", "description": "Comment on PR"},
+        {"type": "gh", "pattern": "issue comment *", "description": "Comment on issue"},
+        {"type": "gh", "pattern": "api *", "description": "GitHub API calls"},
+        {"type": "git", "pattern": "push *", "description": "Push updates"},
+        {"type": "git", "pattern": "commit *", "description": "Create commits"},
+        {"type": "git", "pattern": "add *", "description": "Stage changes"},
+        {"type": "git", "pattern": "fetch *", "description": "Fetch from remote"},
+        {"type": "git", "pattern": "log *", "description": "View git log"},
+        {"type": "git", "pattern": "diff *", "description": "View diffs"},
+        {"type": "git", "pattern": "show *", "description": "Show objects"},
+        {"type": "git", "pattern": "status", "description": "Check status"},
+        {"type": "egg-contract", "pattern": "show", "description": "View contract state"},
+        {"type": "egg-contract", "pattern": "add-commit *", "description": "Link commit to task"},
+        {"type": "egg-contract", "pattern": "update-notes *", "description": "Add notes"}
+      ],
+      "blocked": [
+        {"type": "gh", "pattern": "pr merge *", "description": "Cannot merge - human must merge via UI"},
+        {"type": "egg-contract", "pattern": "mark-task *", "description": "Only reviewer can mark tasks"},
+        {"type": "egg-contract", "pattern": "mark-phase *", "description": "Only reviewer can mark phases"}
+      ],
+      "exit_requires": "human"
+    }
+  }
+}

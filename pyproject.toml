@@ -13,6 +13,7 @@ dependencies = [
     "PyJWT>=2.8.0,<3.0.0",
     "cryptography>=41.0.0,<44.0.0",
     "httpx>=0.27.0,<1.0.0",
+    "pydantic>=2.0.0,<3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -87,6 +88,11 @@ ignore_missing_imports = true
 follow_untyped_imports = true
 
 [[tool.mypy.overrides]]
+module = ["egg_contracts", "egg_contracts.*"]
+ignore_missing_imports = true
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
 module = [
     "repo_config",
     "repo_config.*",
@@ -121,7 +127,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["gateway", "shared/egg_config", "shared/egg_container", "shared/egg_logging", "shared/egg_git", "sandbox/egg_lib"]
+packages = ["gateway", "shared/egg_config", "shared/egg_container", "shared/egg_contracts", "shared/egg_logging", "shared/egg_git", "sandbox/egg_lib"]
 
 [tool.hatch.build.targets.sdist]
 include = [

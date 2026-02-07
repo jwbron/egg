@@ -1,0 +1,386 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jwbron/egg/schemas/contract.schema.json",
+  "title": "SDLC Contract",
+  "description": "Contract schema for Structurally Enforced Agent Checkpoints",
+  "type": "object",
+  "required": ["schemaVersion", "issue", "currentPhase", "phases"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Schema version for migrations",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "examples": ["1.0"]
+    },
+    "issue": {
+      "type": "object",
+      "description": "Issue metadata",
+      "required": ["number", "title", "url"],
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub issue number"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Issue title"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Full GitHub issue URL"
+        }
+      }
+    },
+    "currentPhase": {
+      "type": "string",
+      "enum": ["refine", "plan", "implement", "pr"],
+      "description": "Current pipeline phase",
+      "x-role-owner": "human"
+    },
+    "branch": {
+      "type": "string",
+      "description": "Git branch for this contract",
+      "pattern": "^egg[-/].+"
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "description": "Overall acceptance criteria for the issue",
+      "items": {
+        "$ref": "#/$defs/AcceptanceCriterion"
+      }
+    },
+    "phases": {
+      "type": "array",
+      "description": "Implementation phases with tasks",
+      "items": {
+        "$ref": "#/$defs/Phase"
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "description": "Human-in-the-loop decisions",
+      "items": {
+        "$ref": "#/$defs/Decision"
+      }
+    },
+    "circuit_breaker": {
+      "$ref": "#/$defs/CircuitBreaker"
+    },
+    "audit_log": {
+      "type": "array",
+      "description": "Audit trail of all modifications",
+      "items": {
+        "$ref": "#/$defs/AuditEntry"
+      }
+    }
+  },
+  "$defs": {
+    "AcceptanceCriterion": {
+      "type": "object",
+      "required": ["id", "description", "verified"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^ac-[0-9]+$",
+          "description": "Acceptance criterion ID"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "Whether criterion is verified",
+          "x-role-owner": "reviewer"
+        }
+      }
+    },
+    "Phase": {
+      "type": "object",
+      "required": ["id", "name", "status", "tasks"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^phase-[0-9]+$",
+          "description": "Phase identifier"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable phase name"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "complete", "failed"],
+          "description": "Phase status",
+          "x-role-owner": "reviewer"
+        },
+        "review_cycles": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Number of implement->review cycles"
+        },
+        "max_cycles": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "Maximum cycles before escalation"
+        },
+        "escalated": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether phase has been escalated to human"
+        },
+        "escalation_reason": {
+          "type": ["string", "null"],
+          "description": "Reason for escalation if escalated"
+        },
+        "review_feedback": {
+          "type": "array",
+          "description": "Reviewer feedback history",
+          "items": {
+            "$ref": "#/$defs/ReviewFeedback"
+          },
+          "x-role-owner": "reviewer"
+        },
+        "tasks": {
+          "type": "array",
+          "description": "Tasks in this phase",
+          "items": {
+            "$ref": "#/$defs/Task"
+          }
+        }
+      }
+    },
+    "Task": {
+      "type": "object",
+      "required": ["id", "description", "status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^task-[0-9]+$",
+          "description": "Task identifier"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Task description"
+        },
+        "acceptance_criteria": {
+          "type": "string",
+          "description": "Criteria for task completion"
+        },
+        "files": {
+          "type": "array",
+          "description": "Files affected by this task",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "complete", "incomplete", "failed"],
+          "description": "Task status",
+          "x-role-owner": "reviewer"
+        },
+        "commit": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{7,40}$",
+          "description": "Git commit SHA linked to this task",
+          "x-role-owner": "implementer"
+        },
+        "notes": {
+          "type": "string",
+          "default": "",
+          "description": "Implementation notes",
+          "x-role-owner": "implementer"
+        },
+        "review_cycles": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Per-task review cycle count"
+        },
+        "max_cycles": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "Max cycles before human review"
+        },
+        "escalated": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether task has been escalated"
+        },
+        "feedback": {
+          "type": "array",
+          "description": "Reviewer feedback for this task",
+          "items": {
+            "type": "string"
+          },
+          "x-role-owner": "reviewer"
+        }
+      }
+    },
+    "Decision": {
+      "type": "object",
+      "required": ["id", "question", "type", "resolved"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^decision-[0-9]+$",
+          "description": "Decision identifier"
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Question requiring human decision"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["hitl", "auto"],
+          "description": "Decision type - hitl requires human input"
+        },
+        "options": {
+          "type": "array",
+          "description": "Available options for checkbox decisions",
+          "items": {
+            "$ref": "#/$defs/DecisionOption"
+          }
+        },
+        "resolved": {
+          "type": "boolean",
+          "description": "Whether decision has been made"
+        },
+        "resolution": {
+          "type": ["string", "null"],
+          "description": "The chosen resolution"
+        },
+        "resolved_by": {
+          "type": ["string", "null"],
+          "description": "Who resolved the decision (github username or role)"
+        },
+        "resolved_at": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "When the decision was resolved"
+        },
+        "debounce_until": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Debounce expiry for checkbox changes"
+        }
+      }
+    },
+    "DecisionOption": {
+      "type": "object",
+      "required": ["id", "label"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Option identifier"
+        },
+        "label": {
+          "type": "string",
+          "description": "Display label for the option"
+        },
+        "description": {
+          "type": "string",
+          "description": "Longer description of what this option means"
+        }
+      }
+    },
+    "ReviewFeedback": {
+      "type": "object",
+      "required": ["timestamp", "feedback"],
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "feedback": {
+          "type": "string"
+        },
+        "cycle": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "CircuitBreaker": {
+      "type": "object",
+      "properties": {
+        "total_cycles": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Total pipeline cycles across all phases"
+        },
+        "max_total_cycles": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10,
+          "description": "Maximum total cycles before full escalation"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["closed", "open"],
+          "default": "closed",
+          "description": "Circuit breaker state"
+        },
+        "opened_at": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "When circuit breaker opened"
+        },
+        "opened_reason": {
+          "type": ["string", "null"],
+          "description": "Reason for opening"
+        }
+      }
+    },
+    "AuditEntry": {
+      "type": "object",
+      "required": ["timestamp", "actor", "action", "field_path"],
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the action occurred"
+        },
+        "actor": {
+          "type": "string",
+          "description": "Who performed the action (role or username)"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["implementer", "reviewer", "human"],
+          "description": "Role of the actor"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["create", "update", "delete", "blocked"],
+          "description": "Type of action"
+        },
+        "field_path": {
+          "type": "string",
+          "description": "JSON path of the modified field"
+        },
+        "old_value": {
+          "description": "Previous value (if update)"
+        },
+        "new_value": {
+          "description": "New value"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Reason for blocked operations"
+        }
+      }
+    }
+  }
+}

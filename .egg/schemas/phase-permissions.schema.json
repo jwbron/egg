@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jwbron/egg/schemas/phase-permissions.schema.json",
+  "title": "Phase Permissions",
+  "description": "Defines permitted and blocked operations for each pipeline phase",
+  "type": "object",
+  "required": ["schemaVersion", "phases"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "Schema version"
+    },
+    "phases": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/PhasePermissions"
+      }
+    }
+  },
+  "$defs": {
+    "PhasePermissions": {
+      "type": "object",
+      "required": ["allowed", "blocked", "exit_requires"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the phase"
+        },
+        "allowed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Operation"
+          },
+          "description": "Operations permitted in this phase"
+        },
+        "blocked": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Operation"
+          },
+          "description": "Operations blocked in this phase"
+        },
+        "exit_requires": {
+          "type": "string",
+          "enum": ["human", "reviewer", "auto"],
+          "description": "Who must approve to exit this phase"
+        }
+      }
+    },
+    "Operation": {
+      "type": "object",
+      "required": ["type", "pattern"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["git", "gh", "egg-contract"],
+          "description": "Operation category"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Command pattern (supports wildcards)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description"
+        }
+      }
+    }
+  }
+}
