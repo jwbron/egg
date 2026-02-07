@@ -160,8 +160,25 @@ jobs:
       - name: Push branch
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BRANCH_NAME: ${{ steps.setup.outputs.branch_name }}
         run: |
-          git push -u origin "${{ steps.setup.outputs.branch_name }}"
+          # Retry push with rebase on conflict
+          MAX_RETRIES=3
+          for i in $(seq 1 $MAX_RETRIES); do
+            if git push -u origin "${BRANCH_NAME}"; then
+              echo "Push succeeded"
+              break
+            elif [[ $i -eq $MAX_RETRIES ]]; then
+              echo "Push failed after $MAX_RETRIES attempts"
+              exit 1
+            else
+              echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
+              git pull --rebase origin "${BRANCH_NAME}" || {
+                echo "Rebase failed, cannot resolve conflict automatically"
+                exit 1
+              }
+            fi
+          done
 
       - name: Post initialization comment
         if: steps.setup.outputs.contract_exists == 'false'
