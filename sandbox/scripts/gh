@@ -456,6 +456,10 @@ handle_pr_review() {
     local commit_sha
     commit_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
 
+    if [ -z "$commit_sha" ]; then
+        echo "WARNING: Could not determine commit SHA for review marker (git rev-parse HEAD failed)" >&2
+    fi
+
     # Get bot name from environment (set by egg launcher) or use default
     local bot_name="${EGG_BOT_NAME:-egg}"
 

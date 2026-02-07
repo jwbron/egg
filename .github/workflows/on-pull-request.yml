@@ -124,6 +124,8 @@ jobs:
             echo "Using comment marker result"
           elif [[ -n "$last_review_commit" && -n "$last_comment_commit" ]]; then
             # Compare timestamps to find the most recent
+            # Note: ISO 8601 timestamps (YYYY-MM-DDTHH:MM:SSZ) can be compared
+            # as strings since lexicographic ordering matches chronological ordering
             if [[ "$last_comment_time" > "$last_review_time" ]]; then
               echo "commit-sha=$last_comment_commit" >> "$GITHUB_OUTPUT"
               echo "Using comment marker result (newer)"

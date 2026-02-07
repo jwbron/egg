@@ -533,3 +533,58 @@ ${marker}"
         assert match is not None
         assert match.group(1) == "egg"
         assert match.group(2) == "abc123def456789"
+
+    def test_empty_commit_sha_not_parseable(self):
+        """Marker with empty commit SHA should not match the workflow regex.
+
+        This verifies that if git rev-parse HEAD fails and returns empty,
+        the workflow won't incorrectly match a malformed marker.
+        """
+        import re
+
+        # Generate marker with empty commit SHA directly (bypass default in helper)
+        marker = "<!-- egg-automated-review bot=egg commit= -->"
+        # The workflow regex requires at least one hex char: commit=([a-f0-9]+)
+        marker_regex = r"<!-- egg-automated-review bot=([^ ]+) commit=([a-f0-9]+) -->"
+        match = re.search(marker_regex, marker)
+        assert match is None, "Empty commit SHA should not match workflow regex"
+
+
+class TestPrReviewEmptyCommitWarning:
+    """Test that handle_pr_review warns when commit SHA is empty."""
+
+    # Bash snippet that simulates the warning logic from handle_pr_review
+    WARNING_LOGIC = textwrap.dedent("""\
+        commit_sha="${1:-}"
+
+        if [ -z "$commit_sha" ]; then
+            echo "WARNING: Could not determine commit SHA for review marker (git rev-parse HEAD failed)" >&2
+        fi
+
+        echo "done"
+    """)
+
+    def test_warning_on_empty_commit_sha(self):
+        """Empty commit SHA should produce a warning on stderr."""
+        result = subprocess.run(
+            ["bash", "-c", self.WARNING_LOGIC, "_", ""],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+        assert "WARNING" in result.stderr
+        assert "Could not determine commit SHA" in result.stderr
+        assert "done" in result.stdout
+
+    def test_no_warning_on_valid_commit_sha(self):
+        """Valid commit SHA should not produce a warning."""
+        result = subprocess.run(
+            ["bash", "-c", self.WARNING_LOGIC, "_", "abc123def456"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+        assert "WARNING" not in result.stderr
+        assert "done" in result.stdout
