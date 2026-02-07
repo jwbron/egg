@@ -24,9 +24,7 @@ from .config import DEFAULT_SINCE_HOURS
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Analyze egg runs for self-improvement insights"
-    )
+    parser = argparse.ArgumentParser(description="Analyze egg runs for self-improvement insights")
     parser.add_argument(
         "--source",
         choices=["gha", "local", "auto"],
