@@ -79,9 +79,9 @@ class TestValidateConfig:
             if p == "/secrets":
                 return RealPath(str(secrets_dir))
             if p.startswith("/secrets/"):
-                return RealPath(str(secrets_dir / p[len("/secrets/"):]))
+                return RealPath(str(secrets_dir / p[len("/secrets/") :]))
             if p.startswith("/etc/squid/"):
-                return RealPath(str(squid_dir / p[len("/etc/squid/"):]))
+                return RealPath(str(squid_dir / p[len("/etc/squid/") :]))
             return RealPath(p)
 
         with patch("config_validator.Path", side_effect=mock_path):
@@ -107,9 +107,9 @@ class TestValidateConfig:
             if p == "/secrets":
                 return RealPath(str(secrets_dir))
             if p.startswith("/secrets/"):
-                return RealPath(str(secrets_dir / p[len("/secrets/"):]))
+                return RealPath(str(secrets_dir / p[len("/secrets/") :]))
             if p.startswith("/etc/squid/"):
-                return RealPath(str(squid_dir / p[len("/etc/squid/"):]))
+                return RealPath(str(squid_dir / p[len("/etc/squid/") :]))
             return RealPath(p)
 
         with patch("config_validator.Path", side_effect=mock_path):
@@ -136,9 +136,9 @@ class TestValidateConfig:
             if p == "/secrets":
                 return RealPath(str(secrets_dir))
             if p.startswith("/secrets/"):
-                return RealPath(str(secrets_dir / p[len("/secrets/"):]))
+                return RealPath(str(secrets_dir / p[len("/secrets/") :]))
             if p.startswith("/etc/squid/"):
-                return RealPath(str(squid_dir / p[len("/etc/squid/"):]))
+                return RealPath(str(squid_dir / p[len("/etc/squid/") :]))
             return RealPath(p)
 
         with patch("config_validator.Path", side_effect=mock_path):
@@ -174,7 +174,7 @@ class TestValidateNetworkLockdownMode:
         def mock_path(p):
             p = str(p)
             if p.startswith("/etc/squid/"):
-                return RealPath(str(squid_dir / p[len("/etc/squid/"):]))
+                return RealPath(str(squid_dir / p[len("/etc/squid/") :]))
             return RealPath(p)
 
         with patch("config_validator.Path", side_effect=mock_path):

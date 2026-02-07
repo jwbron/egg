@@ -95,9 +95,10 @@ class TestGitHubConfigHealthCheck:
     def test_401_error(self):
         """Returns unhealthy on 401."""
         config = GitHubConfig(token="ghp_invalid")
-        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(
-            "url", 401, "Unauthorized", {}, None
-        )):
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError("url", 401, "Unauthorized", {}, None),
+        ):
             result = config.health_check()
             assert not result.healthy
             assert "invalid" in result.message.lower()
@@ -105,9 +106,10 @@ class TestGitHubConfigHealthCheck:
     def test_500_error(self):
         """Returns unhealthy on server error."""
         config = GitHubConfig(token="ghp_test")
-        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(
-            "url", 500, "Server Error", {}, None
-        )):
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError("url", 500, "Server Error", {}, None),
+        ):
             result = config.health_check()
             assert not result.healthy
             assert "500" in result.message
@@ -324,9 +326,10 @@ class TestGatewayConfigHealthCheck:
     def test_401_error(self):
         """Returns unhealthy on 401."""
         config = GatewayConfig(secret="bad-secret")
-        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(
-            "url", 401, "Unauthorized", {}, None
-        )):
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError("url", 401, "Unauthorized", {}, None),
+        ):
             result = config.health_check()
             assert not result.healthy
             assert "Invalid" in result.message
@@ -443,7 +446,9 @@ class TestLLMConfigValidate:
     def test_valid_api_key(self, monkeypatch):
         """Valid API key passes validation."""
         monkeypatch.setenv("ANTHROPIC_AUTH_METHOD", "api_key")
-        config = LLMConfig(anthropic_api_key="sk-ant-api03-testkey123456789012345678901234567890123456")
+        config = LLMConfig(
+            anthropic_api_key="sk-ant-api03-testkey123456789012345678901234567890123456"
+        )
         result = config.validate()
         assert result.is_valid
 
@@ -511,9 +516,10 @@ class TestLLMConfigHealthCheck:
         """Returns unhealthy on 401."""
         monkeypatch.setenv("ANTHROPIC_AUTH_METHOD", "api_key")
         config = LLMConfig(anthropic_api_key="sk-ant-api03-invalid")
-        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(
-            "url", 401, "Unauthorized", {}, None
-        )):
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError("url", 401, "Unauthorized", {}, None),
+        ):
             result = config.health_check()
             assert not result.healthy
 
@@ -521,9 +527,10 @@ class TestLLMConfigHealthCheck:
         """400 is still healthy (auth worked, request was bad)."""
         monkeypatch.setenv("ANTHROPIC_AUTH_METHOD", "api_key")
         config = LLMConfig(anthropic_api_key="sk-ant-api03-test")
-        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(
-            "url", 400, "Bad Request", {}, None
-        )):
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError("url", 400, "Bad Request", {}, None),
+        ):
             result = config.health_check()
             assert result.healthy
 
@@ -531,9 +538,10 @@ class TestLLMConfigHealthCheck:
         """Returns unhealthy on 500."""
         monkeypatch.setenv("ANTHROPIC_AUTH_METHOD", "api_key")
         config = LLMConfig(anthropic_api_key="sk-ant-api03-test")
-        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(
-            "url", 500, "Server Error", {}, None
-        )):
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError("url", 500, "Server Error", {}, None),
+        ):
             result = config.health_check()
             assert not result.healthy
 

@@ -182,7 +182,15 @@ class TestUpdateLogIndex:
             # Pre-populate with 1000 entries
             index = {"task_to_container": {}, "thread_to_task": {}, "entries": []}
             for i in range(1001):
-                index["entries"].append({"container_id": f"egg-{i}", "task_id": None, "thread_ts": None, "log_file": None, "timestamp": "2024-01-01"})
+                index["entries"].append(
+                    {
+                        "container_id": f"egg-{i}",
+                        "task_id": None,
+                        "thread_ts": None,
+                        "log_file": None,
+                        "timestamp": "2024-01-01",
+                    }
+                )
             (tmp_path / "log-index.json").write_text(json.dumps(index))
 
             update_log_index("egg-new")
@@ -225,7 +233,10 @@ class TestSaveContainerLogs:
     def test_returns_none_on_timeout(self, tmp_path):
         """Returns None when docker logs times out."""
         with patch("egg_lib.container_logging.CONTAINER_LOGS_DIR", tmp_path):
-            with patch("egg_lib.container_logging.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 30)):
+            with patch(
+                "egg_lib.container_logging.subprocess.run",
+                side_effect=subprocess.TimeoutExpired("cmd", 30),
+            ):
                 result = save_container_logs("egg-test-123")
                 assert result is None
 

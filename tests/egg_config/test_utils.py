@@ -1,6 +1,5 @@
 """Tests for egg_config/utils.py - Utility functions for config loading."""
 
-
 from egg_config.utils import load_env_file, load_yaml_file, safe_bool, safe_int
 
 
@@ -31,7 +30,7 @@ class TestLoadEnvFile:
     def test_strips_quotes(self, tmp_path):
         """Strips quotes from values."""
         env_file = tmp_path / ".env"
-        env_file.write_text('KEY1="quoted"\nKEY2=\'single\'\n')
+        env_file.write_text("KEY1=\"quoted\"\nKEY2='single'\n")
         result = load_env_file(env_file)
         assert result["KEY1"] == "quoted"
         assert result["KEY2"] == "single"

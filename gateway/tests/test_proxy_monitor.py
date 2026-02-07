@@ -339,7 +339,9 @@ class TestWatchSquidLog:
     def test_processes_blocked_request(self, tmp_path):
         """watch_squid_log processes blocked requests from log."""
         log_file = tmp_path / "access.log"
-        log_entry = json.dumps({"status": 403, "client_ip": "10.0.0.1", "url": "evil.com", "method": "GET"})
+        log_entry = json.dumps(
+            {"status": 403, "client_ip": "10.0.0.1", "url": "evil.com", "method": "GET"}
+        )
         log_file.write_text(log_entry + "\n")
 
         stats = ProxyStats()
@@ -383,7 +385,9 @@ class TestWatchSquidLog:
     def test_processes_allowed_request(self, tmp_path):
         """watch_squid_log processes allowed requests from log."""
         log_file = tmp_path / "access.log"
-        log_entry = json.dumps({"status": 200, "client_ip": "10.0.0.1", "url": "ok.com", "method": "GET"})
+        log_entry = json.dumps(
+            {"status": 200, "client_ip": "10.0.0.1", "url": "ok.com", "method": "GET"}
+        )
         log_file.write_text("")  # Create the file
 
         stats = ProxyStats()

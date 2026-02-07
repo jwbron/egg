@@ -161,7 +161,13 @@ class TestGetGithubToken:
         mock_host_config_instance = MagicMock()
         mock_host_config_instance.github_token = "ghp_test123"
         mock_host_config_class = MagicMock(return_value=mock_host_config_instance)
-        with patch.dict("sys.modules", {"config": MagicMock(), "config.host_config": MagicMock(HostConfig=mock_host_config_class)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "config": MagicMock(),
+                "config.host_config": MagicMock(HostConfig=mock_host_config_class),
+            },
+        ):
             result = get_github_token()
             assert result == "ghp_test123"
 
@@ -170,7 +176,13 @@ class TestGetGithubToken:
         mock_host_config_instance = MagicMock()
         mock_host_config_instance.github_token = "github_pat_test123"
         mock_host_config_class = MagicMock(return_value=mock_host_config_instance)
-        with patch.dict("sys.modules", {"config": MagicMock(), "config.host_config": MagicMock(HostConfig=mock_host_config_class)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "config": MagicMock(),
+                "config.host_config": MagicMock(HostConfig=mock_host_config_class),
+            },
+        ):
             result = get_github_token()
             assert result == "github_pat_test123"
 
@@ -187,7 +199,13 @@ class TestGetGithubToken:
         mock_host_config_instance = MagicMock()
         mock_host_config_instance.github_token = "invalid_token"
         mock_host_config_class = MagicMock(return_value=mock_host_config_instance)
-        with patch.dict("sys.modules", {"config": MagicMock(), "config.host_config": MagicMock(HostConfig=mock_host_config_class)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "config": MagicMock(),
+                "config.host_config": MagicMock(HostConfig=mock_host_config_class),
+            },
+        ):
             result = get_github_token()
             assert result is None
 
@@ -200,7 +218,13 @@ class TestGetGithubReadonlyToken:
         mock_host_config_instance = MagicMock()
         mock_host_config_instance.get_secret.return_value = "ghp_readonly123"
         mock_host_config_class = MagicMock(return_value=mock_host_config_instance)
-        with patch.dict("sys.modules", {"config": MagicMock(), "config.host_config": MagicMock(HostConfig=mock_host_config_class)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "config": MagicMock(),
+                "config.host_config": MagicMock(HostConfig=mock_host_config_class),
+            },
+        ):
             result = get_github_readonly_token()
             assert result == "ghp_readonly123"
 
@@ -216,7 +240,13 @@ class TestGetGithubReadonlyToken:
         mock_host_config_instance = MagicMock()
         mock_host_config_instance.get_secret.return_value = None
         mock_host_config_class = MagicMock(return_value=mock_host_config_instance)
-        with patch.dict("sys.modules", {"config": MagicMock(), "config.host_config": MagicMock(HostConfig=mock_host_config_class)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "config": MagicMock(),
+                "config.host_config": MagicMock(HostConfig=mock_host_config_class),
+            },
+        ):
             result = get_github_readonly_token()
             assert result is None
 
@@ -287,10 +317,13 @@ class TestGetGithubAppToken:
 
     def test_returns_none_when_no_pem_file(self, tmp_path):
         """Returns None when github-app.pem doesn't exist."""
-        with patch("egg_lib.auth._read_secrets_env", return_value={
-            "GITHUB_APP_ID": "123",
-            "GITHUB_APP_INSTALLATION_ID": "456",
-        }):
+        with patch(
+            "egg_lib.auth._read_secrets_env",
+            return_value={
+                "GITHUB_APP_ID": "123",
+                "GITHUB_APP_INSTALLATION_ID": "456",
+            },
+        ):
             with patch("egg_lib.auth.Config") as mock_config:
                 mock_config.USER_CONFIG_DIR = tmp_path
                 assert get_github_app_token() is None
@@ -298,10 +331,13 @@ class TestGetGithubAppToken:
     def test_returns_none_when_script_not_found(self, tmp_path):
         """Returns None when token script doesn't exist."""
         (tmp_path / "github-app.pem").write_text("fake-key")
-        with patch("egg_lib.auth._read_secrets_env", return_value={
-            "GITHUB_APP_ID": "123",
-            "GITHUB_APP_INSTALLATION_ID": "456",
-        }):
+        with patch(
+            "egg_lib.auth._read_secrets_env",
+            return_value={
+                "GITHUB_APP_ID": "123",
+                "GITHUB_APP_INSTALLATION_ID": "456",
+            },
+        ):
             with patch("egg_lib.auth.Config") as mock_config:
                 mock_config.USER_CONFIG_DIR = tmp_path
                 # Script won't exist at the computed path
@@ -310,10 +346,13 @@ class TestGetGithubAppToken:
     def test_returns_token_on_success(self, tmp_path):
         """Returns token when script succeeds."""
         (tmp_path / "github-app.pem").write_text("fake-key")
-        with patch("egg_lib.auth._read_secrets_env", return_value={
-            "GITHUB_APP_ID": "123",
-            "GITHUB_APP_INSTALLATION_ID": "456",
-        }):
+        with patch(
+            "egg_lib.auth._read_secrets_env",
+            return_value={
+                "GITHUB_APP_ID": "123",
+                "GITHUB_APP_INSTALLATION_ID": "456",
+            },
+        ):
             with patch("egg_lib.auth.Config") as mock_config:
                 mock_config.USER_CONFIG_DIR = tmp_path
                 mock_result = MagicMock(returncode=0, stdout="ghs_testtoken123\n", stderr="")
@@ -327,10 +366,13 @@ class TestGetGithubAppToken:
     def test_returns_none_on_script_failure(self, tmp_path):
         """Returns None when script fails."""
         (tmp_path / "github-app.pem").write_text("fake-key")
-        with patch("egg_lib.auth._read_secrets_env", return_value={
-            "GITHUB_APP_ID": "123",
-            "GITHUB_APP_INSTALLATION_ID": "456",
-        }):
+        with patch(
+            "egg_lib.auth._read_secrets_env",
+            return_value={
+                "GITHUB_APP_ID": "123",
+                "GITHUB_APP_INSTALLATION_ID": "456",
+            },
+        ):
             with patch("egg_lib.auth.Config") as mock_config:
                 mock_config.USER_CONFIG_DIR = tmp_path
                 mock_result = MagicMock(returncode=1, stdout="", stderr="error")
@@ -342,13 +384,18 @@ class TestGetGithubAppToken:
     def test_handles_timeout(self, tmp_path):
         """Returns None on script timeout."""
         (tmp_path / "github-app.pem").write_text("fake-key")
-        with patch("egg_lib.auth._read_secrets_env", return_value={
-            "GITHUB_APP_ID": "123",
-            "GITHUB_APP_INSTALLATION_ID": "456",
-        }):
+        with patch(
+            "egg_lib.auth._read_secrets_env",
+            return_value={
+                "GITHUB_APP_ID": "123",
+                "GITHUB_APP_INSTALLATION_ID": "456",
+            },
+        ):
             with patch("egg_lib.auth.Config") as mock_config:
                 mock_config.USER_CONFIG_DIR = tmp_path
-                with patch("egg_lib.auth.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 30)):
+                with patch(
+                    "egg_lib.auth.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 30)
+                ):
                     with patch.object(Path, "exists", return_value=True):
                         result = get_github_app_token()
                         assert result is None
@@ -356,10 +403,13 @@ class TestGetGithubAppToken:
     def test_handles_generic_exception(self, tmp_path):
         """Returns None on generic exception."""
         (tmp_path / "github-app.pem").write_text("fake-key")
-        with patch("egg_lib.auth._read_secrets_env", return_value={
-            "GITHUB_APP_ID": "123",
-            "GITHUB_APP_INSTALLATION_ID": "456",
-        }):
+        with patch(
+            "egg_lib.auth._read_secrets_env",
+            return_value={
+                "GITHUB_APP_ID": "123",
+                "GITHUB_APP_INSTALLATION_ID": "456",
+            },
+        ):
             with patch("egg_lib.auth.Config") as mock_config:
                 mock_config.USER_CONFIG_DIR = tmp_path
                 with patch("egg_lib.auth.subprocess.run", side_effect=Exception("boom")):

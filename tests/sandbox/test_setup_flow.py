@@ -113,11 +113,13 @@ class TestWriteSecretsEnv:
         """Groups secrets by category in output."""
         with patch("egg_lib.setup_flow.Config") as mock_config:
             mock_config.USER_CONFIG_DIR = tmp_path
-            _write_secrets_env({
-                "CLAUDE_CODE_OAUTH_TOKEN": "token",
-                "GITHUB_APP_ID": "123",
-                "GITHUB_TOKEN": "ghp_test",
-            })
+            _write_secrets_env(
+                {
+                    "CLAUDE_CODE_OAUTH_TOKEN": "token",
+                    "GITHUB_APP_ID": "123",
+                    "GITHUB_TOKEN": "ghp_test",
+                }
+            )
             content = (tmp_path / "secrets.env").read_text()
             assert "# Claude Authentication" in content
             assert "# GitHub App" in content
@@ -187,7 +189,10 @@ class TestCreateGeneralConfig:
         """Creates config.yaml with oauth auth method."""
         with patch("egg_lib.setup_flow.Config") as mock_config:
             mock_config.USER_CONFIG_DIR = tmp_path
-            with patch("egg_lib.setup_flow._read_secrets_env", return_value={"CLAUDE_CODE_OAUTH_TOKEN": "token"}):
+            with patch(
+                "egg_lib.setup_flow._read_secrets_env",
+                return_value={"CLAUDE_CODE_OAUTH_TOKEN": "token"},
+            ):
                 result = _create_general_config()
                 assert result is True
                 config_file = tmp_path / "config.yaml"
@@ -199,7 +204,9 @@ class TestCreateGeneralConfig:
         """Creates config.yaml with api_key auth method."""
         with patch("egg_lib.setup_flow.Config") as mock_config:
             mock_config.USER_CONFIG_DIR = tmp_path
-            with patch("egg_lib.setup_flow._read_secrets_env", return_value={"ANTHROPIC_API_KEY": "key"}):
+            with patch(
+                "egg_lib.setup_flow._read_secrets_env", return_value={"ANTHROPIC_API_KEY": "key"}
+            ):
                 result = _create_general_config()
                 assert result is True
 
@@ -209,7 +216,10 @@ class TestCreateGeneralConfig:
         config_file.write_text("anthropic_auth_method: oauth\n")
         with patch("egg_lib.setup_flow.Config") as mock_config:
             mock_config.USER_CONFIG_DIR = tmp_path
-            with patch("egg_lib.setup_flow._read_secrets_env", return_value={"CLAUDE_CODE_OAUTH_TOKEN": "token"}):
+            with patch(
+                "egg_lib.setup_flow._read_secrets_env",
+                return_value={"CLAUDE_CODE_OAUTH_TOKEN": "token"},
+            ):
                 result = _create_general_config()
                 assert result is True
 
@@ -219,7 +229,10 @@ class TestCreateGeneralConfig:
         config_file.write_text("anthropic_auth_method: api_key\n")
         with patch("egg_lib.setup_flow.Config") as mock_config:
             mock_config.USER_CONFIG_DIR = tmp_path
-            with patch("egg_lib.setup_flow._read_secrets_env", return_value={"CLAUDE_CODE_OAUTH_TOKEN": "token"}):
+            with patch(
+                "egg_lib.setup_flow._read_secrets_env",
+                return_value={"CLAUDE_CODE_OAUTH_TOKEN": "token"},
+            ):
                 result = _create_general_config()
                 assert result is True
 
@@ -280,10 +293,16 @@ class TestSetup:
             with patch("builtins.input", return_value="yes"):
                 with patch("egg_lib.setup_flow._create_secrets_config", return_value=True):
                     with patch("egg_lib.setup_flow._create_launcher_secret"):
-                        with patch("egg_lib.setup_flow._create_repositories_config", return_value=True):
-                            with patch("egg_lib.setup_flow._create_general_config", return_value=True):
+                        with patch(
+                            "egg_lib.setup_flow._create_repositories_config", return_value=True
+                        ):
+                            with patch(
+                                "egg_lib.setup_flow._create_general_config", return_value=True
+                            ):
                                 with patch("egg_lib.setup_flow.build_image", return_value=True):
-                                    with patch("egg_lib.setup_flow.Path.home", return_value=tmp_path):
+                                    with patch(
+                                        "egg_lib.setup_flow.Path.home", return_value=tmp_path
+                                    ):
                                         result = setup()
                                         assert result is True
 
@@ -306,7 +325,9 @@ class TestSetup:
             with patch("builtins.input", return_value="yes"):
                 with patch("egg_lib.setup_flow._create_secrets_config", return_value=True):
                     with patch("egg_lib.setup_flow._create_launcher_secret"):
-                        with patch("egg_lib.setup_flow._create_repositories_config", return_value=False):
+                        with patch(
+                            "egg_lib.setup_flow._create_repositories_config", return_value=False
+                        ):
                             with patch("egg_lib.setup_flow.Path.home", return_value=tmp_path):
                                 result = setup()
                                 assert result is False
@@ -319,9 +340,15 @@ class TestSetup:
             with patch("builtins.input", return_value="yes"):
                 with patch("egg_lib.setup_flow._create_secrets_config", return_value=True):
                     with patch("egg_lib.setup_flow._create_launcher_secret"):
-                        with patch("egg_lib.setup_flow._create_repositories_config", return_value=True):
-                            with patch("egg_lib.setup_flow._create_general_config", return_value=True):
+                        with patch(
+                            "egg_lib.setup_flow._create_repositories_config", return_value=True
+                        ):
+                            with patch(
+                                "egg_lib.setup_flow._create_general_config", return_value=True
+                            ):
                                 with patch("egg_lib.setup_flow.build_image", return_value=False):
-                                    with patch("egg_lib.setup_flow.Path.home", return_value=tmp_path):
+                                    with patch(
+                                        "egg_lib.setup_flow.Path.home", return_value=tmp_path
+                                    ):
                                         result = setup()
                                         assert result is False
