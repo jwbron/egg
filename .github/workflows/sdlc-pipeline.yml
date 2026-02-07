@@ -666,6 +666,9 @@ jobs:
 
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
 
+      # Re-dispatch is required because GitHub Actions job conditions are
+      # evaluated at workflow start. After implement→review→loop, we can't
+      # dynamically add another implement job to the current run.
       - name: Re-dispatch pipeline for next cycle
         if: steps.check.outputs.next_action == 'implement'
         env:
@@ -673,8 +676,7 @@ jobs:
         run: |
           set -euo pipefail
           if ! gh workflow run sdlc-pipeline.yml \
-            --field issue_number="${ISSUE_NUMBER}" \
-            --field starting_phase="implement"; then
+            --field issue_number="${ISSUE_NUMBER}"; then
             echo "::error::Failed to re-dispatch pipeline for implement cycle"
             exit 1
           fi
