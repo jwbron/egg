@@ -72,6 +72,13 @@ jobs:
           set -euo pipefail
           pip install pydantic==2.10.* pyyaml==6.0.*
 
+      - name: Configure git identity
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "james-in-a-box[bot]"
+          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+
       - name: Setup pipeline
         id: setup
         env:
@@ -421,6 +428,13 @@ jobs:
           ref: ${{ env.BRANCH_NAME }}
           token: ${{ steps.bot-token.outputs.token }}
 
+      - name: Configure git identity
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "james-in-a-box[bot]"
+          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+
       - name: Check loop condition
         id: check
         run: |
@@ -617,6 +631,13 @@ jobs:
         with:
           ref: ${{ env.BRANCH_NAME }}
           token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Configure git identity
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "james-in-a-box[bot]"
+          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
 
       - name: Run egg to create PR
         id: egg
