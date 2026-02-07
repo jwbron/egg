@@ -2,11 +2,13 @@
 """Self-improvement analysis orchestrator.
 
 This script collects logs from GitHub Actions or local container runs,
-analyzes them for issues, and outputs a summary report.
+analyzes them for issues, detects patterns, and can create GitHub issues
+for identified problems.
 
 Usage:
     python -m egg_lib.self_improvement.analyze --source gha --since-hours 24
     python -m egg_lib.self_improvement.analyze --source local --output json
+    python -m egg_lib.self_improvement.analyze --detect --create-issues
 """
 
 import argparse
@@ -20,6 +22,8 @@ from .collectors.base import RunLog
 from .collectors.gha import GHALogCollector
 from .collectors.local import LocalLogCollector
 from .config import DEFAULT_SINCE_HOURS
+from .detection.engine import Detection, DetectionEngine, Severity
+from .output.issue_creator import IssueCreator
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,6 +58,28 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Repository in owner/repo format (for GHA source, auto-detected if not provided)",
+    )
+    # Phase 2 arguments
+    parser.add_argument(
+        "--detect",
+        action="store_true",
+        help="Run detection rules against collected logs",
+    )
+    parser.add_argument(
+        "--create-issues",
+        action="store_true",
+        help="Create GitHub issues for detected problems",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Don't actually create issues, just report what would happen",
+    )
+    parser.add_argument(
+        "--min-severity",
+        choices=["low", "medium", "high"],
+        default="high",
+        help="Minimum severity level for issue creation (default: high)",
     )
     return parser.parse_args()
 
@@ -164,15 +190,18 @@ def generate_summary(runs: list[RunLog], since: datetime) -> str:
     return "\n".join(lines)
 
 
-def generate_json(runs: list[RunLog], since: datetime) -> str:
-    """Generate JSON output of collected runs.
+def generate_json(
+    runs: list[RunLog], since: datetime, detections: list[Detection] | None = None
+) -> str:
+    """Generate JSON output of collected runs and detections.
 
     Args:
         runs: List of collected run logs
         since: The cutoff time for analysis
+        detections: Optional list of detections from analysis
 
     Returns:
-        JSON string with run data
+        JSON string with run and detection data
     """
     total = len(runs)
     successful = sum(1 for r in runs if r.status == "success")
@@ -203,7 +232,69 @@ def generate_json(runs: list[RunLog], since: datetime) -> str:
         ],
     }
 
+    # Add detections if available
+    if detections:
+        data["detections"] = [
+            {
+                "rule_id": d.rule_id,
+                "category": d.category,
+                "title": d.title,
+                "severity": d.severity.value,
+                "occurrence_count": d.occurrence_count,
+                "run_ids": d.run_ids,
+                "evidence": d.evidence[:5],  # Limit evidence in JSON
+            }
+            for d in detections
+        ]
+        data["summary"]["detection_count"] = len(detections)
+        data["summary"]["high_severity_count"] = sum(
+            1 for d in detections if d.severity == Severity.HIGH
+        )
+
     return json.dumps(data, indent=2)
+
+
+def generate_detection_summary(detections: list[Detection]) -> str:
+    """Generate a human-readable summary of detections.
+
+    Args:
+        detections: List of detections from analysis
+
+    Returns:
+        Formatted detection summary string
+    """
+    if not detections:
+        return "No issues detected."
+
+    lines = [
+        "",
+        "## Detected Issues",
+        "",
+    ]
+
+    # Group by severity
+    by_severity: dict[Severity, list[Detection]] = {s: [] for s in Severity}
+    for d in detections:
+        by_severity[d.severity].append(d)
+
+    severity_icons = {Severity.HIGH: "🔴", Severity.MEDIUM: "🟡", Severity.LOW: "🟢"}
+
+    for severity in [Severity.HIGH, Severity.MEDIUM, Severity.LOW]:
+        severity_detections = by_severity[severity]
+        if severity_detections:
+            icon = severity_icons[severity]
+            lines.append(f"### {icon} {severity.value.upper()} Severity ({len(severity_detections)})")
+            lines.append("")
+            for d in severity_detections:
+                lines.append(f"**{d.title}**")
+                lines.append(f"  - Rule: `{d.rule_id}`")
+                lines.append(f"  - Occurrences: {d.occurrence_count}")
+                lines.append(f"  - Affected runs: {len(d.run_ids)}")
+                if d.evidence:
+                    lines.append("  - Sample: `" + d.evidence[0][:80] + "...`")
+                lines.append("")
+
+    return "\n".join(lines)
 
 
 def main() -> int:
@@ -225,13 +316,37 @@ def main() -> int:
 
     print(f"Collected {len(runs)} runs", file=sys.stderr)
 
+    # Run detection if requested
+    detections: list[Detection] = []
+    if args.detect or args.create_issues:
+        print("Running detection rules...", file=sys.stderr)
+        engine = DetectionEngine()
+        detections = engine.analyze(runs)
+        print(f"Found {len(detections)} issues", file=sys.stderr)
+
+    # Create issues if requested
+    if args.create_issues and detections:
+        print("Creating issues for detected problems...", file=sys.stderr)
+        min_severity = Severity(args.min_severity)
+        creator = IssueCreator(repo=args.repo, dry_run=args.dry_run)
+        results = creator.create_issues_for_detections(detections, min_severity=min_severity)
+
+        created = sum(1 for r in results if r.action == "created")
+        updated = sum(1 for r in results if r.action == "updated")
+        failed = sum(1 for r in results if not r.success)
+
+        print(f"Issues: {created} created, {updated} updated, {failed} failed", file=sys.stderr)
+
     # Generate output
     if args.output == "json":
-        print(generate_json(runs, since))
+        print(generate_json(runs, since, detections if args.detect else None))
     elif args.output == "both":
         # Output both formats in a single run (avoids duplicate API calls)
-        print(generate_summary(runs, since))
-        json_output = generate_json(runs, since)
+        summary = generate_summary(runs, since)
+        if args.detect and detections:
+            summary += generate_detection_summary(detections)
+        print(summary)
+        json_output = generate_json(runs, since, detections if args.detect else None)
         if args.json_file:
             with open(args.json_file, "w") as f:
                 f.write(json_output)
@@ -240,7 +355,10 @@ def main() -> int:
             print("\n--- JSON Output ---\n")
             print(json_output)
     else:
-        print(generate_summary(runs, since))
+        summary = generate_summary(runs, since)
+        if args.detect and detections:
+            summary += generate_detection_summary(detections)
+        print(summary)
 
     return 0
 

@@ -10,6 +10,25 @@ on:
         required: false
         default: "24"
         type: string
+      create_issues:
+        description: "Create GitHub issues for detected problems"
+        required: false
+        default: "true"
+        type: boolean
+      dry_run:
+        description: "Dry run mode (report only, don't create issues)"
+        required: false
+        default: "false"
+        type: boolean
+      min_severity:
+        description: "Minimum severity for issue creation"
+        required: false
+        default: "high"
+        type: choice
+        options:
+          - high
+          - medium
+          - low
 
 jobs:
   analyze:
@@ -18,6 +37,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      issues: write # Required for creating issues
 
     steps:
       - name: Checkout
@@ -35,6 +55,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install dependencies
+        run: pip install pyyaml
+
       - name: Run analysis
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -42,20 +65,35 @@ jobs:
         run: |
           set -o pipefail
           SINCE_HOURS="${{ github.event.inputs.since_hours || '24' }}"
+          CREATE_ISSUES="${{ github.event.inputs.create_issues || 'true' }}"
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          MIN_SEVERITY="${{ github.event.inputs.min_severity || 'high' }}"
 
           {
             echo "## Self-Improvement Analysis"
             echo ""
             echo "Analyzing runs from the last ${SINCE_HOURS} hours..."
             echo ""
+            echo "**Settings:**"
+            echo "- Create issues: ${CREATE_ISSUES}"
+            echo "- Dry run: ${DRY_RUN}"
+            echo "- Minimum severity: ${MIN_SEVERITY}"
+            echo ""
           } >> "$GITHUB_STEP_SUMMARY"
 
-          # Run analysis once with both outputs (avoids duplicate API calls)
-          python -m egg_lib.self_improvement.analyze \
-            --source gha \
-            --since-hours "${SINCE_HOURS}" \
-            --output both \
-            --json-file analysis_report.json | tee analysis_output.txt
+          # Build command arguments
+          ARGS="--source gha --since-hours ${SINCE_HOURS} --output both --json-file analysis_report.json --detect"
+
+          if [ "${CREATE_ISSUES}" = "true" ]; then
+            ARGS="${ARGS} --create-issues --min-severity ${MIN_SEVERITY}"
+          fi
+
+          if [ "${DRY_RUN}" = "true" ]; then
+            ARGS="${ARGS} --dry-run"
+          fi
+
+          # Run analysis with detection enabled
+          python -m egg_lib.self_improvement.analyze ${ARGS} | tee analysis_output.txt
 
           {
             echo '```'

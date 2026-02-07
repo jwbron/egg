@@ -1,0 +1,127 @@
+# Error detection rules for self-improvement analysis
+#
+# These rules identify environment errors, tool failures, and other
+# issues that require attention.
+
+environment_errors:
+  - id: gateway_connection_failure
+    pattern: "gateway.*connection refused|egg-gateway.*refused|sidecar.*connection.*failed"
+    severity: high
+    title: "Gateway sidecar connection failures detected"
+    description: |
+      The egg agent failed to connect to the gateway sidecar. This prevents
+      git operations from working and blocks all repository interactions.
+    recommendation: |
+      Check that the gateway sidecar is running:
+      - Verify `curl http://egg-gateway:9847/api/v1/health` returns OK
+      - Check container logs for startup errors
+      - Ensure network configuration is correct
+
+  - id: docker_permission_denied
+    pattern: "docker.*permission denied|cannot connect to.*docker daemon|docker\\.sock.*denied"
+    severity: high
+    title: "Docker permission issues in container"
+    description: |
+      Docker operations are failing due to permission errors. This may prevent
+      container management and test execution.
+    recommendation: |
+      Verify Docker socket mounting and permissions:
+      - Check that /var/run/docker.sock is mounted
+      - Ensure the egg user is in the docker group
+      - Review container security context
+
+  - id: github_auth_failure
+    pattern: "gh.*authentication.*failed|bad credentials|could not authenticate|401.*unauthorized"
+    severity: high
+    title: "GitHub authentication failures"
+    description: |
+      GitHub API authentication is failing. This prevents PR creation,
+      issue management, and repository access.
+    recommendation: |
+      Check GitHub App token configuration:
+      - Verify GH_TOKEN is set correctly
+      - Ensure token has required permissions
+      - Check if token has expired
+
+  - id: api_rate_limit
+    pattern: "rate limit exceeded|API rate limit|secondary rate limit|429.*too many requests"
+    severity: high
+    title: "API rate limiting detected"
+    description: |
+      The agent is hitting API rate limits, which causes operations to fail
+      or be delayed. This may indicate inefficient API usage.
+    recommendation: |
+      Reduce API call frequency:
+      - Implement caching for repeated requests
+      - Batch operations where possible
+      - Add backoff/retry logic with jitter
+
+tool_failures:
+  - id: file_read_failures
+    pattern: "Read tool.*file not found|FileNotFoundError|No such file or directory"
+    severity: medium
+    threshold: 3
+    title: "Excessive file read failures"
+    description: |
+      Multiple file read operations are failing. This may indicate incorrect
+      path assumptions or missing files in the codebase.
+    recommendation: |
+      Improve file path handling:
+      - Use absolute paths where possible
+      - Verify file existence before reading
+      - Check for case sensitivity issues
+
+  - id: bash_command_failures
+    pattern: "Bash.*exit code [1-9]|Command failed with exit code|subprocess.*returned non-zero"
+    severity: medium
+    threshold: 5
+    title: "Frequent bash command failures"
+    description: |
+      Many bash commands are failing. This may indicate environment issues
+      or incorrect command usage.
+    recommendation: |
+      Investigate failing commands:
+      - Check command availability in the container
+      - Verify PATH configuration
+      - Review command arguments
+
+  - id: git_push_failures
+    pattern: "git push.*failed|rejected.*non-fast-forward|push.*error.*pre-receive|failed to push"
+    severity: high
+    title: "Git push failures detected"
+    description: |
+      Git push operations are failing. This prevents code from being
+      delivered and may block PR creation.
+    recommendation: |
+      Check branch state and permissions:
+      - Ensure branch is egg-owned (egg/ or egg- prefix)
+      - Verify no conflicting changes on remote
+      - Check gateway sidecar logs for policy violations
+
+network_errors:
+  - id: proxy_forbidden
+    pattern: "403 Forbidden.*proxy|blocked by proxy|network access denied"
+    severity: medium
+    title: "Network requests blocked by proxy"
+    description: |
+      Network requests are being blocked. In private mode, this is expected
+      for external resources. In public mode, this indicates a configuration issue.
+    recommendation: |
+      Verify network mode configuration:
+      - Check PRIVATE_MODE environment variable
+      - Use pre-installed dependencies in private mode
+      - Review proxy allowlist configuration
+
+  - id: connection_timeout
+    pattern: "connection timed out|ConnectTimeoutError|socket timeout|read timeout"
+    severity: medium
+    threshold: 3
+    title: "Connection timeouts detected"
+    description: |
+      Network connections are timing out. This may indicate network issues
+      or overloaded services.
+    recommendation: |
+      Investigate network connectivity:
+      - Check service availability
+      - Increase timeout values if appropriate
+      - Implement retry logic with backoff
