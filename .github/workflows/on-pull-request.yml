@@ -32,6 +32,7 @@ jobs:
 
     env:
       PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+      BOT_USERNAME: james-in-a-box
 
     steps:
       - name: Generate bot token
@@ -54,37 +55,100 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
       # Capture last bot review info before dismissing (for re-review context)
+      # The bot may post reviews via the Reviews API (normal PRs) or as issue
+      # comments (self-reviews, where GitHub blocks bots from reviewing their
+      # own PRs). We check both sources and use the most recent.
       - name: Get last review info
         id: last-review
-        run: |
-          # Get the most recent bot review (sorted by submitted_at descending)
-          # This gives us the commit SHA that was last reviewed
-          last_review=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
-            --jq '[.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]")] | sort_by(.submitted_at) | reverse | .[0]')
-
-          if [[ -n "$last_review" && "$last_review" != "null" ]]; then
-            echo "commit-sha=$(echo "$last_review" | jq -r '.commit_id')" >> "$GITHUB_OUTPUT"
-            echo "review-id=$(echo "$last_review" | jq -r '.id')" >> "$GITHUB_OUTPUT"
-            echo "Found previous review at commit $(echo "$last_review" | jq -r '.commit_id')"
-          else
-            echo "commit-sha=" >> "$GITHUB_OUTPUT"
-            echo "review-id=" >> "$GITHUB_OUTPUT"
-            echo "No previous bot review found"
-          fi
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          # Get the most recent bot review from the Reviews API
+          # This works for reviews on PRs the bot didn't author
+          last_review=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
+            --jq --arg bot "$BOT_USERNAME" \
+            '[.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]"))] | sort_by(.submitted_at) | last')
+
+          review_commit=""
+          review_time=""
+          if [[ -n "$last_review" && "$last_review" != "null" ]]; then
+            review_commit=$(echo "$last_review" | jq -r '.commit_id')
+            review_time=$(echo "$last_review" | jq -r '.submitted_at')
+            echo "Found review API entry at commit $review_commit"
+          fi
+
+          # Also check issue comments for self-reviews (when bot reviews its own PR)
+          # We identify review comments by the signature "— Authored by egg"
+          # and exclude status comments like "egg review completed/failed"
+          last_comment=$(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            --jq --arg bot "$BOT_USERNAME" \
+            '[.[] | select(
+              (.user.login == $bot or .user.login == ($bot + "[bot]")) and
+              (.body | test("— Authored by egg$")) and
+              (.body | test("^egg review (completed|failed)") | not)
+            )] | sort_by(.created_at) | last')
+
+          comment_time=""
+          if [[ -n "$last_comment" && "$last_comment" != "null" ]]; then
+            comment_time=$(echo "$last_comment" | jq -r '.created_at')
+            echo "Found review comment at $comment_time"
+          fi
+
+          # Use whichever is more recent (review or comment)
+          # For comments, we need to look up the commit SHA at that time
+          if [[ -n "$review_commit" && -z "$comment_time" ]]; then
+            # Only have review API result
+            echo "commit-sha=$review_commit" >> "$GITHUB_OUTPUT"
+            echo "Using review API result"
+          elif [[ -z "$review_commit" && -n "$comment_time" ]]; then
+            # Only have comment result - need to find commit at that time
+            # Get commits up to that timestamp and take the most recent
+            commit_sha=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/commits" \
+              --jq --arg ts "$comment_time" \
+              '[.[] | select(.commit.committer.date <= $ts)] | last | .sha')
+            if [[ -n "$commit_sha" && "$commit_sha" != "null" ]]; then
+              echo "commit-sha=$commit_sha" >> "$GITHUB_OUTPUT"
+              echo "Using comment result, resolved to commit $commit_sha"
+            else
+              echo "commit-sha=" >> "$GITHUB_OUTPUT"
+              echo "Could not resolve comment to commit"
+            fi
+          elif [[ -n "$review_commit" && -n "$comment_time" ]]; then
+            # Have both - compare timestamps
+            if [[ "$comment_time" > "$review_time" ]]; then
+              # Comment is newer
+              commit_sha=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/commits" \
+                --jq --arg ts "$comment_time" \
+                '[.[] | select(.commit.committer.date <= $ts)] | last | .sha')
+              if [[ -n "$commit_sha" && "$commit_sha" != "null" ]]; then
+                echo "commit-sha=$commit_sha" >> "$GITHUB_OUTPUT"
+                echo "Using comment result (newer), resolved to commit $commit_sha"
+              else
+                echo "commit-sha=$review_commit" >> "$GITHUB_OUTPUT"
+                echo "Comment newer but couldn't resolve, falling back to review"
+              fi
+            else
+              # Review is newer or same time
+              echo "commit-sha=$review_commit" >> "$GITHUB_OUTPUT"
+              echo "Using review API result (newer or same)"
+            fi
+          else
+            echo "commit-sha=" >> "$GITHUB_OUTPUT"
+            echo "No previous bot review found"
+          fi
 
       # Dismiss previous bot reviews before starting new review
       - name: Dismiss previous bot reviews
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
-            --jq '[.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.state | test("PENDING|COMMENTED|CHANGES_REQUESTED"))] | .[].id' \
+            --jq --arg bot "$BOT_USERNAME" \
+            '[.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.state | test("PENDING|COMMENTED|CHANGES_REQUESTED"))] | .[].id' \
           | while read -r id; do
               gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews/$id/dismissals" \
                 -X PUT -f message="Superseded by new review" || true
             done
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
       # SECURITY: Build the review prompt from a trusted checkout (main).
       # A malicious PR could replace build-review-prompt.sh to exfiltrate
@@ -121,7 +185,7 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: james-in-a-box
+          bot-username: ${{ env.BOT_USERNAME }}
           timeout: "10"
 
       - name: Post status comment
