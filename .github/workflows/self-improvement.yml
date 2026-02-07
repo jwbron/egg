@@ -40,6 +40,7 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PYTHONPATH: sandbox
         run: |
+          set -o pipefail
           SINCE_HOURS="${{ github.event.inputs.since_hours || '24' }}"
 
           {
