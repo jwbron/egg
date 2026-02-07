@@ -134,6 +134,9 @@ class LocalLogCollector(LogCollector):
         logs = ""
         if log_file_path:
             log_path = Path(log_file_path)
+            # Resolve relative paths against logs_dir
+            if not log_path.is_absolute():
+                log_path = self.logs_dir / log_path
             if log_path.exists():
                 with contextlib.suppress(OSError):
                     logs = log_path.read_text(errors="replace")

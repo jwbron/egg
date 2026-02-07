@@ -179,10 +179,19 @@ class GHALogCollector(LogCollector):
             created_at_str = str(run.get("created_at", ""))
             updated_at_str = str(run.get("updated_at", ""))
 
-            started_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+            try:
+                started_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+            except ValueError:
+                # Skip runs with malformed created_at timestamps
+                return None
+
             completed_at = None
             if updated_at_str:
-                completed_at = datetime.fromisoformat(updated_at_str.replace("Z", "+00:00"))
+                try:
+                    completed_at = datetime.fromisoformat(updated_at_str.replace("Z", "+00:00"))
+                except ValueError:
+                    # If updated_at is malformed, just leave completed_at as None
+                    pass
 
             # Determine status
             conclusion = run.get("conclusion")
