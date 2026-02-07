@@ -61,6 +61,46 @@ branch = get_default_branch("/path/to/repo")  # Returns "main", "master", etc.
 **Files:**
 - `default_branch.py` - Default branch detection logic
 
+### egg_contracts
+
+SDLC contract models, role-based validation, plan parsing, and resilience utilities.
+
+- Pydantic models for contract schema validation
+- Role-based mutation validation (implementer, reviewer, human, system)
+- Plan parser for extracting tasks from markdown documents
+- Circuit breaker logic for pipeline escalation
+- HITL (Human-in-the-Loop) checkbox generation and parsing
+- Resilience utilities (rate limiting, retry with backoff, timeout checkpoints)
+
+```python
+from egg_contracts import Contract, check_all_thresholds, parse_plan
+from egg_contracts import generate_full_hitl_block, parse_checkbox_state
+from egg_contracts import retry_with_backoff, parse_rate_limit_headers
+
+# Load and validate contract
+contract = Contract.model_validate_json(contract_json)
+
+# Check circuit breaker thresholds
+result = check_all_thresholds(contract)
+
+# Generate HITL decision UI
+block = generate_full_hitl_block(issue_number=123, stuck_task_id="task-1")
+
+# Retry with exponential backoff (decorator usage)
+@retry_with_backoff()
+def call_external_api():
+    ...
+```
+
+**Key modules:**
+- `models.py` - Pydantic models (Contract, Task, Phase, CircuitBreaker, etc.)
+- `circuit_breaker.py` - Circuit breaker logic for infinite loop prevention
+- `hitl.py` - Human-in-the-loop checkbox UI generation and parsing
+- `resilience.py` - Rate limit handling, retry logic, timeout checkpoints
+- `plan_parser.py` - Markdown plan parsing and task extraction
+- `roles.py` - Role-based field ownership validation
+- `audit.py` - Audit log utilities
+
 ## Installation
 
 These libraries are installed as Python packages in both containers via `pyproject.toml`:

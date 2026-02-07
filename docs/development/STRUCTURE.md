@@ -87,7 +87,7 @@ sandbox/
 ```
 shared/
 ├── egg_config/             # Configuration utilities
-├── egg_contracts/          # SDLC contract models, plan parser, role-based validation
+├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, circuit breaker, HITL
 ├── egg_git/                # Git utilities
 └── egg_logging/            # Structured logging
 ```
@@ -106,6 +106,7 @@ action/
 ├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder
 ├── build-sdlc-prompt.sh                    # SDLC pipeline prompt builder
 ├── contract-state.sh                       # Contract state management utility
+├── escalate.sh                             # SDLC pipeline escalation handler
 ├── autofixer-conventions.md                # Guidelines for autofixer behavior
 ├── review-conventions.md                   # Guidelines for review communication
 └── README.md

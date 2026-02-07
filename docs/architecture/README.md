@@ -85,6 +85,13 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 **Supporting scripts:**
 - `action/build-sdlc-prompt.sh` - Phase-specific prompt builder with context and document templates
 - `action/contract-state.sh` - Contract state management (load, update, check review status, circuit breaker)
+- `action/escalate.sh` - Circuit breaker escalation handler (labels issue, posts context, creates HITL decision checkboxes)
+
+**Resilience features:**
+- Circuit breaker: Prevents infinite loops via per-task and total pipeline cycle limits
+- HITL escalation: Generates checkbox-based decision UI with 30-second debounce
+- Rate limiting: GitHub API rate limit tracking and automatic retry backoff
+- Timeout checkpoints: Monitors job time and saves state before timeout
 
 ## Key Architectural Decisions
 
