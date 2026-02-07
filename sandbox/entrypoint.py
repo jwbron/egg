@@ -25,6 +25,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
@@ -272,7 +273,7 @@ class Logger:
 
 
 @contextlib.contextmanager
-def timed_phase(name: str, logger: Logger) -> Any:
+def timed_phase(name: str, logger: Logger) -> Generator[None, None, None]:
     """Context manager that combines startup timing with debug logging.
 
     Wraps both _startup_timer.phase() and logger.phase_start/phase_end

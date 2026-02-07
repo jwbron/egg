@@ -754,6 +754,8 @@ def run_claude_structured(
     )
 
     # Note: We intentionally do NOT use --rm here so we can capture logs on timeout.
+    # Production uses the LIFECYCLE_FLAGS_INDEX pattern in build_sandbox_docker_cmd()
+    # to include --rm; we diverge here because tests need post-mortem log access.
     # Cleanup happens in the finally block below.
 
     # Mount the gateway CA certificate volume so the sandbox can trust the proxy
@@ -844,7 +846,6 @@ def run_claude_structured(
     try:
         envelope = json.loads(raw)
     except json.JSONDecodeError:
-        _cleanup_container()
         return AgentVerdict(
             verdict="fail",
             evidence=f"Could not parse JSON output: {raw[:500]}",
