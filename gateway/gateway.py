@@ -150,19 +150,24 @@ logger = get_logger("gateway")
 app = Flask(__name__)
 
 # Register contract API routes
-try:
-    from .contract_api import register_contract_routes
-
-    register_contract_routes(app)
-except ImportError:
+def _register_contract_api() -> None:
+    """Try to register contract routes with fallback for different import contexts."""
     try:
-        from contract_api import (
-            register_contract_routes,  # type: ignore[no-redef, import-not-found]
-        )
+        from .contract_api import register_contract_routes
 
         register_contract_routes(app)
     except ImportError:
-        logger.warning("Contract API not available - egg_contracts not installed")
+        try:
+            from contract_api import (  # type: ignore[import-not-found]
+                register_contract_routes as _register,
+            )
+
+            _register(app)
+        except ImportError:
+            logger.warning("Contract API not available - egg_contracts not installed")
+
+
+_register_contract_api()
 
 
 @app.errorhandler(Exception)
