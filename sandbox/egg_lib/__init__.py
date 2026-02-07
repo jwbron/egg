@@ -205,9 +205,24 @@ try:
     from .timing import (
         _host_timer as _host_timer,
     )
-except ImportError:
+except ImportError as e:
     # Some submodules have heavy dependencies (PyYAML, statusbar,
     # egg_container) that may not be installed in lightweight CI
     # environments. The package still works — callers just import
     # submodules directly (e.g., ``from egg_lib.config import Config``).
-    pass
+    #
+    # We only suppress ImportErrors for known optional dependencies.
+    # Unexpected import failures are re-raised to surface real bugs.
+    import logging as _logging
+
+    _OPTIONAL_DEPS = {"yaml", "statusbar", "egg_container"}
+    _missing = getattr(e, "name", None) or str(e)
+
+    if any(dep in str(_missing) for dep in _OPTIONAL_DEPS):
+        _logging.debug(
+            "egg_lib: Optional dependency not available, "
+            "some exports unavailable: %s",
+            e,
+        )
+    else:
+        raise
