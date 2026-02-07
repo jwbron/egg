@@ -695,9 +695,7 @@ class TestUserModeBranchOwnership:
         assert not result.allowed
         assert "no open pr" in result.reason.lower()
 
-    def test_user_mode_existing_branch_with_bot_pr_allowed(
-        self, policy_engine, mock_github_client
-    ):
+    def test_user_mode_existing_branch_with_bot_pr_allowed(self, policy_engine, mock_github_client):
         """User mode allows push to branch with bot's PR."""
         mock_github_client.branch_exists.return_value = True
         mock_github_client.list_prs_for_branch.return_value = [

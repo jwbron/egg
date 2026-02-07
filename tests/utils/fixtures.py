@@ -90,6 +90,7 @@ def isolated_policy_caches(monkeypatch):
     # Import and reset the caches
     try:
         from policy import _reset_bot_config_caches
+
         _reset_bot_config_caches()
     except ImportError:
         pass
@@ -99,6 +100,7 @@ def isolated_policy_caches(monkeypatch):
     # Reset again after test
     try:
         from policy import _reset_bot_config_caches
+
         _reset_bot_config_caches()
     except ImportError:
         pass
@@ -123,6 +125,7 @@ def clean_session_manager():
 
         # Import here to use the conftest-loaded module
         from session_manager import SessionManager
+
         return SessionManager(persistence_file=Path(path), **kwargs)
 
     yield _create_manager

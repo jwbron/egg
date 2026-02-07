@@ -377,6 +377,7 @@ class TestStartupTimer:
         timer = entrypoint.StartupTimer()
         timer.start_phase("test_phase")
         import time
+
         time.sleep(0.01)  # Small delay to ensure measurable time
         timer.end_phase()
 
@@ -392,6 +393,7 @@ class TestStartupTimer:
 
         with timer.phase("context_phase"):
             import time
+
             time.sleep(0.01)
 
         assert len(timer.timings) == 1
@@ -400,8 +402,7 @@ class TestStartupTimer:
     def test_host_timing_loaded_from_env(self, monkeypatch):
         """Host timing data is loaded from EGG_HOST_TIMING env var."""
         monkeypatch.setenv(
-            "EGG_HOST_TIMING",
-            '{"timings": [["host_phase", 100.5]], "total_time": 100.5}'
+            "EGG_HOST_TIMING", '{"timings": [["host_phase", 100.5]], "total_time": 100.5}'
         )
 
         timer = entrypoint.StartupTimer()
@@ -476,8 +477,7 @@ class TestSetupGit:
 
         # Credential helper should be set to empty string
         # Find the credential.helper call and verify it's setting empty
-        cred_calls = [c for c in mock_run.call_args_list
-                      if "credential.helper" in str(c)]
+        cred_calls = [c for c in mock_run.call_args_list if "credential.helper" in str(c)]
         assert len(cred_calls) > 0
 
 
@@ -564,9 +564,16 @@ class TestSetupEggSymlink:
 
         logger = entrypoint.Logger(quiet=False)
 
-        # In the container, /opt/egg-runtime/sandbox exists
-        # The function should create a symlink successfully
-        entrypoint.setup_egg_symlink(config, logger)
+        # Mock Path.is_dir so /opt/egg-runtime/sandbox appears to exist
+        original_is_dir = Path.is_dir
+
+        def mock_is_dir(self):
+            if str(self) == "/opt/egg-runtime/sandbox":
+                return True
+            return original_is_dir(self)
+
+        with patch.object(Path, "is_dir", mock_is_dir):
+            entrypoint.setup_egg_symlink(config, logger)
 
         captured = capsys.readouterr()
         # Should report success
@@ -575,9 +582,6 @@ class TestSetupEggSymlink:
         # Check that symlink was created
         egg_link = temp_dir / "egg"
         assert egg_link.is_symlink()
-        # Use os.readlink to get the symlink target without resolving it
-        # (Path.resolve() would fail if the target doesn't exist)
-        import os
         assert os.readlink(egg_link) == "/opt/egg-runtime/sandbox"
 
     @patch("os.lchown")
@@ -594,12 +598,20 @@ class TestSetupEggSymlink:
         egg_link = temp_dir / "egg"
         egg_link.symlink_to("/some/other/path")
 
-        # Run setup
-        entrypoint.setup_egg_symlink(config, logger)
+        # Mock Path.is_dir so /opt/egg-runtime/sandbox appears to exist
+        original_is_dir = Path.is_dir
+
+        def mock_is_dir(self):
+            if str(self) == "/opt/egg-runtime/sandbox":
+                return True
+            return original_is_dir(self)
+
+        with patch.object(Path, "is_dir", mock_is_dir):
+            entrypoint.setup_egg_symlink(config, logger)
 
         # Symlink should now point to runtime
         assert egg_link.is_symlink()
-        assert str(egg_link.resolve()) == "/opt/egg-runtime/sandbox"
+        assert os.readlink(egg_link) == "/opt/egg-runtime/sandbox"
 
     @patch("os.lchown")
     def test_skips_if_not_symlink(self, mock_lchown, temp_dir, capsys):
@@ -616,8 +628,16 @@ class TestSetupEggSymlink:
         egg_path.mkdir()
         (egg_path / "somefile").touch()
 
-        # Run setup
-        entrypoint.setup_egg_symlink(config, logger)
+        # Mock Path.is_dir so /opt/egg-runtime/sandbox appears to exist
+        original_is_dir = Path.is_dir
+
+        def mock_is_dir(self):
+            if str(self) == "/opt/egg-runtime/sandbox":
+                return True
+            return original_is_dir(self)
+
+        with patch.object(Path, "is_dir", mock_is_dir):
+            entrypoint.setup_egg_symlink(config, logger)
 
         captured = capsys.readouterr()
         # Should warn about skipping

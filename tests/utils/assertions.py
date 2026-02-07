@@ -26,8 +26,7 @@ def assert_allowed(result: Any, *, message_contains: str | None = None) -> None:
 
     if message_contains is not None:
         assert message_contains.lower() in result.reason.lower(), (
-            f"Expected reason to contain '{message_contains}'.\n"
-            f"Actual reason: {result.reason}"
+            f"Expected reason to contain '{message_contains}'.\nActual reason: {result.reason}"
         )
 
 
@@ -57,15 +56,13 @@ def assert_blocked(
 
     if message_contains is not None:
         assert message_contains.lower() in result.reason.lower(), (
-            f"Expected reason to contain '{message_contains}'.\n"
-            f"Actual reason: {result.reason}"
+            f"Expected reason to contain '{message_contains}'.\nActual reason: {result.reason}"
         )
 
     if detail_key is not None:
         assert result.details is not None, "Expected details to be set but was None"
         assert detail_key in result.details, (
-            f"Expected details to contain key '{detail_key}'.\n"
-            f"Actual details: {result.details}"
+            f"Expected details to contain key '{detail_key}'.\nActual details: {result.details}"
         )
         if detail_value is not None:
             assert result.details[detail_key] == detail_value, (
@@ -84,16 +81,13 @@ def assert_session_valid(result: Any, *, mode: str | None = None) -> None:
     Raises:
         AssertionError: If the session is invalid or mode doesn't match.
     """
-    assert result.valid, (
-        f"Expected session to be valid but was invalid.\n" f"Error: {result.error}"
-    )
+    assert result.valid, f"Expected session to be valid but was invalid.\nError: {result.error}"
 
     assert result.session is not None, "Expected session to be set but was None"
 
     if mode is not None:
         assert result.session.mode == mode, (
-            f"Expected session mode to be '{mode}'.\n"
-            f"Actual mode: {result.session.mode}"
+            f"Expected session mode to be '{mode}'.\nActual mode: {result.session.mode}"
         )
 
 
@@ -115,6 +109,5 @@ def assert_session_invalid(result: Any, *, error_contains: str | None = None) ->
     if error_contains is not None:
         assert result.error is not None, "Expected error message but was None"
         assert error_contains.lower() in result.error.lower(), (
-            f"Expected error to contain '{error_contains}'.\n"
-            f"Actual error: {result.error}"
+            f"Expected error to contain '{error_contains}'.\nActual error: {result.error}"
         )
