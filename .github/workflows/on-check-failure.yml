@@ -55,17 +55,21 @@ jobs:
         id: pr-meta
         run: |
           pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
-          echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')" >> "$GITHUB_OUTPUT"
-          echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')" >> "$GITHUB_OUTPUT"
-          echo "title=$(echo "$pr_json" | jq -r '.title')" >> "$GITHUB_OUTPUT"
+          {
+            echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"
+            echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')"
+            echo "title=$(echo "$pr_json" | jq -r '.title')"
+          } >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
       # Skip if PR has [skip-autofix] in title
       - name: Check for skip marker
         id: skip-check
+        env:
+          PR_TITLE: ${{ steps.pr-meta.outputs.title }}
         run: |
-          if [[ "${{ steps.pr-meta.outputs.title }}" == *"[skip-autofix]"* ]]; then
+          if [[ "$PR_TITLE" == *"[skip-autofix]"* ]]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "PR has [skip-autofix] marker, skipping"
           else
@@ -76,6 +80,27 @@ jobs:
       - name: Early exit if skipped
         if: steps.skip-check.outputs.skip == 'true'
         run: echo "Skipping autofix due to [skip-autofix] marker"
+
+      # Minimize previous "investigating" comments to avoid clutter
+      - name: Minimize previous autofix comments
+        if: steps.skip-check.outputs.skip != 'true'
+        run: |
+          # Find previous bot comments that are "investigating" status updates
+          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("egg is investigating|egg autofix")) | .node_id' \
+          | while read -r node_id; do
+              # Minimize the comment using GraphQL
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id" || true
+            done
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
       # Post acknowledgment comment
       - name: Post starting comment

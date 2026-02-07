@@ -98,7 +98,9 @@ ${conventions:-Use git commit and git push to push fixes. Use gh pr comment to r
 "
 
     # Write prompt to temp file
-    local prompt_file="${RUNNER_TEMP:-/tmp}/autofixer-prompt-${PR_NUMBER}.txt"
+    local prompt_dir="${RUNNER_TEMP:-/tmp}"
+    mkdir -p "$prompt_dir"
+    local prompt_file="${prompt_dir}/autofixer-prompt-${PR_NUMBER}.txt"
     echo "$prompt" > "$prompt_file"
 
     # Use opus for autofixing (needs reasoning capability)
