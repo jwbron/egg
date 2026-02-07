@@ -2266,6 +2266,41 @@ def session_delete(session_token: str) -> tuple[Response, int] | Response:
     return make_success("Session deleted")
 
 
+@app.route("/api/v1/sessions/<session_token>", methods=["GET"])
+@require_launcher_auth
+def session_get(session_token: str) -> tuple[Response, int] | Response:
+    """
+    Get session information and validate if it exists.
+
+    Args:
+        session_token: The session token
+
+    Auth: Bearer {launcher_secret}
+
+    Response:
+        {
+            "valid": true,
+            "mode": "private"|"public",
+            "container_id": "...",
+            "expires_at": "...",
+        }
+    """
+    session_manager = get_session_manager()
+    result = session_manager.validate_session(session_token)
+
+    if not result.valid:
+        return jsonify({"valid": False, "error": result.error or "Session not found"}), 404
+
+    return jsonify(
+        {
+            "valid": True,
+            "mode": result.session.mode if result.session else None,
+            "container_id": result.session.container_id if result.session else None,
+            "expires_at": result.session.expires_at.isoformat() if result.session else None,
+        }
+    )
+
+
 @app.route("/api/v1/sessions/<session_token>/heartbeat", methods=["POST"])
 @require_launcher_auth
 def session_heartbeat(session_token: str) -> tuple[Response, int] | Response:

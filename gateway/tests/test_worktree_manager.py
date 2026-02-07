@@ -239,5 +239,142 @@ class TestGetActiveDockerContainers:
         assert result == set()
 
 
+class TestStartupCleanup:
+    """Tests for startup_cleanup module-level function."""
+
+    def test_with_active_containers(self, tmp_path):
+        """Cleans up orphaned worktrees, preserving active ones."""
+        from worktree_manager import startup_cleanup
+
+        worktree_base = tmp_path / "worktrees"
+        worktree_base.mkdir()
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+
+        # Create an orphaned container directory
+        orphan = worktree_base / "orphaned-container"
+        orphan.mkdir()
+        (orphan / "repo").mkdir()
+
+        # Create an active container directory
+        active = worktree_base / "active-container"
+        active.mkdir()
+        (active / "repo").mkdir()
+
+        with patch("worktree_manager.WorktreeManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.cleanup_orphaned_worktrees.return_value = 1
+            MockManager.return_value = mock_instance
+
+            removed = startup_cleanup(active_containers={"active-container"})
+            assert removed == 1
+            mock_instance.cleanup_orphaned_worktrees.assert_called_once_with({"active-container"})
+
+    def test_with_none_uses_docker(self):
+        """Falls back to querying Docker when active_containers is None."""
+        from worktree_manager import startup_cleanup
+
+        with patch("worktree_manager.WorktreeManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.cleanup_orphaned_worktrees.return_value = 0
+            MockManager.return_value = mock_instance
+
+            with patch(
+                "worktree_manager.get_active_docker_containers",
+                return_value={"container-1"},
+            ):
+                removed = startup_cleanup(active_containers=None)
+                assert removed == 0
+
+    def test_with_empty_set(self):
+        """Cleans up all worktrees when no active containers."""
+        from worktree_manager import startup_cleanup
+
+        with patch("worktree_manager.WorktreeManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.cleanup_orphaned_worktrees.return_value = 3
+            MockManager.return_value = mock_instance
+
+            removed = startup_cleanup(active_containers=set())
+            assert removed == 3
+
+
+class TestWorktreeManagerCreateWorktree:
+    """Tests for WorktreeManager.create_worktree validation."""
+
+    @pytest.fixture
+    def manager_with_repo(self, tmp_path):
+        """Create a manager with a fake repo dir."""
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        repo_dir = repos_base / "test-repo"
+        repo_dir.mkdir()
+        # Create a fake .git dir so it looks like a repo
+        (repo_dir / ".git").mkdir()
+
+        worktree_base = tmp_path / "worktrees"
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+        return manager
+
+    def test_create_worktree_invalid_uid(self, manager_with_repo):
+        """Rejects negative uid."""
+        with pytest.raises(ValueError, match="uid"):
+            manager_with_repo.create_worktree("test-repo", "container-1", uid=-1)
+
+    def test_create_worktree_invalid_gid(self, manager_with_repo):
+        """Rejects negative gid."""
+        with pytest.raises(ValueError, match="gid"):
+            manager_with_repo.create_worktree("test-repo", "container-1", gid=-1)
+
+    def test_list_worktrees_with_directories(self, tmp_path):
+        """Lists worktrees from filesystem directories."""
+        worktree_base = tmp_path / "worktrees"
+        repos_base = tmp_path / "repos"
+        worktree_base.mkdir()
+        repos_base.mkdir()
+
+        # Create fake worktree directory structure
+        container_dir = worktree_base / "container-1"
+        container_dir.mkdir()
+        repo_dir = container_dir / "test-repo"
+        repo_dir.mkdir()
+        # Create a .git file pointing to something
+        (repo_dir / ".git").write_text("gitdir: /some/path")
+
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+        worktrees = manager.list_worktrees()
+
+        assert len(worktrees) >= 1
+        found = False
+        for entry in worktrees:
+            if entry["container_id"] == "container-1":
+                found = True
+                assert len(entry["repos"]) >= 1
+        assert found
+
+    def test_remove_worktree_with_subprocess_mock(self, tmp_path):
+        """Removes worktree using mocked subprocess for git operations."""
+        worktree_base = tmp_path / "worktrees"
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+
+        # Create worktree directory to remove
+        wt_dir = worktree_base / "container-1" / "test-repo"
+        wt_dir.mkdir(parents=True)
+        (wt_dir / "file.txt").write_text("content")
+
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        with patch("subprocess.run") as mock_run:
+            # git status --porcelain returns empty (no changes)
+            # git worktree remove succeeds
+            # git worktree prune succeeds
+            # git branch -d succeeds
+            mock_run.return_value = MagicMock(returncode=0, stdout="")
+
+            result = manager.remove_worktree("container-1", "test-repo", force=True)
+            assert result.success
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -13,10 +13,8 @@ from token_refresher import (
     reset_token_refresher,
 )
 
-# Mark for tests that require network mocking (may not work in all environments)
-requires_network_mocking = pytest.mark.skip(
-    reason="Requires network mocking that may not work in sandboxed environments"
-)
+# Previously skipped with @requires_network_mocking, now properly mocked
+requires_network_mocking = pytest.mark.skipif(False, reason="Now properly mocked")
 
 
 @pytest.fixture

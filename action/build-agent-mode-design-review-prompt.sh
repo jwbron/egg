@@ -26,53 +26,102 @@ build_prompt() {
     # Check if this is a re-review (we have a previous review commit)
     if [[ -n "${LAST_REVIEW_COMMIT:-}" ]]; then
         is_rereview=true
-        prompt="Re-review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY} for agent-mode design alignment.
+        prompt="**Specialized review**: Check PR #${PR_NUMBER} in ${GITHUB_REPOSITORY} for agent-mode design alignment.
 
 This is a **re-review** — you previously reviewed this PR at commit \`${LAST_REVIEW_COMMIT}\`.
 
-## Your Task
+## Scope
 
-1. **Review only new changes**: Use \`git diff ${LAST_REVIEW_COMMIT}..HEAD\` to see what changed since your last review.
-2. **Check previous feedback**: Use \`gh pr view ${PR_NUMBER} --comments\` to see previous review comments.
-3. **Verify issues addressed**: Confirm that any concerns from your previous review have been addressed.
-4. **Focus on the delta**: Your new review should focus on the changes since \`${LAST_REVIEW_COMMIT}\`, not re-review unchanged code.
+This is a specialized design review, NOT a general code review. A separate bot handles general code quality, security, and correctness. Your job is to assess agent-mode design alignment.
 
-For full PR context if needed: \`gh pr diff ${PR_NUMBER}\`
+**Only comment if you find agent-mode design issues.** If the PR has no agent-mode concerns, approve with a brief note like \"No agent-mode design concerns\" — don't provide general feedback.
 
-## Review Focus
+## Re-review Task
 
-Read \`docs/guides/agent-mode-design.md\` for the design principles to check.
+1. Use \`git diff ${LAST_REVIEW_COMMIT}..HEAD\` to see changes since your last review.
+2. Use \`gh pr view ${PR_NUMBER} --comments\` to check if previous feedback was addressed.
+3. Focus only on the delta — don't re-review unchanged code.
 
-Focus on whether the PR code:
-1. Pre-fetches data the agent could fetch itself
-2. Requires structured output for human-facing content
-3. Uses post-processing pipelines that parse agent output
-4. Specifies \"how\" instead of \"what\"
-5. Adds constraints beyond what the sandbox enforces
+## Review Philosophy
 
-## Review Conventions
+The guidelines in \`docs/guides/agent-mode-design.md\` are **guidelines, not absolute rules**. Apply them with judgment:
 
-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --approve if the PR looks good, --request-changes for blocking issues, or --comment for advisory feedback. Be specific and suggest fixes. Sign your review with: — Authored by egg
+- **Orienting vs constraining**: The key question is whether context *helps* the agent work effectively or *constrains* its ability to explore. Lightweight metadata, task context, and small summaries that orient the agent are fine—even encouraged. The concern is with large pre-fetched diffs or logs that prevent the agent from seeing what it needs.
+
+- **Practical balance**: A design that's 80% aligned but works well is better than 100% pure but fragile. Preserve useful functionality while avoiding unnecessary complexity.
+
+- **Benefit of the doubt**: If a design choice could be interpreted as either helpful orientation or problematic pre-fetching, lean toward the charitable interpretation unless there's clear evidence of harm.
+
+## What to Look For
+
+Flag these **clear** anti-patterns:
+
+1. **Excessive pre-fetching**: Baking *large* diffs (10KB+) or full file contents into prompts. Small metadata and task context are fine.
+2. **Structured output for humans**: Requiring JSON when output goes directly to humans (PR comments, reviews)
+3. **Post-processing pipelines**: Scripts that parse agent output to take actions the agent could take directly
+4. **Rigid procedures**: Micromanaging step-by-step procedures when objectives would suffice
+5. **Prompt-level security**: Using instructions for constraints that should be sandbox-enforced
+
+## What to Skip
+
+- General code quality, style, naming — the base review bot covers this
+- Security issues unrelated to agent design — the base review bot covers this
+- Correctness/logic errors — the base review bot covers this
+- Borderline cases where the design choice is reasonable
+
+## Posting Your Review
+
+Use \`gh pr review ${PR_NUMBER}\`:
+- \`--approve\`: Design aligns well with agent-mode principles (or no concerns)
+- \`--request-changes\`: Clear anti-patterns that significantly harm agent flexibility
+- \`--comment\`: Advisory suggestions (use sparingly for genuinely helpful improvements)
+
+Sign with: — Authored by egg
 "
     else
-        prompt="Review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY} for agent-mode design alignment.
+        prompt="**Specialized review**: Check PR #${PR_NUMBER} in ${GITHUB_REPOSITORY} for agent-mode design alignment.
 
-Use \`gh pr diff ${PR_NUMBER}\` to see the changes. Read files for context.
+## Scope
 
-## Review Focus
+This is a specialized design review, NOT a general code review. A separate bot handles general code quality, security, and correctness. Your job is to assess agent-mode design alignment.
 
-Read \`docs/guides/agent-mode-design.md\` for the design principles to check.
+**Only comment if you find agent-mode design issues.** If the PR has no agent-mode concerns, approve with a brief note like \"No agent-mode design concerns\" — don't provide general feedback.
 
-Focus on whether the PR code:
-1. Pre-fetches data the agent could fetch itself
-2. Requires structured output for human-facing content
-3. Uses post-processing pipelines that parse agent output
-4. Specifies \"how\" instead of \"what\"
-5. Adds constraints beyond what the sandbox enforces
+## Review Philosophy
 
-## Review Conventions
+Use \`gh pr diff ${PR_NUMBER}\` to see changes. Read \`docs/guides/agent-mode-design.md\` for context, but remember: **these are guidelines, not absolute rules**. Apply them with judgment:
 
-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --approve if the PR looks good, --request-changes for blocking issues, or --comment for advisory feedback. Be specific and suggest fixes. Sign your review with: — Authored by egg
+- **Orienting vs constraining**: The key question is whether context *helps* the agent work effectively or *constrains* its ability to explore. Lightweight metadata, task context, and small summaries that orient the agent are fine—even encouraged. The concern is with large pre-fetched diffs or logs that prevent the agent from seeing what it needs.
+
+- **Practical balance**: A design that's 80% aligned but works well is better than 100% pure but fragile. Preserve useful functionality while avoiding unnecessary complexity.
+
+- **Benefit of the doubt**: If a design choice could be interpreted as either helpful orientation or problematic pre-fetching, lean toward the charitable interpretation unless there's clear evidence of harm.
+
+## What to Look For
+
+Flag these **clear** anti-patterns:
+
+1. **Excessive pre-fetching**: Baking *large* diffs (10KB+) or full file contents into prompts. Small metadata and task context are fine.
+2. **Structured output for humans**: Requiring JSON when output goes directly to humans (PR comments, reviews)
+3. **Post-processing pipelines**: Scripts that parse agent output to take actions the agent could take directly
+4. **Rigid procedures**: Micromanaging step-by-step procedures when objectives would suffice
+5. **Prompt-level security**: Using instructions for constraints that should be sandbox-enforced
+
+## What to Skip
+
+- General code quality, style, naming — the base review bot covers this
+- Security issues unrelated to agent design — the base review bot covers this
+- Correctness/logic errors — the base review bot covers this
+- Borderline cases where the design choice is reasonable
+
+## Posting Your Review
+
+Use \`gh pr review ${PR_NUMBER}\`:
+- \`--approve\`: Design aligns well with agent-mode principles (or no concerns)
+- \`--request-changes\`: Clear anti-patterns that significantly harm agent flexibility
+- \`--comment\`: Advisory suggestions (use sparingly for genuinely helpful improvements)
+
+Sign with: — Authored by egg
 "
     fi
 

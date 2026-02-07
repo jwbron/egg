@@ -261,11 +261,18 @@ def gha_exec() -> int:
     ]
 
     # 6. Execute
+    # Build extra env for container (e.g., EGG_BOT_NAME for review markers)
+    extra_env: dict[str, str] = {}
+    bot_name = os.environ.get("EGG_BOT_NAME")
+    if bot_name:
+        extra_env["EGG_BOT_NAME"] = bot_name
+
     success_flag = exec_in_new_container(
         command=command,
         timeout_minutes=timeout,
         auth_mode="oauth-token",
         repo_mode=mode,
+        extra_env=extra_env if extra_env else None,
     )
 
     return 0 if success_flag else 1

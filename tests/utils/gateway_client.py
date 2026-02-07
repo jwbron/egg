@@ -86,12 +86,12 @@ class GatewayClientMixin:
                 "data": {},
             }
 
-    def delete_session(self, session_token: str) -> dict[str, Any]:
+    def delete_session(self, session_token: str, timeout: int = 10) -> dict[str, Any]:
         """Delete a session via the gateway API."""
         resp = requests.delete(
             f"{self.gateway_url}/api/v1/sessions/{session_token}",
             headers={"Authorization": f"Bearer {self.launcher_secret}"},
-            timeout=10,
+            timeout=timeout,
         )
         return resp.json()
 
@@ -111,6 +111,64 @@ class GatewayClientMixin:
             headers={"Authorization": f"Bearer {self.launcher_secret}"},
             timeout=10,
         )
+        return resp.json()
+
+    def validate_session(
+        self,
+        session_token: str,
+        timeout: int = 10,
+    ) -> dict[str, Any]:
+        """Validate a session token via the gateway API.
+
+        Returns a dict with 'valid' key indicating if the session is valid,
+        along with session details (mode, container_id, expires_at) if valid.
+        """
+        resp = requests.get(
+            f"{self.gateway_url}/api/v1/sessions/{session_token}",
+            headers={"Authorization": f"Bearer {self.launcher_secret}"},
+            timeout=timeout,
+        )
+        try:
+            return resp.json()
+        except requests.exceptions.JSONDecodeError:
+            return {"valid": False, "error": f"Non-JSON response (HTTP {resp.status_code})"}
+
+    def _post(
+        self,
+        path: str,
+        json_data: dict[str, Any] | None = None,
+        timeout: int = 10,
+    ) -> dict[str, Any]:
+        """Make a POST request to the gateway API.
+
+        Low-level method for tests that need direct API access.
+        Raises HTTPError on non-2xx responses.
+        """
+        resp = requests.post(
+            f"{self.gateway_url}{path}",
+            headers={"Authorization": f"Bearer {self.launcher_secret}"},
+            json=json_data,
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def _get(
+        self,
+        path: str,
+        timeout: int = 10,
+    ) -> dict[str, Any]:
+        """Make a GET request to the gateway API.
+
+        Low-level method for tests that need direct API access.
+        Raises HTTPError on non-2xx responses.
+        """
+        resp = requests.get(
+            f"{self.gateway_url}{path}",
+            headers={"Authorization": f"Bearer {self.launcher_secret}"},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
         return resp.json()
 
     def api_request(
