@@ -382,8 +382,4 @@ egg-contract mark-phase --phase phase-1 --passed true
 
 ---
 
-<<<<<<< HEAD
-*See also: [Analysis Template](../templates/analysis.md), [Plan Template](../templates/plan.md), [GitHub Automation](github-automation.md)*
-=======
 *See also: [ADR: SDLC Pipeline](../adr/implemented/ADR-SDLC-Pipeline.md), [Analysis Template](../templates/analysis.md), [Plan Template](../templates/plan.md), [GitHub Automation](github-automation.md)*
->>>>>>> 0975011 (Add SDLC pipeline operational guide and mark ADR as implemented)

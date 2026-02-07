@@ -366,8 +366,7 @@ All components have been implemented:
 ## References
 
 - [Issue #133: Structurally Enforced Checkpoints](https://github.com/jwbron/egg/issues/133)
-- [Specification Document](../../issues/133-structurally-enforced-checkpoints.md)
-- [Implementation Plan](../../issues/133-implementation-plan.md)
+- [SDLC Pipeline Operational Guide](../../guides/sdlc-pipeline.md)
 
 ---
 
