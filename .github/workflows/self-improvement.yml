@@ -1,0 +1,82 @@
+name: "egg: Self-Improvement Analysis"
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # 2 AM UTC daily
+  workflow_dispatch: # Manual trigger for testing
+    inputs:
+      since_hours:
+        description: "Analyze runs from the last N hours"
+        required: false
+        default: "24"
+        type: string
+
+jobs:
+  analyze:
+    name: Analyze egg runs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run analysis
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PYTHONPATH: sandbox
+        run: |
+          set -o pipefail
+          SINCE_HOURS="${{ github.event.inputs.since_hours || '24' }}"
+
+          {
+            echo "## Self-Improvement Analysis"
+            echo ""
+            echo "Analyzing runs from the last ${SINCE_HOURS} hours..."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Run analysis once with both outputs (avoids duplicate API calls)
+          python -m egg_lib.self_improvement.analyze \
+            --source gha \
+            --since-hours "${SINCE_HOURS}" \
+            --output both \
+            --json-file analysis_report.json | tee analysis_output.txt
+
+          {
+            echo '```'
+            cat analysis_output.txt
+            echo '```'
+            echo ""
+            echo "### JSON Report"
+            echo ""
+            echo '<details><summary>Click to expand JSON report</summary>'
+            echo ''
+            echo '```json'
+            cat analysis_report.json
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload analysis artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: self-improvement-report
+          path: |
+            analysis_output.txt
+            analysis_report.json
+          retention-days: 30
