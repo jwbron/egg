@@ -2,6 +2,8 @@
 
 Guidelines for designing agent workflows in egg: when to let the agent operate freely vs. when constraints are appropriate.
 
+**These are guidelines, not absolute rules.** The goal is balanced implementations that are maintainable, flexible, and intelligent. Use judgment—preserve useful functionality while avoiding unnecessary complexity.
+
 ## Core Principle
 
 **The sandbox is the constraint.** The gateway sidecar *technically enforces* the security boundary—these aren't just policy rules, they're blocked at the infrastructure level: merge commands fail, force-push is rejected, branch ownership is validated, credentials are held by the gateway (not exposed to the agent). Inside those rails, the agent should be free to operate however it sees fit.
@@ -24,14 +26,19 @@ Here are the diffs for PR #123. Output JSON with file/line/severity/comment fiel
 
 ## The Five Guidelines
 
-### 1. Pre-fetching is usually wrong
+### 1. Avoid unnecessary pre-fetching
 
-If the agent has tool access, don't pre-fetch data for it. Let it pull what it needs. Pre-fetching means:
+If the agent has tool access, prefer letting it pull what it needs rather than pre-fetching large amounts of data. The problems with excessive pre-fetching:
 - You decide what's relevant (you're often wrong)
 - You hit size limits and truncate (losing signal)
 - The agent can't explore beyond what you fetched
 
-**Exception:** Lightweight metadata (PR number, repo name, who asked) is fine as orientation context.
+**What's fine to include:**
+- Lightweight metadata (PR number, repo name, who asked)
+- Context the agent would fetch anyway (e.g., "this is a re-review, you last reviewed at commit X")
+- Small amounts of structured data that inform the task
+
+The key question is: does this context help the agent work more effectively, or does it constrain the agent's ability to explore?
 
 ### 2. Don't specify output formats unless there's a downstream consumer
 
@@ -51,9 +58,9 @@ Usually yes. The agent can:
 
 It doesn't need a middleman.
 
-### 4. Instructions should specify *what*, not *how*
+### 4. Prefer *what* over *how*
 
-Tell the agent what outcome you want, not how to achieve it. Include domain context (review guidelines, coding standards) but not procedural instructions.
+Tell the agent what outcome you want. Include domain context (review guidelines, coding standards) but avoid micromanaging the procedure.
 
 **Good:**
 ```
@@ -66,11 +73,25 @@ For each issue, output severity as critical/warning/suggestion and
 category as security/correctness/quality/standards.
 ```
 
+**However:** Some procedural context is helpful when it provides information the agent can't easily discover. For example, "this is a re-review—check whether previous feedback was addressed" gives the agent useful context about the task's history.
+
 ### 5. Let the agent explore and use judgment
 
 The agent can fetch more context if it needs it. Don't try to anticipate everything it might want to know. Provide the task and let it investigate.
 
 If the agent decides something isn't worth commenting on, or needs a different approach than expected, that's usually fine. The security boundary prevents harm; within that boundary, let the agent make decisions.
+
+## Applying These Guidelines
+
+These guidelines describe a direction, not a destination. When refactoring a workflow to align with these principles:
+
+1. **Preserve valuable functionality.** If existing code provides useful context (like re-review detection) or handles edge cases well, keep it. The goal is to remove unnecessary complexity, not strip out everything.
+
+2. **Refactor incrementally.** Don't rewrite from scratch. Identify specific anti-patterns and address them while preserving what works.
+
+3. **Share common infrastructure.** If multiple bots need the same functionality (fetching PR metadata, detecting re-reviews, posting reviews), factor it into shared modules. This isn't pre-fetching—it's good software engineering.
+
+4. **Use judgment.** A workflow that's 80% aligned with these guidelines but actually works is better than one that's 100% aligned but fragile or missing functionality.
 
 ## When Constraints ARE Appropriate
 
@@ -110,7 +131,9 @@ Reasonable limits on agent output:
 - "Post at most 10 inline comments"
 - "Summarize rather than commenting on every minor issue"
 
-## Anti-Patterns to Avoid
+## Anti-Patterns vs. Good Patterns
+
+The patterns below are problems when taken to extremes. Use judgment about when the pattern is helping vs. hindering.
 
 ### Anti-pattern 1: Pre-fetch everything
 
@@ -143,6 +166,8 @@ Review PR #123. Focus on security and correctness issues. Post your review on th
 
 The agent will fetch what it needs, follow links that seem relevant, and skip what doesn't matter.
 
+**Note:** This doesn't mean you can't provide *any* context. Telling the agent "this is PR #123" or "you last reviewed at commit abc123" is fine—it's orientation, not pre-fetching. The anti-pattern is baking in large diffs, file contents, or comment threads that constrain what the agent can see.
+
 ### Anti-pattern 2: JSON output pipeline
 
 **Wrong approach:**
@@ -159,6 +184,32 @@ Review PR #123 and post your review comments directly on GitHub.
 ```
 
 The agent can call the GitHub API itself. No parsing needed.
+
+### Good pattern: Shared infrastructure
+
+Reusable modules for common operations are good engineering, not anti-patterns:
+
+```bash
+# Good: Shared module for detecting re-reviews
+source review-bot-base.sh
+last_commit=$(get_last_review_commit "$PR_NUMBER" "$BOT_NAME")
+prompt="Review PR #${PR_NUMBER}."
+if [[ -n "$last_commit" ]]; then
+    prompt+=" This is a re-review (last at $last_commit)."
+fi
+```
+
+This isn't "pre-fetching"—it's providing useful context that helps the agent do its job. The distinction: are you constraining what the agent can see, or informing it about the task?
+
+### Good pattern: Composition over duplication
+
+When multiple bots share functionality (fetching PR metadata, posting reviews, detecting previous reviews), extract it into reusable modules. Each specialized bot can use the shared base while adding its own focus:
+
+```bash
+# base: shared functionality all review bots need
+# security-bot: uses base + security-specific rules
+# design-bot: uses base + design-specific rules
+```
 
 ### Generalized vs. specialized workflows
 
@@ -211,14 +262,15 @@ The result is simpler code, better reviews, and more adaptable behavior.
 
 When designing a new agent workflow, ask:
 
-- [ ] Am I pre-fetching data the agent could fetch itself?
+- [ ] Am I pre-fetching large amounts of data the agent should fetch itself?
 - [ ] Am I requiring structured output that could be natural language?
 - [ ] Am I building post-processing to parse agent output?
-- [ ] Am I specifying *how* instead of *what*?
+- [ ] Am I over-specifying *how* instead of focusing on *what*?
 - [ ] Do my constraints go beyond what the sandbox enforces?
 - [ ] Would this design work if the agent needs more context than I anticipated?
+- [ ] Am I preserving useful existing functionality while removing unnecessary complexity?
 
-If you answer "yes" to any of these, reconsider the design.
+"Yes" to any of these is a signal to reconsider, but use judgment. Some context is helpful; the question is whether you're constraining vs. informing.
 
 ## Related
 
@@ -228,4 +280,4 @@ If you answer "yes" to any of these, reconsider the design.
 
 ---
 
-*This document establishes principles for egg workflow design. Consult it when building new agent-driven features.*
+*This document provides guidelines for egg workflow design. Apply them with judgment—the goal is balanced, maintainable implementations, not rigid adherence to rules.*
