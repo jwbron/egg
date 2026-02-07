@@ -271,6 +271,21 @@ class Logger:
             sys.stderr.flush()
 
 
+@contextlib.contextmanager
+def timed_phase(name: str, logger: Logger) -> Any:
+    """Context manager that combines startup timing with debug logging.
+
+    Wraps both _startup_timer.phase() and logger.phase_start/phase_end
+    to reduce repetition in the main startup sequence.
+    """
+    logger.phase_start(name)
+    try:
+        with _startup_timer.phase(name):
+            yield
+    finally:
+        logger.phase_end(name)
+
+
 # =============================================================================
 # Utility Functions
 # =============================================================================
@@ -1196,70 +1211,48 @@ def main() -> None:
 
     # Run setup with timing instrumentation
     # Debug logging goes to stderr for capture even on container hang
-    logger.phase_start("setup_user")
-    with _startup_timer.phase("setup_user"):
+    with timed_phase("setup_user", logger):
         setup_user(config, logger)
-    logger.phase_end("setup_user")
 
-    logger.phase_start("setup_environment")
-    with _startup_timer.phase("setup_environment"):
+    with timed_phase("setup_environment", logger):
         setup_environment(config)
-    logger.phase_end("setup_environment")
 
-    logger.phase_start("setup_egg_symlink")
-    with _startup_timer.phase("setup_egg_symlink"):
+    with timed_phase("setup_egg_symlink", logger):
         setup_egg_symlink(config, logger)
-    logger.phase_end("setup_egg_symlink")
 
-    logger.phase_start("setup_git")
-    with _startup_timer.phase("setup_git"):
+    with timed_phase("setup_git", logger):
         setup_git(config, logger)
-    logger.phase_end("setup_git")
 
-    logger.phase_start("setup_gateway_ca")
-    with _startup_timer.phase("setup_gateway_ca"):
+    with timed_phase("setup_gateway_ca", logger):
         setup_gateway_ca(config, logger)
-    logger.phase_end("setup_gateway_ca")
 
-    logger.phase_start("setup_worktrees")
-    with _startup_timer.phase("setup_worktrees"):
+    with timed_phase("setup_worktrees", logger):
         if not setup_worktrees(config, logger):
             logger.error("")
             logger.error("Container startup aborted due to worktree configuration failure.")
             logger.error("Please check your egg setup and try again.")
             sys.exit(1)
-    logger.phase_end("setup_worktrees")
 
-    logger.phase_start("setup_agent_rules")
-    with _startup_timer.phase("setup_agent_rules"):
+    with timed_phase("setup_agent_rules", logger):
         setup_agent_rules(config, logger)
-    logger.phase_end("setup_agent_rules")
 
-    logger.phase_start("setup_claude")
-    with _startup_timer.phase("setup_claude"):
+    with timed_phase("setup_claude", logger):
         setup_claude(config, logger)
-    logger.phase_end("setup_claude")
 
-    logger.phase_start("setup_bashrc")
-    with _startup_timer.phase("setup_bashrc"):
+    with timed_phase("setup_bashrc", logger):
         setup_bashrc(config, logger)
-    logger.phase_end("setup_bashrc")
 
     # Wait for gateway readiness (network lockdown mode)
-    logger.phase_start("check_gateway")
-    with _startup_timer.phase("check_gateway"):
+    with timed_phase("check_gateway", logger):
         if not check_gateway_health(config, logger):
             logger.error("")
             logger.error("Container startup aborted: gateway not ready.")
             logger.error("Ensure the gateway sidecar is running.")
             sys.exit(1)
-    logger.phase_end("check_gateway")
 
     # Configure Anthropic API to route through gateway
-    logger.phase_start("setup_anthropic_api")
-    with _startup_timer.phase("setup_anthropic_api"):
+    with timed_phase("setup_anthropic_api", logger):
         setup_anthropic_api(config, logger)
-    logger.phase_end("setup_anthropic_api")
 
     # Run appropriate mode (timing summary is printed inside each mode)
     if len(sys.argv) == 1:

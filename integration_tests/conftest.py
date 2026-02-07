@@ -786,7 +786,8 @@ def run_claude_structured(
         """Remove the test container (best-effort)."""
         subprocess.run(
             ["docker", "rm", "-f", container_name],
-            capture_output=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             timeout=15,
             check=False,
         )
