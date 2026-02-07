@@ -11,6 +11,8 @@ Role is determined from GitHub Actions workflow context (not agent env vars)
 to prevent privilege escalation.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
