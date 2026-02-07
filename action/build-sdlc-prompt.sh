@@ -37,15 +37,15 @@ truncate_text() {
 gh_api_safe() {
   local stderr_file
   stderr_file=$(mktemp)
+  # Ensure temp file is cleaned up on exit (including signals)
+  trap 'rm -f "$stderr_file"' RETURN
   local output
   if output=$(gh api "$@" 2>"$stderr_file"); then
-    rm -f "$stderr_file"
     echo "$output"
   else
     local rc=$?
     echo "ERROR: 'gh api $1' failed (exit $rc): $(cat "$stderr_file")" >&2
     echo "The prompt will be built with placeholder values for issue metadata." >&2
-    rm -f "$stderr_file"
     # Return empty JSON object so jq doesn't fail
     echo "{}"
   fi
@@ -423,11 +423,17 @@ build_prompt() {
   # Truncate overall prompt if needed
   prompt=$(truncate_text "$prompt" "$MAX_PROMPT_CHARS")
 
+  # Generate a unique delimiter by appending random suffix
+  # This prevents delimiter injection if issue body contains our base delimiter
+  local random_suffix
+  random_suffix=$(head -c 16 /dev/urandom | xxd -p | head -c 16)
+  local delimiter="__EGG_PROMPT_BOUNDARY_${random_suffix}__"
+
   # Write multiline output using heredoc delimiter
   {
-    echo "prompt<<__EGG_PROMPT_BOUNDARY_7f3a9c__"
+    echo "prompt<<${delimiter}"
     echo "$prompt"
-    echo "__EGG_PROMPT_BOUNDARY_7f3a9c__"
+    echo "${delimiter}"
   } >> "${GITHUB_OUTPUT:-/dev/null}"
 
   echo "SDLC prompt built for phase: $phase (${#prompt} chars)"

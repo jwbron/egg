@@ -258,54 +258,84 @@ class TestMainNoCommand:
         assert "usage" in captured.out.lower() or "egg-contract" in captured.out
 
 
-class MockGatewayHandler(BaseHTTPRequestHandler):
-    """Mock HTTP handler for gateway responses."""
+def create_mock_gateway_handler(responses_dict: dict):
+    """Create a MockGatewayHandler class with isolated responses.
 
-    responses = {}
+    This factory function creates a new handler class with its own responses dict,
+    ensuring thread safety when running tests in parallel (e.g., with pytest-xdist).
 
-    def log_message(self, format, *args):
-        """Suppress logging."""
-        pass
+    Args:
+        responses_dict: Dictionary mapping (method, path) tuples to response dicts
 
-    def do_GET(self):
-        """Handle GET requests."""
-        response = self.responses.get(("GET", self.path), {"success": True})
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps(response).encode())
+    Returns:
+        A new BaseHTTPRequestHandler subclass with isolated responses
+    """
 
-    def do_POST(self):
-        """Handle POST requests."""
-        content_length = int(self.headers.get("Content-Length", 0))
-        # Read and discard the body to complete the request
-        if content_length:
-            self.rfile.read(content_length)
+    class MockGatewayHandler(BaseHTTPRequestHandler):
+        """Mock HTTP handler for gateway responses."""
 
-        response = self.responses.get(("POST", self.path), {"success": True})
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps(response).encode())
+        # Instance-specific responses (not a class variable)
+        responses = responses_dict
+
+        def log_message(self, format, *args):
+            """Suppress logging."""
+            pass
+
+        def do_GET(self):
+            """Handle GET requests."""
+            response = self.responses.get(("GET", self.path), {"success": True})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode())
+
+        def do_POST(self):
+            """Handle POST requests."""
+            content_length = int(self.headers.get("Content-Length", 0))
+            # Read and discard the body to complete the request
+            if content_length:
+                self.rfile.read(content_length)
+
+            response = self.responses.get(("POST", self.path), {"success": True})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode())
+
+    return MockGatewayHandler
 
 
 class TestWithMockGateway:
     """Tests that use a mock gateway server."""
 
     @pytest.fixture
-    def mock_gateway(self):
-        """Create a mock gateway server."""
-        server = HTTPServer(("127.0.0.1", 0), MockGatewayHandler)
-        port = server.server_address[1]
-        thread = Thread(target=server.handle_request)
-        thread.daemon = True
-        thread.start()
-        yield f"http://127.0.0.1:{port}"
-        server.server_close()
+    def mock_gateway_factory(self):
+        """Factory fixture for creating mock gateway servers with isolated responses.
 
-    def test_show_command_success(self, mock_gateway, capsys):
+        Returns a function that creates a gateway with the specified responses.
+        This ensures thread safety when running tests in parallel.
+        """
+        servers = []
+
+        def create_gateway(responses: dict) -> str:
+            handler_class = create_mock_gateway_handler(responses)
+            server = HTTPServer(("127.0.0.1", 0), handler_class)
+            port = server.server_address[1]
+            thread = Thread(target=server.handle_request)
+            thread.daemon = True
+            thread.start()
+            servers.append(server)
+            return f"http://127.0.0.1:{port}"
+
+        yield create_gateway
+
+        # Cleanup all servers
+        for server in servers:
+            server.server_close()
+
+    def test_show_command_success(self, mock_gateway_factory, capsys):
         """Test show command with successful response."""
-        MockGatewayHandler.responses = {
+        responses = {
             ("GET", "/api/v1/contract/123"): {
                 "success": True,
                 "data": {
@@ -317,6 +347,7 @@ class TestWithMockGateway:
                 },
             }
         }
+        mock_gateway = mock_gateway_factory(responses)
 
         with patch.dict("os.environ", {"EGG_GATEWAY_URL": mock_gateway}):
             result = main(["--issue", "123", "show"])
@@ -325,14 +356,15 @@ class TestWithMockGateway:
         captured = capsys.readouterr()
         assert "123" in captured.out
 
-    def test_add_commit_success(self, mock_gateway, capsys):
+    def test_add_commit_success(self, mock_gateway_factory, capsys):
         """Test add-commit command with successful response."""
-        MockGatewayHandler.responses = {
+        responses = {
             ("POST", "/api/v1/contract/mutate"): {
                 "success": True,
                 "message": "Mutation applied",
             }
         }
+        mock_gateway = mock_gateway_factory(responses)
 
         with patch.dict(
             "os.environ",

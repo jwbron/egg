@@ -475,3 +475,116 @@ tasks:
         # Should create a phase for the orphan task
         assert len(result.phases) == 1
         assert result.phases[0].tasks[0].description == "Orphan task"
+
+
+class TestParserCLIIntegration:
+    """Integration tests verifying parser output matches CLI expectations.
+
+    These tests ensure that task IDs produced by the plan parser are compatible
+    with the parse_task_id() function in the contract CLI.
+    """
+
+    def test_parsed_task_id_matches_cli_format(self):
+        """Test that ParsedTask.to_contract_task() produces IDs the CLI can parse."""
+        # Import the CLI's parse_task_id function
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "sandbox"))
+        from egg_lib.contract_cli import parse_task_id
+
+        # Create a parsed task as the parser would
+        parsed = ParsedTask(
+            id="TASK-1-1",
+            phase_number=1,
+            task_number=1,
+            description="Create schema",
+            acceptance_criteria="Schema validates",
+        )
+
+        # Convert to contract format
+        contract_task = parsed.to_contract_task()
+
+        # The CLI should be able to parse this ID
+        phase_idx, task_idx = parse_task_id(contract_task.id)
+        assert phase_idx == 0  # 0-based index for phase 1
+        assert task_idx == 0  # 0-based index for task 1
+
+    def test_parsed_task_id_uppercase_preserved_in_markdown(self):
+        """Test that markdown stores uppercase IDs but contract uses lowercase."""
+        content = "- [TASK-2-3] Test task — Acceptance: Done"
+        tasks, _ = parse_tasks_from_markdown(content)
+
+        # Markdown parsing preserves original format (uppercase)
+        assert tasks[0].id == "TASK-2-3"
+
+        # Contract conversion produces lowercase
+        contract_task = tasks[0].to_contract_task()
+        assert contract_task.id == "task-2-3"
+
+    def test_full_plan_to_cli_integration(self):
+        """Test complete flow: parse plan -> contract tasks -> CLI can parse IDs."""
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "sandbox"))
+        from egg_lib.contract_cli import parse_task_id
+
+        content = """
+### Phase 1: Setup
+
+- [TASK-1-1] First task — Acceptance: Done
+- [TASK-1-2] Second task — Acceptance: Done
+
+### Phase 2: Build
+
+- [TASK-2-1] Build task — Acceptance: Done
+"""
+        result = parse_plan(content)
+        assert result.success
+
+        # Convert all phases to contract format
+        contract_phases = result.to_contract_phases()
+
+        # Verify all task IDs can be parsed by CLI
+        for phase in contract_phases:
+            for task in phase.tasks:
+                # This should not raise
+                phase_idx, task_idx = parse_task_id(task.id)
+                # Verify indices are sensible (non-negative)
+                assert phase_idx >= 0
+                assert task_idx >= 0
+
+    def test_yaml_parsed_tasks_compatible_with_cli(self):
+        """Test that YAML-parsed tasks produce CLI-compatible IDs."""
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "sandbox"))
+        from egg_lib.contract_cli import parse_task_id
+
+        content = """---
+tasks:
+  - id: TASK-3-5
+    description: YAML task
+    acceptance: Works
+---
+
+# Plan
+"""
+        result = parse_plan(content)
+        assert result.success
+
+        # Find the task and verify CLI compatibility
+        contract_phases = result.to_contract_phases()
+        found_task = None
+        for phase in contract_phases:
+            for task in phase.tasks:
+                if task.description == "YAML task":
+                    found_task = task
+                    break
+
+        assert found_task is not None
+        phase_idx, task_idx = parse_task_id(found_task.id)
+        assert phase_idx == 2  # Phase 3 -> index 2
+        assert task_idx == 4  # Task 5 -> index 4
