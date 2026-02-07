@@ -392,7 +392,7 @@ def main() -> int:
             else:
                 print(output)
             # Output partition count for the workflow
-            print(f"PARTITION_COUNT=0", file=sys.stderr)
+            print("PARTITION_COUNT=0", file=sys.stderr)
             return 0
 
         # Output partition count for the workflow to parse
