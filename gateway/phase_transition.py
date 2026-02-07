@@ -19,12 +19,19 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 try:
-    from egg_logging import get_logger
+    from egg_logging import EggLogger, get_logger
 except ImportError:
     import logging
 
-    def get_logger(name: str) -> logging.Logger:
-        return logging.getLogger(name)
+    # Fallback implementation when egg_logging is not available
+    EggLogger = logging.Logger  # type: ignore[misc, assignment]
+
+    def get_logger(
+        name: str,
+        level: int | str = logging.INFO,
+        component: str | None = None,
+    ) -> EggLogger:
+        return logging.getLogger(name)  # type: ignore[return-value]
 
 
 try:
@@ -46,7 +53,7 @@ logger = get_logger("gateway.phase_transition")
 # Valid phase transitions
 PHASE_ORDER = ["refine", "plan", "implement", "pr"]
 
-PHASE_TRANSITIONS = {
+PHASE_TRANSITIONS: dict[str, dict[str, str | None]] = {
     "refine": {"next": "plan", "exit_requires": "human"},
     "plan": {"next": "implement", "exit_requires": "human"},
     "implement": {"next": "pr", "exit_requires": "reviewer"},
@@ -157,7 +164,8 @@ def validate_transition(
 
     # Check if transition is valid
     if not can_transition(current_phase, target_phase):
-        next_phase = PHASE_TRANSITIONS.get(current_phase, {}).get("next")
+        transition_config = PHASE_TRANSITIONS.get(current_phase, {})
+        next_phase = transition_config.get("next")
         return TransitionResult(
             success=False,
             message=f"Cannot transition from {current_phase} to {target_phase}",
@@ -259,7 +267,7 @@ def execute_transition(
     # Log the transition
     if log_mutation is not None:
         try:
-            role = Role(actor_role) if Role else actor_role
+            role = Role(actor_role) if Role is not None else actor_role
             log_mutation(
                 contract,
                 actor=actor,

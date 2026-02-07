@@ -177,7 +177,7 @@ def parse_task_table(lines: list[str], start_idx: int) -> list[ParsedTask]:
     Returns:
         List of parsed tasks
     """
-    tasks = []
+    tasks: list[ParsedTask] = []
 
     # Skip header and separator rows
     i = start_idx

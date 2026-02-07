@@ -20,12 +20,19 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 try:
-    from egg_logging import get_logger
+    from egg_logging import EggLogger, get_logger
 except ImportError:
     import logging
 
-    def get_logger(name: str) -> logging.Logger:
-        return logging.getLogger(name)
+    # Fallback implementation when egg_logging is not available
+    EggLogger = logging.Logger  # type: ignore[misc, assignment]
+
+    def get_logger(
+        name: str,
+        level: int | str = logging.INFO,
+        component: str | None = None,
+    ) -> EggLogger:
+        return logging.getLogger(name)  # type: ignore[return-value]
 
 
 try:
@@ -83,12 +90,13 @@ class PhasePermissions:
         self._permissions: dict[str, Any] = {}
         self._loaded = False
 
+        self._permissions_path: Path | None
         if permissions_path:
             self._permissions_path = Path(permissions_path)
         else:
             # Default locations to check
             self._permissions_path = None
-            self._default_paths = [
+            self._default_paths: list[Path] = [
                 Path.cwd() / ".egg" / "phase-permissions.json",
                 Path(__file__).parent.parent / ".egg" / "phase-permissions.json",
                 Path(os.environ.get("GITHUB_WORKSPACE", "")) / ".egg" / "phase-permissions.json",
@@ -128,7 +136,11 @@ class PhasePermissions:
             Phase configuration dict or None if not found
         """
         self._load_permissions()
-        return self._permissions.get("phases", {}).get(phase)
+        phases = self._permissions.get("phases", {})
+        if isinstance(phases, dict):
+            result: dict[str, Any] | None = phases.get(phase)
+            return result
+        return None
 
     def check_operation(
         self,

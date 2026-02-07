@@ -26,12 +26,19 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 try:
-    from egg_logging import get_logger
+    from egg_logging import EggLogger, get_logger
 except ImportError:
     import logging
 
-    def get_logger(name: str) -> logging.Logger:
-        return logging.getLogger(name)
+    # Fallback implementation when egg_logging is not available
+    EggLogger = logging.Logger  # type: ignore[misc, assignment]
+
+    def get_logger(
+        name: str,
+        level: int | str = logging.INFO,
+        component: str | None = None,
+    ) -> EggLogger:
+        return logging.getLogger(name)  # type: ignore[return-value]
 
 
 try:
@@ -39,6 +46,7 @@ try:
         Contract,
         ContractValidator,
         Decision,
+        DecisionOption,
         DecisionType,
         Issue,
         PipelinePhase,
@@ -559,16 +567,17 @@ def add_decision(issue_number: int) -> tuple[Response, int] | Response:
 
     # Create decision
     decision_id = contract.next_decision_id()
+    decision_options: list[DecisionOption] | None = None
+    if options:
+        decision_options = [
+            DecisionOption(id=opt.get("id", f"opt-{i}"), label=opt.get("label", ""))
+            for i, opt in enumerate(options)
+        ]
     decision = Decision(
         id=decision_id,
         question=question,
         type=DecisionType.HITL,
-        options=[
-            {"id": opt.get("id", f"opt-{i}"), "label": opt.get("label", "")}
-            for i, opt in enumerate(options)
-        ]
-        if options
-        else None,
+        options=decision_options,
         resolved=False,
     )
 

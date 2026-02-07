@@ -32,22 +32,22 @@ def get_gateway_url() -> str:
 
 def get_repo_root() -> Path:
     """Get the repository root path."""
-    # Try common locations
-    candidates = [
+    # Try common locations - static paths first
+    static_candidates: list[Path] = [
         Path.cwd(),
         Path(os.environ.get("GITHUB_WORKSPACE", "")),
-        Path("/home/egg/repos").glob("*"),
     ]
 
-    for candidate in candidates:
-        if isinstance(candidate, Path):
-            if (candidate / ".git").exists() or (candidate / ".egg").exists():
-                return candidate
-        else:
-            # It's a generator from glob
-            for p in candidate:
-                if (p / ".git").exists() or (p / ".egg").exists():
-                    return p
+    for candidate in static_candidates:
+        if (candidate / ".git").exists() or (candidate / ".egg").exists():
+            return candidate
+
+    # Check repos directory with glob
+    repos_path = Path("/home/egg/repos")
+    if repos_path.exists():
+        for p in repos_path.glob("*"):
+            if (p / ".git").exists() or (p / ".egg").exists():
+                return p
 
     return Path.cwd()
 
@@ -103,7 +103,7 @@ def api_request(
         else:
             response = httpx.post(url, json=data, timeout=30)
 
-        result = response.json()
+        result: dict[str, Any] = response.json()
         if not result.get("success", True) and response.status_code >= 400:
             return {"success": False, "message": result.get("message", "Request failed")}
         return result
@@ -418,7 +418,8 @@ def main() -> int:
     decision_parser.set_defaults(func=cmd_add_decision)
 
     args = parser.parse_args()
-    return args.func(args)
+    result: int = args.func(args)
+    return result
 
 
 if __name__ == "__main__":
