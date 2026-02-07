@@ -519,3 +519,421 @@ class TestGetSessionManager:
         manager1 = get_session_manager()
         manager2 = get_session_manager()
         assert manager1 is manager2
+
+
+class TestTokenSecurity:
+    """Tests for session token security properties."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a session manager with a temporary persistence file."""
+        return SessionManager(persistence_file=tmp_path / "sessions.json")
+
+    def test_token_length_minimum(self, manager):
+        """Session tokens should have sufficient length for security."""
+        token, _session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        # 32 bytes base64 encoded = ~43 characters
+        assert len(token) >= 40
+
+    def test_tokens_are_unique(self, manager):
+        """Each session should have a unique token."""
+        tokens = set()
+        for i in range(100):
+            token, _ = manager.register_session(
+                container_id=f"container-{i}",
+                container_ip=f"172.18.0.{i % 256}",
+                mode="private",
+            )
+            assert token not in tokens, f"Duplicate token generated at iteration {i}"
+            tokens.add(token)
+
+    def test_token_not_persisted_raw(self, tmp_path):
+        """Raw tokens should never be persisted to disk."""
+        import json
+
+        persist_path = tmp_path / "sessions.json"
+        manager = SessionManager(persistence_file=persist_path)
+
+        token, _ = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        # Read persisted file
+        with open(persist_path) as f:
+            data = json.load(f)
+
+        # Token should not appear anywhere in the persisted data
+        persisted_str = json.dumps(data)
+        assert token not in persisted_str
+
+        # But hash should be present
+        for session in data.get("sessions", []):
+            assert "session_token_hash" in session
+            assert "session_token" not in session
+
+    def test_hash_function_produces_consistent_results(self):
+        """Hash function should produce consistent results for same input."""
+        token = "test-token-12345"
+        hash1 = _hash_token(token)
+        hash2 = _hash_token(token)
+        assert hash1 == hash2
+
+    def test_hash_function_produces_different_results_for_different_input(self):
+        """Hash function should produce different results for different input."""
+        hash1 = _hash_token("token-a")
+        hash2 = _hash_token("token-b")
+        assert hash1 != hash2
+
+
+class TestPersistenceEdgeCases:
+    """Tests for session persistence edge cases."""
+
+    def test_corrupted_json_handled_gracefully(self, tmp_path):
+        """Manager should handle corrupted persistence file gracefully."""
+        persist_path = tmp_path / "sessions.json"
+
+        # Write corrupted JSON
+        persist_path.write_text("{ invalid json [")
+
+        # Should not raise - just log warning and start fresh
+        manager = SessionManager(persistence_file=persist_path)
+        assert manager.list_sessions() == []
+
+    def test_missing_fields_handled_gracefully(self, tmp_path):
+        """Manager should handle sessions with missing fields."""
+        import json
+
+        persist_path = tmp_path / "sessions.json"
+
+        # Write session with missing fields
+        data = {
+            "version": 1,
+            "saved_at": "2024-01-01T00:00:00+00:00",
+            "sessions": [
+                {
+                    "session_token_hash": "abc123",
+                    # Missing other required fields
+                }
+            ],
+        }
+        persist_path.write_text(json.dumps(data))
+
+        # Should not raise - just skip invalid session
+        manager = SessionManager(persistence_file=persist_path)
+        assert manager.list_sessions() == []
+
+    def test_expired_sessions_pruned_on_load(self, tmp_path):
+        """Expired sessions should be pruned when loading from disk."""
+        import json
+        from datetime import UTC, datetime, timedelta
+
+        persist_path = tmp_path / "sessions.json"
+        now = datetime.now(UTC)
+
+        # Write one valid and one expired session
+        data = {
+            "version": 1,
+            "saved_at": now.isoformat(),
+            "sessions": [
+                {
+                    "session_token_hash": "valid_hash",
+                    "container_id": "valid-container",
+                    "container_ip": "172.18.0.5",
+                    "mode": "private",
+                    "created_at": now.isoformat(),
+                    "last_seen": now.isoformat(),
+                    "expires_at": (now + timedelta(hours=24)).isoformat(),
+                },
+                {
+                    "session_token_hash": "expired_hash",
+                    "container_id": "expired-container",
+                    "container_ip": "172.18.0.6",
+                    "mode": "private",
+                    "created_at": (now - timedelta(hours=48)).isoformat(),
+                    "last_seen": (now - timedelta(hours=48)).isoformat(),
+                    "expires_at": (now - timedelta(hours=24)).isoformat(),  # Expired
+                },
+            ],
+        }
+        persist_path.write_text(json.dumps(data))
+
+        manager = SessionManager(persistence_file=persist_path)
+        sessions = manager.list_sessions()
+
+        # Only the valid session should be loaded
+        assert len(sessions) == 1
+        assert sessions[0]["container_id"] == "valid-container"
+
+    def test_persistence_file_permissions(self, tmp_path):
+        """Persisted file should have restrictive permissions."""
+        persist_path = tmp_path / "sessions.json"
+        manager = SessionManager(persistence_file=persist_path)
+
+        manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        # Check file permissions (should be 0o600 - owner read/write only)
+        file_stat = persist_path.stat()
+        mode = file_stat.st_mode & 0o777
+        assert mode == 0o600, f"Expected permissions 0o600, got {oct(mode)}"
+
+    def test_persistence_directory_created_if_missing(self, tmp_path):
+        """Persistence directory should be created if it doesn't exist."""
+        persist_path = tmp_path / "subdir" / "nested" / "sessions.json"
+
+        manager = SessionManager(persistence_file=persist_path)
+        manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        assert persist_path.exists()
+
+
+class TestDeleteByContainer:
+    """Tests for delete_session_by_container method."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a session manager with a temporary persistence file."""
+        return SessionManager(persistence_file=tmp_path / "sessions.json")
+
+    def test_delete_existing_container(self, manager):
+        """Delete session by container ID when it exists."""
+        _token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        result = manager.delete_session_by_container("test-container")
+        assert result is True
+
+        # Session should no longer be findable
+        assert manager.get_session_by_container("test-container") is None
+
+    def test_delete_nonexistent_container(self, manager):
+        """Delete returns False for non-existent container."""
+        result = manager.delete_session_by_container("nonexistent")
+        assert result is False
+
+    def test_delete_clears_token_cache(self, manager):
+        """Deleting by container should also clear the token lookup cache."""
+        token, _session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        # Token should work before delete
+        result = manager.validate_session(token)
+        assert result.valid
+
+        # Delete by container
+        manager.delete_session_by_container("test-container")
+
+        # Token should no longer work
+        result = manager.validate_session(token)
+        assert not result.valid
+
+
+class TestSessionModes:
+    """Tests for session mode handling."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a session manager with a temporary persistence file."""
+        return SessionManager(persistence_file=tmp_path / "sessions.json")
+
+    def test_private_mode(self, manager):
+        """Private mode sessions are created correctly."""
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        assert session.mode == "private"
+
+    def test_public_mode(self, manager):
+        """Public mode sessions are created correctly."""
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="public",
+        )
+        assert session.mode == "public"
+
+    def test_mode_persists(self, tmp_path):
+        """Session mode is preserved after reload."""
+        persist_path = tmp_path / "sessions.json"
+
+        manager1 = SessionManager(persistence_file=persist_path)
+        _token, _ = manager1.register_session(
+            container_id="container-1",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        _token, _ = manager1.register_session(
+            container_id="container-2",
+            container_ip="172.18.0.6",
+            mode="public",
+        )
+
+        # Reload
+        manager2 = SessionManager(persistence_file=persist_path)
+
+        session1 = manager2.get_session_by_container("container-1")
+        session2 = manager2.get_session_by_container("container-2")
+
+        assert session1 is not None and session1.mode == "private"
+        assert session2 is not None and session2.mode == "public"
+
+
+class TestFastLookupCache:
+    """Tests for the fast token lookup cache behavior."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a session manager with a temporary persistence file."""
+        return SessionManager(persistence_file=tmp_path / "sessions.json")
+
+    def test_fast_cache_populated_on_register(self, manager):
+        """Fast lookup cache is populated when session is registered."""
+        token, _ = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        # Token should be in fast cache
+        assert token in manager._token_to_hash
+
+    def test_fast_cache_used_for_validation(self, manager):
+        """Validation uses fast lookup cache when available."""
+        token, _ = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        # Clear the hash from fast cache to test fallback
+        manager._token_to_hash.pop(token)
+
+        # Validation should still work (via hash computation)
+        result = manager.validate_session(token)
+        assert result.valid
+
+        # Fast cache should be repopulated
+        assert token in manager._token_to_hash
+
+    def test_fast_cache_repopulated_after_restart(self, tmp_path):
+        """Fast cache is repopulated when validating after restart."""
+        persist_path = tmp_path / "sessions.json"
+
+        # Create session
+        manager1 = SessionManager(persistence_file=persist_path)
+        token, _ = manager1.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        # Simulate restart
+        manager2 = SessionManager(persistence_file=persist_path)
+
+        # Fast cache should be empty (tokens not persisted)
+        assert token not in manager2._token_to_hash
+
+        # Validate - should work via hash computation
+        result = manager2.validate_session(token)
+        assert result.valid
+
+        # Fast cache should now be populated
+        assert token in manager2._token_to_hash
+
+    def test_fast_cache_cleared_on_delete(self, manager):
+        """Fast lookup cache is cleared when session is deleted."""
+        token, _ = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        # Token in cache
+        assert token in manager._token_to_hash
+
+        # Delete session
+        manager.delete_session(token)
+
+        # Token should be removed from cache
+        assert token not in manager._token_to_hash
+
+
+class TestValidationEdgeCases:
+    """Tests for session validation edge cases."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a session manager with a temporary persistence file."""
+        return SessionManager(persistence_file=tmp_path / "sessions.json")
+
+    def test_empty_token_rejected(self, manager):
+        """Empty token is rejected."""
+        result = manager.validate_session("")
+        assert not result.valid
+
+    def test_whitespace_token_rejected(self, manager):
+        """Whitespace-only token is rejected."""
+        result = manager.validate_session("   ")
+        assert not result.valid
+
+    def test_similar_tokens_distinguished(self, manager):
+        """Similar but different tokens are correctly distinguished."""
+        token1, _ = manager.register_session(
+            container_id="container-1",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        token2, _ = manager.register_session(
+            container_id="container-2",
+            container_ip="172.18.0.6",
+            mode="private",
+        )
+
+        # Each token should only validate its own session
+        result1 = manager.validate_session(token1)
+        result2 = manager.validate_session(token2)
+
+        assert result1.valid and result1.session.container_id == "container-1"
+        assert result2.valid and result2.session.container_id == "container-2"
+
+    def test_ttl_extended_on_validation(self, manager):
+        """Session TTL is extended on successful validation (heartbeat)."""
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        # Artificially age the session by setting expires_at to 1 hour ago
+        # This ensures a measurable difference after TTL extension
+        aged_expires = session.expires_at - timedelta(hours=1)
+        session.expires_at = aged_expires
+        session.last_seen = session.last_seen - timedelta(hours=1)
+
+        # Validate - this should extend the TTL
+        result = manager.validate_session(token)
+        assert result.valid
+
+        # Expiration should be extended beyond the aged value
+        assert result.session.expires_at > aged_expires
