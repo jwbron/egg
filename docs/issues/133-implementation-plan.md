@@ -23,19 +23,33 @@
 |------|---------|
 | `__init__.py` | Package exports |
 | `models.py` | Pydantic models matching JSON schema |
-| `loader.py` | Load/save contract from `.egg/contracts/{issue}.json` |
+| `loader.py` | Load/save contract from `.egg-state/contracts/{issue}.json` |
 | `roles.py` | Role enum and field ownership mapping |
 | `validator.py` | Validate mutations against role permissions |
 | `audit.py` | Audit log entry creation |
 
-> **Note**: The `.egg/contracts/` directory is created per-branch during pipeline initialization. Contracts are committed to the feature branch (`egg-{issue}`) and not to `main`. The directory is created by the `init` job in the SDLC pipeline workflow.
+> **Note**: The `.egg-state/contracts/` directory is created per-branch during pipeline initialization. Contracts are committed to the feature branch (`egg-{issue}`) and not to `main`. The directory is created by the `init` job in the SDLC pipeline workflow.
+>
+> **Directory distinction**: The `.egg/` directory (containing `schemas/`) holds the contract *library* — shared schema definitions committed to `main`. The `.egg-state/` directory holds contract *instances* — per-issue runtime state committed only to feature branches. This separation prevents confusion between schema files and instance data.
 
 ### 1.3 Gateway Contract Endpoint
 
 **Add to** `gateway/gateway.py`:
 - `POST /api/v1/contract/mutate` - Validate role and apply mutation
 - `GET /api/v1/contract/{issue}` - Retrieve contract state
-- Read role from GitHub Actions workflow context (not agent env vars)
+- Read role from GitHub Actions OIDC token (not agent env vars)
+
+**Create** `gateway/oidc_auth.py`:
+- Fetch GitHub OIDC public keys from `https://token.actions.githubusercontent.com/.well-known/jwks`
+- Cache public keys with 1-hour TTL
+- Validate JWT signature against cached keys
+- Extract role from `job_workflow_ref` claim (job name convention: `implement` → implementer, `review` → reviewer)
+- Reject tokens from unauthorized workflow files
+
+**Create** `gateway/role_resolver.py`:
+- Map job names to roles: `implement*` → `implementer`, `review*` → `reviewer`, `hitl*` → `human`
+- Validate token audience is `egg-gateway`
+- Return structured role object with permissions
 
 ### 1.4 Unit Tests
 
@@ -135,6 +149,29 @@ All mutations route through gateway endpoint for role enforcement.
 - Extract task IDs, descriptions, acceptance criteria, and file paths from plan markdown
 - Write extracted tasks to contract `phases[].tasks[]` on plan approval
 
+**Task ID Format Requirements**:
+- Tasks must be marked with explicit IDs: `[TASK-{phase}-{number}]` (e.g., `[TASK-1-1]`, `[TASK-1-2]`)
+- Example: `- [TASK-1-1] Create contract JSON schema — Acceptance: schema validates sample contracts`
+- The parser looks for this pattern: `\[TASK-(\d+)-(\d+)\]\s+(.+?)\s*—\s*Acceptance:\s*(.+)`
+
+**Parse Failure Handling**:
+- If a phase contains no parseable tasks, the parser emits a warning and creates a placeholder task: `[TASK-{phase}-0] Review phase {name} manually — Acceptance: Human verification`
+- If the plan document is missing or malformed, parsing fails with a structured error and the pipeline pauses for human intervention
+- Parse results include a `warnings[]` array surfaced in the bot comment for human review before implementation begins
+
+**Alternative: YAML Front Matter** (optional enhancement):
+- Plans may optionally include a `tasks.yaml` block in YAML front matter for unambiguous parsing:
+  ```yaml
+  ---
+  tasks:
+    - id: TASK-1-1
+      description: Create contract JSON schema
+      acceptance: Schema validates sample contracts
+      files: [".egg/schemas/contract.schema.json"]
+  ---
+  ```
+- If YAML front matter is present, the parser uses it; otherwise falls back to markdown pattern matching
+
 ---
 
 ## Phase 4: Pipeline Workflow
@@ -208,9 +245,27 @@ All mutations route through gateway endpoint for role enforcement.
 ### 5.3 HITL Checkbox Handling
 
 **Create** `shared/egg_contracts/hitl.py`:
-- Generate markdown checkbox block
+- Generate markdown checkbox block (with debounce notice)
 - Parse checkbox state from comment body
-- Handle debounce timing
+- Handle debounce timing with countdown updates
+- Update comment to show countdown status
+
+### 5.4 External Failure Handling
+
+**Create** `shared/egg_contracts/resilience.py`:
+- `RateLimitHandler`: Parse `X-RateLimit-*` headers, sleep until reset
+- `RetryWithBackoff`: Exponential backoff (1s, 2s, 4s, max 30s), 3 retries
+- `TimeoutCheckpoint`: Monitor job time, checkpoint state at T-10 minutes
+
+**Add to** `gateway/gateway.py`:
+- Track GitHub API rate limits across requests
+- Return `Retry-After` header when rate limited
+- Log rate limit events for observability
+
+**Add to** `.github/workflows/sdlc-pipeline.yml`:
+- `timeout-minutes: 360` (6 hours) with checkpoint handling
+- Add step to check remaining time and checkpoint if <10 minutes remain
+- Add `continue-on-error: true` with state preservation on controlled exit
 
 ---
 

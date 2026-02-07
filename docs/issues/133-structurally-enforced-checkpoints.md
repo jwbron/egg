@@ -32,8 +32,19 @@ The SDLC pipeline consists of multiple stages, each with a worker → reviewer p
 1. **Structural Enforcement**: Agents cannot be trusted to self-police via prompts. Role-based restrictions are enforced at the CLI and gateway level.
 2. **Phase-Based Operation Filtering**: Each pipeline phase permits only specific operations. The gateway blocks operations not allowed in the current phase.
 3. **Separate Context Windows**: Each agent invocation (worker, reviewer) runs in a separate GitHub Actions job with fresh context.
-4. **Contract-as-Code**: All state is stored in `.egg/contracts/{issue-number}.json` and committed to the branch.
+4. **Contract-as-Code**: All state is stored in `.egg-state/contracts/{issue-number}.json` and committed to the feature branch (not main).
 5. **Human-in-the-Loop**: Critical decisions pause the pipeline for human input via GitHub checkboxes.
+
+### Directory Structure
+
+The contract system uses two distinct directories:
+
+| Directory | Purpose | Committed To |
+|-----------|---------|--------------|
+| `.egg/schemas/` | Contract JSON schema definitions (library code) | `main` |
+| `.egg-state/contracts/` | Per-issue contract instances (runtime state) | Feature branches only |
+
+This separation prevents confusion between shared schema definitions and per-issue instance data.
 
 ### Phase-Based Operation Restrictions
 
@@ -103,9 +114,12 @@ For each phase:
 ### Phase N: {Name}
 - **Goal**: What this phase achieves
 - **Tasks**:
-  - Task ID, description, acceptance criteria, files affected
+  - `[TASK-N-1]` Description — Acceptance: criteria (files: path/to/file.py)
+  - `[TASK-N-2]` Description — Acceptance: criteria
 - **Dependencies**: What must be true before this phase starts
 - **Exit criteria**: How the reviewer knows this phase is complete
+
+> **Task ID format**: Tasks must use the `[TASK-{phase}-{number}]` marker for reliable extraction into the contract JSON. The plan parser extracts tasks matching this pattern.
 
 ## Test Strategy
 - What tests will be added/modified
@@ -219,6 +233,43 @@ egg-contract resolve-decision --decision decision-1 --resolution approved
 
 > **Note**: Rather than using pre-commit hooks for validation, the reviewer automatically kicks incomplete tasks back to the implementer. This ensures implementation must be complete before the workflow moves to the next task.
 
+### Gateway Role Determination Mechanism
+
+The gateway determines the caller's role through a **signed JWT token** issued by the GitHub Actions workflow:
+
+1. **Token Issuance**: Each job in the SDLC workflow calls a setup step that:
+   - Uses the `ACTIONS_ID_TOKEN_REQUEST_TOKEN` and `ACTIONS_ID_TOKEN_REQUEST_URL` to obtain a GitHub OIDC token
+   - The workflow embeds the role claim (`implementer`, `reviewer`, or `human`) in the job's `id-token: write` permission context
+   - The token is signed by GitHub's OIDC provider, making it unforgeable by the agent
+
+2. **Token Validation**: The gateway:
+   - Receives the token in the `Authorization: Bearer <token>` header from `egg-contract` CLI
+   - Validates the token signature against GitHub's OIDC public keys
+   - Extracts the `job_workflow_ref` claim to verify the request originates from an authorized workflow
+   - Extracts the role from workflow-defined claims (embedded via `permissions` or job name convention)
+
+3. **Fallback for Non-Workflow Contexts**: When running outside GitHub Actions (local development, manual testing):
+   - The gateway requires a pre-shared secret in `EGG_GATEWAY_ADMIN_TOKEN`
+   - This token grants `human` role for local debugging only
+   - Production workflows never use this fallback
+
+```yaml
+# Example: Role embedded via job name convention
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Required for OIDC token
+    steps:
+      - name: Get OIDC token with role
+        run: |
+          TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=egg-gateway" | jq -r '.value')
+          echo "EGG_OIDC_TOKEN=$TOKEN" >> $GITHUB_ENV
+```
+
+This mechanism ensures role claims are cryptographically verified and cannot be spoofed by the agent process.
+
 ---
 
 ## Part 4: Human-in-the-Loop Decision System
@@ -235,6 +286,21 @@ Please select one option:
 - [ ] **Approve plan** - Proceed to implementation
 - [ ] **Request changes** - I'll provide feedback below
 - [ ] **Reject plan** - This approach won't work
+
+---
+⏱️ *Your selection will be confirmed in 30 seconds. You can change your selection during this time.*
+```
+
+The debounce notice is displayed below the checkboxes to set clear expectations. After a checkbox is selected, the bot updates the comment to show:
+
+```markdown
+⏱️ *Selection received: **Approve plan**. Confirming in 25 seconds... (edit to change)*
+```
+
+This countdown updates every 5 seconds until the debounce period expires, then changes to:
+
+```markdown
+✅ *Decision confirmed: **Approve plan**. Pipeline resuming...*
 ```
 
 ### Decision Detection Workflow
@@ -312,6 +378,27 @@ Please select one option:
    - Review feedback history
    - Suggested resolution paths
 3. Create HITL decision checkbox for human guidance
+
+### External Failure Handling
+
+The pipeline must handle failures from external systems gracefully:
+
+| Failure Type | Detection | Handling |
+|--------------|-----------|----------|
+| **GitHub API rate limit** | HTTP 403 with `X-RateLimit-Remaining: 0` | Pause workflow, set `sleep` until `X-RateLimit-Reset`, retry |
+| **Network failure** | Connection timeout, DNS failure | Exponential backoff (1s, 2s, 4s, max 30s), 3 retries, then escalate |
+| **GitHub Actions timeout** | Job exceeds 6-hour limit | Checkpoint contract state before timeout; next run resumes from checkpoint |
+| **Gateway unavailable** | HTTP 502/503/504 from gateway | Retry with backoff, escalate if gateway down for >5 minutes |
+
+**Timeout Handling**:
+- Each job monitors its remaining time via `${{ github.event.timeout_minutes }}`
+- At 10 minutes before timeout, the job checkpoints current state to the contract and exits gracefully
+- The `loop` job detects incomplete exit and triggers a new workflow run to continue
+
+**Rate Limit Handling**:
+- The gateway tracks GitHub API rate limits and returns `Retry-After` headers
+- The CLI sleeps for the specified duration before retrying
+- If rate limit persists for >1 hour, the pipeline escalates to human
 
 ---
 
