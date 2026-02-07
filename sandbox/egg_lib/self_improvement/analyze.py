@@ -17,6 +17,7 @@ import os
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from .collectors.base import RunLog
 from .collectors.gha import GHALogCollector
@@ -207,7 +208,7 @@ def generate_json(
     successful = sum(1 for r in runs if r.status == "success")
     failed = sum(1 for r in runs if r.status == "failure")
 
-    data = {
+    data: dict[str, Any] = {
         "generated_at": datetime.now(UTC).isoformat(),
         "since": since.isoformat(),
         "summary": {

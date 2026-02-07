@@ -9,6 +9,7 @@ import json
 import subprocess
 import sys
 from dataclasses import dataclass
+from typing import Any
 
 from ..config import ISSUE_LABEL_PREFIX, ISSUE_TITLE_PREFIX
 from ..detection.engine import Detection, Severity
@@ -105,7 +106,7 @@ class IssueCreator:
         else:
             return self._create_issue(detection, fingerprint)
 
-    def _find_existing_issue(self, fingerprint: str) -> dict | None:
+    def _find_existing_issue(self, fingerprint: str) -> dict[str, Any] | None:
         """Search for an existing open issue with the given fingerprint.
 
         Args:
@@ -138,7 +139,7 @@ class IssueCreator:
             if result.returncode != 0:
                 return None
 
-            issues = json.loads(result.stdout)
+            issues: list[dict[str, Any]] = json.loads(result.stdout)
             fingerprint_marker = f"{FINGERPRINT_PREFIX}{fingerprint}{FINGERPRINT_SUFFIX}"
 
             for issue in issues:
@@ -217,7 +218,7 @@ class IssueCreator:
                 error=str(e),
             )
 
-    def _update_issue(self, existing: dict, detection: Detection, fingerprint: str) -> IssueResult:
+    def _update_issue(self, existing: dict[str, Any], detection: Detection, fingerprint: str) -> IssueResult:
         """Update an existing issue with new occurrence information.
 
         Args:

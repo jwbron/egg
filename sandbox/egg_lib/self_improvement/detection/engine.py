@@ -185,7 +185,7 @@ class DetectionEngine:
 
         return detections
 
-    def _analyze_run(self, run, detection_map: dict[str, Detection]) -> None:
+    def _analyze_run(self, run: RunLog, detection_map: dict[str, Detection]) -> None:
         """Analyze a single run against all rules.
 
         Args:
