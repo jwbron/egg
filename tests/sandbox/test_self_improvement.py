@@ -17,7 +17,13 @@ import pytest
 sandbox_path = Path(__file__).parent.parent.parent / "sandbox"
 sys.path.insert(0, str(sandbox_path))
 
-from egg_lib.self_improvement import LogCollector, RunLog
+from egg_lib.self_improvement import (
+    LogCollector,
+    RunLog,
+    collect_run_summary,
+    format_markdown_summary,
+)
+from egg_lib.self_improvement.collect import truncate_logs
 from egg_lib.self_improvement.collectors.gha import GHALogCollector
 from egg_lib.self_improvement.collectors.local import LocalLogCollector
 from egg_lib.self_improvement.config import (
@@ -249,3 +255,173 @@ class TestGHALogCollector:
         # Should only include the on-mention workflow
         assert len(runs) == 1
         assert runs[0]["id"] == 1
+
+
+class TestCollect:
+    """Tests for the collect module."""
+
+    def test_truncate_logs_short_content(self):
+        """Short logs are not truncated."""
+        short_log = "This is a short log"
+        result = truncate_logs(short_log, max_chars=100)
+        assert result == short_log
+
+    def test_truncate_logs_long_content(self):
+        """Long logs are truncated with indicator."""
+        long_log = "x" * 1000
+        result = truncate_logs(long_log, max_chars=100)
+
+        # Should have truncation indicator
+        assert "truncated" in result
+        # Should be shorter than original
+        assert len(result) < len(long_log)
+        # Should preserve some content from start and end
+        assert result.startswith("x")
+        assert result.endswith("x")
+
+    def test_truncate_logs_preserves_head_and_tail(self):
+        """Truncation preserves content from both ends."""
+        # Create log with distinct start and end
+        log = "START" + ("x" * 1000) + "END"
+        result = truncate_logs(log, max_chars=100)
+
+        assert "START" in result
+        assert "END" in result
+        assert "truncated" in result
+
+    @patch.object(GHALogCollector, "collect")
+    def test_collect_run_summary_structure(self, mock_collect: MagicMock):
+        """collect_run_summary returns expected structure."""
+        now = datetime.now(UTC)
+        mock_collect.return_value = [
+            RunLog(
+                run_id="123",
+                source="gha",
+                started_at=now,
+                completed_at=now,
+                status="failure",
+                trigger="issue_comment",
+                logs="Error: test failure",
+                metadata={
+                    "workflow": "on-mention.yml",
+                    "head_branch": "main",
+                    "html_url": "https://github.com/test/repo/actions/runs/123",
+                },
+            ),
+            RunLog(
+                run_id="456",
+                source="gha",
+                started_at=now,
+                completed_at=now,
+                status="success",
+                trigger="push",
+                logs="All tests passed",
+                metadata={"workflow": "on-pull-request.yml"},
+            ),
+        ]
+
+        collector = GHALogCollector(repo="test/repo")
+        since = now - timedelta(hours=1)
+        result = collect_run_summary(collector, since)
+
+        # Check structure
+        assert "collected_at" in result
+        assert "since" in result
+        assert "repository" in result
+        assert "statistics" in result
+        assert "failed_runs" in result
+        assert "successful_runs" in result
+
+        # Check statistics
+        assert result["statistics"]["total_runs"] == 2
+        assert result["statistics"]["failed_runs"] == 1
+        assert result["statistics"]["successful_runs"] == 1
+
+        # Check failed run details
+        assert len(result["failed_runs"]) == 1
+        assert result["failed_runs"][0]["run_id"] == "123"
+        assert "log_excerpt" in result["failed_runs"][0]
+
+        # Check successful run (no logs)
+        assert len(result["successful_runs"]) == 1
+        assert result["successful_runs"][0]["run_id"] == "456"
+        assert "log_excerpt" not in result["successful_runs"][0]
+
+    @patch.object(GHALogCollector, "collect")
+    def test_collect_run_summary_empty(self, mock_collect: MagicMock):
+        """collect_run_summary handles empty results."""
+        mock_collect.return_value = []
+
+        collector = GHALogCollector(repo="test/repo")
+        since = datetime.now(UTC) - timedelta(hours=1)
+        result = collect_run_summary(collector, since)
+
+        assert result["statistics"]["total_runs"] == 0
+        assert result["statistics"]["failed_runs"] == 0
+        assert result["failed_runs"] == []
+        assert result["successful_runs"] == []
+
+    @patch.object(GHALogCollector, "collect")
+    def test_format_markdown_summary_with_failures(self, mock_collect: MagicMock):
+        """format_markdown_summary includes failed run details."""
+        now = datetime.now(UTC)
+        mock_collect.return_value = [
+            RunLog(
+                run_id="123",
+                source="gha",
+                started_at=now,
+                completed_at=now,
+                status="failure",
+                trigger="issue_comment",
+                logs="Error: gateway connection failed",
+                metadata={
+                    "workflow": "on-mention.yml",
+                    "workflow_path": ".github/workflows/on-mention.yml",
+                    "head_branch": "main",
+                    "html_url": "https://github.com/test/repo/actions/runs/123",
+                    "run_number": 42,
+                },
+            ),
+        ]
+
+        collector = GHALogCollector(repo="test/repo")
+        since = now - timedelta(hours=1)
+        data = collect_run_summary(collector, since)
+        markdown = format_markdown_summary(data)
+
+        # Check key sections are present
+        assert "## Pre-Collected Run Data" in markdown
+        assert "### Statistics" in markdown
+        assert "### Failed Runs" in markdown
+        assert "Run 123" in markdown
+        assert "on-mention.yml" in markdown
+        assert "gateway connection failed" in markdown
+
+    @patch.object(GHALogCollector, "collect")
+    def test_format_markdown_summary_no_failures(self, mock_collect: MagicMock):
+        """format_markdown_summary indicates when no failures."""
+        now = datetime.now(UTC)
+        mock_collect.return_value = [
+            RunLog(
+                run_id="456",
+                source="gha",
+                started_at=now,
+                completed_at=now,
+                status="success",
+                trigger="push",
+                logs="All good",
+                metadata={"workflow": "on-pull-request.yml"},
+            ),
+        ]
+
+        collector = GHALogCollector(repo="test/repo")
+        since = now - timedelta(hours=1)
+        data = collect_run_summary(collector, since)
+        markdown = format_markdown_summary(data)
+
+        assert "### No Failed Runs" in markdown
+        assert "All egg workflows completed successfully" in markdown
+
+    def test_self_improvement_workflow_in_egg_workflows(self):
+        """self-improvement.yml is included in EGG_WORKFLOWS for self-reflection."""
+        assert "self-improvement.yml" in EGG_WORKFLOWS

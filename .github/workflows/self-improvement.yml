@@ -3,7 +3,8 @@ name: "egg: Self-Improvement Analysis"
 # This workflow follows agent-mode design principles:
 # - Give egg a clear objective and let it analyze + take action
 # - No rigid detection pipeline - egg reasons about problems intelligently
-# - egg fetches logs directly via gh CLI when it needs them
+# - Pre-collect run data to provide orientation (not constraint)
+# - egg can fetch additional details via gh CLI when needed
 
 on:
   schedule:
@@ -34,12 +35,43 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Generate bot token
         id: bot-token
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Collect run data
+        id: collect
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          SINCE_HOURS: ${{ github.event.inputs.since_hours || '24' }}
+        run: |
+          # Pre-collect run data to provide context for egg
+          # This follows agent-mode design: provide orientation, not constraint
+          PYTHONPATH=sandbox python -m egg_lib.self_improvement.collect \
+            --since-hours "${SINCE_HOURS}" \
+            --format markdown \
+            --output collected_data.md
+
+          echo "data_file=collected_data.md" >> "$GITHUB_OUTPUT"
+
+          # Show what we collected
+          {
+            echo "## Pre-Collected Run Data"
+            echo ""
+            echo "<details><summary>View collected data</summary>"
+            echo ""
+            cat collected_data.md
+            echo ""
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build task prompt
         id: prompt
@@ -52,13 +84,27 @@ jobs:
           # Self-Improvement Analysis Task
 
           Analyze recent GitHub Actions runs for this repository to identify recurring
-          problems or patterns that need attention.
+          problems or patterns that need attention. This includes analyzing the
+          self-improvement workflow itself (self-reflection).
+
+          ## Pre-Collected Data
+
+          Run data has been pre-collected and is included below. This provides an
+          overview of what happened - use it to orient your analysis. You can still
+          use `gh run view <run-id> --log` to get full logs for any run if the
+          excerpts aren't sufficient.
+
+          PROMPT_EOF
+
+          # Append the collected data
+          cat collected_data.md >> task_prompt.md
+
+          cat >> task_prompt.md << 'PROMPT_EOF'
 
           ## Objective
 
-          1. Use `gh run list` to find failed workflow runs from the last SINCE_HOURS_PLACEHOLDER hours
-             - Filter to egg-related workflows: on-mention.yml, on-pull-request.yml, on-check-failure.yml
-          2. For failed runs, use `gh run view <run-id> --log` to examine the logs
+          1. Review the pre-collected run data above to understand what happened
+          2. For runs that need deeper analysis, use `gh run view <run-id> --log`
           3. Identify recurring problems or patterns across runs
           4. For issues that warrant tracking, create GitHub issues with:
              - Clear description of the problem
@@ -67,6 +113,15 @@ jobs:
              - Label: `self-improvement`
           5. Before creating issues, search for existing open issues with the `self-improvement`
              label to avoid duplicates. You can update existing issues with new occurrences.
+
+          ## Self-Reflection
+
+          This workflow analyzes itself. If you see failures in `self-improvement.yml` runs,
+          pay special attention - improving the self-improvement process is valuable.
+          Consider whether issues could be:
+          - Bugs in the data collection or analysis logic
+          - Missing context that would help future analysis
+          - Patterns that the workflow should detect automatically
 
           ## Guidance
 
