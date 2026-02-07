@@ -6,8 +6,6 @@ specialized setups for gateway, session, and policy testing.
 """
 
 import os
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -116,8 +114,8 @@ def clean_session_manager():
     temp_files = []
 
     def _create_manager(**kwargs):
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
 
         fd, path = tempfile.mkstemp(suffix=".json")
         os.close(fd)

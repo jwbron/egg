@@ -672,8 +672,6 @@ class TestPersistenceEdgeCases:
 
     def test_persistence_file_permissions(self, tmp_path):
         """Persisted file should have restrictive permissions."""
-        import stat
-
         persist_path = tmp_path / "sessions.json"
         manager = SessionManager(persistence_file=persist_path)
 
@@ -829,7 +827,7 @@ class TestFastLookupCache:
         )
 
         # Clear the hash from fast cache to test fallback
-        original_hash = manager._token_to_hash.pop(token)
+        manager._token_to_hash.pop(token)
 
         # Validation should still work (via hash computation)
         result = manager.validate_session(token)

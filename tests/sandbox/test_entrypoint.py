@@ -352,15 +352,16 @@ class TestSetupClaude:
 
 
 class TestStartupTimer:
-    """Tests for the StartupTimer class."""
+    """Tests for the StartupTimer class.
+
+    Uses monkeypatch.setattr to modify ENABLE_STARTUP_TIMING instead of
+    importlib.reload to avoid test pollution from module reloading.
+    """
 
     def test_timer_disabled_by_default(self, monkeypatch):
-        """Timer is disabled when EGG_TIMING is not set."""
-        monkeypatch.delenv("EGG_TIMING", raising=False)
-
-        # Reload the module to pick up env change
-        import importlib
-        importlib.reload(entrypoint)
+        """Timer is disabled when ENABLE_STARTUP_TIMING is False."""
+        # Directly patch the module-level constant
+        monkeypatch.setattr(entrypoint, "ENABLE_STARTUP_TIMING", False)
 
         timer = entrypoint.StartupTimer()
         timer.start_phase("test_phase")
@@ -370,11 +371,8 @@ class TestStartupTimer:
         assert len(timer.timings) == 0
 
     def test_timer_enabled_with_env(self, monkeypatch):
-        """Timer records phases when EGG_TIMING=1."""
-        monkeypatch.setenv("EGG_TIMING", "1")
-
-        import importlib
-        importlib.reload(entrypoint)
+        """Timer records phases when ENABLE_STARTUP_TIMING is True."""
+        monkeypatch.setattr(entrypoint, "ENABLE_STARTUP_TIMING", True)
 
         timer = entrypoint.StartupTimer()
         timer.start_phase("test_phase")
@@ -388,10 +386,7 @@ class TestStartupTimer:
 
     def test_phase_context_manager(self, monkeypatch):
         """Phase context manager works correctly."""
-        monkeypatch.setenv("EGG_TIMING", "1")
-
-        import importlib
-        importlib.reload(entrypoint)
+        monkeypatch.setattr(entrypoint, "ENABLE_STARTUP_TIMING", True)
 
         timer = entrypoint.StartupTimer()
 
@@ -404,14 +399,10 @@ class TestStartupTimer:
 
     def test_host_timing_loaded_from_env(self, monkeypatch):
         """Host timing data is loaded from EGG_HOST_TIMING env var."""
-        monkeypatch.setenv("EGG_TIMING", "1")
         monkeypatch.setenv(
             "EGG_HOST_TIMING",
             '{"timings": [["host_phase", 100.5]], "total_time": 100.5}'
         )
-
-        import importlib
-        importlib.reload(entrypoint)
 
         timer = entrypoint.StartupTimer()
 
@@ -421,11 +412,7 @@ class TestStartupTimer:
 
     def test_invalid_host_timing_handled(self, monkeypatch):
         """Invalid host timing JSON is handled gracefully."""
-        monkeypatch.setenv("EGG_TIMING", "1")
         monkeypatch.setenv("EGG_HOST_TIMING", "not valid json")
-
-        import importlib
-        importlib.reload(entrypoint)
 
         timer = entrypoint.StartupTimer()
 
@@ -488,7 +475,6 @@ class TestSetupGit:
         entrypoint.setup_git(config, logger)
 
         # Credential helper should be set to empty string
-        calls = [str(call) for call in mock_run.call_args_list]
         # Find the credential.helper call and verify it's setting empty
         cred_calls = [c for c in mock_run.call_args_list
                       if "credential.helper" in str(c)]
@@ -531,35 +517,22 @@ class TestSetupWorktrees:
 class TestSetupAgentRules:
     """Tests for the setup_agent_rules function."""
 
+    @pytest.mark.skip(
+        reason="Requires complex mocking of /opt/claude-rules path; "
+        "function relies on hardcoded paths that are difficult to test without container"
+    )
     def test_creates_claude_md(self, temp_dir):
         """Creates CLAUDE.md from rule files."""
-        # Create mock rules directory
-        rules_dir = temp_dir / "rules"
-        rules_dir.mkdir()
-        (rules_dir / "mission.md").write_text("# Mission\nBe helpful.")
-        (rules_dir / "environment.md").write_text("# Environment\nSandbox mode.")
-
-        repos_dir = temp_dir / "repos"
-        repos_dir.mkdir()
-
-        config = MagicMock()
-        config.user_home = temp_dir
-        config.repos_dir = repos_dir
-        config.runtime_uid = 1000
-        config.runtime_gid = 1000
-
-        logger = entrypoint.Logger(quiet=True)
-
-        # Patch the rules directory path
-        with patch.object(Path, "__truediv__", wraps=Path.__truediv__):
-            original_exists = Path.exists
-
-            def patched_exists(self):
-                if str(self) == "/opt/claude-rules/mission.md":
-                    return (rules_dir / "mission.md").exists()
-                return original_exists(self)
-
-            # This is a simplified test - full test would require more mocking
+        # This test would require extensive mocking of the filesystem paths
+        # used in setup_agent_rules. The function reads from /opt/claude-rules/
+        # and writes to ~/CLAUDE.md, both of which require either:
+        # 1. Running in the actual container environment, or
+        # 2. Complex patching of Path operations
+        #
+        # For now, we skip this test and rely on:
+        # - test_no_rules_does_nothing for the early-exit path
+        # - Integration tests for the full functionality
+        pass
 
     @patch("os.chown")
     @patch("os.lchown")
