@@ -84,10 +84,12 @@ contract = Contract.model_validate_json(contract_json)
 result = check_all_thresholds(contract)
 
 # Generate HITL decision UI
-block = generate_full_hitl_block(options, task_id="task-1")
+block = generate_full_hitl_block(issue_number=123, stuck_task_id="task-1")
 
-# Retry with exponential backoff
-result = retry_with_backoff(lambda: api_call())
+# Retry with exponential backoff (decorator usage)
+@retry_with_backoff()
+def call_external_api():
+    ...
 ```
 
 **Key modules:**
