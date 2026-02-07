@@ -364,7 +364,9 @@ def increment_phase_cycle(
     if result.should_trip:
         phase.escalated = True
         phase.escalation_reason = result.reason
-        contract = open_circuit_breaker(contract, result.reason or "Phase threshold exceeded", actor)
+        contract = open_circuit_breaker(
+            contract, result.reason or "Phase threshold exceeded", actor
+        )
 
     return contract, result
 
@@ -401,7 +403,9 @@ def increment_pipeline_cycle(
     # Check if this triggers the circuit breaker
     result = check_pipeline_threshold(contract)
     if result.should_trip:
-        contract = open_circuit_breaker(contract, result.reason or "Pipeline threshold exceeded", actor)
+        contract = open_circuit_breaker(
+            contract, result.reason or "Pipeline threshold exceeded", actor
+        )
 
     return contract, result
 
@@ -422,30 +426,36 @@ def get_escalation_summary(contract: Contract) -> dict[str, Any]:
 
     for phase in contract.phases:
         if phase.escalated:
-            stuck_phases.append({
-                "id": phase.id,
-                "name": phase.name,
-                "cycles": phase.review_cycles,
-                "reason": phase.escalation_reason,
-            })
+            stuck_phases.append(
+                {
+                    "id": phase.id,
+                    "name": phase.name,
+                    "cycles": phase.review_cycles,
+                    "reason": phase.escalation_reason,
+                }
+            )
 
         for task in phase.tasks:
             if task.escalated:
-                escalated_tasks.append({
-                    "id": task.id,
-                    "phase": phase.id,
-                    "description": task.description,
-                    "cycles": task.review_cycles,
-                    "status": task.status,
-                })
+                escalated_tasks.append(
+                    {
+                        "id": task.id,
+                        "phase": phase.id,
+                        "description": task.description,
+                        "cycles": task.review_cycles,
+                        "status": task.status,
+                    }
+                )
             elif task.status not in (TaskStatus.COMPLETE,):
-                incomplete_tasks.append({
-                    "id": task.id,
-                    "phase": phase.id,
-                    "description": task.description,
-                    "cycles": task.review_cycles,
-                    "status": task.status,
-                })
+                incomplete_tasks.append(
+                    {
+                        "id": task.id,
+                        "phase": phase.id,
+                        "description": task.description,
+                        "cycles": task.review_cycles,
+                        "status": task.status,
+                    }
+                )
 
     return {
         "circuit_breaker_status": contract.circuit_breaker.status,

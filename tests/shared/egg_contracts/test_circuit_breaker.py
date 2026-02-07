@@ -201,10 +201,12 @@ class TestCheckPipelineThreshold:
         """Test that incomplete tasks are collected."""
         contract = create_test_contract(total_cycles=10, max_cycles=10)
         contract.phases = [
-            create_test_phase(tasks=[
-                create_test_task(task_id="task-1", status=TaskStatus.COMPLETE),
-                create_test_task(task_id="task-2", status=TaskStatus.IN_PROGRESS),
-            ]),
+            create_test_phase(
+                tasks=[
+                    create_test_task(task_id="task-1", status=TaskStatus.COMPLETE),
+                    create_test_task(task_id="task-2", status=TaskStatus.IN_PROGRESS),
+                ]
+            ),
         ]
         result = check_pipeline_threshold(contract)
         assert result.should_trip is True
@@ -370,10 +372,12 @@ class TestGetEscalationSummary:
         """Test summary includes escalated tasks."""
         contract = create_test_contract(cb_status=CircuitBreakerStatus.OPEN)
         contract.phases = [
-            create_test_phase(tasks=[
-                create_test_task(task_id="task-1", escalated=True, review_cycles=3),
-                create_test_task(task_id="task-2", status=TaskStatus.INCOMPLETE),
-            ]),
+            create_test_phase(
+                tasks=[
+                    create_test_task(task_id="task-1", escalated=True, review_cycles=3),
+                    create_test_task(task_id="task-2", status=TaskStatus.INCOMPLETE),
+                ]
+            ),
         ]
 
         summary = get_escalation_summary(contract)

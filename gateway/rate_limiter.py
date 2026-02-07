@@ -333,7 +333,7 @@ class GitHubAPIRateTracker:
     the current rate limit status for observability and smart retry logic.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the rate tracker."""
         self._lock = threading.Lock()
         # Track rate limits per resource type (core, search, graphql, etc.)
@@ -422,7 +422,7 @@ class GitHubAPIRateTracker:
 
         # Trim old events
         if len(self._events) > self._max_events:
-            self._events = self._events[-self._max_events:]
+            self._events = self._events[-self._max_events :]
 
         # Log warning
         logger.warning(
@@ -482,10 +482,7 @@ class GitHubAPIRateTracker:
             Dictionary with status for all tracked resources
         """
         with self._lock:
-            resources = {
-                resource: info.to_dict()
-                for resource, info in self._limits.items()
-            }
+            resources = {resource: info.to_dict() for resource, info in self._limits.items()}
             return {
                 "resources": resources,
                 "any_limited": any(info.is_limited for info in self._limits.values()),

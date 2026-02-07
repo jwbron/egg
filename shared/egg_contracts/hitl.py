@@ -200,7 +200,11 @@ def generate_full_hitl_block(
             category=HitlDecisionCategory.GUIDANCE,
         ),
     ]
-    blocks.append(generate_checkbox_block(guidance_options, HitlDecisionCategory.GUIDANCE, "Option 1: Provide Guidance"))
+    blocks.append(
+        generate_checkbox_block(
+            guidance_options, HitlDecisionCategory.GUIDANCE, "Option 1: Provide Guidance"
+        )
+    )
     blocks.append("")
 
     # Override options
@@ -221,7 +225,11 @@ def generate_full_hitl_block(
             category=HitlDecisionCategory.OVERRIDE,
         ),
     ]
-    blocks.append(generate_checkbox_block(override_options, HitlDecisionCategory.OVERRIDE, "Option 2: Override"))
+    blocks.append(
+        generate_checkbox_block(
+            override_options, HitlDecisionCategory.OVERRIDE, "Option 2: Override"
+        )
+    )
     blocks.append("")
 
     # Manual options
@@ -237,7 +245,11 @@ def generate_full_hitl_block(
             category=HitlDecisionCategory.MANUAL,
         ),
     ]
-    blocks.append(generate_checkbox_block(manual_options, HitlDecisionCategory.MANUAL, "Option 3: Manual Intervention"))
+    blocks.append(
+        generate_checkbox_block(
+            manual_options, HitlDecisionCategory.MANUAL, "Option 3: Manual Intervention"
+        )
+    )
     blocks.append("")
 
     if include_debounce_notice:
@@ -297,12 +309,14 @@ def parse_checkbox_state(
             # Try to map label to known option ID
             option_id = _label_to_option_id(label, current_category)
 
-            options.append(HitlOption(
-                id=option_id,
-                label=label,
-                category=current_category,
-                checked=checked,
-            ))
+            options.append(
+                HitlOption(
+                    id=option_id,
+                    label=label,
+                    category=current_category,
+                    checked=checked,
+                )
+            )
 
     # Determine if there are changes from previous state
     has_changes = False

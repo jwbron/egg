@@ -232,7 +232,7 @@ def calculate_backoff_delay(
         config = RetryConfig()
 
     # Calculate exponential delay
-    delay = config.initial_delay_seconds * (config.exponential_base ** attempt)
+    delay = config.initial_delay_seconds * (config.exponential_base**attempt)
 
     # Cap at max delay
     delay = min(delay, config.max_delay_seconds)
@@ -240,6 +240,7 @@ def calculate_backoff_delay(
     # Add jitter if enabled (±25%)
     if config.jitter:
         import random
+
         jitter_factor = 0.75 + (random.random() * 0.5)
         delay *= jitter_factor
 
@@ -351,7 +352,9 @@ class TimeoutCheckpoint:
             job_start_time: When the job started (defaults to now)
         """
         self.timeout_minutes = timeout_minutes or self.DEFAULT_TIMEOUT_MINUTES
-        self.checkpoint_margin_minutes = checkpoint_margin_minutes or self.DEFAULT_CHECKPOINT_MARGIN_MINUTES
+        self.checkpoint_margin_minutes = (
+            checkpoint_margin_minutes or self.DEFAULT_CHECKPOINT_MARGIN_MINUTES
+        )
         self.job_start_time = job_start_time or datetime.now(UTC)
         self._checkpoints: list[CheckpointState] = []
 

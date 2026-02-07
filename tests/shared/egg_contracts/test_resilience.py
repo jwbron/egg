@@ -247,6 +247,7 @@ class TestRetryWithBackoff:
 
     def test_uses_retry_after(self):
         """Test that retry_after from error is respected."""
+
         @retry_with_backoff(RetryConfig(max_retries=1, initial_delay_seconds=0.01))
         def fails():
             raise RetryableError("Rate limited", retry_after=1)

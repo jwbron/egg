@@ -51,9 +51,24 @@ class TestHitlCheckboxState:
         """Test getting checked options."""
         state = HitlCheckboxState(
             options=[
-                HitlOption(id="opt1", label="Option 1", category=HitlDecisionCategory.GUIDANCE, checked=True),
-                HitlOption(id="opt2", label="Option 2", category=HitlDecisionCategory.GUIDANCE, checked=False),
-                HitlOption(id="opt3", label="Option 3", category=HitlDecisionCategory.OVERRIDE, checked=True),
+                HitlOption(
+                    id="opt1",
+                    label="Option 1",
+                    category=HitlDecisionCategory.GUIDANCE,
+                    checked=True,
+                ),
+                HitlOption(
+                    id="opt2",
+                    label="Option 2",
+                    category=HitlDecisionCategory.GUIDANCE,
+                    checked=False,
+                ),
+                HitlOption(
+                    id="opt3",
+                    label="Option 3",
+                    category=HitlDecisionCategory.OVERRIDE,
+                    checked=True,
+                ),
             ],
             has_changes=True,
             debounce_until=None,
@@ -67,8 +82,18 @@ class TestHitlCheckboxState:
         """Test getting checked options by category."""
         state = HitlCheckboxState(
             options=[
-                HitlOption(id="opt1", label="Option 1", category=HitlDecisionCategory.GUIDANCE, checked=True),
-                HitlOption(id="opt2", label="Option 2", category=HitlDecisionCategory.OVERRIDE, checked=True),
+                HitlOption(
+                    id="opt1",
+                    label="Option 1",
+                    category=HitlDecisionCategory.GUIDANCE,
+                    checked=True,
+                ),
+                HitlOption(
+                    id="opt2",
+                    label="Option 2",
+                    category=HitlDecisionCategory.OVERRIDE,
+                    checked=True,
+                ),
             ],
             has_changes=True,
             debounce_until=None,
@@ -82,7 +107,9 @@ class TestHitlCheckboxState:
         """Test conversion to dictionary."""
         state = HitlCheckboxState(
             options=[
-                HitlOption(id="opt1", label="Test", category=HitlDecisionCategory.GUIDANCE, checked=True),
+                HitlOption(
+                    id="opt1", label="Test", category=HitlDecisionCategory.GUIDANCE, checked=True
+                ),
             ],
             has_changes=True,
             debounce_until=datetime.now(UTC) + timedelta(seconds=30),
@@ -113,7 +140,9 @@ class TestGenerateCheckboxBlock:
     def test_checked_options(self):
         """Test that checked options have [x]."""
         options = [
-            HitlOption(id="opt1", label="Checked", category=HitlDecisionCategory.GUIDANCE, checked=True),
+            HitlOption(
+                id="opt1", label="Checked", category=HitlDecisionCategory.GUIDANCE, checked=True
+            ),
         ]
         block = generate_checkbox_block(options, HitlDecisionCategory.GUIDANCE)
 
@@ -239,7 +268,12 @@ class TestParseCheckboxState:
         """Test that changes from previous state are detected."""
         previous = HitlCheckboxState(
             options=[
-                HitlOption(id="opt1", label="Option 1", category=HitlDecisionCategory.GUIDANCE, checked=False),
+                HitlOption(
+                    id="opt1",
+                    label="Option 1",
+                    category=HitlDecisionCategory.GUIDANCE,
+                    checked=False,
+                ),
             ],
             has_changes=False,
             debounce_until=None,
@@ -320,7 +354,9 @@ class TestShouldProcessDecision:
         """Test when no options are checked."""
         state = HitlCheckboxState(
             options=[
-                HitlOption(id="opt1", label="Test", category=HitlDecisionCategory.GUIDANCE, checked=False),
+                HitlOption(
+                    id="opt1", label="Test", category=HitlDecisionCategory.GUIDANCE, checked=False
+                ),
             ],
             has_changes=False,
             debounce_until=None,
@@ -332,7 +368,9 @@ class TestShouldProcessDecision:
         """Test when debounce is still active."""
         state = HitlCheckboxState(
             options=[
-                HitlOption(id="opt1", label="Test", category=HitlDecisionCategory.GUIDANCE, checked=True),
+                HitlOption(
+                    id="opt1", label="Test", category=HitlDecisionCategory.GUIDANCE, checked=True
+                ),
             ],
             has_changes=True,
             debounce_until=datetime.now(UTC) + timedelta(seconds=30),
@@ -344,7 +382,9 @@ class TestShouldProcessDecision:
         """Test when ready to process (checked options, debounce expired)."""
         state = HitlCheckboxState(
             options=[
-                HitlOption(id="opt1", label="Test", category=HitlDecisionCategory.GUIDANCE, checked=True),
+                HitlOption(
+                    id="opt1", label="Test", category=HitlDecisionCategory.GUIDANCE, checked=True
+                ),
             ],
             has_changes=True,
             debounce_until=datetime.now(UTC) - timedelta(seconds=5),  # Expired
