@@ -2,6 +2,20 @@
 
 Guidelines for how to investigate and fix check failures.
 
+## Single-Pass Workflow (CRITICAL)
+
+**Fix ALL issues before pushing.** The autofixer must complete all fixes in a single
+pass to avoid triggering multiple workflow runs.
+
+**Workflow:**
+1. Investigate ALL failing checks first — make a complete list before fixing anything
+2. Fix all auto-fixable issues without committing
+3. Run checks locally — if anything fails, fix it and re-run
+4. Only after ALL local checks pass: commit and push once
+
+**Why this matters:** Each push triggers CI. Fixing one issue at a time causes the
+workflow to run repeatedly, wasting CI resources and time.
+
 ## Investigating Failures
 
 Use `gh pr checks <PR_NUMBER>` to list all checks and their status. For failed
@@ -23,7 +37,7 @@ file to understand what commands are being run.
 
 ## Running Checks Locally
 
-Before committing a fix, verify it locally:
+**Run ALL checks locally before pushing.** This is the verification loop:
 
 ```bash
 # Common check commands (varies by project)
@@ -32,19 +46,27 @@ make test       # or: pytest, npm test
 make build      # or: npm run build, cargo build
 ```
 
+**Verification loop:**
+1. Run all check commands
+2. If any fail, fix the issue
+3. Repeat until ALL checks pass
+4. Only then commit and push
+
 Look for a Makefile, package.json scripts, or pyproject.toml for project-specific commands.
 
 ## Committing Fixes
 
-When you have a fix:
+**Only commit after ALL local checks pass.** Do not push partial fixes.
 
 ```bash
+# After verifying all checks pass locally:
 git add <specific-files>
-git commit -m "Fix <check-name>: <brief description>"
+git commit -m "Fix checks: <summary of all fixes>"
 git push
 ```
 
-Keep commits focused. If fixing multiple issues, use separate commits for clarity.
+If fixing multiple distinct issues, you may use separate commits for clarity, but
+push them all together in a single push after verifying all checks pass.
 
 ## Reporting Unfixable Issues
 
