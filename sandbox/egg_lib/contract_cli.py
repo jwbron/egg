@@ -141,9 +141,7 @@ def validate_commit_sha(commit: str) -> str:
         ValueError: If the commit SHA format is invalid
     """
     if not COMMIT_SHA_PATTERN.match(commit):
-        raise ValueError(
-            f"Invalid commit SHA '{commit}': expected 7-40 hexadecimal characters"
-        )
+        raise ValueError(f"Invalid commit SHA '{commit}': expected 7-40 hexadecimal characters")
     return commit
 
 
