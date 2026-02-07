@@ -30,10 +30,12 @@ def get_issue_comments(repo: str, issue_number: str, token: str) -> list[dict]:
     """Fetch all comments on a GitHub issue."""
     result = subprocess.run(
         [
-            "gh", "api",
+            "gh",
+            "api",
             f"repos/{repo}/issues/{issue_number}/comments",
             "--paginate",
-            "--jq", ".[].body",
+            "--jq",
+            ".[].body",
         ],
         capture_output=True,
         text=True,
