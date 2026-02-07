@@ -109,6 +109,12 @@ repo_parser = _load_module_with_replaced_imports(
     GATEWAY_DIR / "repo_parser.py",
 )
 
+# token_refresher has no relative imports to other gateway modules
+token_refresher = _load_module_with_replaced_imports(
+    "token_refresher",
+    GATEWAY_DIR / "token_refresher.py",
+)
+
 # repo_visibility has no relative imports to other gateway modules
 repo_visibility = _load_module_with_replaced_imports(
     "repo_visibility",
