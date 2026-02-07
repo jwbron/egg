@@ -740,6 +740,7 @@ def exec_in_new_container(
     thread_ts: str | None = None,
     auth_mode: str = "oauth-token",
     repo_mode: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> bool:
     """Execute a command in a new ephemeral container.
 
@@ -758,6 +759,7 @@ def exec_in_new_container(
                    - None: Legacy mode (all repos accessible, global env vars)
                    - "private": Only mount private/internal repos
                    - "public": Only mount public repos
+        extra_env: Additional environment variables to pass to the container
 
     Returns:
         True if successful, False otherwise
@@ -899,6 +901,10 @@ def exec_in_new_container(
         api_key = get_anthropic_api_key()
         if api_key:
             caller_env["ANTHROPIC_API_KEY"] = api_key
+
+    # Merge in any extra environment variables from caller
+    if extra_env:
+        caller_env.update(extra_env)
 
     # Add logging configuration for log persistence
     log_config = get_docker_log_config(container_id, task_id)

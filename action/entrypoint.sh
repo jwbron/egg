@@ -103,6 +103,11 @@ export EGG_CONFIG_DIR="$CONFIG_DIR"
 EGG_LAUNCHER_SECRET="$(cat "$CONFIG_DIR/launcher-secret")"
 export EGG_LAUNCHER_SECRET
 
+# Pass through EGG_BOT_NAME if set (used by gh wrapper for review markers)
+if [[ -n "${EGG_BOT_NAME:-}" ]]; then
+  export EGG_BOT_NAME
+fi
+
 # Add egg_lib and shared modules to Python path
 export PYTHONPATH="${SCRIPT_DIR}/../sandbox:${SCRIPT_DIR}/../shared${PYTHONPATH:+:$PYTHONPATH}"
 
