@@ -58,6 +58,46 @@ skipping linter-handled style issues.
 This enables multiple specialized reviewers (e.g., security-focused, design-focused)
 by providing different prompt scripts while sharing the review infrastructure.
 
+## Design Review
+
+**Workflow:** [`.github/workflows/on-pull-request-agent-mode-design.yml`](../../.github/workflows/on-pull-request-agent-mode-design.yml)
+
+A specialized reviewer that checks PRs for alignment with [agent-mode design principles](agent-mode-design.md).
+Uses the same reusable framework as AI Code Review but with a focused prompt.
+
+### Trigger Scope
+
+Only runs on PRs that modify agent-related files:
+- `action/**` — Action code and prompt builders
+- `.github/workflows/**` — Workflow definitions
+- `sandbox/**/*.md` — Sandbox documentation
+- `docs/guides/agent-mode-design.md` — The design guide itself
+
+### What It Reviews
+
+This is a **specialized** review, not a general code review. The base AI Code Review
+handles correctness, security, and style. Design Review focuses exclusively on:
+
+| Anti-Pattern | Description |
+|--------------|-------------|
+| Excessive pre-fetching | Baking large diffs (10KB+) or full file contents into prompts |
+| Structured output for humans | Requiring JSON when output goes directly to PR comments |
+| Post-processing pipelines | Scripts that parse agent output to take actions the agent could take directly |
+| Rigid procedures | Micromanaging step-by-step procedures when objectives would suffice |
+| Prompt-level security | Using instructions for constraints that should be sandbox-enforced |
+
+### Review Philosophy
+
+The reviewer applies guidelines with judgment, not as absolute rules:
+- **Orienting vs constraining** — Lightweight metadata that helps the agent is fine;
+  large pre-fetched data that constrains exploration is not.
+- **Practical balance** — A design that's 80% aligned but works is better than 100%
+  pure but fragile.
+- **Benefit of the doubt** — Borderline cases lean toward the charitable interpretation.
+
+If a PR has no agent-mode concerns, the reviewer approves with a brief note rather
+than providing general feedback that duplicates the base review.
+
 ## @mention Response
 
 **Workflow:** [`.github/workflows/on-mention.yml`](../../.github/workflows/on-mention.yml)
