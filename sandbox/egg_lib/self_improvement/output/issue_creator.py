@@ -218,7 +218,9 @@ class IssueCreator:
                 error=str(e),
             )
 
-    def _update_issue(self, existing: dict[str, Any], detection: Detection, fingerprint: str) -> IssueResult:
+    def _update_issue(
+        self, existing: dict[str, Any], detection: Detection, fingerprint: str
+    ) -> IssueResult:
         """Update an existing issue with new occurrence information.
 
         Args:
