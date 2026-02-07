@@ -5,13 +5,8 @@ Phase 4: Comprehensive Coverage - Integration Test Expansion
 Tests error handling, recovery, and graceful degradation in the gateway stack.
 """
 
-import time
-from unittest.mock import MagicMock, patch
-
 import pytest
 import requests
-
-from tests.utils.gateway_client import docker_available
 
 
 @pytest.mark.integration

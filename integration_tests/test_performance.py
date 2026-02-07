@@ -12,8 +12,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
 
-from tests.utils.gateway_client import docker_available
-
 
 @pytest.mark.integration
 @pytest.mark.timeout(60)
@@ -26,7 +24,7 @@ class TestPerformanceBaselines:
 
         for _ in range(10):
             start = time.perf_counter()
-            result = egg_stack.health_check(timeout=5)
+            egg_stack.health_check(timeout=5)
             latency = (time.perf_counter() - start) * 1000  # ms
             latencies.append(latency)
 

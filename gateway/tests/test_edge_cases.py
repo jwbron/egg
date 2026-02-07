@@ -5,7 +5,6 @@ Phase 4: Comprehensive Coverage - Edge Case Enumeration
 Tests empty inputs, maximum lengths, special characters, and boundary values.
 """
 
-import string
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -20,7 +19,7 @@ from policy import (
     extract_branch_from_refspec,
     extract_repo_from_remote,
 )
-from rate_limiter import RateLimitResult, SlidingWindowRateLimiter
+from rate_limiter import SlidingWindowRateLimiter
 from session_manager import Session, SessionManager, SessionValidationResult, _hash_token
 
 

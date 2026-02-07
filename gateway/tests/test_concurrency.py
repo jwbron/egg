@@ -9,14 +9,14 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 # Import from conftest-loaded modules
 from policy import BoundedCache, CachedPRInfo, PolicyEngine
 from rate_limiter import SlidingWindowRateLimiter
-from session_manager import SessionManager, _hash_token
+from session_manager import SessionManager
 
 
 class TestSessionManagerConcurrency:
@@ -347,7 +347,7 @@ class TestRateLimiterConcurrency:
         def make_requests():
             nonlocal call_count
             for _ in range(100):
-                result = limiter.is_allowed("stress-key")
+                limiter.is_allowed("stress-key")
                 with lock:
                     call_count += 1
 
@@ -399,7 +399,6 @@ class TestBoundedCacheConcurrency:
             cache[f"initial-{i}"] = i
 
         errors = []
-        reads = []
         lock = threading.Lock()
 
         def reader():
@@ -623,7 +622,7 @@ class TestDeadlockPrevention:
         def nested_check(i):
             result1 = limiter1.is_allowed(f"key-{i}")
             if result1.allowed:
-                result2 = limiter2.is_allowed(f"key-{i}")
+                limiter2.is_allowed(f"key-{i}")
                 # Check stats (exercises lock)
                 limiter1.get_stats()
                 limiter2.get_stats()

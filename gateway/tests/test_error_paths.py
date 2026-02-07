@@ -6,21 +6,17 @@ Tests all exception handlers to ensure proper error handling and graceful degrad
 """
 
 import json
-import os
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 # Import from conftest-loaded modules
-from rate_limiter import RateLimitResult, SlidingWindowRateLimiter
+from rate_limiter import SlidingWindowRateLimiter
 from session_manager import (
-    Session,
     SessionManager,
-    SessionValidationResult,
-    _hash_token,
     validate_session_for_request,
 )
 
