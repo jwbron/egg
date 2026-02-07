@@ -43,6 +43,24 @@ class TestGetFieldOwner:
         assert get_field_owner("phases.0.tasks.0.commit") == Role.IMPLEMENTER
         assert get_field_owner("phases.1.tasks.5.notes") == Role.IMPLEMENTER
 
+    def test_nested_wildcard_fields(self):
+        """Test nested fields with wildcard suffix patterns (e.g., files_affected.*)."""
+        # files_affected.* should match files_affected.0, files_affected.1, etc.
+        assert get_field_owner("phases.0.tasks.0.files_affected.0") == Role.IMPLEMENTER
+        assert get_field_owner("phases.0.tasks.0.files_affected.5") == Role.IMPLEMENTER
+        # review_feedback.* should match review_feedback.0.feedback, etc.
+        assert get_field_owner("phases.0.review_feedback.0") == Role.REVIEWER
+        assert get_field_owner("phases.0.review_feedback.1") == Role.REVIEWER
+
+    def test_deeply_nested_wildcard_fields(self):
+        """Test deeper nested fields that require prefix matching (line 94 coverage)."""
+        # Test paths that go deeper than the wildcard pattern
+        # phases.*.review_feedback.* should match phases.0.review_feedback.0.text
+        assert get_field_owner("phases.0.review_feedback.0.text") == Role.REVIEWER
+        assert get_field_owner("phases.0.review_feedback.0.timestamp") == Role.REVIEWER
+        # phases.*.tasks.*.files_affected.* should match deeper nesting
+        assert get_field_owner("phases.0.tasks.0.files_affected.0.path") == Role.IMPLEMENTER
+
     def test_reviewer_fields(self):
         """Test fields owned by reviewer."""
         assert get_field_owner("phases.0.tasks.0.status") == Role.REVIEWER

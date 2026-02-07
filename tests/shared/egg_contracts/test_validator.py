@@ -262,3 +262,161 @@ class TestErrorMessages:
         )
         assert result.valid is False
         assert "human" in result.message.lower()
+
+
+class TestApplyMutationErrors:
+    """Tests for error handling in apply_mutation."""
+
+    @pytest.fixture
+    def sample_contract(self):
+        """Create a sample contract for testing."""
+        return Contract(
+            issue=IssueInfo(
+                number=133,
+                title="Test",
+                url="https://example.com",
+            ),
+            phases=[
+                Phase(
+                    id="phase-1",
+                    name="Setup",
+                    tasks=[
+                        Task(
+                            id="task-1",
+                            description="First task",
+                            status=TaskStatus.PENDING,
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+    def test_apply_mutation_with_invalid_path(self, sample_contract):
+        """Test that invalid path returns failure."""
+        result = apply_mutation(
+            contract=sample_contract,
+            role=Role.HUMAN,
+            actor="test",
+            field_path="nonexistent.path.field",
+            new_value="value",
+        )
+        assert result.success is False
+        assert "Failed to apply mutation" in result.message
+
+    def test_apply_mutation_with_invalid_array_index(self, sample_contract):
+        """Test that out-of-bounds array index returns failure."""
+        result = apply_mutation(
+            contract=sample_contract,
+            role=Role.HUMAN,
+            actor="test",
+            field_path="phases.99.tasks.0.status",
+            new_value="complete",
+        )
+        assert result.success is False
+        assert "Failed to apply mutation" in result.message
+
+
+class TestGetValueHelper:
+    """Tests for _get_value helper function."""
+
+    def test_get_value_from_list(self):
+        """Test getting value from list."""
+        from egg_contracts.validator import _get_value
+
+        contract = Contract(
+            issue=IssueInfo(number=1, title="Test", url="https://example.com"),
+            phases=[
+                Phase(
+                    id="phase-1",
+                    name="Setup",
+                    tasks=[Task(id="task-1", description="First")],
+                ),
+            ],
+        )
+        value = _get_value(contract, "phases.0.tasks.0.description")
+        assert value == "First"
+
+    def test_get_value_from_dict(self):
+        """Test getting value from dict."""
+        from egg_contracts.validator import _get_value
+
+        obj = {"level1": {"level2": "value"}}
+        value = _get_value(obj, "level1.level2")
+        assert value == "value"
+
+    def test_get_value_raises_key_error(self):
+        """Test that KeyError is raised for invalid path."""
+        from egg_contracts.validator import _get_value
+
+        obj = {"a": 1}
+        with pytest.raises(KeyError):
+            _get_value(obj, "a.b.c")
+
+    def test_get_value_raises_index_error(self):
+        """Test that IndexError is raised for out-of-bounds index."""
+        from egg_contracts.validator import _get_value
+
+        obj = {"data": [1, 2, 3]}
+        with pytest.raises(IndexError):
+            _get_value(obj, "data.99")
+
+
+class TestSetValueHelper:
+    """Tests for _set_value helper function."""
+
+    def test_set_value_on_list(self):
+        """Test setting value on list."""
+        from egg_contracts.validator import _set_value
+
+        contract = Contract(
+            issue=IssueInfo(number=1, title="Test", url="https://example.com"),
+            phases=[
+                Phase(
+                    id="phase-1",
+                    name="Setup",
+                    tasks=[Task(id="task-1", description="First")],
+                ),
+            ],
+        )
+        _set_value(contract, "phases.0.tasks.0.description", "Updated")
+        assert contract.phases[0].tasks[0].description == "Updated"
+
+    def test_set_value_on_dict(self):
+        """Test setting value on dict."""
+        from egg_contracts.validator import _set_value
+
+        obj = {"level1": {"level2": "old"}}
+        _set_value(obj, "level1.level2", "new")
+        assert obj["level1"]["level2"] == "new"
+
+    def test_set_value_on_list_item(self):
+        """Test setting value directly on list item."""
+        from egg_contracts.validator import _set_value
+
+        obj = {"data": ["a", "b", "c"]}
+        _set_value(obj, "data.1", "updated")
+        assert obj["data"][1] == "updated"
+
+    def test_set_value_raises_key_error_for_invalid_path(self):
+        """Test that KeyError is raised for invalid path."""
+        from egg_contracts.validator import _set_value
+
+        obj = {"a": 1}
+        with pytest.raises(KeyError):
+            _set_value(obj, "a.b.c", "value")
+
+    def test_set_value_raises_index_error(self):
+        """Test that IndexError is raised for out-of-bounds index."""
+        from egg_contracts.validator import _set_value
+
+        obj = {"data": [1, 2, 3]}
+        with pytest.raises(IndexError):
+            _set_value(obj, "data.99", "value")
+
+    def test_set_value_raises_key_error_for_non_container(self):
+        """Test that KeyError is raised for non-container final path."""
+        from egg_contracts.validator import _set_value
+
+        obj = {"a": 123}  # Integer, not a container
+        with pytest.raises(KeyError):
+            _set_value(obj, "a.b", "value")
