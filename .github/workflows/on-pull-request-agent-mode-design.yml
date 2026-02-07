@@ -23,7 +23,7 @@ jobs:
     outputs:
       run: ${{ steps.check.outputs.run }}
     steps:
-      - name: Check conditions
+      - name: Check if PR is ready for review
         id: check
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}

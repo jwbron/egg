@@ -47,7 +47,7 @@ jobs:
       BOT_USERNAME: james-in-a-box
 
     steps:
-      - name: Generate bot token
+      - name: Generate GitHub App token for bot
         id: bot-token
         uses: actions/create-github-app-token@v1
         with:
@@ -56,7 +56,7 @@ jobs:
 
       # For workflow_dispatch, fetch PR metadata via API since
       # github.event.pull_request is not available
-      - name: Fetch PR metadata
+      - name: Fetch PR head branch and repo
         id: pr-meta
         run: |
           pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
@@ -69,7 +69,7 @@ jobs:
       # The gh wrapper adds a marker to all automated reviews:
       #   <!-- egg-automated-review bot=<name> commit=<sha> -->
       # We search for this marker in reviews and comments to find the last review.
-      - name: Get last review info
+      - name: Find last bot review commit for re-review context
         id: last-review
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -150,7 +150,7 @@ jobs:
           fi
 
       # Dismiss previous bot reviews before starting new review
-      - name: Dismiss previous bot reviews
+      - name: Dismiss stale bot reviews
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
@@ -173,7 +173,7 @@ jobs:
           ref: main
           persist-credentials: false
 
-      - name: Build review prompt
+      - name: Build review prompt from trusted main branch
         id: prompt
         run: bash ${{ inputs.prompt_script }}
         env:
@@ -181,14 +181,14 @@ jobs:
           PR_NUMBER: ${{ env.PR_NUMBER }}
           LAST_REVIEW_COMMIT: ${{ steps.last-review.outputs.commit-sha }}
 
-      - name: Checkout PR branch
+      - name: Checkout PR code for review
         uses: actions/checkout@v4
         with:
           repository: ${{ steps.pr-meta.outputs.head-repo }}
           ref: ${{ steps.pr-meta.outputs.head-ref }}
           persist-credentials: false
 
-      - name: Run egg review
+      - name: Run egg to review and post feedback
         id: egg
         uses: jwbron/egg/action@main
         with:
@@ -203,7 +203,7 @@ jobs:
         env:
           EGG_BOT_NAME: ${{ inputs.bot_name }}
 
-      - name: Post status comment
+      - name: Post workflow run status to PR
         if: always()
         run: |
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
