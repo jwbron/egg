@@ -182,6 +182,7 @@ class Config:
     runtime_uid: int = field(default_factory=lambda: int(os.environ.get("RUNTIME_UID", "1000")))
     runtime_gid: int = field(default_factory=lambda: int(os.environ.get("RUNTIME_GID", "1000")))
     quiet: bool = field(default_factory=lambda: os.environ.get("EGG_QUIET", "0") == "1")
+    debug: bool = field(default_factory=lambda: os.environ.get("EGG_DEBUG", "0") == "1")
 
     # LLM configuration
     # Auth method: "api_key" (default) or "oauth"
@@ -223,10 +224,15 @@ class Config:
 
 
 class Logger:
-    """Simple logger with quiet mode support."""
+    """Simple logger with quiet mode and debug mode support.
 
-    def __init__(self, quiet: bool = False):
+    Debug mode (EGG_DEBUG=1) logs each startup phase to stderr for
+    post-mortem analysis when containers hang or timeout.
+    """
+
+    def __init__(self, quiet: bool = False, debug: bool = False):
         self.quiet = quiet
+        self.debug = debug
 
     def info(self, msg: str) -> None:
         """Info message (hidden in quiet mode)."""
@@ -245,6 +251,24 @@ class Logger:
     def error(self, msg: str) -> None:
         """Error message (always shown, to stderr)."""
         print(f"✗ {msg}", file=sys.stderr)
+
+    def phase_start(self, phase: str) -> None:
+        """Log the start of a startup phase (debug mode only, to stderr).
+
+        These messages go to stderr so they're captured even if the
+        container hangs during startup (stdout may be buffered).
+        """
+        if self.debug:
+            elapsed_ms = (time.time() - _CONTAINER_START_TIME) * 1000
+            print(f"[DEBUG +{elapsed_ms:7.0f}ms] Starting: {phase}", file=sys.stderr)
+            sys.stderr.flush()
+
+    def phase_end(self, phase: str) -> None:
+        """Log the end of a startup phase (debug mode only, to stderr)."""
+        if self.debug:
+            elapsed_ms = (time.time() - _CONTAINER_START_TIME) * 1000
+            print(f"[DEBUG +{elapsed_ms:7.0f}ms] Finished: {phase}", file=sys.stderr)
+            sys.stderr.flush()
 
 
 # =============================================================================
@@ -897,7 +921,13 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
 
     logger.info("Waiting for gateway readiness...")
 
-    timeout = 60  # seconds
+    # Timeout is configurable via EGG_GATEWAY_TIMEOUT for faster test feedback
+    # Default 60s for production, but tests can set lower values
+    timeout_str = os.environ.get("EGG_GATEWAY_TIMEOUT", "60")
+    try:
+        timeout = int(timeout_str)
+    except ValueError:
+        timeout = 60
     interval = 2  # seconds
     elapsed = 0
 
@@ -1151,7 +1181,10 @@ def run_exec(config: Config, logger: Logger, args: list[str]) -> None:
 def main() -> None:
     """Main entry point."""
     config = Config()
-    logger = Logger(config.quiet)
+    logger = Logger(config.quiet, config.debug)
+
+    if config.debug:
+        logger.phase_start("entrypoint_init")
 
     # Register cleanup handler
     def signal_handler(signum: int, frame: Any) -> None:
@@ -1162,48 +1195,71 @@ def main() -> None:
     signal.signal(signal.SIGINT, signal_handler)
 
     # Run setup with timing instrumentation
+    # Debug logging goes to stderr for capture even on container hang
+    logger.phase_start("setup_user")
     with _startup_timer.phase("setup_user"):
         setup_user(config, logger)
+    logger.phase_end("setup_user")
 
+    logger.phase_start("setup_environment")
     with _startup_timer.phase("setup_environment"):
         setup_environment(config)
+    logger.phase_end("setup_environment")
 
+    logger.phase_start("setup_egg_symlink")
     with _startup_timer.phase("setup_egg_symlink"):
         setup_egg_symlink(config, logger)
+    logger.phase_end("setup_egg_symlink")
 
+    logger.phase_start("setup_git")
     with _startup_timer.phase("setup_git"):
         setup_git(config, logger)
+    logger.phase_end("setup_git")
 
+    logger.phase_start("setup_gateway_ca")
     with _startup_timer.phase("setup_gateway_ca"):
         setup_gateway_ca(config, logger)
+    logger.phase_end("setup_gateway_ca")
 
+    logger.phase_start("setup_worktrees")
     with _startup_timer.phase("setup_worktrees"):
         if not setup_worktrees(config, logger):
             logger.error("")
             logger.error("Container startup aborted due to worktree configuration failure.")
             logger.error("Please check your egg setup and try again.")
             sys.exit(1)
+    logger.phase_end("setup_worktrees")
 
+    logger.phase_start("setup_agent_rules")
     with _startup_timer.phase("setup_agent_rules"):
         setup_agent_rules(config, logger)
+    logger.phase_end("setup_agent_rules")
 
+    logger.phase_start("setup_claude")
     with _startup_timer.phase("setup_claude"):
         setup_claude(config, logger)
+    logger.phase_end("setup_claude")
 
+    logger.phase_start("setup_bashrc")
     with _startup_timer.phase("setup_bashrc"):
         setup_bashrc(config, logger)
+    logger.phase_end("setup_bashrc")
 
     # Wait for gateway readiness (network lockdown mode)
+    logger.phase_start("check_gateway")
     with _startup_timer.phase("check_gateway"):
         if not check_gateway_health(config, logger):
             logger.error("")
             logger.error("Container startup aborted: gateway not ready.")
             logger.error("Ensure the gateway sidecar is running.")
             sys.exit(1)
+    logger.phase_end("check_gateway")
 
     # Configure Anthropic API to route through gateway
+    logger.phase_start("setup_anthropic_api")
     with _startup_timer.phase("setup_anthropic_api"):
         setup_anthropic_api(config, logger)
+    logger.phase_end("setup_anthropic_api")
 
     # Run appropriate mode (timing summary is printed inside each mode)
     if len(sys.argv) == 1:

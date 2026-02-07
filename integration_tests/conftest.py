@@ -26,7 +26,6 @@ from typing import Any
 import pytest
 import requests
 from egg_container import (
-    LIFECYCLE_FLAGS_INDEX,
     ContainerNetworkConfig,
     build_sandbox_docker_cmd,
 )
@@ -624,6 +623,54 @@ def _allocate_test_container_ip() -> str:
     return ip
 
 
+def _capture_container_logs(container_name: str) -> str:
+    """Capture logs from a container (even if it crashed or is still running).
+
+    Used for post-mortem diagnostics when tests timeout or fail unexpectedly.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "logs", "--tail", "200", container_name],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        logs = []
+        if result.stdout:
+            logs.append(f"=== STDOUT ===\n{result.stdout}")
+        if result.stderr:
+            logs.append(f"=== STDERR ===\n{result.stderr}")
+        return "\n".join(logs) if logs else "(no logs captured)"
+    except subprocess.TimeoutExpired:
+        return "(log capture timed out)"
+    except Exception as e:
+        return f"(log capture failed: {e})"
+
+
+def _preflight_gateway_check(egg_stack: "EggStack", timeout: int = 10) -> tuple[bool, str]:
+    """Perform a pre-flight health check on the gateway before spawning containers.
+
+    This catches infrastructure issues early (before the 180s test timeout)
+    and provides clear diagnostics when the gateway is not ready.
+
+    Returns:
+        (success, message) tuple
+    """
+    try:
+        health = egg_stack.health_check(timeout=timeout)
+        status = health.get("status", "unknown")
+        if status == "healthy":
+            return True, "Gateway healthy"
+        return False, f"Gateway status: {status} (expected: healthy)"
+    except requests.exceptions.ConnectionError as e:
+        return False, f"Gateway unreachable: {e}"
+    except requests.exceptions.Timeout:
+        return False, f"Gateway health check timed out after {timeout}s"
+    except Exception as e:
+        return False, f"Gateway health check failed: {type(e).__name__}: {e}"
+
+
 def run_claude_structured(
     egg_stack: "EggStack",
     session_token: str,
@@ -649,6 +696,19 @@ def run_claude_structured(
         arguments* stay in sync, but the *config dataclass population* is a
         separate coupling point.
     """
+    # Pre-flight check: verify gateway is healthy before spawning container
+    # This catches infrastructure issues early with clear diagnostics
+    preflight_ok, preflight_msg = _preflight_gateway_check(egg_stack)
+    if not preflight_ok:
+        return AgentVerdict(
+            verdict="fail",
+            evidence=f"Pre-flight gateway check failed: {preflight_msg}",
+            details=[{"check": "gateway_preflight", "passed": False, "note": preflight_msg}],
+            raw_output="",
+            cost_usd=None,
+            infrastructure_failure=True,
+        )
+
     system_prompt = TEST_AGENT_SYSTEM_PROMPT
     if extra_system:
         system_prompt = f"{system_prompt} {extra_system}"
@@ -668,8 +728,11 @@ def run_claude_structured(
     # where sessions are bound to specific container IPs for request verification.
     container_ip = _allocate_test_container_ip()
 
+    # Generate a predictable container name so we can capture logs on timeout
+    container_name = f"test-claude-{os.getpid()}-{time.time_ns()}"
+
     cmd = build_sandbox_docker_cmd(
-        container_name=f"test-claude-{os.getpid()}-{time.time_ns()}",
+        container_name=container_name,
         image="egg-sandbox:latest",
         network=net_config,
         container_ip=container_ip,
@@ -681,11 +744,17 @@ def run_claude_structured(
             # Match production: always set auth method so sandbox startup code
             # branches the same way in tests as in production.
             "ANTHROPIC_AUTH_METHOD": "oauth",
+            # Reduce gateway health check timeout for faster test feedback
+            # (default 60s is too long when debugging test failures)
+            "EGG_GATEWAY_TIMEOUT": "30",
+            # Enable debug logging for startup phases (logs to stderr)
+            # This helps diagnose container hangs by showing which phase stalled
+            "EGG_DEBUG": "1",
         },
     )
 
-    # Lifecycle flags — use the module constant to avoid hardcoding the index
-    cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = ["--rm"]
+    # Note: We intentionally do NOT use --rm here so we can capture logs on timeout.
+    # Cleanup happens in the finally block below.
 
     # Mount the gateway CA certificate volume so the sandbox can trust the proxy
     # The volume is created by docker-compose and populated by the gateway entrypoint
@@ -713,6 +782,15 @@ def run_claude_structured(
         ]
     )
 
+    def _cleanup_container() -> None:
+        """Remove the test container (best-effort)."""
+        subprocess.run(
+            ["docker", "rm", "-f", container_name],
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+
     try:
         result = subprocess.run(
             cmd,
@@ -722,11 +800,19 @@ def run_claude_structured(
             check=False,
         )
     except subprocess.TimeoutExpired as e:
+        # Capture container logs before cleanup for post-mortem analysis
+        container_logs = _capture_container_logs(container_name)
+        _cleanup_container()
+
         raw = (e.stdout or "")[:2000] if e.stdout else ""
         stderr = (e.stderr or "")[:500] if e.stderr else ""
         return AgentVerdict(
             verdict="fail",
-            evidence=f"Subprocess timed out after {timeout}s. stderr: {stderr}",
+            evidence=(
+                f"Subprocess timed out after {timeout}s.\n"
+                f"stderr: {stderr}\n"
+                f"Container logs:\n{container_logs[:3000]}"
+            ),
             details=[],
             raw_output=raw,
             cost_usd=None,
@@ -736,14 +822,23 @@ def run_claude_structured(
     raw = result.stdout.strip()
 
     if result.returncode != 0:
+        # Capture container logs for debugging non-zero exit
+        container_logs = _capture_container_logs(container_name)
+        _cleanup_container()
         return AgentVerdict(
             verdict="fail",
-            evidence=f"Claude Code exited {result.returncode}: {result.stderr[:500]}",
+            evidence=(
+                f"Claude Code exited {result.returncode}: {result.stderr[:500]}\n"
+                f"Container logs:\n{container_logs[:3000]}"
+            ),
             details=[],
             raw_output=raw,
             cost_usd=None,
             infrastructure_failure=True,
         )
+
+    # Success path - cleanup container
+    _cleanup_container()
 
     try:
         envelope = json.loads(raw)
