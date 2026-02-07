@@ -596,7 +596,9 @@ class TestReviewerPhaseTransitionIntegration:
                 ),
                 patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
                 patch.object(
-                    phase_api, "ALLOWED_REPO_BASES", [Path(tmpdir), Path("/app"), Path.home() / "repos"]
+                    phase_api,
+                    "ALLOWED_REPO_BASES",
+                    [Path(tmpdir), Path("/app"), Path.home() / "repos"],
                 ),
             ):
                 response = client.post(
@@ -609,7 +611,9 @@ class TestReviewerPhaseTransitionIntegration:
                     },
                 )
 
-            assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.get_json()}"
+            assert response.status_code == 200, (
+                f"Expected 200, got {response.status_code}: {response.get_json()}"
+            )
             data = response.get_json()
             assert data["success"] is True
             assert data["data"]["from_phase"] == "implement"
