@@ -41,11 +41,26 @@ The agent chooses one of:
 - **Request changes** — Security vulnerabilities, logic errors, or breaking changes.
 - **Comment** — Advisory feedback, questions, suggestions.
 
+### Review Philosophy
+
+The agent is configured to be **extremely thorough**. It's instructed to identify ALL
+issues on the first pass, not stop after finding a few problems. The review approach is:
+- **Systematic** — Examine every changed file, read surrounding context, trace data flow
+- **Research-driven** — Look up library behavior, check documentation, verify assumptions
+- **Direct** — State issues clearly without softening feedback
+
+Default review rules cover:
+- **Security** (highest priority) — Injection, auth/authz, credentials, crypto, SSRF
+- **Correctness** — Logic errors, edge cases, concurrency bugs, resource leaks
+- **Robustness** — Input validation, error handling, timeouts, state corruption
+- **Design** — Pattern violations, breaking changes, coupling issues
+
+The bot skips linter-handled style issues (formatting, import order, type annotations).
+
 ### Customization
 
 Place a `.egg/review-rules.md` file in your repository to override the default review
-focus areas. Default rules focus on security, correctness, and code quality while
-skipping linter-handled style issues.
+focus areas.
 
 ### Reusable Framework
 
