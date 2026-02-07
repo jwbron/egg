@@ -88,6 +88,15 @@ from .validator import (
     validate_phase_mutation,
     validate_task_mutation,
 )
+from .plan_parser import (
+    ParsedPhase,
+    ParsedTask,
+    ParseResult,
+    ParseWarning,
+    format_warnings_for_comment,
+    parse_plan,
+    parse_plan_file,
+)
 
 __all__ = [
     # Models
@@ -139,4 +148,12 @@ __all__ = [
     "validate_phase_mutation",
     # Validator
     "validate_task_mutation",
+    # Plan Parser
+    "ParsedPhase",
+    "ParsedTask",
+    "ParseResult",
+    "ParseWarning",
+    "format_warnings_for_comment",
+    "parse_plan",
+    "parse_plan_file",
 ]
