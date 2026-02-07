@@ -149,6 +149,7 @@ logger = get_logger("gateway")
 
 app = Flask(__name__)
 
+
 # Register contract API routes
 def _register_contract_api() -> None:
     """Try to register contract routes with fallback for different import contexts."""
