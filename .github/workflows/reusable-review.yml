@@ -7,14 +7,15 @@ on:
         description: 'PR number to review'
         required: true
         type: number
-      prompt:
-        description: 'The review prompt to send to egg'
-        required: true
-        type: string
       bot_name:
-        description: 'Bot name for status messages'
+        description: 'Bot name for status messages and marker detection'
         required: true
         type: string
+      review_focus:
+        description: 'Specialized focus area (e.g., "agent-mode-design"). If empty, uses standard review rules.'
+        required: false
+        type: string
+        default: ""
       timeout:
         description: 'Timeout in minutes'
         required: false
@@ -58,6 +59,104 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
+      # Find the last bot review commit for re-review context.
+      # The gh wrapper adds a marker to all automated reviews:
+      #   <!-- egg-automated-review bot=<name> commit=<sha> -->
+      # We search for this marker in reviews and comments.
+      - name: Get last review info
+        id: last-review
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          # Regex to extract commit SHA from the automated review marker
+          marker_regex='<!-- egg-automated-review bot=${{ inputs.bot_name }} commit=([a-f0-9]+) -->'
+
+          # Check reviews from the Reviews API
+          last_review_commit=""
+          last_review_time=""
+          reviews=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
+            --jq '[.[] | {body: .body, submitted_at: .submitted_at}]')
+
+          while IFS= read -r review; do
+            body=$(echo "$review" | jq -r '.body // ""')
+            submitted_at=$(echo "$review" | jq -r '.submitted_at')
+            if [[ "$body" =~ $marker_regex ]]; then
+              commit="${BASH_REMATCH[1]}"
+              if [[ -z "$last_review_time" || "$submitted_at" > "$last_review_time" ]]; then
+                last_review_commit="$commit"
+                last_review_time="$submitted_at"
+              fi
+            fi
+          done < <(echo "$reviews" | jq -c '.[]')
+
+          # Also check issue comments (for self-reviews where GitHub blocks
+          # bots from using the Reviews API on their own PRs)
+          last_comment_commit=""
+          last_comment_time=""
+          comments=$(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            --jq '[.[] | {body: .body, created_at: .created_at}]')
+
+          while IFS= read -r comment; do
+            body=$(echo "$comment" | jq -r '.body // ""')
+            created_at=$(echo "$comment" | jq -r '.created_at')
+            if [[ "$body" =~ $marker_regex ]]; then
+              commit="${BASH_REMATCH[1]}"
+              if [[ -z "$last_comment_time" || "$created_at" > "$last_comment_time" ]]; then
+                last_comment_commit="$commit"
+                last_comment_time="$created_at"
+              fi
+            fi
+          done < <(echo "$comments" | jq -c '.[]')
+
+          # Use whichever is more recent
+          if [[ -n "$last_review_commit" && -z "$last_comment_commit" ]]; then
+            echo "commit-sha=$last_review_commit" >> "$GITHUB_OUTPUT"
+          elif [[ -z "$last_review_commit" && -n "$last_comment_commit" ]]; then
+            echo "commit-sha=$last_comment_commit" >> "$GITHUB_OUTPUT"
+          elif [[ -n "$last_review_commit" && -n "$last_comment_commit" ]]; then
+            if [[ "$last_comment_time" > "$last_review_time" ]]; then
+              echo "commit-sha=$last_comment_commit" >> "$GITHUB_OUTPUT"
+            else
+              echo "commit-sha=$last_review_commit" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "commit-sha=" >> "$GITHUB_OUTPUT"
+            echo "No previous automated review found"
+          fi
+
+      # Dismiss previous bot reviews before starting new review
+      - name: Dismiss previous bot reviews
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          # shellcheck disable=SC2016
+          gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
+            --jq --arg bot "$BOT_USERNAME" \
+            '[.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.state | test("PENDING|COMMENTED|CHANGES_REQUESTED"))] | .[].id' \
+          | while read -r id; do
+              gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews/$id/dismissals" \
+                -X PUT -f message="Superseded by new review" || true
+            done
+
+      # SECURITY: Build the review prompt from a trusted checkout (main).
+      # A malicious PR could replace build-review-prompt.sh to exfiltrate
+      # the bot token. By checking out main for prompt building, we ensure
+      # untrusted code never runs with secrets.
+      - name: Checkout main (trusted)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Build review prompt
+        id: prompt
+        run: bash action/build-review-prompt.sh
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          LAST_REVIEW_COMMIT: ${{ steps.last-review.outputs.commit-sha }}
+          REVIEW_FOCUS: ${{ inputs.review_focus }}
+
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
@@ -65,21 +164,12 @@ jobs:
           ref: ${{ steps.pr-meta.outputs.head-ref }}
           persist-credentials: false
 
-      - name: Write prompt to file
-        id: prompt
-        run: |
-          prompt_file="${RUNNER_TEMP}/review-prompt.txt"
-          cat > "$prompt_file" << 'PROMPT_EOF'
-          ${{ inputs.prompt }}
-          PROMPT_EOF
-          echo "prompt-file=${prompt_file}" >> "$GITHUB_OUTPUT"
-
       - name: Run egg review
         id: egg
         uses: jwbron/egg/action@main
         with:
           prompt-file: ${{ steps.prompt.outputs.prompt-file }}
-          model: opus
+          model: ${{ steps.prompt.outputs.model }}
           anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
@@ -93,9 +183,9 @@ jobs:
         if: always()
         run: |
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
-            BODY="egg ${{ inputs.bot_name }} review completed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            BODY="egg ${{ inputs.bot_name }} completed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           else
-            BODY="egg ${{ inputs.bot_name }} review failed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            BODY="egg ${{ inputs.bot_name }} failed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           fi
           gh pr comment "${{ env.PR_NUMBER }}" --body "$BODY"
         env:

@@ -51,16 +51,6 @@ jobs:
       pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
       bot_name: review
       timeout: "10"
-      prompt: |
-        Review PR #${{ github.event.pull_request.number || github.event.inputs.pr_number }} in ${{ github.repository }}.
-
-        Focus on security issues, correctness, and code quality. Skip style issues that linters catch.
-
-        If this repo has .egg/review-rules.md, follow those rules. Otherwise use your judgment.
-
-        Post your review on the PR.
-
-        — Authored by egg
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
       BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}

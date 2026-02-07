@@ -56,15 +56,8 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
       bot_name: agent-mode-design
+      review_focus: agent-mode-design
       timeout: "10"
-      prompt: |
-        Review PR #${{ github.event.pull_request.number || github.event.inputs.pr_number }} in ${{ github.repository }}.
-
-        Read docs/guides/agent-mode-design.md for context on what to check.
-
-        Post your review on the PR.
-
-        — Authored by egg
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
       BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
