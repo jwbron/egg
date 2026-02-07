@@ -197,6 +197,9 @@ jobs:
           ref: main
           persist-credentials: false
 
+      - name: Save trusted action scripts
+        run: cp -r action "$RUNNER_TEMP/trusted-action"
+
       - name: Build implement prompt
         id: prompt
         run: bash action/build-sdlc-prompt.sh
@@ -230,7 +233,7 @@ jobs:
 
       - name: Update contract state
         id: implement
-        run: bash action/contract-state.sh update-after-implement
+        run: bash "$RUNNER_TEMP/trusted-action/contract-state.sh" update-after-implement
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
@@ -288,6 +291,9 @@ jobs:
           ref: main
           persist-credentials: false
 
+      - name: Save trusted action scripts
+        run: cp -r action "$RUNNER_TEMP/trusted-action"
+
       - name: Build review prompt
         id: prompt
         run: |
@@ -341,7 +347,7 @@ jobs:
 
       - name: Check review results
         id: review
-        run: bash action/contract-state.sh check-review-status
+        run: bash "$RUNNER_TEMP/trusted-action/contract-state.sh" check-review-status
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
