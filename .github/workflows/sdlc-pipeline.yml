@@ -25,6 +25,11 @@ permissions:
   pull-requests: write
   issues: write
 
+# Prevent concurrent pipeline runs for the same issue
+concurrency:
+  group: sdlc-pipeline-${{ github.event.inputs.issue_number || github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
   # ============================================================
   # Initialization: Create contract and branch
@@ -64,7 +69,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pydantic pyyaml
+          pip install pydantic==2.10.* pyyaml==6.0.*
 
       - name: Setup pipeline
         id: setup
@@ -74,11 +79,19 @@ jobs:
           LABELED_ISSUE: ${{ github.event.issue.number }}
           STARTING_PHASE: ${{ github.event.inputs.starting_phase || 'refine' }}
         run: |
+          set -euo pipefail
+
           # Determine issue number based on trigger
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             ISSUE_NUMBER="${DISPATCH_ISSUE}"
           else
             ISSUE_NUMBER="${LABELED_ISSUE}"
+          fi
+
+          # Validate issue number is numeric (path traversal prevention)
+          if ! [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid issue number: ${ISSUE_NUMBER}"
+            exit 1
           fi
 
           echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
@@ -389,6 +402,7 @@ jobs:
       - name: Check loop condition
         id: check
         run: |
+          set -euo pipefail
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
           if [[ ! -f "$CONTRACT_PATH" ]]; then
@@ -402,6 +416,18 @@ jobs:
           TOTAL_CYCLES=$(jq -r '.circuit_breaker.total_cycles' "$CONTRACT_PATH")
           MAX_CYCLES=$(jq -r '.circuit_breaker.max_total_cycles' "$CONTRACT_PATH")
           CB_STATUS=$(jq -r '.circuit_breaker.status' "$CONTRACT_PATH")
+
+          # Validate numeric values (issue #6)
+          TOTAL_CYCLES=${TOTAL_CYCLES:-0}
+          MAX_CYCLES=${MAX_CYCLES:-10}
+          if ! [[ "$TOTAL_CYCLES" =~ ^[0-9]+$ ]]; then
+            echo "Warning: TOTAL_CYCLES is not numeric, defaulting to 0"
+            TOTAL_CYCLES=0
+          fi
+          if ! [[ "$MAX_CYCLES" =~ ^[0-9]+$ ]]; then
+            echo "Warning: MAX_CYCLES is not numeric, defaulting to 10"
+            MAX_CYCLES=10
+          fi
 
           echo "cycle_count=${TOTAL_CYCLES}" >> "$GITHUB_OUTPUT"
 

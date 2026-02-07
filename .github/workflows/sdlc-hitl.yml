@@ -20,7 +20,12 @@ jobs:
     name: Handle HITL decision
     runs-on: ubuntu-latest
     # Only trigger on comments that contain HITL decision markers
-    if: contains(github.event.comment.body, '<!-- egg-hitl-decision')
+    # Authorization: Only jwbron can trigger HITL decisions, and bot cannot trigger itself
+    if: >-
+      contains(github.event.comment.body, '<!-- egg-hitl-decision') &&
+      github.event.sender.login == 'jwbron' &&
+      github.event.sender.login != 'james-in-a-box' &&
+      github.event.sender.login != 'james-in-a-box[bot]'
 
     env:
       BOT_USERNAME: james-in-a-box
@@ -40,6 +45,7 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
           PREVIOUS_BODY: ${{ github.event.changes.body.from }}
         run: |
+          set -euo pipefail
           # Extract decision ID from marker
           # Format: <!-- egg-hitl-decision id=decision-N -->
           DECISION_ID=$(echo "$COMMENT_BODY" | grep -oP '<!-- egg-hitl-decision id=\K[a-z0-9-]+' | head -1)
@@ -75,27 +81,33 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           DECISION_ID: ${{ steps.parse.outputs.decision_id }}
         run: |
-          # Implement 30-second debounce
-          # Check if there's a recent workflow run for this decision
+          set -euo pipefail
 
           DEBOUNCE_SECONDS=30
 
-          # Look for recent runs of this workflow for the same issue
+          # Wait for debounce period FIRST to allow rapid edits to settle
+          echo "Waiting ${DEBOUNCE_SECONDS}s for debounce..."
+          sleep "$DEBOUNCE_SECONDS"
+
+          # After waiting, check if we're the only run still processing
           JQ_FILTER='[.workflow_runs[] | select(.status == "in_progress" or .status == "queued")'
           JQ_FILTER+=' | select(.head_branch == "main")] | length'
           RECENT_RUNS=$(gh api "repos/${{ github.repository }}/actions/workflows/sdlc-hitl.yml/runs" \
             --jq "$JQ_FILTER")
 
-          if [[ "$RECENT_RUNS" -gt "1" ]]; then
+          # Validate RECENT_RUNS is numeric (issue #6)
+          RECENT_RUNS=${RECENT_RUNS:-0}
+          if ! [[ "$RECENT_RUNS" =~ ^[0-9]+$ ]]; then
+            echo "Warning: RECENT_RUNS is not numeric, defaulting to 0"
+            RECENT_RUNS=0
+          fi
+
+          if [[ "$RECENT_RUNS" -gt 1 ]]; then
             echo "Debounce: Another run is in progress, skipping"
             echo "should_process=false" >> "$GITHUB_OUTPUT"
           else
             echo "should_process=true" >> "$GITHUB_OUTPUT"
           fi
-
-          # Wait for debounce period
-          echo "Waiting ${DEBOUNCE_SECONDS}s for debounce..."
-          sleep "$DEBOUNCE_SECONDS"
 
       - name: Checkout repository
         if: steps.debounce.outputs.should_process == 'true'
@@ -110,6 +122,14 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
+          set -euo pipefail
+
+          # Validate issue number is numeric (issue #10 - path traversal prevention)
+          if ! [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "Invalid issue number: ${ISSUE_NUMBER}"
+            exit 1
+          fi
+
           BRANCH_NAME="egg/issue-${ISSUE_NUMBER}"
 
           if git ls-remote --heads origin "${BRANCH_NAME}" | grep -q "${BRANCH_NAME}"; then
@@ -131,6 +151,7 @@ jobs:
           SELECTED_OPTION: ${{ steps.parse.outputs.selected_option }}
           BRANCH_NAME: ${{ steps.branch.outputs.branch_name }}
         run: |
+          set -euo pipefail
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
           if [[ ! -f "$CONTRACT_PATH" ]]; then
@@ -185,10 +206,30 @@ jobs:
             "$CONTRACT_PATH" > /tmp/contract.json
           mv /tmp/contract.json "$CONTRACT_PATH"
 
-          # Commit the update
+          # Commit the update with retry logic to handle race conditions
           git add "$CONTRACT_PATH"
           git commit -m "Resolve HITL decision ${DECISION_ID} for issue #${ISSUE_NUMBER}"
-          git push origin "${BRANCH_NAME}"
+
+          # Retry push with rebase on conflict (handles race conditions)
+          MAX_RETRIES=3
+          for i in $(seq 1 $MAX_RETRIES); do
+            if git push origin "${BRANCH_NAME}"; then
+              echo "Push succeeded"
+              break
+            else
+              echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
+              git pull --rebase origin "${BRANCH_NAME}" || {
+                echo "Rebase failed, cannot resolve conflict automatically"
+                echo "contract_updated=false" >> "$GITHUB_OUTPUT"
+                exit 1
+              }
+            fi
+            if [[ $i -eq $MAX_RETRIES ]]; then
+              echo "Push failed after $MAX_RETRIES attempts"
+              echo "contract_updated=false" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          done
 
           echo "contract_updated=true" >> "$GITHUB_OUTPUT"
 
@@ -199,6 +240,7 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           BRANCH_NAME: ${{ steps.branch.outputs.branch_name }}
         run: |
+          set -euo pipefail
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
           CURRENT_PHASE=$(jq -r '.current_phase' "$CONTRACT_PATH")
 
@@ -237,7 +279,16 @@ jobs:
 
               git add "$CONTRACT_PATH"
               git commit -m "Advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
-              git push origin "${BRANCH_NAME}"
+
+              # Retry push with rebase on conflict
+              MAX_RETRIES=3
+              for i in $(seq 1 $MAX_RETRIES); do
+                if git push origin "${BRANCH_NAME}"; then
+                  break
+                else
+                  git pull --rebase origin "${BRANCH_NAME}" || exit 1
+                fi
+              done
             else
               echo "should_advance=false" >> "$GITHUB_OUTPUT"
             fi
@@ -255,16 +306,13 @@ jobs:
           SHOULD_ADVANCE: ${{ steps.advance.outputs.should_advance }}
           NEXT_PHASE: ${{ steps.advance.outputs.next_phase }}
         run: |
+          # Use printf to safely construct comment body (prevents command injection)
           if [[ "$SHOULD_ADVANCE" == "true" ]]; then
-            BODY="Decision **${DECISION_ID}** resolved: ${SELECTED_OPTION}
-
-          All pending decisions resolved. Advancing to **${NEXT_PHASE}** phase.
-
-          --- Authored by egg"
+            BODY=$(printf 'Decision **%s** resolved: %s\n\nAll pending decisions resolved. Advancing to **%s** phase.\n\n--- Authored by egg' \
+              "$DECISION_ID" "$SELECTED_OPTION" "$NEXT_PHASE")
           else
-            BODY="Decision **${DECISION_ID}** resolved: ${SELECTED_OPTION}
-
-          --- Authored by egg"
+            BODY=$(printf 'Decision **%s** resolved: %s\n\n--- Authored by egg' \
+              "$DECISION_ID" "$SELECTED_OPTION")
           fi
 
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
@@ -275,10 +323,14 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           NEXT_PHASE: ${{ steps.advance.outputs.next_phase }}
         run: |
+          set -euo pipefail
           # Trigger the SDLC pipeline workflow to continue with the next phase
-          gh workflow run sdlc-pipeline.yml \
+          if ! gh workflow run sdlc-pipeline.yml \
             --field issue_number="${ISSUE_NUMBER}" \
-            --field starting_phase="${NEXT_PHASE}"
+            --field starting_phase="${NEXT_PHASE}"; then
+            echo "::error::Failed to trigger sdlc-pipeline.yml workflow"
+            exit 1
+          fi
 
   # ============================================================
   # Handle phase approval comments
@@ -287,12 +339,16 @@ jobs:
     name: Handle phase approval
     runs-on: ubuntu-latest
     # Trigger on comments that approve a phase (e.g., "LGTM", "approved", checkbox approval)
+    # Authorization: Only jwbron can trigger approvals, and bot cannot trigger itself
     if: >-
       !contains(github.event.comment.body, '<!-- egg-hitl-decision') &&
       (
         contains(github.event.comment.body, '<!-- egg-phase-approval') ||
         contains(github.event.comment.body, '[x] Approve')
-      )
+      ) &&
+      github.event.sender.login == 'jwbron' &&
+      github.event.sender.login != 'james-in-a-box' &&
+      github.event.sender.login != 'james-in-a-box[bot]'
 
     env:
       ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -316,6 +372,14 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
+          set -euo pipefail
+
+          # Validate issue number is numeric (path traversal prevention)
+          if ! [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "Invalid issue number: ${ISSUE_NUMBER}"
+            exit 1
+          fi
+
           BRANCH_NAME="egg/issue-${ISSUE_NUMBER}"
 
           if git ls-remote --heads origin "${BRANCH_NAME}" | grep -q "${BRANCH_NAME}"; then
@@ -335,6 +399,7 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           BRANCH_NAME: ${{ steps.branch.outputs.branch_name }}
         run: |
+          set -euo pipefail
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
           if [[ ! -f "$CONTRACT_PATH" ]]; then
@@ -362,9 +427,10 @@ jobs:
 
           echo "Advancing from ${CURRENT_PHASE} to ${NEXT_PHASE}"
 
-          # Update contract
+          # Update contract (capture old phase before update to fix audit log)
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           jq --arg phase "$NEXT_PHASE" \
+             --arg old_phase "$CURRENT_PHASE" \
              --arg timestamp "$TIMESTAMP" \
              --arg actor "${{ github.event.sender.login }}" \
             '.current_phase = $phase |
@@ -374,7 +440,7 @@ jobs:
                role: "human",
                action: "transition",
                field_path: "current_phase",
-               old_value: .current_phase,
+               old_value: $old_phase,
                new_value: $phase,
                reason: "Phase approved by human"
              }]' \
@@ -384,7 +450,16 @@ jobs:
 
           git add "$CONTRACT_PATH"
           git commit -m "Approve and advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
-          git push origin "${BRANCH_NAME}"
+
+          # Retry push with rebase on conflict (handles race conditions)
+          MAX_RETRIES=3
+          for i in $(seq 1 $MAX_RETRIES); do
+            if git push origin "${BRANCH_NAME}"; then
+              break
+            else
+              git pull --rebase origin "${BRANCH_NAME}" || exit 1
+            fi
+          done
 
           {
             echo "approved=true"
@@ -413,6 +488,10 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           NEXT_PHASE: ${{ steps.approve.outputs.next_phase }}
         run: |
-          gh workflow run sdlc-pipeline.yml \
+          set -euo pipefail
+          if ! gh workflow run sdlc-pipeline.yml \
             --field issue_number="${ISSUE_NUMBER}" \
-            --field starting_phase="${NEXT_PHASE}"
+            --field starting_phase="${NEXT_PHASE}"; then
+            echo "::error::Failed to trigger sdlc-pipeline.yml workflow"
+            exit 1
+          fi
