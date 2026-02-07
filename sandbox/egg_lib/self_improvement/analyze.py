@@ -283,7 +283,9 @@ def generate_detection_summary(detections: list[Detection]) -> str:
         severity_detections = by_severity[severity]
         if severity_detections:
             icon = severity_icons[severity]
-            lines.append(f"### {icon} {severity.value.upper()} Severity ({len(severity_detections)})")
+            lines.append(
+                f"### {icon} {severity.value.upper()} Severity ({len(severity_detections)})"
+            )
             lines.append("")
             for d in severity_detections:
                 lines.append(f"**{d.title}**")

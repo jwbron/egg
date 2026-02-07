@@ -606,13 +606,15 @@ class TestIssueCreator:
         """Finds existing issue by fingerprint in body."""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout=json.dumps([
-                {
-                    "number": 42,
-                    "body": "<!-- fingerprint:abc123def456 -->\n\nIssue content",
-                    "url": "https://github.com/owner/repo/issues/42",
-                },
-            ]),
+            stdout=json.dumps(
+                [
+                    {
+                        "number": 42,
+                        "body": "<!-- fingerprint:abc123def456 -->\n\nIssue content",
+                        "url": "https://github.com/owner/repo/issues/42",
+                    },
+                ]
+            ),
         )
 
         creator = IssueCreator(repo="owner/repo")
@@ -626,13 +628,15 @@ class TestIssueCreator:
         """Returns None when no matching issue exists."""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout=json.dumps([
-                {
-                    "number": 42,
-                    "body": "<!-- fingerprint:different123 -->\n\nIssue content",
-                    "url": "https://github.com/owner/repo/issues/42",
-                },
-            ]),
+            stdout=json.dumps(
+                [
+                    {
+                        "number": 42,
+                        "body": "<!-- fingerprint:different123 -->\n\nIssue content",
+                        "url": "https://github.com/owner/repo/issues/42",
+                    },
+                ]
+            ),
         )
 
         creator = IssueCreator(repo="owner/repo")
@@ -736,9 +740,7 @@ class TestIssueCreator:
             ),
         ]
 
-        results = creator.create_issues_for_detections(
-            detections, min_severity=Severity.HIGH
-        )
+        results = creator.create_issues_for_detections(detections, min_severity=Severity.HIGH)
 
         # Should only process the HIGH severity detection
         assert len(results) == 1
