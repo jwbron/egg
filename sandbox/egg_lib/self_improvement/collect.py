@@ -366,6 +366,15 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    # Validate max-runs-per-partition
+    if args.max_runs_per_partition < 1:
+        print(
+            f"Error: --max-runs-per-partition must be at least 1, got {args.max_runs_per_partition}",
+            file=sys.stderr,
+        )
+        print("PARTITION_COUNT=0", file=sys.stderr)
+        return 1
+
     # Calculate since timestamp
     since = datetime.now(UTC) - timedelta(hours=args.since_hours)
 
@@ -375,6 +384,8 @@ def main() -> int:
         data = collect_run_summary(collector, since)
     except Exception as e:
         print(f"Error collecting data: {e}", file=sys.stderr)
+        # Ensure PARTITION_COUNT is written so workflow can handle failure gracefully
+        print("PARTITION_COUNT=0", file=sys.stderr)
         return 1
 
     # Handle partitioned output

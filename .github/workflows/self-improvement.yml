@@ -67,8 +67,10 @@ jobs:
             --output "partitions/partition_{partition}.md" \
             2> partition_info.txt
 
-          # Extract partition count from stderr
-          PARTITION_COUNT=$(grep "PARTITION_COUNT=" partition_info.txt | cut -d= -f2)
+          # Extract partition count from stderr (use tail -1 to handle any extra output)
+          PARTITION_COUNT=$(grep "^PARTITION_COUNT=" partition_info.txt | tail -1 | cut -d= -f2)
+          # Default to 0 if extraction failed (e.g., collection error)
+          PARTITION_COUNT="${PARTITION_COUNT:-0}"
           echo "partition_count=${PARTITION_COUNT}" >> "$GITHUB_OUTPUT"
 
           # Show what we collected
@@ -206,10 +208,13 @@ jobs:
 
       # Run egg instances sequentially with 5-second delays
       # GitHub Actions doesn't support dynamic action calls in loops, so we use
-      # conditional steps for up to 5 partitions (25 failed runs max with 5 per partition)
+      # conditional steps for up to 5 partitions (25 failed runs max with 5 per partition).
+      # Rationale: 5 partitions balances coverage vs. cost/complexity. With 5 runs per
+      # partition, this handles 25 failed runs - enough for daily analysis of a moderately
+      # active repo. If more runs fail, the oldest are dropped (collect.py limits output).
       - name: Run egg (Partition 1)
         id: egg-0
-        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 1
+        if: steps.prompt.outputs.skip_egg != 'true' && fromJSON(steps.collect.outputs.partition_count) >= 1
         uses: jwbron/egg/action@main
         with:
           prompt-file: prompts/task_prompt_0.md
@@ -221,12 +226,12 @@ jobs:
           timeout: "30"
 
       - name: Delay before partition 2
-        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 2
+        if: steps.prompt.outputs.skip_egg != 'true' && fromJSON(steps.collect.outputs.partition_count) >= 2
         run: sleep 5
 
       - name: Run egg (Partition 2)
         id: egg-1
-        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 2
+        if: steps.prompt.outputs.skip_egg != 'true' && fromJSON(steps.collect.outputs.partition_count) >= 2
         uses: jwbron/egg/action@main
         with:
           prompt-file: prompts/task_prompt_1.md
@@ -238,12 +243,12 @@ jobs:
           timeout: "30"
 
       - name: Delay before partition 3
-        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 3
+        if: steps.prompt.outputs.skip_egg != 'true' && fromJSON(steps.collect.outputs.partition_count) >= 3
         run: sleep 5
 
       - name: Run egg (Partition 3)
         id: egg-2
-        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 3
+        if: steps.prompt.outputs.skip_egg != 'true' && fromJSON(steps.collect.outputs.partition_count) >= 3
         uses: jwbron/egg/action@main
         with:
           prompt-file: prompts/task_prompt_2.md
@@ -255,12 +260,12 @@ jobs:
           timeout: "30"
 
       - name: Delay before partition 4
-        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 4
+        if: steps.prompt.outputs.skip_egg != 'true' && fromJSON(steps.collect.outputs.partition_count) >= 4
         run: sleep 5
 
       - name: Run egg (Partition 4)
         id: egg-3
-        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 4
+        if: steps.prompt.outputs.skip_egg != 'true' && fromJSON(steps.collect.outputs.partition_count) >= 4
         uses: jwbron/egg/action@main
         with:
           prompt-file: prompts/task_prompt_3.md
@@ -272,12 +277,12 @@ jobs:
           timeout: "30"
 
       - name: Delay before partition 5
-        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 5
+        if: steps.prompt.outputs.skip_egg != 'true' && fromJSON(steps.collect.outputs.partition_count) >= 5
         run: sleep 5
 
       - name: Run egg (Partition 5)
         id: egg-4
-        if: steps.prompt.outputs.skip_egg != 'true' && steps.collect.outputs.partition_count >= 5
+        if: steps.prompt.outputs.skip_egg != 'true' && fromJSON(steps.collect.outputs.partition_count) >= 5
         uses: jwbron/egg/action@main
         with:
           prompt-file: prompts/task_prompt_4.md
