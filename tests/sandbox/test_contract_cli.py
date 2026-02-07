@@ -1,25 +1,25 @@
 """Tests for egg_lib.contract_cli module."""
 
 import json
+
+# Import the module under test
+import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from threading import Thread
 from unittest.mock import patch
 
 import pytest
-
-# Import the module under test
-import sys
-from pathlib import Path
 
 # Add sandbox to path for import
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
 
 from egg_lib.contract_cli import (
     create_parser,
-    main,
     get_gateway_url,
     get_issue_number,
     get_repo_path,
+    main,
 )
 
 
@@ -104,11 +104,17 @@ class TestArgumentParsing:
     def test_add_decision_with_options(self):
         """Test parsing add-decision with options."""
         parser = create_parser()
-        args = parser.parse_args([
-            "add-decision",
-            "--question", "Which approach?",
-            "--options", "Option A", "Option B", "Option C",
-        ])
+        args = parser.parse_args(
+            [
+                "add-decision",
+                "--question",
+                "Which approach?",
+                "--options",
+                "Option A",
+                "Option B",
+                "Option C",
+            ]
+        )
         assert args.options == ["Option A", "Option B", "Option C"]
 
 
@@ -190,7 +196,7 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         """Handle POST requests."""
         content_length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(content_length) if content_length else b""
+        _body = self.rfile.read(content_length) if content_length else b""  # noqa: F841
 
         response = self.responses.get(("POST", self.path), {"success": True})
         self.send_response(200)
@@ -244,10 +250,13 @@ class TestWithMockGateway:
             }
         }
 
-        with patch.dict("os.environ", {
-            "EGG_GATEWAY_URL": mock_gateway,
-            "EGG_ISSUE_NUMBER": "123",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "EGG_GATEWAY_URL": mock_gateway,
+                "EGG_ISSUE_NUMBER": "123",
+            },
+        ):
             result = main(["add-commit", "--task", "task-1", "--commit", "abc1234def"])
 
         assert result == 0

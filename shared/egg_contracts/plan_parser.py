@@ -192,8 +192,8 @@ def parse_tasks_from_markdown(content: str) -> tuple[list[ParsedTask], list[Pars
     Returns:
         Tuple of (tasks, warnings)
     """
-    tasks = []
-    warnings = []
+    tasks: list[ParsedTask] = []
+    warnings: list[ParseWarning] = []
 
     for line in content.split("\n"):
         # Look for task patterns in list items

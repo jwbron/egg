@@ -99,7 +99,8 @@ def make_gateway_request(
     try:
         request = Request(url, data=body, headers=headers, method=method)
         with urlopen(request, timeout=30) as response:
-            return json.loads(response.read().decode())
+            result: dict[str, Any] = json.loads(response.read().decode())
+            return result
     except HTTPError as e:
         try:
             error_data = json.loads(e.read().decode())
@@ -154,7 +155,9 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 def _print_contract_summary(contract: dict[str, Any]) -> None:
     """Print a human-readable contract summary."""
-    print(f"Issue: #{contract.get('issue', {}).get('number')} - {contract.get('issue', {}).get('title')}")
+    print(
+        f"Issue: #{contract.get('issue', {}).get('number')} - {contract.get('issue', {}).get('title')}"
+    )
     print(f"Phase: {contract.get('current_phase', 'unknown')}")
     print()
 
@@ -190,7 +193,9 @@ def _print_contract_summary(contract: dict[str, Any]) -> None:
     # Show circuit breaker status
     cb = contract.get("circuit_breaker", {})
     if cb.get("status") == "open":
-        print(f"⚠ Circuit Breaker: OPEN (cycles: {cb.get('total_cycles')}/{cb.get('max_total_cycles')})")
+        print(
+            f"⚠ Circuit Breaker: OPEN (cycles: {cb.get('total_cycles')}/{cb.get('max_total_cycles')})"
+        )
 
 
 def cmd_add_commit(args: argparse.Namespace) -> int:
@@ -491,7 +496,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 1
 
-    return args.func(args)
+    result: int = args.func(args)
+    return result
 
 
 if __name__ == "__main__":

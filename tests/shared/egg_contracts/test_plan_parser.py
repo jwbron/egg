@@ -1,15 +1,14 @@
 """Tests for egg_contracts.plan_parser module."""
 
-import pytest
 from egg_contracts.plan_parser import (
     ParsedPhase,
     ParsedTask,
     ParseResult,
     ParseWarning,
     format_warnings_for_comment,
+    parse_phases_from_markdown,
     parse_plan,
     parse_tasks_from_markdown,
-    parse_phases_from_markdown,
 )
 
 
@@ -225,7 +224,10 @@ This is a test plan.
         assert len(result.phases) == 2
         phase2_tasks = result.phases[1].tasks
         assert len(phase2_tasks) == 1
-        assert "placeholder" in phase2_tasks[0].description.lower() or "manually" in phase2_tasks[0].description.lower()
+        assert (
+            "placeholder" in phase2_tasks[0].description.lower()
+            or "manually" in phase2_tasks[0].description.lower()
+        )
         # Should have a warning
         assert any("Phase 2" in w.message for w in result.warnings)
 
