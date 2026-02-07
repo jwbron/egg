@@ -5,7 +5,12 @@ This module provides reusable factories, assertions, and fixtures
 for testing gateway, sandbox, and shared components.
 """
 
-from tests.utils.assertions import assert_allowed, assert_blocked, assert_session_valid
+from tests.utils.assertions import (
+    assert_allowed,
+    assert_blocked,
+    assert_session_invalid,
+    assert_session_valid,
+)
 from tests.utils.factories import (
     make_cached_pr_info,
     make_git_command,
@@ -24,5 +29,6 @@ __all__ = [
     # Assertions
     "assert_allowed",
     "assert_blocked",
+    "assert_session_invalid",
     "assert_session_valid",
 ]

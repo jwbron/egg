@@ -575,7 +575,10 @@ class TestSetupEggSymlink:
         # Check that symlink was created
         egg_link = temp_dir / "egg"
         assert egg_link.is_symlink()
-        assert str(egg_link.resolve()) == "/opt/egg-runtime/sandbox"
+        # Use os.readlink to get the symlink target without resolving it
+        # (Path.resolve() would fail if the target doesn't exist)
+        import os
+        assert os.readlink(egg_link) == "/opt/egg-runtime/sandbox"
 
     @patch("os.lchown")
     def test_replaces_existing_symlink(self, mock_lchown, temp_dir):

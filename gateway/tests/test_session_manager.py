@@ -925,15 +925,15 @@ class TestValidationEdgeCases:
             mode="private",
         )
 
-        original_expires = session.expires_at
+        # Artificially age the session by setting expires_at to 1 hour ago
+        # This ensures a measurable difference after TTL extension
+        aged_expires = session.expires_at - timedelta(hours=1)
+        session.expires_at = aged_expires
+        session.last_seen = session.last_seen - timedelta(hours=1)
 
-        # Wait a tiny bit to ensure time has passed
-        import time
-        time.sleep(0.01)
-
-        # Validate
+        # Validate - this should extend the TTL
         result = manager.validate_session(token)
         assert result.valid
 
-        # Expiration should be extended
-        assert result.session.expires_at > original_expires
+        # Expiration should be extended beyond the aged value
+        assert result.session.expires_at > aged_expires
