@@ -1,4 +1,9 @@
-"""Tests for self_improvement module."""
+"""Tests for self_improvement module.
+
+Following agent-mode design principles, the self_improvement module focuses
+on collecting run metadata. The actual log analysis and issue creation is
+delegated to egg itself.
+"""
 
 import json
 import os
@@ -13,23 +18,14 @@ import pytest
 sandbox_path = Path(__file__).parent.parent.parent / "sandbox"
 sys.path.insert(0, str(sandbox_path))
 
-from egg_lib.self_improvement import (
-    Detection,
-    DetectionEngine,
-    IssueCreator,
-    LogCollector,
-    RunLog,
-    Severity,
-)
+from egg_lib.self_improvement import LogCollector, RunLog
 from egg_lib.self_improvement.collectors.gha import GHALogCollector
 from egg_lib.self_improvement.collectors.local import LocalLogCollector
 from egg_lib.self_improvement.config import (
     BOT_USERNAME,
     DEFAULT_SINCE_HOURS,
     EGG_WORKFLOWS,
-    ISSUE_LABEL_PREFIX,
 )
-from egg_lib.self_improvement.output.issue_creator import generate_fingerprint
 
 
 class TestRunLog:
@@ -93,7 +89,6 @@ class TestConfig:
     def test_default_values(self):
         """Config has expected default values."""
         assert DEFAULT_SINCE_HOURS == 24
-        assert ISSUE_LABEL_PREFIX == "self-improvement"
         assert "on-mention.yml" in EGG_WORKFLOWS
         assert "on-pull-request.yml" in EGG_WORKFLOWS
 
@@ -328,8 +323,6 @@ class TestAnalyzeModule:
         assert "runs" in data
         assert len(data["runs"]) == 1
         assert data["runs"][0]["run_id"] == "test-1"
-        # Logs should not be included in JSON output
-        assert "logs" not in data["runs"][0]
 
     def test_select_collector_gha(self):
         """Selects GHALogCollector for gha source."""
@@ -365,470 +358,30 @@ class TestAnalyzeModule:
         collector = select_collector("auto")
         assert isinstance(collector, LocalLogCollector)
 
-
-class TestSeverity:
-    """Tests for Severity enum."""
-
-    def test_severity_values(self):
-        """Severity has expected values."""
-        assert Severity.LOW.value == "low"
-        assert Severity.MEDIUM.value == "medium"
-        assert Severity.HIGH.value == "high"
-
-
-class TestDetection:
-    """Tests for Detection dataclass."""
-
-    def test_create_detection(self):
-        """Detection can be created with all fields."""
-        detection = Detection(
-            rule_id="test_rule",
-            category="test_category",
-            title="Test Detection",
-            description="A test detection",
-            severity=Severity.HIGH,
-            pattern="test.*pattern",
-            evidence=["line 1", "line 2"],
-            run_ids=["run-1", "run-2"],
-            occurrence_count=5,
-            recommendation="Fix this issue",
-        )
-        assert detection.rule_id == "test_rule"
-        assert detection.severity == Severity.HIGH
-        assert len(detection.evidence) == 2
-        assert detection.occurrence_count == 5
-
-    def test_detection_defaults(self):
-        """Detection has reasonable defaults."""
-        detection = Detection(
-            rule_id="test",
-            category="test",
-            title="Test",
-            description="Test",
-            severity=Severity.LOW,
-            pattern="test",
-        )
-        assert detection.evidence == []
-        assert detection.run_ids == []
-        assert detection.occurrence_count == 0
-        assert detection.recommendation == ""
-
-
-class TestDetectionEngine:
-    """Tests for DetectionEngine."""
-
-    def test_engine_loads_rules_from_directory(self):
-        """Engine loads YAML rules from rules directory."""
-        engine = DetectionEngine()
-        # Should have loaded rules from the errors.yaml file
-        assert len(engine.rules) > 0
-
-    def test_engine_handles_missing_rules_dir(self):
-        """Engine handles non-existent rules directory gracefully."""
-        engine = DetectionEngine(rules_dir=Path("/nonexistent/path"))
-        assert engine.rules == []
-
-    def test_get_high_severity_rules(self):
-        """Can filter rules by HIGH severity."""
-        engine = DetectionEngine()
-        high_rules = engine.get_high_severity_rules()
-        for rule in high_rules:
-            assert rule.severity == Severity.HIGH
-
-    def test_analyze_detects_gateway_errors(self):
-        """Engine detects gateway connection failures."""
-        engine = DetectionEngine()
-
-        now = datetime.now(UTC)
-        runs = [
-            RunLog(
-                run_id="test-1",
-                source="local",
-                started_at=now,
-                completed_at=now,
-                status="failure",
-                trigger="exec",
-                logs="Starting container...\nError: gateway connection refused\nContainer exited",
-            ),
-        ]
-
-        detections = engine.analyze(runs)
-
-        # Should detect the gateway connection failure
-        gateway_detections = [d for d in detections if "gateway" in d.rule_id.lower()]
-        assert len(gateway_detections) >= 1
-
-    def test_analyze_aggregates_across_runs(self):
-        """Engine aggregates detections across multiple runs."""
-        engine = DetectionEngine()
-
-        now = datetime.now(UTC)
-        runs = [
-            RunLog(
-                run_id="run-1",
-                source="local",
-                started_at=now,
-                completed_at=now,
-                status="failure",
-                trigger="exec",
-                logs="gateway connection refused",
-            ),
-            RunLog(
-                run_id="run-2",
-                source="local",
-                started_at=now,
-                completed_at=now,
-                status="failure",
-                trigger="exec",
-                logs="gateway connection refused again",
-            ),
-        ]
-
-        detections = engine.analyze(runs)
-
-        # Find the gateway detection
-        gateway_detections = [d for d in detections if "gateway" in d.rule_id.lower()]
-        if gateway_detections:
-            d = gateway_detections[0]
-            # Should have both run IDs
-            assert len(d.run_ids) == 2
-            # Occurrence count should be aggregated
-            assert d.occurrence_count >= 2
-
-    def test_severity_escalation(self):
-        """Engine escalates severity based on occurrence count."""
-        engine = DetectionEngine()
-
-        # Create a mock detection with low severity but many occurrences
-        detection = Detection(
-            rule_id="test",
-            category="test",
-            title="Test",
-            description="Test",
-            severity=Severity.LOW,
-            pattern="test",
-            occurrence_count=6,
-        )
-
-        engine._escalate_severity(detection)
-
-        # Should be escalated to HIGH
-        assert detection.severity == Severity.HIGH
-
-    def test_severity_escalation_medium(self):
-        """Engine escalates LOW to MEDIUM at 3 occurrences."""
-        engine = DetectionEngine()
-
-        detection = Detection(
-            rule_id="test",
-            category="test",
-            title="Test",
-            description="Test",
-            severity=Severity.LOW,
-            pattern="test",
-            occurrence_count=3,
-        )
-
-        engine._escalate_severity(detection)
-
-        assert detection.severity == Severity.MEDIUM
-
-
-class TestFingerprint:
-    """Tests for fingerprint generation."""
-
-    def test_fingerprint_is_deterministic(self):
-        """Same detection produces same fingerprint."""
-        detection = Detection(
-            rule_id="test_rule",
-            category="test_category",
-            title="Test",
-            description="Test",
-            severity=Severity.HIGH,
-            pattern="test",
-        )
-
-        fp1 = generate_fingerprint(detection)
-        fp2 = generate_fingerprint(detection)
-
-        assert fp1 == fp2
-
-    def test_fingerprint_is_12_chars(self):
-        """Fingerprint is 12 hex characters."""
-        detection = Detection(
-            rule_id="test",
-            category="test",
-            title="Test",
-            description="Test",
-            severity=Severity.HIGH,
-            pattern="test",
-        )
-
-        fp = generate_fingerprint(detection)
-
-        assert len(fp) == 12
-        assert all(c in "0123456789abcdef" for c in fp)
-
-    def test_fingerprint_differs_by_rule(self):
-        """Different rules produce different fingerprints."""
-        d1 = Detection(
-            rule_id="rule_a",
-            category="test",
-            title="Test",
-            description="Test",
-            severity=Severity.HIGH,
-            pattern="test",
-        )
-        d2 = Detection(
-            rule_id="rule_b",
-            category="test",
-            title="Test",
-            description="Test",
-            severity=Severity.HIGH,
-            pattern="test",
-        )
-
-        assert generate_fingerprint(d1) != generate_fingerprint(d2)
-
-
-class TestIssueCreator:
-    """Tests for IssueCreator."""
-
-    @patch("subprocess.run")
-    def test_init_with_explicit_repo(self, mock_run: MagicMock):
-        """Can initialize with explicit repo."""
-        creator = IssueCreator(repo="owner/repo", dry_run=True)
-        assert creator.repo == "owner/repo"
-        assert creator.dry_run is True
-
-    @patch("subprocess.run")
-    def test_find_existing_issue_by_fingerprint(self, mock_run: MagicMock):
-        """Finds existing issue by fingerprint in body."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=json.dumps(
-                [
-                    {
-                        "number": 42,
-                        "body": "<!-- fingerprint:abc123def456 -->\n\nIssue content",
-                        "url": "https://github.com/owner/repo/issues/42",
-                    },
-                ]
-            ),
-        )
-
-        creator = IssueCreator(repo="owner/repo")
-        existing = creator._find_existing_issue("abc123def456")
-
-        assert existing is not None
-        assert existing["number"] == 42
-
-    @patch("subprocess.run")
-    def test_find_existing_issue_returns_none_when_not_found(self, mock_run: MagicMock):
-        """Returns None when no matching issue exists."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=json.dumps(
-                [
-                    {
-                        "number": 42,
-                        "body": "<!-- fingerprint:different123 -->\n\nIssue content",
-                        "url": "https://github.com/owner/repo/issues/42",
-                    },
-                ]
-            ),
-        )
-
-        creator = IssueCreator(repo="owner/repo")
-        existing = creator._find_existing_issue("abc123def456")
-
-        assert existing is None
-
-    @patch("subprocess.run")
-    def test_create_issue_dry_run(self, mock_run: MagicMock):
-        """Dry run mode doesn't actually create issues."""
-        creator = IssueCreator(repo="owner/repo", dry_run=True)
-
-        detection = Detection(
-            rule_id="test_rule",
-            category="test",
-            title="Test Issue",
-            description="Test description",
-            severity=Severity.HIGH,
-            pattern="test",
-            occurrence_count=1,
-        )
-
-        result = creator._create_issue(detection, "abc123def456")
-
-        assert result.success is True
-        assert result.action == "skipped"
-        # subprocess.run should not be called for gh issue create
-        # (only for finding existing issues if called)
-
-    @patch("subprocess.run")
-    def test_format_issue_body_includes_fingerprint(self, mock_run: MagicMock):
-        """Issue body includes fingerprint for deduplication."""
-        creator = IssueCreator(repo="owner/repo")
-
-        detection = Detection(
-            rule_id="test_rule",
-            category="errors",
-            title="Test Issue",
-            description="Test description",
-            severity=Severity.HIGH,
-            pattern="test.*pattern",
-            evidence=["Error line 1", "Error line 2"],
-            run_ids=["run-1", "run-2"],
-            occurrence_count=5,
-            recommendation="Fix it",
-        )
-
-        body = creator._format_issue_body(detection, "abc123def456")
-
-        assert "<!-- fingerprint:abc123def456 -->" in body
-        assert "Test description" in body
-        assert "errors" in body
-        assert "HIGH" in body
-        assert "Error line 1" in body
-        assert "run-1" in body
-        assert "Fix it" in body
-
-    @patch("subprocess.run")
-    def test_get_labels_includes_severity(self, mock_run: MagicMock):
-        """Labels include severity level."""
-        creator = IssueCreator(repo="owner/repo")
-
-        detection = Detection(
-            rule_id="test",
-            category="test",
-            title="Test",
-            description="Test",
-            severity=Severity.HIGH,
-            pattern="test",
-        )
-
-        labels = creator._get_labels(detection)
-
-        assert "self-improvement" in labels
-        assert "self-improvement:high" in labels
-
-    @patch("subprocess.run")
-    def test_create_issues_filters_by_min_severity(self, mock_run: MagicMock):
-        """Only creates issues for detections meeting minimum severity."""
-        # Mock the issue list (no existing issues)
-        mock_run.return_value = MagicMock(returncode=0, stdout="[]")
-
-        creator = IssueCreator(repo="owner/repo", dry_run=True)
-
-        detections = [
-            Detection(
-                rule_id="high_rule",
-                category="test",
-                title="High Severity",
-                description="Test",
-                severity=Severity.HIGH,
-                pattern="test",
-            ),
-            Detection(
-                rule_id="low_rule",
-                category="test",
-                title="Low Severity",
-                description="Test",
-                severity=Severity.LOW,
-                pattern="test",
-            ),
-        ]
-
-        results = creator.create_issues_for_detections(detections, min_severity=Severity.HIGH)
-
-        # Should only process the HIGH severity detection
-        assert len(results) == 1
-
-
-class TestAnalyzeWithDetection:
-    """Tests for analyze.py with detection integration."""
-
-    def test_generate_json_with_detections(self):
-        """JSON output includes detection data when provided."""
+    def test_json_output_includes_metadata(self):
+        """JSON output includes run metadata for egg to use."""
         from egg_lib.self_improvement.analyze import generate_json
 
         now = datetime.now(UTC)
         runs = [
             RunLog(
-                run_id="test-1",
+                run_id="12345",
                 source="gha",
                 started_at=now,
                 completed_at=now,
                 status="failure",
                 trigger="issue_comment",
-                logs="gateway connection refused",
-            ),
-        ]
-
-        detections = [
-            Detection(
-                rule_id="gateway_error",
-                category="environment_errors",
-                title="Gateway Connection Failure",
-                description="Gateway connection failed",
-                severity=Severity.HIGH,
-                pattern="gateway.*refused",
-                occurrence_count=1,
-                run_ids=["test-1"],
+                logs="",
+                metadata={
+                    "html_url": "https://github.com/owner/repo/actions/runs/12345",
+                    "workflow": "on-mention.yml",
+                },
             ),
         ]
 
         since = now - timedelta(hours=1)
-        output = generate_json(runs, since, detections)
+        output = generate_json(runs, since)
 
         data = json.loads(output)
-        assert "detections" in data
-        assert len(data["detections"]) == 1
-        assert data["detections"][0]["rule_id"] == "gateway_error"
-        assert data["detections"][0]["severity"] == "high"
-        assert data["summary"]["detection_count"] == 1
-        assert data["summary"]["high_severity_count"] == 1
-
-    def test_generate_detection_summary(self):
-        """Detection summary is formatted correctly."""
-        from egg_lib.self_improvement.analyze import generate_detection_summary
-
-        detections = [
-            Detection(
-                rule_id="high_rule",
-                category="errors",
-                title="High Severity Issue",
-                description="Test",
-                severity=Severity.HIGH,
-                pattern="test",
-                occurrence_count=3,
-                run_ids=["run-1"],
-                evidence=["Error: something went wrong"],
-            ),
-            Detection(
-                rule_id="low_rule",
-                category="perf",
-                title="Low Severity Issue",
-                description="Test",
-                severity=Severity.LOW,
-                pattern="test",
-                occurrence_count=1,
-                run_ids=["run-2"],
-            ),
-        ]
-
-        summary = generate_detection_summary(detections)
-
-        assert "Detected Issues" in summary
-        assert "HIGH Severity" in summary
-        assert "High Severity Issue" in summary
-        assert "LOW Severity" in summary
-        assert "Low Severity Issue" in summary
-
-    def test_generate_detection_summary_empty(self):
-        """Empty detection list produces simple message."""
-        from egg_lib.self_improvement.analyze import generate_detection_summary
-
-        summary = generate_detection_summary([])
-        assert "No issues detected" in summary
+        assert data["runs"][0]["metadata"]["html_url"] == "https://github.com/owner/repo/actions/runs/12345"
+        assert data["runs"][0]["metadata"]["workflow"] == "on-mention.yml"

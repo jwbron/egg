@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Self-improvement analysis orchestrator.
 
-This script collects logs from GitHub Actions or local container runs,
-analyzes them for issues, detects patterns, and can create GitHub issues
-for identified problems.
+This script collects run metadata from GitHub Actions or local container runs
+and outputs it in a format suitable for egg to analyze.
+
+Following agent-mode design principles (see docs/guides/agent-mode-design.md),
+this module focuses on collecting lightweight metadata (run IDs, status, URLs).
+The actual log analysis and issue creation is delegated to egg itself, which
+can fetch logs it cares about, reason about root causes, and take action directly.
 
 Usage:
     python -m egg_lib.self_improvement.analyze --source gha --since-hours 24
     python -m egg_lib.self_improvement.analyze --source local --output json
-    python -m egg_lib.self_improvement.analyze --detect --create-issues
 """
 
 import argparse
@@ -23,13 +26,11 @@ from .collectors.base import RunLog
 from .collectors.gha import GHALogCollector
 from .collectors.local import LocalLogCollector
 from .config import DEFAULT_SINCE_HOURS
-from .detection.engine import Detection, DetectionEngine, Severity
-from .output.issue_creator import IssueCreator
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Analyze egg runs for self-improvement insights")
+    parser = argparse.ArgumentParser(description="Collect egg run metadata for analysis")
     parser.add_argument(
         "--source",
         choices=["gha", "local", "auto"],
@@ -60,27 +61,10 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Repository in owner/repo format (for GHA source, auto-detected if not provided)",
     )
-    # Phase 2 arguments
     parser.add_argument(
-        "--detect",
+        "--failed-only",
         action="store_true",
-        help="Run detection rules against collected logs",
-    )
-    parser.add_argument(
-        "--create-issues",
-        action="store_true",
-        help="Create GitHub issues for detected problems",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Don't actually create issues, just report what would happen",
-    )
-    parser.add_argument(
-        "--min-severity",
-        choices=["low", "medium", "high"],
-        default="high",
-        help="Minimum severity level for issue creation (default: high)",
+        help="Only include failed runs in output",
     )
     return parser.parse_args()
 
@@ -137,18 +121,6 @@ def generate_summary(runs: list[RunLog], since: datetime) -> str:
     for run in runs:
         triggers[run.trigger] = triggers.get(run.trigger, 0) + 1
 
-    # Find error patterns (basic)
-    error_runs = [r for r in runs if r.status == "failure"]
-    error_snippets: list[str] = []
-    for run in error_runs[:3]:  # Limit to 3 examples
-        # Extract first error-like line
-        for line in run.logs.split("\n"):
-            if any(p in line.lower() for p in ["error", "failed", "exception"]):
-                snippet = line.strip()[:100]
-                if snippet:
-                    error_snippets.append(f"  - [{run.run_id}] {snippet}")
-                    break
-
     # Build summary
     lines = [
         "=" * 60,
@@ -170,10 +142,6 @@ def generate_summary(runs: list[RunLog], since: datetime) -> str:
     for trigger, count in sorted(triggers.items(), key=lambda x: -x[1]):
         lines.append(f"  - {trigger}: {count}")
 
-    if error_snippets:
-        lines.extend(["", "## Sample Errors"])
-        lines.extend(error_snippets)
-
     lines.extend(["", "## Run Details"])
     for run in runs[:10]:  # Limit to 10 runs
         status_icon = {"success": "✓", "failure": "✗", "cancelled": "○", "running": "→"}
@@ -191,18 +159,15 @@ def generate_summary(runs: list[RunLog], since: datetime) -> str:
     return "\n".join(lines)
 
 
-def generate_json(
-    runs: list[RunLog], since: datetime, detections: list[Detection] | None = None
-) -> str:
-    """Generate JSON output of collected runs and detections.
+def generate_json(runs: list[RunLog], since: datetime) -> str:
+    """Generate JSON output of collected runs.
 
     Args:
         runs: List of collected run logs
         since: The cutoff time for analysis
-        detections: Optional list of detections from analysis
 
     Returns:
-        JSON string with run and detection data
+        JSON string with run metadata
     """
     total = len(runs)
     successful = sum(1 for r in runs if r.status == "success")
@@ -226,78 +191,12 @@ def generate_json(
                 "started_at": r.started_at.isoformat(),
                 "completed_at": r.completed_at.isoformat() if r.completed_at else None,
                 "metadata": r.metadata,
-                # Omit full logs in JSON to keep output manageable
-                "log_length": len(r.logs),
             }
             for r in runs
         ],
     }
 
-    # Add detections if available
-    if detections:
-        data["detections"] = [
-            {
-                "rule_id": d.rule_id,
-                "category": d.category,
-                "title": d.title,
-                "severity": d.severity.value,
-                "occurrence_count": d.occurrence_count,
-                "run_ids": d.run_ids,
-                "evidence": d.evidence[:5],  # Limit evidence in JSON
-            }
-            for d in detections
-        ]
-        data["summary"]["detection_count"] = len(detections)
-        data["summary"]["high_severity_count"] = sum(
-            1 for d in detections if d.severity == Severity.HIGH
-        )
-
     return json.dumps(data, indent=2)
-
-
-def generate_detection_summary(detections: list[Detection]) -> str:
-    """Generate a human-readable summary of detections.
-
-    Args:
-        detections: List of detections from analysis
-
-    Returns:
-        Formatted detection summary string
-    """
-    if not detections:
-        return "No issues detected."
-
-    lines = [
-        "",
-        "## Detected Issues",
-        "",
-    ]
-
-    # Group by severity
-    by_severity: dict[Severity, list[Detection]] = {s: [] for s in Severity}
-    for d in detections:
-        by_severity[d.severity].append(d)
-
-    severity_icons = {Severity.HIGH: "🔴", Severity.MEDIUM: "🟡", Severity.LOW: "🟢"}
-
-    for severity in [Severity.HIGH, Severity.MEDIUM, Severity.LOW]:
-        severity_detections = by_severity[severity]
-        if severity_detections:
-            icon = severity_icons[severity]
-            lines.append(
-                f"### {icon} {severity.value.upper()} Severity ({len(severity_detections)})"
-            )
-            lines.append("")
-            for d in severity_detections:
-                lines.append(f"**{d.title}**")
-                lines.append(f"  - Rule: `{d.rule_id}`")
-                lines.append(f"  - Occurrences: {d.occurrence_count}")
-                lines.append(f"  - Affected runs: {len(d.run_ids)}")
-                if d.evidence:
-                    lines.append("  - Sample: `" + d.evidence[0][:80] + "...`")
-                lines.append("")
-
-    return "\n".join(lines)
 
 
 def main() -> int:
@@ -309,47 +208,27 @@ def main() -> int:
 
     # Select and run collector
     collector = select_collector(args.source, args.repo)
-    print(f"Collecting logs from {collector.__class__.__name__}...", file=sys.stderr)
+    print(f"Collecting run metadata from {collector.__class__.__name__}...", file=sys.stderr)
 
     try:
         runs = collector.collect(since)
     except (OSError, subprocess.SubprocessError) as e:
-        print(f"Error collecting logs: {e}", file=sys.stderr)
+        print(f"Error collecting run metadata: {e}", file=sys.stderr)
         return 1
+
+    # Filter to failed only if requested
+    if args.failed_only:
+        runs = [r for r in runs if r.status == "failure"]
 
     print(f"Collected {len(runs)} runs", file=sys.stderr)
 
-    # Run detection if requested
-    detections: list[Detection] = []
-    if args.detect or args.create_issues:
-        print("Running detection rules...", file=sys.stderr)
-        engine = DetectionEngine()
-        detections = engine.analyze(runs)
-        print(f"Found {len(detections)} issues", file=sys.stderr)
-
-    # Create issues if requested
-    if args.create_issues and detections:
-        print("Creating issues for detected problems...", file=sys.stderr)
-        min_severity = Severity(args.min_severity)
-        creator = IssueCreator(repo=args.repo, dry_run=args.dry_run)
-        results = creator.create_issues_for_detections(detections, min_severity=min_severity)
-
-        created = sum(1 for r in results if r.action == "created")
-        updated = sum(1 for r in results if r.action == "updated")
-        failed = sum(1 for r in results if not r.success)
-
-        print(f"Issues: {created} created, {updated} updated, {failed} failed", file=sys.stderr)
-
     # Generate output
     if args.output == "json":
-        print(generate_json(runs, since, detections if args.detect else None))
+        print(generate_json(runs, since))
     elif args.output == "both":
-        # Output both formats in a single run (avoids duplicate API calls)
         summary = generate_summary(runs, since)
-        if args.detect and detections:
-            summary += generate_detection_summary(detections)
         print(summary)
-        json_output = generate_json(runs, since, detections if args.detect else None)
+        json_output = generate_json(runs, since)
         if args.json_file:
             with open(args.json_file, "w") as f:
                 f.write(json_output)
@@ -358,10 +237,7 @@ def main() -> int:
             print("\n--- JSON Output ---\n")
             print(json_output)
     else:
-        summary = generate_summary(runs, since)
-        if args.detect and detections:
-            summary += generate_detection_summary(detections)
-        print(summary)
+        print(generate_summary(runs, since))
 
     return 0
 

@@ -15,10 +15,6 @@ BOT_EMAIL = os.getenv("EGG_BOT_EMAIL", "egg@localhost")
 METRICS_DIR = Path("metrics")
 METRICS_FILE = METRICS_DIR / "self-improvement-metrics.json"
 
-# Issue creation
-ISSUE_LABEL_PREFIX = "self-improvement"
-ISSUE_TITLE_PREFIX = "[Self-Improvement]"
-
 # Analysis defaults
 DEFAULT_SINCE_HOURS = 24
 DEFAULT_LOG_RETENTION_DAYS = 90

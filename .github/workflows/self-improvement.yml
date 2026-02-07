@@ -1,5 +1,10 @@
 name: "egg: Self-Improvement Analysis"
 
+# This workflow follows agent-mode design principles:
+# 1. Collect lightweight metadata (run IDs, status, URLs)
+# 2. Give egg a clear objective and let it analyze + take action
+# 3. No rigid detection pipeline - egg reasons about problems intelligently
+
 on:
   schedule:
     - cron: "0 2 * * *" # 2 AM UTC daily
@@ -10,34 +15,22 @@ on:
         required: false
         default: "24"
         type: string
-      create_issues:
-        description: "Create GitHub issues for detected problems"
-        required: false
-        default: "true"
-        type: boolean
       dry_run:
-        description: "Dry run mode (report only, don't create issues)"
+        description: "Dry run mode (analyze only, don't create issues)"
         required: false
         default: "false"
         type: boolean
-      min_severity:
-        description: "Minimum severity for issue creation"
-        required: false
-        default: "high"
-        type: choice
-        options:
-          - high
-          - medium
-          - low
 
 jobs:
-  analyze:
-    name: Analyze egg runs
+  collect-metadata:
+    name: Collect run metadata
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read
-      issues: write # Required for creating issues
+    outputs:
+      has_failed_runs: ${{ steps.collect.outputs.has_failed_runs }}
+      run_data: ${{ steps.collect.outputs.run_data }}
 
     steps:
       - name: Checkout
@@ -55,67 +48,130 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install pyyaml
-
-      - name: Run analysis
+      - name: Collect run metadata
+        id: collect
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PYTHONPATH: sandbox
         run: |
-          set -o pipefail
           SINCE_HOURS="${{ github.event.inputs.since_hours || '24' }}"
-          CREATE_ISSUES="${{ github.event.inputs.create_issues || 'true' }}"
-          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
-          MIN_SEVERITY="${{ github.event.inputs.min_severity || 'high' }}"
 
-          {
-            echo "## Self-Improvement Analysis"
-            echo ""
-            echo "Analyzing runs from the last ${SINCE_HOURS} hours..."
-            echo ""
-            echo "**Settings:**"
-            echo "- Create issues: ${CREATE_ISSUES}"
-            echo "- Dry run: ${DRY_RUN}"
-            echo "- Minimum severity: ${MIN_SEVERITY}"
-            echo ""
-          } >> "$GITHUB_STEP_SUMMARY"
+          # Collect run metadata (not full logs - egg will fetch what it needs)
+          python -m egg_lib.self_improvement.analyze \
+            --source gha \
+            --since-hours "${SINCE_HOURS}" \
+            --failed-only \
+            --output json > run_metadata.json
 
-          # Build command arguments
-          ARGS="--source gha --since-hours ${SINCE_HOURS} --output both --json-file analysis_report.json --detect"
-
-          if [ "${CREATE_ISSUES}" = "true" ]; then
-            ARGS="${ARGS} --create-issues --min-severity ${MIN_SEVERITY}"
+          # Check if there are any failed runs
+          FAILED_COUNT=$(jq '.summary.failed_runs' run_metadata.json)
+          if [ "$FAILED_COUNT" -gt 0 ]; then
+            echo "has_failed_runs=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_failed_runs=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if [ "${DRY_RUN}" = "true" ]; then
-            ARGS="${ARGS} --dry-run"
-          fi
+          # Output run data for the next job
+          echo "run_data=$(cat run_metadata.json | jq -c)" >> "$GITHUB_OUTPUT"
 
-          # Run analysis with detection enabled
-          # shellcheck disable=SC2086  # Word splitting is intentional for ARGS
-          python -m egg_lib.self_improvement.analyze ${ARGS} | tee analysis_output.txt
+          # Also show summary in step output
+          echo "## Run Metadata Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Total runs: $(jq '.summary.total_runs' run_metadata.json)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Failed runs: ${FAILED_COUNT}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          {
-            echo '```'
-            cat analysis_output.txt
-            echo '```'
-            echo ""
-            echo "### JSON Report"
-            echo ""
-            echo '<details><summary>Click to expand JSON report</summary>'
-            echo ''
-            echo '```json'
-            cat analysis_report.json
-            echo '```'
-            echo '</details>'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload analysis artifact
+      - name: Upload metadata artifact
         uses: actions/upload-artifact@v4
         with:
-          name: self-improvement-report
-          path: |
-            analysis_output.txt
-            analysis_report.json
-          retention-days: 30
+          name: run-metadata
+          path: run_metadata.json
+          retention-days: 7
+
+  analyze:
+    name: Analyze failures with egg
+    needs: collect-metadata
+    if: needs.collect-metadata.outputs.has_failed_runs == 'true' && github.event.inputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Download metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: run-metadata
+
+      - name: Analyze with egg
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          # Extract failed run IDs and URLs for egg to analyze
+          FAILED_RUNS=$(jq -r '.runs[] | "- Run \(.run_id): \(.metadata.html_url // "no URL")"' run_metadata.json)
+
+          # Create the task prompt for egg
+          # Following agent-mode design: tell egg WHAT we want, not HOW to do it
+          cat > task_prompt.md << 'TASK_EOF'
+          # Self-Improvement Analysis Task
+
+          Analyze the following failed GitHub Actions runs to identify recurring problems
+          or patterns that need human attention. For significant issues, create GitHub
+          issues to track them.
+
+          ## Failed Runs to Analyze
+
+          TASK_EOF
+
+          echo "${FAILED_RUNS}" >> task_prompt.md
+
+          cat >> task_prompt.md << 'TASK_EOF'
+
+          ## Objective
+
+          1. Fetch and analyze the logs for these failed runs
+          2. Identify recurring problems or patterns across runs
+          3. For issues that need human attention, create GitHub issues with:
+             - Clear description of the problem
+             - Evidence from the logs
+             - Suggested actions if obvious
+             - Label: `self-improvement`
+          4. Check for existing open issues with `self-improvement` label before
+             creating duplicates
+
+          ## Guidance
+
+          Pay particular attention to:
+          - Gateway/sidecar connection failures
+          - Authentication or credential issues
+          - API rate limiting
+          - Infrastructure problems (Docker, network, etc.)
+          - Recurring tool failures
+
+          Use your judgment about what's worth creating an issue for. A single transient
+          failure may not need an issue, but a pattern across multiple runs does.
+          TASK_EOF
+
+          echo "## Analysis Task" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Dispatching to egg for intelligent analysis..." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          cat task_prompt.md >> "$GITHUB_STEP_SUMMARY"
+
+          # TODO: Dispatch to egg via the appropriate mechanism
+          # For now, just output the task that would be given to egg
+          echo ""
+          echo "Task prompt for egg:"
+          echo "===================="
+          cat task_prompt.md
