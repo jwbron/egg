@@ -54,9 +54,7 @@ def _load_policy_module():
     # Load policy module
     policy_path = gateway_dir / "policy.py"
     policy_source = policy_path.read_text()
-    policy_source = policy_source.replace(
-        "from .github_client import", "from github_client import"
-    )
+    policy_source = policy_source.replace("from .github_client import", "from github_client import")
     policy_module = ModuleType("policy")
     policy_module.__file__ = str(policy_path)
     exec(compile(policy_source, policy_path, "exec"), policy_module.__dict__)

@@ -70,9 +70,7 @@ def _load_policy_module():
     # Load policy module
     policy_path = gateway_dir / "policy.py"
     policy_source = policy_path.read_text()
-    policy_source = policy_source.replace(
-        "from .github_client import", "from github_client import"
-    )
+    policy_source = policy_source.replace("from .github_client import", "from github_client import")
     policy_module = ModuleType("policy")
     policy_module.__file__ = str(policy_path)
     exec(compile(policy_source, policy_path, "exec"), policy_module.__dict__)
@@ -103,9 +101,7 @@ def _load_session_manager_module():
 
 
 # Skip all tests in this module if hypothesis is not available
-pytestmark = pytest.mark.skipif(
-    not HYPOTHESIS_AVAILABLE, reason="hypothesis not installed"
-)
+pytestmark = pytest.mark.skipif(not HYPOTHESIS_AVAILABLE, reason="hypothesis not installed")
 
 
 @pytest.mark.security
@@ -332,6 +328,7 @@ class TestIPAddressFuzzing:
         Attack vector: Malformed IPs causing registration failures.
         """
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             persist_path = Path(tmpdir) / "sessions.json"
             manager = session_module.SessionManager(persistence_file=persist_path)
@@ -373,6 +370,7 @@ class TestContainerIdFuzzing:
         Attack vector: Malformed container IDs causing issues.
         """
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             persist_path = Path(tmpdir) / "sessions.json"
             manager = session_module.SessionManager(persistence_file=persist_path)
