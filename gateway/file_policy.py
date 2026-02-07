@@ -242,9 +242,7 @@ class FileProtectionPolicy:
         """Add a protection rule."""
         self.protected_files.append(rule)
 
-    def check_file_modifications(
-        self, file_changes: dict[str, list[int]]
-    ) -> ProtectionCheckResult:
+    def check_file_modifications(self, file_changes: dict[str, list[int]]) -> ProtectionCheckResult:
         """Check if file modifications violate protection rules.
 
         Args:
@@ -279,8 +277,7 @@ class FileProtectionPolicy:
                         file=filepath,
                         lines=overlapping,
                         rule=rule,
-                        reason=rule.reason
-                        or f"Lines {overlapping} in '{filepath}' are protected",
+                        reason=rule.reason or f"Lines {overlapping} in '{filepath}' are protected",
                     )
 
                 # Categorize by protection level
@@ -305,9 +302,7 @@ class FileProtectionPolicy:
             warnings=warnings,
         )
 
-    def check_diff_for_violations(
-        self, diff_output: str
-    ) -> ProtectionCheckResult:
+    def check_diff_for_violations(self, diff_output: str) -> ProtectionCheckResult:
         """Check a git diff output for protection violations.
 
         Args:
@@ -319,9 +314,7 @@ class FileProtectionPolicy:
         file_changes = parse_unified_diff(diff_output)
         return self.check_file_modifications(file_changes)
 
-    def get_diff_between_commits(
-        self, repo_path: str, base_commit: str, head_commit: str
-    ) -> str:
+    def get_diff_between_commits(self, repo_path: str, base_commit: str, head_commit: str) -> str:
         """Get the diff between two commits.
 
         Args:

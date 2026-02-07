@@ -212,9 +212,9 @@ class TestFileProtectionPolicy:
         assert result.violations == []
 
     def test_entire_file_protected(self):
-        policy = FileProtectionPolicy([
-            ProtectedFileConfig(path="protected.py", reason="Critical file")
-        ])
+        policy = FileProtectionPolicy(
+            [ProtectedFileConfig(path="protected.py", reason="Critical file")]
+        )
         file_changes = {"protected.py": [1, 2, 3]}
         result = policy.check_file_modifications(file_changes)
         assert not result.allowed
@@ -223,13 +223,15 @@ class TestFileProtectionPolicy:
         assert result.violations[0].lines is None  # Entire file
 
     def test_specific_lines_protected(self):
-        policy = FileProtectionPolicy([
-            ProtectedFileConfig(
-                path="config.py",
-                lines=[(50, 55)],
-                reason="Coverage thresholds",
-            )
-        ])
+        policy = FileProtectionPolicy(
+            [
+                ProtectedFileConfig(
+                    path="config.py",
+                    lines=[(50, 55)],
+                    reason="Coverage thresholds",
+                )
+            ]
+        )
         # Modify lines outside protected range
         result = policy.check_file_modifications({"config.py": [1, 2, 3]})
         assert result.allowed
@@ -240,9 +242,9 @@ class TestFileProtectionPolicy:
         assert result.violations[0].lines == [52, 53]
 
     def test_glob_pattern_matching(self):
-        policy = FileProtectionPolicy([
-            ProtectedFileConfig(path="*.coveragerc", reason="Coverage config")
-        ])
+        policy = FileProtectionPolicy(
+            [ProtectedFileConfig(path="*.coveragerc", reason="Coverage config")]
+        )
         result = policy.check_file_modifications({".coveragerc": [1]})
         assert not result.allowed
 
@@ -250,13 +252,15 @@ class TestFileProtectionPolicy:
         assert result.allowed
 
     def test_warn_on_pr_level(self):
-        policy = FileProtectionPolicy([
-            ProtectedFileConfig(
-                path="docs.md",
-                level="warn_on_pr",
-                reason="Documentation",
-            )
-        ])
+        policy = FileProtectionPolicy(
+            [
+                ProtectedFileConfig(
+                    path="docs.md",
+                    level="warn_on_pr",
+                    reason="Documentation",
+                )
+            ]
+        )
         result = policy.check_file_modifications({"docs.md": [1]})
         # warn_on_pr allows the push but adds to warnings
         assert result.allowed
@@ -264,13 +268,15 @@ class TestFileProtectionPolicy:
         assert len(result.warnings) == 1
 
     def test_log_only_level(self):
-        policy = FileProtectionPolicy([
-            ProtectedFileConfig(
-                path="audit.py",
-                level="log_only",
-                reason="Audit tracking",
-            )
-        ])
+        policy = FileProtectionPolicy(
+            [
+                ProtectedFileConfig(
+                    path="audit.py",
+                    level="log_only",
+                    reason="Audit tracking",
+                )
+            ]
+        )
         result = policy.check_file_modifications({"audit.py": [1]})
         # log_only allows the push and doesn't add warnings
         assert result.allowed
@@ -278,22 +284,24 @@ class TestFileProtectionPolicy:
         assert len(result.warnings) == 0
 
     def test_multiple_violations(self):
-        policy = FileProtectionPolicy([
-            ProtectedFileConfig(path="file1.py", reason="Reason 1"),
-            ProtectedFileConfig(path="file2.py", reason="Reason 2"),
-        ])
-        result = policy.check_file_modifications({
-            "file1.py": [1],
-            "file2.py": [2],
-            "file3.py": [3],  # Not protected
-        })
+        policy = FileProtectionPolicy(
+            [
+                ProtectedFileConfig(path="file1.py", reason="Reason 1"),
+                ProtectedFileConfig(path="file2.py", reason="Reason 2"),
+            ]
+        )
+        result = policy.check_file_modifications(
+            {
+                "file1.py": [1],
+                "file2.py": [2],
+                "file3.py": [3],  # Not protected
+            }
+        )
         assert not result.allowed
         assert len(result.violations) == 2
 
     def test_check_diff_for_violations(self):
-        policy = FileProtectionPolicy([
-            ProtectedFileConfig(path="protected.py", reason="Critical")
-        ])
+        policy = FileProtectionPolicy([ProtectedFileConfig(path="protected.py", reason="Critical")])
         diff = """diff --git a/protected.py b/protected.py
 --- a/protected.py
 +++ b/protected.py
@@ -307,9 +315,7 @@ class TestFileProtectionPolicy:
         assert len(result.violations) == 1
 
     def test_to_dict(self):
-        policy = FileProtectionPolicy([
-            ProtectedFileConfig(path="test.py", reason="Test reason")
-        ])
+        policy = FileProtectionPolicy([ProtectedFileConfig(path="test.py", reason="Test reason")])
         result = policy.check_file_modifications({"test.py": [1]})
         result_dict = result.to_dict()
         assert result_dict["allowed"] is False
@@ -324,17 +330,19 @@ class TestIntegration:
 
     def test_coverage_threshold_protection(self):
         """Test the specific use case from issue #200."""
-        policy = FileProtectionPolicy([
-            ProtectedFileConfig(
-                path=".coveragerc",
-                reason="Test coverage configuration",
-            ),
-            ProtectedFileConfig(
-                path="pyproject.toml",
-                lines=[(50, 55)],
-                reason="Coverage threshold settings",
-            ),
-        ])
+        policy = FileProtectionPolicy(
+            [
+                ProtectedFileConfig(
+                    path=".coveragerc",
+                    reason="Test coverage configuration",
+                ),
+                ProtectedFileConfig(
+                    path="pyproject.toml",
+                    lines=[(50, 55)],
+                    reason="Coverage threshold settings",
+                ),
+            ]
+        )
 
         # Modifying .coveragerc should be blocked
         result = policy.check_file_modifications({".coveragerc": [5]})
@@ -350,42 +358,54 @@ class TestIntegration:
 
     def test_ci_workflow_protection(self):
         """Test protection of CI workflow files."""
-        policy = FileProtectionPolicy([
-            ProtectedFileConfig(
-                path=".github/workflows/*.yml",
-                reason="CI workflow configuration",
-            )
-        ])
+        policy = FileProtectionPolicy(
+            [
+                ProtectedFileConfig(
+                    path=".github/workflows/*.yml",
+                    reason="CI workflow configuration",
+                )
+            ]
+        )
 
-        result = policy.check_file_modifications({
-            ".github/workflows/ci.yml": [5],
-        })
+        result = policy.check_file_modifications(
+            {
+                ".github/workflows/ci.yml": [5],
+            }
+        )
         assert not result.allowed
 
-        result = policy.check_file_modifications({
-            ".github/other-file.txt": [1],
-        })
+        result = policy.check_file_modifications(
+            {
+                ".github/other-file.txt": [1],
+            }
+        )
         assert result.allowed
 
     def test_gateway_policy_protection(self):
         """Test protection of critical gateway policy code."""
-        policy = FileProtectionPolicy([
-            ProtectedFileConfig(
-                path="gateway/policy.py",
-                lines=[(742, 761)],
-                level="immutable",
-                reason="Merge blocking policy - critical security",
-            )
-        ])
+        policy = FileProtectionPolicy(
+            [
+                ProtectedFileConfig(
+                    path="gateway/policy.py",
+                    lines=[(742, 761)],
+                    level="immutable",
+                    reason="Merge blocking policy - critical security",
+                )
+            ]
+        )
 
         # Modifying the merge block lines should be blocked
-        result = policy.check_file_modifications({
-            "gateway/policy.py": [750],
-        })
+        result = policy.check_file_modifications(
+            {
+                "gateway/policy.py": [750],
+            }
+        )
         assert not result.allowed
 
         # Modifying other parts of the file should be allowed
-        result = policy.check_file_modifications({
-            "gateway/policy.py": [100],
-        })
+        result = policy.check_file_modifications(
+            {
+                "gateway/policy.py": [100],
+            }
+        )
         assert result.allowed
