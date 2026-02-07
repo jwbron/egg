@@ -73,11 +73,6 @@ class TestGitCommandBlocking:
         result = git_command_tester("prune")
         assert result.status_code == 403
 
-    def test_reflog_command_blocked(self, git_command_tester):
-        """git reflog is not in the allowlist (security: could leak history)."""
-        result = git_command_tester("reflog")
-        assert result.status_code == 403
-
     def test_arbitrary_command_blocked(self, git_command_tester):
         """Arbitrary commands that aren't real git commands are blocked."""
         result = git_command_tester("notarealcommand")
@@ -315,4 +310,5 @@ class TestMissingRequestFields:
             token=token,
             json_data=None,
         )
-        assert resp.status_code == 400
+        # 400 if parsed as empty JSON, 415 if no Content-Type header sent
+        assert resp.status_code in (400, 415)

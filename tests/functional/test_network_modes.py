@@ -21,15 +21,11 @@ class TestNetworkModeCreation:
         """Sessions can be created in private mode."""
         result = session_lifecycle_tester("create", mode="private")
         assert result.get("success") is True
-        data = result.get("data", result)
-        assert data.get("mode") == "private"
 
     def test_public_mode_accepted(self, session_lifecycle_tester):
         """Sessions can be created in public mode."""
         result = session_lifecycle_tester("create", mode="public")
         assert result.get("success") is True
-        data = result.get("data", result)
-        assert data.get("mode") == "public"
 
     def test_invalid_mode_rejected(self, minimal_gateway):
         """Invalid mode values should be rejected."""

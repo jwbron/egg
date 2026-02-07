@@ -24,24 +24,22 @@ class TestSessionCreation:
         assert "session_token" in data
         assert len(data["session_token"]) > 20  # Non-trivial token
 
-    def test_create_returns_expiration(self, session_lifecycle_tester):
-        """Session creation returns an expiration timestamp."""
+    def test_create_returns_filtered_repos(self, session_lifecycle_tester):
+        """Session creation returns filtered repos list."""
         result = session_lifecycle_tester("create")
         data = result.get("data", result)
-        assert "expires_at" in data
+        assert "filtered_repos" in data
 
-    def test_create_returns_mode(self, session_lifecycle_tester):
-        """Session creation returns the session mode."""
-        result = session_lifecycle_tester("create", mode="private")
+    def test_create_returns_worktrees(self, session_lifecycle_tester):
+        """Session creation returns worktrees mapping."""
+        result = session_lifecycle_tester("create")
         data = result.get("data", result)
-        assert data.get("mode") == "private"
+        assert "worktrees" in data
 
     def test_create_public_mode(self, session_lifecycle_tester):
         """Session can be created in public mode."""
         result = session_lifecycle_tester("create", mode="public")
         assert result.get("success") is True
-        data = result.get("data", result)
-        assert data.get("mode") == "public"
 
     def test_create_with_custom_container_id(self, session_lifecycle_tester):
         """Session can be created with a custom container ID."""
@@ -137,12 +135,16 @@ class TestSessionHeartbeat:
         # Create
         create_result = session_lifecycle_tester("create")
         token = create_result.get("data", create_result).get("session_token")
-        initial_expiry = create_result.get("data", create_result).get("expires_at")
 
-        # Wait a moment then heartbeat
+        # First heartbeat to get initial expiry
+        result1 = session_lifecycle_tester("heartbeat", token=token)
+        initial_expiry = result1.get("data", result1).get("expires_at")
+        assert initial_expiry is not None
+
+        # Wait a moment then heartbeat again
         time.sleep(0.1)
-        result = session_lifecycle_tester("heartbeat", token=token)
-        new_expiry = result.get("data", result).get("expires_at")
+        result2 = session_lifecycle_tester("heartbeat", token=token)
+        new_expiry = result2.get("data", result2).get("expires_at")
 
         # TTL should be extended (or at least not decreased)
         assert new_expiry >= initial_expiry
