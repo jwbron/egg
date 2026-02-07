@@ -65,10 +65,10 @@ class TestInitialReview:
             assert "type=initial" in stdout
 
             prompt = read_prompt_file(tmpdir, "123")
-            assert "Review PR #123" in prompt
-            assert "agent-mode design alignment" in prompt
+            assert "Check PR #123" in prompt
+            assert "agent-mode design anti-patterns" in prompt
             assert "gh pr diff 123" in prompt
-            assert "Re-review" not in prompt
+            assert "re-review" not in prompt.lower()
 
     def test_includes_agent_mode_design_focus(self) -> None:
         """Initial review includes agent-mode design focus."""
@@ -81,10 +81,10 @@ class TestInitialReview:
 
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "456")
-            assert "## Review Focus" in prompt
+            assert "## What to Look For" in prompt
             assert "docs/guides/agent-mode-design.md" in prompt
-            assert "Pre-fetches data" in prompt
-            assert 'specifies "how"' in prompt.lower() or '"how"' in prompt
+            assert "Pre-fetching" in prompt
+            assert "How vs what" in prompt
 
     def test_includes_review_conventions(self) -> None:
         """Initial review includes review conventions section."""
@@ -97,8 +97,27 @@ class TestInitialReview:
 
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "789")
-            assert "## Review Conventions" in prompt
+            assert "## Posting Your Review" in prompt
             assert "gh pr review" in prompt
+
+    def test_is_specialized_not_general_review(self) -> None:
+        """Prompt explicitly states this is specialized, not general review."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            # Must include scope section explaining specialization
+            assert "## Scope" in prompt
+            assert "specialized design review" in prompt
+            assert "NOT a general code review" in prompt
+            # Must include what to skip
+            assert "## What to Skip" in prompt
+            assert "base review bot covers this" in prompt
 
 
 class TestReReview:
@@ -119,8 +138,8 @@ class TestReReview:
             assert "abc123d" in stdout  # Short SHA in output
 
             prompt = read_prompt_file(tmpdir, "123")
-            assert "Re-review PR #123" in prompt
-            assert "agent-mode design alignment" in prompt
+            assert "Check PR #123" in prompt
+            assert "agent-mode design anti-patterns" in prompt
             assert "This is a **re-review**" in prompt
             assert "abc123def456" in prompt
 
@@ -150,7 +169,7 @@ class TestReReview:
 
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "123")
-            assert "## Review Focus" in prompt
+            assert "## What to Look For" in prompt
             assert "docs/guides/agent-mode-design.md" in prompt
 
 

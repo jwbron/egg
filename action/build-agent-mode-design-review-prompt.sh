@@ -26,53 +26,82 @@ build_prompt() {
     # Check if this is a re-review (we have a previous review commit)
     if [[ -n "${LAST_REVIEW_COMMIT:-}" ]]; then
         is_rereview=true
-        prompt="Re-review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY} for agent-mode design alignment.
+        prompt="**Specialized review**: Check PR #${PR_NUMBER} in ${GITHUB_REPOSITORY} for agent-mode design anti-patterns.
 
 This is a **re-review** — you previously reviewed this PR at commit \`${LAST_REVIEW_COMMIT}\`.
 
-## Your Task
+## Scope
 
-1. **Review only new changes**: Use \`git diff ${LAST_REVIEW_COMMIT}..HEAD\` to see what changed since your last review.
-2. **Check previous feedback**: Use \`gh pr view ${PR_NUMBER} --comments\` to see previous review comments.
-3. **Verify issues addressed**: Confirm that any concerns from your previous review have been addressed.
-4. **Focus on the delta**: Your new review should focus on the changes since \`${LAST_REVIEW_COMMIT}\`, not re-review unchanged code.
+This is a specialized design review, NOT a general code review. A separate bot handles general code quality, security, and correctness. Your job is specifically to catch agent-mode design anti-patterns.
 
-For full PR context if needed: \`gh pr diff ${PR_NUMBER}\`
+**Only comment if you find agent-mode design issues.** If the PR has no agent-mode concerns, approve with a brief note like \"No agent-mode design concerns\" — don't provide general feedback.
 
-## Review Focus
+## Re-review Task
 
-Read \`docs/guides/agent-mode-design.md\` for the design principles to check.
+1. Use \`git diff ${LAST_REVIEW_COMMIT}..HEAD\` to see changes since your last review.
+2. Use \`gh pr view ${PR_NUMBER} --comments\` to check if previous feedback was addressed.
+3. Focus only on the delta — don't re-review unchanged code.
 
-Focus on whether the PR code:
-1. Pre-fetches data the agent could fetch itself
-2. Requires structured output for human-facing content
-3. Uses post-processing pipelines that parse agent output
-4. Specifies \"how\" instead of \"what\"
-5. Adds constraints beyond what the sandbox enforces
+## What to Look For
 
-## Review Conventions
+Read \`docs/guides/agent-mode-design.md\` for full context. Flag these anti-patterns:
 
-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --approve if the PR looks good, --request-changes for blocking issues, or --comment for advisory feedback. Be specific and suggest fixes. Sign your review with: — Authored by egg
+1. **Pre-fetching**: Baking large diffs or file contents into prompts instead of letting agents fetch what they need
+2. **Structured output for humans**: Requiring JSON when the output goes directly to humans (PR comments, reviews)
+3. **Post-processing pipelines**: Scripts that parse agent output to take actions the agent could take directly
+4. **How vs what**: Over-specifying procedures instead of objectives
+5. **Prompt-level security**: Using instructions for constraints that should be sandbox-enforced
+
+## What to Skip
+
+- General code quality, style, naming — the base review bot covers this
+- Security issues unrelated to agent design — the base review bot covers this
+- Correctness/logic errors — the base review bot covers this
+
+## Posting Your Review
+
+Use \`gh pr review ${PR_NUMBER}\`:
+- \`--approve\`: No agent-mode design issues found
+- \`--request-changes\`: Blocking anti-patterns that should be fixed
+- \`--comment\`: Advisory suggestions for better agent-mode alignment
+
+Sign with: — Authored by egg
 "
     else
-        prompt="Review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY} for agent-mode design alignment.
+        prompt="**Specialized review**: Check PR #${PR_NUMBER} in ${GITHUB_REPOSITORY} for agent-mode design anti-patterns.
 
-Use \`gh pr diff ${PR_NUMBER}\` to see the changes. Read files for context.
+## Scope
 
-## Review Focus
+This is a specialized design review, NOT a general code review. A separate bot handles general code quality, security, and correctness. Your job is specifically to catch agent-mode design anti-patterns.
 
-Read \`docs/guides/agent-mode-design.md\` for the design principles to check.
+**Only comment if you find agent-mode design issues.** If the PR has no agent-mode concerns, approve with a brief note like \"No agent-mode design concerns\" — don't provide general feedback.
 
-Focus on whether the PR code:
-1. Pre-fetches data the agent could fetch itself
-2. Requires structured output for human-facing content
-3. Uses post-processing pipelines that parse agent output
-4. Specifies \"how\" instead of \"what\"
-5. Adds constraints beyond what the sandbox enforces
+## What to Look For
 
-## Review Conventions
+Use \`gh pr diff ${PR_NUMBER}\` to see changes. Read \`docs/guides/agent-mode-design.md\` for full context.
 
-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --approve if the PR looks good, --request-changes for blocking issues, or --comment for advisory feedback. Be specific and suggest fixes. Sign your review with: — Authored by egg
+Flag these anti-patterns:
+
+1. **Pre-fetching**: Baking large diffs or file contents into prompts instead of letting agents fetch what they need
+2. **Structured output for humans**: Requiring JSON when the output goes directly to humans (PR comments, reviews)
+3. **Post-processing pipelines**: Scripts that parse agent output to take actions the agent could take directly
+4. **How vs what**: Over-specifying procedures instead of objectives
+5. **Prompt-level security**: Using instructions for constraints that should be sandbox-enforced
+
+## What to Skip
+
+- General code quality, style, naming — the base review bot covers this
+- Security issues unrelated to agent design — the base review bot covers this
+- Correctness/logic errors — the base review bot covers this
+
+## Posting Your Review
+
+Use \`gh pr review ${PR_NUMBER}\`:
+- \`--approve\`: No agent-mode design issues found
+- \`--request-changes\`: Blocking anti-patterns that should be fixed
+- \`--comment\`: Advisory suggestions for better agent-mode alignment
+
+Sign with: — Authored by egg
 "
     fi
 
