@@ -35,7 +35,7 @@ from egg_lib.self_improvement.config import DEFAULT_SINCE_HOURS, EGG_WORKFLOWS
 MAX_LOG_EXCERPT_CHARS = 5000
 # Maximum total log chars across all runs (per partition)
 MAX_TOTAL_LOG_CHARS = 50000
-# Maximum failed runs per partition (to ensure egg can process all in one context)
+# Maximum runs per partition (to ensure egg can process all in one context)
 MAX_RUNS_PER_PARTITION = 5
 
 
