@@ -26,6 +26,8 @@ See the [main README](../../README.md) for the architecture diagram.
 
 **Access Control:**
 - Branch ownership (agent can only push to `egg/*` branches)
+- Phase-based operation restrictions (git/gh operations filtered by SDLC phase)
+- Role-based contract mutations (implementer, reviewer, human roles with field-level permissions)
 - No merge capability (gateway has no merge endpoint)
 - Force push and destructive operations blocked
 
@@ -36,6 +38,21 @@ See the [main README](../../README.md) for the architecture diagram.
 | **Gateway** | Credential injection, policy enforcement, HTTP proxy | [Gateway README](../../gateway/README.md) |
 | **Sandbox** | Agent execution environment, git/gh wrappers | [Sandbox README](../../sandbox/README.md) |
 | **Shared Libraries** | Config, logging, git utilities | [Shared README](../../shared/README.md) |
+| **egg_contracts** | SDLC contract models, role-based mutation validation | `shared/egg_contracts/` |
+
+## SDLC Contracts
+
+Contracts are JSON documents that track issue progress through SDLC phases, tasks, decisions, and acceptance criteria. They provide structurally-verified agent checkpoints.
+
+**Schema**: `.egg/schemas/contract.schema.json`
+
+**Role-based ownership**: Each contract field is owned by a specific role:
+- `implementer`: `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected`
+- `reviewer`: `tasks[].status`, `phases[].status`, `phases[].review_feedback`, `acceptance_criteria[].verified`, `current_phase`
+- `human`: `decisions[].resolved`, `decisions[].resolution`, `decisions[].resolved_by`, `decisions[].resolved_at`, all other fields
+- `system`: Structural fields (`issue`, `schemaVersion`)
+
+The gateway enforces role-based mutations via the `/api/v1/contract/` endpoints. Role is determined from workflow context, preventing privilege escalation.
 
 ## Key Architectural Decisions
 
