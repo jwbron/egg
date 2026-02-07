@@ -36,7 +36,7 @@ jobs:
             --cov=gateway --cov=shared --cov=sandbox \
             --cov-append \
             --cov-report=term-missing \
-            --cov-fail-under=65
+            --cov-fail-under=80
 
   security:
     name: Security Scan

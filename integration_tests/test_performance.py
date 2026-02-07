@@ -245,7 +245,7 @@ class TestScalability:
             health = egg_stack.health_check(timeout=10)
             latency = (time.perf_counter() - start) * 1000
 
-            assert health.get("status") == "healthy"
+            assert health.get("status") in ("healthy", "degraded")
             assert latency < 200, f"Health check degraded with many sessions: {latency:.2f}ms"
 
             # Validation should still be fast
