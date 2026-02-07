@@ -114,7 +114,7 @@ POST /api/v1/phase/advance
   Description: Advance pipeline to next phase
 
 POST /api/v1/phase/filter
-  Request: {operation_type, command, issue_number?, repo_path?}
+  Request: {issue_number, operation_type, command, repo_path?}
   Policy: session_auth
   Description: Check if operation is allowed in current phase
 
