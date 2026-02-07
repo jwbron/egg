@@ -373,7 +373,7 @@ def main() -> int:
         "--max-runs-per-partition",
         type=int,
         default=MAX_RUNS_PER_PARTITION,
-        help=f"Maximum failed runs per partition (default: {MAX_RUNS_PER_PARTITION})",
+        help=f"Maximum runs per partition (default: {MAX_RUNS_PER_PARTITION})",
     )
 
     args = parser.parse_args()
@@ -412,6 +412,7 @@ def main() -> int:
             if args.output:
                 # Write a single file with partition count = 0
                 output_path = args.output.replace("{partition}", "0")
+                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
                 Path(output_path).write_text(output)
             else:
                 print(output)
@@ -435,6 +436,7 @@ def main() -> int:
 
             if args.output:
                 output_path = args.output.replace("{partition}", str(i))
+                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
                 Path(output_path).write_text(output)
             else:
                 print(f"--- Partition {i + 1}/{len(partitions)} ---")

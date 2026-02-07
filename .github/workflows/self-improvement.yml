@@ -72,8 +72,9 @@ jobs:
             2> partition_info.txt
 
           # Extract partition count from stderr (use tail -1 to handle any extra output)
-          PARTITION_COUNT=$(grep "^PARTITION_COUNT=" partition_info.txt | tail -1 | cut -d= -f2)
-          # Default to 0 if extraction failed (e.g., collection error)
+          # Use || echo "0" to ensure we get "0" if grep fails (empty file or no match)
+          PARTITION_COUNT=$(grep "^PARTITION_COUNT=" partition_info.txt 2>/dev/null | tail -1 | cut -d= -f2 || echo "0")
+          # Handle empty string case (grep succeeded but cut produced nothing)
           PARTITION_COUNT="${PARTITION_COUNT:-0}"
           echo "partition_count=${PARTITION_COUNT}" >> "$GITHUB_OUTPUT"
 
