@@ -62,6 +62,41 @@ readable_repos:
   # Add repos you want to monitor but not modify here
   # Example: - some-org/some-repo
 
+# Protected files configuration
+# These files/lines cannot be modified by the agent.
+# The gateway blocks pushes that modify protected files.
+#
+# Supported formats:
+#   - path: File path or glob pattern (e.g., "*.coveragerc", ".github/workflows/*.yml")
+#   - lines: Optional line ranges to protect (1-indexed, inclusive)
+#            Formats: [50], ["50-55"], [50, "52-55", 60]
+#   - level: Protection level (default: "immutable")
+#            - immutable: Block push entirely
+#            - warn_on_pr: Allow push, add warning comment to PR
+#            - log_only: Allow push, log for audit
+#   - reason: Human-readable explanation (shown in error message)
+#
+# Examples:
+protected_files:
+  # Block entire file from modification
+  # - path: ".coveragerc"
+  #   reason: "Test coverage configuration"
+
+  # Block specific lines (e.g., coverage thresholds)
+  # - path: "pyproject.toml"
+  #   lines: ["50-55"]
+  #   reason: "Coverage threshold settings"
+
+  # Block with glob pattern
+  # - path: ".github/workflows/*.yml"
+  #   reason: "CI workflow configuration"
+
+  # Critical security files (strictest protection)
+  # - path: "gateway/policy.py"
+  #   lines: ["742-761"]
+  #   level: "immutable"
+  #   reason: "Merge blocking policy - critical security"
+
 # Per-repository configuration overrides
 # Each key is a repository name in "owner/repo" format
 # Available options per repo:
@@ -73,6 +108,7 @@ readable_repos:
 #   - auth_mode: Authentication mode for this repo
 #     "bot" (default): Use GitHub App bot identity
 #     "user": Use personal access token with user identity
+#   - protected_files: Per-repo protected files (same format as global)
 repo_settings:
   # Example:
   # YOUR_USERNAME/egg:

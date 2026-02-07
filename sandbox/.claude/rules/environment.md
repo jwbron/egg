@@ -43,6 +43,22 @@ Key restrictions enforced by the gateway:
 - `git push`: Only to branches you own (`egg/` or `egg-` prefixed, or has your open PR)
 - `git worktree add/remove`: **Unsupported** — use `git checkout -b` instead
 - `gh pr merge`: **Blocked** — human must merge via GitHub UI
+- **Protected files**: Certain files or lines may be protected from modification (see below)
+
+## Protected Files
+
+Some files or specific line ranges may be protected from modification. The gateway blocks pushes that touch protected files.
+
+Protected files are configured in `repositories.yaml` under `protected_files`. Common protections include:
+- Test coverage configuration (`.coveragerc`, coverage thresholds in `pyproject.toml`)
+- CI workflow files (`.github/workflows/*.yml`)
+- Critical security code (e.g., merge blocking logic)
+
+If your push is blocked due to protected files:
+1. The error message will list which files/lines are protected
+2. Do NOT attempt to modify protected files or their thresholds
+3. Find an alternative solution that doesn't require modifying protected content
+4. If the protection seems incorrect, escalate to human review
 
 ## Git Push
 

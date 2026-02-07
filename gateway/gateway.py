@@ -74,6 +74,7 @@ try:
         parse_gh_api_args,
         validate_gh_api_path,
     )
+    from .file_policy import get_file_protection_policy
     from .policy import (
         extract_branch_from_refspec,
         extract_repo_from_remote,
@@ -115,6 +116,7 @@ except ImportError:
         parse_gh_api_args,
         validate_gh_api_path,
     )
+    from file_policy import get_file_protection_policy  # type: ignore[no-redef]
     from policy import (  # type: ignore[no-redef, import-not-found]
         extract_branch_from_refspec,
         extract_repo_from_remote,
@@ -562,6 +564,53 @@ def git_push() -> tuple[Response, int] | Response:
             status_code=403,
             details=policy_result.details,
         )
+
+    # Check file protection policy
+    # Get the diff of commits being pushed compared to remote
+    file_policy = get_file_protection_policy(repo)
+    if file_policy.protected_files:
+        try:
+            # Get diff between what's on remote and what we're pushing
+            diff_result = subprocess.run(
+                git_cmd("diff", f"origin/{branch}...HEAD"),
+                cwd=exec_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if diff_result.returncode == 0 and diff_result.stdout:
+                file_check = file_policy.check_diff_for_violations(diff_result.stdout)
+                if not file_check.allowed:
+                    violation_msgs = [
+                        f"- {v.file}: {v.reason}" + (f" (lines {v.lines})" if v.lines else "")
+                        for v in file_check.violations
+                    ]
+                    audit_log(
+                        "push_denied_protected_files",
+                        "git_push",
+                        success=False,
+                        details={
+                            "repo": repo,
+                            "branch": branch,
+                            "violations": file_check.to_dict()["violations"],
+                        },
+                    )
+                    return make_error(
+                        f"Push blocked: modifications to protected files detected:\n"
+                        + "\n".join(violation_msgs),
+                        status_code=403,
+                        details=file_check.to_dict(),
+                    )
+        except subprocess.TimeoutExpired:
+            logger.warning("File protection diff check timed out", repo=repo, branch=branch)
+        except Exception as e:
+            logger.warning(
+                "File protection check failed, allowing push",
+                repo=repo,
+                branch=branch,
+                error=str(e),
+            )
 
     # Get authentication token using shared helper
     token_str, auth_mode, token_error = get_token_for_repo(repo)

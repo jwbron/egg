@@ -168,6 +168,12 @@ worktree_manager = _load_module_with_replaced_imports(
     GATEWAY_DIR / "worktree_manager.py",
 )
 
+# file_policy has no relative imports to other gateway modules
+file_policy = _load_module_with_replaced_imports(
+    "file_policy",
+    GATEWAY_DIR / "file_policy.py",
+)
+
 # gateway imports from all
 gateway = _load_module_with_replaced_imports(
     "gateway",
@@ -183,6 +189,7 @@ gateway = _load_module_with_replaced_imports(
         "from .rate_limiter import": "from rate_limiter import",
         "from .repo_visibility import": "from repo_visibility import",
         "from .worktree_manager import": "from worktree_manager import",
+        "from .file_policy import": "from file_policy import",
     },
 )
 
