@@ -72,14 +72,16 @@ jobs:
           fi
 
           # Output run data for the next job
-          echo "run_data=$(cat run_metadata.json | jq -c)" >> "$GITHUB_OUTPUT"
+          echo "run_data=$(jq -c < run_metadata.json)" >> "$GITHUB_OUTPUT"
 
           # Also show summary in step output
-          echo "## Run Metadata Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Total runs: $(jq '.summary.total_runs' run_metadata.json)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Failed runs: ${FAILED_COUNT}" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Run Metadata Summary"
+            echo ""
+            echo "- Total runs: $(jq '.summary.total_runs' run_metadata.json)"
+            echo "- Failed runs: ${FAILED_COUNT}"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload metadata artifact
         uses: actions/upload-artifact@v4
@@ -163,11 +165,13 @@ jobs:
           failure may not need an issue, but a pattern across multiple runs does.
           TASK_EOF
 
-          echo "## Analysis Task" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Dispatching to egg for intelligent analysis..." >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          cat task_prompt.md >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Analysis Task"
+            echo ""
+            echo "Dispatching to egg for intelligent analysis..."
+            echo ""
+            cat task_prompt.md
+          } >> "$GITHUB_STEP_SUMMARY"
 
           # TODO: Dispatch to egg via the appropriate mechanism
           # For now, just output the task that would be given to egg
