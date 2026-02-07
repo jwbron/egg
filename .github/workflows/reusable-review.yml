@@ -253,7 +253,7 @@ jobs:
           EGG_BOT_NAME: ${{ inputs.bot_name }}
 
       - name: Post workflow run status to PR
-        if: always()
+        if: always() && !cancelled()
         run: |
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
             BODY="egg ${{ inputs.bot_name }} completed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"

@@ -160,7 +160,7 @@ jobs:
           timeout: "20"
 
       - name: Post result comment
-        if: always() && steps.skip-check.outputs.skip != 'true'
+        if: always() && !cancelled() && steps.skip-check.outputs.skip != 'true'
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
