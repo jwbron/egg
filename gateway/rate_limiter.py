@@ -492,7 +492,7 @@ class GitHubAPIRateTracker:
             return {
                 "resources": resources,
                 "any_limited": any(info.is_limited for info in self._limits.values()),
-                "recent_events": self._events[-10:] if self._events else [],
+                "recent_events": list(self._events)[-10:] if self._events else [],
             }
 
     def reset(self) -> None:
