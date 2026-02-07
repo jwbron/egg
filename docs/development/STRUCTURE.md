@@ -92,6 +92,35 @@ shared/
 └── egg_logging/            # Structured logging
 ```
 
+## Integration Tests Structure
+
+```
+integration_tests/
+├── conftest.py                    # Shared fixtures for all integration tests
+├── docker-compose.yml             # Test environment setup
+├── agent_findings.py              # Security findings for agent security fuzz tests
+├── test_agent_security_fuzz.py    # Agent security fuzzing tests
+├── test_credential_security.py    # Credential isolation verification
+├── test_e2e_workflow.py           # End-to-end workflow tests
+├── test_error_recovery.py         # Error handling and recovery tests
+├── test_fail_closed.py            # Fail-closed security property tests
+├── test_gateway_auth.py           # Gateway authentication tests
+├── test_gateway_operations.py     # Gateway API endpoint tests
+├── test_network_isolation.py      # Network security tests
+├── test_network_security.py       # Network policy enforcement tests
+├── test_performance.py            # Performance and scaling tests
+├── test_policy_enforcement.py     # Policy enforcement tests
+├── test_rate_limiting.py          # Rate limiting tests
+├── test_stack_lifecycle.py        # Container lifecycle tests
+└── sdlc/                          # SDLC pipeline integration tests
+    ├── conftest.py                # SDLC test fixtures
+    ├── test_happy_path.py         # Full pipeline success flow
+    ├── test_review_rejection.py   # Reviewer rejection and fix cycles
+    ├── test_circuit_breaker.py    # Circuit breaker escalation
+    ├── test_hitl_flow.py          # Human-in-the-loop decision flow
+    └── test_role_enforcement.py   # Role-based mutation enforcement
+```
+
 ## Action Directory
 
 ```
