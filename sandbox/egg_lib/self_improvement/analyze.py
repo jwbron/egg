@@ -12,6 +12,7 @@ Usage:
 import argparse
 import json
 import os
+import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 
@@ -40,9 +41,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output",
-        choices=["summary", "json"],
+        choices=["summary", "json", "both"],
         default="summary",
-        help="Output format: summary (human-readable) or json (structured)",
+        help="Output format: summary (human-readable), json (structured), or both",
+    )
+    parser.add_argument(
+        "--json-file",
+        type=str,
+        default=None,
+        help="File path to write JSON output (used with --output both)",
     )
     parser.add_argument(
         "--repo",
@@ -214,7 +221,7 @@ def main() -> int:
 
     try:
         runs = collector.collect(since)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         print(f"Error collecting logs: {e}", file=sys.stderr)
         return 1
 
@@ -223,6 +230,17 @@ def main() -> int:
     # Generate output
     if args.output == "json":
         print(generate_json(runs, since))
+    elif args.output == "both":
+        # Output both formats in a single run (avoids duplicate API calls)
+        print(generate_summary(runs, since))
+        json_output = generate_json(runs, since)
+        if args.json_file:
+            with open(args.json_file, "w") as f:
+                f.write(json_output)
+            print(f"\nJSON report written to: {args.json_file}", file=sys.stderr)
+        else:
+            print("\n--- JSON Output ---\n")
+            print(json_output)
     else:
         print(generate_summary(runs, since))
 

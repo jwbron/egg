@@ -24,7 +24,14 @@ DEFAULT_SINCE_HOURS = 24
 DEFAULT_LOG_RETENTION_DAYS = 90
 
 # Workflows to analyze (egg-triggered workflows)
-EGG_WORKFLOWS = [
+# Can be overridden via EGG_WORKFLOWS env var (comma-separated list)
+_default_workflows = [
     "on-mention.yml",
     "on-pull-request.yml",
 ]
+_workflows_env = os.getenv("EGG_WORKFLOWS")
+EGG_WORKFLOWS = (
+    [w.strip() for w in _workflows_env.split(",") if w.strip()]
+    if _workflows_env
+    else _default_workflows
+)

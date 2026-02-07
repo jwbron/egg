@@ -47,27 +47,16 @@ jobs:
           echo "Analyzing runs from the last ${SINCE_HOURS} hours..." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # Run analysis and capture output
+          # Run analysis once with both outputs (avoids duplicate API calls)
           python -m egg_lib.self_improvement.analyze \
             --source gha \
             --since-hours "${SINCE_HOURS}" \
-            --output summary | tee analysis_output.txt
+            --output both \
+            --json-file analysis_report.json | tee analysis_output.txt
 
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat analysis_output.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-
-      - name: Generate JSON report
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          PYTHONPATH: sandbox
-        run: |
-          SINCE_HOURS="${{ github.event.inputs.since_hours || '24' }}"
-
-          python -m egg_lib.self_improvement.analyze \
-            --source gha \
-            --since-hours "${SINCE_HOURS}" \
-            --output json > analysis_report.json
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### JSON Report" >> $GITHUB_STEP_SUMMARY

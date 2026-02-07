@@ -91,15 +91,26 @@ class GHALogCollector(LogCollector):
             return []
 
         # Parse the JSON output (may be multiple arrays from pagination)
+        # Each page returns a separate JSON array, so we need to parse each line
         runs: list[dict[str, str | int]] = []
-        for line in result.stdout.strip().split("\n"):
-            if line:
-                try:
-                    parsed = json.loads(line)
-                    if isinstance(parsed, list):
-                        runs.extend(parsed)
-                except json.JSONDecodeError:
-                    continue
+        for line_num, line in enumerate(result.stdout.strip().split("\n"), 1):
+            if not line:
+                continue
+            try:
+                parsed = json.loads(line)
+                if isinstance(parsed, list):
+                    runs.extend(parsed)
+                # Note: If a single page is malformed, we skip it and continue
+                # with other pages to maximize data collection
+            except json.JSONDecodeError as e:
+                # Log warning but continue processing remaining pages
+                import sys
+
+                print(
+                    f"Warning: Failed to parse page {line_num} of workflow runs: {e}",
+                    file=sys.stderr,
+                )
+                continue
 
         # Filter to egg-triggered workflows and runs after since
         filtered_runs = []

@@ -10,11 +10,31 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from ...container_logging import CONTAINER_LOGS_DIR
 from .base import LogCollector, RunLog
 
 # Type alias for status values
 StatusType = Literal["success", "failure", "cancelled", "running"]
+
+# Default logs directory (lazy-loaded to avoid import issues in GHA)
+_default_logs_dir: Path | None = None
+
+
+def _get_default_logs_dir() -> Path:
+    """Get the default container logs directory.
+
+    Lazily imports from container_logging to avoid issues when
+    running in environments where the module may have side effects.
+    """
+    global _default_logs_dir
+    if _default_logs_dir is None:
+        try:
+            from ...container_logging import CONTAINER_LOGS_DIR
+
+            _default_logs_dir = CONTAINER_LOGS_DIR
+        except ImportError:
+            # Fall back to default path if container_logging unavailable
+            _default_logs_dir = Path.home() / ".cache" / "egg" / "container-logs"
+    return _default_logs_dir
 
 
 class LocalLogCollector(LogCollector):
@@ -31,7 +51,7 @@ class LocalLogCollector(LogCollector):
             logs_dir: Directory containing container logs.
                      Defaults to ~/.cache/egg/container-logs/
         """
-        self.logs_dir = logs_dir or CONTAINER_LOGS_DIR
+        self.logs_dir = logs_dir or _get_default_logs_dir()
         self.index_file = self.logs_dir / "log-index.json"
 
     def collect(self, since: datetime) -> list[RunLog]:
@@ -139,29 +159,33 @@ class LocalLogCollector(LogCollector):
     def _infer_status(self, logs: str) -> StatusType:
         """Infer run status from log content.
 
+        Uses line-start patterns to avoid false positives from phrases like
+        "fixed the error" or "tests that previously failed".
+
         Args:
             logs: Log file content
 
         Returns:
             Status literal ("success" or "failure")
         """
-        # Look for common error patterns
-        error_patterns = [
-            "error:",
-            "Error:",
-            "ERROR",
-            "failed",
-            "Failed",
-            "FAILED",
-            "exception",
-            "Exception",
-            "Traceback",
-        ]
+        import re
 
+        # Patterns that indicate success (check first, more specific)
         success_patterns = [
             "completed successfully",
             "egg finished successfully",
-            "success",
+            "all tests passed",
+        ]
+
+        # Patterns that indicate failure - must be at line start to avoid
+        # false positives from "fixed the error", "tests that failed now pass", etc.
+        error_line_patterns = [
+            r"^Error:",
+            r"^ERROR[:\s]",
+            r"^FAILED[:\s]",
+            r"^FATAL[:\s]",
+            r"^Exception:",
+            r"^Traceback \(most recent call last\)",
         ]
 
         # Check for success patterns first (they're more specific)
@@ -169,9 +193,9 @@ class LocalLogCollector(LogCollector):
             if pattern in logs:
                 return "success"
 
-        # Then check for error patterns
-        for pattern in error_patterns:
-            if pattern in logs:
+        # Check for error patterns at line starts
+        for pattern in error_line_patterns:
+            if re.search(pattern, logs, re.MULTILINE):
                 return "failure"
 
         # Default to success if no clear indicators

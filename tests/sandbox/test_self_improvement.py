@@ -1,11 +1,14 @@
 """Tests for self_improvement module."""
 
 import json
+import os
 import sys
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 sandbox_path = Path(__file__).parent.parent.parent / "sandbox"
 sys.path.insert(0, str(sandbox_path))
@@ -26,7 +29,7 @@ class TestRunLog:
 
     def test_create_runlog_minimal(self):
         """RunLog can be created with required fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         log = RunLog(
             run_id="test-123",
             source="gha",
@@ -43,7 +46,7 @@ class TestRunLog:
 
     def test_create_runlog_with_metadata(self):
         """RunLog can include optional metadata."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         log = RunLog(
             run_id="test-456",
             source="local",
@@ -63,11 +66,8 @@ class TestLogCollectorABC:
 
     def test_cannot_instantiate_abstract(self):
         """LogCollector cannot be instantiated directly."""
-        try:
+        with pytest.raises(TypeError):
             LogCollector()  # type: ignore[abstract]
-            assert False, "Should have raised TypeError"
-        except TypeError:
-            pass
 
     def test_subclass_must_implement_collect(self):
         """Subclasses must implement collect()."""
@@ -75,11 +75,8 @@ class TestLogCollectorABC:
         class IncompleteCollector(LogCollector):
             pass
 
-        try:
+        with pytest.raises(TypeError):
             IncompleteCollector()  # type: ignore[abstract]
-            assert False, "Should have raised TypeError"
-        except TypeError:
-            pass
 
 
 class TestConfig:
@@ -105,7 +102,7 @@ class TestLocalLogCollector:
         """Returns empty list when log index doesn't exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
             collector = LocalLogCollector(logs_dir=Path(tmpdir))
-            since = datetime.now(timezone.utc) - timedelta(hours=1)
+            since = datetime.now(UTC) - timedelta(hours=1)
             runs = collector.collect(since)
             assert runs == []
 
@@ -115,7 +112,7 @@ class TestLocalLogCollector:
             logs_dir = Path(tmpdir)
 
             # Create index with entries at different times
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             old_time = (now - timedelta(hours=2)).isoformat()
             recent_time = now.isoformat()
 
@@ -157,10 +154,15 @@ class TestLocalLogCollector:
         assert collector._infer_status("Task completed successfully") == "success"
         assert collector._infer_status("egg finished successfully") == "success"
 
-        # Test failure inference
+        # Test failure inference - patterns at line start
         assert collector._infer_status("Error: something went wrong") == "failure"
-        assert collector._infer_status("The operation failed") == "failure"
-        assert collector._infer_status("Traceback (most recent call last)") == "failure"
+        assert collector._infer_status("FAILED: test_example") == "failure"
+        assert collector._infer_status("Traceback (most recent call last):\n  File...") == "failure"
+        assert collector._infer_status("FATAL: could not connect") == "failure"
+
+        # These should NOT trigger failure (patterns not at line start)
+        assert collector._infer_status("fixed the error from yesterday") == "success"
+        assert collector._infer_status("tests that previously failed now pass") == "success"
 
         # Test default (no clear indicators)
         assert collector._infer_status("Just some normal output") == "success"
@@ -195,7 +197,7 @@ class TestGHALogCollector:
         )
 
         collector = GHALogCollector(repo="test/repo")
-        since = datetime.now(timezone.utc) - timedelta(hours=1)
+        since = datetime.now(UTC) - timedelta(hours=1)
         runs = collector.collect(since)
 
         assert runs == []
@@ -203,7 +205,7 @@ class TestGHALogCollector:
     @patch("subprocess.run")
     def test_filters_to_egg_workflows(self, mock_run: MagicMock):
         """Only includes runs from egg workflows."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # First call: repo detection
         # Second call: fetch runs
@@ -254,7 +256,7 @@ class TestAnalyzeModule:
         """Summary handles empty run list."""
         from egg_lib.self_improvement.analyze import generate_summary
 
-        since = datetime.now(timezone.utc)
+        since = datetime.now(UTC)
         summary = generate_summary([], since)
         assert "No runs found" in summary
 
@@ -262,7 +264,7 @@ class TestAnalyzeModule:
         """Summary includes run statistics."""
         from egg_lib.self_improvement.analyze import generate_summary
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         runs = [
             RunLog(
                 run_id="1",
@@ -295,7 +297,7 @@ class TestAnalyzeModule:
         """JSON output is valid and contains expected fields."""
         from egg_lib.self_improvement.analyze import generate_json
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         runs = [
             RunLog(
                 run_id="test-1",
@@ -349,9 +351,6 @@ class TestAnalyzeModule:
     def test_select_collector_auto_outside_gha(self):
         """Auto-selects Local collector outside GitHub Actions."""
         from egg_lib.self_improvement.analyze import select_collector
-
-        # Ensure GITHUB_ACTIONS is not set
-        import os
 
         os.environ.pop("GITHUB_ACTIONS", None)
 
