@@ -646,6 +646,22 @@ class TestGhApiPathValidation:
         assert valid is False
         assert "not in allowlist" in error
 
+    def test_query_parameters_stripped(self):
+        """Query parameters should be stripped before matching."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/actions/runs?event=pull_request&per_page=15"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_query_parameters_stripped_pulls(self):
+        """Query parameters on pulls endpoint should be stripped."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/pulls?state=open&per_page=10"
+        )
+        assert valid is True
+        assert error == ""
+
 
 class TestParseGhApiArgs:
     """Tests for parse_gh_api_args function."""
