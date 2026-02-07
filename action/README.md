@@ -13,6 +13,12 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
 | `action.yml` | Action metadata, inputs, outputs |
 | `entrypoint.sh` | Main entry point that orchestrates container setup and execution |
 | `build-mention-prompt.sh` | Builds structured prompts from GitHub @mention events |
+| `build-review-prompt.sh` | Builds prompts for PR review workflows |
+| `build-autofixer-prompt.sh` | Builds prompts for autofixer workflows |
+| `build-agent-mode-design-review-prompt.sh` | Builds prompts for agent-mode design reviews |
+| `build-doc-updater-prompt.sh` | Builds prompts for documentation update workflows |
+| `build-sdlc-prompt.sh` | Builds phase-specific prompts for SDLC pipeline workflows |
+| `contract-state.sh` | Contract state management utility for SDLC pipeline |
 | `generate-config.sh` | Generates runtime configuration from action inputs |
 
 ## Quick Start

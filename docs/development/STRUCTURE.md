@@ -92,6 +92,25 @@ shared/
 └── egg_logging/            # Structured logging
 ```
 
+## Action Directory
+
+```
+action/
+├── action.yml                              # GitHub Action metadata
+├── entrypoint.sh                           # Action entry point
+├── generate-config.sh                      # Runtime config generator
+├── build-mention-prompt.sh                 # @mention workflow prompt builder
+├── build-review-prompt.sh                  # PR review workflow prompt builder
+├── build-autofixer-prompt.sh               # Autofixer workflow prompt builder
+├── build-agent-mode-design-review-prompt.sh # Agent-mode design review prompt
+├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder
+├── build-sdlc-prompt.sh                    # SDLC pipeline prompt builder
+├── contract-state.sh                       # Contract state management utility
+├── autofixer-conventions.md                # Guidelines for autofixer behavior
+├── review-conventions.md                   # Guidelines for review communication
+└── README.md
+```
+
 ## Config Directory
 
 ```

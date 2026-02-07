@@ -81,7 +81,7 @@ Each major component has its own README with detailed documentation:
 | **Setting up GitHub automation** | [GitHub Automation](guides/github-automation.md) | [Agent-Mode Design](guides/agent-mode-design.md), [GitHub Action](../action/README.md) |
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
 | **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
-| **SDLC pipeline changes** | [Architecture Overview](architecture/README.md) | [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md) |
+| **SDLC pipeline changes** | [Architecture Overview](architecture/README.md) | [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), workflows in `.github/workflows/sdlc-*.yml` |
 
 ## Quick Navigation
 

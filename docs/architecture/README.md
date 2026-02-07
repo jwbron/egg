@@ -74,9 +74,17 @@ The plan parser (`shared/egg_contracts/plan_parser.py`) extracts tasks from plan
 - Supports YAML front matter for structured task definitions
 - Generates placeholder tasks for empty phases
 
-### SDLC Prompt Builder
+### SDLC Pipeline
 
-The prompt builder (`action/build-sdlc-prompt.sh`) provides phase-specific context and instructions to the agent during SDLC pipeline runs, including orientation context (issue number, current phase, branch) and document templates for the refine and plan phases.
+The SDLC pipeline orchestrates agent-based development with structurally enforced checkpoints through GitHub Actions workflows:
+
+**Core workflows:**
+- `.github/workflows/sdlc-pipeline.yml` - Main pipeline orchestration (init, refine, plan, implement, review, loop, create-pr phases)
+- `.github/workflows/sdlc-hitl.yml` - Human-in-the-loop decision handling with debounce for rapid checkbox edits
+
+**Supporting scripts:**
+- `action/build-sdlc-prompt.sh` - Phase-specific prompt builder with context and document templates
+- `action/contract-state.sh` - Contract state management (load, update, check review status, circuit breaker)
 
 ## Key Architectural Decisions
 
