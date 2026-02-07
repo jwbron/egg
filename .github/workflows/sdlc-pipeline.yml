@@ -19,6 +19,18 @@ on:
           - pr
         default: auto
 
+  workflow_call:
+    inputs:
+      issue_number:
+        description: 'Issue number to process'
+        required: true
+        type: string
+      phase:
+        description: 'Starting phase'
+        required: false
+        type: string
+        default: auto
+
   issues:
     types: [labeled]
 
@@ -44,39 +56,45 @@ jobs:
 
       - name: Initialize contract
         id: init
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title || 'Issue' }}
+          ISSUE_URL: ${{ github.event.issue.html_url || format('https://github.com/{0}/issues/{1}', github.repository, env.EGG_ISSUE_NUMBER) }}
         run: |
           ISSUE="${{ env.EGG_ISSUE_NUMBER }}"
           BRANCH="egg/issue-${ISSUE}"
           CONTRACT_FILE=".egg/contracts/${ISSUE}.json"
 
-          echo "issue_number=${ISSUE}" >> $GITHUB_OUTPUT
-          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          echo "issue_number=${ISSUE}" >> "$GITHUB_OUTPUT"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
 
           # Check if contract exists
           if [[ -f "$CONTRACT_FILE" ]]; then
-            echo "has_contract=true" >> $GITHUB_OUTPUT
+            echo "has_contract=true" >> "$GITHUB_OUTPUT"
             PHASE=$(jq -r '.currentPhase // "refine"' "$CONTRACT_FILE")
           else
-            echo "has_contract=false" >> $GITHUB_OUTPUT
+            echo "has_contract=false" >> "$GITHUB_OUTPUT"
             PHASE="refine"
 
-            # Create initial contract
+            # Create initial contract (using jq to safely handle title with special chars)
             mkdir -p .egg/contracts
-            cat > "$CONTRACT_FILE" << EOF
-          {
-            "schemaVersion": "1.0",
-            "issue": {
-              "number": ${ISSUE},
-              "title": "${{ github.event.issue.title || 'Issue' }}",
-              "url": "${{ github.event.issue.html_url || format('https://github.com/{0}/issues/{1}', github.repository, env.EGG_ISSUE_NUMBER) }}"
-            },
-            "currentPhase": "refine",
-            "branch": "${BRANCH}",
-            "phases": [],
-            "decisions": [],
-            "audit_log": []
-          }
-          EOF
+            jq -n \
+              --arg issue_num "$ISSUE" \
+              --arg title "$ISSUE_TITLE" \
+              --arg url "$ISSUE_URL" \
+              --arg branch "$BRANCH" \
+              '{
+                schemaVersion: "1.0",
+                issue: {
+                  number: ($issue_num | tonumber),
+                  title: $title,
+                  url: $url
+                },
+                currentPhase: "refine",
+                branch: $branch,
+                phases: [],
+                decisions: [],
+                audit_log: []
+              }' > "$CONTRACT_FILE"
           fi
 
           # Override if explicitly specified
@@ -84,7 +102,7 @@ jobs:
             PHASE="${{ inputs.phase }}"
           fi
 
-          echo "phase=${PHASE}" >> $GITHUB_OUTPUT
+          echo "phase=${PHASE}" >> "$GITHUB_OUTPUT"
           echo "Initialized pipeline for issue #${ISSUE} at phase: ${PHASE}"
 
       - name: Create branch if needed
@@ -113,6 +131,7 @@ jobs:
       - name: Run implementer agent
         uses: ./action
         with:
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
           prompt: |
             Implement tasks for issue #${{ needs.init.outputs.issue_number }}.
 
@@ -164,8 +183,8 @@ jobs:
 
           if [[ ! -f "$CONTRACT_FILE" ]]; then
             echo "Contract not found"
-            echo "all_complete=false" >> $GITHUB_OUTPUT
-            echo "retry_needed=false" >> $GITHUB_OUTPUT
+            echo "all_complete=false" >> "$GITHUB_OUTPUT"
+            echo "retry_needed=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
@@ -173,20 +192,20 @@ jobs:
           INCOMPLETE=$(jq '[.phases[].tasks[] | select(.status != "complete" and .status != "failed")] | length' "$CONTRACT_FILE")
           CYCLES=$(jq '.circuit_breaker.total_cycles // 0' "$CONTRACT_FILE")
 
-          echo "cycle_count=${CYCLES}" >> $GITHUB_OUTPUT
+          echo "cycle_count=${CYCLES}" >> "$GITHUB_OUTPUT"
 
           if [[ "$INCOMPLETE" -eq 0 ]]; then
-            echo "all_complete=true" >> $GITHUB_OUTPUT
-            echo "retry_needed=false" >> $GITHUB_OUTPUT
+            echo "all_complete=true" >> "$GITHUB_OUTPUT"
+            echo "retry_needed=false" >> "$GITHUB_OUTPUT"
           else
-            echo "all_complete=false" >> $GITHUB_OUTPUT
+            echo "all_complete=false" >> "$GITHUB_OUTPUT"
 
             # Check if under cycle limit
             MAX_CYCLES=10
             if [[ "$CYCLES" -lt "$MAX_CYCLES" ]]; then
-              echo "retry_needed=true" >> $GITHUB_OUTPUT
+              echo "retry_needed=true" >> "$GITHUB_OUTPUT"
             else
-              echo "retry_needed=false" >> $GITHUB_OUTPUT
+              echo "retry_needed=false" >> "$GITHUB_OUTPUT"
               echo "::warning::Circuit breaker triggered - max cycles reached"
             fi
           fi

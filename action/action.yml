@@ -47,6 +47,9 @@ inputs:
     description: Claude model to use
     required: false
     default: opus
+  role:
+    description: Agent role (e.g., implementer, reviewer) - sets EGG_AGENT_ROLE env var
+    required: false
   image-tag:
     description: Docker image tag to use (e.g., v1.0.0 or latest)
     required: false

@@ -77,7 +77,7 @@ jobs:
 
           # Check if comment was edited again during debounce
           # (In a real implementation, this would check a cache/store)
-          echo "proceed=true" >> $GITHUB_OUTPUT
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
 
   # Process the decision
   process-decision:
@@ -99,10 +99,10 @@ jobs:
 
           # Check if branch exists
           if git ls-remote --heads origin "${BRANCH}" | grep -q "${BRANCH}"; then
-            echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
-            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout issue branch
@@ -113,6 +113,8 @@ jobs:
 
       - name: Update contract decision
         if: steps.branch.outputs.exists == 'true'
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           ISSUE="${{ needs.detect-decision.outputs.issue_number }}"
           CONTRACT_FILE=".egg/contracts/${ISSUE}.json"
@@ -123,8 +125,7 @@ jobs:
             exit 0
           fi
 
-          # Parse the decision from comment body
-          COMMENT_BODY='${{ github.event.comment.body }}'
+          # Parse the decision from comment body (passed via env var for security)
 
           # Find checked option
           CHECKED_OPTION=$(echo "$COMMENT_BODY" | grep -oP '\- \[x\] \*\*\K[^*]+' | head -1)
