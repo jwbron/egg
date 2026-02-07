@@ -1369,3 +1369,39 @@ class TestGitHookDisabling:
                 assert "core.hooksPath=/dev/null" in call_args, (
                     f"core.hooksPath=/dev/null missing for {operation}: {call_args}"
                 )
+
+
+class TestGitEditorEnv:
+    """Tests for GIT_EDITOR=true in git subprocess environment (issue #235).
+
+    Operations like `rebase --continue` after conflict resolution need an
+    editor to confirm the commit message. In the gateway's headless
+    environment, GIT_EDITOR=true makes git accept the default message.
+    """
+
+    def test_git_execute_sets_git_editor(self, client, auth_headers):
+        """Git execute subprocess gets GIT_EDITOR=true in its environment."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            response = client.post(
+                "/api/v1/git/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "rebase",
+                        "args": ["--continue"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_kwargs = mock_run.call_args[1]
+            assert "env" in call_kwargs
+            assert call_kwargs["env"].get("GIT_EDITOR") == "true"

@@ -801,6 +801,13 @@ def git_execute() -> tuple[Response, int] | Response:
     # Build command
     cmd = git_cmd(operation, *validated_args)
 
+    # Set GIT_EDITOR=true so operations that need an editor (e.g., rebase
+    # --continue after conflict resolution) succeed without a terminal.
+    # `true` accepts the default commit message, which is the expected
+    # behavior for an agent that always provides messages via -m.
+    env = os.environ.copy()
+    env["GIT_EDITOR"] = "true"
+
     try:
         result = subprocess.run(
             cmd,
@@ -809,6 +816,7 @@ def git_execute() -> tuple[Response, int] | Response:
             text=True,
             timeout=60,
             check=False,
+            env=env,
         )
 
         if result.returncode == 0:
