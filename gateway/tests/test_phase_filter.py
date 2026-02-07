@@ -113,9 +113,7 @@ class TestPhaseFilter:
                 },
             },
         }
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(permissions, f)
             return Path(f.name)
 
@@ -177,12 +175,14 @@ class TestPhaseFilter:
         """is_operation_blocked helper works correctly."""
         pf = PhaseFilter(permissions_path=custom_permissions_file)
 
-        assert pf.is_operation_blocked(
-            PipelinePhase.REFINE, OperationType.GIT, "push origin main"
-        ) is True
-        assert pf.is_operation_blocked(
-            PipelinePhase.IMPLEMENT, OperationType.GIT, "push origin main"
-        ) is False
+        assert (
+            pf.is_operation_blocked(PipelinePhase.REFINE, OperationType.GIT, "push origin main")
+            is True
+        )
+        assert (
+            pf.is_operation_blocked(PipelinePhase.IMPLEMENT, OperationType.GIT, "push origin main")
+            is False
+        )
 
     def test_get_exit_requirement(self, custom_permissions_file: Path):
         """Get exit requirement for a phase."""
@@ -256,55 +256,41 @@ class TestDefaultPermissions:
     def test_refine_phase_blocks_push(self):
         """Refine phase blocks git push."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(
-            PipelinePhase.REFINE, OperationType.GIT, "push origin main"
-        )
+        result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GIT, "push origin main")
         assert result.allowed is False
 
     def test_refine_phase_blocks_pr_create(self):
         """Refine phase blocks PR creation."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(
-            PipelinePhase.REFINE, OperationType.GH, "pr create"
-        )
+        result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GH, "pr create")
         assert result.allowed is False
 
     def test_plan_phase_blocks_push(self):
         """Plan phase blocks git push."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(
-            PipelinePhase.PLAN, OperationType.GIT, "push origin main"
-        )
+        result = pf.filter_operation(PipelinePhase.PLAN, OperationType.GIT, "push origin main")
         assert result.allowed is False
 
     def test_implement_phase_allows_push(self):
         """Implement phase allows git push."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(
-            PipelinePhase.IMPLEMENT, OperationType.GIT, "push origin main"
-        )
+        result = pf.filter_operation(PipelinePhase.IMPLEMENT, OperationType.GIT, "push origin main")
         assert result.allowed is True
 
     def test_implement_phase_blocks_pr_create(self):
         """Implement phase blocks PR creation."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(
-            PipelinePhase.IMPLEMENT, OperationType.GH, "pr create"
-        )
+        result = pf.filter_operation(PipelinePhase.IMPLEMENT, OperationType.GH, "pr create")
         assert result.allowed is False
 
     def test_pr_phase_allows_pr_create(self):
         """PR phase allows PR creation."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(
-            PipelinePhase.PR, OperationType.GH, "pr create"
-        )
+        result = pf.filter_operation(PipelinePhase.PR, OperationType.GH, "pr create")
         assert result.allowed is True
 
     def test_pr_phase_allows_push(self):
         """PR phase allows git push."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(
-            PipelinePhase.PR, OperationType.GIT, "push origin main"
-        )
+        result = pf.filter_operation(PipelinePhase.PR, OperationType.GIT, "push origin main")
         assert result.allowed is True

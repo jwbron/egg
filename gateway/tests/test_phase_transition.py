@@ -221,15 +221,11 @@ class TestRoleHierarchy:
     def test_human_can_satisfy_any_requirement(self):
         """Human role can satisfy any exit requirement."""
         # Human can exit refine (requires human)
-        result = can_transition_to(
-            PipelinePhase.REFINE, PipelinePhase.PLAN, TransitionRole.HUMAN
-        )
+        result = can_transition_to(PipelinePhase.REFINE, PipelinePhase.PLAN, TransitionRole.HUMAN)
         assert result.success is True
 
         # Human can exit implement (requires reviewer)
-        result = can_transition_to(
-            PipelinePhase.IMPLEMENT, PipelinePhase.PR, TransitionRole.HUMAN
-        )
+        result = can_transition_to(PipelinePhase.IMPLEMENT, PipelinePhase.PR, TransitionRole.HUMAN)
         assert result.success is True
 
     def test_reviewer_can_satisfy_reviewer_and_lower(self):

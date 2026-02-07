@@ -15,17 +15,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-# Try relative imports first (module mode), fall back to absolute (script mode)
-try:
-    from .error_messages import format_error_message
-except ImportError:
-    try:
-        from error_messages import format_error_message  # type: ignore[no-redef, import-not-found]
-    except ImportError:
-        # Fallback if error_messages doesn't exist yet
-        def format_error_message(error_type: str, context: dict[str, Any]) -> str:  # type: ignore[misc]
-            return f"{error_type}: {context}"
-
 
 class OperationType(StrEnum):
     """Types of operations that can be filtered."""
@@ -196,7 +185,9 @@ class PhaseFilter:
                 allowed_operations=[
                     Operation(OperationType.GH, "issue comment *", "Comment on issues"),
                     Operation(OperationType.GH, "issue edit *", "Edit issues"),
-                    Operation(OperationType.EGG_CONTRACT, "add-decision *", "Create HITL decisions"),
+                    Operation(
+                        OperationType.EGG_CONTRACT, "add-decision *", "Create HITL decisions"
+                    ),
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
                 ],
                 blocked_operations=[
@@ -209,7 +200,9 @@ class PhaseFilter:
                 allowed_operations=[
                     Operation(OperationType.GH, "issue comment *", "Comment on issues"),
                     Operation(OperationType.GH, "issue edit *", "Edit issues"),
-                    Operation(OperationType.EGG_CONTRACT, "add-decision *", "Create HITL decisions"),
+                    Operation(
+                        OperationType.EGG_CONTRACT, "add-decision *", "Create HITL decisions"
+                    ),
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
                 ],
                 blocked_operations=[
