@@ -28,7 +28,8 @@ jobs:
         run: |
           PYTHONPATH=shared .venv/bin/pytest tests/ -v \
             --cov=gateway --cov=shared --cov=sandbox \
-            --cov-report=term-missing
+            --cov-report=term-missing \
+            --cov-fail-under=80
 
       - name: Run gateway tests
         run: |
