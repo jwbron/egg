@@ -253,6 +253,7 @@ class TestGitAllowedCommands:
         assert "commit" in GIT_ALLOWED_COMMANDS
         assert "checkout" in GIT_ALLOWED_COMMANDS
         assert "reset" in GIT_ALLOWED_COMMANDS
+        assert "update-index" in GIT_ALLOWED_COMMANDS
 
     def test_patch_operations_defined(self):
         """Patch-related operations should be defined (issue #118)."""

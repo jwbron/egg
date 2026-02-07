@@ -425,6 +425,16 @@ GIT_ALLOWED_COMMANDS = {
             "-N",
         ],
     },
+    "update-index": {
+        "allowed_flags": [
+            "--chmod",
+            "--refresh",
+            "--really-refresh",
+            "--verbose",
+            "--quiet",
+            "-q",
+        ],
+    },
     "commit": {
         "allowed_flags": [
             "--message",
