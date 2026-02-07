@@ -149,6 +149,16 @@ logger = get_logger("gateway")
 
 app = Flask(__name__)
 
+# Register contract API blueprint
+try:
+    from .contract_api import contract_bp
+
+    app.register_blueprint(contract_bp)
+except ImportError:
+    from contract_api import contract_bp  # type: ignore[import-not-found, no-redef]
+
+    app.register_blueprint(contract_bp)
+
 
 @app.errorhandler(Exception)
 def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
@@ -214,52 +224,11 @@ def translate_to_host_path(container_path: str) -> str:
     return container_path
 
 
-def require_session_auth(f: F) -> F:
-    """
-    Decorator that validates session tokens in request handlers.
-
-    - Extracts session token from Authorization header
-    - Validates token via session_manager
-    - Stores validated session and mode in Flask's g object for handler use
-    - Returns 401 on validation failure
-
-    All containers must have a valid session. There is no legacy fallback.
-    """
-
-    @functools.wraps(f)
-    def decorated(*args: Any, **kwargs: Any) -> Any:
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            logger.warning(
-                "Session auth failed - missing Authorization header",
-                endpoint=request.path,
-                source_ip=request.remote_addr,
-            )
-            return make_error("Missing or invalid Authorization header", status_code=401)
-
-        token = auth_header[7:]  # Remove "Bearer " prefix
-        source_ip = request.remote_addr
-
-        # Validate session via session_manager
-        result = validate_session_for_request(token, source_ip)
-        if not result.valid:
-            # Record failed lookup for rate limiting
-            record_failed_lookup(source_ip or "")
-            logger.warning(
-                "Session auth failed - invalid token",
-                endpoint=request.path,
-                source_ip=source_ip,
-                error=result.error,
-            )
-            return make_error(result.error or "Invalid or expired session token", status_code=401)
-
-        # Set session context from validation result
-        g.session = result.session
-        g.session_mode = result.session.mode if result.session else None
-
-        return f(*args, **kwargs)
-
-    return decorated  # type: ignore[return-value]
+# Import session auth decorator from auth module to avoid circular imports
+try:
+    from .auth import require_session_auth
+except ImportError:
+    from auth import require_session_auth  # type: ignore[no-redef, import-not-found]
 
 
 # Launcher secret for session management and worktree operations

@@ -84,6 +84,7 @@ class Session:
         created_at: Session creation timestamp
         last_seen: Last request timestamp (for heartbeat)
         expires_at: Session expiry timestamp
+        agent_role: Role set by workflow context for contract operations
     """
 
     session_token: str | None  # Raw token, only in memory
@@ -94,6 +95,7 @@ class Session:
     created_at: datetime
     last_seen: datetime
     expires_at: datetime
+    agent_role: str | None = None  # Role set by workflow context
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -106,7 +108,7 @@ class Session:
 
     def to_dict_for_persistence(self) -> dict[str, Any]:
         """Convert to dictionary for persistence (excludes raw token)."""
-        return {
+        result = {
             "session_token_hash": self.session_token_hash,
             "container_id": self.container_id,
             "container_ip": self.container_ip,
@@ -115,6 +117,9 @@ class Session:
             "last_seen": self.last_seen.isoformat(),
             "expires_at": self.expires_at.isoformat(),
         }
+        if self.agent_role is not None:
+            result["agent_role"] = self.agent_role
+        return result
 
     @classmethod
     def from_persistence(cls, data: dict[str, Any]) -> "Session":
@@ -128,6 +133,7 @@ class Session:
             created_at=datetime.fromisoformat(data["created_at"]),
             last_seen=datetime.fromisoformat(data["last_seen"]),
             expires_at=datetime.fromisoformat(data["expires_at"]),
+            agent_role=data.get("agent_role"),
         )
 
 
