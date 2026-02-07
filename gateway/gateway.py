@@ -54,6 +54,7 @@ from egg_logging import get_logger
 # fall back to absolute import (standalone script mode in container)
 try:
     from .anthropic_credentials import get_credentials_manager
+    from .file_policy import get_file_protection_policy
     from .git_client import (
         GIT_ALLOWED_COMMANDS,
         cleanup_credential_helper,
@@ -74,7 +75,6 @@ try:
         parse_gh_api_args,
         validate_gh_api_path,
     )
-    from .file_policy import get_file_protection_policy
     from .policy import (
         extract_branch_from_refspec,
         extract_repo_from_remote,
@@ -96,6 +96,7 @@ try:
     from .worktree_manager import WorktreeManager, startup_cleanup
 except ImportError:
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
+    from file_policy import get_file_protection_policy  # type: ignore[no-redef]
     from git_client import (  # type: ignore[no-redef, import-not-found]
         GIT_ALLOWED_COMMANDS,
         cleanup_credential_helper,
@@ -116,7 +117,6 @@ except ImportError:
         parse_gh_api_args,
         validate_gh_api_path,
     )
-    from file_policy import get_file_protection_policy  # type: ignore[no-redef]
     from policy import (  # type: ignore[no-redef, import-not-found]
         extract_branch_from_refspec,
         extract_repo_from_remote,
@@ -597,7 +597,7 @@ def git_push() -> tuple[Response, int] | Response:
                         },
                     )
                     return make_error(
-                        f"Push blocked: modifications to protected files detected:\n"
+                        "Push blocked: modifications to protected files detected:\n"
                         + "\n".join(violation_msgs),
                         status_code=403,
                         details=file_check.to_dict(),
