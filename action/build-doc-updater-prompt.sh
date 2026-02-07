@@ -36,6 +36,22 @@ get_commit_messages() {
     git log --oneline "${base_commit}..HEAD" 2>/dev/null || echo "Unable to get commit messages"
 }
 
+get_diff_stats() {
+    local base_commit="${COMMIT_SHA:-HEAD~1}"
+
+    # Get diffstat summary to help the agent gauge change magnitude
+    git diff --stat "${base_commit}..HEAD" 2>/dev/null | tail -1 || true
+}
+
+get_new_files() {
+    local base_commit="${COMMIT_SHA:-HEAD~1}"
+
+    # List files that were added (not modified), excluding docs/markdown
+    git diff --name-only --diff-filter=A "${base_commit}..HEAD" 2>/dev/null | \
+        grep -v -E '^docs/' | \
+        grep -v -E '\.md$' || true
+}
+
 # ---------------------------------------------------------------------------
 # Build the prompt
 # ---------------------------------------------------------------------------
@@ -47,6 +63,8 @@ build_prompt() {
 
     changed_files=$(get_changed_files)
     commit_messages=$(get_commit_messages)
+    diff_stats=$(get_diff_stats)
+    new_files=$(get_new_files)
 
     # If no code files changed, skip
     if [[ -z "$changed_files" ]]; then
@@ -75,31 +93,48 @@ Recent commits (since ${base_commit}):
 ${commit_messages}
 \`\`\`
 
+Diff summary: ${diff_stats}
+
 Changed files:
 \`\`\`
 ${changed_files}
 \`\`\`
 
-## Your Task
+New files added:
+\`\`\`
+${new_files:-none}
+\`\`\`
 
-**Important**: Most code changes do NOT require documentation updates. Only create a
-doc update PR if documentation would be actively misleading without the change.
+## Your Task
 
 1. **Analyze the changes**: Read the changed files and understand what was modified.
    Use \`git diff ${base_commit}..HEAD -- <file>\` to see specific changes.
+   Pay special attention to newly added files — they often introduce new features
+   or capabilities that existing docs don't cover.
 
-2. **Check documentation impact**: Determine if any documentation would be **incorrect**
-   without updates. Only proceed if the change:
+2. **Check documentation impact**: Determine if documentation needs updating.
+   Docs need updating when:
 
-   - **Breaks documented behavior**: The docs say X happens, but now Y happens.
-   - **Adds new user-facing features**: New capabilities users need to know about.
-   - **Changes configuration/API**: New options, changed parameters, removed functionality.
-   - **Restructures architecture**: Major design changes that affect documented architecture.
+   - **New files introduce new tools, CLIs, or components** that aren't mentioned
+     in existing docs (STRUCTURE.md, architecture/README.md, index.md).
+   - **New features or capabilities** that users or agents need to know about.
+   - **Breaking changes** that make existing documentation incorrect.
+   - **New configuration options** or API changes.
+   - **Architecture changes** that affect documented system design.
 
-   Skip updates for: prompt tuning, behavioral refinements, internal refactoring,
-   performance improvements, bug fixes, or "nice to document" enhancements.
+   Skip updates for: internal refactoring that doesn't change interfaces,
+   performance improvements, bug fixes, test-only changes, or prompt tuning.
 
-3. **If updates are needed**:
+3. **Check these docs specifically** (read them, don't delegate to sub-agents for
+   large files):
+   - \`docs/development/STRUCTURE.md\` — Does it list all current directories and
+     key files? Are new packages/modules missing?
+   - \`docs/architecture/README.md\` — Does it cover the components added/changed?
+   - \`docs/index.md\` — Are new docs or templates referenced?
+   Do NOT read ADRs larger than 10KB — they are reference material and rarely need
+   updating from code changes.
+
+4. **If updates are needed**:
    - Create a new branch: \`egg/doc-update-<short-description>\`
    - Make the documentation changes
    - Create a PR with:
@@ -107,29 +142,28 @@ doc update PR if documentation would be actively misleading without the change.
      - Body: Explain what code changes prompted the doc updates
      - Add \`[doc-updater]\` tag at the end of the title to prevent loops
 
-4. **If no updates are needed**:
+5. **If no updates are needed**:
    - Report that documentation is up to date
    - No PR needed
 
 ## Guidelines
 
-**Be conservative about creating doc updates.** Most code changes do NOT need doc updates.
-
-### When to skip doc updates (common cases)
-- **Behavioral refinements**: If the code change tweaks HOW something works but doesn't
-  change WHAT it does from a user's perspective, skip the doc update.
-- **Internal implementation details**: Refactoring, performance improvements, test changes.
-- **Prompt/config tuning**: Changes to prompts, thresholds, or internal configuration
-  that don't change the documented interface or capabilities.
-- **Bug fixes**: Unless the bug was documented as expected behavior.
-- **Minor enhancements**: Small improvements that don't introduce new concepts or change
-  existing documented behavior.
-
 ### When docs DO need updates
+- **New files added**: If new source files introduce tools, CLIs, libraries, or
+  components, the project structure and architecture docs likely need updating.
+  A commit that adds 500+ lines of new code almost always introduces something
+  that should be documented.
 - **New features**: Genuinely new capabilities users need to know about.
 - **Breaking changes**: Changes that make existing documentation incorrect.
 - **New configuration options**: Options users can set.
 - **API changes**: New endpoints, changed parameters, removed functionality.
+
+### When to skip doc updates
+- **Internal refactoring**: Changes that don't alter interfaces or capabilities.
+- **Bug fixes**: Unless the bug was documented as expected behavior.
+- **Test-only changes**: New or updated tests without feature changes.
+- **Prompt/config tuning**: Internal configuration that doesn't change documented
+  interfaces.
 
 ### How to update docs
 - **Modify existing content** rather than appending new sections. If a change refines
@@ -141,7 +175,6 @@ doc update PR if documentation would be actively misleading without the change.
 ### General principles
 - Preserve existing doc style and formatting.
 - Focus on user-facing docs and architectural changes.
-- When in doubt, skip the update. Unnecessary doc PRs create noise.
 
 ## PR Format (if creating one)
 
