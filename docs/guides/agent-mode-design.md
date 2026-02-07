@@ -85,11 +85,11 @@ If the agent decides something isn't worth commenting on, or needs a different a
 
 These guidelines describe a direction, not a destination. When refactoring a workflow to align with these principles:
 
-1. **Preserve valuable functionality.** If existing code provides useful context (like re-review detection) or handles edge cases well, keep it. The goal is to remove unnecessary complexity, not strip out everything.
+1. **Preserve valuable functionality.** If existing code provides useful context or handles edge cases well, keep it. The goal is to remove unnecessary complexity, not strip out everything.
 
 2. **Refactor incrementally.** Don't rewrite from scratch. Identify specific anti-patterns and address them while preserving what works.
 
-3. **Share common infrastructure.** If multiple bots need the same functionality (fetching PR metadata, detecting re-reviews, posting reviews), factor it into shared modules. This isn't pre-fetching—it's good software engineering.
+3. **Share common infrastructure.** If multiple bots need the same functionality, factor it into shared modules. This isn't pre-fetching—it's good software engineering.
 
 4. **Use judgment.** A workflow that's 80% aligned with these guidelines but actually works is better than one that's 100% aligned but fragile or missing functionality.
 
