@@ -46,9 +46,9 @@ class TestValidateConfig:
             # Simpler approach: use tmp_path
             with pytest.raises(ConfigError, match="configuration error"):
                 # Patch individual paths
-                with patch("config_validator.Path", wraps=type(tmp_path)) as mp:
-                    mock_secrets = type(tmp_path)(str(tmp_path / "nonexistent_secrets"))
-                    calls = {}
+                with patch("config_validator.Path", wraps=type(tmp_path)):
+                    _mock_secrets = type(tmp_path)(str(tmp_path / "nonexistent_secrets"))
+                    _calls = {}
 
                     def make_path(p):
                         from pathlib import Path

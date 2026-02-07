@@ -1,8 +1,6 @@
 """Tests for egg_config/utils.py - Utility functions for config loading."""
 
-from pathlib import Path
 
-import pytest
 from egg_config.utils import load_env_file, load_yaml_file, safe_bool, safe_int
 
 

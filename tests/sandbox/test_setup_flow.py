@@ -1,11 +1,8 @@
 """Tests for sandbox/egg_lib/setup_flow.py - Interactive setup process."""
 
-import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import patch
 
 sandbox_path = Path(__file__).parent.parent.parent / "sandbox"
 sys.path.insert(0, str(sandbox_path))

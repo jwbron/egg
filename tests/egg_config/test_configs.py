@@ -1,18 +1,13 @@
 """Tests for egg_config service configs: github.py, gateway.py, llm.py."""
 
 import json
-import os
 import urllib.error
 from datetime import datetime, timedelta
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-from egg_config.base import HealthCheckResult, ValidationResult
 from egg_config.configs.gateway import GatewayConfig, RateLimitConfig
 from egg_config.configs.github import GitHubConfig, _get_github_username
-from egg_config.configs.llm import ANTHROPIC_HEALTH_CHECK_MODEL, LLMConfig
-
+from egg_config.configs.llm import LLMConfig
 
 # ===========================================================================
 # GitHubConfig Tests

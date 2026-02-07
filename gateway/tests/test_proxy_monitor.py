@@ -3,7 +3,7 @@
 import json
 import os
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from proxy_monitor import (
@@ -345,7 +345,7 @@ class TestWatchSquidLog:
         stats = ProxyStats()
 
         # Mock the infinite loop - read line then stop
-        original_open = open
+        _original_open = open  # noqa: F841
         call_count = 0
 
         def mock_readline(self):

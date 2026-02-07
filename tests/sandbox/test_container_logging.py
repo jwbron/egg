@@ -7,13 +7,10 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 sandbox_path = Path(__file__).parent.parent.parent / "sandbox"
 sys.path.insert(0, str(sandbox_path))
 
 from egg_lib.container_logging import (
-    CONTAINER_LOGS_DIR,
     extract_task_id_from_command,
     extract_thread_ts_from_task_file,
     generate_container_id,

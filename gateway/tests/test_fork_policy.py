@@ -1,9 +1,7 @@
 """Tests for fork_policy.py - Fork-specific policy rules."""
 
-import threading
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 from fork_policy import (
     ForkPolicy,
     ForkPolicyResult,

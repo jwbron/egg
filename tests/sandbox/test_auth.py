@@ -1,12 +1,9 @@
 """Tests for sandbox/egg_lib/auth.py - Authentication and API key management."""
 
-import os
 import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 sandbox_path = Path(__file__).parent.parent.parent / "sandbox"
 sys.path.insert(0, str(sandbox_path))
