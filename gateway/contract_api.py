@@ -64,6 +64,19 @@ def get_role_from_context() -> Role | None:
     Role is determined from GitHub Actions environment, not from agent env vars,
     to prevent privilege escalation.
 
+    IMPORTANT - Environment Variable Trust Model:
+    - EGG_WORKFLOW_ROLE: Trusted source. Set by the workflow YAML, not the agent.
+      Workflows should explicitly set this via `env:` in the job definition.
+    - EGG_AGENT_ROLE: Untrusted fallback. Can be set by the agent's environment
+      if the workflow doesn't override it. Should NOT be trusted for security-
+      critical decisions when EGG_WORKFLOW_ROLE is not set.
+
+    For proper security, ensure workflow YAML sets EGG_WORKFLOW_ROLE explicitly:
+        jobs:
+          implement:
+            env:
+              EGG_WORKFLOW_ROLE: implementer
+
     Returns:
         Role enum value or None if not in workflow context
     """
@@ -71,7 +84,7 @@ def get_role_from_context() -> Role | None:
     # This is set by the workflow, not the agent
     role_str = os.environ.get("EGG_AGENT_ROLE", "").lower()
 
-    # Also check for workflow role override (trusted source)
+    # Workflow role override is the trusted source - always prefer it
     workflow_role = os.environ.get("EGG_WORKFLOW_ROLE", "").lower()
     if workflow_role:
         role_str = workflow_role
@@ -367,6 +380,10 @@ def apply_mutation(contract: Contract, path: str, value: Any) -> Any:
 
     This is a simplified implementation that handles common paths.
     A full implementation would use a proper JSON path library.
+
+    TODO: Replace this manual path parsing with jsonpath-ng or similar library
+    to handle edge cases like nested paths and array operations correctly.
+    See: https://github.com/h2non/jsonpath-ng
 
     Returns the old value for audit logging.
     """

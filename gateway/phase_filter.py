@@ -151,7 +151,13 @@ class PhasePermissions:
 
         phase_config = self.get_phase_config(phase)
         if not phase_config:
-            # If phase not configured, allow by default
+            # If phase not configured, allow by default for backwards compatibility
+            # with repos that don't have phase-permissions.json yet.
+            #
+            # Design note: This is intentionally different from the behavior when
+            # a phase IS configured but the operation isn't in the allowed list.
+            # - Unconfigured phase = permissive (no restrictions defined)
+            # - Configured phase with missing operation = restrictive (allowlist model)
             logger.debug(
                 "Phase not configured, allowing operation",
                 phase=phase,
@@ -207,7 +213,9 @@ class PhasePermissions:
                     operation=operation,
                 )
 
-        # If not explicitly allowed or blocked, block by default for safety
+        # If not explicitly allowed or blocked, block by default for safety.
+        # This implements an allowlist model for configured phases: only operations
+        # explicitly listed in "allowed" are permitted.
         logger.info(
             "Operation not in allowed list, blocking",
             phase=phase,
@@ -228,7 +236,7 @@ class PhasePermissions:
 
         Patterns support:
         - Exact match: "push origin main"
-        - Wildcard suffix: "push *"
+        - Wildcard suffix: "push *" (matches "push", "push origin", etc.)
         - Single command: "status"
         """
         # Handle exact match
@@ -237,6 +245,11 @@ class PhasePermissions:
 
         # Handle wildcard patterns
         if "*" in pattern:
+            # Special case: "cmd *" should also match bare "cmd" (no args)
+            if pattern.endswith(" *"):
+                base_cmd = pattern[:-2]  # Remove " *"
+                if operation == base_cmd:
+                    return True
             return fnmatch.fnmatch(operation, pattern)
 
         # Handle prefix match (pattern is a prefix of operation)

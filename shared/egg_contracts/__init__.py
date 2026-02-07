@@ -12,14 +12,21 @@ from .audit import create_audit_entry
 from .loader import get_contract_path, load_contract, save_contract
 from .models import (
     AcceptanceCriterion,
+    AuditAction,
     AuditEntry,
     CircuitBreaker,
+    CircuitBreakerStatus,
     Contract,
     Decision,
     DecisionOption,
+    DecisionType,
+    Issue,
     Phase,
+    PhaseStatus,
+    PipelinePhase,
     ReviewFeedback,
     Task,
+    TaskStatus,
 )
 from .plan_parser import (
     ParsedPhase,
@@ -36,14 +43,21 @@ from .validator import ContractValidator, ValidationError
 __all__ = [
     # Models
     "AcceptanceCriterion",
+    "AuditAction",
     "AuditEntry",
     "CircuitBreaker",
+    "CircuitBreakerStatus",
     "Contract",
     "Decision",
     "DecisionOption",
+    "DecisionType",
+    "Issue",
     "Phase",
+    "PhaseStatus",
+    "PipelinePhase",
     "ReviewFeedback",
     "Task",
+    "TaskStatus",
     # Roles
     "FieldAccess",
     "Role",

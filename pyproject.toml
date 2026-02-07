@@ -34,6 +34,7 @@ dev = [
 
 [project.scripts]
 egg = "egg_lib.cli:main"
+egg-contract = "egg_lib.contract_cli:main"
 
 [tool.uv]
 # Use system Python by default (consistent with egg)
