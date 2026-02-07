@@ -42,10 +42,12 @@ jobs:
         run: |
           SINCE_HOURS="${{ github.event.inputs.since_hours || '24' }}"
 
-          echo "## Self-Improvement Analysis" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Analyzing runs from the last ${SINCE_HOURS} hours..." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Self-Improvement Analysis"
+            echo ""
+            echo "Analyzing runs from the last ${SINCE_HOURS} hours..."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
 
           # Run analysis once with both outputs (avoids duplicate API calls)
           python -m egg_lib.self_improvement.analyze \
@@ -54,19 +56,20 @@ jobs:
             --output both \
             --json-file analysis_report.json | tee analysis_output.txt
 
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat analysis_output.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### JSON Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '<details><summary>Click to expand JSON report</summary>' >> $GITHUB_STEP_SUMMARY
-          echo '' >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          cat analysis_report.json >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo '</details>' >> $GITHUB_STEP_SUMMARY
+          {
+            echo '```'
+            cat analysis_output.txt
+            echo '```'
+            echo ""
+            echo "### JSON Report"
+            echo ""
+            echo '<details><summary>Click to expand JSON report</summary>'
+            echo ''
+            echo '```json'
+            cat analysis_report.json
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload analysis artifact
         uses: actions/upload-artifact@v4
