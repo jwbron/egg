@@ -125,8 +125,16 @@ All mutations route through gateway endpoint for role enforcement.
 
 **Jobs**:
 - `init`: Initialize contract from issue, create branch
-- `work`: Agent invocation per phase, uses `egg-contract` CLI
-- `review`: Review implementation, update contract
+- `implement`: Execute all tasks in plan sequentially
+- `review`: Review implementation, kick incomplete tasks back to implementer
+- `loop`: Repeat implement→review cycle until all tasks pass or timeout threshold reached
+
+**Reviewer Kick-Back Pattern**:
+- Reviewer evaluates each task against acceptance criteria
+- Incomplete tasks are marked with feedback and returned to implementer
+- Implementer receives reviewer feedback and addresses issues
+- Cycle continues until reviewer marks all tasks complete
+- Human review only triggered if single task exceeds cycle threshold
 
 ### 4.2 HITL Decision Workflow
 
@@ -145,6 +153,7 @@ All mutations route through gateway endpoint for role enforcement.
 **Create** `action/contract-state.sh`:
 - Load contract from branch
 - Determine current phase/task
+- Track implement→review cycle count per task
 - Commit contract updates after agent run
 
 ---
@@ -156,22 +165,21 @@ All mutations route through gateway endpoint for role enforcement.
 **Create** `shared/egg_contracts/circuit_breaker.py`:
 
 **Thresholds**:
-- Per-phase cycles: 3
-- Total cycles: 10
-- Consecutive failures: 2
+- Per-task cycles: 3 (implement→review→kick-back counts as one cycle)
+- Total pipeline cycles: 10
+- Single task timeout: triggers human review
 
 **State transitions**:
-- CLOSED → OPEN: Threshold exceeded
-- OPEN → HALF-OPEN: Human intervention
-- HALF-OPEN → CLOSED: Next review passes
-- HALF-OPEN → OPEN: Next review fails
+- CLOSED → OPEN: Per-task threshold exceeded
+- OPEN: Human review required for stuck task
+- OPEN → CLOSED: Human provides guidance, cycle resumes
 
 ### 5.2 Escalation Script
 
 **Create** `action/escalate.sh`:
 - Label issue with `needs-human-intervention`
-- Post context comment with state and review history
-- Create HITL decision checkboxes
+- Post context comment with task history and reviewer feedback
+- Create HITL decision checkboxes for stuck task
 
 ### 5.3 HITL Checkbox Handling
 

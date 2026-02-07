@@ -134,7 +134,7 @@ egg-contract resolve-decision --decision decision-1 --resolution approved
 - The gateway reads role from **workflow context** (GitHub Actions job metadata), not environment variables set by the agent
 - The `egg-contract` CLI communicates with the gateway, which validates the mutation against the caller's role
 
-> **Note**: Pre-commit hooks are currently disabled in the sidecar architecture due to security concerns (see [issue #58](https://github.com/jwbron/egg/issues/58)). Defense-in-depth validation via pre-commit hooks is tracked in [issue #199](https://github.com/jwbron/egg/issues/199).
+> **Note**: Rather than using pre-commit hooks for validation, the reviewer automatically kicks incomplete tasks back to the implementer. This ensures implementation must be complete before the workflow moves to the next task.
 
 ---
 
@@ -187,9 +187,8 @@ Please select one option:
 
 | Metric | Threshold | Action |
 |--------|-----------|--------|
-| Per-phase review cycles | 3 | Escalate phase |
-| Total review cycles | 10 | Escalate entire pipeline |
-| Consecutive failures | 2 | Pause and notify |
+| Per-task review cycles | 3 | Request human review for stuck task |
+| Total pipeline cycles | 10 | Escalate entire pipeline |
 
 ### Circuit Breaker State
 
@@ -198,16 +197,19 @@ Please select one option:
   "phases": [
     {
       "id": "phase-1",
-      "review_cycles": 0,
-      "max_cycles": 3,
-      "escalated": false,
-      "escalation_reason": null
+      "tasks": [
+        {
+          "id": "task-1",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ]
     }
   ],
   "circuit_breaker": {
     "total_cycles": 0,
     "max_total_cycles": 10,
-    "consecutive_failures": 0,
     "status": "closed"
   }
 }
@@ -215,10 +217,9 @@ Please select one option:
 
 ### State Transitions
 
-- **CLOSED** → **OPEN**: Threshold exceeded
-- **OPEN** → **HALF-OPEN**: Human intervention received
-- **HALF-OPEN** → **CLOSED**: Next review passes
-- **HALF-OPEN** → **OPEN**: Next review fails
+- **CLOSED**: Normal operation, implement→review cycles continue
+- **CLOSED** → **OPEN**: Per-task threshold exceeded, human review needed
+- **OPEN** → **CLOSED**: Human provides guidance, cycle resumes
 
 ### Escalation Actions
 
@@ -259,6 +260,18 @@ When resuming:
 
 ## Part 6: Reviewer Workflow Architecture
 
+### Reviewer Kick-Back Pattern
+
+The pipeline executes all tasks in a plan automatically. The reviewer evaluates each task and kicks incomplete tasks back to the implementer:
+
+1. **Implementer** executes all tasks in the current phase
+2. **Reviewer** evaluates each task against acceptance criteria
+3. **Incomplete tasks** are marked with feedback and returned to implementer
+4. **Cycle repeats** until all tasks pass or per-task threshold exceeded
+5. **Human review** only triggered if a single task spins too long
+
+This ensures implementation must be complete before the workflow moves to the next task, without requiring pre-commit hooks.
+
 ### Separate Reusable Workflow
 
 The Reviewer runs as a **separate GitHub Actions workflow** using `workflow_call`:
@@ -293,13 +306,14 @@ jobs:
           role: reviewer
           prompt: |
             Review phase ${{ inputs.phase_id }} for issue #${{ inputs.issue_number }}.
-            Evaluate against acceptance criteria.
-            Use egg-contract CLI to mark task status.
+            Evaluate each task against acceptance criteria.
+            Mark complete tasks as passed.
+            For incomplete tasks: mark as incomplete with specific feedback for implementer.
 ```
 
 ### Context Window Isolation
 
-Each "separate context window" is a **separate GitHub Actions job**:
+Each "separate context window" is a **separate GitHub Actions job**. The implement→review cycle loops until all tasks pass:
 
 ```yaml
 jobs:
@@ -311,7 +325,7 @@ jobs:
       - uses: ./action
         with:
           role: implementer
-          prompt: "Implement phase-1 tasks..."
+          prompt: "Implement all tasks in phase-1. Address reviewer feedback if present."
 
   review:
     needs: implement
@@ -322,7 +336,15 @@ jobs:
       - uses: ./action
         with:
           role: reviewer
-          prompt: "Review phase-1 implementation..."
+          prompt: "Review phase-1. Mark complete tasks. Kick back incomplete tasks with feedback."
+
+  loop:
+    needs: review
+    if: needs.review.outputs.has_incomplete_tasks == 'true'
+    uses: ./.github/workflows/sdlc-pipeline.yml
+    with:
+      issue_number: ${{ inputs.issue_number }}
+      phase_id: ${{ inputs.phase_id }}
 ```
 
 ### Reviewer System Prompt
@@ -330,7 +352,8 @@ jobs:
 Located at `sandbox/.claude/reviewer-rules.md`:
 - Focused on verification, not implementation
 - Cannot modify code, only review
-- Must produce structured verdict output
+- Must produce structured verdict with pass/fail per task
+- For failed tasks: provide specific, actionable feedback for implementer
 - Loaded via `--rules` flag in action
 
 ---
@@ -342,8 +365,8 @@ Located at `sandbox/.claude/reviewer-rules.md`:
 - [ ] Gateway validates role before allowing contract mutations
 - [ ] Implementer role cannot mark tasks as complete (verified by test)
 - [ ] Reviewer role cannot modify task commits (verified by test)
-
-> **Deferred**: Pre-commit hook validation is blocked pending resolution of [issue #199](https://github.com/jwbron/egg/issues/199) (enabling pre-commit hooks in sidecar architecture).
+- [ ] Reviewer kicks incomplete tasks back to implementer with feedback
+- [ ] Pipeline loops implement→review until all tasks pass or threshold exceeded
 
 ### Phase-Based Operation Filtering (Addresses #202)
 - [ ] Gateway blocks `git push` during refine and plan phases
