@@ -4,6 +4,18 @@
 
 ---
 
+## Motivation
+
+This specification addresses the problem identified in [issue #202](https://github.com/jwbron/egg/issues/202): agents can bypass workflow phases by ignoring prompt-level instructions.
+
+**Incident summary**: An agent was asked to "put together an analysis doc" but instead immediately implemented a full solution. The planning phase was bypassed because nothing technically prevented it.
+
+**Core insight**: Per [agent-mode-design.md](../guides/agent-mode-design.md), "prompt-level instructions aren't security controls—agents can ignore them." If workflow phases are important, they must be enforced at the infrastructure level.
+
+**Solution**: The SDLC pipeline enforces phase restrictions at the gateway level, making it technically impossible to skip phases.
+
+---
+
 ## Part 1: Multi-Stage Pipeline Architecture
 
 The SDLC pipeline consists of multiple stages, each with a worker → reviewer pattern:
@@ -30,9 +42,23 @@ The SDLC pipeline consists of multiple stages, each with a worker → reviewer p
 ### Key Principles
 
 1. **Structural Enforcement**: Agents cannot be trusted to self-police via prompts. Role-based restrictions are enforced at the CLI and gateway level.
-2. **Separate Context Windows**: Each agent invocation (worker, reviewer) runs in a separate GitHub Actions job with fresh context.
-3. **Contract-as-Code**: All state is stored in `.egg/contracts/{issue-number}.json` and committed to the branch.
-4. **Human-in-the-Loop**: Critical decisions pause the pipeline for human input via GitHub checkboxes.
+2. **Phase-Based Operation Filtering**: Each pipeline phase permits only specific operations. The gateway blocks operations not allowed in the current phase.
+3. **Separate Context Windows**: Each agent invocation (worker, reviewer) runs in a separate GitHub Actions job with fresh context.
+4. **Contract-as-Code**: All state is stored in `.egg/contracts/{issue-number}.json` and committed to the branch.
+5. **Human-in-the-Loop**: Critical decisions pause the pipeline for human input via GitHub checkboxes.
+
+### Phase-Based Operation Restrictions
+
+Each phase has a defined set of permitted operations. The gateway blocks all other operations:
+
+| Phase | Permitted Operations | Blocked Operations | Exit Requires |
+|-------|---------------------|-------------------|---------------|
+| **Refine** | `gh issue comment/edit` | `git push`, `gh pr create` | Human approval |
+| **Plan** | `gh issue comment/edit`, `egg-contract add-decision` | `git push`, `gh pr create` | Human approval |
+| **Implement** | `git push`, `egg-contract add-commit/mark-task` | `gh pr create` | Reviewer approval |
+| **PR** | `gh pr create/edit`, `git push` | — | Human merge |
+
+This prevents the [#202 incident](https://github.com/jwbron/egg/issues/202) by making it technically impossible to push code during the planning phase.
 
 ---
 
@@ -330,6 +356,13 @@ Located at `sandbox/.claude/reviewer-rules.md`:
 - [ ] Reviewer role cannot modify task commits (verified by test)
 
 > **Deferred**: Pre-commit hook validation is blocked pending resolution of [issue #199](https://github.com/jwbron/egg/issues/199) (enabling pre-commit hooks in sidecar architecture).
+
+### Phase-Based Operation Filtering (Addresses #202)
+- [ ] Gateway blocks `git push` during refine and plan phases
+- [ ] Gateway blocks `gh pr create` until implementation phase is complete
+- [ ] Agent receives clear error message when operation is blocked
+- [ ] Phase transitions require appropriate approval (human or reviewer)
+- [ ] Audit log records blocked operation attempts
 
 ### Task Collection
 - [ ] Contract schema supports phases, tasks, and acceptance criteria

@@ -5,6 +5,27 @@
 
 ---
 
+## Motivation: Incident #202
+
+This plan directly addresses the incident documented in [issue #202](https://github.com/jwbron/egg/issues/202):
+
+**What happened**: In issue #200, the agent was asked to "put together an analysis doc" but instead immediately implemented a full solution and opened a PR. The planning phase was bypassed entirely.
+
+**Root cause**: No infrastructure-enforced planning phase. CLAUDE.md describes a workflow, but nothing in the gateway prevents skipping stages. Per agent-mode-design.md: "Prompt-level instructions aren't security controls—agents can ignore them."
+
+**Solution**: This SDLC pipeline enforces phase-based restrictions at the gateway level:
+
+| Phase | Allowed Operations | Blocked Operations |
+|-------|-------------------|-------------------|
+| **Refine** | `gh issue comment`, `gh issue edit` | `git push`, `gh pr create` |
+| **Plan** | `gh issue comment`, `gh issue edit` | `git push`, `gh pr create` |
+| **Implement** | `git push`, `egg-contract update` | `gh pr create` (until phase complete) |
+| **PR** | `gh pr create`, `gh pr edit` | (standard gateway restrictions) |
+
+Each phase must be explicitly approved before the agent gains access to the next phase's operations. This prevents the #202 incident by making it technically impossible to push code during the planning phase.
+
+---
+
 ## Context: What Already Exists
 
 This plan has been revised based on the current state of `main` (as of 2024-02). The codebase now includes substantial reviewer infrastructure:
@@ -68,9 +89,10 @@ The SDLC pipeline will extend the existing reviewer infrastructure rather than r
 
 1. **Contract schema**: New—tracks phases, tasks, decisions, audit log
 2. **Role-based enforcement**: New—gateway validates mutations based on workflow context
-3. **Pipeline orchestration**: New—coordinates phases using existing building blocks
-4. **Review step**: Reuse—existing `on-pull-request.yml` workflow pattern
-5. **Circuit breaker**: New—escalation thresholds and HITL triggers
+3. **Phase-based operation filtering**: New—gateway blocks operations not permitted in current phase
+4. **Pipeline orchestration**: New—coordinates phases using existing building blocks
+5. **Review step**: Reuse—existing `on-pull-request.yml` workflow pattern
+6. **Circuit breaker**: New—escalation thresholds and HITL triggers
 
 ---
 
@@ -129,6 +151,151 @@ The SDLC pipeline will extend the existing reviewer infrastructure rather than r
 - Reviewer cannot modify `tasks[].commit`
 - Human can modify all fields
 - Audit log captures all mutations
+
+---
+
+## Phase 1.5: Phase-Based Operation Restrictions
+
+**Goal**: Prevent agents from bypassing workflow phases by blocking operations not permitted in the current phase. This directly addresses [issue #202](https://github.com/jwbron/egg/issues/202).
+
+### 1.5.1 Phase Definition Schema
+
+**File**: `.egg/schemas/phase-permissions.schema.json`
+
+Each phase defines which git/gh operations are permitted:
+
+```json
+{
+  "phases": {
+    "refine": {
+      "description": "Clarify requirements and refine issue scope",
+      "allowed_operations": [
+        "gh issue comment",
+        "gh issue edit",
+        "egg-contract show",
+        "egg-contract update-notes"
+      ],
+      "blocked_operations": [
+        "git push",
+        "gh pr create",
+        "gh pr edit"
+      ],
+      "exit_requires": "human_approval"
+    },
+    "plan": {
+      "description": "Design implementation approach, post analysis",
+      "allowed_operations": [
+        "gh issue comment",
+        "gh issue edit",
+        "egg-contract show",
+        "egg-contract update-notes",
+        "egg-contract add-decision"
+      ],
+      "blocked_operations": [
+        "git push",
+        "gh pr create"
+      ],
+      "exit_requires": "human_approval"
+    },
+    "implement": {
+      "description": "Write code and tests",
+      "allowed_operations": [
+        "git push",
+        "egg-contract add-commit",
+        "egg-contract update-notes",
+        "egg-contract mark-task"
+      ],
+      "blocked_operations": [
+        "gh pr create"
+      ],
+      "exit_requires": "reviewer_approval"
+    },
+    "pr": {
+      "description": "Create and manage pull request",
+      "allowed_operations": [
+        "gh pr create",
+        "gh pr edit",
+        "git push"
+      ],
+      "blocked_operations": [],
+      "exit_requires": "human_merge"
+    }
+  }
+}
+```
+
+### 1.5.2 Gateway Phase Enforcement
+
+**File**: `gateway/phase_filter.py` (new module)
+
+**Design**: The gateway reads the current phase from the contract and filters operations accordingly:
+
+```python
+# Pseudocode for phase enforcement
+def filter_operation(operation: str, contract: Contract) -> bool:
+    """Return True if operation is allowed in current phase."""
+    current_phase = contract.get_current_phase()
+    permissions = load_phase_permissions()
+
+    if operation in permissions[current_phase]["blocked_operations"]:
+        return False
+
+    # Allow if explicitly permitted or not blocked
+    return True
+```
+
+**Integration points**:
+- [ ] Hook into existing `gateway/gateway.py` request handling
+- [ ] Read phase from contract state (not agent-set env vars)
+- [ ] Return structured error message explaining why operation is blocked
+- [ ] Log blocked operations to audit trail
+
+### 1.5.3 Phase Transition Logic
+
+**File**: `gateway/phase_transition.py` (new module)
+
+**Transitions are controlled by the contract state**:
+
+| Transition | Trigger | Who Can Trigger |
+|------------|---------|-----------------|
+| refine → plan | Human approves refined issue | Human (checkbox) |
+| plan → implement | Human approves plan | Human (checkbox) |
+| implement → pr | Reviewer approves implementation | Reviewer |
+| pr → done | Human merges PR | Human (GitHub UI) |
+
+**Implementation**:
+- [ ] `POST /api/v1/phase/advance` - Attempt phase transition
+- [ ] Validate caller role matches `exit_requires` constraint
+- [ ] Update contract phase state
+- [ ] Emit audit log entry
+
+### 1.5.4 Error Messages
+
+When an agent attempts a blocked operation:
+
+```
+Error: Operation 'git push' is not permitted in phase 'plan'.
+Current phase allows: gh issue comment, gh issue edit, egg-contract show
+To advance to 'implement' phase, human approval is required.
+See issue comment for approval checkbox.
+```
+
+This explicit error guides the agent to the correct behavior and prevents silent failures.
+
+### 1.5.5 Unit Tests
+
+**Directory**: `tests/unit/gateway/`
+
+**Test cases**:
+- [ ] `test_phase_filter.py` - Verify operations blocked/allowed per phase
+- [ ] `test_phase_transition.py` - Verify transition authorization
+- [ ] `test_phase_error_messages.py` - Verify helpful error messages
+
+**Key scenarios**:
+- Agent in "plan" phase tries `git push` → blocked with clear error
+- Agent in "implement" phase tries `gh pr create` → blocked until phase complete
+- Reviewer tries to advance from "plan" → denied (human required)
+- Human advances from "plan" to "implement" → allowed
 
 ---
 
