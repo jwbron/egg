@@ -132,7 +132,7 @@ The contract JSON tracks *status*, while the documents provide *content and cont
 
 ---
 
-## Part 4: Task Collection and Role-Based Enforcement
+## Part 3: Task Collection and Role-Based Enforcement
 
 ### Contract Structure
 
@@ -156,17 +156,18 @@ The contract JSON tracks *status*, while the documents provide *content and cont
       "id": "phase-1",
       "name": "Contract Schema and CLI",
       "status": "pending",
-      "review_cycles": 0,
-      "max_cycles": 3,
-      "escalated": false,
-      "escalation_reason": null,
+      "review_feedback": [],
       "tasks": [
         {
           "id": "task-1",
           "description": "Create contract JSON schema",
           "status": "pending",
           "commit": null,
-          "notes": ""
+          "notes": "",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "escalation_reason": null
         }
       ]
     }

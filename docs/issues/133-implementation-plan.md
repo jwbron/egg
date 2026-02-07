@@ -28,6 +28,8 @@
 | `validator.py` | Validate mutations against role permissions |
 | `audit.py` | Audit log entry creation |
 
+> **Note**: The `.egg/contracts/` directory is created per-branch during pipeline initialization. Contracts are committed to the feature branch (`egg-{issue}`) and not to `main`. The directory is created by the `init` job in the SDLC pipeline workflow.
+
 ### 1.3 Gateway Contract Endpoint
 
 **Add to** `gateway/gateway.py`:
@@ -83,6 +85,8 @@
 ---
 
 ## Phase 3: Agent CLI and Prompt Integration
+
+> **Note**: The `sandbox/` directory is the agent's working environment within the container. Files placed here are available to the agent at runtime. This directory is created during container initialization if it doesn't exist.
 
 ### 3.1 Contract CLI
 
