@@ -156,7 +156,9 @@ try:
     register_contract_routes(app)
 except ImportError:
     try:
-        from contract_api import register_contract_routes  # type: ignore[no-redef, import-not-found]
+        from contract_api import (
+            register_contract_routes,  # type: ignore[no-redef, import-not-found]
+        )
 
         register_contract_routes(app)
     except ImportError:
