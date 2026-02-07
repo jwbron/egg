@@ -1,8 +1,14 @@
-name: "egg: Code Review"
+name: "egg: Agent-Mode Design Review"
 
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
+    paths:
+      # Only run on changes to agent-related code
+      - 'action/**'
+      - '.github/workflows/**'
+      - 'sandbox/**/*.md'
+      - 'docs/guides/agent-mode-design.md'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -41,15 +47,17 @@ jobs:
           echo "run=true" >> "$GITHUB_OUTPUT"
 
   review:
-    name: AI Code Review
+    name: Agent-Mode Design Review
     needs: should-run
     if: needs.should-run.outputs.run == 'true'
     uses: ./.github/workflows/reusable-review.yml
     with:
       pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
-      prompt_script: action/build-review-prompt.sh
-      bot_name: review
+      prompt_script: action/build-agent-mode-design-review-prompt.sh
+      bot_name: agent-mode-design
       timeout: "10"
+      # Don't dismiss other reviews — this is a specialized bot
+      skip_dismiss: true
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
       BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
