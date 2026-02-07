@@ -8,19 +8,13 @@ Tests the human decision checkpoint mechanism where:
 5. Pipeline resumes after human guidance
 """
 
-import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-
-# Add shared directory to path
-_shared_path = Path(__file__).parent.parent.parent / "shared"
-if str(_shared_path) not in sys.path:
-    sys.path.insert(0, str(_shared_path))
-
 from egg_contracts import (
+    AuditRole,
     CircuitBreakerStatus,
     Contract,
     Decision,
@@ -465,6 +459,7 @@ class TestHitlContractIntegration:
         contract = close_circuit_breaker(
             contract,
             actor="reviewer",
+            role=AuditRole.HUMAN,
             reason="Provided guidance on stuck task",
         )
         save_contract(contract, temp_repo)
@@ -510,6 +505,7 @@ class TestHitlEndToEnd:
         contract = close_circuit_breaker(
             contract,
             actor="reviewer",
+            role=AuditRole.HUMAN,
             reason="Human selected: provide additional context",
         )
         save_contract(contract, temp_repo)

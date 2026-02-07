@@ -7,18 +7,11 @@ Tests the review rejection scenario where:
 4. Cycle count is tracked for circuit breaker
 """
 
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-
-# Add shared directory to path
-_shared_path = Path(__file__).parent.parent.parent / "shared"
-if str(_shared_path) not in sys.path:
-    sys.path.insert(0, str(_shared_path))
-
 from egg_contracts import (
     Contract,
     IssueInfo,

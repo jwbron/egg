@@ -8,17 +8,10 @@ Tests the circuit breaker escalation mechanism where:
 5. Escalation summary provides useful information
 """
 
-import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-
-# Add shared directory to path
-_shared_path = Path(__file__).parent.parent.parent / "shared"
-if str(_shared_path) not in sys.path:
-    sys.path.insert(0, str(_shared_path))
-
 from egg_contracts import (
     AuditRole,
     CircuitBreakerStatus,
@@ -303,6 +296,7 @@ class TestCircuitBreakerStateTransitions:
         updated = close_circuit_breaker(
             updated,
             actor="human",
+            role=AuditRole.HUMAN,
             reason="Test close",
         )
 
@@ -404,6 +398,7 @@ class TestCircuitBreakerIntegration:
         updated = close_circuit_breaker(
             contract,
             actor="reviewer",
+            role=AuditRole.HUMAN,
             reason="Provided guidance",
         )
         save_contract(updated, temp_repo)

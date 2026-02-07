@@ -8,17 +8,10 @@ Tests that the gateway blocks unauthorized mutations where:
 5. Role escalation attempts are blocked
 """
 
-import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-
-# Add shared directory to path
-_shared_path = Path(__file__).parent.parent.parent / "shared"
-if str(_shared_path) not in sys.path:
-    sys.path.insert(0, str(_shared_path))
-
 from egg_contracts import (
     Contract,
     IssueInfo,
@@ -227,6 +220,17 @@ class TestApplyMutationRoleEnforcement:
         save_contract(contract_with_tasks, temp_repo)
 
         contract = load_contract(500, temp_repo)
+
+        # First validate the mutation to get structured error info
+        validation = validate_mutation(
+            role=Role.IMPLEMENTER,
+            field_path="phases.0.tasks.0.status",
+            new_value=TaskStatus.COMPLETE.value,
+        )
+        assert validation.valid is False
+        assert validation.required_role == Role.REVIEWER.value
+
+        # Also verify apply_mutation rejects it
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
@@ -234,9 +238,7 @@ class TestApplyMutationRoleEnforcement:
             field_path="phases.0.tasks.0.status",
             new_value=TaskStatus.COMPLETE.value,
         )
-
         assert result.success is False
-        assert "not authorized" in result.message.lower() or "permission" in result.message.lower()
 
     def test_reviewer_can_set_status(self, temp_repo, contract_with_tasks):
         """Reviewer can set task status."""
