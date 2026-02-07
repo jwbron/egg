@@ -149,6 +149,19 @@ logger = get_logger("gateway")
 
 app = Flask(__name__)
 
+# Register contract API routes
+try:
+    from .contract_api import register_contract_routes
+
+    register_contract_routes(app)
+except ImportError:
+    try:
+        from contract_api import register_contract_routes  # type: ignore[no-redef]
+
+        register_contract_routes(app)
+    except ImportError:
+        logger.warning("Contract API not available - egg_contracts not installed")
+
 
 @app.errorhandler(Exception)
 def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
