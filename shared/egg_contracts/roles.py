@@ -28,6 +28,8 @@ FIELD_OWNERSHIP: dict[str, Role] = {
     # Task fields owned by implementer
     "phases.*.tasks.*.commit": Role.IMPLEMENTER,
     "phases.*.tasks.*.notes": Role.IMPLEMENTER,
+    "phases.*.tasks.*.files_affected": Role.IMPLEMENTER,
+    "phases.*.tasks.*.files_affected.*": Role.IMPLEMENTER,
     # Task fields owned by reviewer
     "phases.*.tasks.*.status": Role.REVIEWER,
     # Phase fields owned by reviewer

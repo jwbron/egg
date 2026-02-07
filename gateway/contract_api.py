@@ -16,8 +16,10 @@ from flask import Blueprint, Response, g, jsonify, request
 # fall back to absolute import (standalone script mode in container)
 try:
     from .auth import require_session_auth
+    from .git_client import validate_repo_path
 except ImportError:
     from auth import require_session_auth  # type: ignore[no-redef, import-not-found]
+    from git_client import validate_repo_path  # type: ignore[no-redef, import-not-found]
 
 # Add shared directory to path for egg_contracts
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -84,13 +86,15 @@ def get_role_from_context() -> Role | None:
                 return None
 
     # Testing path: role can be passed in request header for gateway testing
-    # This is lower priority than session to prevent bypassing production auth
-    header_role = request.headers.get("X-Egg-Role")
-    if header_role:
-        try:
-            return Role(header_role.lower())
-        except ValueError:
-            return None
+    # SECURITY: Only enabled when EGG_ENABLE_TEST_ROLE_HEADER=1 to prevent
+    # privilege escalation in production when sessions don't have agent_role set
+    if os.environ.get("EGG_ENABLE_TEST_ROLE_HEADER") == "1":
+        header_role = request.headers.get("X-Egg-Role")
+        if header_role:
+            try:
+                return Role(header_role.lower())
+            except ValueError:
+                return None
 
     # Fallback: check environment (least secure, used in development only)
     env_role = os.environ.get("EGG_AGENT_ROLE")
@@ -103,12 +107,15 @@ def get_role_from_context() -> Role | None:
     return None
 
 
-def get_repo_path_from_request(from_query: bool = False) -> Path | None:
-    """Get the repository path from the request.
+def get_repo_path_from_request(from_query: bool = False) -> tuple[Path | None, str | None]:
+    """Get the repository path from the request with validation.
 
     Args:
         from_query: If True, look for repo_path in query parameters (for GET requests).
                    If False, look in JSON body (for POST requests).
+
+    Returns:
+        Tuple of (path, error_message). If error_message is set, path validation failed.
     """
     if from_query:
         # For GET requests, use query parameters
@@ -119,15 +126,23 @@ def get_repo_path_from_request(from_query: bool = False) -> Path | None:
         repo_path = data.get("repo_path")
 
     if repo_path:
-        return Path(repo_path)
+        # Validate path to prevent path traversal attacks
+        is_valid, error = validate_repo_path(repo_path)
+        if not is_valid:
+            return None, error
+        return Path(repo_path), None
 
     # Try to get from session
     if hasattr(g, "session") and g.session:
         session_repo = getattr(g.session, "repo_path", None)
         if session_repo:
-            return Path(session_repo)
+            # Session paths are trusted (set by launcher), but validate anyway
+            is_valid, error = validate_repo_path(session_repo)
+            if not is_valid:
+                return None, error
+            return Path(session_repo), None
 
-    return None
+    return None, None
 
 
 def make_contract_error(
@@ -166,7 +181,9 @@ def get_contract(issue_number: int) -> tuple[Response, int]:
         repo_path: Path to the repository (optional)
         include_audit_log: Whether to include audit log (default: false)
     """
-    repo_path = get_repo_path_from_request(from_query=True)
+    repo_path, path_error = get_repo_path_from_request(from_query=True)
+    if path_error:
+        return make_contract_error(path_error, status_code=400)
     if not repo_path:
         repo_path = Path.cwd()
 
@@ -228,7 +245,13 @@ def mutate_contract() -> tuple[Response, int]:
         return make_contract_error("Missing new_value")
 
     # Optional fields
-    repo_path = Path(data["repo_path"]) if data.get("repo_path") else Path.cwd()
+    if data.get("repo_path"):
+        is_valid, error = validate_repo_path(data["repo_path"])
+        if not is_valid:
+            return make_contract_error(error, status_code=400)
+        repo_path = Path(data["repo_path"])
+    else:
+        repo_path = Path.cwd()
     actor = data.get("actor", "agent")
     reason = data.get("reason")
 
@@ -376,7 +399,9 @@ def check_contract_exists(issue_number: int) -> tuple[Response, int]:
     Query params:
         repo_path: Path to the repository (optional)
     """
-    repo_path = get_repo_path_from_request(from_query=True)
+    repo_path, path_error = get_repo_path_from_request(from_query=True)
+    if path_error:
+        return make_contract_error(path_error, status_code=400)
     if not repo_path:
         repo_path = Path.cwd()
 

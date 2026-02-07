@@ -199,8 +199,6 @@ class TestValidateTaskMutation:
         """Test implementer can set commit."""
         result = validate_task_mutation(
             role=Role.IMPLEMENTER,
-            phase_id="phase-1",
-            task_id="task-1",
             field="commit",
             new_value="abc1234",
         )
@@ -210,8 +208,6 @@ class TestValidateTaskMutation:
         """Test implementer cannot set status."""
         result = validate_task_mutation(
             role=Role.IMPLEMENTER,
-            phase_id="phase-1",
-            task_id="task-1",
             field="status",
             new_value="complete",
         )
@@ -226,7 +222,6 @@ class TestValidatePhaseMutation:
         """Test reviewer can set phase status."""
         result = validate_phase_mutation(
             role=Role.REVIEWER,
-            phase_id="phase-1",
             field="status",
             new_value="complete",
         )
@@ -236,7 +231,6 @@ class TestValidatePhaseMutation:
         """Test implementer cannot set phase status."""
         result = validate_phase_mutation(
             role=Role.IMPLEMENTER,
-            phase_id="phase-1",
             field="status",
             new_value="complete",
         )

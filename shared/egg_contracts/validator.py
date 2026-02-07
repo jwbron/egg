@@ -202,8 +202,6 @@ def _set_value(obj: Any, path: str, value: Any) -> None:
 
 def validate_task_mutation(
     role: Role,
-    phase_id: str,
-    task_id: str,
     field: str,
     new_value: Any,
 ) -> ValidationResult:
@@ -212,8 +210,6 @@ def validate_task_mutation(
 
     Args:
         role: The role attempting the mutation
-        phase_id: The phase ID (e.g., "phase-1")
-        task_id: The task ID (e.g., "task-1")
         field: The field name (e.g., "status", "commit", "notes")
         new_value: The new value
 
@@ -227,7 +223,6 @@ def validate_task_mutation(
 
 def validate_phase_mutation(
     role: Role,
-    phase_id: str,
     field: str,
     new_value: Any,
 ) -> ValidationResult:
@@ -236,7 +231,6 @@ def validate_phase_mutation(
 
     Args:
         role: The role attempting the mutation
-        phase_id: The phase ID (e.g., "phase-1")
         field: The field name (e.g., "status")
         new_value: The new value
 
