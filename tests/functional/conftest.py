@@ -169,7 +169,7 @@ def minimal_gateway() -> Generator[MinimalGateway, None, None]:
             )
 
         # Start gateway container
-        subprocess.run(
+        subprocess.run(  # noqa: EGG100 - test fixture starts minimal gateway container
             [
                 "docker",
                 "run",
@@ -237,8 +237,7 @@ def minimal_gateway() -> Generator[MinimalGateway, None, None]:
                 check=False,
             )
             pytest.fail(
-                f"Gateway did not become healthy within 60s.\n"
-                f"Logs:\n{logs.stdout}\n{logs.stderr}"
+                f"Gateway did not become healthy within 60s.\nLogs:\n{logs.stdout}\n{logs.stderr}"
             )
 
         gateway = MinimalGateway(
@@ -296,8 +295,7 @@ def functional_session(
     token = session_data.get("session_token")
     if not token:
         pytest.fail(
-            f"Session created successfully but missing session_token. "
-            f"Response data: {session_data}"
+            f"Session created successfully but missing session_token. Response data: {session_data}"
         )
 
     session_data["container_id"] = container_id

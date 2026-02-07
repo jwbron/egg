@@ -209,18 +209,10 @@ class TestGhCommandBlocking:
         output = result.output.strip()
         if output:
             # GitHub tokens start with specific prefixes
-            assert not output.startswith("ghp_"), (
-                "Real GitHub personal access token exposed"
-            )
-            assert not output.startswith("gho_"), (
-                "Real GitHub OAuth token exposed"
-            )
-            assert not output.startswith("ghs_"), (
-                "Real GitHub server-to-server token exposed"
-            )
-            assert not output.startswith("ghu_"), (
-                "Real GitHub user-to-server token exposed"
-            )
+            assert not output.startswith("ghp_"), "Real GitHub personal access token exposed"
+            assert not output.startswith("gho_"), "Real GitHub OAuth token exposed"
+            assert not output.startswith("ghs_"), "Real GitHub server-to-server token exposed"
+            assert not output.startswith("ghu_"), "Real GitHub user-to-server token exposed"
             # Should only contain dummy/test tokens
             assert "dummy" in output.lower() or len(output) < 10, (
                 f"Unexpected token output: {output[:50]}..."

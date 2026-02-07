@@ -229,9 +229,7 @@ class TestSessionIsolation:
 
         assert token1 != token2
 
-    def test_session_operations_require_correct_token(
-        self, minimal_gateway, functional_session
-    ):
+    def test_session_operations_require_correct_token(self, minimal_gateway, functional_session):
         """Session operations require the correct token."""
         correct_token = functional_session.get("session_token")
 
@@ -329,7 +327,9 @@ class TestSessionStateConsistency:
 
         # Create multiple sessions
         for i in range(3):
-            result = session_lifecycle_tester("create", container_id=f"concurrent-{i}-{time.time_ns()}")
+            result = session_lifecycle_tester(
+                "create", container_id=f"concurrent-{i}-{time.time_ns()}"
+            )
             if result.get("success"):
                 tokens.append(result.get("data", result).get("session_token"))
 
