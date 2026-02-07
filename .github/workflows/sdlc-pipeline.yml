@@ -207,9 +207,11 @@ jobs:
     needs: init
     if: needs.init.outputs.current_phase == 'implement'
     runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours max, checkpoint at T-10 minutes
     outputs:
       implementation_complete: ${{ steps.implement.outputs.complete }}
       tasks_completed: ${{ steps.implement.outputs.tasks_completed }}
+      checkpointed: ${{ steps.checkpoint.outputs.checkpointed }}
 
     env:
       BOT_USERNAME: james-in-a-box
@@ -251,6 +253,7 @@ jobs:
 
       - name: Run egg implementer
         id: egg
+        continue-on-error: true  # Allow checkpoint on controlled exit
         uses: jwbron/egg/action@main
         with:
           prompt: ${{ steps.prompt.outputs.prompt }}
@@ -263,6 +266,64 @@ jobs:
         env:
           EGG_AGENT_ROLE: implementer
           EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
+          EGG_JOB_START_TIME: ${{ github.event.created_at }}
+
+      - name: Check for timeout checkpoint
+        id: checkpoint
+        if: always()
+        run: |
+          set -euo pipefail
+
+          # Check if we're within 10 minutes of timeout
+          JOB_TIMEOUT_MINUTES=360
+          CHECKPOINT_MARGIN_MINUTES=10
+
+          # Get job start time (approximate using workflow run time)
+          START_TIME="${{ github.event.created_at }}"
+          if [[ -z "$START_TIME" ]]; then
+            START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          fi
+
+          # Calculate elapsed time
+          START_EPOCH=$(date -d "$START_TIME" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$START_TIME" +%s 2>/dev/null || echo "0")
+          NOW_EPOCH=$(date +%s)
+          ELAPSED_SECONDS=$((NOW_EPOCH - START_EPOCH))
+          ELAPSED_MINUTES=$((ELAPSED_SECONDS / 60))
+
+          # Calculate remaining time
+          REMAINING_MINUTES=$((JOB_TIMEOUT_MINUTES - ELAPSED_MINUTES))
+
+          echo "Job elapsed: ${ELAPSED_MINUTES} minutes, remaining: ${REMAINING_MINUTES} minutes"
+
+          # Check if we need to checkpoint
+          if [[ $REMAINING_MINUTES -le $CHECKPOINT_MARGIN_MINUTES ]]; then
+            echo "checkpointed=true" >> "$GITHUB_OUTPUT"
+            echo "reason=timeout_approaching" >> "$GITHUB_OUTPUT"
+
+            # Save checkpoint state to contract
+            CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+            if [[ -f "$CONTRACT_PATH" ]]; then
+              TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+              jq --arg ts "$TIMESTAMP" --arg reason "Checkpoint: ${REMAINING_MINUTES} minutes remaining before timeout" '
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "checkpoint",
+                  "old_value": null,
+                  "new_value": "timeout_checkpoint",
+                  "reason": $reason
+                }]
+              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+
+              git add "$CONTRACT_PATH"
+              git commit -m "Checkpoint state before timeout (${REMAINING_MINUTES}m remaining)" || true
+              git push origin "${BRANCH_NAME}" || true
+            fi
+          else
+            echo "checkpointed=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Update contract state
         id: implement
@@ -572,6 +633,47 @@ jobs:
           esac
 
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+
+  # ============================================================
+  # Escalate: Handle circuit breaker escalation
+  # ============================================================
+  escalate:
+    name: Escalate to human
+    needs: [init, loop]
+    if: always() && needs.loop.outputs.next_action == 'escalate'
+    runs-on: ubuntu-latest
+
+    env:
+      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout main (trusted)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Save trusted action scripts
+        run: cp -r action "$RUNNER_TEMP/trusted-action"
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Run escalation
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: bash "$RUNNER_TEMP/trusted-action/escalate.sh" "${ISSUE_NUMBER}" "${{ github.workspace }}"
 
   # ============================================================
   # PR: Create pull request
