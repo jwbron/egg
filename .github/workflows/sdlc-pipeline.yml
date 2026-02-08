@@ -208,14 +208,12 @@ jobs:
 
           gh issue comment "${{ steps.setup.outputs.issue_number }}" --body "$BODY"
 
-      - name: Create or find draft PR
+      - name: Find existing PR
         id: draft-pr
         if: steps.setup.outputs.current_phase == 'implement' || steps.setup.outputs.current_phase == 'pr'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           BRANCH_NAME: ${{ steps.setup.outputs.branch_name }}
-          ISSUE_NUMBER: ${{ steps.setup.outputs.issue_number }}
-          ISSUE_TITLE: ${{ steps.setup.outputs.issue_title }}
         run: |
           set -euo pipefail
 
@@ -225,36 +223,10 @@ jobs:
           if [[ -n "$EXISTING_PR" ]]; then
             echo "Found existing PR #${EXISTING_PR}"
             echo "pr_number=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
-            exit 0
+          else
+            echo "No existing PR found - will be created after implementation"
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
           fi
-
-          # Check for merged/closed PRs (edge case)
-          CLOSED_PR=$(gh pr list --head "${BRANCH_NAME}" --state closed --json number,mergedAt --jq '.[0] // empty')
-          if [[ -n "$CLOSED_PR" ]]; then
-            echo "Warning: Found closed/merged PR on this branch. Creating a new draft PR."
-          fi
-
-          # Create a new draft PR
-          PR_BODY="Draft PR for SDLC pipeline implementation."
-          PR_BODY="${PR_BODY}"$'\n\n'"Issue: #${ISSUE_NUMBER}"
-          PR_BODY="${PR_BODY}"$'\n'"Branch: \`${BRANCH_NAME}\`"
-          PR_BODY="${PR_BODY}"$'\n\n'"This PR is managed by the SDLC pipeline. It will be marked ready for review once the implementation passes automated review."
-          PR_BODY="${PR_BODY}"$'\n\n'"Authored-by: egg"
-
-          PR_URL=$(gh pr create \
-            --draft \
-            --title "[SDLC] ${ISSUE_TITLE}" \
-            --body "$PR_BODY" \
-            --base main \
-            --head "${BRANCH_NAME}")
-
-          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
-          if [[ -z "$PR_NUMBER" ]]; then
-            echo "::error::Failed to extract PR number from URL: ${PR_URL}"
-            exit 1
-          fi
-          echo "Created draft PR #${PR_NUMBER}"
-          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
 
   # ============================================================
   # Implement: Execute tasks in plan
@@ -270,6 +242,7 @@ jobs:
       tasks_completed: ${{ steps.implement.outputs.tasks_completed }}
       checkpointed: ${{ steps.checkpoint.outputs.checkpointed }}
       head_sha: ${{ steps.capture-sha.outputs.head_sha }}
+      pr_number: ${{ steps.create-pr.outputs.pr_number }}
 
     env:
       BOT_USERNAME: james-in-a-box
@@ -438,6 +411,61 @@ jobs:
           ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
           REPO_PATH: ${{ github.workspace }}
 
+      - name: Create or find draft PR
+        id: create-pr
+        if: steps.egg.outputs.exit-code == '0'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
+          ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
+          ISSUE_TITLE: ${{ needs.init.outputs.issue_title }}
+          EXISTING_PR: ${{ needs.init.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          # Check for existing open PR (from init job or previous runs)
+          if [[ -n "${EXISTING_PR}" ]]; then
+            echo "Found existing PR #${EXISTING_PR}"
+            echo "pr_number=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Also check via API in case init didn't find it
+          EXISTING_PR=$(gh pr list --head "${BRANCH_NAME}" --state open --json number --jq '.[0].number // empty')
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "Found existing PR #${EXISTING_PR}"
+            echo "pr_number=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check for merged/closed PRs (edge case)
+          CLOSED_PR=$(gh pr list --head "${BRANCH_NAME}" --state closed --json number,mergedAt --jq '.[0] // empty')
+          if [[ -n "$CLOSED_PR" ]]; then
+            echo "Warning: Found closed/merged PR on this branch. Creating a new draft PR."
+          fi
+
+          # Create a new draft PR with meaningful content
+          PR_BODY="Implementation for issue #${ISSUE_NUMBER}."
+          PR_BODY="${PR_BODY}"$'\n\n'"Issue: #${ISSUE_NUMBER}"
+          PR_BODY="${PR_BODY}"$'\n'"Branch: \`${BRANCH_NAME}\`"
+          PR_BODY="${PR_BODY}"$'\n\n'"This PR is managed by the SDLC pipeline. It will be marked ready for review once the implementation passes automated review."
+          PR_BODY="${PR_BODY}"$'\n\n'"Authored-by: egg"
+
+          PR_URL=$(gh pr create \
+            --draft \
+            --title "[SDLC] ${ISSUE_TITLE}" \
+            --body "$PR_BODY" \
+            --base main \
+            --head "${BRANCH_NAME}")
+
+          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "::error::Failed to extract PR number from URL: ${PR_URL}"
+            exit 1
+          fi
+          echo "Created draft PR #${PR_NUMBER}"
+          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+
       - name: Post status comment
         if: always()
         env:
@@ -480,7 +508,11 @@ jobs:
   wait-for-checks:
     name: Wait for all checks
     needs: [init, implement]
-    if: always() && needs.implement.result == 'success' && needs.init.outputs.pr_number != ''
+    # Run if implement succeeded and we have a PR from either init or implement
+    if: >-
+      always() &&
+      needs.implement.result == 'success' &&
+      (needs.init.outputs.pr_number != '' || needs.implement.outputs.pr_number != '')
     runs-on: ubuntu-latest
     timeout-minutes: 35
     outputs:
@@ -488,7 +520,8 @@ jobs:
       timed_out: ${{ steps.wait.outputs.timed_out }}
 
     env:
-      PR_NUMBER: ${{ needs.init.outputs.pr_number }}
+      # Prefer init's PR number (existing PR), fall back to implement's (newly created)
+      PR_NUMBER: ${{ needs.init.outputs.pr_number || needs.implement.outputs.pr_number }}
 
     steps:
       - name: Generate bot token
@@ -601,14 +634,18 @@ jobs:
   finalize-pr:
     name: Finalize pull request
     needs: [init, implement, wait-for-checks]
-    if: always() && needs.wait-for-checks.outputs.all_passed == 'true' && needs.init.outputs.pr_number != ''
+    # Run if checks passed and we have a PR from either init or implement
+    if: >-
+      always() &&
+      needs.wait-for-checks.outputs.all_passed == 'true' &&
+      (needs.init.outputs.pr_number != '' || needs.implement.outputs.pr_number != '')
     runs-on: ubuntu-latest
 
     env:
       ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
       ISSUE_TITLE: ${{ needs.init.outputs.issue_title }}
       BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
-      PR_NUMBER: ${{ needs.init.outputs.pr_number }}
+      PR_NUMBER: ${{ needs.init.outputs.pr_number || needs.implement.outputs.pr_number }}
 
     steps:
       - name: Generate bot token
@@ -706,12 +743,17 @@ jobs:
   checks-failed:
     name: Checks failed
     needs: [init, implement, wait-for-checks]
-    if: always() && needs.wait-for-checks.result == 'success' && needs.wait-for-checks.outputs.all_passed != 'true' && needs.init.outputs.pr_number != ''
+    # Run if checks failed and we have a PR
+    if: >-
+      always() &&
+      needs.wait-for-checks.result == 'success' &&
+      needs.wait-for-checks.outputs.all_passed != 'true' &&
+      (needs.init.outputs.pr_number != '' || needs.implement.outputs.pr_number != '')
     runs-on: ubuntu-latest
 
     env:
       ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
-      PR_NUMBER: ${{ needs.init.outputs.pr_number }}
+      PR_NUMBER: ${{ needs.init.outputs.pr_number || needs.implement.outputs.pr_number }}
       TIMED_OUT: ${{ needs.wait-for-checks.outputs.timed_out }}
 
     steps:
