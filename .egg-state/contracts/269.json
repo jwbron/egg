@@ -82,11 +82,11 @@
           "files_affected": [
             ".github/workflows/on-issue-closed.yml"
           ],
-          "commit": null,
+          "commit": "94e367a",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Workflow has issues trigger with closed type, and actions/contents/issues write permissions"
         },
         {
           "id": "task-1-2",
@@ -96,11 +96,11 @@
           "files_affected": [
             ".github/workflows/on-issue-closed.yml"
           ],
-          "commit": null,
+          "commit": "94e367a",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Job condition uses contains(github.event.issue.labels.*.name, 'egg-sdlc')"
         },
         {
           "id": "task-1-3",
@@ -110,11 +110,11 @@
           "files_affected": [
             ".github/workflows/on-issue-closed.yml"
           ],
-          "commit": null,
+          "commit": "94e367a",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Cancels both sdlc-pipeline and sdlc-hitl runs by checking branch name and inputs"
         },
         {
           "id": "task-1-4",
@@ -124,11 +124,11 @@
           "files_affected": [
             ".github/workflows/on-issue-closed.yml"
           ],
-          "commit": null,
+          "commit": "94e367a",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Uses gh api to check and delete branch via git refs API"
         },
         {
           "id": "task-1-5",
@@ -138,11 +138,11 @@
           "files_affected": [
             ".github/workflows/on-issue-closed.yml"
           ],
-          "commit": null,
+          "commit": "94e367a",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "All operations use 2>/dev/null with fallbacks for missing resources"
         }
       ],
       "review_cycles": 0,
@@ -164,11 +164,11 @@
           "files_affected": [
             ".github/workflows/on-issue-closed.yml"
           ],
-          "commit": null,
+          "commit": "94e367a",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Checks for open PRs before deletion and skips if any exist"
         },
         {
           "id": "task-2-2",
@@ -178,11 +178,11 @@
           "files_affected": [
             ".github/workflows/on-issue-closed.yml"
           ],
-          "commit": null,
+          "commit": "94e367a",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Posts cleanup summary with detailed status of all operations"
         },
         {
           "id": "task-2-3",
@@ -192,11 +192,11 @@
           "files_affected": [
             ".github/workflows/on-issue-closed.yml"
           ],
-          "commit": null,
+          "commit": "94e367a",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Uses continue-on-error pattern with error tracking in ERRORS variable"
         }
       ],
       "review_cycles": 0,
@@ -220,7 +220,7 @@
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Manual testing - workflow deployed, needs real-world test"
         },
         {
           "id": "task-3-2",
@@ -232,7 +232,7 @@
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Manual testing - workflow deployed, needs real-world test"
         },
         {
           "id": "task-3-3",
@@ -244,7 +244,7 @@
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Manual testing - workflow deployed, needs real-world test"
         },
         {
           "id": "task-3-4",
@@ -256,7 +256,7 @@
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Manual testing - workflow deployed, needs real-world test"
         }
       ],
       "review_cycles": 0,
