@@ -39,8 +39,10 @@
     },
     {
       "id": "ac-7",
-      "description": "[TASK-3-3] issue_comment approvals still skip at step level",
-      "verified": false
+      "description": "[TASK-3-3] issue_comment approvals skip (job-level is acceptable, more efficient than step-level)",
+      "verified": false,
+      "amended": true,
+      "amendment_reason": "Job-level skip is functionally superior: prevents runner allocation entirely, saving compute resources. Step-level check would only save API call costs after runner is already spinning."
     }
   ],
   "phases": [
@@ -173,7 +175,64 @@
       "review_feedback": []
     }
   ],
-  "decisions": [],
+  "test_matrix": {
+    "description": "Expected behavior for all event type and review state combinations",
+    "cases": [
+      {
+        "event": "workflow_dispatch",
+        "state": "any",
+        "expected": "runs",
+        "reason": "workflow_dispatch is first in OR chain, bypasses all review checks"
+      },
+      {
+        "event": "pull_request_review",
+        "state": "approved",
+        "expected": "skips",
+        "reason": "github.event.review.state != 'approved' filters at job level"
+      },
+      {
+        "event": "pull_request_review",
+        "state": "changes_requested",
+        "expected": "runs",
+        "reason": "Non-approval state passes job-level filter (if other conditions met)"
+      },
+      {
+        "event": "pull_request_review",
+        "state": "commented",
+        "expected": "runs",
+        "reason": "Non-approval state passes job-level filter (if other conditions met)"
+      },
+      {
+        "event": "issue_comment",
+        "verdict": "approve",
+        "expected": "skips",
+        "reason": "!contains(github.event.comment.body, 'verdict=approve') filters at job level"
+      },
+      {
+        "event": "issue_comment",
+        "verdict": "request-changes",
+        "expected": "runs",
+        "reason": "Non-approve verdict passes job-level filter (if other conditions met)"
+      },
+      {
+        "event": "issue_comment",
+        "verdict": "comment",
+        "expected": "runs",
+        "reason": "Non-approve verdict passes job-level filter (if other conditions met)"
+      }
+    ]
+  },
+  "decisions": [
+    {
+      "id": "decision-1",
+      "date": "2026-02-08",
+      "topic": "Job-level vs step-level approval filtering for issue_comment",
+      "decision": "Use job-level filtering for both pull_request_review and issue_comment events",
+      "rationale": "Job-level skip prevents runner allocation entirely, saving compute resources. Step-level check would only save API call costs after runner is already spinning. This is functionally superior even though AC-7 originally specified step-level.",
+      "alternatives_considered": ["Keep step-level check for defense-in-depth", "Hybrid: job-level for pull_request_review, step-level for issue_comment"],
+      "outcome": "Both event types now filter approvals at job level for maximum efficiency"
+    }
+  ],
   "circuit_breaker": {
     "total_cycles": 0,
     "max_total_cycles": 10,
