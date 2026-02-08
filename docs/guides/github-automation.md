@@ -13,6 +13,7 @@ credentials, merge PRs, or push outside its branch namespace.
 | [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
 | [@mention Response](#mention-response) | `@egg` in issues/PR comments | Runs arbitrary tasks requested by authorized users |
 | [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
+| [Conflict Resolver](#conflict-resolver) | Every 5 minutes / manual | Resolves merge conflicts via rebase |
 | [Self-Improvement](#self-improvement) | Nightly schedule (2 AM UTC) | Analyzes all runs for issues, creates tracking issues |
 | [Doc Updater](#doc-updater) | Push to main | Checks if code changes require documentation updates |
 
@@ -231,6 +232,46 @@ The agent follows these rules (customizable via `.egg/autofixer-rules.md`):
 | **Auto-fix** | Lint errors, formatting, import order, type errors with clear fixes, simple test failures |
 | **Report only** | Complex logic errors, security issues, unclear requirements, missing environment config |
 
+## Conflict Resolver
+
+**Workflow:** [`.github/workflows/on-merge-conflict.yml`](../../.github/workflows/on-merge-conflict.yml)
+
+Runs every 5 minutes to detect PRs with merge conflicts and resolve them via rebase.
+Also supports `workflow_dispatch` for manual triggering on a specific PR.
+
+### How It Works
+
+1. **Conflict detection** — Queries all open PRs and checks their `mergeable_state`. PRs with
+   a "dirty" state (indicating conflicts) are queued for resolution.
+2. **Skip check** — Skips PRs with `[skip-conflict-fix]` in the title.
+3. **Comment cleanup** — Minimizes previous conflict resolution comments to reduce clutter.
+4. **Acknowledgment** — Posts a comment indicating conflict resolution has started.
+5. **Trusted prompt build** — Builds the conflict prompt from `main` using
+   `build-conflict-prompt.sh`, which includes the base branch name for rebase.
+6. **Resolution** — The agent:
+   - Fetches the base branch and starts a rebase
+   - Resolves each conflict based on conflict resolution rules
+   - Runs local checks to verify the resolution
+   - Pushes with `--force-with-lease` if successful
+7. **Escalation** — If conflicts require human judgment (semantic conflicts, security code,
+   database migrations), the agent aborts the rebase and posts a comment explaining which
+   files need review and why.
+
+### Resolution Strategy
+
+The agent follows these rules (customizable via `.egg/conflict-rules.md`):
+
+| Action | When |
+|--------|------|
+| **Auto-resolve** | Lock files (regenerate), additive changes, formatting, version bumps |
+| **Escalate** | Semantic conflicts, API changes, security code, migrations, config files |
+
+### Concurrency
+
+Each PR gets its own concurrency group (`egg-conflict-<pr_number>`) with
+`cancel-in-progress: false`, ensuring conflict resolution attempts complete rather than
+being cancelled by subsequent scheduled runs.
+
 ## Self-Improvement
 
 **Workflow:** [`.github/workflows/self-improvement.yml`](../../.github/workflows/self-improvement.yml)
@@ -358,6 +399,7 @@ All workflows need these GitHub Actions secrets:
 |------|---------|
 | `.egg/review-rules.md` | Custom review focus areas (overrides defaults) |
 | `.egg/autofixer-rules.md` | Custom auto-fix vs report rules (overrides defaults) |
+| `.egg/conflict-rules.md` | Custom conflict resolution rules (overrides defaults) |
 
 ### Skip Labels
 
@@ -365,6 +407,7 @@ All workflows need these GitHub Actions secrets:
 |--------|--------|
 | `[skip-review]` in PR title | Skips AI code review |
 | `[skip-autofix]` in PR title | Skips check autofixer |
+| `[skip-conflict-fix]` in PR title | Skips conflict resolver |
 
 ## Security Model
 
