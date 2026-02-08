@@ -49,12 +49,14 @@ jobs:
           fi
 
           BRANCH_NAME="egg/issue-${ISSUE_NUMBER}"
-          echo "branch_name=${BRANCH_NAME}" >> "$GITHUB_OUTPUT"
 
           # Initialize cleanup status tracking
-          echo "workflows_cancelled=false" >> "$GITHUB_OUTPUT"
-          echo "branch_deleted=false" >> "$GITHUB_OUTPUT"
-          echo "errors=" >> "$GITHUB_OUTPUT"
+          {
+            echo "branch_name=${BRANCH_NAME}"
+            echo "workflows_cancelled=false"
+            echo "branch_deleted=false"
+            echo "errors="
+          } >> "$GITHUB_OUTPUT"
 
       - name: Cancel in-progress SDLC workflows
         id: cancel-workflows
