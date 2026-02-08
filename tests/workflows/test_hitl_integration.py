@@ -26,12 +26,12 @@ class TestWorkflowRegexPatterns:
     # The regex requires a valid boundary (space or >) after the ID to match workflow behavior
     DECISION_ID_PATTERN = re.compile(r"<!-- egg-hitl-decision id=([a-z0-9-]+)(?=[ >])")
 
-    # Pattern from sdlc-hitl.yml line 72-73:
+    # Pattern from sdlc-hitl.yml step "Parse decision changes":
     # grep -oP '^\s*-\s*\[x\]\s*\K.+'
     CHECKED_OPTION_PATTERN = re.compile(r"^\s*-\s*\[x\]\s*(.+)$", re.MULTILINE)
     UNCHECKED_OPTION_PATTERN = re.compile(r"^\s*-\s*\[ \]\s*(.+)$", re.MULTILINE)
 
-    # Phase approval markers from sdlc-hitl.yml lines 378-379:
+    # Phase approval markers from sdlc-hitl.yml job "handle-approval":
     # contains(github.event.comment.body, '<!-- egg-phase-approval') ||
     # contains(github.event.comment.body, '[x] Approve')
     PHASE_APPROVAL_MARKER = "<!-- egg-phase-approval"
