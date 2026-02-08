@@ -279,7 +279,7 @@ class TestCircuitBreakerIntegration:
             "verdict": "needs_revision",
             "summary": "Still has issues.",
             "feedback": "Problem statement needs more detail.",
-            "timestamp": "2026-02-08T12:00:00Z"
+            "timestamp": "2026-02-08T12:00:00Z",
         }
         review_file.write_text(json.dumps(review_data))
 
@@ -304,7 +304,7 @@ class TestReviewVerdictFileParsing:
             "verdict": "approved",
             "summary": "The analysis meets quality standards.",
             "feedback": "",
-            "timestamp": "2026-02-08T12:00:00Z"
+            "timestamp": "2026-02-08T12:00:00Z",
         }
         review_file.write_text(json.dumps(review_data))
 
@@ -320,7 +320,7 @@ class TestReviewVerdictFileParsing:
             "verdict": "needs_revision",
             "summary": "The analysis requires revision.",
             "feedback": feedback,
-            "timestamp": "2026-02-08T12:00:00Z"
+            "timestamp": "2026-02-08T12:00:00Z",
         }
         review_file.write_text(json.dumps(review_data))
 
@@ -335,7 +335,7 @@ class TestReviewVerdictFileParsing:
             "verdict": "approved",
             "summary": "The plan is well-structured.",
             "feedback": "",
-            "timestamp": "2026-02-08T12:00:00Z"
+            "timestamp": "2026-02-08T12:00:00Z",
         }
         review_file.write_text(json.dumps(review_data))
 
@@ -350,7 +350,7 @@ class TestReviewVerdictFileParsing:
             "verdict": "needs_revision",
             "summary": "The plan requires revision.",
             "feedback": feedback,
-            "timestamp": "2026-02-08T12:00:00Z"
+            "timestamp": "2026-02-08T12:00:00Z",
         }
         review_file.write_text(json.dumps(review_data))
 
