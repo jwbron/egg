@@ -506,14 +506,6 @@ handle_pr_review() {
         return 1
     fi
 
-    # Get current commit SHA for the marker
-    local commit_sha
-    commit_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
-
-    if [ -z "$commit_sha" ]; then
-        echo "WARNING: Could not determine commit SHA for review marker (git rev-parse HEAD failed)" >&2
-    fi
-
     # Get bot name from environment (set by egg launcher) or use default
     local bot_name="${EGG_BOT_NAME:-egg}"
 
@@ -552,6 +544,24 @@ handle_pr_review() {
     if [ -z "$pr_number" ]; then
         echo "ERROR: Missing PR number" >&2
         return 1
+    fi
+
+    # Get PR head commit SHA for the marker via GitHub API
+    # (git rev-parse HEAD is unreliable in the container because .git is
+    # shadowed by tmpfs and the working directory may not be a repo)
+    local commit_sha=""
+    if [ -n "$pr_number" ] && [ -n "$repo" ]; then
+        local sha_payload
+        sha_payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({'args': ['pr', 'view', sys.argv[2], '--repo', sys.argv[1], '--json', 'headRefOid', '--jq', '.headRefOid']}))
+" "$repo" "$pr_number")
+        commit_sha=$(call_gateway "/api/v1/gh/execute" "$sha_payload" 2>/dev/null | tr -d '[:space:]')
+    fi
+
+    if [ -z "$commit_sha" ]; then
+        echo "WARNING: Could not determine commit SHA for review marker" >&2
     fi
 
     # Proactively detect self-authored PRs and downgrade review types accordingly.
