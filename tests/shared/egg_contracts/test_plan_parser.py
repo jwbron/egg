@@ -301,6 +301,24 @@ tasks:
                     found_yaml = True
         assert found_yaml
 
+    def test_legacy_files_as_string_converted_to_list(self):
+        """Test that single file string in legacy format is converted to list."""
+        content = """---
+tasks:
+  - id: TASK-1-1
+    description: Single file test
+    acceptance: Done
+    files: single-file.py
+---
+
+# Plan
+"""
+        result = parse_plan(content)
+        assert result.success
+        # Find the task and check its files_affected
+        task = result.phases[0].tasks[0]
+        assert task.files_affected == ["single-file.py"]
+
 
 class TestParseResult:
     """Tests for ParseResult methods."""
@@ -923,6 +941,33 @@ class TestParsePhasesFromYaml:
         assert [p.number for p in phases] == [1, 2, 3]
         assert [p.name for p in phases] == ["First", "Second", "Third"]
 
+    def test_duplicate_phase_id_warns_and_skips(self):
+        """Test that duplicate phase IDs generate warning and skip second phase."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "First Phase 1",
+                    "tasks": [{"id": "TASK-1-1", "description": "First", "acceptance": "Done"}],
+                },
+                {
+                    "id": 1,  # Duplicate ID
+                    "name": "Second Phase 1",
+                    "tasks": [{"id": "TASK-1-2", "description": "Second", "acceptance": "Done"}],
+                },
+                {
+                    "id": 2,
+                    "name": "Phase 2",
+                    "tasks": [{"id": "TASK-2-1", "description": "Third", "acceptance": "Done"}],
+                },
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 2
+        assert phases[0].name == "First Phase 1"  # First one kept
+        assert phases[1].name == "Phase 2"
+        assert any("Duplicate phase ID: 1" in w.message for w in warnings)
+
 
 class TestParsePlanWithYamlCodeFence:
     """Integration tests for parse_plan with yaml-tasks code fence."""
@@ -1108,7 +1153,11 @@ class TestFindPlanCommentPriority:
 
     def test_yaml_fence_detection(self):
         """Test that yaml-tasks fence is detected."""
-        # Simulating what find_plan_comment does
+        import re
+
+        YAML_FENCE_DETECT = re.compile(
+            r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks", re.IGNORECASE
+        )
         comment = """
 # Plan
 
@@ -1123,9 +1172,28 @@ phases:
         acceptance: Done
 ```
 """
-        # Check detection logic
-        has_yaml_tasks = "# yaml-tasks" in comment and ("```yaml" in comment or "```yml" in comment)
+        # Check detection logic - use regex to verify marker is inside fence
+        has_yaml_tasks = YAML_FENCE_DETECT.search(comment) is not None
         assert has_yaml_tasks
+
+    def test_yaml_fence_false_positive_rejected(self):
+        """Test that yaml-tasks marker outside fence is not detected."""
+        import re
+
+        YAML_FENCE_DETECT = re.compile(
+            r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks", re.IGNORECASE
+        )
+        # Comment with yaml-tasks mentioned in prose but not inside a fence
+        comment = """
+Here's a note about # yaml-tasks format.
+
+```yaml
+unrelated: data
+```
+"""
+        # This should NOT match because the marker is not inside the fence
+        has_yaml_tasks = YAML_FENCE_DETECT.search(comment) is not None
+        assert not has_yaml_tasks
 
     def test_frontmatter_detection(self):
         """Test that YAML frontmatter is detected."""

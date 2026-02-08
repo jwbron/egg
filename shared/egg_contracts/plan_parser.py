@@ -9,7 +9,7 @@ Parsing Strategy (Option C - Two-Pass Approach):
 
     1. YAML Code Fence (preferred): A ```yaml block marked with `# yaml-tasks`
        header containing structured task data. This is machine-parseable and
-       schema-validated, while allowing humans to review the prose plan above it.
+       type-checked, while allowing humans to review the prose plan above it.
 
     2. YAML Front Matter (legacy): A ---delimited YAML block at the start of
        the document. Still supported for backwards compatibility.
@@ -272,6 +272,14 @@ def parse_tasks_from_yaml(yaml_data: dict[str, Any]) -> list[ParsedTask]:
         if match:
             phase_num = int(match.group(1))
             task_num = int(match.group(2))
+
+            # Normalize files field to list
+            files = task_data.get("files", [])
+            if isinstance(files, str):
+                files = [files]
+            elif not isinstance(files, list):
+                files = []
+
             tasks.append(
                 ParsedTask(
                     id=task_id,
@@ -279,7 +287,7 @@ def parse_tasks_from_yaml(yaml_data: dict[str, Any]) -> list[ParsedTask]:
                     task_number=task_num,
                     description=task_data.get("description", ""),
                     acceptance_criteria=task_data.get("acceptance", ""),
-                    files_affected=task_data.get("files", []),
+                    files_affected=files,
                 )
             )
 
@@ -315,6 +323,7 @@ def parse_phases_from_yaml(
     """
     phases: list[ParsedPhase] = []
     warnings: list[ParseWarning] = []
+    seen_phase_ids: set[int] = set()
 
     phase_list = yaml_data.get("phases", [])
 
@@ -369,6 +378,18 @@ def parse_phases_from_yaml(
                     )
                 )
                 continue
+
+        # Check for duplicate phase IDs
+        if phase_num in seen_phase_ids:
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=f"Duplicate phase ID: {phase_num}",
+                    context="Skipping duplicate phase",
+                )
+            )
+            continue
+        seen_phase_ids.add(phase_num)
 
         phase_name = phase_data.get("name", f"Phase {phase_num}")
         phase_goal = phase_data.get("goal", "")

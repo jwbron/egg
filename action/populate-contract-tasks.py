@@ -20,12 +20,17 @@ Exit codes:
 
 import json
 import os
+import re
 import subprocess
 import sys
 
 from egg_contracts.models import Contract
 from egg_contracts.plan_parser import parse_plan
 from pydantic import ValidationError
+
+# Regex to detect yaml-tasks marker inside a YAML code fence
+# Verifies that `# yaml-tasks` appears inside the fence, not elsewhere in the comment
+YAML_FENCE_DETECT = re.compile(r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks", re.IGNORECASE)
 
 
 def get_issue_comments(repo: str, issue_number: str, token: str) -> list[str]:
@@ -83,7 +88,8 @@ def find_plan_comment(comments: list[str]) -> str | None:
     """
     for comment in reversed(comments):
         # Priority 1: yaml-tasks code fence (Option C structured appendix)
-        if "# yaml-tasks" in comment and ("```yaml" in comment or "```yml" in comment):
+        # Use regex to verify the marker is inside the fence, not elsewhere
+        if YAML_FENCE_DETECT.search(comment):
             return comment
 
         # Priority 2: YAML front matter
