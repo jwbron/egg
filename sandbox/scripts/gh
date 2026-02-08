@@ -603,13 +603,16 @@ elif review_type == 'comment':
 print(json.dumps({'args': args}))
 " "$repo" "$pr_number" "$body" "$review_type")
 
-    # Capture stderr to check for self-review error
+    # Capture stderr to check for self-review error.
+    # Use a RETURN trap for cleanup so the temp file is removed on all exit
+    # paths, including unexpected exits (signals, set -e). This mirrors the
+    # cleanup pattern in call_gateway() (which uses trap ... EXIT).
     local review_stderr
     review_stderr=$(mktemp)
+    trap 'rm -f "$review_stderr"' RETURN
     if ! call_gateway "/api/v1/gh/execute" "$escaped_args" 2>"$review_stderr"; then
         local error_msg
         error_msg=$(cat "$review_stderr")
-        rm -f "$review_stderr"
 
         # Check if this is a self-review error (GitHub blocks bots from reviewing their own PRs)
         # GitHub's exact error messages: "You can't review your own pull request" or
@@ -641,7 +644,6 @@ print(json.dumps({
             return 1
         fi
     fi
-    rm -f "$review_stderr"
     return 0
 }
 
