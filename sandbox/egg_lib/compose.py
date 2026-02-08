@@ -10,6 +10,7 @@ Usage:
 """
 
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -102,8 +103,6 @@ def ensure_env_configured(compose_file: Path) -> bool:
         for var in required_vars:
             # Check if variable is set to a non-empty value
             # Pattern: VAR=value (where value is non-empty and not a comment)
-            import re
-
             pattern = rf"^{var}=([^#\n]+)"
             match = re.search(pattern, content, re.MULTILINE)
             if not match or not match.group(1).strip():

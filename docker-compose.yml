@@ -34,6 +34,8 @@ services:
       egg-external:
         ipv4_address: 172.33.0.2
     ports:
+      # Host port mapping: ${HOST_PORT}:${CONTAINER_PORT}
+      # These only change the host-side port - gateway always listens on internal ports
       # Gateway API - used by sandbox for git/gh operations
       - "${GATEWAY_API_PORT:-9848}:9848"
       # Squid proxy - used by sandbox for filtered internet access

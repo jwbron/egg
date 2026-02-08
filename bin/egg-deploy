@@ -108,7 +108,7 @@ wait_for_health() {
     info "Waiting for gateway to be healthy..."
 
     while [ $elapsed -lt $max_wait ]; do
-        if curl -sf "http://localhost:$api_port/api/v1/health" &>/dev/null; then
+        if curl -sf --max-time 5 "http://localhost:$api_port/api/v1/health" &>/dev/null; then
             success "Gateway is healthy"
             return 0
         fi
@@ -134,7 +134,7 @@ show_status() {
     echo ""
     local api_port="${GATEWAY_API_PORT:-9848}"
     info "Gateway health check:"
-    if health_output=$(curl -sf "http://localhost:$api_port/api/v1/health" 2>/dev/null); then
+    if health_output=$(curl -sf --max-time 5 "http://localhost:$api_port/api/v1/health" 2>/dev/null); then
         success "Gateway is healthy"
         echo "  Response: $health_output"
     else
