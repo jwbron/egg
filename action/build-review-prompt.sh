@@ -30,12 +30,47 @@ fetch_review_rules() {
         cat <<'EOF'
 ## Default Review Rules
 
-Focus on:
-- Security issues (vulnerabilities, unsafe patterns, credential leaks)
-- Correctness (logic errors, edge cases, error handling gaps)
-- Code quality (readability, maintainability, naming)
+**Be extremely thorough.** This is critical infrastructure. Identify ALL issues in the first pass—do not stop after finding a few. A false negative (missing a bug) is far worse than extra scrutiny.
 
-Skip:
+### What to Review
+
+**Security** (highest priority):
+- Injection vulnerabilities (SQL, command, XSS, LDAP, path traversal)
+- Authentication/authorization flaws
+- Credential exposure, hardcoded secrets
+- Insecure cryptography or randomness
+- SSRF, open redirects, unsafe deserialization
+
+**Correctness**:
+- Logic errors, off-by-one, boundary conditions
+- Race conditions, deadlocks, concurrency bugs
+- Null/undefined handling, missing error paths
+- Resource leaks (connections, file handles, memory)
+- Incorrect algorithm complexity for data size
+
+**Robustness**:
+- Missing input validation at trust boundaries
+- Unhandled exceptions that could crash the system
+- Missing retry logic for transient failures
+- Inadequate timeouts for external calls
+- State corruption scenarios
+
+**Design issues**:
+- Violations of existing codebase patterns
+- Breaking changes to public interfaces
+- Missing or incorrect abstractions
+- Tight coupling that will hinder future changes
+
+### How to Review
+
+1. **Examine every changed file systematically**. Do not skim.
+2. **Read surrounding context**—check how changed code integrates with the rest of the codebase. Use file reads and grep liberally.
+3. **Trace data flow** from input to output, especially for security-sensitive paths.
+4. **Consider edge cases** the author may not have tested.
+5. **Research when uncertain**—look up library behavior, check documentation, verify assumptions.
+
+### Skip
+
 - Style issues handled by linters (formatting, import order)
 - Type annotation completeness (type checkers handle this)
 - Auto-generated files (migrations, lock files)
@@ -71,12 +106,18 @@ This is a **re-review** — you previously reviewed this PR at commit \`${LAST_R
 
 ## Your Task
 
-1. **Review only new changes**: Use \`git diff ${LAST_REVIEW_COMMIT}..HEAD\` to see what changed since your last review.
+Perform a **thorough review of all new changes**. Find ALL issues in the new code—do not stop after identifying a few problems.
+
+1. **Review the delta**: Use \`git diff ${LAST_REVIEW_COMMIT}..HEAD\` to see what changed since your last review.
 2. **Check previous feedback**: Use \`gh pr view ${PR_NUMBER} --comments\` to see previous review comments.
-3. **Verify issues addressed**: Confirm that any concerns from your previous review have been addressed.
-4. **Focus on the delta**: Your new review should focus on the changes since \`${LAST_REVIEW_COMMIT}\`, not re-review unchanged code.
+3. **Verify issues addressed**: Confirm that concerns from your previous review have been properly fixed, not just superficially addressed.
+4. **Examine new code thoroughly**: Apply the same rigorous scrutiny to new changes as you would to an initial review. Read surrounding context, trace data flow, research when uncertain.
 
 For full PR context if needed: \`gh pr diff ${PR_NUMBER}\`
+
+### Be Direct
+
+Do not soften feedback. State issues clearly and explain why they matter. This is infrastructure review.
 
 ## Review Rules
 
@@ -84,13 +125,27 @@ ${review_rules}
 
 ## Review Conventions
 
-${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --approve if the PR looks good, --request-changes for blocking issues, or --comment for advisory feedback. Be specific and suggest fixes. Sign your review with: — Authored by egg}
+${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\` with \`--body-file\`. Always write your review to a temp file first, then use --body-file to post it. Do NOT use --body with inline content — long reviews will fail due to shell escaping. Example: \`cat > /tmp/review-body.md << 'REVIEW_EOF'\` then \`gh pr review ${PR_NUMBER} --request-changes --body-file /tmp/review-body.md\`. Use --approve, --request-changes, or --comment as appropriate. Sign your review with: — Authored by egg}
 "
     else
         prompt="Review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
 
-Use \`gh pr diff ${PR_NUMBER}\` to see the changes. Read files for context. Check how
-changed code interacts with the rest of the codebase.
+## Your Task
+
+Perform a **comprehensive, thorough code review**. This is critical infrastructure—your review is the last line of defense before code reaches production. **Find ALL issues on the first pass.** Do not stop after identifying a few problems.
+
+### How to Proceed
+
+1. **Get the full diff**: Run \`gh pr diff ${PR_NUMBER}\` to see all changes.
+2. **Review every file systematically**: Go through each changed file, examining every modified line.
+3. **Read surrounding context**: Use file reads and grep to understand how changes integrate with the existing codebase. Don't review in isolation.
+4. **Trace data flow**: Follow inputs through the system, especially for security-sensitive operations.
+5. **Research when needed**: Look up library behavior, check documentation, verify assumptions about APIs or language semantics.
+6. **Consider edge cases**: Think about what the author might not have tested—boundary conditions, error paths, concurrent access.
+
+### Be Direct
+
+Do not soften feedback. State issues clearly and explain why they matter. Suggest specific fixes where possible. This is infrastructure review, not a code chat.
 
 ## Review Rules
 
@@ -98,7 +153,7 @@ ${review_rules}
 
 ## Review Conventions
 
-${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --approve if the PR looks good, --request-changes for blocking issues, or --comment for advisory feedback. Be specific and suggest fixes. Sign your review with: — Authored by egg}
+${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\` with \`--body-file\`. Always write your review to a temp file first, then use --body-file to post it. Do NOT use --body with inline content — long reviews will fail due to shell escaping. Example: \`cat > /tmp/review-body.md << 'REVIEW_EOF'\` then \`gh pr review ${PR_NUMBER} --request-changes --body-file /tmp/review-body.md\`. Use --approve, --request-changes, or --comment as appropriate. Sign your review with: — Authored by egg}
 "
     fi
 

@@ -27,7 +27,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
@@ -64,7 +63,6 @@ def create_jwt(app_id: str, private_key: str) -> str:
     private_key_obj = serialization.load_pem_private_key(
         private_key.encode(),
         password=None,
-        backend=default_backend(),
     )
     if not isinstance(private_key_obj, RSAPrivateKey):
         raise TypeError(

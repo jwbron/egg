@@ -1,0 +1,273 @@
+name: "egg: Address Review Feedback"
+
+# Trigger when the review bot posts feedback on a PR.
+# This enables the loop: PR opened → review → address feedback → re-review → ...
+#
+# Handles two cases:
+# - pull_request_review: formal review posted via gh pr review
+# - issue_comment: self-review posted as comment (GitHub blocks bots from
+#   reviewing their own PRs via the Reviews API)
+on:
+  pull_request_review:
+    types: [submitted]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to address feedback for'
+        required: true
+        type: number
+
+jobs:
+  address-feedback:
+    name: Address Review Feedback
+    runs-on: ubuntu-latest
+    # Only run when:
+    # - workflow_dispatch: manual trigger (bypasses filters for debugging — see step "Check if feedback should be addressed")
+    # - pull_request_review: formal review from the bot with automated review marker
+    # - issue_comment: self-review posted as comment (GitHub blocks bots from reviewing their own PRs)
+    #
+    # NOTE: Bot username is hardcoded in the if condition because env vars are not
+    # available at job level. The BOT_USERNAME env var is used in shell steps.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request_review' &&
+        (github.event.review.user.login == 'james-in-a-box' || github.event.review.user.login == 'james-in-a-box[bot]') &&
+        contains(github.event.review.body, 'egg-automated-review')
+      ) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null &&
+        (github.event.comment.user.login == 'james-in-a-box' || github.event.comment.user.login == 'james-in-a-box[bot]') &&
+        contains(github.event.comment.body, 'egg-automated-review')
+      )
+
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+
+    concurrency:
+      group: egg-feedback-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
+      cancel-in-progress: true
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
+      BOT_USERNAME: james-in-a-box
+      MAX_FEEDBACK_ROUNDS: 3
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Fetch PR metadata
+        id: pr-meta
+        run: |
+          set -euo pipefail
+          pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
+          {
+            echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"
+            echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')"
+            echo "title=$(echo "$pr_json" | jq -r '.title')"
+            echo "author=$(echo "$pr_json" | jq -r '.user.login')"
+            echo "state=$(echo "$pr_json" | jq -r '.state')"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
+      - name: Check if feedback should be addressed
+        id: should-run
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_AUTHOR: ${{ steps.pr-meta.outputs.author }}
+          PR_STATE: ${{ steps.pr-meta.outputs.state }}
+          PR_TITLE: ${{ steps.pr-meta.outputs.title }}
+          HEAD_REPO: ${{ steps.pr-meta.outputs.head-repo }}
+          EVENT_NAME: ${{ github.event_name }}
+          REVIEW_STATE: ${{ github.event.review.state }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          set -euo pipefail
+
+          # Only address feedback on open PRs
+          if [[ "$PR_STATE" != "open" ]]; then
+            echo "PR is $PR_STATE, skipping"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Skip fork PRs — bot can't push to forks
+          if [[ "$HEAD_REPO" != "${{ github.repository }}" ]]; then
+            echo "PR is from a fork ($HEAD_REPO), skipping — bot cannot push to forks"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # For workflow_dispatch, skip remaining filters.
+          # NOTE: This is intentional for debugging — allows manual trigger on any PR.
+          # The bot-author check, skip-review check, and iteration limit are bypassed.
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "Manual trigger via workflow_dispatch — bypassing remaining filters"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Only address feedback on bot-authored PRs
+          if [[ "$PR_AUTHOR" != "$BOT_USERNAME" && "$PR_AUTHOR" != "${BOT_USERNAME}[bot]" ]]; then
+            echo "PR author '$PR_AUTHOR' is not the bot, skipping"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Skip if [skip-review] in title
+          if [[ "$PR_TITLE" == *"[skip-review]"* ]]; then
+            echo "PR has [skip-review] marker, skipping"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # For pull_request_review, skip approvals
+          if [[ "$EVENT_NAME" == "pull_request_review" ]]; then
+            review_state_lower=$(echo "$REVIEW_STATE" | tr '[:upper:]' '[:lower:]')
+            if [[ "$review_state_lower" == "approved" ]]; then
+              echo "Review is an approval, nothing to address"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          # For issue_comment, skip if review verdict is approve
+          if [[ "$EVENT_NAME" == "issue_comment" && -n "$COMMENT_ID" ]]; then
+            comment_body=$(gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" --jq '.body')
+            if [[ "$comment_body" == *"verdict=approve"* ]]; then
+              echo "Review verdict is approve, nothing to address"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          # Check iteration count - prevent infinite feedback loops.
+          # Count is checked before posting this run's marker, so it reflects
+          # completed previous rounds. With -ge, exactly MAX_FEEDBACK_ROUNDS
+          # rounds execute (at counts 0..MAX-1), and the next trigger is blocked.
+          #
+          # NOTE: There is a small race window between reading the count and posting
+          # the marker comment. Two concurrent runs could both read the same count
+          # and proceed. The concurrency group (cancel-in-progress: true) mitigates
+          # this for most cases, but a brief window remains. This is acceptable since
+          # the worst case is one extra round, and the human notification still fires.
+          #
+          # Uses --paginate to handle PRs with >30 comments. The --slurp combines
+          # paginated results into a nested array, hence the .[][] in jq.
+          feedback_count=$(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            --paginate --slurp \
+            --jq '[.[][] | select(.body | test("egg-feedback-addressing"))] | length' 2>/dev/null || echo "0")
+
+          echo "Found $feedback_count previous feedback-addressing run(s)"
+
+          if [[ "$feedback_count" -ge "$MAX_FEEDBACK_ROUNDS" ]]; then
+            echo "Max feedback rounds ($MAX_FEEDBACK_ROUNDS) reached, notifying human"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+              -f body="Automated feedback loop has reached the maximum of $MAX_FEEDBACK_ROUNDS rounds. Human review is needed to make further progress on this PR."
+            exit 0
+          fi
+
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+      # Minimize previous feedback status comments to reduce clutter
+      - name: Minimize previous feedback comments
+        if: steps.should-run.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            --jq '.[] | select(.user.login == "${{ env.BOT_USERNAME }}" or .user.login == "${{ env.BOT_USERNAME }}[bot]") | select(.body | test("egg is addressing|egg feedback")) | .node_id' \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              if ! gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id"; then
+                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
+              fi
+            done
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
+      # Post acknowledgment comment with marker for iteration tracking
+      - name: Post starting comment
+        if: steps.should-run.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            -f body="<!-- egg-feedback-addressing -->egg is addressing review feedback..."
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
+      # SECURITY: Build prompt from main (trusted) checkout before checking out PR branch.
+      # This prevents malicious PRs from injecting content via .egg/feedback-rules.md.
+      # The agent will check out the PR branch itself after the prompt is built.
+      - name: Checkout main (trusted)
+        if: steps.should-run.outputs.run == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Build feedback prompt
+        if: steps.should-run.outputs.run == 'true'
+        id: prompt
+        run: bash action/build-feedback-prompt.sh
+        env:
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+
+      - name: Checkout PR branch
+        if: steps.should-run.outputs.run == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.pr-meta.outputs.head-repo }}
+          ref: ${{ steps.pr-meta.outputs.head-ref }}
+          persist-credentials: false
+
+      - name: Run egg to address feedback
+        if: steps.should-run.outputs.run == 'true'
+        id: egg
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: ${{ steps.prompt.outputs.prompt-file }}
+          model: ${{ steps.prompt.outputs.model }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          bot-username: ${{ env.BOT_USERNAME }}
+          timeout: "20"
+        env:
+          EGG_BOT_NAME: feedback
+
+      - name: Post result comment
+        if: always() && !cancelled() && steps.should-run.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
+            BODY="egg feedback addressed. [View run logs](${RUN_URL})"
+          elif [[ "${{ steps.egg.outcome }}" == "failure" ]]; then
+            BODY="egg failed to address feedback. [View run logs](${RUN_URL})"
+          else
+            BODY="Workflow failed before running egg. [View run logs](${RUN_URL})"
+          fi
+
+          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}

@@ -151,6 +151,26 @@ logger = get_logger("gateway")
 
 app = Flask(__name__)
 
+# Register contract API blueprint
+try:
+    from .contract_api import contract_bp
+
+    app.register_blueprint(contract_bp)
+except ImportError:
+    from contract_api import contract_bp  # type: ignore[import-not-found, no-redef]
+
+    app.register_blueprint(contract_bp)
+
+# Register phase API blueprint
+try:
+    from .phase_api import phase_bp
+
+    app.register_blueprint(phase_bp)
+except ImportError:
+    from phase_api import phase_bp  # type: ignore[import-not-found, no-redef]
+
+    app.register_blueprint(phase_bp)
+
 
 @app.errorhandler(Exception)
 def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
@@ -216,52 +236,11 @@ def translate_to_host_path(container_path: str) -> str:
     return container_path
 
 
-def require_session_auth(f: F) -> F:
-    """
-    Decorator that validates session tokens in request handlers.
-
-    - Extracts session token from Authorization header
-    - Validates token via session_manager
-    - Stores validated session and mode in Flask's g object for handler use
-    - Returns 401 on validation failure
-
-    All containers must have a valid session. There is no legacy fallback.
-    """
-
-    @functools.wraps(f)
-    def decorated(*args: Any, **kwargs: Any) -> Any:
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            logger.warning(
-                "Session auth failed - missing Authorization header",
-                endpoint=request.path,
-                source_ip=request.remote_addr,
-            )
-            return make_error("Missing or invalid Authorization header", status_code=401)
-
-        token = auth_header[7:]  # Remove "Bearer " prefix
-        source_ip = request.remote_addr
-
-        # Validate session via session_manager
-        result = validate_session_for_request(token, source_ip)
-        if not result.valid:
-            # Record failed lookup for rate limiting
-            record_failed_lookup(source_ip or "")
-            logger.warning(
-                "Session auth failed - invalid token",
-                endpoint=request.path,
-                source_ip=source_ip,
-                error=result.error,
-            )
-            return make_error(result.error or "Invalid or expired session token", status_code=401)
-
-        # Set session context from validation result
-        g.session = result.session
-        g.session_mode = result.session.mode if result.session else None
-
-        return f(*args, **kwargs)
-
-    return decorated  # type: ignore[return-value]
+# Import session auth decorator from auth module to avoid circular imports
+try:
+    from .auth import require_session_auth
+except ImportError:
+    from auth import require_session_auth  # type: ignore[no-redef, import-not-found]
 
 
 # Launcher secret for session management and worktree operations
@@ -869,6 +848,13 @@ def git_execute() -> tuple[Response, int] | Response:
     # Build command
     cmd = git_cmd(operation, *validated_args)
 
+    # Set GIT_EDITOR=true so operations that need an editor (e.g., rebase
+    # --continue after conflict resolution) succeed without a terminal.
+    # `true` accepts the default commit message, which is the expected
+    # behavior for an agent that always provides messages via -m.
+    env = os.environ.copy()
+    env["GIT_EDITOR"] = "true"
+
     try:
         result = subprocess.run(
             cmd,
@@ -877,6 +863,7 @@ def git_execute() -> tuple[Response, int] | Response:
             text=True,
             timeout=60,
             check=False,
+            env=env,
         )
 
         if result.returncode == 0:
@@ -2332,6 +2319,41 @@ def session_delete(session_token: str) -> tuple[Response, int] | Response:
             )
 
     return make_success("Session deleted")
+
+
+@app.route("/api/v1/sessions/<session_token>", methods=["GET"])
+@require_launcher_auth
+def session_get(session_token: str) -> tuple[Response, int] | Response:
+    """
+    Get session information and validate if it exists.
+
+    Args:
+        session_token: The session token
+
+    Auth: Bearer {launcher_secret}
+
+    Response:
+        {
+            "valid": true,
+            "mode": "private"|"public",
+            "container_id": "...",
+            "expires_at": "...",
+        }
+    """
+    session_manager = get_session_manager()
+    result = session_manager.validate_session(session_token)
+
+    if not result.valid:
+        return jsonify({"valid": False, "error": result.error or "Session not found"}), 404
+
+    return jsonify(
+        {
+            "valid": True,
+            "mode": result.session.mode if result.session else None,
+            "container_id": result.session.container_id if result.session else None,
+            "expires_at": result.session.expires_at.isoformat() if result.session else None,
+        }
+    )
 
 
 @app.route("/api/v1/sessions/<session_token>/heartbeat", methods=["POST"])

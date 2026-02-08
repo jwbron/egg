@@ -26,13 +26,10 @@ jobs:
 
       - name: Run unit tests
         run: |
-          PYTHONPATH=shared .venv/bin/pytest tests/ -v \
+          PYTHONPATH=shared:gateway .venv/bin/pytest tests/ gateway/tests/ -v \
             --cov=gateway --cov=shared --cov=sandbox \
             --cov-report=term-missing \
-            --cov-fail-under=20
-
-      - name: Run gateway tests
-        run: PYTHONPATH=shared:gateway .venv/bin/pytest gateway/tests/ -v
+            --cov-fail-under=80
 
   security:
     name: Security Scan

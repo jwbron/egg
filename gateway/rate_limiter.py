@@ -14,7 +14,7 @@ Design decisions:
 
 import sys
 import threading
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -276,4 +276,275 @@ def get_all_limiter_stats() -> dict[str, Any]:
     return {
         "failed_lookup": failed_lookup_limiter.get_stats(),
         "heartbeat": heartbeat_limiter.get_stats(),
+        "github_api": github_api_rate_tracker.get_status(),
     }
+
+
+# =============================================================================
+# GitHub API Rate Limit Tracking
+# =============================================================================
+
+
+@dataclass
+class GitHubRateLimitInfo:
+    """Information about GitHub API rate limit status."""
+
+    limit: int | None = None
+    remaining: int | None = None
+    reset_at: datetime | None = None
+    used: int | None = None
+    resource: str = "core"  # core, search, graphql, etc.
+    last_updated: datetime | None = None
+
+    @property
+    def is_limited(self) -> bool:
+        """Check if currently rate limited."""
+        return self.remaining is not None and self.remaining <= 0
+
+    @property
+    def seconds_until_reset(self) -> int:
+        """Get seconds until rate limit resets."""
+        if self.reset_at is None:
+            return 0
+        now = datetime.now(UTC)
+        if now >= self.reset_at:
+            return 0
+        return int((self.reset_at - now).total_seconds())
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for API response."""
+        return {
+            "limit": self.limit,
+            "remaining": self.remaining,
+            "reset_at": self.reset_at.isoformat() if self.reset_at else None,
+            "used": self.used,
+            "resource": self.resource,
+            "is_limited": self.is_limited,
+            "seconds_until_reset": self.seconds_until_reset,
+            "last_updated": self.last_updated.isoformat() if self.last_updated else None,
+        }
+
+
+class GitHubAPIRateTracker:
+    """
+    Track GitHub API rate limits across requests.
+
+    Parses X-RateLimit-* headers from GitHub API responses and tracks
+    the current rate limit status for observability and smart retry logic.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the rate tracker."""
+        self._lock = threading.Lock()
+        # Track rate limits per resource type (core, search, graphql, etc.)
+        self._limits: dict[str, GitHubRateLimitInfo] = {}
+        # Track rate limit events for logging (use deque to avoid memory leak from list slicing)
+        self._events: deque[dict[str, Any]] = deque(maxlen=100)
+
+    def update_from_headers(
+        self,
+        headers: dict[str, str],
+        resource: str = "core",
+    ) -> GitHubRateLimitInfo:
+        """
+        Update rate limit info from response headers.
+
+        Args:
+            headers: Response headers dictionary (case-insensitive)
+            resource: The rate limit resource (core, search, graphql)
+
+        Returns:
+            Updated GitHubRateLimitInfo
+        """
+        # Normalize headers to lowercase
+        headers_lower = {k.lower(): v for k, v in headers.items()}
+
+        # Parse standard GitHub rate limit headers
+        limit_str = headers_lower.get("x-ratelimit-limit")
+        remaining_str = headers_lower.get("x-ratelimit-remaining")
+        reset_str = headers_lower.get("x-ratelimit-reset")
+        used_str = headers_lower.get("x-ratelimit-used")
+
+        # Also check for Retry-After header (takes precedence)
+        retry_after = headers_lower.get("retry-after")
+
+        with self._lock:
+            # Get or create info for this resource
+            info = self._limits.get(resource, GitHubRateLimitInfo(resource=resource))
+
+            # Update fields if present
+            if limit_str and limit_str.isdigit():
+                info.limit = int(limit_str)
+            if remaining_str and remaining_str.isdigit():
+                info.remaining = int(remaining_str)
+            if used_str and used_str.isdigit():
+                info.used = int(used_str)
+
+            # Parse reset time
+            if reset_str and reset_str.isdigit():
+                info.reset_at = datetime.fromtimestamp(int(reset_str), tz=UTC)
+
+            # Retry-After overrides reset time calculation
+            if retry_after:
+                try:
+                    seconds = int(retry_after)
+                    info.reset_at = datetime.now(UTC) + timedelta(seconds=seconds)
+                except ValueError:
+                    pass  # Ignore invalid retry-after
+
+            info.last_updated = datetime.now(UTC)
+            info.resource = resource
+            self._limits[resource] = info
+
+            # Log if rate limited
+            if info.is_limited:
+                self._log_event("rate_limited", resource, info)
+
+            return info
+
+    def _log_event(
+        self,
+        event_type: str,
+        resource: str,
+        info: GitHubRateLimitInfo,
+    ) -> None:
+        """Log a rate limit event."""
+        event = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "event_type": event_type,
+            "resource": resource,
+            "remaining": info.remaining,
+            "reset_at": info.reset_at.isoformat() if info.reset_at else None,
+            "seconds_until_reset": info.seconds_until_reset,
+        }
+        self._events.append(event)
+
+        # Log warning
+        logger.warning(
+            "GitHub API rate limit event",
+            event_type=event_type,
+            resource=resource,
+            remaining=info.remaining,
+            seconds_until_reset=info.seconds_until_reset,
+        )
+
+    def get_info(self, resource: str = "core") -> GitHubRateLimitInfo | None:
+        """
+        Get current rate limit info for a resource.
+
+        Args:
+            resource: The rate limit resource
+
+        Returns:
+            GitHubRateLimitInfo copy or None if not tracked
+        """
+        with self._lock:
+            info = self._limits.get(resource)
+            if info is None:
+                return None
+            # Return a copy to prevent external mutation (thread safety)
+            return GitHubRateLimitInfo(
+                limit=info.limit,
+                remaining=info.remaining,
+                reset_at=info.reset_at,
+                used=info.used,
+                resource=info.resource,
+                last_updated=info.last_updated,
+            )
+
+    def is_rate_limited(self, resource: str = "core") -> bool:
+        """
+        Check if a resource is currently rate limited.
+
+        Args:
+            resource: The rate limit resource
+
+        Returns:
+            True if rate limited
+        """
+        info = self.get_info(resource)
+        return info.is_limited if info else False
+
+    def get_retry_after(self, resource: str = "core") -> int | None:
+        """
+        Get retry-after seconds for a rate limited resource.
+
+        Args:
+            resource: The rate limit resource
+
+        Returns:
+            Seconds to wait, or None if not rate limited
+        """
+        info = self.get_info(resource)
+        if info and info.is_limited:
+            return info.seconds_until_reset
+        return None
+
+    def get_status(self) -> dict[str, Any]:
+        """
+        Get overall rate limit status for observability.
+
+        Returns:
+            Dictionary with status for all tracked resources
+        """
+        with self._lock:
+            resources = {resource: info.to_dict() for resource, info in self._limits.items()}
+            return {
+                "resources": resources,
+                "any_limited": any(info.is_limited for info in self._limits.values()),
+                "recent_events": list(self._events)[-10:] if self._events else [],
+            }
+
+    def reset(self) -> None:
+        """Reset all tracked rate limits."""
+        with self._lock:
+            self._limits.clear()
+            self._events.clear()
+
+
+# Global GitHub API rate tracker instance
+github_api_rate_tracker = GitHubAPIRateTracker()
+
+
+def update_github_rate_limit(
+    headers: dict[str, str],
+    resource: str = "core",
+) -> GitHubRateLimitInfo:
+    """
+    Update GitHub API rate limit from response headers.
+
+    Convenience function for updating the global tracker.
+
+    Args:
+        headers: Response headers dictionary
+        resource: The rate limit resource
+
+    Returns:
+        Updated GitHubRateLimitInfo
+    """
+    return github_api_rate_tracker.update_from_headers(headers, resource)
+
+
+def get_github_rate_limit_status() -> dict[str, Any]:
+    """
+    Get current GitHub API rate limit status.
+
+    Returns:
+        Dictionary with rate limit status
+    """
+    return github_api_rate_tracker.get_status()
+
+
+def should_retry_after_rate_limit(resource: str = "core") -> tuple[bool, int | None]:
+    """
+    Check if request should be retried after rate limit.
+
+    Args:
+        resource: The rate limit resource
+
+    Returns:
+        Tuple of (should_retry, seconds_to_wait)
+    """
+    is_limited = github_api_rate_tracker.is_rate_limited(resource)
+    retry_after = github_api_rate_tracker.get_retry_after(resource) if is_limited else None
+    return is_limited, retry_after

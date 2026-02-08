@@ -166,6 +166,9 @@ def validate_gh_api_path(path: str, method: str = "GET") -> tuple[bool, str]:
     # Strip leading slash if present
     path = path.lstrip("/")
 
+    # Strip query parameters before matching
+    path = path.split("?")[0]
+
     # Check against allowed patterns
     for pattern in GH_API_ALLOWED_PATHS:
         if pattern.match(path):

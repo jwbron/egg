@@ -70,8 +70,10 @@ sandbox/
 ├── bin/                    # Git/gh wrapper scripts (route to gateway)
 │   ├── git
 │   ├── gh
+│   ├── egg-contract        # Symlink to contract_cli.py
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
+│   └── contract_cli.py     # SDLC contract CLI implementation
 ├── llm/                    # Claude Code / Agent SDK integration
 ├── tools/                  # Interactive tools
 │   ├── discover-tests.py   # Test framework discovery
@@ -86,8 +88,72 @@ sandbox/
 ```
 shared/
 ├── egg_config/             # Configuration utilities
+├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, circuit breaker, HITL
 ├── egg_git/                # Git utilities
 └── egg_logging/            # Structured logging
+```
+
+## Integration Tests Structure
+
+```
+integration_tests/
+├── conftest.py                    # Shared fixtures for all integration tests
+├── docker-compose.yml             # Test environment setup
+├── agent_findings.py              # Security findings for agent security fuzz tests
+├── test_agent_security_fuzz.py    # Agent security fuzzing tests
+├── test_credential_security.py    # Credential isolation verification
+├── test_e2e_workflow.py           # End-to-end workflow tests
+├── test_error_recovery.py         # Error handling and recovery tests
+├── test_fail_closed.py            # Fail-closed security property tests
+├── test_gateway_auth.py           # Gateway authentication tests
+├── test_gateway_operations.py     # Gateway API endpoint tests
+├── test_network_isolation.py      # Network security tests
+├── test_network_security.py       # Network policy enforcement tests
+├── test_performance.py            # Performance and scaling tests
+├── test_policy_enforcement.py     # Policy enforcement tests
+├── test_rate_limiting.py          # Rate limiting tests
+├── test_stack_lifecycle.py        # Container lifecycle tests
+└── sdlc/                          # SDLC pipeline integration tests
+    ├── conftest.py                # SDLC test fixtures
+    ├── test_happy_path.py         # Full pipeline success flow
+    ├── test_review_rejection.py   # Reviewer rejection and fix cycles
+    ├── test_circuit_breaker.py    # Circuit breaker escalation
+    ├── test_hitl_flow.py          # Human-in-the-loop decision flow
+    └── test_role_enforcement.py   # Role-based mutation enforcement
+```
+
+## Unit Tests Structure
+
+```
+tests/
+├── sandbox/                       # Sandbox component tests
+│   ├── test_contract_cli.py       # Contract CLI tests
+│   └── ...
+└── workflows/                     # Workflow integration tests
+    ├── __init__.py
+    └── test_hitl_integration.py   # HITL decision format verification
+```
+
+## Action Directory
+
+```
+action/
+├── action.yml                              # GitHub Action metadata
+├── entrypoint.sh                           # Action entry point
+├── generate-config.sh                      # Runtime config generator
+├── build-mention-prompt.sh                 # @mention workflow prompt builder
+├── build-review-prompt.sh                  # PR review workflow prompt builder
+├── build-feedback-prompt.sh                # Review feedback addressing workflow prompt builder
+├── build-autofixer-prompt.sh               # Autofixer workflow prompt builder
+├── build-agent-mode-design-review-prompt.sh # Agent-mode design review prompt
+├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder
+├── build-sdlc-prompt.sh                    # SDLC pipeline prompt builder
+├── contract-state.sh                       # Contract state management utility
+├── escalate.sh                             # SDLC pipeline escalation handler
+├── populate-contract-tasks.py              # Populates contract tasks from plan document
+├── autofixer-conventions.md                # Guidelines for autofixer behavior
+├── review-conventions.md                   # Guidelines for review communication
+└── README.md
 ```
 
 ## Config Directory
@@ -121,6 +187,7 @@ docs/
 ├── development/            # Developer guides (this file)
 ├── reference/              # Quick reference guides
 ├── setup/                  # Setup instructions
+├── templates/              # SDLC phase document templates (analysis, plan)
 └── troubleshooting/        # Common issues and solutions
 ```
 

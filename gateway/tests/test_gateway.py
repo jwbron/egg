@@ -21,6 +21,8 @@ import pytest
 
 # Import the test secrets and modules (loaded by conftest.py)
 TEST_LAUNCHER_SECRET = os.environ.get("EGG_LAUNCHER_SECRET", "test-launcher-secret-12345")
+
+import session_manager
 from policy import PolicyResult
 from session_manager import SessionValidationResult
 
@@ -47,7 +49,14 @@ def auth_headers():
 
     Session-protected endpoints require valid session tokens. This fixture
     mocks session validation and private repo policy to allow tests to proceed.
+
+    Note: We patch sys.modules entries directly to handle cases where other tests
+    may have loaded different module instances into sys.modules.
     """
+    import sys
+
+    import auth
+
     mock_session = MagicMock()
     mock_session.mode = "public"
     mock_session.container_id = "test-container"
@@ -64,8 +73,23 @@ def auth_headers():
         visibility="public",
     )
 
+    # Clear auth module's cached references so it picks up our patched module
+    auth._session_manager = None
+    auth._rate_limiter = None
+
+    # Also clear any package-style cached references
+    if "gateway.auth" in sys.modules:
+        sys.modules["gateway.auth"]._session_manager = None
+        sys.modules["gateway.auth"]._rate_limiter = None
+
+    # Patch the module that's currently in sys.modules, not the one we imported at module load time.
+    # This handles cases where other tests may have loaded different instances.
+    current_session_manager = sys.modules.get("session_manager", session_manager)
+
     with (
-        patch.object(gateway, "validate_session_for_request", return_value=mock_result),
+        patch.object(
+            current_session_manager, "validate_session_for_request", return_value=mock_result
+        ),
         patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
     ):
         yield {"Authorization": "Bearer test-session-token"}
@@ -840,6 +864,10 @@ class TestGhExecutePrivateMode:
     @pytest.fixture
     def private_mode_auth_headers(self):
         """Auth headers with private mode session."""
+        import sys
+
+        import auth
+
         mock_session = MagicMock()
         mock_session.mode = "private"  # Private mode session
         mock_session.container_id = "test-container"
@@ -847,7 +875,21 @@ class TestGhExecutePrivateMode:
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
-        with patch.object(gateway, "validate_session_for_request", return_value=mock_result):
+        # Clear auth module's cached references so it picks up our patched module
+        auth._session_manager = None
+        auth._rate_limiter = None
+
+        # Also clear any package-style cached references
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        # Patch the module that's currently in sys.modules, not the one we imported at module load time.
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with patch.object(
+            current_session_manager, "validate_session_for_request", return_value=mock_result
+        ):
             yield {"Authorization": "Bearer test-session-token"}
 
     def test_search_blocked_in_private_mode(self, client, private_mode_auth_headers):
@@ -890,7 +932,7 @@ class TestGhExecutePrivateMode:
 
     def test_gh_repo_view_public_blocked_in_private_mode(self, client, private_mode_auth_headers):
         """gh repo view of public repo blocked in private mode (full integration)."""
-        with patch.object(gateway, "get_repo_visibility", return_value="public"):
+        with patch("private_repo_policy.get_repo_visibility", return_value="public"):
             response = client.post(
                 "/api/v1/gh/execute",
                 headers=private_mode_auth_headers,
@@ -904,7 +946,7 @@ class TestGhExecutePrivateMode:
 
     def test_gh_api_repos_path_blocked_in_private_mode(self, client, private_mode_auth_headers):
         """gh api /repos/owner/repo/... blocked for public repos in private mode."""
-        with patch.object(gateway, "get_repo_visibility", return_value="public"):
+        with patch("private_repo_policy.get_repo_visibility", return_value="public"):
             response = client.post(
                 "/api/v1/gh/execute",
                 headers=private_mode_auth_headers,
@@ -1486,3 +1528,39 @@ class TestGitPushFileProtection:
             assert "origin/main" in " ".join(diff_cmd), (
                 f"Should fall back to origin/main for new branch, got: {diff_cmd}"
             )
+
+
+class TestGitEditorEnv:
+    """Tests for GIT_EDITOR=true in git subprocess environment (issue #235).
+
+    Operations like `rebase --continue` after conflict resolution need an
+    editor to confirm the commit message. In the gateway's headless
+    environment, GIT_EDITOR=true makes git accept the default message.
+    """
+
+    def test_git_execute_sets_git_editor(self, client, auth_headers):
+        """Git execute subprocess gets GIT_EDITOR=true in its environment."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            response = client.post(
+                "/api/v1/git/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "rebase",
+                        "args": ["--continue"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_kwargs = mock_run.call_args[1]
+            assert "env" in call_kwargs
+            assert call_kwargs["env"].get("GIT_EDITOR") == "true"

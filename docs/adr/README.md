@@ -24,6 +24,7 @@ ADRs are organized by implementation status:
 | [Context Sync Strategy](implemented/ADR-Context-Sync-Strategy-Custom-vs-MCP.md) | Hybrid approach: GitHub MCP implemented ✅, JIRA MCP pending ❌, Confluence sync retained |
 | [Declarative Setup Architecture](implemented/ADR-Declarative-Setup-Architecture.md) | Python-based declarative setup replacing bash scripts |
 | [Git Isolation Architecture](implemented/ADR-Git-Isolation-Architecture.md) | Gateway sidecar design for credential isolation |
+| [SDLC Pipeline](implemented/ADR-SDLC-Pipeline.md) | Structurally enforced agent checkpoints and verification gates |
 | [Standardized Logging Interface](implemented/ADR-Standardized-Logging-Interface.md) | Structured JSON logging with GCP compatibility |
 
 ### In Progress

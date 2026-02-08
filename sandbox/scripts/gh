@@ -11,7 +11,7 @@
 #
 
 # Gateway runs as container on egg-network, reachable by container name
-GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9847}"
+GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9848}"
 # Session token for per-container authentication (required)
 EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-}"
 # Worktree container ID - set by egg launcher to translate container paths
@@ -67,7 +67,7 @@ Please ensure:
      systemctl --user status gateway-sidecar
 
   2. The container can reach the gateway:
-     curl http://egg-gateway:9847/api/v1/health
+     curl http://egg-gateway:9848/api/v1/health
 
 ================================================================================
 
@@ -238,7 +238,7 @@ handle_pr_create() {
     fi
 
     # Parse args for title, body, base, head
-    local title="" body="" base="main" head=""
+    local title="" body="" body_file="" base="main" head=""
 
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
@@ -250,6 +250,10 @@ handle_pr_create() {
             --body|-b)
                 ((i++))
                 body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
                 ;;
             --base|-B)
                 ((i++))
@@ -271,6 +275,20 @@ handle_pr_create() {
     if [ -z "$title" ]; then
         echo "ERROR: Missing --title for PR create" >&2
         return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
     fi
 
     # Build JSON payload using Python for proper escaping
@@ -301,7 +319,7 @@ handle_pr_comment() {
     fi
 
     # Parse args for PR number and body
-    local pr_number="" body=""
+    local pr_number="" body="" body_file=""
 
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
@@ -309,6 +327,10 @@ handle_pr_comment() {
             --body|-b)
                 ((i++))
                 body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
                 ;;
             [0-9]*)
                 if [ -z "$pr_number" ]; then
@@ -324,8 +346,22 @@ handle_pr_comment() {
         return 1
     fi
 
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
+    fi
+
     if [ -z "$body" ]; then
-        echo "ERROR: Missing --body for PR comment" >&2
+        echo "ERROR: Missing --body or --body-file for PR comment" >&2
         return 1
     fi
 
@@ -355,7 +391,7 @@ handle_pr_edit() {
     fi
 
     # Parse args for PR number, title, body
-    local pr_number="" title="" body=""
+    local pr_number="" title="" body="" body_file=""
 
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
@@ -367,6 +403,10 @@ handle_pr_edit() {
             --body|-b)
                 ((i++))
                 body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
                 ;;
             [0-9]*)
                 if [ -z "$pr_number" ]; then
@@ -380,6 +420,20 @@ handle_pr_edit() {
     if [ -z "$pr_number" ]; then
         echo "ERROR: Missing PR number" >&2
         return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
     fi
 
     # Build JSON payload using Python for proper escaping
@@ -452,14 +506,6 @@ handle_pr_review() {
         return 1
     fi
 
-    # Get current commit SHA for the marker
-    local commit_sha
-    commit_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
-
-    if [ -z "$commit_sha" ]; then
-        echo "WARNING: Could not determine commit SHA for review marker (git rev-parse HEAD failed)" >&2
-    fi
-
     # Get bot name from environment (set by egg launcher) or use default
     local bot_name="${EGG_BOT_NAME:-egg}"
 
@@ -500,15 +546,102 @@ handle_pr_review() {
         return 1
     fi
 
-    # If body_file is specified, read the body from the file
-    if [ -n "$body_file" ] && [ -f "$body_file" ]; then
-        body=$(cat "$body_file")
+    # Get PR head commit SHA for the marker via GitHub API
+    # (git rev-parse HEAD is unreliable in the container because .git is
+    # shadowed by tmpfs and the working directory may not be a repo)
+    local commit_sha=""
+    if [ -n "$pr_number" ] && [ -n "$repo" ]; then
+        local sha_payload
+        sha_payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({'args': ['pr', 'view', sys.argv[2], '--repo', sys.argv[1], '--json', 'headRefOid', '--jq', '.headRefOid']}))
+" "$repo" "$pr_number")
+        commit_sha=$(call_gateway "/api/v1/gh/execute" "$sha_payload" 2>/dev/null | tr -d '[:space:]')
+    fi
+
+    if [ -z "$commit_sha" ]; then
+        echo "WARNING: Could not determine commit SHA for review marker" >&2
+    fi
+
+    # Proactively detect self-authored PRs and downgrade review types accordingly.
+    # This avoids a wasted round-trip when the GitHub API rejects the request.
+    # See: https://github.com/jwbron/egg/issues/298
+    #
+    # We compare against the bot_name (from EGG_BOT_NAME env var) rather than
+    # querying the GitHub API. The `gh api user` endpoint doesn't work with
+    # GitHub App installation tokens (returns 403 "Resource not accessible by
+    # integration"), so we use pattern matching against known bot identity formats.
+    local original_review_type="$review_type"
+    if [ "$review_type" = "request-changes" ] || [ "$review_type" = "approve" ]; then
+        # Get PR author login
+        local pr_author_payload
+        pr_author_payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({'args': ['pr', 'view', sys.argv[2], '--repo', sys.argv[1], '--json', 'author', '--jq', '.author.login']}))
+" "$repo" "$pr_number")
+        local pr_author
+        local pr_author_stderr
+        pr_author_stderr=$(mktemp)
+        pr_author=$(call_gateway "/api/v1/gh/execute" "$pr_author_payload" 2>"$pr_author_stderr" | tr -d '[:space:]')
+        local pr_author_exit=$?
+
+        if [ $pr_author_exit -ne 0 ] || [ -z "$pr_author" ]; then
+            # Log error at debug level but continue (reactive fallback will catch self-reviews)
+            if [ -s "$pr_author_stderr" ]; then
+                echo "DEBUG: Failed to fetch PR author for proactive self-review check: $(cat "$pr_author_stderr")" >&2
+            fi
+            rm -f "$pr_author_stderr"
+        else
+            rm -f "$pr_author_stderr"
+
+            # Check if PR author matches known bot identity patterns:
+            # - "bot_name" (exact match)
+            # - "bot_name[bot]" (GitHub App format)
+            # - "app/bot_name" (alternative GitHub App format)
+            local is_self_authored=false
+            if [ "$pr_author" = "$bot_name" ] || \
+               [ "$pr_author" = "${bot_name}[bot]" ] || \
+               [ "$pr_author" = "app/${bot_name}" ]; then
+                is_self_authored=true
+            fi
+
+            if [ "$is_self_authored" = true ]; then
+                local action_desc=""
+                if [ "$review_type" = "request-changes" ]; then
+                    action_desc="request changes on"
+                else
+                    action_desc="approve"
+                fi
+                echo "INFO: Self-authored PR detected (author=$pr_author, bot=$bot_name). Downgrading --${review_type} to --comment." >&2
+                echo "  GitHub does not allow bots to $action_desc their own PRs." >&2
+                echo "  The review verdict is preserved in the marker comment." >&2
+                review_type="comment"
+            fi
+        fi
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
     fi
 
     # Add automated review marker to the body
-    # Format: <!-- egg-automated-review bot=<name> commit=<sha> -->
+    # Format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
     # This marker is hidden in rendered markdown but can be parsed by workflows
-    local marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} -->"
+    # Note: verdict preserves the original intent even if downgraded for self-review
+    local verdict="${original_review_type:-${review_type:-comment}}"
+    local marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} verdict=${verdict} -->"
     if [ -n "$body" ]; then
         body="${body}
 
@@ -539,7 +672,50 @@ elif review_type == 'comment':
 print(json.dumps({'args': args}))
 " "$repo" "$pr_number" "$body" "$review_type")
 
-    call_gateway "/api/v1/gh/execute" "$escaped_args"
+    # Capture stderr to check for self-review error.
+    # Use a RETURN trap for cleanup so the temp file is removed on all exit
+    # paths, including unexpected exits (signals, set -e). This mirrors the
+    # cleanup pattern in call_gateway() (which uses trap ... EXIT).
+    local review_stderr
+    review_stderr=$(mktemp)
+    trap 'rm -f "$review_stderr"' RETURN
+    if ! call_gateway "/api/v1/gh/execute" "$escaped_args" 2>"$review_stderr"; then
+        local error_msg
+        error_msg=$(cat "$review_stderr")
+
+        # Check if this is a self-review error (GitHub blocks bots from reviewing their own PRs)
+        # GitHub's exact error messages: "You can't review your own pull request" or
+        # "cannot review your own pull request" (the latter is from older API versions)
+        if echo "$error_msg" | grep -qiE "(cannot review your own|can't review your own)"; then
+            echo "WARNING: Self-review detected. Falling back to issue comment." >&2
+            echo "  The review verdict (${verdict}) is recorded in the marker comment," >&2
+            echo "  but the PR approval state will NOT be updated (approve/request-changes" >&2
+            echo "  have no effect via issue comments — only the Reviews API can change PR state)." >&2
+            local comment_payload
+            comment_payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({
+    'repo': sys.argv[1],
+    'pr_number': int(sys.argv[2]),
+    'body': sys.argv[3]
+}))
+" "$repo" "$pr_number" "$body")
+
+            if ! call_gateway "/api/v1/gh/pr/comment" "$comment_payload"; then
+                echo "ERROR: Failed to post review as comment" >&2
+                return 1
+            fi
+            echo "Review submitted successfully on PR #${pr_number} (verdict: ${verdict}, posted as comment due to self-review)"
+            return 0
+        else
+            # Not a self-review error — propagate the original failure
+            echo "$error_msg" >&2
+            return 1
+        fi
+    fi
+    echo "Review submitted successfully on PR #${pr_number} (verdict: ${verdict})"
+    return 0
 }
 
 # Function to handle issue create - uses proper JSON escaping
@@ -553,7 +729,7 @@ handle_issue_create() {
     fi
 
     # Parse args for title, body, labels, assignees
-    local title="" body="" labels="" assignees=""
+    local title="" body="" body_file="" labels="" assignees=""
 
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
@@ -565,6 +741,10 @@ handle_issue_create() {
             --body|-b)
                 ((i++))
                 body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
                 ;;
             --label|-l)
                 ((i++))
@@ -589,6 +769,20 @@ handle_issue_create() {
     if [ -z "$title" ]; then
         echo "ERROR: Missing --title for issue create" >&2
         return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
     fi
 
     # Build args array for gateway execute with properly escaped content
@@ -625,7 +819,7 @@ handle_issue_comment() {
     fi
 
     # Parse args for issue number and body
-    local issue_number="" body=""
+    local issue_number="" body="" body_file=""
 
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
@@ -633,6 +827,10 @@ handle_issue_comment() {
             --body|-b)
                 ((i++))
                 body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
                 ;;
             [0-9]*)
                 if [ -z "$issue_number" ]; then
@@ -648,8 +846,22 @@ handle_issue_comment() {
         return 1
     fi
 
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
+    fi
+
     if [ -z "$body" ]; then
-        echo "ERROR: Missing --body for issue comment" >&2
+        echo "ERROR: Missing --body or --body-file for issue comment" >&2
         return 1
     fi
 
@@ -678,7 +890,7 @@ handle_issue_edit() {
     fi
 
     # Parse args for issue number, title, body
-    local issue_number="" title="" body="" add_label="" remove_label="" add_assignee="" remove_assignee=""
+    local issue_number="" title="" body="" body_file="" add_label="" remove_label="" add_assignee="" remove_assignee=""
 
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
@@ -690,6 +902,10 @@ handle_issue_edit() {
             --body|-b)
                 ((i++))
                 body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
                 ;;
             --add-label)
                 ((i++))
@@ -735,6 +951,20 @@ handle_issue_edit() {
     if [ -z "$issue_number" ]; then
         echo "ERROR: Missing issue number" >&2
         return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
     fi
 
     # Build args array for gateway execute with properly escaped content

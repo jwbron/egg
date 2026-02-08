@@ -77,8 +77,16 @@ git branch --show-current && git log --oneline -3
 
 **Reply INLINE to each comment** (not general comments). Use `gh`:
 ```bash
-gh pr review <PR> --comment --body "Response to review comments"
+cat > /tmp/review-response.md << 'REVIEW_EOF'
+Response to review comments
+
+— Authored by egg
+REVIEW_EOF
+
+gh pr review <PR> --comment --body-file /tmp/review-response.md
 ```
+
+Do NOT use `--body` with inline content — use `--body-file` to avoid shell escaping failures.
 
 **Response format**: `**Agreed.** [what changed]` | `**Disagree.** [reasoning]`
 
@@ -94,6 +102,19 @@ If commits lost: `git reflog` → `git cherry-pick <hash>`
 **Proceed independently**: Clear requirements, code with tests, bug fixes, docs.
 
 **Ask human**: Ambiguous requirements, architecture decisions not in ADRs, breaking changes, security-sensitive, stuck after debugging.
+
+## Non-Interactive Mode (CI/GitHub Actions)
+
+When running in `--print` mode (non-interactive), you MUST NOT:
+- Output text as your only response — text goes to CI logs, not GitHub
+- Use `EnterPlanMode` — `ExitPlanMode` requires user approval which blocks in headless mode
+
+You MUST:
+- Always post results via `gh issue comment` or `gh pr comment`
+- Write comment bodies to a temp file first, then use `--body-file`
+
+For complex tasks requiring planning, reason through your approach in your
+response before implementing rather than using the plan mode tools.
 
 ## Notifications
 

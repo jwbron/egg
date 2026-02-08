@@ -248,6 +248,9 @@ def gha_exec() -> int:
     model = os.environ.get("INPUT_MODEL", "opus")
     timeout = int(os.environ.get("INPUT_TIMEOUT", "30"))
 
+    # --max-turns 200: Ensure agent has enough turns to complete work and post
+    # comments. Default (100) was observed to be insufficient for tasks requiring
+    # codebase exploration + implementation + testing + comment posting.
     command = [
         "claude",
         "--dangerously-skip-permissions",
@@ -257,15 +260,34 @@ def gha_exec() -> int:
         "stream-json",
         "--model",
         model,
+        "--max-turns",
+        "200",
         prompt,
     ]
 
     # 6. Execute
+    # Build extra env for container (e.g., EGG_BOT_NAME for review markers)
+    extra_env: dict[str, str] = {}
+    bot_name = os.environ.get("EGG_BOT_NAME")
+    if bot_name:
+        extra_env["EGG_BOT_NAME"] = bot_name
+
+    # Pass issue number so egg-contract CLI can find the contract
+    issue_number = os.environ.get("EGG_ISSUE_NUMBER")
+    if issue_number:
+        extra_env["EGG_ISSUE_NUMBER"] = issue_number
+
+    # Pass agent role for gateway authorization (e.g., reviewer role)
+    agent_role = os.environ.get("EGG_AGENT_ROLE")
+    if agent_role:
+        extra_env["EGG_AGENT_ROLE"] = agent_role
+
     success_flag = exec_in_new_container(
         command=command,
         timeout_minutes=timeout,
         auth_mode="oauth-token",
         repo_mode=mode,
+        extra_env=extra_env if extra_env else None,
     )
 
     return 0 if success_flag else 1

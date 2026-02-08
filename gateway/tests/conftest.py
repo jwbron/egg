@@ -73,11 +73,16 @@ def _load_module_with_replaced_imports(
     module.__loader__ = None
     module.__package__ = ""
 
+    # Register the module BEFORE executing so that decorators like @dataclass
+    # can find the module in sys.modules when looking up the class's __module__
+    sys.modules[name] = module
+    # Also register under gateway. prefix so package-style imports work with patches
+    sys.modules[f"gateway.{name}"] = module
+
     # Execute the modified source
     code = compile(source, path, "exec")
     exec(code, module.__dict__)
 
-    sys.modules[name] = module
     return module
 
 
@@ -107,6 +112,12 @@ error_messages = _load_module_with_replaced_imports(
 repo_parser = _load_module_with_replaced_imports(
     "repo_parser",
     GATEWAY_DIR / "repo_parser.py",
+)
+
+# token_refresher has no relative imports to other gateway modules
+token_refresher = _load_module_with_replaced_imports(
+    "token_refresher",
+    GATEWAY_DIR / "token_refresher.py",
 )
 
 # repo_visibility has no relative imports to other gateway modules
@@ -174,14 +185,78 @@ file_policy = _load_module_with_replaced_imports(
     GATEWAY_DIR / "file_policy.py",
 )
 
+# proxy_monitor has no relative imports to other gateway modules
+proxy_monitor = _load_module_with_replaced_imports(
+    "proxy_monitor",
+    GATEWAY_DIR / "proxy_monitor.py",
+)
+
+# config_validator has no relative imports to other gateway modules
+config_validator = _load_module_with_replaced_imports(
+    "config_validator",
+    GATEWAY_DIR / "config_validator.py",
+)
+
+# auth imports from session_manager and rate_limiter
+auth = _load_module_with_replaced_imports(
+    "auth",
+    GATEWAY_DIR / "auth.py",
+    import_replacements={
+        "from .rate_limiter import": "from rate_limiter import",
+        "from .session_manager import": "from session_manager import",
+    },
+)
+# Reset auth module's cached module references to ensure it uses our loaded modules
+auth._session_manager = None
+auth._rate_limiter = None
+
+# contract_api imports from auth and egg_contracts
+contract_api = _load_module_with_replaced_imports(
+    "contract_api",
+    GATEWAY_DIR / "contract_api.py",
+    import_replacements={
+        "from .auth import": "from auth import",
+        "from .git_client import": "from git_client import",
+    },
+)
+
+# phase_filter has no relative imports to other gateway modules
+phase_filter = _load_module_with_replaced_imports(
+    "phase_filter",
+    GATEWAY_DIR / "phase_filter.py",
+)
+
+# phase_transition imports from phase_filter
+phase_transition = _load_module_with_replaced_imports(
+    "phase_transition",
+    GATEWAY_DIR / "phase_transition.py",
+    import_replacements={
+        "from .phase_filter import": "from phase_filter import",
+    },
+)
+
+# phase_api imports from auth, phase_filter, phase_transition
+phase_api = _load_module_with_replaced_imports(
+    "phase_api",
+    GATEWAY_DIR / "phase_api.py",
+    import_replacements={
+        "from .auth import": "from auth import",
+        "from .phase_filter import": "from phase_filter import",
+        "from .phase_transition import": "from phase_transition import",
+    },
+)
+
 # gateway imports from all
 gateway = _load_module_with_replaced_imports(
     "gateway",
     GATEWAY_DIR / "gateway.py",
     import_replacements={
         "from .anthropic_credentials import": "from anthropic_credentials import",
+        "from .auth import": "from auth import",
+        "from .contract_api import": "from contract_api import",
         "from .git_client import": "from git_client import",
         "from .github_client import": "from github_client import",
+        "from .phase_api import": "from phase_api import",
         "from .policy import": "from policy import",
         "from .private_repo_policy import": "from private_repo_policy import",
         "from .repo_parser import": "from repo_parser import",

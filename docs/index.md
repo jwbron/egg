@@ -20,6 +20,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Standardized Logging Interface](adr/implemented/ADR-Standardized-Logging-Interface.md) | Structured JSON logging |
 | [Internet Tool Access Lockdown](adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) | Public/private network modes |
 | [GitHub Actions Support](adr/in-progress/ADR-GitHub-Actions-Support.md) | Running egg as a GitHub Action |
+| [SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md) | Structurally enforced agent checkpoints and verification gates |
 
 ### Strategy
 
@@ -45,6 +46,22 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | Document | Description |
 |----------|-------------|
 | [Agent-Mode Design](guides/agent-mode-design.md) | When to let egg operate freely vs. when constraints are appropriate |
+| [GitHub Automation](guides/github-automation.md) | Built-in review bots, autofixer, @mention, and self-improvement workflows |
+| [SDLC Pipeline](guides/sdlc-pipeline.md) | Operational guide for the structurally enforced SDLC pipeline |
+
+### SDLC Pipeline Templates
+
+| Document | Description |
+|----------|-------------|
+| [Analysis Template](templates/analysis.md) | Problem analysis template for the refine phase |
+| [Plan Template](templates/plan.md) | Implementation plan template with task ID format for the plan phase |
+| [Phase Completion Template](templates/phase-completion.md) | Phase completion comment format with approval checkbox |
+
+### SDLC Workflow Documentation
+
+| Document | Description |
+|----------|-------------|
+| [HITL Decisions](hitl-decisions.md) | Human-in-the-loop decision workflow with formal decisions and phase approvals |
 
 ## Component Documentation
 
@@ -54,7 +71,7 @@ Each major component has its own README with detailed documentation:
 |-----------|----------|-------------|
 | [Gateway Sidecar](../gateway/README.md) | `gateway/` | Policy enforcement, credential injection, API endpoints |
 | [Sandbox Container](../sandbox/README.md) | `sandbox/` | Agent environment, tools, entrypoint |
-| [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, and git utilities |
+| [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, and SDLC contracts |
 | [Configuration](../config/README.md) | `config/` | Repository and host configuration |
 | [CLI Entry Points](../bin/README.md) | `bin/` | `egg` and `setup-gateway` commands |
 | [GitHub Action](../action/README.md) | `action/` | Composite action for GitHub Actions |
@@ -70,7 +87,10 @@ Each major component has its own README with detailed documentation:
 | **Configuration changes** | [Config README](../config/README.md) | [egg_config README](../shared/egg_config/README.md) |
 | **GitHub Action setup** | [ADR: GitHub Actions](adr/in-progress/ADR-GitHub-Actions-Support.md) | [Architecture Overview](architecture/README.md) |
 | **Adding tests** | [Contributing](../CONTRIBUTING.md) | [Project Structure](development/STRUCTURE.md) |
+| **Setting up GitHub automation** | [GitHub Automation](guides/github-automation.md) | [Agent-Mode Design](guides/agent-mode-design.md), [GitHub Action](../action/README.md) |
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
+| **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
+| **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [ADR: SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), workflows in `.github/workflows/sdlc-*.yml` |
 
 ## Quick Navigation
 
@@ -85,4 +105,4 @@ Each major component has its own README with detailed documentation:
 
 ---
 
-*Last updated: 2026-02-06*
+*Last updated: 2026-02-07*

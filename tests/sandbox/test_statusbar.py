@@ -6,7 +6,17 @@ on StatusBar.update() that controls step counter advancement.
 
 from unittest.mock import patch
 
-from statusbar import StatusBar, _visible_len, init_statusbar, status
+from statusbar import (
+    StatusBar,
+    _visible_len,
+    get_statusbar,
+    init_statusbar,
+    status,
+    status_error,
+    status_finish,
+    status_success,
+    status_warn,
+)
 
 
 class TestVisibleLen:
@@ -102,6 +112,153 @@ class TestStatusBarIncrement:
         for _ in range(10):
             bar.update("info msg", increment=False)
         assert bar.current_step == 3
+
+
+class TestStatusBarDisabled:
+    """Tests for StatusBar when disabled."""
+
+    @patch("sys.stdout")
+    def test_update_disabled(self, mock_stdout):
+        """update() is a no-op when disabled."""
+        bar = StatusBar(total_steps=3, enabled=False)
+        bar.update("hello")
+        assert bar.current_step == 0  # Not incremented
+        mock_stdout.write.assert_not_called()
+
+    @patch("sys.stdout")
+    def test_success_disabled(self, mock_stdout):
+        """success() is suppressed when disabled."""
+        bar = StatusBar(total_steps=3, enabled=False)
+        bar.success("done")
+        # Should not print (stdout.write not called for the message)
+        assert bar._last_visible_len == 0
+
+    @patch("sys.stdout")
+    def test_warn_disabled(self, mock_stdout):
+        """warn() is suppressed when disabled."""
+        bar = StatusBar(total_steps=3, enabled=False)
+        bar.warn("careful")
+        assert bar._last_visible_len == 0
+
+    @patch("sys.stdout")
+    def test_finish_disabled(self, mock_stdout):
+        """finish() with message is suppressed when disabled."""
+        bar = StatusBar(total_steps=3, enabled=False)
+        bar.finish("all done")
+        assert bar._last_visible_len == 0
+
+
+class TestStatusBarMethods:
+    """Tests for StatusBar success/error/warn/finish methods."""
+
+    def _make_bar(self, total_steps: int = 3) -> StatusBar:
+        bar = StatusBar(total_steps=total_steps, enabled=True)
+        bar._get_terminal_width = lambda: 120
+        return bar
+
+    @patch("sys.stdout")
+    def test_success_prints(self, mock_stdout):
+        """success() prints a green checkmark message."""
+        bar = self._make_bar()
+        bar.success("all good")
+        assert bar._last_visible_len == 0
+
+    @patch("sys.stderr")
+    @patch("sys.stdout")
+    def test_error_prints_to_stderr(self, mock_stdout, mock_stderr):
+        """error() prints to stderr."""
+        bar = self._make_bar()
+        bar.error("something broke")
+        assert bar._last_visible_len == 0
+
+    @patch("sys.stdout")
+    def test_warn_prints(self, mock_stdout):
+        """warn() prints a yellow warning message."""
+        bar = self._make_bar()
+        bar.warn("watch out")
+        assert bar._last_visible_len == 0
+
+    @patch("sys.stdout")
+    def test_finish_with_message(self, mock_stdout):
+        """finish() with message prints final message."""
+        bar = self._make_bar()
+        bar.finish("complete")
+        assert bar._last_visible_len == 0
+
+    @patch("sys.stdout")
+    def test_finish_without_message(self, mock_stdout):
+        """finish() without message just clears line."""
+        bar = self._make_bar()
+        bar.finish()
+        assert bar._last_visible_len == 0
+
+    @patch("sys.stdout")
+    def test_spinner_mode_no_total(self, mock_stdout):
+        """StatusBar with total_steps=0 uses spinner mode."""
+        bar = StatusBar(total_steps=0, enabled=True)
+        bar._get_terminal_width = lambda: 120
+        bar.update("loading")
+        assert bar.current_step == 1
+
+    @patch("sys.stdout")
+    def test_message_truncation(self, mock_stdout):
+        """Long messages are truncated to terminal width."""
+        bar = StatusBar(total_steps=3, enabled=True)
+        bar._get_terminal_width = lambda: 40
+        bar.update("A" * 100)
+        assert bar._last_visible_len <= 40
+
+    @patch("sys.stdout")
+    def test_clear_line(self, mock_stdout):
+        """_clear_line writes spaces to clear previous output."""
+        bar = self._make_bar()
+        bar._last_visible_len = 20
+        bar._clear_line()
+        # Should have written \r + spaces + \r
+        assert mock_stdout.write.called
+
+
+class TestGlobalConvenienceFunctions:
+    """Tests for global statusbar convenience functions."""
+
+    @patch("sys.stdout")
+    def test_get_statusbar(self, mock_stdout):
+        """get_statusbar returns the global instance."""
+        bar = init_statusbar(total_steps=3, enabled=True)
+        assert get_statusbar() is bar
+
+    @patch("sys.stdout")
+    def test_status_success(self, mock_stdout):
+        """status_success calls bar.success()."""
+        bar = init_statusbar(total_steps=3, enabled=True)
+        bar._get_terminal_width = lambda: 120
+        status_success("done")
+        assert bar._last_visible_len == 0
+
+    @patch("sys.stderr")
+    @patch("sys.stdout")
+    def test_status_error(self, mock_stdout, mock_stderr):
+        """status_error calls bar.error()."""
+        bar = init_statusbar(total_steps=3, enabled=True)
+        bar._get_terminal_width = lambda: 120
+        status_error("fail")
+        assert bar._last_visible_len == 0
+
+    @patch("sys.stdout")
+    def test_status_warn(self, mock_stdout):
+        """status_warn calls bar.warn()."""
+        bar = init_statusbar(total_steps=3, enabled=True)
+        bar._get_terminal_width = lambda: 120
+        status_warn("caution")
+        assert bar._last_visible_len == 0
+
+    @patch("sys.stdout")
+    def test_status_finish(self, mock_stdout):
+        """status_finish calls bar.finish()."""
+        bar = init_statusbar(total_steps=3, enabled=True)
+        bar._get_terminal_width = lambda: 120
+        status_finish("all done")
+        assert bar._last_visible_len == 0
 
 
 class TestGlobalStatusIncrement:

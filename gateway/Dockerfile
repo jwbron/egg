@@ -54,9 +54,10 @@ WORKDIR /app
 # Copy gateway code
 COPY gateway/*.py ./
 
-# Copy shared modules (egg_logging for logging, egg_config for config parsing)
+# Copy shared modules (egg_logging for logging, egg_config for config parsing, egg_contracts for contract API)
 COPY shared/egg_logging/ ./egg_logging/
 COPY shared/egg_config/ ./egg_config/
+COPY shared/egg_contracts/ ./egg_contracts/
 
 # Copy config module (repo_config needed by github_client for user mode)
 COPY config/repo_config.py /config/
@@ -75,7 +76,8 @@ COPY gateway/config_validator.py ./config_validator.py
 # Install dependencies
 # httpx: HTTP client with streaming support for Anthropic API proxy
 # pre-commit: Required to run pre-commit hooks when gateway executes git commit on repos
-RUN pip install --no-cache-dir flask waitress pyyaml requests PyJWT cryptography httpx pre-commit
+# pydantic: Required for egg_contracts module validation
+RUN pip install --no-cache-dir flask waitress pyyaml requests PyJWT cryptography httpx pre-commit pydantic
 
 ENV PYTHONPATH="/app"
 # Expose both gateway API port and Squid proxy port

@@ -79,11 +79,17 @@ ${workflow_context}
 
 ## Your task
 
-1. **Investigate**: Use \`gh pr checks ${PR_NUMBER}\` to see which checks are failing. For failed checks, examine the logs to understand what's wrong.
+**IMPORTANT: Fix ALL issues in a single pass. Do not push until all checks pass locally.**
 
-2. **Fix what you can**: If the issue is auto-fixable (lint errors, formatting, simple type errors), make the fix, commit, and push. Run the checks locally first to verify your fix works.
+1. **Investigate ALL failures first**: Use \`gh pr checks ${PR_NUMBER}\` to list all failing checks. For each failed check, examine the logs to understand what's wrong. Make a complete list of all issues before fixing anything.
 
-3. **Report what you can't**: If the issue requires human decision-making or is too complex to auto-fix, post a comment on the PR explaining:
+2. **Fix without pushing**: For each auto-fixable issue (lint errors, formatting, simple type errors), make the fix but do NOT commit or push yet.
+
+3. **Verify locally**: Run all checks locally (e.g., \`make lint\`, \`make test\`, \`make build\`). If any check still fails, go back to step 2 and fix it. Repeat until ALL checks pass locally.
+
+4. **Push once**: After all local checks pass, commit all fixes together and push once.
+
+5. **Report what you can't fix**: If any issue requires human decision-making or is too complex to auto-fix, post a comment on the PR explaining:
    - What's failing and why
    - What needs to be done to fix it
    - Any relevant context or suggestions

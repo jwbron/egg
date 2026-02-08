@@ -34,10 +34,12 @@ The gateway sidecar is the **trusted** component that holds credentials and vali
 
 ## Policy Rules
 
+### Ownership Policies
+
 | Operation | Policy | Check |
 |-----------|--------|-------|
-| `git push` | Branch ownership | Branch has open PR authored by egg, OR branch starts with `egg-` or `egg/` |
-| `gh pr create` | Always allowed | egg can create PRs on any branch it can push to |
+| `git push` | Branch ownership + Phase filter | Branch has open PR authored by egg, OR branch starts with `egg-` or `egg/`, AND operation is allowed in current phase |
+| `gh pr create` | Phase filter | Operation is allowed in current phase (typically only in 'pr' phase) |
 | `gh pr comment` | PR ownership | PR must be authored by egg |
 | `gh pr merge` | **BLOCKED** | No merge endpoint - human must merge via GitHub UI |
 | `gh pr edit` | PR ownership | PR must be authored by egg |
@@ -49,21 +51,44 @@ The gateway sidecar is the **trusted** component that holds credentials and vali
 - Branch has an open PR where author is an egg variant, OR
 - Branch name starts with `egg-` or `egg/` (allows new branches before PR exists)
 
+### Phase-Based Operation Restrictions
+
+The gateway enforces phase-specific operation restrictions based on the current SDLC pipeline phase. This prevents operations like pushing code during planning or creating PRs during implementation.
+
+**Phase permissions** (configured in `.egg/phase-permissions.json`):
+
+| Phase | Allowed Operations | Blocked Operations | Exit Requires |
+|-------|-------------------|-------------------|---------------|
+| **refine** | `gh issue comment/edit`, `egg-contract add-decision` | `git push`, `gh pr create` | Human approval |
+| **plan** | `gh issue comment/edit`, `egg-contract add-decision` | `git push`, `gh pr create` | Human approval |
+| **implement** | `git push`, `egg-contract add-commit/update-notes` | `gh pr create` | All checks pass |
+| **pr** | `gh pr create/edit`, `git push` | — | Human merge |
+
+> **Note:** `egg-contract show *` is allowed in all phases for contract state viewing.
+
+Phase transitions require specific roles (human, reviewer, implementer) as defined in the phase configuration.
+
 ## API Endpoints
+
+### Git Operations
 
 ```
 POST /api/v1/git/push
   Request: {repo_path, remote, refspec, force}
-  Policy: branch_ownership
+  Policy: branch_ownership + phase_filter
 
 POST /api/v1/git/fetch
   Request: {repo_path, remote, operation, args[]}
   Policy: none (read operations)
   Operations: "fetch", "ls-remote"
+```
 
+### GitHub Operations
+
+```
 POST /api/v1/gh/pr/create
   Request: {repo, title, body, base, head}
-  Policy: none (always allowed)
+  Policy: phase_filter
 
 POST /api/v1/gh/pr/comment
   Request: {repo, pr_number, body}
@@ -80,7 +105,67 @@ POST /api/v1/gh/pr/close
 POST /api/v1/gh/execute
   Request: {args[], require_auth}
   Policy: filtered passthrough for read operations
+```
 
+### Phase Operations
+
+```
+POST /api/v1/phase/advance
+  Request: {issue_number, repo_path?, reason?, actor?}
+  Policy: session_auth
+  Description: Advance pipeline to next phase
+
+POST /api/v1/phase/filter
+  Request: {issue_number, operation_type, command, repo_path?}
+  Policy: session_auth
+  Description: Check if operation is allowed in current phase
+
+GET /api/v1/phase/current/<issue_number>
+  Query: ?repo_path=<path>
+  Policy: session_auth
+  Description: Get current phase for an issue
+
+GET /api/v1/phase/permissions/<phase>
+  Policy: session_auth
+  Description: Get allowed/blocked operations for a phase
+```
+
+### Contract Operations
+
+The contract API provides role-based access to SDLC contracts that track issue progress through phases, tasks, and decisions.
+
+```
+GET /api/v1/contract/<issue_number>
+  Query: ?repo_path=<path>&include_audit_log=<bool>
+  Policy: session_auth
+  Description: Get contract state for an issue
+
+POST /api/v1/contract/mutate
+  Request: {issue_number, field_path, new_value, repo_path?, actor?, reason?}
+  Policy: session_auth + role_based
+  Description: Apply a mutation to a contract (role determines allowed fields)
+
+POST /api/v1/contract/validate
+  Request: {field_path, new_value}
+  Policy: session_auth
+  Description: Validate a mutation without applying it
+
+GET /api/v1/contract/exists/<issue_number>
+  Query: ?repo_path=<path>
+  Policy: session_auth
+  Description: Check if a contract exists for an issue
+```
+
+**Role-based field ownership**: Mutations are validated against the caller's role:
+- `implementer`: Can modify `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected`
+- `reviewer`: Can modify `tasks[].status`, `phases[].status`, `phases[].review_feedback`, `acceptance_criteria[].verified`, `current_phase`
+- `human`: Can modify `decisions[].resolved`, `decisions[].resolution`, `decisions[].resolved_by`, `decisions[].resolved_at`, and all other fields
+
+Role is determined from workflow context (session metadata), not request body, preventing privilege escalation.
+
+### Health
+
+```
 GET /api/v1/health
   Response: {status, github_token_valid}
 ```
@@ -95,6 +180,11 @@ gateway/
 ├── policy.py               # Branch ownership, push policies
 ├── fork_policy.py          # Fork access policies
 ├── private_repo_policy.py  # Private/public repo access control
+├── phase_filter.py         # Phase-based operation filtering
+├── phase_transition.py     # Phase transition validation
+├── phase_api.py            # Phase API endpoints
+├── contract_api.py         # Contract API endpoints
+├── auth.py                 # Session authentication
 ├── token_refresher.py      # GitHub App token management
 ├── anthropic_credentials.py # Anthropic API key injection
 ├── worktree_manager.py     # Git worktree lifecycle
@@ -124,6 +214,10 @@ gateway/
 │   ├── test_session_manager.py
 │   ├── test_token_refresher.py
 │   ├── test_worktree_manager.py
+│   ├── test_phase_filter.py
+│   ├── test_phase_transition.py
+│   ├── test_phase_api.py
+│   ├── test_contract_api.py
 │   ├── integration_test.sh
 │   └── README-integration.md
 └── README.md               # This file
@@ -135,9 +229,13 @@ gateway/
 
 2. **Branch ownership**: Branch has an open egg-authored PR OR starts with `egg-` or `egg/`. This allows pushing to new branches before a PR exists.
 
-3. **Token source**: In-memory token refresh via `token_refresher.py`. Tokens are refreshed automatically 15 minutes before expiry.
+3. **Phase-based filtering**: Operations are filtered based on the current SDLC pipeline phase. Configuration is loaded from `.egg/phase-permissions.json` with schema validation. This prevents incidents like pushing code during planning phases.
 
-4. **Dual network modes**: Squid proxy controls outbound access. Private mode restricts to Anthropic API only; public mode allows all traffic.
+4. **Token source**: In-memory token refresh via `token_refresher.py`. Tokens are refreshed automatically 15 minutes before expiry.
+
+5. **Dual network modes**: Squid proxy controls outbound access. Private mode restricts to Anthropic API only; public mode allows all traffic.
+
+6. **Role-based contract mutations**: Contract field ownership is tied to roles (implementer, reviewer, human). Role is determined from workflow context via session metadata, not request body, preventing privilege escalation. The `egg_contracts` shared library provides Pydantic models and validation.
 
 ## Testing
 

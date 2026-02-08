@@ -1,5 +1,6 @@
 """Tests for policy enforcement logic."""
 
+import sys
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
@@ -18,6 +19,12 @@ from policy import (
     get_bot_branch_prefixes,
     get_bot_identities,
 )
+
+# Save a reference to the policy module at import time.
+# This is needed because other tests may load their own policy module into
+# sys.modules["policy"], and we need to patch the module where our PolicyEngine
+# class was actually defined.
+_policy_module = sys.modules["policy"]
 
 
 class TestExtractRepoFromRemote:
@@ -350,10 +357,8 @@ class TestTrustedBranchOwners:
 
     def test_branch_ownership_trusted_user_pr(self, policy_engine, mock_github_client, monkeypatch):
         """Branch with open PR by trusted user allows push."""
-        # Patch the module-level TRUSTED_BRANCH_OWNERS
-        import policy
-
-        monkeypatch.setattr(policy, "TRUSTED_BRANCH_OWNERS", frozenset({"trusteduser"}))
+        # Patch TRUSTED_BRANCH_OWNERS on the module saved at import time
+        monkeypatch.setattr(_policy_module, "TRUSTED_BRANCH_OWNERS", frozenset({"trusteduser"}))
 
         mock_github_client.list_prs_for_branch.return_value = [
             {
@@ -378,9 +383,8 @@ class TestTrustedBranchOwners:
         self, policy_engine, mock_github_client, monkeypatch
     ):
         """Trusted user check is case insensitive."""
-        import policy
-
-        monkeypatch.setattr(policy, "TRUSTED_BRANCH_OWNERS", frozenset({"trusteduser"}))
+        # Patch TRUSTED_BRANCH_OWNERS on the module saved at import time
+        monkeypatch.setattr(_policy_module, "TRUSTED_BRANCH_OWNERS", frozenset({"trusteduser"}))
 
         mock_github_client.list_prs_for_branch.return_value = [
             {
@@ -404,9 +408,8 @@ class TestTrustedBranchOwners:
         self, policy_engine, mock_github_client, monkeypatch
     ):
         """Branch with open PR by non-trusted user denies push."""
-        import policy
-
-        monkeypatch.setattr(policy, "TRUSTED_BRANCH_OWNERS", frozenset({"trusteduser"}))
+        # Patch TRUSTED_BRANCH_OWNERS on the module saved at import time
+        monkeypatch.setattr(_policy_module, "TRUSTED_BRANCH_OWNERS", frozenset({"trusteduser"}))
 
         mock_github_client.list_prs_for_branch.return_value = [
             {
@@ -430,9 +433,8 @@ class TestTrustedBranchOwners:
         self, policy_engine, mock_github_client, monkeypatch
     ):
         """With no trusted users configured, only egg can push."""
-        import policy
-
-        monkeypatch.setattr(policy, "TRUSTED_BRANCH_OWNERS", frozenset())
+        # Patch TRUSTED_BRANCH_OWNERS on the module saved at import time
+        monkeypatch.setattr(_policy_module, "TRUSTED_BRANCH_OWNERS", frozenset())
 
         mock_github_client.list_prs_for_branch.return_value = [
             {

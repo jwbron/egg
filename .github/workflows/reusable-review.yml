@@ -1,0 +1,387 @@
+name: Reusable Review Bot Workflow
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+      bot_name:
+        description: 'Bot name for status messages and marker detection'
+        required: true
+        type: string
+      prompt_script:
+        description: 'Path to prompt builder script (relative to repo root)'
+        required: false
+        type: string
+        default: "action/build-review-prompt.sh"
+      timeout:
+        description: 'Timeout in minutes'
+        required: false
+        type: string
+        default: "10"
+      pr_title:
+        description: 'PR title (for skip-review check)'
+        required: false
+        type: string
+        default: ""
+      event_name:
+        description: 'The triggering event name (pull_request or workflow_dispatch)'
+        required: false
+        type: string
+        default: "pull_request"
+      agent_role:
+        description: 'Agent role for contract mutations (implementer or reviewer)'
+        required: false
+        type: string
+        default: ""
+      issue_number:
+        description: 'Issue number for contract operations (extracted from branch name if not provided)'
+        required: false
+        type: string
+        default: ""
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
+      BOT_APP_INSTALLATION_ID:
+        required: true
+      ANTHROPIC_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  should-run:
+    name: Check if review should run
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - name: Check if PR is ready for review
+        id: check
+        env:
+          PR_TITLE: ${{ inputs.pr_title }}
+        run: |
+          # For workflow_dispatch, always run
+          if [[ "${{ inputs.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Skip if [skip-review] in title
+          if [[ "$PR_TITLE" == *"[skip-review]"* ]]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+  wait-for-checks:
+    name: Wait for CI checks
+    needs: should-run
+    if: needs.should-run.outputs.run == 'true' && inputs.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      all_passed: ${{ steps.wait.outputs.passed }}
+      commit_sha: ${{ steps.wait.outputs.commit_sha }}
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Wait for all non-review checks to complete
+        id: wait
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
+          echo "Waiting for checks on commit: ${HEAD_SHA}"
+          echo "commit_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+
+          MAX_WAIT=1500
+          INTERVAL=30
+          start=$(date +%s)
+          no_checks_count=0
+
+          while true; do
+            elapsed=$(( $(date +%s) - start ))
+            if [[ $elapsed -ge $MAX_WAIT ]]; then
+              echo "::warning::Timed out waiting for checks after ${MAX_WAIT}s — proceeding with review"
+              echo "passed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            # Filter out review bot checks and SDLC pipeline checks to avoid self-deadlock.
+            # Check names appear as "<workflow> / <job>" so we match on:
+            # - "Code Review" matches "egg: Code Review / AI Code Review"
+            # - "Design Review" matches "egg: Agent-Mode Design Review / Agent-Mode Design Review"
+            # - "SDLC Pipeline" matches "egg: SDLC Pipeline / Initialize pipeline", etc.
+            # - "SDLC HITL" matches "egg: SDLC HITL Decision Handler / Handle HITL decision", etc.
+            # - "Contract Verification" matches "egg: Contract Verification / ..."
+            checks=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
+              --jq '.check_runs | [.[] | select(
+                (.name | test("Code Review|Design Review|SDLC Pipeline|SDLC HITL|Contract Verification") | not)
+              ) | {name, status, conclusion}]')
+
+            total=$(echo "$checks" | jq 'length')
+
+            if [[ "$total" -eq 0 ]]; then
+              no_checks_count=$((no_checks_count + 1))
+              if [[ $no_checks_count -ge 20 ]]; then
+                echo "No checks found after ${no_checks_count} polls — proceeding"
+                echo "passed=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "No checks yet (poll ${no_checks_count}/20)"
+              sleep "$INTERVAL"
+              continue
+            fi
+            no_checks_count=0
+
+            completed=$(echo "$checks" | jq '[.[] | select(.status == "completed")] | length')
+            failed=$(echo "$checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length')
+
+            echo "Checks: ${completed}/${total} completed, ${failed} failed"
+
+            if [[ "$completed" -eq "$total" ]]; then
+              if [[ "$failed" -gt 0 ]]; then
+                echo "::warning::${failed} check(s) failed — skipping review"
+                echo "$checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled") | "  FAILED: \(.name) (\(.conclusion))"'
+                echo "passed=false" >> "$GITHUB_OUTPUT"
+              else
+                echo "All ${total} checks passed"
+                echo "passed=true" >> "$GITHUB_OUTPUT"
+              fi
+              exit 0
+            fi
+
+            pending=$(echo "$checks" | jq -r '[.[] | select(.status != "completed") | .name] | join(", ")')
+            echo "Waiting for: ${pending}"
+            sleep "$INTERVAL"
+          done
+
+  review:
+    name: Run review
+    needs: [should-run, wait-for-checks]
+    # Run review if:
+    # - should-run says yes, AND
+    # - wait-for-checks was skipped (workflow_dispatch), OR
+    # - wait-for-checks succeeded and all checks passed
+    # Note: If wait-for-checks fails unexpectedly (token error, API rate limit, etc.),
+    # we intentionally block the review to avoid reviewing potentially broken code.
+    if: >-
+      always() &&
+      needs.should-run.outputs.run == 'true' &&
+      needs.wait-for-checks.result != 'failure' &&
+      (needs.wait-for-checks.result == 'skipped' || needs.wait-for-checks.outputs.all_passed == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    concurrency:
+      group: egg-${{ inputs.bot_name }}-${{ inputs.pr_number }}
+      cancel-in-progress: true
+
+    env:
+      PR_NUMBER: ${{ inputs.pr_number }}
+      BOT_USERNAME: james-in-a-box
+
+    steps:
+      - name: Generate GitHub App token for bot
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      # For workflow_dispatch, fetch PR metadata via API since
+      # github.event.pull_request is not available
+      - name: Fetch PR head branch and repo
+        id: pr-meta
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          VALIDATED_SHA: ${{ needs.wait-for-checks.outputs.commit_sha }}
+        run: |
+          pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
+          current_sha=$(echo "$pr_json" | jq -r '.head.sha')
+
+          # If we have a validated SHA from wait-for-checks, verify the PR still points to it.
+          # This prevents reviewing code that was pushed after checks completed but before
+          # the concurrency group cancelled this run.
+          if [[ -n "$VALIDATED_SHA" && "$current_sha" != "$VALIDATED_SHA" ]]; then
+            echo "::error::PR HEAD has changed since checks completed (expected ${VALIDATED_SHA}, got ${current_sha})"
+            echo "A new workflow run should be triggered for the new commit. Aborting this review."
+            exit 1
+          fi
+
+          {
+            echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"
+            echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')"
+            echo "head-sha=${current_sha}"
+          } >> "$GITHUB_OUTPUT"
+
+      # Capture last bot review info before dismissing (for re-review context)
+      # The gh wrapper adds a marker to all automated reviews:
+      #   <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
+      # We search for this marker in reviews and comments to find the last review.
+      - name: Find last bot review commit for re-review context
+        id: last-review
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          # Regex to extract commit SHA from the automated review marker
+          # Format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
+          # The verdict field is optional for backwards compatibility with old markers
+          # Escape regex metacharacters in bot_name to prevent pattern breakage
+          # shellcheck disable=SC2016
+          escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[.[\*^$()+?{|\\]/\\&/g')
+          marker_regex="<!-- egg-automated-review bot=${escaped_bot_name} commit=([a-f0-9]+)( verdict=([a-z-]+))? -->"
+
+          # Check reviews from the Reviews API for the marker
+          # The marker is in the review body
+          last_review_commit=""
+          last_review_time=""
+          reviews=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
+            --jq '[.[] | {body: .body, submitted_at: .submitted_at}]')
+
+          while IFS= read -r review; do
+            body=$(echo "$review" | jq -r '.body // ""')
+            submitted_at=$(echo "$review" | jq -r '.submitted_at')
+            if [[ "$body" =~ $marker_regex ]]; then
+              commit="${BASH_REMATCH[1]}"
+              # Keep track of the most recent one
+              if [[ -z "$last_review_time" || "$submitted_at" > "$last_review_time" ]]; then
+                last_review_commit="$commit"
+                last_review_time="$submitted_at"
+              fi
+            fi
+          done < <(echo "$reviews" | jq -c '.[]')
+
+          if [[ -n "$last_review_commit" ]]; then
+            echo "Found automated review marker in Reviews API: commit=$last_review_commit at $last_review_time"
+          fi
+
+          # Also check issue comments for the marker (for self-reviews where
+          # GitHub blocks bots from using the Reviews API on their own PRs)
+          last_comment_commit=""
+          last_comment_time=""
+          comments=$(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            --jq '[.[] | {body: .body, created_at: .created_at}]')
+
+          while IFS= read -r comment; do
+            body=$(echo "$comment" | jq -r '.body // ""')
+            created_at=$(echo "$comment" | jq -r '.created_at')
+            if [[ "$body" =~ $marker_regex ]]; then
+              commit="${BASH_REMATCH[1]}"
+              # Keep track of the most recent one
+              if [[ -z "$last_comment_time" || "$created_at" > "$last_comment_time" ]]; then
+                last_comment_commit="$commit"
+                last_comment_time="$created_at"
+              fi
+            fi
+          done < <(echo "$comments" | jq -c '.[]')
+
+          if [[ -n "$last_comment_commit" ]]; then
+            echo "Found automated review marker in issue comments: commit=$last_comment_commit at $last_comment_time"
+          fi
+
+          # Use whichever is more recent (review or comment)
+          if [[ -n "$last_review_commit" && -z "$last_comment_commit" ]]; then
+            echo "commit-sha=$last_review_commit" >> "$GITHUB_OUTPUT"
+            echo "Using review marker result"
+          elif [[ -z "$last_review_commit" && -n "$last_comment_commit" ]]; then
+            echo "commit-sha=$last_comment_commit" >> "$GITHUB_OUTPUT"
+            echo "Using comment marker result"
+          elif [[ -n "$last_review_commit" && -n "$last_comment_commit" ]]; then
+            # Compare timestamps to find the most recent
+            # Note: ISO 8601 timestamps (YYYY-MM-DDTHH:MM:SSZ) can be compared
+            # as strings since lexicographic ordering matches chronological ordering
+            if [[ "$last_comment_time" > "$last_review_time" ]]; then
+              echo "commit-sha=$last_comment_commit" >> "$GITHUB_OUTPUT"
+              echo "Using comment marker result (newer)"
+            else
+              echo "commit-sha=$last_review_commit" >> "$GITHUB_OUTPUT"
+              echo "Using review marker result (newer or same)"
+            fi
+          else
+            echo "commit-sha=" >> "$GITHUB_OUTPUT"
+            echo "No automated review marker found"
+          fi
+
+      # Dismiss previous bot reviews before starting new review
+      - name: Dismiss stale bot reviews
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          # shellcheck disable=SC2016
+          gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
+            | jq -r --arg bot "$BOT_USERNAME" \
+            '[.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.state | test("PENDING|COMMENTED|CHANGES_REQUESTED"))] | .[].id' \
+          | while read -r id; do
+              gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews/$id/dismissals" \
+                -X PUT -f message="Superseded by new review" || true
+            done
+
+      # SECURITY: Build the review prompt from a trusted checkout (main).
+      # A malicious PR could replace build-review-prompt.sh to exfiltrate
+      # the bot token. By checking out main for prompt building, we ensure
+      # untrusted code never runs with secrets.
+      - name: Checkout main (trusted)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Build review prompt from trusted main branch
+        id: prompt
+        run: bash ${{ inputs.prompt_script }}
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          LAST_REVIEW_COMMIT: ${{ steps.last-review.outputs.commit-sha }}
+          COMMIT_SHA: ${{ steps.pr-meta.outputs.head-sha }}
+
+      - name: Checkout PR code for review
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.pr-meta.outputs.head-repo }}
+          ref: ${{ steps.pr-meta.outputs.head-ref }}
+          persist-credentials: false
+
+      - name: Run egg to review and post feedback
+        id: egg
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: ${{ steps.prompt.outputs.prompt-file }}
+          model: ${{ steps.prompt.outputs.model }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          bot-username: ${{ env.BOT_USERNAME }}
+          timeout: ${{ inputs.timeout }}
+        env:
+          EGG_BOT_NAME: ${{ inputs.bot_name }}
+          EGG_AGENT_ROLE: ${{ inputs.agent_role }}
+          EGG_ISSUE_NUMBER: ${{ inputs.issue_number }}
+
+      - name: Post workflow run status to PR
+        if: always() && !cancelled()
+        run: |
+          if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
+            BODY="egg ${{ inputs.bot_name }} completed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          else
+            BODY="egg ${{ inputs.bot_name }} failed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          fi
+          gh pr comment "${{ env.PR_NUMBER }}" --body "$BODY"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
