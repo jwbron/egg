@@ -163,8 +163,8 @@ This field can only be modified by role 'reviewer'.
 
 The implement phase uses PR-based automated code review:
 
-1. **Draft PR created** — When entering the implement phase, a draft PR is created automatically
-2. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
+1. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
+2. **Draft PR created** — After implementation succeeds, a draft PR is created automatically with commit messages in the description
 3. **CI and review checks** — The pipeline waits for all GitHub check runs (linting, tests, and PR review) to complete
 4. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
 5. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
