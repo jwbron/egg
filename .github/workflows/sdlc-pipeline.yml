@@ -611,7 +611,7 @@ jobs:
 
             total=$(echo "$external_checks" | jq 'length')
             completed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed")] | length')
-            failed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")] | length')
+            failed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length')
             pending=$(echo "$external_checks" | jq -r '[.[] | select(.status != "completed")] | map(.name) | join(", ")')
 
             echo "Checks: ${completed}/${total} completed, ${failed} failed (elapsed: ${elapsed}s)"
@@ -641,7 +641,7 @@ jobs:
             # All checks completed but some failed — keep waiting, autofix may push a new commit
             if [[ "$completed" -eq "$total" && "$failed" -gt 0 ]]; then
               echo "Checks completed with ${failed} failure(s) — waiting for autofix..."
-              echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | "  FAILED: \(.name) (\(.conclusion))"'
+              echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled") | "  FAILED: \(.name) (\(.conclusion))"'
             else
               echo "Waiting for: ${pending}"
             fi
