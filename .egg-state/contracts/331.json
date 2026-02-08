@@ -6,8 +6,248 @@
     "url": "https://github.com/jwbron/egg/issues/331"
   },
   "current_phase": "plan",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Field defined in schema with proper type, description, and default",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Field added to Contract class with appropriate Field descriptor",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-2-1] workflow_owner added to init job outputs",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-2] Contract JSON includes workflow_owner field when created",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-3] workflow_owner available in finalize-pr job via needs.init.outputs",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-3-1] WORKFLOW_OWNER environment variable available in finalize-pr steps",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-3-2] Owner added as reviewer; gracefully handles empty owner",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-3] PR body includes note about reviewer assignment when owner is set",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-4-1] Tests verify field serialization, null handling, and validation",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-4-2] Schema is valid JSON Schema; examples validate correctly",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Schema and Model Updates",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add workflow_owner field to contract JSON schema",
+          "status": "pending",
+          "acceptance_criteria": "Field defined in schema with proper type, description, and default",
+          "files_affected": [
+            ".egg/schemas/contract.schema.json"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add workflow_owner field to Pydantic Contract model",
+          "status": "pending",
+          "acceptance_criteria": "Field added to Contract class with appropriate Field descriptor",
+          "files_affected": [
+            "shared/egg_contracts/models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Capture Owner in Init Job",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Export github.event.sender.login as job output in init job",
+          "status": "pending",
+          "acceptance_criteria": "workflow_owner added to init job outputs",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Include workflow_owner in initial contract creation",
+          "status": "pending",
+          "acceptance_criteria": "Contract JSON includes workflow_owner field when created",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Pass workflow_owner output to downstream jobs",
+          "status": "pending",
+          "acceptance_criteria": "workflow_owner available in finalize-pr job via needs.init.outputs",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Add Reviewer on PR Finalization",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Read workflow owner from init job output in finalize-pr job",
+          "status": "pending",
+          "acceptance_criteria": "WORKFLOW_OWNER environment variable available in finalize-pr steps",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add workflow owner as PR reviewer using gh pr edit",
+          "status": "pending",
+          "acceptance_criteria": "Owner added as reviewer; gracefully handles empty owner",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Update PR body to mention reviewer assignment",
+          "status": "pending",
+          "acceptance_criteria": "PR body includes note about reviewer assignment when owner is set",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Testing and Validation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add unit tests for contract model with workflow_owner field",
+          "status": "pending",
+          "acceptance_criteria": "Tests verify field serialization, null handling, and validation",
+          "files_affected": [
+            "shared/egg_contracts/tests/test_models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Validate JSON schema changes pass schema validation",
+          "status": "pending",
+          "acceptance_criteria": "Schema is valid JSON Schema; examples validate correctly",
+          "files_affected": [
+            ".egg/schemas/contract.schema.json"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 0,
