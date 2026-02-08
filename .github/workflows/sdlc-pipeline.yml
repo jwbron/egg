@@ -235,24 +235,20 @@ jobs:
           fi
 
           # Create a new draft PR
+          PR_BODY="Draft PR for SDLC pipeline implementation."
+          PR_BODY="${PR_BODY}"$'\n\n'"Issue: #${ISSUE_NUMBER}"
+          PR_BODY="${PR_BODY}"$'\n'"Branch: \`${BRANCH_NAME}\`"
+          PR_BODY="${PR_BODY}"$'\n\n'"This PR is managed by the SDLC pipeline. It will be marked ready for review once the implementation passes automated review."
+          PR_BODY="${PR_BODY}"$'\n\n'"Authored-by: egg"
+
           PR_URL=$(gh pr create \
             --draft \
             --title "[SDLC] ${ISSUE_TITLE}" \
-            --body "$(cat <<BODY
-          Draft PR for SDLC pipeline implementation.
-
-          Issue: #${ISSUE_NUMBER}
-          Branch: \`${BRANCH_NAME}\`
-
-          This PR is managed by the SDLC pipeline. It will be marked ready for review once the implementation passes automated review.
-
-          Authored-by: egg
-          BODY
-          )" \
+            --body "$PR_BODY" \
             --base main \
             --head "${BRANCH_NAME}")
 
-          PR_NUMBER=$(echo "$PR_URL" | grep -oP '\d+$')
+          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
           echo "Created draft PR #${PR_NUMBER}"
           echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
 
@@ -475,6 +471,25 @@ jobs:
       timeout: "30"
     secrets: inherit
 
+  # Handle missing PR number (e.g., init failed or phase != implement)
+  sdlc-review-skipped:
+    name: Review skipped (no PR)
+    needs: [init, implement]
+    if: always() && needs.implement.result == 'success' && needs.init.outputs.pr_number == ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log missing PR number
+        run: |
+          echo "::warning::PR number is empty. This can happen if:"
+          echo "  - The init job failed before creating the draft PR"
+          echo "  - The current_phase was not 'implement' during init"
+          echo "  - The gh pr create command failed"
+          echo ""
+          echo "Init job result: ${{ needs.init.result }}"
+          echo "Current phase: ${{ needs.init.outputs.current_phase }}"
+          echo ""
+          echo "Check the init job logs for details."
+
   # ============================================================
   # Check review status: Read PR review state and decide next step
   # ============================================================
@@ -566,9 +581,9 @@ jobs:
           # Read the latest bot review state from the PR
           # First try the Reviews API, then fall back to issue comments
           # (bots can't use the Reviews API on their own PRs — self-review)
-          BOT_USERNAME="james-in-a-box"
+          BOT_GH_USERNAME="james-in-a-box"  # GitHub username for Reviews API
           REVIEW_STATE=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
-            --jq "[.[] | select(.user.login == \"${BOT_USERNAME}\" or .user.login == \"${BOT_USERNAME}[bot]\")] | sort_by(.submitted_at) | last | .state // \"NONE\"")
+            --jq "[.[] | select(.user.login == \"${BOT_GH_USERNAME}\" or .user.login == \"${BOT_GH_USERNAME}[bot]\")] | sort_by(.submitted_at) | last | .state // \"NONE\"")
 
           echo "Reviews API state: ${REVIEW_STATE}"
 
@@ -576,8 +591,8 @@ jobs:
           # the egg-automated-review marker with verdict (self-review fallback)
           if [[ "$REVIEW_STATE" == "NONE" || "$REVIEW_STATE" == "null" ]]; then
             echo "No review via Reviews API — checking issue comments for verdict marker"
-            BOT_NAME="sdlc-review"
-            marker_regex='<!-- egg-automated-review bot='"${BOT_NAME}"' commit=([a-f0-9]+) verdict=([a-z-]+) -->'
+            BOT_MARKER_ID="sdlc-review"  # Identifier in the review marker (bot= field)
+            marker_regex='<!-- egg-automated-review bot='"${BOT_MARKER_ID}"' commit=([a-f0-9]+) verdict=([a-z-]+) -->'
 
             COMMENT_VERDICT=""
             COMMENT_TIME=""
@@ -617,16 +632,22 @@ jobs:
               echo "cycle_count=${TOTAL_CYCLES}" >> "$GITHUB_OUTPUT"
 
               # Update contract tasks via trusted script
-              ISSUE_NUMBER="${ISSUE_NUMBER}" REPO_PATH="${REPO_PATH}" \
-                bash trusted-main/action/contract-state.sh update-from-pr-review APPROVED
+              if ! ISSUE_NUMBER="${ISSUE_NUMBER}" REPO_PATH="${REPO_PATH}" \
+                bash trusted-main/action/contract-state.sh update-from-pr-review APPROVED; then
+                echo "::error::Failed to update contract for APPROVED verdict"
+                exit 1
+              fi
               ;;
 
-            CHANGES_REQUESTED|COMMENTED|NONE|null)
-              echo "Review not approved (state: ${REVIEW_STATE}) — checking circuit breaker"
+            CHANGES_REQUESTED)
+              echo "Review requested changes — triggering re-implementation cycle"
 
-              # Update contract tasks via trusted script
-              ISSUE_NUMBER="${ISSUE_NUMBER}" REPO_PATH="${REPO_PATH}" \
-                bash trusted-main/action/contract-state.sh update-from-pr-review CHANGES_REQUESTED
+              # Update contract tasks via trusted script (this increments the cycle counter)
+              if ! ISSUE_NUMBER="${ISSUE_NUMBER}" REPO_PATH="${REPO_PATH}" \
+                bash trusted-main/action/contract-state.sh update-from-pr-review CHANGES_REQUESTED; then
+                echo "::error::Failed to update contract for CHANGES_REQUESTED verdict"
+                exit 1
+              fi
 
               # Re-read cycle count after increment
               TOTAL_CYCLES=$(jq -r '.circuit_breaker.total_cycles' "$CONTRACT_PATH")
@@ -643,6 +664,16 @@ jobs:
               else
                 echo "next_action=implement" >> "$GITHUB_OUTPUT"
               fi
+              ;;
+
+            COMMENTED|NONE|null)
+              # COMMENTED = advisory feedback without approve/reject decision
+              # NONE/null = no review found (e.g., review workflow hasn't run yet)
+              # In both cases, do NOT increment the cycle counter — wait for an
+              # explicit APPROVED or CHANGES_REQUESTED verdict.
+              echo "No explicit verdict (state: ${REVIEW_STATE}) — re-running review"
+              echo "next_action=implement" >> "$GITHUB_OUTPUT"
+              echo "cycle_count=${TOTAL_CYCLES}" >> "$GITHUB_OUTPUT"
               ;;
           esac
 
@@ -799,18 +830,13 @@ jobs:
           gh pr edit "${PR_NUMBER}" --title "${CLEAN_TITLE}"
 
           # Update PR body with final details
-          gh pr edit "${PR_NUMBER}" --body "$(cat <<BODY
-          ## Summary
+          FINAL_BODY="## Summary"
+          FINAL_BODY="${FINAL_BODY}"$'\n\n'"Implementation for issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}"
+          FINAL_BODY="${FINAL_BODY}"$'\n\n'"This PR was developed through the SDLC pipeline with automated review cycles."
+          FINAL_BODY="${FINAL_BODY}"$'\n\n'"Issue: ${{ github.server_url }}/${{ github.repository }}/issues/${ISSUE_NUMBER}"
+          FINAL_BODY="${FINAL_BODY}"$'\n\n'"Authored-by: egg"
 
-          Implementation for issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
-
-          This PR was developed through the SDLC pipeline with automated review cycles.
-
-          Issue: ${{ github.server_url }}/${{ github.repository }}/issues/${ISSUE_NUMBER}
-
-          Authored-by: egg
-          BODY
-          )"
+          gh pr edit "${PR_NUMBER}" --body "$FINAL_BODY"
 
           # Mark draft as ready for review
           gh pr ready "${PR_NUMBER}"
@@ -885,6 +911,12 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
+          # Validate ISSUE_NUMBER is numeric to prevent injection
+          if ! [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid ISSUE_NUMBER: ${ISSUE_NUMBER}"
+            exit 1
+          fi
+
           gh workflow run sdlc-pipeline.yml \
             --repo "${{ github.repository }}" \
             --field issue_number="${ISSUE_NUMBER}" \

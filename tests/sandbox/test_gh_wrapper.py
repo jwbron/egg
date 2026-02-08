@@ -763,3 +763,31 @@ class TestReviewMarkerFormat:
         marker = self._generate_marker("approve")
         assert marker.startswith("<!--")
         assert marker.endswith("-->")
+
+    def test_verdict_regex_only_matches_lowercase(self):
+        """Verify the workflow regex only matches lowercase verdicts.
+
+        The gh wrapper always produces lowercase verdicts, but this test
+        documents that uppercase would NOT match the regex used in
+        sdlc-pipeline.yml and reusable-review.yml.
+        """
+        import re
+
+        # The regex used in workflows to parse the verdict field
+        marker_regex = r"verdict=([a-z-]+)"
+
+        # Lowercase verdict should match
+        lowercase_marker = "<!-- egg-automated-review bot=egg commit=abc123 verdict=approve -->"
+        match = re.search(marker_regex, lowercase_marker)
+        assert match is not None
+        assert match.group(1) == "approve"
+
+        # Uppercase verdict should NOT match (documents expected behavior)
+        uppercase_marker = "<!-- egg-automated-review bot=egg commit=abc123 verdict=APPROVE -->"
+        match = re.search(marker_regex, uppercase_marker)
+        assert match is None, "Uppercase verdicts should not match the regex"
+
+        # Mixed case should NOT match
+        mixedcase_marker = "<!-- egg-automated-review bot=egg commit=abc123 verdict=Approve -->"
+        match = re.search(marker_regex, mixedcase_marker)
+        assert match is None, "Mixed case verdicts should not match the regex"

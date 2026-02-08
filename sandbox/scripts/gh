@@ -540,13 +540,20 @@ elif review_type == 'comment':
 print(json.dumps({'args': args}))
 " "$repo" "$pr_number" "$body" "$review_type")
 
-    if ! call_gateway "/api/v1/gh/execute" "$escaped_args"; then
-        # Self-review fallback: GitHub blocks bots from using the Reviews API
-        # on their own PRs. Fall back to posting the review as an issue comment
-        # so the marker (with verdict) is still available for workflows.
-        echo "WARNING: Review API call failed (likely self-review). Falling back to issue comment." >&2
-        local comment_payload
-        comment_payload=$(python3 -c "
+    # Capture stderr to check for self-review error
+    local review_stderr
+    review_stderr=$(mktemp)
+    if ! call_gateway "/api/v1/gh/execute" "$escaped_args" 2>"$review_stderr"; then
+        local error_msg
+        error_msg=$(cat "$review_stderr")
+        rm -f "$review_stderr"
+
+        # Check if this is a self-review error (GitHub blocks bots from reviewing their own PRs)
+        # Common error patterns: "cannot review your own pull request", "422", "Unprocessable Entity"
+        if echo "$error_msg" | grep -qiE '(cannot review your own|review your own pull request|422|unprocessable)'; then
+            echo "WARNING: Self-review detected. Falling back to issue comment." >&2
+            local comment_payload
+            comment_payload=$(python3 -c "
 import json
 import sys
 print(json.dumps({
@@ -556,10 +563,17 @@ print(json.dumps({
 }))
 " "$repo" "$pr_number" "$body")
 
-        if ! call_gateway "/api/v1/gh/pr/comment" "$comment_payload"; then
-            echo "ERROR: Failed to post review as comment" >&2
+            if ! call_gateway "/api/v1/gh/pr/comment" "$comment_payload"; then
+                echo "ERROR: Failed to post review as comment" >&2
+                return 1
+            fi
+        else
+            # Not a self-review error — propagate the original failure
+            echo "$error_msg" >&2
             return 1
         fi
+    else
+        rm -f "$review_stderr"
     fi
 }
 
