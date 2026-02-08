@@ -149,6 +149,8 @@ action/
 ├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder
 ├── build-conflict-prompt.sh                # Conflict resolution workflow prompt builder
 ├── build-sdlc-prompt.sh                    # SDLC pipeline prompt builder
+├── build-refine-review-prompt.sh           # Refine phase review prompt builder
+├── build-plan-review-prompt.sh             # Plan phase review prompt builder
 ├── contract-state.sh                       # Contract state management utility
 ├── escalate.sh                             # SDLC pipeline escalation handler
 ├── populate-contract-tasks.py              # Populates contract tasks from plan document
