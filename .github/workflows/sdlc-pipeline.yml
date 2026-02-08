@@ -633,12 +633,12 @@ jobs:
 
             # All checks completed
             if [[ "$completed" -eq "$total" ]]; then
+              # All checks completed but some failed — keep waiting, autofix may push a new commit
               if [[ "$failed" -gt 0 ]]; then
-                echo "::error::${failed} check(s) failed"
-                echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | "  FAILED: \(.name) (\(.conclusion))"'
-                echo "passed=false" >> "$GITHUB_OUTPUT"
-                echo "timed_out=false" >> "$GITHUB_OUTPUT"
-                exit 0
+                echo "Checks completed with ${failed} failure(s) — waiting for autofix..."
+                echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled") | "  FAILED: \(.name) (\(.conclusion))"'
+                sleep $POLL_INTERVAL
+                continue
               fi
 
               # All checks passed - now verify automated reviewers have approved
@@ -671,13 +671,7 @@ jobs:
               exit 0
             fi
 
-            # All checks completed but some failed — keep waiting, autofix may push a new commit
-            if [[ "$completed" -eq "$total" && "$failed" -gt 0 ]]; then
-              echo "Checks completed with ${failed} failure(s) — waiting for autofix..."
-              echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled") | "  FAILED: \(.name) (\(.conclusion))"'
-            else
-              echo "Waiting for: ${pending}"
-            fi
+            echo "Waiting for: ${pending}"
 
             sleep $POLL_INTERVAL
           done
