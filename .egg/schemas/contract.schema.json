@@ -68,6 +68,11 @@
     "circuit_breaker": {
       "$ref": "#/$defs/circuitBreaker"
     },
+    "workflow_owner": {
+      "type": ["string", "null"],
+      "description": "GitHub username of the user who initiated the SDLC workflow (added the egg-sdlc label)",
+      "default": null
+    },
     "audit_log": {
       "type": "array",
       "description": "Audit trail of all modifications",

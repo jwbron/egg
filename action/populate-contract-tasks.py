@@ -20,12 +20,21 @@ Exit codes:
 
 import json
 import os
+import re
 import subprocess
 import sys
 
 from egg_contracts.models import Contract
-from egg_contracts.plan_parser import parse_plan
+from egg_contracts.plan_parser import (
+    PLACEHOLDER_ACCEPTANCE_CRITERIA,
+    ParsedPhase,
+    parse_plan,
+)
 from pydantic import ValidationError
+
+# Regex to detect yaml-tasks marker inside a YAML code fence
+# Verifies that `# yaml-tasks` appears inside the fence, not elsewhere in the comment
+YAML_FENCE_DETECT = re.compile(r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks", re.IGNORECASE)
 
 
 def get_issue_comments(repo: str, issue_number: str, token: str) -> list[str]:
@@ -72,11 +81,68 @@ def get_issue_comments(repo: str, issue_number: str, token: str) -> list[str]:
 
 
 def find_plan_comment(comments: list[str]) -> str | None:
-    """Find the plan document comment by looking for task markers."""
+    """Find the plan document comment by looking for task markers.
+
+    Detection priority:
+    1. yaml-tasks code fence (structured, preferred)
+    2. YAML front matter with tasks key
+    3. Legacy markdown format with [TASK-...] markers
+
+    Returns the most recent matching comment.
+    """
     for comment in reversed(comments):
+        # Priority 1: yaml-tasks code fence (Option C structured appendix)
+        # Use regex to verify the marker is inside the fence, not elsewhere
+        if YAML_FENCE_DETECT.search(comment):
+            return comment
+
+        # Priority 2: YAML front matter
+        if comment.strip().startswith("---") and "tasks:" in comment:
+            return comment
+
+        # Priority 3: Legacy markdown format
         if "[TASK-" in comment and ("## Phase" in comment or "Phase 1:" in comment):
             return comment
+
     return None
+
+
+def extract_acceptance_criteria(parsed_phases: list[ParsedPhase]) -> list[dict]:
+    """Extract acceptance criteria from parsed plan phases.
+
+    Uses the structured task-level acceptance criteria that were already parsed
+    from the plan document using the standard format:
+        [TASK-{phase}-{number}] Description — Acceptance: criteria
+
+    This approach is robust because it relies on the well-defined plan template
+    format (see docs/templates/plan.md) rather than ad-hoc regex parsing.
+
+    Args:
+        parsed_phases: List of ParsedPhase objects from plan_parser.parse_plan()
+
+    Returns:
+        List of acceptance criterion dicts matching the contract schema:
+        [{"id": "ac-1", "description": "...", "verified": False}, ...]
+    """
+    criteria: list[dict] = []
+    criterion_id = 1
+
+    for phase in parsed_phases:
+        for task in phase.tasks:
+            if task.acceptance_criteria and task.acceptance_criteria.strip():
+                # Skip placeholder criteria from tasks that couldn't be parsed
+                if task.acceptance_criteria == PLACEHOLDER_ACCEPTANCE_CRITERIA:
+                    continue
+                criteria.append(
+                    {
+                        "id": f"ac-{criterion_id}",
+                        "description": f"[{task.id}] {task.acceptance_criteria}",
+                        "verified": False,
+                    }
+                )
+                criterion_id += 1
+
+    return criteria
 
 
 def main() -> None:
@@ -161,8 +227,15 @@ def main() -> None:
         print("No tasks extracted from plan document", file=sys.stderr)
         sys.exit(1)
 
+    # Extract acceptance criteria from the parsed phases
+    acceptance_criteria = extract_acceptance_criteria(result.phases)
+    if acceptance_criteria:
+        print(f"Extracted {len(acceptance_criteria)} acceptance criteria from plan")
+
     # Update contract and validate
     contract["phases"] = phases_data
+    if acceptance_criteria:
+        contract["acceptance_criteria"] = acceptance_criteria
 
     try:
         Contract.model_validate(contract)
@@ -172,8 +245,11 @@ def main() -> None:
 
     with open(contract_path, "w") as f:
         json.dump(contract, f, indent=2)
+        f.write("\n")
 
     print(f"Populated contract with {len(phases_data)} phases and {total_tasks} tasks")
+    if acceptance_criteria:
+        print(f"  and {len(acceptance_criteria)} acceptance criteria")
 
 
 if __name__ == "__main__":

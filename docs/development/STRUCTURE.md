@@ -122,6 +122,18 @@ integration_tests/
     └── test_role_enforcement.py   # Role-based mutation enforcement
 ```
 
+## Unit Tests Structure
+
+```
+tests/
+├── sandbox/                       # Sandbox component tests
+│   ├── test_contract_cli.py       # Contract CLI tests
+│   └── ...
+└── workflows/                     # Workflow integration tests
+    ├── __init__.py
+    └── test_hitl_integration.py   # HITL decision format verification
+```
+
 ## Action Directory
 
 ```
@@ -131,6 +143,7 @@ action/
 ├── generate-config.sh                      # Runtime config generator
 ├── build-mention-prompt.sh                 # @mention workflow prompt builder
 ├── build-review-prompt.sh                  # PR review workflow prompt builder
+├── build-feedback-prompt.sh                # Review feedback addressing workflow prompt builder
 ├── build-autofixer-prompt.sh               # Autofixer workflow prompt builder
 ├── build-agent-mode-design-review-prompt.sh # Agent-mode design review prompt
 ├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder

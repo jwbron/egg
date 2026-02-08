@@ -36,6 +36,16 @@ on:
         required: false
         type: string
         default: ""
+      agent_role:
+        description: 'Agent role for contract mutations (implementer or reviewer)'
+        required: false
+        type: string
+        default: ""
+      issue_number:
+        description: 'Issue number for contract operations (extracted from branch name if not provided)'
+        required: false
+        type: string
+        default: ""
     secrets:
       BOT_APP_ID:
         required: true
@@ -82,10 +92,111 @@ jobs:
 
           echo "run=true" >> "$GITHUB_OUTPUT"
 
+  wait-for-checks:
+    name: Wait for CI checks
+    needs: should-run
+    if: needs.should-run.outputs.run == 'true' && inputs.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      all_passed: ${{ steps.wait.outputs.passed }}
+      commit_sha: ${{ steps.wait.outputs.commit_sha }}
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Wait for all non-review checks to complete
+        id: wait
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
+          echo "Waiting for checks on commit: ${HEAD_SHA}"
+          echo "commit_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+
+          MAX_WAIT=1500
+          INTERVAL=30
+          start=$(date +%s)
+          no_checks_count=0
+
+          while true; do
+            elapsed=$(( $(date +%s) - start ))
+            if [[ $elapsed -ge $MAX_WAIT ]]; then
+              echo "::warning::Timed out waiting for checks after ${MAX_WAIT}s — proceeding with review"
+              echo "passed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            # Filter out review bot checks and SDLC pipeline checks to avoid self-deadlock.
+            # Check names appear as "<workflow> / <job>" so we match on:
+            # - "Code Review" matches "egg: Code Review / AI Code Review"
+            # - "Design Review" matches "egg: Agent-Mode Design Review / Agent-Mode Design Review"
+            # - "SDLC Pipeline" matches "egg: SDLC Pipeline / Initialize pipeline", etc.
+            # - "SDLC HITL" matches "egg: SDLC HITL Decision Handler / Handle HITL decision", etc.
+            # - "Contract Verification" matches "egg: Contract Verification / ..."
+            checks=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
+              --jq '.check_runs | [.[] | select(
+                (.name | test("Code Review|Design Review|SDLC Pipeline|SDLC HITL|Contract Verification") | not)
+              ) | {name, status, conclusion}]')
+
+            total=$(echo "$checks" | jq 'length')
+
+            if [[ "$total" -eq 0 ]]; then
+              no_checks_count=$((no_checks_count + 1))
+              if [[ $no_checks_count -ge 20 ]]; then
+                echo "No checks found after ${no_checks_count} polls — proceeding"
+                echo "passed=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "No checks yet (poll ${no_checks_count}/20)"
+              sleep "$INTERVAL"
+              continue
+            fi
+            no_checks_count=0
+
+            completed=$(echo "$checks" | jq '[.[] | select(.status == "completed")] | length')
+            failed=$(echo "$checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length')
+
+            echo "Checks: ${completed}/${total} completed, ${failed} failed"
+
+            if [[ "$completed" -eq "$total" ]]; then
+              if [[ "$failed" -gt 0 ]]; then
+                echo "::warning::${failed} check(s) failed — skipping review"
+                echo "$checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled") | "  FAILED: \(.name) (\(.conclusion))"'
+                echo "passed=false" >> "$GITHUB_OUTPUT"
+              else
+                echo "All ${total} checks passed"
+                echo "passed=true" >> "$GITHUB_OUTPUT"
+              fi
+              exit 0
+            fi
+
+            pending=$(echo "$checks" | jq -r '[.[] | select(.status != "completed") | .name] | join(", ")')
+            echo "Waiting for: ${pending}"
+            sleep "$INTERVAL"
+          done
+
   review:
     name: Run review
-    needs: should-run
-    if: needs.should-run.outputs.run == 'true'
+    needs: [should-run, wait-for-checks]
+    # Run review if:
+    # - should-run says yes, AND
+    # - wait-for-checks was skipped (workflow_dispatch), OR
+    # - wait-for-checks succeeded and all checks passed
+    # Note: If wait-for-checks fails unexpectedly (token error, API rate limit, etc.),
+    # we intentionally block the review to avoid reviewing potentially broken code.
+    if: >-
+      always() &&
+      needs.should-run.outputs.run == 'true' &&
+      needs.wait-for-checks.result != 'failure' &&
+      (needs.wait-for-checks.result == 'skipped' || needs.wait-for-checks.outputs.all_passed == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -111,12 +222,27 @@ jobs:
       # github.event.pull_request is not available
       - name: Fetch PR head branch and repo
         id: pr-meta
-        run: |
-          pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
-          echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')" >> "$GITHUB_OUTPUT"
-          echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          VALIDATED_SHA: ${{ needs.wait-for-checks.outputs.commit_sha }}
+        run: |
+          pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
+          current_sha=$(echo "$pr_json" | jq -r '.head.sha')
+
+          # If we have a validated SHA from wait-for-checks, verify the PR still points to it.
+          # This prevents reviewing code that was pushed after checks completed but before
+          # the concurrency group cancelled this run.
+          if [[ -n "$VALIDATED_SHA" && "$current_sha" != "$VALIDATED_SHA" ]]; then
+            echo "::error::PR HEAD has changed since checks completed (expected ${VALIDATED_SHA}, got ${current_sha})"
+            echo "A new workflow run should be triggered for the new commit. Aborting this review."
+            exit 1
+          fi
+
+          {
+            echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"
+            echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')"
+            echo "head-sha=${current_sha}"
+          } >> "$GITHUB_OUTPUT"
 
       # Capture last bot review info before dismissing (for re-review context)
       # The gh wrapper adds a marker to all automated reviews:
@@ -213,7 +339,7 @@ jobs:
         run: |
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
-            --jq --arg bot "$BOT_USERNAME" \
+            | jq -r --arg bot "$BOT_USERNAME" \
             '[.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.state | test("PENDING|COMMENTED|CHANGES_REQUESTED"))] | .[].id' \
           | while read -r id; do
               gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews/$id/dismissals" \
@@ -237,6 +363,7 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_NUMBER: ${{ env.PR_NUMBER }}
           LAST_REVIEW_COMMIT: ${{ steps.last-review.outputs.commit-sha }}
+          COMMIT_SHA: ${{ steps.pr-meta.outputs.head-sha }}
 
       - name: Checkout PR code for review
         uses: actions/checkout@v4
@@ -259,6 +386,8 @@ jobs:
           timeout: ${{ inputs.timeout }}
         env:
           EGG_BOT_NAME: ${{ inputs.bot_name }}
+          EGG_AGENT_ROLE: ${{ inputs.agent_role }}
+          EGG_ISSUE_NUMBER: ${{ inputs.issue_number }}
 
       - name: Post workflow run status to PR
         if: always() && !cancelled()

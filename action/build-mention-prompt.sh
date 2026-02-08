@@ -5,7 +5,7 @@
 # additional context, then outputs a structured prompt via $GITHUB_OUTPUT.
 #
 # Environment variables:
-#   GITHUB_EVENT_NAME  — event type (issue_comment, pull_request_review_comment, issues)
+#   GITHUB_EVENT_NAME  — event type (issue_comment, pull_request_review_comment, pull_request_review, issues)
 #   GITHUB_EVENT_PATH  — path to event JSON payload
 #   GITHUB_REPOSITORY  — owner/repo
 #   BOT_USERNAME       — bot name to strip from mention (default: james-in-a-box)
@@ -150,7 +150,11 @@ ${recent_comments}
 
 You are checked out on the PR's head branch (${pr_head}). Read the
 conversation and perform the requested task. You can modify code, push
-commits, and post comments."
+commits, and post comments.
+
+IMPORTANT: You MUST post a comment on the PR (using \`gh pr comment ${issue_number} --body-file /tmp/response.md\`) summarizing what you did. This is your only way to communicate results — text output alone is not visible. Write your response to a file first, then post it.
+
+IMPORTANT: Do not use EnterPlanMode — ExitPlanMode requires user approval which blocks in headless mode. For complex tasks, reason through your approach before implementing."
 
       else
         # This is a comment on an issue
@@ -174,8 +178,11 @@ ${recent_comments}
 ## Your task
 @jwbron said: ${comment_body}
 
-Read the conversation above and perform the requested task. After completing
-your work, post a comment on the issue summarizing what you did."
+Read the conversation above and perform the requested task.
+
+IMPORTANT: You MUST post a comment on the issue (using \`gh issue comment ${issue_number} --body-file /tmp/response.md\`) summarizing what you did. This is your only way to communicate results — text output alone is not visible. Write your response to a file first, then post it.
+
+IMPORTANT: Do not use EnterPlanMode — ExitPlanMode requires user approval which blocks in headless mode. For complex tasks, reason through your approach before implementing."
       fi
       ;;
 
@@ -246,8 +253,107 @@ ${comment_body}
 
 ## Your task
 Address this inline review comment. You are checked out on the PR's head
-branch (${pr_head}). Make the requested changes, commit, and push. Then reply to the
-review comment confirming what you changed."
+branch (${pr_head}). Make the requested changes, commit, and push.
+
+IMPORTANT: You MUST post a comment on the PR (using \`gh pr comment ${pr_number} --body-file /tmp/response.md\`) summarizing what you did. This is your only way to communicate results — text output alone is not visible. Write your response to a file first, then post it.
+
+IMPORTANT: Do not use EnterPlanMode — ExitPlanMode requires user approval which blocks in headless mode. For complex tasks, reason through your approach before implementing."
+      ;;
+
+    pull_request_review)
+      local pr_number
+      local pr_title
+      local pr_url
+      local pr_head
+      local pr_base
+      local review_body
+      local review_state
+
+      pr_number=$(jq_raw '.pull_request.number')
+      pr_title=$(jq_raw '.pull_request.title')
+      pr_url=$(jq_raw '.pull_request.html_url')
+      pr_head=$(jq_raw '.pull_request.head.ref')
+      pr_base=$(jq_raw '.pull_request.base.ref')
+      review_body=$(jq_raw '.review.body // ""')
+      review_state=$(jq_raw '.review.state')
+
+      local pr_details
+      pr_details=$(fetch_pr_details "$pr_number")
+      local pr_body_raw pr_body pr_state pr_merged pr_display_state
+      pr_state=$(echo "$pr_details" | jq -r '.state')
+      pr_merged=$(echo "$pr_details" | jq -r '.merged')
+      pr_body_raw=$(echo "$pr_details" | jq -r '.body // ""')
+      pr_body=$(truncate_text "$pr_body_raw" "$MAX_BODY_CHARS")
+      pr_display_state="$pr_state"
+      if [[ "$pr_merged" == "true" ]]; then
+        pr_display_state="merged"
+      fi
+
+      local changed_files
+      changed_files=$(fetch_pr_files "$pr_number")
+
+      local recent_comments
+      recent_comments=$(fetch_recent_comments "$pr_number")
+
+      # Fetch review comments (inline comments attached to this review)
+      local review_comments=""
+      local review_id
+      review_id=$(jq_raw '.review.id')
+      local review_comments_json
+      review_comments_json=$(gh_api_safe "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/reviews/${review_id}/comments")
+      if [[ -n "$review_comments_json" && "$review_comments_json" != "[]" ]]; then
+        review_comments=$(echo "$review_comments_json" | jq -r '.[] | @base64' | while read -r encoded; do
+          local path line diff_hunk body
+          path=$(echo "$encoded" | base64 -d | jq -r '.path // ""')
+          line=$(echo "$encoded" | base64 -d | jq -r '.line // .original_line // "?"')
+          diff_hunk=$(echo "$encoded" | base64 -d | jq -r '.diff_hunk // ""')
+          body=$(echo "$encoded" | base64 -d | jq -r '.body // ""')
+          diff_hunk=$(truncate_text "$diff_hunk" "$MAX_BODY_CHARS")
+          echo "### ${path}:${line}"
+          echo "$diff_hunk"
+          echo ""
+          echo "$body"
+          echo ""
+        done)
+      fi
+
+      prompt="You were mentioned in a pull request review submission.
+
+Repository: ${GITHUB_REPOSITORY}
+Pull Request: #${pr_number} — ${pr_title}
+PR URL: ${pr_url}
+PR state: ${pr_display_state}
+PR base: ${pr_base} <- ${pr_head}
+Review state: ${review_state}
+
+## PR description
+${pr_body}
+
+## Changed files
+${changed_files}
+
+## Recent conversation (last 10 comments)
+${recent_comments}
+
+## Review body
+${review_body}
+"
+
+      if [[ -n "$review_comments" ]]; then
+        prompt+="
+## Inline review comments
+${review_comments}
+"
+      fi
+
+      prompt+="
+## Your task
+Address the review feedback above. You are checked out on the PR's head
+branch (${pr_head}). Make the requested changes, commit, and push.
+
+IMPORTANT: You MUST post a comment on the PR (using \`gh pr comment ${pr_number} --body-file /tmp/response.md\`) summarizing what you did. This is your only way to communicate results — text output alone is not visible. Write your response to a file first, then post it.
+
+IMPORTANT: Do not use EnterPlanMode — ExitPlanMode requires user approval which blocks in headless mode. For complex tasks, reason through your approach before implementing."
       ;;
 
     issues)
@@ -275,8 +381,11 @@ ${issue_body}
 
 ## Your task
 Read the issue above and work on it. Create a branch, implement the
-changes, write tests, and open a pull request. Post a comment on the
-issue with a link to the PR."
+changes, write tests, and open a pull request.
+
+IMPORTANT: You MUST post a comment on the issue (using \`gh issue comment ${issue_number} --body-file /tmp/response.md\`) with a link to the PR and a summary of what you did. This is your only way to communicate results — text output alone is not visible. Write your response to a file first, then post it.
+
+IMPORTANT: Do not use EnterPlanMode — ExitPlanMode requires user approval which blocks in headless mode. For complex tasks, reason through your approach before implementing."
       ;;
 
     *)

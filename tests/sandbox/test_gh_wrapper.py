@@ -571,7 +571,7 @@ class TestPrReviewEmptyCommitWarning:
         commit_sha="${1:-}"
 
         if [ -z "$commit_sha" ]; then
-            echo "WARNING: Could not determine commit SHA for review marker (git rev-parse HEAD failed)" >&2
+            echo "WARNING: Could not determine commit SHA for review marker" >&2
         fi
 
         echo "done"

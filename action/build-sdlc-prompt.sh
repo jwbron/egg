@@ -160,15 +160,47 @@ In the refine phase:
 - You CANNOT push code (git push)
 - You CANNOT create PRs (gh pr create)
 
+## HITL Decisions
+
+For questions that require human input before proceeding:
+
+**Multiple-choice questions** (use formal HITL decisions):
+\`\`\`bash
+egg-contract add-decision --question "Which approach should we use?" \\
+  --options "Option A" "Option B" "Option C" --format markdown
+\`\`\`
+Copy the markdown output into your analysis comment. The human can check a checkbox
+to select an option. An "Other (explain in reply)" option is auto-appended.
+
+**Open-ended questions** (no predefined options):
+List these as plain text in your analysis. The human will respond via comment.
+
+## Phase Completion
+
+When your analysis is complete, post a completion comment with an approval section:
+
+\`\`\`markdown
+## Refine Phase Complete
+
+[Summary of analysis and recommendation]
+
+### Ready for Review
+
+<!-- egg-phase-approval -->
+- [ ] Approve and advance to plan phase
+
+---
+
+*Authored-by: egg*
+\`\`\`
+
 ## Next Steps
 
-When your analysis is complete:
 1. Write the analysis document to a file: \`/tmp/analysis.md\`
 2. Post via file to avoid shell escaping issues: \`gh issue comment ${issue_number} --body-file /tmp/analysis.md\`
-3. If you have open questions, use \`egg-contract add-decision --question "..."\`
-4. Wait for human approval to advance to the plan phase
+3. Wait for human approval (they check the approval checkbox)
 
-**IMPORTANT**: Always use \`--body-file\` instead of \`--body\` when posting analysis.
+**IMPORTANT**: Always use \`--body-file\` instead of \`--body\` when posting.
 Content containing \`\${{ }}\` expressions or other shell metacharacters will corrupt
 the comment if passed inline via \`--body\`.
 EOF
@@ -212,18 +244,45 @@ Create a detailed implementation plan. Your goal is to:
 4. Identify test strategy
 5. Consider rollback and risks
 
-## Task ID Format
+## Task Format (Two-Pass Approach)
 
-Tasks MUST be marked with explicit IDs using this format:
-- \`[TASK-{phase}-{number}]\` — e.g., \`[TASK-1-1]\`, \`[TASK-2-3]\`
+Your plan has two parts:
+1. **Human-readable prose**: Markdown sections with phase goals, tasks, and context
+2. **Machine-readable appendix**: A YAML code block at the end for reliable extraction
 
-Example:
+### Prose Format (for humans)
+
+In the markdown sections, use this format for tasks:
 \`\`\`
 - [TASK-1-1] Create contract JSON schema — Acceptance: schema validates sample contracts
 - [TASK-1-2] Add Pydantic models — Acceptance: models match schema, unit tests pass
 \`\`\`
 
-These IDs will be extracted into the contract for tracking.
+### Structured Appendix (for machines)
+
+At the end of your plan, include a YAML code block with the \`# yaml-tasks\` marker:
+
+\`\`\`yaml
+# yaml-tasks
+phases:
+  - id: 1
+    name: Setup
+    goal: Initialize the project structure
+    tasks:
+      - id: TASK-1-1
+        description: Create contract JSON schema
+        acceptance: Schema validates sample contracts
+        files:
+          - .egg/schemas/contract.schema.json
+      - id: TASK-1-2
+        description: Add Pydantic models
+        acceptance: Models match schema, unit tests pass
+        files:
+          - shared/egg_contracts/models.py
+\`\`\`
+
+**CRITICAL**: The YAML appendix must accurately reflect the tasks in your prose.
+This structured format is extracted into the contract for tracking.
 
 ## Output Format
 
@@ -241,13 +300,41 @@ In the plan phase:
 - You CANNOT push code (git push)
 - You CANNOT create PRs (gh pr create)
 
+## HITL Decisions
+
+For questions that require human input before proceeding:
+
+**Multiple-choice questions** (use formal HITL decisions):
+\`\`\`bash
+egg-contract add-decision --question "Which architecture pattern?" \\
+  --options "Microservices" "Monolith" "Hybrid" --format markdown
+\`\`\`
+Copy the markdown output into your plan comment. The human can check a checkbox
+to select an option. An "Other (explain in reply)" option is auto-appended.
+
+**Open-ended questions** (no predefined options):
+List these as plain text. The human will respond via comment.
+
+## Phase Completion
+
+When your plan is complete, include an approval section at the end:
+
+\`\`\`markdown
+### Ready for Review
+
+<!-- egg-phase-approval -->
+- [ ] Approve and advance to implement phase
+
+---
+
+*Authored-by: egg*
+\`\`\`
+
 ## Next Steps
 
-When your plan is complete:
 1. Write the plan document to a file: \`/tmp/plan.md\`
 2. Post via file to avoid shell escaping issues: \`gh issue comment ${issue_number} --body-file /tmp/plan.md\`
-3. If you have open questions, use \`egg-contract add-decision --question "..."\`
-4. Wait for human approval to advance to the implement phase
+3. Wait for human approval (they check the approval checkbox)
 
 **IMPORTANT**: Always use \`--body-file\` instead of \`--body\` when posting the plan.
 Content containing \`\${{ }}\` expressions or other shell metacharacters will corrupt

@@ -7,8 +7,10 @@ from egg_contracts.plan_parser import (
     ParseWarning,
     format_warnings_for_comment,
     parse_phases_from_markdown,
+    parse_phases_from_yaml,
     parse_plan,
     parse_tasks_from_markdown,
+    parse_yaml_code_fence,
 )
 
 
@@ -299,6 +301,24 @@ tasks:
                     found_yaml = True
         assert found_yaml
 
+    def test_legacy_files_as_string_converted_to_list(self):
+        """Test that single file string in legacy format is converted to list."""
+        content = """---
+tasks:
+  - id: TASK-1-1
+    description: Single file test
+    acceptance: Done
+    files: single-file.py
+---
+
+# Plan
+"""
+        result = parse_plan(content)
+        assert result.success
+        # Find the task and check its files_affected
+        task = result.phases[0].tasks[0]
+        assert task.files_affected == ["single-file.py"]
+
 
 class TestParseResult:
     """Tests for ParseResult methods."""
@@ -588,3 +608,609 @@ tasks:
         phase_idx, task_idx = parse_task_id(found_task.id)
         assert phase_idx == 2  # Phase 3 -> index 2
         assert task_idx == 4  # Task 5 -> index 4
+
+
+class TestYamlCodeFence:
+    """Tests for yaml-tasks code fence parsing (Option C structured appendix)."""
+
+    def test_basic_yaml_code_fence(self):
+        """Test parsing a basic yaml-tasks code fence."""
+        content = """
+# Plan Document
+
+Some prose explaining the plan.
+
+```yaml
+# yaml-tasks
+phases:
+  - id: 1
+    name: Setup
+    goal: Initialize project
+    tasks:
+      - id: TASK-1-1
+        description: Create schema
+        acceptance: Schema validates
+        files:
+          - schema.json
+```
+"""
+        yaml_data, remaining, warnings = parse_yaml_code_fence(content)
+        assert yaml_data is not None
+        assert "phases" in yaml_data
+        assert len(yaml_data["phases"]) == 1
+        assert yaml_data["phases"][0]["name"] == "Setup"
+        assert len(warnings) == 0
+
+    def test_yaml_fence_with_yml_extension(self):
+        """Test that ```yml fences also work."""
+        content = """
+```yml
+# yaml-tasks
+phases:
+  - id: 1
+    name: Test
+    tasks:
+      - id: TASK-1-1
+        description: Test task
+        acceptance: Done
+```
+"""
+        yaml_data, _, warnings = parse_yaml_code_fence(content)
+        assert yaml_data is not None
+        assert yaml_data["phases"][0]["name"] == "Test"
+
+    def test_yaml_fence_marker_case_insensitive(self):
+        """Test that yaml-tasks marker is case-insensitive."""
+        content = """
+```yaml
+# YAML-TASKS
+phases:
+  - id: 1
+    name: Test
+    tasks:
+      - id: TASK-1-1
+        description: Test
+        acceptance: Done
+```
+"""
+        yaml_data, _, warnings = parse_yaml_code_fence(content)
+        assert yaml_data is not None
+
+    def test_no_yaml_fence_returns_none(self):
+        """Test that missing yaml-tasks fence returns None."""
+        content = """
+# Plan without yaml-tasks
+
+Just prose here.
+"""
+        yaml_data, remaining, warnings = parse_yaml_code_fence(content)
+        assert yaml_data is None
+        assert remaining == content
+        assert len(warnings) == 0
+
+    def test_yaml_fence_without_marker_ignored(self):
+        """Test that yaml fence without yaml-tasks marker is ignored."""
+        content = """
+```yaml
+# This is just regular YAML, not yaml-tasks
+key: value
+```
+"""
+        yaml_data, remaining, warnings = parse_yaml_code_fence(content)
+        assert yaml_data is None
+
+    def test_malformed_yaml_falls_back(self):
+        """Test that malformed YAML generates warning and falls back."""
+        content = """
+```yaml
+# yaml-tasks
+phases:
+  - id: 1
+    name: Test
+    tasks: [invalid yaml here: {
+```
+"""
+        yaml_data, _, warnings = parse_yaml_code_fence(content)
+        assert yaml_data is None
+        assert len(warnings) == 1
+        assert "Invalid YAML" in warnings[0].message
+
+    def test_empty_yaml_fence_warns(self):
+        """Test that empty yaml-tasks fence generates warning."""
+        content = """
+```yaml
+# yaml-tasks
+```
+"""
+        yaml_data, _, warnings = parse_yaml_code_fence(content)
+        assert yaml_data is None
+        assert len(warnings) == 1
+        assert "empty" in warnings[0].message.lower()
+
+    def test_yaml_fence_removes_from_remaining(self):
+        """Test that yaml fence is removed from remaining content."""
+        content = """Before
+
+```yaml
+# yaml-tasks
+phases:
+  - id: 1
+    name: Test
+    tasks:
+      - id: TASK-1-1
+        description: Test
+        acceptance: Done
+```
+
+After"""
+        _, remaining, _ = parse_yaml_code_fence(content)
+        assert "yaml-tasks" not in remaining
+        assert "Before" in remaining
+        assert "After" in remaining
+
+
+class TestParsePhasesFromYaml:
+    """Tests for parsing phases from structured YAML."""
+
+    def test_basic_phase_parsing(self):
+        """Test parsing a basic phases structure."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Setup",
+                    "goal": "Initialize the project",
+                    "tasks": [
+                        {
+                            "id": "TASK-1-1",
+                            "description": "Create schema",
+                            "acceptance": "Schema validates",
+                            "files": ["schema.json"],
+                        }
+                    ],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 1
+        assert phases[0].number == 1
+        assert phases[0].name == "Setup"
+        assert phases[0].goal == "Initialize the project"
+        assert len(phases[0].tasks) == 1
+        assert phases[0].tasks[0].description == "Create schema"
+        assert phases[0].tasks[0].files_affected == ["schema.json"]
+
+    def test_multiple_phases(self):
+        """Test parsing multiple phases."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Setup",
+                    "tasks": [{"id": "TASK-1-1", "description": "Task 1", "acceptance": "Done"}],
+                },
+                {
+                    "id": 2,
+                    "name": "Build",
+                    "tasks": [{"id": "TASK-2-1", "description": "Task 2", "acceptance": "Done"}],
+                },
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 2
+        assert phases[0].name == "Setup"
+        assert phases[1].name == "Build"
+
+    def test_string_phase_id(self):
+        """Test that string phase IDs are parsed correctly."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": "phase-3",
+                    "name": "Test Phase",
+                    "tasks": [{"id": "TASK-3-1", "description": "Test", "acceptance": "Done"}],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 1
+        assert phases[0].number == 3
+
+    def test_numeric_string_phase_id(self):
+        """Test that numeric string IDs work."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": "2",
+                    "name": "Second",
+                    "tasks": [{"id": "TASK-2-1", "description": "Test", "acceptance": "Done"}],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert phases[0].number == 2
+
+    def test_missing_phases_key_with_legacy_tasks(self):
+        """Test fallback when phases key missing but tasks present."""
+        yaml_data = {"tasks": [{"id": "TASK-1-1", "description": "Legacy", "acceptance": "Done"}]}
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 0  # Returns empty so caller falls back to legacy
+
+    def test_missing_phase_id_warns(self):
+        """Test that missing phase ID generates warning."""
+        yaml_data = {
+            "phases": [
+                {
+                    "name": "No ID Phase",
+                    "tasks": [{"id": "TASK-1-1", "description": "Test", "acceptance": "Done"}],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 0
+        assert any("missing 'id'" in w.message.lower() for w in warnings)
+
+    def test_task_phase_mismatch_warns(self):
+        """Test warning when task ID phase doesn't match container phase."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Phase One",
+                    "tasks": [
+                        {
+                            "id": "TASK-2-1",  # Wrong phase number
+                            "description": "Mismatched",
+                            "acceptance": "Done",
+                        }
+                    ],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 1
+        # Task should be assigned to container phase despite ID
+        assert phases[0].tasks[0].phase_number == 1
+        assert any("ID suggests phase 2" in w.message for w in warnings)
+
+    def test_invalid_task_id_generates_new_id(self):
+        """Test that invalid task ID format gets a new ID assigned."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Test",
+                    "tasks": [
+                        {
+                            "id": "bad-format",
+                            "description": "Task with bad ID",
+                            "acceptance": "Done",
+                        }
+                    ],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 1
+        assert phases[0].tasks[0].id == "TASK-1-1"
+        assert any("doesn't match pattern" in w.message for w in warnings)
+
+    def test_files_as_string_converted_to_list(self):
+        """Test that single file string is converted to list."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Test",
+                    "tasks": [
+                        {
+                            "id": "TASK-1-1",
+                            "description": "Test",
+                            "acceptance": "Done",
+                            "files": "single-file.py",  # String instead of list
+                        }
+                    ],
+                }
+            ]
+        }
+        phases, _ = parse_phases_from_yaml(yaml_data)
+        assert phases[0].tasks[0].files_affected == ["single-file.py"]
+
+    def test_phases_sorted_by_number(self):
+        """Test that phases are sorted by number regardless of input order."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 3,
+                    "name": "Third",
+                    "tasks": [{"id": "TASK-3-1", "description": "Test", "acceptance": "Done"}],
+                },
+                {
+                    "id": 1,
+                    "name": "First",
+                    "tasks": [{"id": "TASK-1-1", "description": "Test", "acceptance": "Done"}],
+                },
+                {
+                    "id": 2,
+                    "name": "Second",
+                    "tasks": [{"id": "TASK-2-1", "description": "Test", "acceptance": "Done"}],
+                },
+            ]
+        }
+        phases, _ = parse_phases_from_yaml(yaml_data)
+        assert [p.number for p in phases] == [1, 2, 3]
+        assert [p.name for p in phases] == ["First", "Second", "Third"]
+
+    def test_duplicate_phase_id_warns_and_skips(self):
+        """Test that duplicate phase IDs generate warning and skip second phase."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "First Phase 1",
+                    "tasks": [{"id": "TASK-1-1", "description": "First", "acceptance": "Done"}],
+                },
+                {
+                    "id": 1,  # Duplicate ID
+                    "name": "Second Phase 1",
+                    "tasks": [{"id": "TASK-1-2", "description": "Second", "acceptance": "Done"}],
+                },
+                {
+                    "id": 2,
+                    "name": "Phase 2",
+                    "tasks": [{"id": "TASK-2-1", "description": "Third", "acceptance": "Done"}],
+                },
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 2
+        assert phases[0].name == "First Phase 1"  # First one kept
+        assert phases[1].name == "Phase 2"
+        assert any("Duplicate phase ID: 1" in w.message for w in warnings)
+
+
+class TestParsePlanWithYamlCodeFence:
+    """Integration tests for parse_plan with yaml-tasks code fence."""
+
+    def test_yaml_fence_takes_precedence(self):
+        """Test that yaml-tasks fence is preferred over markdown regex."""
+        content = """
+# Plan Document
+
+### Phase 1: Markdown Phase
+
+- [TASK-1-1] Markdown task — Acceptance: From markdown
+
+```yaml
+# yaml-tasks
+phases:
+  - id: 1
+    name: YAML Phase
+    tasks:
+      - id: TASK-1-1
+        description: YAML task
+        acceptance: From YAML
+```
+"""
+        result = parse_plan(content)
+        assert result.success
+        assert len(result.phases) == 1
+        # Should use YAML phase name, not markdown
+        assert result.phases[0].name == "YAML Phase"
+        assert result.phases[0].tasks[0].description == "YAML task"
+
+    def test_complete_plan_with_appendix(self):
+        """Test parsing a complete plan document with structured appendix."""
+        content = """
+# Plan: Add Authentication
+
+> Issue: #123 | Phase: plan
+
+## Summary
+
+Add user authentication to the application.
+
+## Implementation Phases
+
+### Phase 1: Setup
+
+**Goal**: Initialize authentication infrastructure
+
+**Tasks**:
+- [TASK-1-1] Create user model — Acceptance: Model migrations pass
+- [TASK-1-2] Add auth middleware — Acceptance: Middleware loads
+
+### Phase 2: Implementation
+
+**Goal**: Implement login flow
+
+**Tasks**:
+- [TASK-2-1] Create login endpoint — Acceptance: Returns JWT token
+
+---
+
+## Structured Task Appendix
+
+```yaml
+# yaml-tasks
+phases:
+  - id: 1
+    name: Setup
+    goal: Initialize authentication infrastructure
+    tasks:
+      - id: TASK-1-1
+        description: Create user model
+        acceptance: Model migrations pass
+        files:
+          - models/user.py
+          - migrations/001_user.py
+      - id: TASK-1-2
+        description: Add auth middleware
+        acceptance: Middleware loads
+        files:
+          - middleware/auth.py
+  - id: 2
+    name: Implementation
+    goal: Implement login flow
+    tasks:
+      - id: TASK-2-1
+        description: Create login endpoint
+        acceptance: Returns JWT token
+        files:
+          - api/auth.py
+```
+
+*Authored-by: egg*
+"""
+        result = parse_plan(content)
+        assert result.success
+        assert len(result.phases) == 2
+        assert result.phases[0].name == "Setup"
+        assert result.phases[1].name == "Implementation"
+        assert len(result.phases[0].tasks) == 2
+        assert len(result.phases[1].tasks) == 1
+        # Check files are preserved
+        assert "models/user.py" in result.phases[0].tasks[0].files_affected
+
+    def test_fallback_to_markdown_on_yaml_error(self):
+        """Test fallback to markdown when YAML fence is malformed."""
+        content = """
+### Phase 1: Setup
+
+- [TASK-1-1] Markdown task — Acceptance: Works
+
+```yaml
+# yaml-tasks
+phases:
+  - this: is: invalid: yaml: [
+```
+"""
+        result = parse_plan(content)
+        assert result.success
+        # Should fall back to markdown parsing
+        assert len(result.phases) == 1
+        assert result.phases[0].tasks[0].description == "Markdown task"
+        # Should have warning about YAML failure
+        assert any("Invalid YAML" in w.message for w in result.warnings)
+
+    def test_goal_merged_from_markdown_if_missing(self):
+        """Test that goal is taken from markdown if not in YAML."""
+        content = """
+### Phase 1: Setup
+
+**Goal**: This is the goal from markdown
+
+```yaml
+# yaml-tasks
+phases:
+  - id: 1
+    name: Setup
+    tasks:
+      - id: TASK-1-1
+        description: Test
+        acceptance: Done
+```
+"""
+        result = parse_plan(content)
+        assert result.success
+        # Goal should be merged from markdown
+        assert result.phases[0].goal == "This is the goal from markdown"
+
+    def test_yaml_fence_cli_integration(self):
+        """Test that yaml-fence parsed tasks work with CLI."""
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "sandbox"))
+        from egg_lib.contract_cli import parse_task_id
+
+        content = """
+```yaml
+# yaml-tasks
+phases:
+  - id: 2
+    name: Build
+    tasks:
+      - id: TASK-2-3
+        description: Build feature
+        acceptance: Feature works
+```
+"""
+        result = parse_plan(content)
+        assert result.success
+
+        contract_phases = result.to_contract_phases()
+        task = contract_phases[0].tasks[0]
+        assert task.id == "task-2-3"
+
+        phase_idx, task_idx = parse_task_id(task.id)
+        assert phase_idx == 1  # Phase 2 -> index 1
+        assert task_idx == 2  # Task 3 -> index 2
+
+
+class TestFindPlanCommentPriority:
+    """Tests for plan comment detection priority in populate-contract-tasks.py."""
+
+    def test_yaml_fence_detection(self):
+        """Test that yaml-tasks fence is detected."""
+        import re
+
+        YAML_FENCE_DETECT = re.compile(r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks", re.IGNORECASE)
+        comment = """
+# Plan
+
+```yaml
+# yaml-tasks
+phases:
+  - id: 1
+    name: Test
+    tasks:
+      - id: TASK-1-1
+        description: Test
+        acceptance: Done
+```
+"""
+        # Check detection logic - use regex to verify marker is inside fence
+        has_yaml_tasks = YAML_FENCE_DETECT.search(comment) is not None
+        assert has_yaml_tasks
+
+    def test_yaml_fence_false_positive_rejected(self):
+        """Test that yaml-tasks marker outside fence is not detected."""
+        import re
+
+        YAML_FENCE_DETECT = re.compile(r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks", re.IGNORECASE)
+        # Comment with yaml-tasks mentioned in prose but not inside a fence
+        comment = """
+Here's a note about # yaml-tasks format.
+
+```yaml
+unrelated: data
+```
+"""
+        # This should NOT match because the marker is not inside the fence
+        has_yaml_tasks = YAML_FENCE_DETECT.search(comment) is not None
+        assert not has_yaml_tasks
+
+    def test_frontmatter_detection(self):
+        """Test that YAML frontmatter is detected."""
+        comment = """---
+tasks:
+  - id: TASK-1-1
+    description: Test
+    acceptance: Done
+---
+
+# Plan
+"""
+        has_frontmatter = comment.strip().startswith("---") and "tasks:" in comment
+        assert has_frontmatter
+
+    def test_markdown_detection(self):
+        """Test that legacy markdown format is detected."""
+        comment = """
+## Phase 1: Setup
+
+- [TASK-1-1] Test task — Acceptance: Done
+"""
+        has_markdown = "[TASK-" in comment and ("## Phase" in comment or "Phase 1:" in comment)
+        assert has_markdown

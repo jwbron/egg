@@ -48,6 +48,7 @@ jobs:
       branch_name: ${{ steps.setup.outputs.branch_name }}
       current_phase: ${{ steps.setup.outputs.current_phase }}
       contract_exists: ${{ steps.setup.outputs.contract_exists }}
+      workflow_owner: ${{ steps.setup.outputs.workflow_owner }}
 
     steps:
       - name: Generate bot token
@@ -87,6 +88,7 @@ jobs:
           DISPATCH_ISSUE: ${{ github.event.inputs.issue_number }}
           LABELED_ISSUE: ${{ github.event.issue.number }}
           STARTING_PHASE: ${{ github.event.inputs.starting_phase || 'refine' }}
+          EVENT_SENDER: ${{ github.event.sender.login }}
         run: |
           set -euo pipefail
 
@@ -111,6 +113,19 @@ jobs:
           ISSUE_URL=$(echo "$ISSUE_DATA" | jq -r '.html_url')
 
           echo "issue_title=${ISSUE_TITLE}" >> "$GITHUB_OUTPUT"
+
+          # Capture workflow owner (the user who triggered the workflow)
+          # This is the user who added the egg-sdlc label or dispatched the workflow
+          WORKFLOW_OWNER="${EVENT_SENDER:-}"
+
+          # Validate workflow owner format (defense-in-depth)
+          # GitHub usernames are alphanumeric with hyphens only
+          if [[ -n "$WORKFLOW_OWNER" ]] && ! [[ "$WORKFLOW_OWNER" =~ ^[a-zA-Z0-9-]+$ ]]; then
+            echo "::warning::Invalid workflow owner format, skipping: ${WORKFLOW_OWNER}"
+            WORKFLOW_OWNER=""
+          fi
+
+          echo "workflow_owner=${WORKFLOW_OWNER}" >> "$GITHUB_OUTPUT"
 
           # Branch name for this issue
           BRANCH_NAME="egg/issue-${ISSUE_NUMBER}"
@@ -140,6 +155,13 @@ jobs:
             echo "current_phase=${STARTING_PHASE}" >> "$GITHUB_OUTPUT"
 
             # Create initial contract
+            # Build workflow_owner value (null if empty, quoted string otherwise)
+            if [[ -n "$WORKFLOW_OWNER" ]]; then
+              WORKFLOW_OWNER_JSON="\"${WORKFLOW_OWNER}\""
+            else
+              WORKFLOW_OWNER_JSON="null"
+            fi
+
             cat > "$CONTRACT_PATH" << EOF
           {
             "schemaVersion": "1.0",
@@ -157,6 +179,7 @@ jobs:
               "max_total_cycles": 10,
               "status": "closed"
             },
+            "workflow_owner": ${WORKFLOW_OWNER_JSON},
             "audit_log": []
           }
           EOF
@@ -464,6 +487,11 @@ jobs:
           echo "Created draft PR #${PR_NUMBER}"
           echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
 
+          # Add egg-sdlc label to trigger contract verification workflow
+          gh pr edit "${PR_NUMBER}" --add-label "egg-sdlc" || {
+            echo "::warning::Failed to add egg-sdlc label (label may not exist)"
+          }
+
       - name: Post status comment
         if: always()
         env:
@@ -572,6 +600,7 @@ jobs:
             if [[ $elapsed -ge $MAX_WAIT_SECONDS ]]; then
               break
             fi
+
             # Get all check runs for this commit
             check_runs=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
               --jq '.check_runs | map({name: .name, status: .status, conclusion: .conclusion})')
@@ -582,7 +611,7 @@ jobs:
 
             total=$(echo "$external_checks" | jq 'length')
             completed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed")] | length')
-            failed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")] | length')
+            failed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length')
             pending=$(echo "$external_checks" | jq -r '[.[] | select(.status != "completed")] | map(.name) | join(", ")')
 
             echo "Checks: ${completed}/${total} completed, ${failed} failed"
@@ -604,20 +633,46 @@ jobs:
 
             # All checks completed
             if [[ "$completed" -eq "$total" ]]; then
+              # All checks completed but some failed — keep waiting, autofix may push a new commit
               if [[ "$failed" -gt 0 ]]; then
-                echo "::error::${failed} check(s) failed"
-                echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | "  FAILED: \(.name) (\(.conclusion))"'
+                echo "Checks completed with ${failed} failure(s) — waiting for autofix..."
+                echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled") | "  FAILED: \(.name) (\(.conclusion))"'
+                sleep $POLL_INTERVAL
+                continue
+              fi
+
+              # All checks passed - now verify automated reviewers have approved
+              # Get all reviews with egg-automated-review marker
+              reviews=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
+                --jq '[.[] | select(.body | contains("egg-automated-review"))]')
+
+              # Check for any request-changes reviews that haven't been superseded
+              # Group by user, take latest review per user
+              latest_reviews=$(echo "$reviews" | jq '
+                group_by(.user.login) |
+                map(sort_by(.submitted_at) | last) |
+                [.[] | {user: .user.login, state: .state}]
+              ')
+
+              # Check if any automated reviewer has requested changes
+              changes_requested=$(echo "$latest_reviews" | jq '[.[] | select(.state == "CHANGES_REQUESTED")] | length')
+
+              if [[ "$changes_requested" -gt 0 ]]; then
+                echo "::warning::Automated reviewer(s) requested changes"
+                echo "$latest_reviews" | jq -r '.[] | select(.state == "CHANGES_REQUESTED") | "  \(.user): CHANGES_REQUESTED"'
                 echo "passed=false" >> "$GITHUB_OUTPUT"
                 echo "timed_out=false" >> "$GITHUB_OUTPUT"
-              else
-                echo "All ${total} checks passed"
-                echo "passed=true" >> "$GITHUB_OUTPUT"
-                echo "timed_out=false" >> "$GITHUB_OUTPUT"
+                exit 0
               fi
+
+              echo "All ${total} checks passed and no automated reviewers blocking"
+              echo "passed=true" >> "$GITHUB_OUTPUT"
+              echo "timed_out=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
 
             echo "Waiting for: ${pending}"
+
             sleep $POLL_INTERVAL
           done
 
@@ -643,6 +698,7 @@ jobs:
       ISSUE_TITLE: ${{ needs.init.outputs.issue_title }}
       BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
       PR_NUMBER: ${{ needs.implement.outputs.pr_number }}
+      WORKFLOW_OWNER: ${{ needs.init.outputs.workflow_owner }}
 
     steps:
       - name: Generate bot token
@@ -665,7 +721,57 @@ jobs:
           git config user.name "james-in-a-box[bot]"
           git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
 
+      - name: Check for merge conflicts
+        id: merge-check
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # GitHub computes mergeability asynchronously, so poll until
+          # the status is no longer UNKNOWN (up to ~60 seconds)
+          MAX_ATTEMPTS=12
+          POLL_INTERVAL=5
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            MERGEABLE=$(gh pr view "${PR_NUMBER}" --json mergeable --jq '.mergeable')
+            if [[ "$MERGEABLE" != "UNKNOWN" ]]; then
+              break
+            fi
+            echo "Merge status unknown (attempt ${i}/${MAX_ATTEMPTS}), waiting..."
+            sleep $POLL_INTERVAL
+          done
+
+          echo "PR mergeable status: ${MERGEABLE}"
+
+          if [[ "$MERGEABLE" == "MERGEABLE" ]]; then
+            echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$MERGEABLE" == "CONFLICTING" ]]; then
+            echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Could not determine mergeable status after ${MAX_ATTEMPTS} attempts (status: ${MERGEABLE})"
+            exit 1
+          fi
+
+      - name: Post merge conflict comment
+        if: steps.merge-check.outputs.has_conflicts == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
+
+          BODY="**Merge conflicts detected** on draft PR #${PR_NUMBER}.
+
+          The branch has conflicts with \`main\` that must be resolved before the PR can be marked ready for review: ${PR_URL}
+
+          The PR remains as a draft. Resolve the conflicts and re-run the pipeline.
+
+          --- Authored by egg"
+
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
+
       - name: Update PR title and mark ready
+        if: steps.merge-check.outputs.has_conflicts != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
@@ -684,6 +790,12 @@ jobs:
           FINAL_BODY="${EXISTING_BODY}"
           FINAL_BODY="${FINAL_BODY}"$'\n\n'"---"
           FINAL_BODY="${FINAL_BODY}"$'\n\n'"✅ All automated checks passed. Ready for human review."
+
+          # Add reviewer assignment note if workflow owner is available
+          if [[ -n "${WORKFLOW_OWNER}" ]]; then
+            FINAL_BODY="${FINAL_BODY}"$'\n\n'"Reviewer: @${WORKFLOW_OWNER}"
+          fi
+
           FINAL_BODY="${FINAL_BODY}"$'\n\n'"Authored-by: egg"
 
           gh pr edit "${PR_NUMBER}" --body "$FINAL_BODY"
@@ -693,7 +805,23 @@ jobs:
 
           echo "PR #${PR_NUMBER} marked ready for human review"
 
+      - name: Add workflow owner as reviewer
+        if: env.WORKFLOW_OWNER != ''
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Add the workflow owner as a PR reviewer
+          # This may warn if the user doesn't have permission but won't fail
+          if gh pr edit "${PR_NUMBER}" --add-reviewer "${WORKFLOW_OWNER}"; then
+            echo "Added @${WORKFLOW_OWNER} as reviewer for PR #${PR_NUMBER}"
+          else
+            echo "::warning::Could not add @${WORKFLOW_OWNER} as reviewer (they may not have permission)"
+          fi
+
       - name: Update contract phase
+        if: steps.merge-check.outputs.has_conflicts != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
@@ -724,6 +852,7 @@ jobs:
           fi
 
       - name: Post completion comment
+        if: steps.merge-check.outputs.has_conflicts != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |

@@ -1,0 +1,86 @@
+name: "egg: Contract Verification"
+
+# Trigger on PRs with the egg-sdlc label
+# This workflow verifies that implementation matches the SDLC contract
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to verify'
+        required: true
+        type: number
+
+jobs:
+  should-run:
+    name: Check if verification should run
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+      issue_number: ${{ steps.check.outputs.issue_number }}
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Check for egg-sdlc label and extract issue number
+        id: check
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          # For workflow_dispatch, always run
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            # Check if PR has egg-sdlc label
+            labels=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.labels[].name')
+            if echo "$labels" | grep -q "^egg-sdlc$"; then
+              echo "PR has egg-sdlc label, running contract verification"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "PR does not have egg-sdlc label, skipping"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          # Extract issue number from branch name (egg/issue-{number})
+          branch_name=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.ref')
+          if [[ "$branch_name" =~ ^egg/issue-([0-9]+)$ ]]; then
+            issue_number="${BASH_REMATCH[1]}"
+            echo "Extracted issue number from branch: $issue_number"
+            echo "issue_number=${issue_number}" >> "$GITHUB_OUTPUT"
+          else
+            echo "Could not extract issue number from branch name: $branch_name"
+            echo "issue_number=" >> "$GITHUB_OUTPUT"
+          fi
+
+  verify:
+    name: Contract Verification
+    needs: should-run
+    if: needs.should-run.outputs.run == 'true'
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/reusable-review.yml
+    with:
+      pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+      bot_name: contract-verification
+      prompt_script: "action/build-contract-verification-prompt.sh"
+      timeout: "15"
+      pr_title: ${{ github.event.pull_request.title || '' }}
+      event_name: ${{ github.event_name }}
+      agent_role: reviewer
+      issue_number: ${{ needs.should-run.outputs.issue_number }}
+    secrets:
+      BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+      BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+      BOT_APP_INSTALLATION_ID: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+      ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
