@@ -1,0 +1,342 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 358,
+    "title": "Rewrite the main egg readme",
+    "url": "https://github.com/jwbron/egg/issues/358"
+  },
+  "current_phase": "pr",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Opens with structurally enforced SDLC framing, not hardened sandbox; egg metaphor is brief (1 line max)",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Pipeline diagram (refine→plan→implement→merge) is the first visual element; human gates are emphasized",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Diagram repositioned to show gateway as enforcement engine for SDLC phases, not just security sidecar",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-1] Single table combining process enforcement and security enforcement; framed as aspects of the same system",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-2] Network modes, credential isolation, git isolation covered concisely; positioned as how enforcement works",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-3] Brief coverage of automation capabilities with links to detailed docs; SDLC pipeline triggering is prominent",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-3-1] Shows both GitHub Actions workflow (labeling an issue) and local CLI usage; SDLC pipeline path is primary example",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-2] Concise command reference table matching current content",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-3] Links to SDLC guide, ADR, architecture docs; SDLC pipeline docs are first in list",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-4-1] SDLC-first framing maintained throughout; no contradictory hardened sandbox language remains",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-4-2] All internal doc links resolve to existing files",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-4-3] README is comparable length to original (~300-350 lines) or shorter; no unnecessary repetition",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Draft Core Content Structure",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Write new introduction and header section",
+          "status": "pending",
+          "acceptance_criteria": "Opens with structurally enforced SDLC framing, not hardened sandbox; egg metaphor is brief (1 line max)",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Write How It Works section with SDLC pipeline focus",
+          "status": "pending",
+          "acceptance_criteria": "Pipeline diagram (refine→plan→implement→merge) is the first visual element; human gates are emphasized",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Write The Gateway architecture section",
+          "status": "pending",
+          "acceptance_criteria": "Diagram repositioned to show gateway as enforcement engine for SDLC phases, not just security sidecar",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Detail Enforcement and Capabilities",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Write combined Whats Enforced section",
+          "status": "pending",
+          "acceptance_criteria": "Single table combining process enforcement and security enforcement; framed as aspects of the same system",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Write condensed security properties section",
+          "status": "pending",
+          "acceptance_criteria": "Network modes, credential isolation, git isolation covered concisely; positioned as how enforcement works",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Write GitHub automation and workflow sections",
+          "status": "pending",
+          "acceptance_criteria": "Brief coverage of automation capabilities with links to detailed docs; SDLC pipeline triggering is prominent",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Finalize Operational Content",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Write Quick Start section",
+          "status": "pending",
+          "acceptance_criteria": "Shows both GitHub Actions workflow (labeling an issue) and local CLI usage; SDLC pipeline path is primary example",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Write CLI reference section",
+          "status": "pending",
+          "acceptance_criteria": "Concise command reference table matching current content",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Write documentation links section",
+          "status": "pending",
+          "acceptance_criteria": "Links to SDLC guide, ADR, architecture docs; SDLC pipeline docs are first in list",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Review and Polish",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Review for narrative consistency",
+          "status": "pending",
+          "acceptance_criteria": "SDLC-first framing maintained throughout; no contradictory hardened sandbox language remains",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Verify all links work",
+          "status": "pending",
+          "acceptance_criteria": "All internal doc links resolve to existing files",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Check overall length and readability",
+          "status": "pending",
+          "acceptance_criteria": "README is comparable length to original (~300-350 lines) or shorter; no unnecessary repetition",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-08T18:50:56Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Refine review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-08T19:08:23Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-08T19:12:16Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Plan review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-08T19:25:13Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    }
+  ],
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 1,
+  "plan_review_feedback": ""
+}
