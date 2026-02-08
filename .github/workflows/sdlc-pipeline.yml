@@ -1249,7 +1249,8 @@ jobs:
             MAX_CYCLES=3
             if [[ "$REVIEW_PASSED" != "true" && "$REVIEW_CYCLE" -ge "$MAX_CYCLES" ]]; then
               # Add audit entry for circuit breaker opening
-              jq --arg ts "$TIMESTAMP" '
+              OLD_CB_STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
+              jq --arg ts "$TIMESTAMP" --arg old_status "$OLD_CB_STATUS" '
                 .circuit_breaker.status = "open" |
                 .audit_log += [{
                   "timestamp": $ts,
@@ -1257,7 +1258,7 @@ jobs:
                   "role": "system",
                   "action": "update",
                   "field_path": "circuit_breaker.status",
-                  "old_value": "closed",
+                  "old_value": $old_status,
                   "new_value": "open",
                   "reason": "Max refine review cycles exceeded"
                 }]
@@ -1783,7 +1784,8 @@ jobs:
             MAX_CYCLES=3
             if [[ "$REVIEW_PASSED" != "true" && "$REVIEW_CYCLE" -ge "$MAX_CYCLES" ]]; then
               # Add audit entry for circuit breaker opening
-              jq --arg ts "$TIMESTAMP" '
+              OLD_CB_STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
+              jq --arg ts "$TIMESTAMP" --arg old_status "$OLD_CB_STATUS" '
                 .circuit_breaker.status = "open" |
                 .audit_log += [{
                   "timestamp": $ts,
@@ -1791,7 +1793,7 @@ jobs:
                   "role": "system",
                   "action": "update",
                   "field_path": "circuit_breaker.status",
-                  "old_value": "closed",
+                  "old_value": $old_status,
                   "new_value": "open",
                   "reason": "Max plan review cycles exceeded"
                 }]
