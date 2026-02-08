@@ -495,7 +495,7 @@ jobs:
           PR_BODY="## Summary"
           PR_BODY="${PR_BODY}"$'\n\n'"${COMMIT_MESSAGES}"
           PR_BODY="${PR_BODY}"$'\n\n'"---"
-          PR_BODY="${PR_BODY}"$'\n\n'"Issue: #${ISSUE_NUMBER}"
+          PR_BODY="${PR_BODY}"$'\n\n'"Closes #${ISSUE_NUMBER}"
           PR_BODY="${PR_BODY}"$'\n'"Branch: \`${BRANCH_NAME}\`"
           PR_BODY="${PR_BODY}"$'\n\n'"This PR is managed by the SDLC pipeline. It will be marked ready for review once the implementation passes automated review."
 

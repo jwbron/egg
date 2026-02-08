@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 343,
+    "title": "Ensure the original issue is closed when sdlc prs are merged",
+    "url": "https://github.com/jwbron/egg/issues/343"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] PR body template uses closing keyword; grep confirms change",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Grep confirms only one instance of the pattern existed",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-2-1] Documentation mentions the auto-close behavior in the PR phase description",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Update PR Body Template",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Change PR body template from \"Issue:\" to \"Closes:\" syntax",
+          "status": "pending",
+          "acceptance_criteria": "PR body template uses closing keyword; grep confirms change",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Verify no other locations need updating",
+          "status": "pending",
+          "acceptance_criteria": "Grep confirms only one instance of the pattern existed",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Documentation Update",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add documentation note about automatic issue closure on PR merge",
+          "status": "pending",
+          "acceptance_criteria": "Documentation mentions the auto-close behavior in the PR phase description",
+          "files_affected": [
+            "docs/guides/sdlc-pipeline.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-08T09:06:04Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-08T09:29:54Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    }
+  ]
+}
