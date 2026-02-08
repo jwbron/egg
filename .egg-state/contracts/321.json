@@ -5,7 +5,7 @@
     "title": "Gateway fails on gh api template variables {owner}/{repo}",
     "url": "https://github.com/jwbron/egg/issues/321"
   },
-  "current_phase": "refine",
+  "current_phase": "plan",
   "acceptance_criteria": [],
   "phases": [],
   "decisions": [],
@@ -15,5 +15,16 @@
     "status": "closed"
   },
   "workflow_owner": "jwbron",
-  "audit_log": []
+  "audit_log": [
+    {
+      "timestamp": "2026-02-08T09:25:07Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    }
+  ]
 }
