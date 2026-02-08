@@ -48,19 +48,19 @@ During a rebase, "HEAD" is the base branch and the bottom section is your change
 
 ```bash
 # For npm
-git checkout --theirs package-lock.json  # Accept main's version
-npm install                               # Regenerate with PR's package.json
+git checkout --ours package-lock.json   # Accept base branch version (main during rebase)
+npm install                              # Regenerate with PR's package.json
 
 # For yarn
-git checkout --theirs yarn.lock
+git checkout --ours yarn.lock
 yarn install
 
 # For poetry
-git checkout --theirs poetry.lock
+git checkout --ours poetry.lock
 poetry lock
 
 # For uv
-git checkout --theirs uv.lock
+git checkout --ours uv.lock
 uv lock
 ```
 
