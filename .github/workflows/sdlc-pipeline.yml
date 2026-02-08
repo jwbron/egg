@@ -48,7 +48,6 @@ jobs:
       branch_name: ${{ steps.setup.outputs.branch_name }}
       current_phase: ${{ steps.setup.outputs.current_phase }}
       contract_exists: ${{ steps.setup.outputs.contract_exists }}
-      pr_number: ${{ steps.draft-pr.outputs.pr_number }}
 
     steps:
       - name: Generate bot token
@@ -208,8 +207,8 @@ jobs:
 
           gh issue comment "${{ steps.setup.outputs.issue_number }}" --body "$BODY"
 
-      - name: Find existing PR
-        id: draft-pr
+      - name: Close stale PRs
+        id: close-stale-prs
         if: steps.setup.outputs.current_phase == 'implement' || steps.setup.outputs.current_phase == 'pr'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -217,15 +216,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Check for existing open PR on this branch
-          EXISTING_PR=$(gh pr list --head "${BRANCH_NAME}" --state open --json number,state --jq '.[0].number // empty')
+          # Close any existing open PRs on this branch (stale from previous runs)
+          EXISTING_PRS=$(gh pr list --head "${BRANCH_NAME}" --state open --json number --jq '.[].number')
 
-          if [[ -n "$EXISTING_PR" ]]; then
-            echo "Found existing PR #${EXISTING_PR}"
-            echo "pr_number=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
+          if [[ -n "$EXISTING_PRS" ]]; then
+            for PR_NUM in $EXISTING_PRS; do
+              echo "Closing stale PR #${PR_NUM}"
+              gh pr close "${PR_NUM}" --comment "Closing stale PR. A new PR will be created after implementation succeeds."
+            done
           else
-            echo "No existing PR found - will be created after implementation"
-            echo "pr_number=" >> "$GITHUB_OUTPUT"
+            echo "No existing open PRs found on branch ${BRANCH_NAME}"
           fi
 
   # ============================================================
@@ -411,32 +411,16 @@ jobs:
           ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
           REPO_PATH: ${{ github.workspace }}
 
-      - name: Create or find draft PR
+      - name: Create draft PR
         id: create-pr
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
           ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
           ISSUE_TITLE: ${{ needs.init.outputs.issue_title }}
-          EXISTING_PR: ${{ needs.init.outputs.pr_number }}
           EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
         run: |
           set -euo pipefail
-
-          # Check for existing open PR (from init job or previous runs)
-          if [[ -n "${EXISTING_PR}" ]]; then
-            echo "Found existing PR #${EXISTING_PR}"
-            echo "pr_number=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Also check via API in case init didn't find it
-          EXISTING_PR=$(gh pr list --head "${BRANCH_NAME}" --state open --json number --jq '.[0].number // empty')
-          if [[ -n "$EXISTING_PR" ]]; then
-            echo "Found existing PR #${EXISTING_PR}"
-            echo "pr_number=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
 
           # Only create a new PR if implementation succeeded
           if [[ "${EGG_EXIT_CODE}" != "0" ]]; then
@@ -445,18 +429,22 @@ jobs:
             exit 0
           fi
 
-          # Check for merged/closed PRs (edge case)
-          CLOSED_PR=$(gh pr list --head "${BRANCH_NAME}" --state closed --json number,mergedAt --jq '.[0] // empty')
-          if [[ -n "$CLOSED_PR" ]]; then
-            echo "Warning: Found closed/merged PR on this branch. Creating a new draft PR."
-          fi
+          # Build PR body from commit messages (excluding contract-only commits)
+          # Get commits on this branch that aren't on main
+          COMMIT_MESSAGES=$(git log origin/main..HEAD --pretty=format:'%s%n%n%b' --reverse \
+            | grep -v "^Initialize SDLC contract" \
+            | grep -v "^Populate contract tasks" \
+            | grep -v "^Advance to .* phase" \
+            | grep -v "^Checkpoint state" \
+            | sed '/^$/N;/^\n$/d')
 
-          # Create a new draft PR with meaningful content
-          PR_BODY="Implementation for issue #${ISSUE_NUMBER}."
+          # Build PR body with commit messages and context
+          PR_BODY="## Summary"
+          PR_BODY="${PR_BODY}"$'\n\n'"${COMMIT_MESSAGES}"
+          PR_BODY="${PR_BODY}"$'\n\n'"---"
           PR_BODY="${PR_BODY}"$'\n\n'"Issue: #${ISSUE_NUMBER}"
           PR_BODY="${PR_BODY}"$'\n'"Branch: \`${BRANCH_NAME}\`"
           PR_BODY="${PR_BODY}"$'\n\n'"This PR is managed by the SDLC pipeline. It will be marked ready for review once the implementation passes automated review."
-          PR_BODY="${PR_BODY}"$'\n\n'"Authored-by: egg"
 
           PR_URL=$(gh pr create \
             --draft \
