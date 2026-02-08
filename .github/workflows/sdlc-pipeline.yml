@@ -213,6 +213,30 @@ jobs:
             fi
           done
 
+      # Minimize previous pipeline status comments to reduce clutter
+      - name: Minimize previous pipeline comments
+        if: steps.setup.outputs.contract_exists == 'false'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Find previous bot comments that are pipeline status updates
+          # Match: "SDLC Pipeline", "phase completed", "phase encountered"
+          gh api "repos/${{ github.repository }}/issues/${{ steps.setup.outputs.issue_number }}/comments" \
+            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              if ! gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id"; then
+                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
+              fi
+            done
+
       - name: Post initialization comment
         if: steps.setup.outputs.contract_exists == 'false'
         env:
@@ -486,6 +510,29 @@ jobs:
           fi
           echo "Created draft PR #${PR_NUMBER}"
           echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      # Minimize previous pipeline status comments to reduce clutter
+      - name: Minimize previous pipeline comments
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Find previous bot comments that are pipeline status updates
+          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready")) | .node_id' \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              if ! gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id"; then
+                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
+              fi
+            done
 
       - name: Post status comment
         if: always()
@@ -769,6 +816,28 @@ jobs:
             done
           fi
 
+      # Minimize previous pipeline status comments to reduce clutter
+      - name: Minimize previous pipeline comments
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Find previous bot comments that are pipeline status updates
+          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready|Checks timed out|Checks failed")) | .node_id' \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              if ! gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id"; then
+                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
+              fi
+            done
+
       - name: Post completion comment
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -809,6 +878,28 @@ jobs:
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      # Minimize previous pipeline status comments to reduce clutter
+      - name: Minimize previous pipeline comments
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Find previous bot comments that are pipeline status updates
+          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready|Checks timed out|Checks failed")) | .node_id' \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              if ! gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id"; then
+                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
+              fi
+            done
 
       - name: Post checks failure comment
         env:
@@ -918,6 +1009,29 @@ jobs:
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # Minimize previous pipeline status comments to reduce clutter
+      - name: Minimize previous pipeline comments
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Find previous bot comments that are pipeline status updates
+          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              if ! gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id"; then
+                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
+              fi
+            done
 
       - name: Post completion comment
         if: always()
@@ -1088,6 +1202,29 @@ jobs:
           else
             echo "Contract already up to date"
           fi
+
+      # Minimize previous pipeline status comments to reduce clutter
+      - name: Minimize previous pipeline comments
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Find previous bot comments that are pipeline status updates
+          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              if ! gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id"; then
+                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
+              fi
+            done
 
       - name: Post completion comment
         if: always()
