@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 358,
+    "title": "Rewrite the main egg readme",
+    "url": "https://github.com/jwbron/egg/issues/358"
+  },
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": []
+}
