@@ -155,7 +155,7 @@ jobs:
           # Match: "egg run", "egg finished", "👀 Working on it"
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq --arg bot "${{ env.BOT_USERNAME }}" \
+            | jq -r --arg bot "${{ env.BOT_USERNAME }}" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("egg run|egg finished|👀 Working on it")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash

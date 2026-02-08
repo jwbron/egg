@@ -353,7 +353,7 @@ jobs:
           # Find previous bot comments that are HITL decision status updates
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq --arg bot "${{ env.BOT_USERNAME }}" \
+            | jq -r --arg bot "${{ env.BOT_USERNAME }}" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("Decision .* resolved|Phase .* approved|Advancing to")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
@@ -575,7 +575,7 @@ jobs:
           # Find previous bot comments that are HITL decision/approval status updates
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq --arg bot "${{ env.BOT_USERNAME }}" \
+            | jq -r --arg bot "${{ env.BOT_USERNAME }}" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("Decision .* resolved|Phase .* approved|Advancing to")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash

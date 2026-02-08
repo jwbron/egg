@@ -225,7 +225,7 @@ jobs:
           # Match: "SDLC Pipeline", "phase completed", "phase encountered"
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${{ steps.setup.outputs.issue_number }}/comments" \
-            --jq --arg bot "$BOT_USERNAME" \
+            | jq -r --arg bot "$BOT_USERNAME" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
@@ -514,6 +514,11 @@ jobs:
           echo "Created draft PR #${PR_NUMBER}"
           echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
 
+          # Add egg-sdlc label to trigger contract verification workflow
+          gh pr edit "${PR_NUMBER}" --add-label "egg-sdlc" || {
+            echo "::warning::Failed to add egg-sdlc label (label may not exist)"
+          }
+
       # Minimize previous pipeline status comments to reduce clutter
       - name: Minimize previous pipeline comments
         if: always()
@@ -524,7 +529,7 @@ jobs:
           # Find previous bot comments that are pipeline status updates
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq --arg bot "$BOT_USERNAME" \
+            | jq -r --arg bot "$BOT_USERNAME" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
@@ -603,7 +608,7 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-      - name: Wait for all check runs to pass
+      - name: Wait for all check runs to complete
         id: wait
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -618,39 +623,34 @@ jobs:
             exit 0
           fi
 
+          # Use the final HEAD SHA captured after implementation completes,
+          # rather than fetching via API, to avoid race conditions where new
+          # commits push a different SHA between poll iterations
+          HEAD_SHA="${{ needs.implement.outputs.head_sha }}"
+          if [[ -z "$HEAD_SHA" ]]; then
+            # Fallback: fetch from API if implement didn't produce a SHA
+            HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
+            echo "::warning::Using HEAD SHA from API (implement job did not output head_sha)"
+          fi
+          echo "Waiting for checks on commit: ${HEAD_SHA}"
+
+          # Wait for all check runs to complete (CI, reviews, etc.)
           # Excludes this workflow's own checks to avoid self-deadlock
           SELF_WORKFLOW="egg: SDLC Pipeline"
 
-          # Maximum wait time (30 minutes)
+          # Maximum wait time (30 minutes — reviews can take a while)
           MAX_WAIT_SECONDS=1800
           POLL_INTERVAL=30
           start_time=$(date +%s)
-          prev_sha=""
           zero_checks_iterations=0
           # After 10 minutes with no checks, assume none are configured and pass
           MAX_ZERO_CHECKS_ITERATIONS=20
 
           while true; do
+            # Use wall-clock elapsed time (accounts for API latency, not just sleep)
             elapsed=$(( $(date +%s) - start_time ))
             if [[ $elapsed -ge $MAX_WAIT_SECONDS ]]; then
-              echo "::warning::Timeout waiting for checks after ${MAX_WAIT_SECONDS} seconds"
-              echo "passed=false" >> "$GITHUB_OUTPUT"
-              echo "timed_out=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-
-            # Fetch current HEAD SHA of the PR on each iteration.
-            # Autofix workflows may push new commits, changing the HEAD.
-            HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
-
-            if [[ "$HEAD_SHA" != "$prev_sha" ]]; then
-              if [[ -n "$prev_sha" ]]; then
-                echo "HEAD SHA changed: ${prev_sha:0:7} -> ${HEAD_SHA:0:7} (new commit detected)"
-              else
-                echo "Watching checks on commit: ${HEAD_SHA:0:7}"
-              fi
-              prev_sha="$HEAD_SHA"
-              zero_checks_iterations=0
+              break
             fi
 
             # Get all check runs for this commit
@@ -663,10 +663,10 @@ jobs:
 
             total=$(echo "$external_checks" | jq 'length')
             completed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed")] | length')
-            failed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")] | length')
+            failed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length')
             pending=$(echo "$external_checks" | jq -r '[.[] | select(.status != "completed")] | map(.name) | join(", ")')
 
-            echo "Checks: ${completed}/${total} completed, ${failed} failed (elapsed: ${elapsed}s)"
+            echo "Checks: ${completed}/${total} completed, ${failed} failed"
 
             if [[ "$total" -eq 0 ]]; then
               zero_checks_iterations=$((zero_checks_iterations + 1))
@@ -680,26 +680,57 @@ jobs:
               sleep $POLL_INTERVAL
               continue
             fi
+            # Reset counter once checks appear
             zero_checks_iterations=0
 
-            # All checks completed and all passed — success
-            if [[ "$completed" -eq "$total" && "$failed" -eq 0 ]]; then
-              echo "All ${total} checks passed"
+            # All checks completed
+            if [[ "$completed" -eq "$total" ]]; then
+              # All checks completed but some failed — keep waiting, autofix may push a new commit
+              if [[ "$failed" -gt 0 ]]; then
+                echo "Checks completed with ${failed} failure(s) — waiting for autofix..."
+                echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled") | "  FAILED: \(.name) (\(.conclusion))"'
+                sleep $POLL_INTERVAL
+                continue
+              fi
+
+              # All checks passed - now verify automated reviewers have approved
+              # Get all reviews with egg-automated-review marker
+              reviews=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
+                --jq '[.[] | select(.body | contains("egg-automated-review"))]')
+
+              # Check for any request-changes reviews that haven't been superseded
+              # Group by user, take latest review per user
+              latest_reviews=$(echo "$reviews" | jq '
+                group_by(.user.login) |
+                map(sort_by(.submitted_at) | last) |
+                [.[] | {user: .user.login, state: .state}]
+              ')
+
+              # Check if any automated reviewer has requested changes
+              changes_requested=$(echo "$latest_reviews" | jq '[.[] | select(.state == "CHANGES_REQUESTED")] | length')
+
+              if [[ "$changes_requested" -gt 0 ]]; then
+                echo "::warning::Automated reviewer(s) requested changes"
+                echo "$latest_reviews" | jq -r '.[] | select(.state == "CHANGES_REQUESTED") | "  \(.user): CHANGES_REQUESTED"'
+                echo "passed=false" >> "$GITHUB_OUTPUT"
+                echo "timed_out=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+
+              echo "All ${total} checks passed and no automated reviewers blocking"
               echo "passed=true" >> "$GITHUB_OUTPUT"
               echo "timed_out=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
 
-            # All checks completed but some failed — keep waiting, autofix may push a new commit
-            if [[ "$completed" -eq "$total" && "$failed" -gt 0 ]]; then
-              echo "Checks completed with ${failed} failure(s) — waiting for autofix..."
-              echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | "  FAILED: \(.name) (\(.conclusion))"'
-            else
-              echo "Waiting for: ${pending}"
-            fi
+            echo "Waiting for: ${pending}"
 
             sleep $POLL_INTERVAL
           done
+
+          echo "::warning::Timeout waiting for checks after ${MAX_WAIT_SECONDS} seconds"
+          echo "passed=false" >> "$GITHUB_OUTPUT"
+          echo "timed_out=true" >> "$GITHUB_OUTPUT"
 
   # ============================================================
   # Finalize PR: Mark draft PR ready for human review
@@ -742,7 +773,57 @@ jobs:
           git config user.name "james-in-a-box[bot]"
           git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
 
+      - name: Check for merge conflicts
+        id: merge-check
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # GitHub computes mergeability asynchronously, so poll until
+          # the status is no longer UNKNOWN (up to ~60 seconds)
+          MAX_ATTEMPTS=12
+          POLL_INTERVAL=5
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            MERGEABLE=$(gh pr view "${PR_NUMBER}" --json mergeable --jq '.mergeable')
+            if [[ "$MERGEABLE" != "UNKNOWN" ]]; then
+              break
+            fi
+            echo "Merge status unknown (attempt ${i}/${MAX_ATTEMPTS}), waiting..."
+            sleep $POLL_INTERVAL
+          done
+
+          echo "PR mergeable status: ${MERGEABLE}"
+
+          if [[ "$MERGEABLE" == "MERGEABLE" ]]; then
+            echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$MERGEABLE" == "CONFLICTING" ]]; then
+            echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Could not determine mergeable status after ${MAX_ATTEMPTS} attempts (status: ${MERGEABLE})"
+            exit 1
+          fi
+
+      - name: Post merge conflict comment
+        if: steps.merge-check.outputs.has_conflicts == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
+
+          BODY="**Merge conflicts detected** on draft PR #${PR_NUMBER}.
+
+          The branch has conflicts with \`main\` that must be resolved before the PR can be marked ready for review: ${PR_URL}
+
+          The PR remains as a draft. Resolve the conflicts and re-run the pipeline.
+
+          --- Authored by egg"
+
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
+
       - name: Update PR title and mark ready
+        if: steps.merge-check.outputs.has_conflicts != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
@@ -792,6 +873,7 @@ jobs:
           fi
 
       - name: Update contract phase
+        if: steps.merge-check.outputs.has_conflicts != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
@@ -831,7 +913,7 @@ jobs:
           # Find previous bot comments that are pipeline status updates
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq --arg bot "$BOT_USERNAME" \
+            | jq -r --arg bot "$BOT_USERNAME" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready|Checks timed out|Checks failed")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
@@ -847,6 +929,7 @@ jobs:
             done
 
       - name: Post completion comment
+        if: steps.merge-check.outputs.has_conflicts != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
@@ -897,7 +980,7 @@ jobs:
           # Find previous bot comments that are pipeline status updates
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq --arg bot "$BOT_USERNAME" \
+            | jq -r --arg bot "$BOT_USERNAME" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready|Checks timed out|Checks failed")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
@@ -937,7 +1020,7 @@ jobs:
           --- Authored by egg"
           fi
 
-          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
+          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
 
   # ============================================================
   # Refine: Analyze issue and produce analysis document
@@ -1031,7 +1114,7 @@ jobs:
           # Find previous bot comments that are pipeline status updates
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq --arg bot "$BOT_USERNAME" \
+            | jq -r --arg bot "$BOT_USERNAME" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
@@ -1226,7 +1309,7 @@ jobs:
           # Find previous bot comments that are pipeline status updates
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq --arg bot "$BOT_USERNAME" \
+            | jq -r --arg bot "$BOT_USERNAME" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
