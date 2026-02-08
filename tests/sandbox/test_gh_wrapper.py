@@ -687,3 +687,213 @@ class TestPrReviewHandler:
         result = self._run_pr_review_escaper("owner/repo", "123", body, "comment")
         assert result["args"][6] == body
         assert "\n" in result["args"][6]
+
+
+class TestIssueCommentHandler:
+    """Test handle_issue_comment JSON escaping, --body, and --body-file support.
+
+    This mirrors TestPrReviewHandler but targets the issue comment handler.
+    Tests verify that ${{ }} expressions and other shell metacharacters are
+    safely passed through the Python JSON escaping layer (issue #283).
+    """
+
+    # Extract the Python escaping logic from handle_issue_comment
+    ISSUE_COMMENT_PYTHON = textwrap.dedent("""\
+        import json
+        import sys
+
+        args = ['issue', 'comment', sys.argv[2], '--repo', sys.argv[1], '--body', sys.argv[3]]
+        print(json.dumps({'args': args}))
+    """)
+
+    def _run_issue_comment_escaper(self, repo: str, issue_number: str, body: str) -> dict:
+        """Run the issue comment JSON escaping and return the parsed result."""
+        result = subprocess.run(
+            ["python3", "-c", self.ISSUE_COMMENT_PYTHON, repo, issue_number, body],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        return json.loads(result.stdout)
+
+    def test_simple_body(self):
+        """Simple body text should be escaped correctly."""
+        result = self._run_issue_comment_escaper("owner/repo", "42", "Hello world")
+        assert result["args"] == [
+            "issue", "comment", "42", "--repo", "owner/repo", "--body", "Hello world"
+        ]
+
+    def test_body_with_curly_braces(self):
+        """Body with ${{ }} expressions should be properly escaped (issue #283)."""
+        body = "The workflow uses ${{ github.repository }} and ${{ github.event.issue.number }}"
+        result = self._run_issue_comment_escaper("owner/repo", "283", body)
+        assert result["args"][6] == body
+        assert "${{" in result["args"][6]
+
+    def test_body_with_github_actions_expressions(self):
+        """Body with multiple GitHub Actions expressions should be preserved."""
+        body = textwrap.dedent("""\
+            ## Problem Statement
+
+            The workflow at `.github/workflows/ci.yml` uses:
+            - `${{ github.repository }}` for the repo name
+            - `${{ secrets.TOKEN }}` for authentication
+            - `${{ steps.build.outputs.result }}` for build output
+        """)
+        result = self._run_issue_comment_escaper("owner/repo", "283", body)
+        assert result["args"][6] == body
+        assert "${{ github.repository }}" in result["args"][6]
+        assert "${{ secrets.TOKEN }}" in result["args"][6]
+
+    def test_body_with_json_content(self):
+        """Body containing JSON should be properly escaped."""
+        body = '{"key": "value", "nested": {"a": 1}}'
+        result = self._run_issue_comment_escaper("owner/repo", "100", body)
+        assert result["args"][6] == body
+
+    def test_multiline_body(self):
+        """Multi-line body should be preserved."""
+        body = "## Analysis\n\n- Point 1\n- Point 2\n\nAuthored by egg"
+        result = self._run_issue_comment_escaper("owner/repo", "42", body)
+        assert result["args"][6] == body
+        assert "\n" in result["args"][6]
+
+
+class TestBodyFileArgParsing:
+    """Test --body-file/-F argument parsing in issue comment and PR comment handlers.
+
+    These tests verify the bash arg parsing logic for --body-file support,
+    ensuring file content is correctly read and used as the body.
+    """
+
+    # Bash snippet that replicates handle_issue_comment's arg parsing.
+    # Uses Python for output to handle multiline body content correctly.
+    ISSUE_COMMENT_ARG_PARSER = textwrap.dedent("""\
+        ARGS=("$@")
+        issue_number="" body="" body_file=""
+
+        i=0
+        while [ $i -lt ${#ARGS[@]} ]; do
+            case "${ARGS[$i]}" in
+                --body|-b)
+                    ((i++))
+                    body="${ARGS[$i]}"
+                    ;;
+                --body-file|-F)
+                    ((i++))
+                    body_file="${ARGS[$i]}"
+                    ;;
+                [0-9]*)
+                    if [ -z "$issue_number" ]; then
+                        issue_number="${ARGS[$i]}"
+                    fi
+                    ;;
+            esac
+            ((i++))
+        done
+
+        # If body_file is specified, read the body from the file
+        if [ -n "$body_file" ] && [ -f "$body_file" ]; then
+            body=$(cat "$body_file")
+        fi
+
+        # Output as JSON for reliable multiline handling
+        python3 -c "
+import json, sys
+print(json.dumps({'issue_number': sys.argv[1], 'body': sys.argv[2]}))
+" "$issue_number" "$body"
+    """)
+
+    def _run_arg_parser(self, args: list[str]) -> dict[str, str]:
+        """Run the arg parser and return parsed values as a dict."""
+        result = subprocess.run(
+            ["bash", "-c", self.ISSUE_COMMENT_ARG_PARSER, "_"] + args,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        return json.loads(result.stdout)
+
+    def test_body_flag_works(self):
+        """--body flag should set the body correctly."""
+        result = self._run_arg_parser(["issue", "comment", "42", "--body", "Hello"])
+        assert result["issue_number"] == "42"
+        assert result["body"] == "Hello"
+
+    def test_body_short_flag_works(self):
+        """-b short flag should set the body correctly."""
+        result = self._run_arg_parser(["issue", "comment", "42", "-b", "Hello"])
+        assert result["issue_number"] == "42"
+        assert result["body"] == "Hello"
+
+    def test_body_file_long_flag(self):
+        """--body-file should read body content from file."""
+        import tempfile
+
+        content = "## Analysis\n\nThis uses ${{ github.repository }}."
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmpfile = f.name
+
+        try:
+            result = self._run_arg_parser(
+                ["issue", "comment", "42", "--body-file", tmpfile]
+            )
+            assert result["issue_number"] == "42"
+            assert result["body"] == content
+        finally:
+            os.unlink(tmpfile)
+
+    def test_body_file_short_flag(self):
+        """-F short flag should read body content from file."""
+        import tempfile
+
+        content = "Plan content with ${{ vars.NAME }}"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmpfile = f.name
+
+        try:
+            result = self._run_arg_parser(
+                ["issue", "comment", "42", "-F", tmpfile]
+            )
+            assert result["issue_number"] == "42"
+            assert result["body"] == content
+        finally:
+            os.unlink(tmpfile)
+
+    def test_body_file_with_curly_braces(self):
+        """--body-file content with ${{ }} expressions should be preserved."""
+        import tempfile
+
+        content = textwrap.dedent("""\
+            ## Problem Statement
+
+            The workflow uses ${{ github.repository }} and
+            references ${{ github.event.issue.number }}.
+
+            ## Recommended Approach
+
+            Update the action to use `--body-file` flag.""")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmpfile = f.name
+
+        try:
+            result = self._run_arg_parser(
+                ["issue", "comment", "283", "--body-file", tmpfile]
+            )
+            assert result["issue_number"] == "283"
+            assert "${{ github.repository }}" in result["body"]
+            assert "${{ github.event.issue.number }}" in result["body"]
+        finally:
+            os.unlink(tmpfile)
+
+    def test_body_flag_takes_precedence_over_empty_body_file(self):
+        """If --body is provided but --body-file points to nonexistent file, --body wins."""
+        result = self._run_arg_parser(
+            ["issue", "comment", "42", "--body", "inline content", "--body-file", "/nonexistent/file.md"]
+        )
+        assert result["body"] == "inline content"

@@ -899,16 +899,40 @@ jobs:
           EGG_AGENT_ROLE: implementer
           EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
 
+      - name: Validate refine output
+        id: validate-refine
+        if: steps.egg.outputs.exit-code == '0'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Check that the agent actually posted an analysis comment
+          COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq '.[].body' 2>/dev/null || echo "")
+
+          if echo "$COMMENTS" | grep -qE '## Problem Statement|## Recommended Approach|## Analysis'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Post completion comment
         if: always()
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
+          ANALYSIS_FOUND: ${{ steps.validate-refine.outputs.found }}
         run: |
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
+          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${ANALYSIS_FOUND}" == "false" ]]; then
+            BODY="**Warning:** Refine phase exited successfully but no analysis comment was detected. The agent may have failed to post its output (e.g., shell escaping issue). [View run logs](${RUN_URL})
+
+          Please check the run logs and retry if needed.
+
+          --- Authored by egg"
+          elif [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
             BODY="Refine phase completed. [View run logs](${RUN_URL})
 
           Please review the analysis and approve to advance to the **plan** phase.
@@ -981,16 +1005,40 @@ jobs:
           EGG_AGENT_ROLE: implementer
           EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
 
+      - name: Validate plan output
+        id: validate-plan
+        if: steps.egg.outputs.exit-code == '0'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Check that the agent actually posted a plan comment
+          COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq '.[].body' 2>/dev/null || echo "")
+
+          if echo "$COMMENTS" | grep -qE '## Implementation Phases|## Test Strategy|## Implementation Plan'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Post completion comment
         if: always()
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
+          PLAN_FOUND: ${{ steps.validate-plan.outputs.found }}
         run: |
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
+          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${PLAN_FOUND}" == "false" ]]; then
+            BODY="**Warning:** Plan phase exited successfully but no plan comment was detected. The agent may have failed to post its output (e.g., shell escaping issue). [View run logs](${RUN_URL})
+
+          Please check the run logs and retry if needed.
+
+          --- Authored by egg"
+          elif [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
             BODY="Plan phase completed. [View run logs](${RUN_URL})
 
           Please review the implementation plan and approve to advance to the **implement** phase.

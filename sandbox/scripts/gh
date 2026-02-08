@@ -301,7 +301,7 @@ handle_pr_comment() {
     fi
 
     # Parse args for PR number and body
-    local pr_number="" body=""
+    local pr_number="" body="" body_file=""
 
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
@@ -309,6 +309,10 @@ handle_pr_comment() {
             --body|-b)
                 ((i++))
                 body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
                 ;;
             [0-9]*)
                 if [ -z "$pr_number" ]; then
@@ -324,8 +328,13 @@ handle_pr_comment() {
         return 1
     fi
 
+    # If body_file is specified, read the body from the file
+    if [ -n "$body_file" ] && [ -f "$body_file" ]; then
+        body=$(cat "$body_file")
+    fi
+
     if [ -z "$body" ]; then
-        echo "ERROR: Missing --body for PR comment" >&2
+        echo "ERROR: Missing --body or --body-file for PR comment" >&2
         return 1
     fi
 
@@ -625,7 +634,7 @@ handle_issue_comment() {
     fi
 
     # Parse args for issue number and body
-    local issue_number="" body=""
+    local issue_number="" body="" body_file=""
 
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
@@ -633,6 +642,10 @@ handle_issue_comment() {
             --body|-b)
                 ((i++))
                 body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
                 ;;
             [0-9]*)
                 if [ -z "$issue_number" ]; then
@@ -648,8 +661,13 @@ handle_issue_comment() {
         return 1
     fi
 
+    # If body_file is specified, read the body from the file
+    if [ -n "$body_file" ] && [ -f "$body_file" ]; then
+        body=$(cat "$body_file")
+    fi
+
     if [ -z "$body" ]; then
-        echo "ERROR: Missing --body for issue comment" >&2
+        echo "ERROR: Missing --body or --body-file for issue comment" >&2
         return 1
     fi
 
