@@ -239,7 +239,7 @@ def main() -> None:
             "title": result.pr_title,
             "description": result.pr_description or "",
         }
-        print(f"Extracted PR metadata: \"{result.pr_title}\"")
+        print(f'Extracted PR metadata: "{result.pr_title}"')
 
     # Update contract and validate
     contract["phases"] = phases_data
