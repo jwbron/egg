@@ -413,13 +413,13 @@ jobs:
 
       - name: Create or find draft PR
         id: create-pr
-        if: steps.egg.outputs.exit-code == '0'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
           ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
           ISSUE_TITLE: ${{ needs.init.outputs.issue_title }}
           EXISTING_PR: ${{ needs.init.outputs.pr_number }}
+          EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
         run: |
           set -euo pipefail
 
@@ -435,6 +435,13 @@ jobs:
           if [[ -n "$EXISTING_PR" ]]; then
             echo "Found existing PR #${EXISTING_PR}"
             echo "pr_number=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Only create a new PR if implementation succeeded
+          if [[ "${EGG_EXIT_CODE}" != "0" ]]; then
+            echo "Implementation failed (exit code: ${EGG_EXIT_CODE}) - skipping PR creation"
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -508,11 +515,11 @@ jobs:
   wait-for-checks:
     name: Wait for all checks
     needs: [init, implement]
-    # Run if implement succeeded and we have a PR from either init or implement
+    # Run if implement succeeded and we have a PR number
     if: >-
       always() &&
       needs.implement.result == 'success' &&
-      (needs.init.outputs.pr_number != '' || needs.implement.outputs.pr_number != '')
+      needs.implement.outputs.pr_number != ''
     runs-on: ubuntu-latest
     timeout-minutes: 35
     outputs:
@@ -520,8 +527,7 @@ jobs:
       timed_out: ${{ steps.wait.outputs.timed_out }}
 
     env:
-      # Prefer init's PR number (existing PR), fall back to implement's (newly created)
-      PR_NUMBER: ${{ needs.init.outputs.pr_number || needs.implement.outputs.pr_number }}
+      PR_NUMBER: ${{ needs.implement.outputs.pr_number }}
 
     steps:
       - name: Generate bot token
@@ -634,18 +640,18 @@ jobs:
   finalize-pr:
     name: Finalize pull request
     needs: [init, implement, wait-for-checks]
-    # Run if checks passed and we have a PR from either init or implement
+    # Run if checks passed and we have a PR number
     if: >-
       always() &&
       needs.wait-for-checks.outputs.all_passed == 'true' &&
-      (needs.init.outputs.pr_number != '' || needs.implement.outputs.pr_number != '')
+      needs.implement.outputs.pr_number != ''
     runs-on: ubuntu-latest
 
     env:
       ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
       ISSUE_TITLE: ${{ needs.init.outputs.issue_title }}
       BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
-      PR_NUMBER: ${{ needs.init.outputs.pr_number || needs.implement.outputs.pr_number }}
+      PR_NUMBER: ${{ needs.implement.outputs.pr_number }}
 
     steps:
       - name: Generate bot token
@@ -743,17 +749,17 @@ jobs:
   checks-failed:
     name: Checks failed
     needs: [init, implement, wait-for-checks]
-    # Run if checks failed and we have a PR
+    # Run if checks failed and we have a PR number
     if: >-
       always() &&
       needs.wait-for-checks.result == 'success' &&
       needs.wait-for-checks.outputs.all_passed != 'true' &&
-      (needs.init.outputs.pr_number != '' || needs.implement.outputs.pr_number != '')
+      needs.implement.outputs.pr_number != ''
     runs-on: ubuntu-latest
 
     env:
       ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
-      PR_NUMBER: ${{ needs.init.outputs.pr_number || needs.implement.outputs.pr_number }}
+      PR_NUMBER: ${{ needs.implement.outputs.pr_number }}
       TIMED_OUT: ${{ needs.wait-for-checks.outputs.timed_out }}
 
     steps:
