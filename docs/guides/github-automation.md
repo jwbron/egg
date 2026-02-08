@@ -331,9 +331,14 @@ needs updating, and creates a PR if so.
    added files, to understand what changed.
 3. **Impact assessment** — Checks if documentation needs updating based on the nature
    of changes. Focuses on new features, new files, and breaking changes.
-4. **Doc verification** — Reads `docs/development/STRUCTURE.md`, `docs/architecture/README.md`,
-   and `docs/index.md` to check if they cover new components or features.
-5. **PR creation** — If updates are needed, creates a PR with the documentation changes.
+4. **Structural doc check** — Reads `docs/development/STRUCTURE.md`,
+   `docs/architecture/README.md`, and `docs/index.md` to check if they cover new
+   components or features.
+5. **Related doc discovery** — Extracts domain-specific terms from changed file paths
+   and commit subjects, then searches all docs for files that reference those terms.
+   This catches guides and ADRs that discuss the same feature area as the code change
+   (e.g., `docs/guides/sdlc-pipeline.md` when SDLC code changes).
+6. **PR creation** — If updates are needed, creates a PR with the documentation changes.
    PRs are tagged with `[doc-updater]` to prevent re-triggering.
 
 ### When Docs Get Updated

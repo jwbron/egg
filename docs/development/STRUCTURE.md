@@ -122,6 +122,18 @@ integration_tests/
     └── test_role_enforcement.py   # Role-based mutation enforcement
 ```
 
+## Unit Tests Structure
+
+```
+tests/
+├── sandbox/                       # Sandbox component tests
+│   ├── test_contract_cli.py       # Contract CLI tests
+│   └── ...
+└── workflows/                     # Workflow integration tests
+    ├── __init__.py
+    └── test_hitl_integration.py   # HITL decision format verification
+```
+
 ## Action Directory
 
 ```

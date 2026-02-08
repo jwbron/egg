@@ -55,6 +55,13 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 |----------|-------------|
 | [Analysis Template](templates/analysis.md) | Problem analysis template for the refine phase |
 | [Plan Template](templates/plan.md) | Implementation plan template with task ID format for the plan phase |
+| [Phase Completion Template](templates/phase-completion.md) | Phase completion comment format with approval checkbox |
+
+### SDLC Workflow Documentation
+
+| Document | Description |
+|----------|-------------|
+| [HITL Decisions](hitl-decisions.md) | Human-in-the-loop decision workflow with formal decisions and phase approvals |
 
 ## Component Documentation
 
