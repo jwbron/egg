@@ -40,6 +40,7 @@ def get_issue_comments(repo: str, issue_number: str, token: str) -> list[str]:
             "api",
             f"repos/{repo}/issues/{issue_number}/comments",
             "--paginate",
+            "--slurp",
         ],
         capture_output=True,
         text=True,
@@ -49,34 +50,23 @@ def get_issue_comments(repo: str, issue_number: str, token: str) -> list[str]:
         print(f"Failed to fetch comments: {result.stderr}", file=sys.stderr)
         sys.exit(1)
 
-    # Parse as JSON to correctly handle multi-line comment bodies.
-    # With --paginate, gh outputs one JSON array per page, so we need to
-    # handle the case where there are multiple arrays concatenated.
-    bodies: list[str] = []
+    # With --slurp, gh outputs all pages as a single JSON array of arrays.
+    # Each inner array is one page of results.
     output = result.stdout.strip()
     if not output:
-        return bodies
+        return []
 
-    # gh --paginate outputs arrays on separate lines when fetching multiple pages
-    # We need to parse each array and collect all bodies
     try:
-        # Try parsing as a single JSON array first (single page case)
-        data = json.loads(output)
-        if isinstance(data, list):
-            bodies.extend(comment.get("body", "") for comment in data if comment.get("body"))
-    except json.JSONDecodeError:
-        # Multiple pages: each line is a separate JSON array
-        for line in output.split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                data = json.loads(line)
-                if isinstance(data, list):
-                    bodies.extend(comment.get("body", "") for comment in data if comment.get("body"))
-            except json.JSONDecodeError as e:
-                print(f"Warning: Failed to parse comment JSON: {e}", file=sys.stderr)
-                continue
+        pages = json.loads(output)
+    except json.JSONDecodeError as e:
+        print(f"Failed to parse comments JSON: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Flatten pages and extract comment bodies
+    bodies: list[str] = []
+    for page in pages:
+        if isinstance(page, list):
+            bodies.extend(c.get("body", "") for c in page if c.get("body"))
 
     return bodies
 
