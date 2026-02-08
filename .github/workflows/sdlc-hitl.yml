@@ -12,6 +12,7 @@ on:
     types: [edited]
 
 permissions:
+  actions: write
   contents: write
   issues: write
 
@@ -147,6 +148,14 @@ jobs:
             echo "branch_exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Configure git identity
+        if: steps.branch.outputs.branch_exists == 'true'
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "james-in-a-box[bot]"
+          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+
       - name: Update contract with decision
         if: steps.branch.outputs.branch_exists == 'true'
         id: update
@@ -237,12 +246,12 @@ jobs:
 
           echo "contract_updated=true" >> "$GITHUB_OUTPUT"
 
+      # Determine next phase (read-only) BEFORE any state changes.
+      # This ensures retries are idempotent: if dispatch fails, the contract
+      # phase is unchanged, so retrying computes the same next_phase.
       - name: Check for phase advancement
         if: steps.update.outputs.contract_updated == 'true'
         id: advance
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          BRANCH_NAME: ${{ steps.branch.outputs.branch_name }}
         run: |
           set -euo pipefail
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
@@ -275,32 +284,6 @@ jobs:
               echo "Advancing to ${NEXT_PHASE} phase"
               echo "next_phase=${NEXT_PHASE}" >> "$GITHUB_OUTPUT"
               echo "should_advance=true" >> "$GITHUB_OUTPUT"
-
-              # Update contract phase
-              jq --arg phase "$NEXT_PHASE" '.current_phase = $phase' \
-                "$CONTRACT_PATH" > /tmp/contract.json
-              mv /tmp/contract.json "$CONTRACT_PATH"
-
-              git add "$CONTRACT_PATH"
-              git commit -m "Advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
-
-              # Retry push with rebase on conflict
-              MAX_RETRIES=3
-              for i in $(seq 1 $MAX_RETRIES); do
-                if git push origin "${BRANCH_NAME}"; then
-                  echo "Push succeeded"
-                  break
-                elif [[ $i -eq $MAX_RETRIES ]]; then
-                  echo "Push failed after $MAX_RETRIES attempts"
-                  exit 1
-                else
-                  echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
-                  git pull --rebase origin "${BRANCH_NAME}" || {
-                    echo "Rebase failed, cannot resolve conflict automatically"
-                    exit 1
-                  }
-                fi
-              done
             else
               echo "should_advance=false" >> "$GITHUB_OUTPUT"
             fi
@@ -308,6 +291,57 @@ jobs:
             echo "${UNRESOLVED} decisions still pending"
             echo "should_advance=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # Dispatch pipeline BEFORE updating contract phase. If dispatch fails,
+      # the contract is unchanged and retrying will compute the same next_phase.
+      - name: Trigger pipeline continuation
+        if: steps.advance.outputs.should_advance == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT_PHASE: ${{ steps.advance.outputs.next_phase }}
+        run: |
+          set -euo pipefail
+          if ! gh workflow run sdlc-pipeline.yml \
+            --field issue_number="${ISSUE_NUMBER}" \
+            --field starting_phase="${NEXT_PHASE}"; then
+            echo "::error::Failed to trigger sdlc-pipeline.yml workflow"
+            exit 1
+          fi
+
+      - name: Update contract phase
+        if: steps.advance.outputs.should_advance == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BRANCH_NAME: ${{ steps.branch.outputs.branch_name }}
+          NEXT_PHASE: ${{ steps.advance.outputs.next_phase }}
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          jq --arg phase "$NEXT_PHASE" '.current_phase = $phase' \
+            "$CONTRACT_PATH" > /tmp/contract.json
+          mv /tmp/contract.json "$CONTRACT_PATH"
+
+          git add "$CONTRACT_PATH"
+          git commit -m "Advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
+
+          # Retry push with rebase on conflict
+          MAX_RETRIES=3
+          for i in $(seq 1 $MAX_RETRIES); do
+            if git push origin "${BRANCH_NAME}"; then
+              echo "Push succeeded"
+              break
+            elif [[ $i -eq $MAX_RETRIES ]]; then
+              echo "Push failed after $MAX_RETRIES attempts"
+              exit 1
+            else
+              echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
+              git pull --rebase origin "${BRANCH_NAME}" || {
+                echo "Rebase failed, cannot resolve conflict automatically"
+                exit 1
+              }
+            fi
+          done
 
       - name: Post status comment
         if: steps.update.outputs.contract_updated == 'true'
@@ -329,21 +363,6 @@ jobs:
           fi
 
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
-
-      - name: Trigger pipeline continuation
-        if: steps.advance.outputs.should_advance == 'true'
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          NEXT_PHASE: ${{ steps.advance.outputs.next_phase }}
-        run: |
-          set -euo pipefail
-          # Trigger the SDLC pipeline workflow to continue with the next phase
-          if ! gh workflow run sdlc-pipeline.yml \
-            --field issue_number="${ISSUE_NUMBER}" \
-            --field starting_phase="${NEXT_PHASE}"; then
-            echo "::error::Failed to trigger sdlc-pipeline.yml workflow"
-            exit 1
-          fi
 
   # ============================================================
   # Handle phase approval comments
@@ -405,12 +424,20 @@ jobs:
             echo "branch_exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Process approval
+      - name: Configure git identity
+        if: steps.branch.outputs.branch_exists == 'true'
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "james-in-a-box[bot]"
+          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+
+      # Determine next phase (read-only) BEFORE any state changes.
+      # This ensures retries are idempotent: if dispatch fails, the contract
+      # phase is unchanged, so retrying computes the same next_phase.
+      - name: Determine next phase
         if: steps.branch.outputs.branch_exists == 'true'
         id: approve
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          BRANCH_NAME: ${{ steps.branch.outputs.branch_name }}
         run: |
           set -euo pipefail
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
@@ -439,11 +466,42 @@ jobs:
           esac
 
           echo "Advancing from ${CURRENT_PHASE} to ${NEXT_PHASE}"
+          {
+            echo "approved=true"
+            echo "next_phase=${NEXT_PHASE}"
+            echo "previous_phase=${CURRENT_PHASE}"
+          } >> "$GITHUB_OUTPUT"
 
-          # Update contract (capture old phase before update to fix audit log)
+      # Dispatch pipeline BEFORE updating contract phase. If dispatch fails,
+      # the contract is unchanged and retrying will compute the same next_phase.
+      - name: Trigger pipeline continuation
+        if: steps.approve.outputs.approved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT_PHASE: ${{ steps.approve.outputs.next_phase }}
+        run: |
+          set -euo pipefail
+          if ! gh workflow run sdlc-pipeline.yml \
+            --field issue_number="${ISSUE_NUMBER}" \
+            --field starting_phase="${NEXT_PHASE}"; then
+            echo "::error::Failed to trigger sdlc-pipeline.yml workflow"
+            exit 1
+          fi
+
+      - name: Update contract phase
+        if: steps.approve.outputs.approved == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BRANCH_NAME: ${{ steps.branch.outputs.branch_name }}
+          NEXT_PHASE: ${{ steps.approve.outputs.next_phase }}
+          PREVIOUS_PHASE: ${{ steps.approve.outputs.previous_phase }}
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           jq --arg phase "$NEXT_PHASE" \
-             --arg old_phase "$CURRENT_PHASE" \
+             --arg old_phase "$PREVIOUS_PHASE" \
              --arg timestamp "$TIMESTAMP" \
              --arg actor "${{ github.event.sender.login }}" \
             '.current_phase = $phase |
@@ -472,23 +530,15 @@ jobs:
               break
             elif [[ $i -eq $MAX_RETRIES ]]; then
               echo "Push failed after $MAX_RETRIES attempts"
-              echo "approved=false" >> "$GITHUB_OUTPUT"
               exit 1
             else
               echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
               git pull --rebase origin "${BRANCH_NAME}" || {
                 echo "Rebase failed, cannot resolve conflict automatically"
-                echo "approved=false" >> "$GITHUB_OUTPUT"
                 exit 1
               }
             fi
           done
-
-          {
-            echo "approved=true"
-            echo "next_phase=${NEXT_PHASE}"
-            echo "previous_phase=${CURRENT_PHASE}"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Post approval comment
         if: steps.approve.outputs.approved == 'true'
@@ -504,17 +554,3 @@ jobs:
             "$PREVIOUS_PHASE" "$SENDER_LOGIN" "$NEXT_PHASE")
 
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
-
-      - name: Trigger pipeline continuation
-        if: steps.approve.outputs.approved == 'true'
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          NEXT_PHASE: ${{ steps.approve.outputs.next_phase }}
-        run: |
-          set -euo pipefail
-          if ! gh workflow run sdlc-pipeline.yml \
-            --field issue_number="${ISSUE_NUMBER}" \
-            --field starting_phase="${NEXT_PHASE}"; then
-            echo "::error::Failed to trigger sdlc-pipeline.yml workflow"
-            exit 1
-          fi

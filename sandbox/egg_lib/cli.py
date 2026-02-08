@@ -267,6 +267,11 @@ def gha_exec() -> int:
     if bot_name:
         extra_env["EGG_BOT_NAME"] = bot_name
 
+    # Pass issue number so egg-contract CLI can find the contract
+    issue_number = os.environ.get("EGG_ISSUE_NUMBER")
+    if issue_number:
+        extra_env["EGG_ISSUE_NUMBER"] = issue_number
+
     success_flag = exec_in_new_container(
         command=command,
         timeout_minutes=timeout,
