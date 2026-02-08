@@ -205,6 +205,8 @@ This functionality has been replaced by the PR-based review workflow, which prov
 
 ## HITL (Human-in-the-Loop) Mechanism
 
+For detailed HITL workflow documentation, see [HITL Decisions](../../hitl-decisions.md).
+
 When escalation occurs, the system generates a decision block with checkboxes for human input.
 
 ### Checkbox Categories
@@ -219,6 +221,14 @@ A 30-second debounce prevents accidental clicks:
 - Checkbox changes reset the timer
 - Decision is processed only after debounce expires
 - Comment is updated with countdown status
+
+### Phase Approval
+
+In addition to formal HITL decisions, a simpler phase approval mechanism exists for advancing between phases:
+- Uses `<!-- egg-phase-approval -->` markers in comments
+- Single checkbox: `- [ ] Approve and advance to next phase`
+- Detected by the `handle-approval` job in `sdlc-hitl.yml`
+- See [Phase Completion Template](../../templates/phase-completion.md) for the comment format
 
 ---
 
@@ -338,7 +348,9 @@ Long-running jobs checkpoint state before timeout:
 | CLI tools | `sandbox/egg_lib/contract_cli.py` |
 | PR review workflow | `.github/workflows/reusable-review.yml` |
 | Workflow files | `.github/workflows/sdlc-*.yml` |
-| Templates | `docs/templates/analysis.md`, `docs/templates/plan.md` |
+| Templates | `docs/templates/analysis.md`, `docs/templates/plan.md`, `docs/templates/phase-completion.md` |
+| HITL documentation | `docs/hitl-decisions.md` |
+| HITL integration tests | `tests/workflows/test_hitl_integration.py` |
 
 ---
 
