@@ -44,67 +44,27 @@
     },
     {
       "id": "ac-8",
-      "description": "[TASK-2-1] Image builds, contains Docker CLI and Python orchestration code",
+      "description": "[TASK-2-1] gateway/start-gateway.sh prints deprecation notice pointing to new method",
       "verified": false
     },
     {
       "id": "ac-9",
-      "description": "[TASK-2-2] Launcher creates egg-isolated/external networks on host Docker",
+      "description": "[TASK-2-2] GHA workflow uses docker compose based deployment, tests pass",
       "verified": false
     },
     {
       "id": "ac-10",
-      "description": "[TASK-2-3] Launcher handles full lifecycle including cleanup on SIGTERM",
+      "description": "[TASK-2-3] docs/guides/deploy-migration.md covers all migration scenarios",
       "verified": false
     },
     {
       "id": "ac-11",
-      "description": "[TASK-2-4] Launcher reads host config and passes to gateway correctly",
+      "description": "[TASK-2-4] Clean codebase with single deployment path",
       "verified": false
     },
     {
       "id": "ac-12",
-      "description": "[TASK-2-5] Interactive mode works through launcher",
-      "verified": false
-    },
-    {
-      "id": "ac-13",
-      "description": "[TASK-2-6] docker run egg-launcher --print \"prompt\" works for CI use",
-      "verified": false
-    },
-    {
-      "id": "ac-14",
-      "description": "[TASK-2-7] curl localhost:8080/status shows container health",
-      "verified": false
-    },
-    {
-      "id": "ac-15",
-      "description": "[TASK-2-8] Workflow pushes ghcr.io/jwbron/egg-launcher:latest",
-      "verified": false
-    },
-    {
-      "id": "ac-16",
-      "description": "[TASK-3-1] gateway/start-gateway.sh prints deprecation notice pointing to new method",
-      "verified": false
-    },
-    {
-      "id": "ac-17",
-      "description": "[TASK-3-2] action.yml uses egg-launcher, GHA tests pass",
-      "verified": false
-    },
-    {
-      "id": "ac-18",
-      "description": "[TASK-3-3] docs/guides/deploy-migration.md covers all migration scenarios",
-      "verified": false
-    },
-    {
-      "id": "ac-19",
-      "description": "[TASK-3-4] Clean codebase with single deployment path",
-      "verified": false
-    },
-    {
-      "id": "ac-20",
-      "description": "[TASK-3-5] integration_tests/docker-compose.yml uses unified approach",
+      "description": "[TASK-2-5] integration_tests/docker-compose.yml uses unified approach",
       "verified": false
     }
   ],
@@ -224,135 +184,11 @@
     },
     {
       "id": "phase-2",
-      "name": "Launcher Container",
-      "status": "pending",
-      "tasks": [
-        {
-          "id": "task-2-1",
-          "description": "Create launcher/Dockerfile for egg-launcher image",
-          "status": "pending",
-          "acceptance_criteria": "Image builds, contains Docker CLI and Python orchestration code",
-          "files_affected": [
-            "launcher/Dockerfile"
-          ],
-          "commit": null,
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false,
-          "notes": ""
-        },
-        {
-          "id": "task-2-2",
-          "description": "Create launcher entrypoint that creates networks and starts containers",
-          "status": "pending",
-          "acceptance_criteria": "Launcher creates egg-isolated/external networks on host Docker",
-          "files_affected": [
-            "launcher/entrypoint.py"
-          ],
-          "commit": null,
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false,
-          "notes": ""
-        },
-        {
-          "id": "task-2-3",
-          "description": "Implement lifecycle management (start gateway, wait health, start sandbox)",
-          "status": "pending",
-          "acceptance_criteria": "Launcher handles full lifecycle including cleanup on SIGTERM",
-          "files_affected": [
-            "launcher/lifecycle.py"
-          ],
-          "commit": null,
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false,
-          "notes": ""
-        },
-        {
-          "id": "task-2-4",
-          "description": "Add volume mapping for user config",
-          "status": "pending",
-          "acceptance_criteria": "Launcher reads host config and passes to gateway correctly",
-          "files_affected": [
-            "launcher/config.py"
-          ],
-          "commit": null,
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false,
-          "notes": ""
-        },
-        {
-          "id": "task-2-5",
-          "description": "Implement session forwarding (stdin/stdout passthrough to sandbox)",
-          "status": "pending",
-          "acceptance_criteria": "Interactive mode works through launcher",
-          "files_affected": [
-            "launcher/session.py"
-          ],
-          "commit": null,
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false,
-          "notes": ""
-        },
-        {
-          "id": "task-2-6",
-          "description": "Add --print mode support for non-interactive execution",
-          "status": "pending",
-          "acceptance_criteria": "docker run egg-launcher --print \"prompt\" works for CI use",
-          "files_affected": [
-            "launcher/cli.py"
-          ],
-          "commit": null,
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false,
-          "notes": ""
-        },
-        {
-          "id": "task-2-7",
-          "description": "Create monitoring API endpoint on launcher (optional)",
-          "status": "pending",
-          "acceptance_criteria": "curl localhost:8080/status shows container health",
-          "files_affected": [
-            "launcher/api.py"
-          ],
-          "commit": null,
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false,
-          "notes": ""
-        },
-        {
-          "id": "task-2-8",
-          "description": "Build and publish egg-launcher image to GHCR",
-          "status": "pending",
-          "acceptance_criteria": "Workflow pushes ghcr.io/jwbron/egg-launcher:latest",
-          "files_affected": [
-            ".github/workflows/release-images.yml"
-          ],
-          "commit": null,
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false,
-          "notes": ""
-        }
-      ],
-      "review_cycles": 0,
-      "max_cycles": 3,
-      "escalated": false,
-      "escalation_reason": null,
-      "review_feedback": []
-    },
-    {
-      "id": "phase-3",
       "name": "Migration and Cleanup",
       "status": "pending",
       "tasks": [
         {
-          "id": "task-3-1",
+          "id": "task-2-1",
           "description": "Add deprecation warnings to old deployment scripts",
           "status": "pending",
           "acceptance_criteria": "gateway/start-gateway.sh prints deprecation notice pointing to new method",
@@ -366,10 +202,10 @@
           "notes": ""
         },
         {
-          "id": "task-3-2",
-          "description": "Update GitHub Action to use launcher container",
+          "id": "task-2-2",
+          "description": "Update GitHub Action to use docker compose based deployment",
           "status": "pending",
-          "acceptance_criteria": "action.yml uses egg-launcher, GHA tests pass",
+          "acceptance_criteria": "GHA workflow uses docker compose based deployment, tests pass",
           "files_affected": [
             "action/action.yml",
             "action/entrypoint.sh"
@@ -381,7 +217,7 @@
           "notes": ""
         },
         {
-          "id": "task-3-3",
+          "id": "task-2-3",
           "description": "Create migration guide for existing users",
           "status": "pending",
           "acceptance_criteria": "docs/guides/deploy-migration.md covers all migration scenarios",
@@ -395,7 +231,7 @@
           "notes": ""
         },
         {
-          "id": "task-3-4",
+          "id": "task-2-4",
           "description": "Remove deprecated orchestration code after transition period",
           "status": "pending",
           "acceptance_criteria": "Clean codebase with single deployment path",
@@ -410,7 +246,7 @@
           "notes": ""
         },
         {
-          "id": "task-3-5",
+          "id": "task-2-5",
           "description": "Update integration tests to use new deployment",
           "status": "pending",
           "acceptance_criteria": "integration_tests/docker-compose.yml uses unified approach",
@@ -431,7 +267,13 @@
       "review_feedback": []
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-02-08T21:45:00Z",
+      "decision": "Removed Phase 2 (Launcher Container) per owner request - Option D only",
+      "reason": "Owner decided Option B adds unneeded complexity, proceeding with Option D (Docker Compose + improved orchestration) alone"
+    }
+  ],
   "circuit_breaker": {
     "total_cycles": 0,
     "max_total_cycles": 10,
@@ -478,6 +320,16 @@
       "old_value": "plan",
       "new_value": "implement",
       "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-08T21:45:00Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "scope_change",
+      "field_path": "phases",
+      "old_value": "3 phases (Improved Orchestration, Launcher Container, Migration and Cleanup)",
+      "new_value": "2 phases (Improved Orchestration, Migration and Cleanup)",
+      "reason": "Owner decided Option B (Launcher Container) adds unneeded complexity"
     }
   ],
   "refine_review_cycles": 1,

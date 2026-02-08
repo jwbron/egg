@@ -11,7 +11,6 @@ egg supports multiple deployment methods depending on your use case:
 | **Docker Compose** | Production, local development | Docker, Docker Compose |
 | **egg CLI** | Quick local testing | Docker |
 | **GitHub Action** | CI/CD automation | GitHub repository |
-| **Launcher Container** | Single-container deployment | Docker |
 
 ## Docker Compose (Recommended)
 
@@ -46,7 +45,7 @@ egg --public
 
 2. **Configure required variables:**
    ```bash
-   # Generate a launcher secret
+   # Generate a session secret
    EGG_LAUNCHER_SECRET=$(openssl rand -hex 32)
 
    # Set your GitHub token
@@ -162,26 +161,6 @@ jobs:
 
 *Either `prompt` or `prompt-file` is required.
 
-## Launcher Container (Future)
-
-A single-container deployment option is planned that encapsulates the gateway and sandbox management:
-
-```bash
-# Pull and run the launcher
-docker run -it \
-  -v ~/.config/egg:/config:ro \
-  -v ~/repos:/repos \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/jwbron/egg-launcher:latest
-```
-
-This will:
-1. Create the necessary networks on the host Docker
-2. Start the gateway container
-3. Start the sandbox with proper configuration
-4. Forward stdin/stdout for interactive use
-5. Clean up on exit
-
 ## Pre-built Images
 
 Pre-built images are available on GHCR:
@@ -190,7 +169,6 @@ Pre-built images are available on GHCR:
 |-------|-------------|
 | `ghcr.io/jwbron/egg-gateway:latest` | Gateway sidecar |
 | `ghcr.io/jwbron/egg-sandbox:latest` | Sandbox container |
-| `ghcr.io/jwbron/egg-launcher:latest` | Launcher container (future) |
 
 Images are built on every push to main and on releases.
 

@@ -245,23 +245,6 @@ Create it or point to existing location:
 EGG_CONFIG_DIR=/path/to/existing/config
 ```
 
-## Using the Launcher Container
-
-For a truly single-container deployment, use the launcher:
-
-```bash
-docker run -it \
-  -v ~/.config/egg:/config:ro \
-  -v ~/repos:/repos \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/jwbron/egg-launcher:latest
-```
-
-This is ideal for:
-- Quick testing
-- Environments without Docker Compose
-- CI/CD pipelines
-
 ## Pre-built Images
 
 To use pre-built images instead of building locally:

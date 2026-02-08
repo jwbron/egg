@@ -33,9 +33,6 @@ jobs:
           - component: sandbox
             dockerfile: sandbox/Dockerfile
             image: ghcr.io/jwbron/egg-sandbox
-          - component: launcher
-            dockerfile: launcher/Dockerfile
-            image: ghcr.io/jwbron/egg-launcher
     steps:
       - uses: actions/checkout@v4
 
