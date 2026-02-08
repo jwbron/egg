@@ -5,7 +5,7 @@
     "title": "GHALogCollector fails to download logs: gh api binary response decoded as UTF-8",
     "url": "https://github.com/jwbron/egg/issues/290"
   },
-  "current_phase": "implement",
+  "current_phase": "pr",
   "acceptance_criteria": [
     {
       "id": "ac-1",
