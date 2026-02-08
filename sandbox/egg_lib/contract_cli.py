@@ -438,6 +438,58 @@ def cmd_mark_phase(args: argparse.Namespace) -> int:
         return 1
 
 
+def validate_decision_id(decision_id: str) -> None:
+    """Validate decision_id matches the expected format.
+
+    The workflow regex expects [a-z0-9-]+ and the ID must end at a valid
+    boundary (space or '>') in the HTML comment.
+
+    Args:
+        decision_id: The decision ID to validate
+
+    Raises:
+        ValueError: If decision_id contains invalid characters
+    """
+    if not re.match(r"^[a-z0-9-]+$", decision_id):
+        raise ValueError(
+            f"Invalid decision_id '{decision_id}': must contain only "
+            "lowercase letters, numbers, and hyphens"
+        )
+
+
+def format_decision_markdown(decision_id: str, question: str, options: list[dict[str, Any]]) -> str:
+    """Format a HITL decision as markdown with proper markers.
+
+    The output format matches what sdlc-hitl.yml expects:
+    - HTML comment marker with decision ID for detection
+    - Checkbox list for options
+
+    Args:
+        decision_id: The decision ID (e.g., "decision-1"). Must match [a-z0-9-]+
+        question: The decision question
+        options: List of option dicts with 'label' keys
+
+    Returns:
+        Formatted markdown string ready for GitHub comment
+
+    Raises:
+        ValueError: If decision_id contains invalid characters
+    """
+    validate_decision_id(decision_id)
+
+    lines = [
+        f"<!-- egg-hitl-decision id={decision_id} -->",
+        "",
+        f"**{question}**",
+        "",
+    ]
+
+    for opt in options:
+        lines.append(f"- [ ] {opt['label']}")
+
+    return "\n".join(lines)
+
+
 def cmd_add_decision(args: argparse.Namespace) -> int:
     """Create a HITL decision point.
 
@@ -481,12 +533,17 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
         "debounce_until": None,
     }
 
-    # Parse options if provided
+    # Parse options if provided, and auto-append "Other" option
     if args.options:
         for i, opt in enumerate(args.options):
             new_decision["options"].append(
                 {"id": f"opt-{i + 1}", "label": opt, "description": None}
             )
+        # Auto-append "Other (explain in reply)" as the last option
+        other_idx = len(args.options) + 1
+        new_decision["options"].append(
+            {"id": f"opt-{other_idx}", "label": "Other (explain in reply)", "description": None}
+        )
 
     # Add the decision to the array
     result = make_gateway_request(
@@ -503,7 +560,17 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
     )
 
     if result.get("success"):
-        print(f"Created decision {new_decision['id']}: {args.question}")
+        # Output based on format
+        output_format = getattr(args, "format", "json")
+        if output_format == "markdown":
+            markdown = format_decision_markdown(
+                new_decision["id"],
+                args.question,
+                new_decision["options"],
+            )
+            print(markdown)
+        else:
+            print(f"Created decision {new_decision['id']}: {args.question}")
         return 0
     else:
         print(f"Error: {result.get('message')}", file=sys.stderr)
@@ -579,6 +646,12 @@ def create_parser() -> argparse.ArgumentParser:
         "--options",
         nargs="*",
         help="Optional: decision options",
+    )
+    decision_parser.add_argument(
+        "--format",
+        choices=["json", "markdown"],
+        default="json",
+        help="Output format: json (default) or markdown (for GitHub comments)",
     )
     decision_parser.set_defaults(func=cmd_add_decision)
 

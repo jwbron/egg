@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
 
 from egg_lib.contract_cli import (
     create_parser,
+    format_decision_markdown,
     get_gateway_url,
     get_issue_number,
     get_repo_path,
@@ -23,6 +24,7 @@ from egg_lib.contract_cli import (
     parse_phase_id,
     parse_task_id,
     validate_commit_sha,
+    validate_decision_id,
 )
 
 
@@ -119,6 +121,26 @@ class TestArgumentParsing:
             ]
         )
         assert args.options == ["Option A", "Option B", "Option C"]
+
+    def test_add_decision_with_format_markdown(self):
+        """Test parsing add-decision with --format markdown."""
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "add-decision",
+                "--question",
+                "Which approach?",
+                "--format",
+                "markdown",
+            ]
+        )
+        assert args.format == "markdown"
+
+    def test_add_decision_format_default_json(self):
+        """Test that add-decision defaults to json format."""
+        parser = create_parser()
+        args = parser.parse_args(["add-decision", "--question", "Which approach?"])
+        assert args.format == "json"
 
 
 class TestEnvironmentHelpers:
@@ -499,3 +521,254 @@ class TestCommitShaValidation:
         """Test SHA with spaces."""
         with pytest.raises(ValueError, match="Invalid commit SHA"):
             validate_commit_sha("abc 123")
+
+
+class TestDecisionMarkdownFormat:
+    """Tests for format_decision_markdown function."""
+
+    def test_format_decision_markdown_basic(self):
+        """Test basic markdown formatting with options."""
+        options = [
+            {"id": "opt-1", "label": "Option A"},
+            {"id": "opt-2", "label": "Option B"},
+        ]
+        result = format_decision_markdown("decision-1", "Which approach?", options)
+
+        assert "<!-- egg-hitl-decision id=decision-1 -->" in result
+        assert "**Which approach?**" in result
+        assert "- [ ] Option A" in result
+        assert "- [ ] Option B" in result
+
+    def test_format_decision_markdown_includes_other(self):
+        """Test that Other option is included when present."""
+        options = [
+            {"id": "opt-1", "label": "Option A"},
+            {"id": "opt-2", "label": "Other (explain in reply)"},
+        ]
+        result = format_decision_markdown("decision-2", "Pick one?", options)
+
+        assert "- [ ] Other (explain in reply)" in result
+
+    def test_format_decision_markdown_no_options(self):
+        """Test markdown formatting with no options."""
+        result = format_decision_markdown("decision-3", "Thoughts?", [])
+
+        assert "<!-- egg-hitl-decision id=decision-3 -->" in result
+        assert "**Thoughts?**" in result
+        assert "- [ ]" not in result
+
+    def test_format_decision_markdown_special_characters(self):
+        """Test markdown formatting handles special characters in question."""
+        options = [{"id": "opt-1", "label": "Yes"}]
+        result = format_decision_markdown("decision-4", "Is this a `code` example?", options)
+
+        assert "**Is this a `code` example?**" in result
+
+    def test_format_decision_markdown_rejects_invalid_id(self):
+        """Test that format_decision_markdown rejects invalid decision IDs."""
+        options = [{"id": "opt-1", "label": "Yes"}]
+
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            format_decision_markdown("Decision-1", "Question?", options)
+
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            format_decision_markdown("decision_1", "Question?", options)
+
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            format_decision_markdown("decision 1", "Question?", options)
+
+
+class TestValidateDecisionId:
+    """Tests for validate_decision_id function."""
+
+    def test_valid_decision_ids(self):
+        """Test that valid decision IDs pass validation."""
+        valid_ids = [
+            "decision-1",
+            "decision-123",
+            "my-decision",
+            "abc123",
+            "a",
+            "1",
+            "a-b-c-1-2-3",
+        ]
+        for decision_id in valid_ids:
+            validate_decision_id(decision_id)  # Should not raise
+
+    def test_invalid_uppercase(self):
+        """Test that uppercase letters are rejected."""
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            validate_decision_id("Decision-1")
+
+    def test_invalid_underscore(self):
+        """Test that underscores are rejected."""
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            validate_decision_id("decision_1")
+
+    def test_invalid_spaces(self):
+        """Test that spaces are rejected."""
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            validate_decision_id("decision 1")
+
+    def test_invalid_special_chars(self):
+        """Test that special characters are rejected."""
+        invalid_ids = [
+            "decision-->",
+            "decision<1",
+            "decision!",
+            "decision@1",
+        ]
+        for decision_id in invalid_ids:
+            with pytest.raises(ValueError, match="Invalid decision_id"):
+                validate_decision_id(decision_id)
+
+    def test_empty_string(self):
+        """Test that empty string is rejected."""
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            validate_decision_id("")
+
+
+class TestAddDecisionWithMockGateway:
+    """Tests for add-decision command with mock gateway."""
+
+    @pytest.fixture
+    def mock_gateway_factory(self):
+        """Factory fixture for creating mock gateway servers."""
+        servers = []
+
+        def create_gateway(responses: dict) -> str:
+            handler_class = create_mock_gateway_handler(responses)
+            server = HTTPServer(("127.0.0.1", 0), handler_class)
+            port = server.server_address[1]
+            # Need to handle two requests: GET contract + POST mutate
+            thread1 = Thread(target=server.handle_request)
+            thread1.daemon = True
+            thread1.start()
+            thread2 = Thread(target=server.handle_request)
+            thread2.daemon = True
+            thread2.start()
+            servers.append(server)
+            return f"http://127.0.0.1:{port}"
+
+        yield create_gateway
+
+        for server in servers:
+            server.server_close()
+
+    def test_add_decision_auto_appends_other_option(self, mock_gateway_factory, capsys):
+        """Test that add-decision auto-appends Other option when options provided."""
+        responses = {
+            ("GET", "/api/v1/contract/123"): {
+                "success": True,
+                "data": {
+                    "issue": {"number": 123, "title": "Test"},
+                    "current_phase": "refine",
+                    "phases": [],
+                    "decisions": [],
+                },
+            },
+            ("POST", "/api/v1/contract/mutate"): {
+                "success": True,
+                "message": "Mutation applied",
+            },
+        }
+        mock_gateway = mock_gateway_factory(responses)
+
+        with patch.dict(
+            "os.environ",
+            {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123"},
+        ):
+            result = main(
+                [
+                    "add-decision",
+                    "--question",
+                    "Which approach?",
+                    "--options",
+                    "Option A",
+                    "Option B",
+                ]
+            )
+
+        assert result == 0
+
+    def test_add_decision_markdown_format(self, mock_gateway_factory, capsys):
+        """Test add-decision with --format markdown outputs correct format."""
+        responses = {
+            ("GET", "/api/v1/contract/123"): {
+                "success": True,
+                "data": {
+                    "issue": {"number": 123, "title": "Test"},
+                    "current_phase": "refine",
+                    "phases": [],
+                    "decisions": [],
+                },
+            },
+            ("POST", "/api/v1/contract/mutate"): {
+                "success": True,
+                "message": "Mutation applied",
+            },
+        }
+        mock_gateway = mock_gateway_factory(responses)
+
+        with patch.dict(
+            "os.environ",
+            {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123"},
+        ):
+            result = main(
+                [
+                    "add-decision",
+                    "--question",
+                    "Which approach?",
+                    "--options",
+                    "Option A",
+                    "Option B",
+                    "--format",
+                    "markdown",
+                ]
+            )
+
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "<!-- egg-hitl-decision id=decision-1 -->" in captured.out
+        assert "**Which approach?**" in captured.out
+        assert "- [ ] Option A" in captured.out
+        assert "- [ ] Option B" in captured.out
+        assert "- [ ] Other (explain in reply)" in captured.out
+
+    def test_add_decision_no_options_no_other(self, mock_gateway_factory, capsys):
+        """Test that add-decision without options doesn't add Other."""
+        responses = {
+            ("GET", "/api/v1/contract/123"): {
+                "success": True,
+                "data": {
+                    "issue": {"number": 123, "title": "Test"},
+                    "current_phase": "refine",
+                    "phases": [],
+                    "decisions": [],
+                },
+            },
+            ("POST", "/api/v1/contract/mutate"): {
+                "success": True,
+                "message": "Mutation applied",
+            },
+        }
+        mock_gateway = mock_gateway_factory(responses)
+
+        with patch.dict(
+            "os.environ",
+            {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123"},
+        ):
+            result = main(
+                [
+                    "add-decision",
+                    "--question",
+                    "Open-ended question?",
+                    "--format",
+                    "markdown",
+                ]
+            )
+
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "<!-- egg-hitl-decision id=decision-1 -->" in captured.out
+        assert "Other" not in captured.out

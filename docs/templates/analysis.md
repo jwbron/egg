@@ -48,8 +48,22 @@
 
 ## Open Questions
 
-- [ ] [Question 1 that needs human input]
-- [ ] [Question 2 that needs human input]
+For questions that require human input before proceeding, use formal HITL decisions.
+The agent will generate these using `egg-contract add-decision --format markdown`.
+
+**Multiple-choice questions** (when you need the human to pick from options):
+```
+egg-contract add-decision --question "Which caching strategy should we use?" \
+  --options "Redis" "In-memory LRU" "File-based" --format markdown
+```
+This outputs markdown with checkboxes that the human can interact with directly.
+
+**Open-ended questions** (when you need free-form input):
+Include these as plain text in your analysis. The human will respond via comment.
+
+Example open-ended questions:
+- What is the expected request volume for this feature?
+- Are there any constraints on third-party dependencies?
 
 ---
 
