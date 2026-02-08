@@ -771,6 +771,7 @@ class TestBodyFileArgParsing:
 
     These tests verify the bash arg parsing logic for --body-file support,
     ensuring file content is correctly read and used as the body.
+    --body and --body-file are mutually exclusive; specifying both is an error.
     """
 
     # Bash snippet that replicates handle_issue_comment's arg parsing.
@@ -799,9 +800,18 @@ class TestBodyFileArgParsing:
             ((i++))
         done
 
-        # If body_file is specified, read the body from the file
-        if [ -n "$body_file" ] && [ -f "$body_file" ]; then
-            body=$(cat "$body_file")
+        # Resolve body: --body and --body-file are mutually exclusive
+        if [ -n "$body" ] && [ -n "$body_file" ]; then
+            echo "ERROR: Cannot use both --body and --body-file" >&2
+            exit 1
+        fi
+
+        if [ -n "$body_file" ]; then
+            if [ ! -f "$body_file" ]; then
+                echo "ERROR: File not found: $body_file" >&2
+                exit 1
+            fi
+            body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; exit 1; }
         fi
 
         # Output as JSON for reliable multiline handling
@@ -811,26 +821,30 @@ print(json.dumps({'issue_number': sys.argv[1], 'body': sys.argv[2]}))
 " "$issue_number" "$body"
     """)
 
-    def _run_arg_parser(self, args: list[str]) -> dict[str, str]:
-        """Run the arg parser and return parsed values as a dict."""
-        result = subprocess.run(
+    def _run_arg_parser(self, args: list[str]) -> subprocess.CompletedProcess:
+        """Run the arg parser and return the CompletedProcess."""
+        return subprocess.run(
             ["bash", "-c", self.ISSUE_COMMENT_ARG_PARSER, "_"] + args,
             capture_output=True,
             text=True,
             timeout=10,
         )
+
+    def _run_arg_parser_ok(self, args: list[str]) -> dict[str, str]:
+        """Run the arg parser, assert success, and return parsed values."""
+        result = self._run_arg_parser(args)
         assert result.returncode == 0, f"Script failed: {result.stderr}"
         return json.loads(result.stdout)
 
     def test_body_flag_works(self):
         """--body flag should set the body correctly."""
-        result = self._run_arg_parser(["issue", "comment", "42", "--body", "Hello"])
+        result = self._run_arg_parser_ok(["issue", "comment", "42", "--body", "Hello"])
         assert result["issue_number"] == "42"
         assert result["body"] == "Hello"
 
     def test_body_short_flag_works(self):
         """-b short flag should set the body correctly."""
-        result = self._run_arg_parser(["issue", "comment", "42", "-b", "Hello"])
+        result = self._run_arg_parser_ok(["issue", "comment", "42", "-b", "Hello"])
         assert result["issue_number"] == "42"
         assert result["body"] == "Hello"
 
@@ -844,7 +858,7 @@ print(json.dumps({'issue_number': sys.argv[1], 'body': sys.argv[2]}))
             tmpfile = f.name
 
         try:
-            result = self._run_arg_parser(["issue", "comment", "42", "--body-file", tmpfile])
+            result = self._run_arg_parser_ok(["issue", "comment", "42", "--body-file", tmpfile])
             assert result["issue_number"] == "42"
             assert result["body"] == content
         finally:
@@ -860,7 +874,7 @@ print(json.dumps({'issue_number': sys.argv[1], 'body': sys.argv[2]}))
             tmpfile = f.name
 
         try:
-            result = self._run_arg_parser(["issue", "comment", "42", "-F", tmpfile])
+            result = self._run_arg_parser_ok(["issue", "comment", "42", "-F", tmpfile])
             assert result["issue_number"] == "42"
             assert result["body"] == content
         finally:
@@ -884,24 +898,202 @@ print(json.dumps({'issue_number': sys.argv[1], 'body': sys.argv[2]}))
             tmpfile = f.name
 
         try:
-            result = self._run_arg_parser(["issue", "comment", "283", "--body-file", tmpfile])
+            result = self._run_arg_parser_ok(["issue", "comment", "283", "--body-file", tmpfile])
             assert result["issue_number"] == "283"
             assert "${{ github.repository }}" in result["body"]
             assert "${{ github.event.issue.number }}" in result["body"]
         finally:
             os.unlink(tmpfile)
 
-    def test_body_flag_takes_precedence_over_empty_body_file(self):
-        """If --body is provided but --body-file points to nonexistent file, --body wins."""
+    def test_both_body_and_body_file_errors(self):
+        """Specifying both --body and --body-file should error."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write("file content")
+            tmpfile = f.name
+
+        try:
+            result = self._run_arg_parser(
+                [
+                    "issue",
+                    "comment",
+                    "42",
+                    "--body",
+                    "inline content",
+                    "--body-file",
+                    tmpfile,
+                ]
+            )
+            assert result.returncode != 0
+            assert "Cannot use both --body and --body-file" in result.stderr
+        finally:
+            os.unlink(tmpfile)
+
+    def test_body_file_not_found_errors(self):
+        """--body-file pointing to nonexistent file should error."""
         result = self._run_arg_parser(
             [
                 "issue",
                 "comment",
                 "42",
-                "--body",
-                "inline content",
                 "--body-file",
                 "/nonexistent/file.md",
             ]
         )
-        assert result["body"] == "inline content"
+        assert result.returncode != 0
+        assert "File not found" in result.stderr
+
+
+class TestPrEditBodyFile:
+    """Test --body-file/-F support in handle_pr_edit.
+
+    Mirrors TestBodyFileArgParsing but targets the PR edit handler,
+    which also supports --title alongside --body/--body-file.
+    """
+
+    PR_EDIT_ARG_PARSER = textwrap.dedent("""\
+        ARGS=("$@")
+        pr_number="" title="" body="" body_file=""
+
+        i=0
+        while [ $i -lt ${#ARGS[@]} ]; do
+            case "${ARGS[$i]}" in
+                --title|-t)
+                    ((i++))
+                    title="${ARGS[$i]}"
+                    ;;
+                --body|-b)
+                    ((i++))
+                    body="${ARGS[$i]}"
+                    ;;
+                --body-file|-F)
+                    ((i++))
+                    body_file="${ARGS[$i]}"
+                    ;;
+                [0-9]*)
+                    if [ -z "$pr_number" ]; then
+                        pr_number="${ARGS[$i]}"
+                    fi
+                    ;;
+            esac
+            ((i++))
+        done
+
+        # Resolve body: --body and --body-file are mutually exclusive
+        if [ -n "$body" ] && [ -n "$body_file" ]; then
+            echo "ERROR: Cannot use both --body and --body-file" >&2
+            exit 1
+        fi
+
+        if [ -n "$body_file" ]; then
+            if [ ! -f "$body_file" ]; then
+                echo "ERROR: File not found: $body_file" >&2
+                exit 1
+            fi
+            body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; exit 1; }
+        fi
+
+        python3 -c "
+import json, sys
+print(json.dumps({'pr_number': sys.argv[1], 'title': sys.argv[2], 'body': sys.argv[3]}))
+" "$pr_number" "$title" "$body"
+    """)
+
+    def _run_arg_parser(self, args: list[str]) -> subprocess.CompletedProcess:
+        """Run the arg parser and return the CompletedProcess."""
+        return subprocess.run(
+            ["bash", "-c", self.PR_EDIT_ARG_PARSER, "_"] + args,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+    def _run_arg_parser_ok(self, args: list[str]) -> dict[str, str]:
+        """Run the arg parser, assert success, and return parsed values."""
+        result = self._run_arg_parser(args)
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        return json.loads(result.stdout)
+
+    def test_body_file_long_flag(self):
+        """--body-file should read body content from file for PR edit."""
+        import tempfile
+
+        content = "Updated PR body with ${{ github.repository }}"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmpfile = f.name
+
+        try:
+            result = self._run_arg_parser_ok(
+                ["pr", "edit", "123", "--body-file", tmpfile, "--title", "My PR"]
+            )
+            assert result["pr_number"] == "123"
+            assert result["body"] == content
+            assert result["title"] == "My PR"
+        finally:
+            os.unlink(tmpfile)
+
+    def test_body_file_short_flag(self):
+        """-F short flag should read body content from file for PR edit."""
+        import tempfile
+
+        content = "Short flag body"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmpfile = f.name
+
+        try:
+            result = self._run_arg_parser_ok(["pr", "edit", "456", "-F", tmpfile])
+            assert result["pr_number"] == "456"
+            assert result["body"] == content
+        finally:
+            os.unlink(tmpfile)
+
+    def test_body_inline_still_works(self):
+        """--body flag should continue to work for PR edit."""
+        result = self._run_arg_parser_ok(
+            ["pr", "edit", "789", "--body", "inline body", "--title", "Title"]
+        )
+        assert result["pr_number"] == "789"
+        assert result["body"] == "inline body"
+        assert result["title"] == "Title"
+
+    def test_both_body_and_body_file_errors(self):
+        """Specifying both --body and --body-file should error for PR edit."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write("file content")
+            tmpfile = f.name
+
+        try:
+            result = self._run_arg_parser(
+                ["pr", "edit", "123", "--body", "inline", "--body-file", tmpfile]
+            )
+            assert result.returncode != 0
+            assert "Cannot use both --body and --body-file" in result.stderr
+        finally:
+            os.unlink(tmpfile)
+
+    def test_body_file_not_found_errors(self):
+        """--body-file pointing to nonexistent file should error for PR edit."""
+        result = self._run_arg_parser(["pr", "edit", "123", "--body-file", "/nonexistent/file.md"])
+        assert result.returncode != 0
+        assert "File not found" in result.stderr
+
+    def test_body_file_with_curly_braces(self):
+        """--body-file content with ${{ }} should be preserved for PR edit."""
+        import tempfile
+
+        content = "Update refs to ${{ secrets.TOKEN }} and ${{ github.sha }}"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmpfile = f.name
+
+        try:
+            result = self._run_arg_parser_ok(["pr", "edit", "100", "--body-file", tmpfile])
+            assert "${{ secrets.TOKEN }}" in result["body"]
+            assert "${{ github.sha }}" in result["body"]
+        finally:
+            os.unlink(tmpfile)

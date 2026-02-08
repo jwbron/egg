@@ -904,11 +904,16 @@ jobs:
         if: steps.egg.outputs.exit-code == '0'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          RUN_STARTED: ${{ github.event.workflow_run.created_at || github.event.repository.updated_at }}
         run: |
           set -euo pipefail
-          # Check that the agent actually posted an analysis comment
+          # Check that the agent posted an analysis comment during THIS run.
+          # Use since= to filter out comments from previous runs, and check
+          # only the last 5 comments as a belt-and-suspenders safeguard.
+          RUN_START="${RUN_STARTED:-$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)}"
           COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq '.[].body' 2>/dev/null || echo "")
+            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-5:][].body" \
+            2>/dev/null || echo "")
 
           if echo "$COMMENTS" | grep -qE '## Problem Statement|## Recommended Approach|## Analysis'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
@@ -1010,11 +1015,16 @@ jobs:
         if: steps.egg.outputs.exit-code == '0'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          RUN_STARTED: ${{ github.event.workflow_run.created_at || github.event.repository.updated_at }}
         run: |
           set -euo pipefail
-          # Check that the agent actually posted a plan comment
+          # Check that the agent posted a plan comment during THIS run.
+          # Use since= to filter out comments from previous runs, and check
+          # only the last 5 comments as a belt-and-suspenders safeguard.
+          RUN_START="${RUN_STARTED:-$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)}"
           COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq '.[].body' 2>/dev/null || echo "")
+            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-5:][].body" \
+            2>/dev/null || echo "")
 
           if echo "$COMMENTS" | grep -qE '## Implementation Phases|## Test Strategy|## Implementation Plan'; then
             echo "found=true" >> "$GITHUB_OUTPUT"

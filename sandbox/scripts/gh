@@ -328,9 +328,18 @@ handle_pr_comment() {
         return 1
     fi
 
-    # If body_file is specified, read the body from the file
-    if [ -n "$body_file" ] && [ -f "$body_file" ]; then
-        body=$(cat "$body_file")
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
     fi
 
     if [ -z "$body" ]; then
@@ -364,7 +373,7 @@ handle_pr_edit() {
     fi
 
     # Parse args for PR number, title, body
-    local pr_number="" title="" body=""
+    local pr_number="" title="" body="" body_file=""
 
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
@@ -376,6 +385,10 @@ handle_pr_edit() {
             --body|-b)
                 ((i++))
                 body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
                 ;;
             [0-9]*)
                 if [ -z "$pr_number" ]; then
@@ -389,6 +402,20 @@ handle_pr_edit() {
     if [ -z "$pr_number" ]; then
         echo "ERROR: Missing PR number" >&2
         return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
     fi
 
     # Build JSON payload using Python for proper escaping
@@ -509,9 +536,18 @@ handle_pr_review() {
         return 1
     fi
 
-    # If body_file is specified, read the body from the file
-    if [ -n "$body_file" ] && [ -f "$body_file" ]; then
-        body=$(cat "$body_file")
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
     fi
 
     # Add automated review marker to the body
@@ -661,9 +697,18 @@ handle_issue_comment() {
         return 1
     fi
 
-    # If body_file is specified, read the body from the file
-    if [ -n "$body_file" ] && [ -f "$body_file" ]; then
-        body=$(cat "$body_file")
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
     fi
 
     if [ -z "$body" ]; then
