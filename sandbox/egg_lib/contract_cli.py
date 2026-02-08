@@ -105,6 +105,29 @@ def parse_task_id(task_id: str) -> tuple[int, int]:
         raise ValueError(f"Invalid task ID '{task_id}': expected numeric values") from e
 
 
+def parse_criterion_id(criterion_id: str) -> int:
+    """Parse criterion ID and return criterion_idx.
+
+    Args:
+        criterion_id: Criterion ID in format "ac-N"
+
+    Returns:
+        Criterion index as 0-based
+
+    Raises:
+        ValueError: If criterion ID format is invalid or number is out of range
+    """
+    try:
+        criterion_num = int(criterion_id.lower().replace("ac-", ""))
+        if criterion_num < 1:
+            raise ValueError(f"Criterion number must be >= 1: {criterion_id}")
+        return criterion_num - 1
+    except ValueError as e:
+        if "must be >= 1" in str(e):
+            raise
+        raise ValueError(f"Invalid criterion ID '{criterion_id}': expected format 'ac-N'") from e
+
+
 def parse_phase_id(phase_id: str) -> int:
     """Parse phase ID and return phase_idx.
 
@@ -490,6 +513,47 @@ def format_decision_markdown(decision_id: str, question: str, options: list[dict
     return "\n".join(lines)
 
 
+def cmd_verify_criterion(args: argparse.Namespace) -> int:
+    """Mark an acceptance criterion as verified.
+
+    Note: This operation requires REVIEWER role. Agents running as IMPLEMENTER
+    will receive a role authorization error from the gateway. This command is
+    used by contract verification reviewers to mark criteria as verified.
+    """
+    issue_number = args.issue or get_issue_number()
+    if not issue_number:
+        print("Error: Issue number required", file=sys.stderr)
+        return 1
+
+    try:
+        criterion_idx = parse_criterion_id(args.criterion)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    field_path = f"acceptance_criteria.{criterion_idx}.verified"
+
+    result = make_gateway_request(
+        "/api/v1/contract/mutate",
+        method="POST",
+        data={
+            "issue_number": issue_number,
+            "repo_path": args.repo_path or get_repo_path(),
+            "field_path": field_path,
+            "new_value": True,
+            "actor": "egg",
+            "reason": f"Verified criterion {args.criterion}",
+        },
+    )
+
+    if result.get("success"):
+        print(f"Verified criterion {args.criterion}")
+        return 0
+    else:
+        print(f"Error: {result.get('message')}", file=sys.stderr)
+        return 1
+
+
 def cmd_add_decision(args: argparse.Namespace) -> int:
     """Create a HITL decision point.
 
@@ -638,6 +702,15 @@ def create_parser() -> argparse.ArgumentParser:
         help="Whether phase passed (true/false)",
     )
     mark_phase_parser.set_defaults(func=cmd_mark_phase)
+
+    # verify-criterion command (requires REVIEWER role)
+    verify_criterion_parser = subparsers.add_parser(
+        "verify-criterion", help="Mark acceptance criterion as verified (requires REVIEWER role)"
+    )
+    verify_criterion_parser.add_argument(
+        "--criterion", required=True, help="Criterion ID (e.g., ac-1)"
+    )
+    verify_criterion_parser.set_defaults(func=cmd_verify_criterion)
 
     # add-decision command
     decision_parser = subparsers.add_parser("add-decision", help="Create HITL decision point")
