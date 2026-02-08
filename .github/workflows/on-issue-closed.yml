@@ -118,11 +118,11 @@ jobs:
           set -euo pipefail
 
           # Check if any open PRs exist on this branch
-          OPEN_PRS=$(gh pr list --head "${BRANCH_NAME}" --state open --json number --jq 'length' 2>/dev/null || echo "0")
+          OPEN_PRS=$(gh pr list --repo "${{ github.repository }}" --head "${BRANCH_NAME}" --state open --json number --jq 'length' 2>/dev/null || echo "0")
 
           if [[ "$OPEN_PRS" -gt 0 ]]; then
             echo "has_open_pr=true" >> "$GITHUB_OUTPUT"
-            PR_NUMBERS=$(gh pr list --head "${BRANCH_NAME}" --state open --json number --jq '.[].number' | tr '\n' ',' | sed 's/,$//')
+            PR_NUMBERS=$(gh pr list --repo "${{ github.repository }}" --head "${BRANCH_NAME}" --state open --json number --jq '.[].number' | tr '\n' ',' | sed 's/,$//')
             echo "pr_numbers=${PR_NUMBERS}" >> "$GITHUB_OUTPUT"
             echo "Found ${OPEN_PRS} open PR(s) on branch ${BRANCH_NAME}: ${PR_NUMBERS}"
           else
@@ -217,4 +217,4 @@ jobs:
 
           SUMMARY="${SUMMARY}"$'\n'"--- Authored by egg"
 
-          gh issue comment "${ISSUE_NUMBER}" --body "$SUMMARY"
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$SUMMARY"
