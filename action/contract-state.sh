@@ -12,6 +12,7 @@
 #   load              Load and display contract state
 #   update-after-implement  Update contract after implementation phase
 #   check-review-status    Check review results and determine next action
+#   update-from-pr-review  Update tasks from PR review verdict
 #   increment-cycle   Increment the pipeline cycle counter
 #   get-current-phase Get the current pipeline phase
 #
@@ -374,6 +375,91 @@ cmd_close_circuit_breaker() {
   log_info "Circuit breaker closed by human intervention"
 }
 
+cmd_update_from_pr_review() {
+  local issue="${ISSUE_NUMBER:?ISSUE_NUMBER required}"
+  local verdict="${1:?review verdict required (APPROVED or CHANGES_REQUESTED)}"
+  local contract_path
+  contract_path=$(get_contract_path "$issue")
+
+  ensure_contract_exists "$contract_path"
+
+  local timestamp
+  timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  case "$verdict" in
+    APPROVED)
+      log_info "PR review approved — marking in_progress tasks as complete"
+
+      local updated_contract
+      updated_contract=$(jq --arg ts "$timestamp" '
+        .phases |= map(
+          .tasks |= map(
+            if .status == "in_progress" then
+              .status = "complete"
+            else
+              .
+            end
+          )
+        ) |
+        .audit_log += [{
+          timestamp: $ts,
+          actor: "system",
+          role: "sdlc-review",
+          action: "update",
+          field_path: "tasks.status",
+          old_value: "in_progress",
+          new_value: "complete",
+          reason: "PR review approved"
+        }]
+      ' "$contract_path")
+
+      echo "$updated_contract" > "$contract_path"
+      echo "verdict=approved" >> "${GITHUB_OUTPUT:-/dev/null}"
+      ;;
+
+    CHANGES_REQUESTED)
+      log_info "PR review requested changes — marking in_progress tasks as incomplete"
+
+      local updated_contract
+      updated_contract=$(jq --arg ts "$timestamp" '
+        .phases |= map(
+          .tasks |= map(
+            if .status == "in_progress" then
+              .status = "incomplete"
+            else
+              .
+            end
+          )
+        ) |
+        .circuit_breaker.total_cycles += 1 |
+        .audit_log += [{
+          timestamp: $ts,
+          actor: "system",
+          role: "sdlc-review",
+          action: "update",
+          field_path: "tasks.status",
+          old_value: "in_progress",
+          new_value: "incomplete",
+          reason: "PR review requested changes"
+        }]
+      ' "$contract_path")
+
+      echo "$updated_contract" > "$contract_path"
+
+      local new_cycles
+      new_cycles=$(jq '.circuit_breaker.total_cycles' "$contract_path")
+      log_info "Review cycles incremented to ${new_cycles}"
+      echo "verdict=changes_requested" >> "${GITHUB_OUTPUT:-/dev/null}"
+      echo "cycle_count=${new_cycles}" >> "${GITHUB_OUTPUT:-/dev/null}"
+      ;;
+
+    *)
+      log_error "Unknown verdict: $verdict (expected APPROVED or CHANGES_REQUESTED)"
+      exit 1
+      ;;
+  esac
+}
+
 cmd_summary() {
   local issue="${ISSUE_NUMBER:?ISSUE_NUMBER required}"
   local contract_path
@@ -452,6 +538,9 @@ main() {
     close-circuit-breaker)
       cmd_close_circuit_breaker "$@"
       ;;
+    update-from-pr-review)
+      cmd_update_from_pr_review "$@"
+      ;;
     summary)
       cmd_summary "$@"
       ;;
@@ -468,6 +557,7 @@ main() {
       echo "  check-circuit-breaker   Check circuit breaker status"
       echo "  open-circuit-breaker    Open the circuit breaker"
       echo "  close-circuit-breaker   Close the circuit breaker"
+      echo "  update-from-pr-review <verdict>  Update tasks from PR review verdict (APPROVED/CHANGES_REQUESTED)"
       echo "  summary                 Print contract summary"
       echo ""
       echo "Environment variables:"

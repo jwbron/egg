@@ -26,6 +26,11 @@ on:
         required: false
         type: boolean
         default: false
+      force_review:
+        description: 'Force review even on draft PRs (used by SDLC pipeline)'
+        required: false
+        type: boolean
+        default: false
       pr_title:
         description: 'PR title (for skip-review check)'
         required: false
@@ -64,8 +69,8 @@ jobs:
             exit 0
           fi
 
-          # Skip draft PRs
-          if [[ "${{ inputs.is_draft }}" == "true" ]]; then
+          # Skip draft PRs (unless force_review is set by SDLC pipeline)
+          if [[ "${{ inputs.is_draft }}" == "true" && "${{ inputs.force_review }}" != "true" ]]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
