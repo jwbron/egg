@@ -127,7 +127,7 @@ gh issue view <number>
 
 # Comments
 gh pr comment <number> --body "..."
-gh pr review <number> --comment --body "..."
+gh pr review <number> --comment --body-file /tmp/review-body.md
 ```
 
 ## Configuration
