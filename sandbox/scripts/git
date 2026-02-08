@@ -15,7 +15,7 @@
 
 # Real git binary - relocated to hidden path (used only for gateway fallback testing)
 REAL_GIT=/opt/.egg-internal/git
-GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9847}"
+GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9848}"
 CONTAINER_ID="${CONTAINER_ID:-unknown}"
 # shellcheck disable=SC2034  # available for future path translation
 CONTAINER_REPOS_DIR="${HOME}/repos"

@@ -11,7 +11,7 @@
 #
 
 # Gateway runs as container on egg-network, reachable by container name
-GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9847}"
+GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9848}"
 # Session token for per-container authentication (required)
 EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-}"
 # Worktree container ID - set by egg launcher to translate container paths
