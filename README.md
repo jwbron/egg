@@ -60,8 +60,8 @@ The gateway is the enforcement engine. It sits between the agent sandbox and the
 │   │  │ (domain allowlist)      │  │Proxy │  │ (private mode)          │  │  │
 │   │  └─────────────────────────┘  │      │  └─────────────────────────┘  │  │
 │   │                               │      │                               │  │
-│   │  HAS: GitHub tokens,         │      │  HAS: Workspace files only    │  │
-│   │  Anthropic keys, network     │      │  NO: Credentials, .git/,      │  │
+│   │  HAS: GitHub tokens,          │      │  HAS: Workspace files only    │  │
+│   │  Anthropic keys, network      │      │  NO: Credentials, .git/,      │  │
 │   │                               │      │      direct network (private) │  │
 │   └───────────────────────────────┘      └───────────────────────────────┘  │
 │                                                                             │
