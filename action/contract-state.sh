@@ -11,9 +11,17 @@
 # Commands:
 #   load              Load and display contract state
 #   update-after-implement  Update contract after implementation phase
-#   check-review-status    Check review results and determine next action
 #   increment-cycle   Increment the pipeline cycle counter
 #   get-current-phase Get the current pipeline phase
+#
+# DEPRECATED commands (retained for compatibility, no longer used by pipeline):
+#   check-review-status    Check review results (no longer called by pipeline)
+#   check-circuit-breaker   Check circuit breaker status
+#   open-circuit-breaker    Open the circuit breaker
+#   close-circuit-breaker   Close the circuit breaker
+#
+# Note: Circuit breaker commands are deprecated as of PR #285. The pipeline
+# now relies on PR-based auto-reviews instead of the internal review loop.
 #
 # Environment variables:
 #   ISSUE_NUMBER    — GitHub issue number (required)
@@ -279,6 +287,9 @@ cmd_set_phase() {
   log_info "Phase changed from ${old_phase} to ${new_phase}"
 }
 
+# DEPRECATED: Circuit breaker commands are no longer used by the pipeline as of PR #285.
+# The pipeline now relies on PR-based auto-reviews. These functions are retained for
+# potential future use or manual invocation.
 cmd_check_circuit_breaker() {
   local issue="${ISSUE_NUMBER:?ISSUE_NUMBER required}"
   local contract_path
@@ -461,14 +472,16 @@ main() {
       echo "Commands:"
       echo "  load                    Load and display contract state"
       echo "  update-after-implement  Update contract after implementation phase"
-      echo "  check-review-status     Check review results and determine next action"
       echo "  increment-cycle         Increment the pipeline cycle counter"
       echo "  get-current-phase       Get the current pipeline phase"
       echo "  set-phase <phase>       Set the current pipeline phase"
+      echo "  summary                 Print contract summary"
+      echo ""
+      echo "Deprecated commands (retained for compatibility):"
+      echo "  check-review-status     Check review results (no longer called by pipeline)"
       echo "  check-circuit-breaker   Check circuit breaker status"
       echo "  open-circuit-breaker    Open the circuit breaker"
       echo "  close-circuit-breaker   Close the circuit breaker"
-      echo "  summary                 Print contract summary"
       echo ""
       echo "Environment variables:"
       echo "  ISSUE_NUMBER  — GitHub issue number (required)"

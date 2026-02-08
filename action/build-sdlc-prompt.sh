@@ -9,6 +9,7 @@
 #   EGG_ISSUE_NUMBER   — GitHub issue number
 #   EGG_PIPELINE_PHASE — Current phase (refine, plan, implement, pr)
 #   EGG_BRANCH_NAME    — Current branch name
+#   EGG_PR_NUMBER      — PR number for implement phase feedback (optional)
 #   EGG_REPO_PATH      — Path to repository (optional, defaults to /home/egg/repos/*)
 #
 # Output:
@@ -262,6 +263,8 @@ build_implement_prompt() {
   local contract_summary
   contract_summary=$(get_contract_summary "$issue_number")
 
+  local pr_number="${EGG_PR_NUMBER:-}"
+
   cat <<EOF
 You are in the **implement** phase of the SDLC pipeline.
 
@@ -272,6 +275,15 @@ Issue: #${issue_number} — ${issue_title}
 Issue URL: ${issue_url}
 Phase: implement
 Branch: ${EGG_BRANCH_NAME}
+EOF
+
+  if [[ -n "$pr_number" ]]; then
+    cat <<EOF
+Draft PR: #${pr_number}
+EOF
+  fi
+
+  cat <<EOF
 
 ## Contract State
 
@@ -280,6 +292,21 @@ ${contract_summary}
 ## Issue Description
 
 ${issue_body}
+EOF
+
+  if [[ -n "$pr_number" ]]; then
+    cat <<EOF
+
+## Prior Review Feedback
+
+A draft PR (#${pr_number}) exists for this issue. Check for any existing review comments before coding:
+- \`gh pr view ${pr_number} --comments\` for general comments
+- \`gh api repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/reviews\` for review details
+- If there is prior feedback, address all issues raised by the reviewer
+EOF
+  fi
+
+  cat <<EOF
 
 ## Your Task
 
@@ -304,11 +331,11 @@ In the implement phase:
 - You CAN push code (git push)
 - You CAN link commits to tasks (egg-contract add-commit)
 - You CAN add notes (egg-contract update-notes)
-- You CANNOT create PRs yet (gh pr create)
+- You CANNOT create PRs (the pipeline manages the PR)
 
 ## Quality Checklist
 
-Before advancing to PR phase:
+Before completing this phase:
 - [ ] All tasks have linked commits
 - [ ] Tests pass
 - [ ] Linters pass
@@ -319,7 +346,7 @@ Before advancing to PR phase:
 When implementation is complete:
 1. Ensure all tasks are linked to commits
 2. Push your changes: \`git push origin ${EGG_BRANCH_NAME}\`
-3. Wait for reviewer to mark tasks complete
+3. The pipeline will automatically trigger a review on the draft PR
 EOF
 }
 

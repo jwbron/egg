@@ -48,6 +48,7 @@ jobs:
       branch_name: ${{ steps.setup.outputs.branch_name }}
       current_phase: ${{ steps.setup.outputs.current_phase }}
       contract_exists: ${{ steps.setup.outputs.contract_exists }}
+      pr_number: ${{ steps.draft-pr.outputs.pr_number }}
 
     steps:
       - name: Generate bot token
@@ -207,6 +208,54 @@ jobs:
 
           gh issue comment "${{ steps.setup.outputs.issue_number }}" --body "$BODY"
 
+      - name: Create or find draft PR
+        id: draft-pr
+        if: steps.setup.outputs.current_phase == 'implement' || steps.setup.outputs.current_phase == 'pr'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BRANCH_NAME: ${{ steps.setup.outputs.branch_name }}
+          ISSUE_NUMBER: ${{ steps.setup.outputs.issue_number }}
+          ISSUE_TITLE: ${{ steps.setup.outputs.issue_title }}
+        run: |
+          set -euo pipefail
+
+          # Check for existing open PR on this branch
+          EXISTING_PR=$(gh pr list --head "${BRANCH_NAME}" --state open --json number,state --jq '.[0].number // empty')
+
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "Found existing PR #${EXISTING_PR}"
+            echo "pr_number=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check for merged/closed PRs (edge case)
+          CLOSED_PR=$(gh pr list --head "${BRANCH_NAME}" --state closed --json number,mergedAt --jq '.[0] // empty')
+          if [[ -n "$CLOSED_PR" ]]; then
+            echo "Warning: Found closed/merged PR on this branch. Creating a new draft PR."
+          fi
+
+          # Create a new draft PR
+          PR_BODY="Draft PR for SDLC pipeline implementation."
+          PR_BODY="${PR_BODY}"$'\n\n'"Issue: #${ISSUE_NUMBER}"
+          PR_BODY="${PR_BODY}"$'\n'"Branch: \`${BRANCH_NAME}\`"
+          PR_BODY="${PR_BODY}"$'\n\n'"This PR is managed by the SDLC pipeline. It will be marked ready for review once the implementation passes automated review."
+          PR_BODY="${PR_BODY}"$'\n\n'"Authored-by: egg"
+
+          PR_URL=$(gh pr create \
+            --draft \
+            --title "[SDLC] ${ISSUE_TITLE}" \
+            --body "$PR_BODY" \
+            --base main \
+            --head "${BRANCH_NAME}")
+
+          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "::error::Failed to extract PR number from URL: ${PR_URL}"
+            exit 1
+          fi
+          echo "Created draft PR #${PR_NUMBER}"
+          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+
   # ============================================================
   # Implement: Execute tasks in plan
   # ============================================================
@@ -220,6 +269,7 @@ jobs:
       implementation_complete: ${{ steps.implement.outputs.complete }}
       tasks_completed: ${{ steps.implement.outputs.tasks_completed }}
       checkpointed: ${{ steps.checkpoint.outputs.checkpointed }}
+      head_sha: ${{ steps.capture-sha.outputs.head_sha }}
 
     env:
       BOT_USERNAME: james-in-a-box
@@ -254,6 +304,7 @@ jobs:
           EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
           EGG_PIPELINE_PHASE: implement
           EGG_BRANCH_NAME: ${{ env.BRANCH_NAME }}
+          EGG_PR_NUMBER: ${{ needs.init.outputs.pr_number }}
 
       - name: Checkout issue branch
         uses: actions/checkout@v4
@@ -409,118 +460,35 @@ jobs:
 
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
 
-  # ============================================================
-  # Review: Evaluate implementation against acceptance criteria
-  # ============================================================
-  review:
-    name: Review implementation
-    needs: [init, implement]
-    if: always() && needs.implement.result == 'success'
-    runs-on: ubuntu-latest
-    outputs:
-      review_passed: ${{ steps.review.outputs.passed }}
-      tasks_incomplete: ${{ steps.review.outputs.tasks_incomplete }}
-
-    env:
-      BOT_USERNAME: james-in-a-box
-      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
-      BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
-
-    steps:
-      - name: Generate bot token
-        id: bot-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-
-      - name: Checkout main (trusted)
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          persist-credentials: false
-
-      - name: Save trusted action scripts
-        run: cp -r action "$RUNNER_TEMP/trusted-action"
-
-      - name: Build review prompt
-        id: prompt
-        run: |
-          set -euo pipefail
-          # Build a review-specific prompt
-          cat > /tmp/review-prompt.txt << 'EOF'
-          You are a REVIEWER agent in the SDLC pipeline.
-
-          Your task is to review the implementation completed by the implementer agent.
-          For each task in the contract:
-
-          1. Check if the task has a linked commit
-          2. Review the code changes in that commit
-          3. Verify the implementation meets the acceptance criteria
-          4. Mark the task as complete or incomplete with feedback
-
-          Use the egg-contract CLI to update task statuses:
-          - `egg-contract mark-task --task task-1-1 --status complete` (if meets criteria)
-          - `egg-contract mark-task --task task-1-1 --status incomplete` (if needs work)
-          - `egg-contract update-notes --task task-1-1 --notes "Feedback: ..."` (add feedback)
-
-          Be thorough but fair. Focus on whether the implementation meets the stated
-          acceptance criteria, not on stylistic preferences.
-          EOF
-
-          {
-            echo "prompt<<EOF"
-            cat /tmp/review-prompt.txt
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Checkout issue branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.BRANCH_NAME }}
-          token: ${{ steps.bot-token.outputs.token }}
-
-      - name: Run egg reviewer
-        id: egg
-        uses: jwbron/egg/action@main
-        with:
-          prompt: ${{ steps.prompt.outputs.prompt }}
-          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
-          bot-app-id: ${{ secrets.BOT_APP_ID }}
-          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
-          timeout: "30"
-        env:
-          EGG_AGENT_ROLE: reviewer
-          EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
-
-      - name: Check review results
-        id: review
-        run: bash "$RUNNER_TEMP/trusted-action/contract-state.sh" check-review-status
+      - name: Capture final HEAD SHA
+        id: capture-sha
+        if: always()
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
-          REPO_PATH: ${{ github.workspace }}
+          BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
+        run: |
+          set -euo pipefail
+          # Fetch latest from remote to capture the final SHA after all pushes
+          git fetch origin "${BRANCH_NAME}" --quiet
+          HEAD_SHA=$(git rev-parse "origin/${BRANCH_NAME}")
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Captured final HEAD SHA: ${HEAD_SHA}"
 
   # ============================================================
-  # Loop: Repeat implement->review if needed
+  # Wait for checks: Wait for ALL check runs (CI + reviews) to complete
   # ============================================================
-  loop:
-    name: Check loop condition
-    needs: [init, implement, review]
-    if: always() && needs.review.result == 'success'
+  wait-for-checks:
+    name: Wait for all checks
+    needs: [init, implement]
+    if: always() && needs.implement.result == 'success' && needs.init.outputs.pr_number != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     outputs:
-      should_continue: ${{ steps.check.outputs.should_continue }}
-      next_action: ${{ steps.check.outputs.next_action }}
-      cycle_count: ${{ steps.check.outputs.cycle_count }}
+      all_passed: ${{ steps.wait.outputs.passed }}
+      timed_out: ${{ steps.wait.outputs.timed_out }}
 
     env:
-      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
-      BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
-      REVIEW_PASSED: ${{ needs.review.outputs.review_passed }}
-      TASKS_INCOMPLETE: ${{ needs.review.outputs.tasks_incomplete }}
+      PR_NUMBER: ${{ needs.init.outputs.pr_number }}
 
     steps:
       - name: Generate bot token
@@ -530,241 +498,117 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-      - name: Checkout issue branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.BRANCH_NAME }}
-          token: ${{ steps.bot-token.outputs.token }}
-
-      - name: Configure git identity
+      - name: Wait for all check runs to complete
+        id: wait
         env:
-          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
-        run: |
-          git config user.name "james-in-a-box[bot]"
-          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
-
-      - name: Check loop condition
-        id: check
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           set -euo pipefail
-          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
-          if [[ ! -f "$CONTRACT_PATH" ]]; then
-            echo "Contract not found"
-            echo "should_continue=false" >> "$GITHUB_OUTPUT"
-            echo "next_action=error" >> "$GITHUB_OUTPUT"
+          # Validate PR_NUMBER (defensive check - job condition should prevent this)
+          if [[ -z "$PR_NUMBER" || ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::PR_NUMBER is empty or invalid: '${PR_NUMBER}'"
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "timed_out=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # Get circuit breaker state
-          TOTAL_CYCLES=$(jq -r '.circuit_breaker.total_cycles' "$CONTRACT_PATH")
-          MAX_CYCLES=$(jq -r '.circuit_breaker.max_total_cycles' "$CONTRACT_PATH")
-          CB_STATUS=$(jq -r '.circuit_breaker.status' "$CONTRACT_PATH")
-
-          # Validate numeric values (issue #6)
-          TOTAL_CYCLES=${TOTAL_CYCLES:-0}
-          MAX_CYCLES=${MAX_CYCLES:-10}
-          if ! [[ "$TOTAL_CYCLES" =~ ^[0-9]+$ ]]; then
-            echo "Warning: TOTAL_CYCLES is not numeric, defaulting to 0"
-            TOTAL_CYCLES=0
+          # Use the final HEAD SHA captured after implementation completes,
+          # rather than fetching via API, to avoid race conditions where new
+          # commits push a different SHA between poll iterations
+          HEAD_SHA="${{ needs.implement.outputs.head_sha }}"
+          if [[ -z "$HEAD_SHA" ]]; then
+            # Fallback: fetch from API if implement didn't produce a SHA
+            HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
+            echo "::warning::Using HEAD SHA from API (implement job did not output head_sha)"
           fi
-          if ! [[ "$MAX_CYCLES" =~ ^[0-9]+$ ]]; then
-            echo "Warning: MAX_CYCLES is not numeric, defaulting to 10"
-            MAX_CYCLES=10
-          fi
+          echo "Waiting for checks on commit: ${HEAD_SHA}"
 
-          echo "cycle_count=${TOTAL_CYCLES}" >> "$GITHUB_OUTPUT"
+          # Wait for all check runs to complete (CI, reviews, etc.)
+          # Excludes this workflow's own checks to avoid self-deadlock
+          SELF_WORKFLOW="egg: SDLC Pipeline"
 
-          # Check if circuit breaker is open
-          if [[ "$CB_STATUS" == "open" ]]; then
-            echo "Circuit breaker is OPEN - human intervention required"
-            echo "should_continue=false" >> "$GITHUB_OUTPUT"
-            echo "next_action=escalate" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          # Maximum wait time (30 minutes — reviews can take a while)
+          MAX_WAIT_SECONDS=1800
+          POLL_INTERVAL=30
+          start_time=$(date +%s)
+          zero_checks_iterations=0
+          # After 10 minutes with no checks, assume none are configured and pass
+          MAX_ZERO_CHECKS_ITERATIONS=20
 
-          # Check if review passed
-          if [[ "$REVIEW_PASSED" == "true" ]]; then
-            echo "Review passed - advancing to PR phase"
-            echo "should_continue=true" >> "$GITHUB_OUTPUT"
-            echo "next_action=pr" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Check if max cycles exceeded
-          if [[ "$TOTAL_CYCLES" -ge "$MAX_CYCLES" ]]; then
-            echo "Max cycles ($MAX_CYCLES) exceeded - triggering escalation"
-            echo "should_continue=false" >> "$GITHUB_OUTPUT"
-            echo "next_action=escalate" >> "$GITHUB_OUTPUT"
-
-            # Update circuit breaker status
-            jq '.circuit_breaker.status = "open"' "$CONTRACT_PATH" > /tmp/contract.json
-            mv /tmp/contract.json "$CONTRACT_PATH"
-            git add "$CONTRACT_PATH"
-            git commit -m "Open circuit breaker after ${TOTAL_CYCLES} cycles"
-
-            # Retry push with rebase on conflict
-            MAX_RETRIES=3
-            for i in $(seq 1 $MAX_RETRIES); do
-              if git push origin "${BRANCH_NAME}"; then
-                echo "Push succeeded"
-                break
-              elif [[ $i -eq $MAX_RETRIES ]]; then
-                echo "Push failed after $MAX_RETRIES attempts"
-                exit 1
-              else
-                echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
-                git pull --rebase origin "${BRANCH_NAME}" || {
-                  echo "Rebase failed, cannot resolve conflict automatically"
-                  exit 1
-                }
-              fi
-            done
-            exit 0
-          fi
-
-          # Continue with another implement cycle
-          echo "Review found incomplete tasks - continuing implementation"
-          echo "should_continue=true" >> "$GITHUB_OUTPUT"
-          echo "next_action=implement" >> "$GITHUB_OUTPUT"
-
-          # Increment cycle count
-          NEW_CYCLES=$((TOTAL_CYCLES + 1))
-          jq ".circuit_breaker.total_cycles = ${NEW_CYCLES}" "$CONTRACT_PATH" > /tmp/contract.json
-          mv /tmp/contract.json "$CONTRACT_PATH"
-          git add "$CONTRACT_PATH"
-          git commit -m "Increment pipeline cycle to ${NEW_CYCLES}"
-
-          # Retry push with rebase on conflict
-          MAX_RETRIES=3
-          for i in $(seq 1 $MAX_RETRIES); do
-            if git push origin "${BRANCH_NAME}"; then
-              echo "Push succeeded"
+          while true; do
+            # Use wall-clock elapsed time (accounts for API latency, not just sleep)
+            elapsed=$(( $(date +%s) - start_time ))
+            if [[ $elapsed -ge $MAX_WAIT_SECONDS ]]; then
               break
-            elif [[ $i -eq $MAX_RETRIES ]]; then
-              echo "Push failed after $MAX_RETRIES attempts"
-              exit 1
-            else
-              echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
-              git pull --rebase origin "${BRANCH_NAME}" || {
-                echo "Rebase failed, cannot resolve conflict automatically"
-                exit 1
-              }
             fi
+            # Get all check runs for this commit
+            check_runs=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
+              --jq '.check_runs | map({name: .name, status: .status, conclusion: .conclusion})')
+
+            # Filter out our own workflow's checks
+            external_checks=$(echo "$check_runs" | jq --arg self "$SELF_WORKFLOW" \
+              '[.[] | select(.name | startswith($self) | not)]')
+
+            total=$(echo "$external_checks" | jq 'length')
+            completed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed")] | length')
+            failed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")] | length')
+            pending=$(echo "$external_checks" | jq -r '[.[] | select(.status != "completed")] | map(.name) | join(", ")')
+
+            echo "Checks: ${completed}/${total} completed, ${failed} failed"
+
+            if [[ "$total" -eq 0 ]]; then
+              zero_checks_iterations=$((zero_checks_iterations + 1))
+              if [[ $zero_checks_iterations -ge $MAX_ZERO_CHECKS_ITERATIONS ]]; then
+                echo "No external checks found after ${zero_checks_iterations} iterations — assuming none are configured"
+                echo "passed=true" >> "$GITHUB_OUTPUT"
+                echo "timed_out=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "No external checks found yet (attempt ${zero_checks_iterations}/${MAX_ZERO_CHECKS_ITERATIONS})"
+              sleep $POLL_INTERVAL
+              continue
+            fi
+            # Reset counter once checks appear
+            zero_checks_iterations=0
+
+            # All checks completed
+            if [[ "$completed" -eq "$total" ]]; then
+              if [[ "$failed" -gt 0 ]]; then
+                echo "::error::${failed} check(s) failed"
+                echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | "  FAILED: \(.name) (\(.conclusion))"'
+                echo "passed=false" >> "$GITHUB_OUTPUT"
+                echo "timed_out=false" >> "$GITHUB_OUTPUT"
+              else
+                echo "All ${total} checks passed"
+                echo "passed=true" >> "$GITHUB_OUTPUT"
+                echo "timed_out=false" >> "$GITHUB_OUTPUT"
+              fi
+              exit 0
+            fi
+
+            echo "Waiting for: ${pending}"
+            sleep $POLL_INTERVAL
           done
 
-      - name: Post loop status
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          NEXT_ACTION: ${{ steps.check.outputs.next_action }}
-          CYCLE_COUNT: ${{ steps.check.outputs.cycle_count }}
-        run: |
-          set -euo pipefail
-          case "$NEXT_ACTION" in
-            pr)
-              BODY="All tasks verified by reviewer. Advancing to PR phase.
-
-          --- Authored by egg"
-              ;;
-            implement)
-              BODY="Review cycle ${CYCLE_COUNT} complete. Some tasks need additional work.
-          Continuing implementation...
-
-          --- Authored by egg"
-              ;;
-            escalate)
-              BODY="**SDLC Pipeline Escalation Required**
-
-          The pipeline has reached its cycle limit or encountered a blocking issue.
-          Human intervention is required to proceed.
-
-          **Cycle count:** ${CYCLE_COUNT}
-          **Status:** Circuit breaker OPEN
-
-          Please review the contract state and incomplete tasks, then provide guidance.
-
-          --- Authored by egg"
-              gh issue edit "${ISSUE_NUMBER}" --add-label "needs-human-intervention" 2>/dev/null || true
-              ;;
-            *)
-              BODY="Pipeline check complete.
-
-          --- Authored by egg"
-              ;;
-          esac
-
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
-
-      # Re-dispatch is required because GitHub Actions job conditions are
-      # evaluated at workflow start. After implement→review→loop, we can't
-      # dynamically add another implement job to the current run.
-      - name: Re-dispatch pipeline for next cycle
-        if: steps.check.outputs.next_action == 'implement'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if ! gh workflow run sdlc-pipeline.yml \
-            --field issue_number="${ISSUE_NUMBER}"; then
-            echo "::error::Failed to re-dispatch pipeline for implement cycle"
-            exit 1
-          fi
+          echo "::warning::Timeout waiting for checks after ${MAX_WAIT_SECONDS} seconds"
+          echo "passed=false" >> "$GITHUB_OUTPUT"
+          echo "timed_out=true" >> "$GITHUB_OUTPUT"
 
   # ============================================================
-  # Escalate: Handle circuit breaker escalation
+  # Finalize PR: Mark draft PR ready for human review
   # ============================================================
-  escalate:
-    name: Escalate to human
-    needs: [init, loop]
-    if: always() && needs.loop.outputs.next_action == 'escalate'
+  finalize-pr:
+    name: Finalize pull request
+    needs: [init, implement, wait-for-checks]
+    if: always() && needs.wait-for-checks.outputs.all_passed == 'true' && needs.init.outputs.pr_number != ''
     runs-on: ubuntu-latest
 
     env:
-      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
-      BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
-
-    steps:
-      - name: Generate bot token
-        id: bot-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-
-      - name: Checkout main (trusted)
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          persist-credentials: false
-
-      - name: Save trusted action scripts
-        run: cp -r action "$RUNNER_TEMP/trusted-action"
-
-      - name: Checkout issue branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.BRANCH_NAME }}
-          token: ${{ steps.bot-token.outputs.token }}
-
-      - name: Run escalation
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-        run: bash "$RUNNER_TEMP/trusted-action/escalate.sh" "${ISSUE_NUMBER}" "${{ github.workspace }}"
-
-  # ============================================================
-  # PR: Create pull request
-  # ============================================================
-  create-pr:
-    name: Create pull request
-    needs: [init, loop]
-    if: always() && needs.loop.outputs.next_action == 'pr'
-    runs-on: ubuntu-latest
-
-    env:
-      BOT_USERNAME: james-in-a-box
       ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
       ISSUE_TITLE: ${{ needs.init.outputs.issue_title }}
       BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
+      PR_NUMBER: ${{ needs.init.outputs.pr_number }}
 
     steps:
       - name: Generate bot token
@@ -773,22 +617,6 @@ jobs:
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-
-      - name: Checkout main (trusted)
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          persist-credentials: false
-
-      - name: Build PR prompt
-        id: prompt
-        run: bash action/build-sdlc-prompt.sh
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
-          EGG_PIPELINE_PHASE: pr
-          EGG_BRANCH_NAME: ${{ env.BRANCH_NAME }}
 
       - name: Checkout issue branch
         uses: actions/checkout@v4
@@ -803,20 +631,30 @@ jobs:
           git config user.name "james-in-a-box[bot]"
           git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
 
-      - name: Run egg to create PR
-        id: egg
-        uses: jwbron/egg/action@main
-        with:
-          prompt: ${{ steps.prompt.outputs.prompt }}
-          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
-          bot-app-id: ${{ secrets.BOT_APP_ID }}
-          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
-          timeout: "15"
+      - name: Update PR title and mark ready
         env:
-          EGG_AGENT_ROLE: implementer
-          EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Set PR title to the original issue title (without the [SDLC] prefix
+          # that was added when the draft PR was created)
+          CLEAN_TITLE="${ISSUE_TITLE}"
+          gh pr edit "${PR_NUMBER}" --title "${CLEAN_TITLE}"
+
+          # Update PR body with final details
+          FINAL_BODY="## Summary"
+          FINAL_BODY="${FINAL_BODY}"$'\n\n'"Implementation for issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}"
+          FINAL_BODY="${FINAL_BODY}"$'\n\n'"This PR was developed through the SDLC pipeline with automated checks."
+          FINAL_BODY="${FINAL_BODY}"$'\n\n'"Issue: ${{ github.server_url }}/${{ github.repository }}/issues/${ISSUE_NUMBER}"
+          FINAL_BODY="${FINAL_BODY}"$'\n\n'"Authored-by: egg"
+
+          gh pr edit "${PR_NUMBER}" --body "$FINAL_BODY"
+
+          # Mark draft as ready for review
+          gh pr ready "${PR_NUMBER}"
+
+          echo "PR #${PR_NUMBER} marked ready for human review"
 
       - name: Update contract phase
         env:
@@ -830,7 +668,6 @@ jobs:
             git add "$CONTRACT_PATH"
             git commit -m "Advance to PR phase for issue #${ISSUE_NUMBER}"
 
-            # Retry push with rebase on conflict
             MAX_RETRIES=3
             for i in $(seq 1 $MAX_RETRIES); do
               if git push origin "${BRANCH_NAME}"; then
@@ -852,17 +689,60 @@ jobs:
       - name: Post completion comment
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          PR_URL: ${{ steps.egg.outputs.pr-url }}
         run: |
           set -euo pipefail
-          if [[ -n "$PR_URL" ]]; then
-            BODY="Pull request created: ${PR_URL}
+          PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
+          BODY="Pull request ready for review: ${PR_URL}
 
-          The implementation is ready for human review and merge.
+          All automated checks passed. The PR is ready for human review and merge.
+
+          --- Authored by egg"
+
+          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+
+  # ============================================================
+  # Checks failed: Post comment when checks don't all pass
+  # ============================================================
+  checks-failed:
+    name: Checks failed
+    needs: [init, implement, wait-for-checks]
+    if: always() && needs.wait-for-checks.result == 'success' && needs.wait-for-checks.outputs.all_passed != 'true' && needs.init.outputs.pr_number != ''
+    runs-on: ubuntu-latest
+
+    env:
+      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
+      PR_NUMBER: ${{ needs.init.outputs.pr_number }}
+      TIMED_OUT: ${{ needs.wait-for-checks.outputs.timed_out }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Post checks failure comment
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
+
+          if [[ "$TIMED_OUT" == "true" ]]; then
+            BODY="**Checks timed out** while waiting for all check runs to complete.
+
+          This may indicate workflows are queued or running slowly. Please check the PR for status: ${PR_URL}
+
+          The PR remains as a draft. Re-run the pipeline to retry.
 
           --- Authored by egg"
           else
-            BODY="PR phase completed. Please check the repository for the pull request.
+            BODY="**Checks failed** on draft PR #${PR_NUMBER}.
+
+          Please review the failing checks: ${PR_URL}
+
+          The PR remains as a draft. Fix the issues and re-run the pipeline.
 
           --- Authored by egg"
           fi

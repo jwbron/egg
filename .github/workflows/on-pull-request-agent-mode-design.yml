@@ -28,7 +28,6 @@ jobs:
       bot_name: agent-mode-design
       prompt_script: action/build-agent-mode-design-review-prompt.sh
       timeout: "10"
-      is_draft: ${{ github.event.pull_request.draft || false }}
       pr_title: ${{ github.event.pull_request.title || '' }}
       event_name: ${{ github.event_name }}
     secrets:

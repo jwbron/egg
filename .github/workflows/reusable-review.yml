@@ -21,11 +21,6 @@ on:
         required: false
         type: string
         default: "10"
-      is_draft:
-        description: 'Whether the PR is a draft'
-        required: false
-        type: boolean
-        default: false
       pr_title:
         description: 'PR title (for skip-review check)'
         required: false
@@ -61,12 +56,6 @@ jobs:
           # For workflow_dispatch, always run
           if [[ "${{ inputs.event_name }}" == "workflow_dispatch" ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Skip draft PRs
-          if [[ "${{ inputs.is_draft }}" == "true" ]]; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -116,7 +105,7 @@ jobs:
 
       # Capture last bot review info before dismissing (for re-review context)
       # The gh wrapper adds a marker to all automated reviews:
-      #   <!-- egg-automated-review bot=<name> commit=<sha> -->
+      #   <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
       # We search for this marker in reviews and comments to find the last review.
       - name: Find last bot review commit for re-review context
         id: last-review
@@ -124,8 +113,12 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           # Regex to extract commit SHA from the automated review marker
-          # Format: <!-- egg-automated-review bot=<name> commit=<sha> -->
-          marker_regex='<!-- egg-automated-review bot=${{ inputs.bot_name }} commit=([a-f0-9]+) -->'
+          # Format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
+          # The verdict field is optional for backwards compatibility with old markers
+          # Escape regex metacharacters in bot_name to prevent pattern breakage
+          # shellcheck disable=SC2016
+          escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[.[\*^$()+?{|\\]/\\&/g')
+          marker_regex="<!-- egg-automated-review bot=${escaped_bot_name} commit=([a-f0-9]+)( verdict=([a-z-]+))? -->"
 
           # Check reviews from the Reviews API for the marker
           # The marker is in the review body
