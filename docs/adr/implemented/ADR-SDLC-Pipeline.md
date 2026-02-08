@@ -161,6 +161,7 @@ The contract is a JSON document that tracks the complete state of an issue throu
     "status": "closed",
     "total_cycles": 3
   },
+  "workflow_owner": "jwbron",
   "audit_log": [...]
 }
 ```
