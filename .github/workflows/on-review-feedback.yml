@@ -162,8 +162,12 @@ jobs:
           # and proceed. The concurrency group (cancel-in-progress: true) mitigates
           # this for most cases, but a brief window remains. This is acceptable since
           # the worst case is one extra round, and the human notification still fires.
+          #
+          # Uses --paginate to handle PRs with >30 comments. The --slurp combines
+          # paginated results into a nested array, hence the .[][] in jq.
           feedback_count=$(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq '[.[] | select(.body | test("egg-feedback-addressing"))] | length' 2>/dev/null || echo "0")
+            --paginate --slurp \
+            --jq '[.[][] | select(.body | test("egg-feedback-addressing"))] | length' 2>/dev/null || echo "0")
 
           echo "Found $feedback_count previous feedback-addressing run(s)"
 
@@ -225,8 +229,28 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Default feedback rules (from trusted main branch only — no user-controlled content)
-          feedback_rules='## Feedback Rules
+          prompt_file="${RUNNER_TEMP}/feedback-prompt-${PR_NUMBER}.txt"
+
+          # Build prompt directly with variable expansion (no sed substitution needed)
+          cat > "$prompt_file" << PROMPT_EOF
+          Address review feedback on PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
+
+          ## Your Task
+
+          Review feedback was just posted on this PR. Read the feedback, understand the issues
+          raised, make the necessary code changes, and push your fixes.
+
+          1. **Read the feedback**:
+             - Issue-level comments: \`gh pr view ${PR_NUMBER} --comments\`
+             - Formal reviews: \`gh api repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews --jq '.[] | {user: .user.login, state: .state, body: .body}'\`
+             - Line-level review comments: \`gh api repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments --jq '.[] | {path: .path, line: .line, body: .body}'\`
+          2. **Understand the current code**: Use \`gh pr diff ${PR_NUMBER}\` to see the PR changes.
+          3. **Make fixes**: Address each piece of actionable feedback.
+          4. **Verify**: Run tests and linters locally before pushing (\`make lint\`, \`make test\`).
+          5. **Push**: Commit and push all fixes together.
+          6. **Reply**: If you disagree with any feedback or cannot address it, reply to the specific review comment explaining your reasoning.
+
+          ## Feedback Rules
 
           Address all actionable review feedback:
 
@@ -237,39 +261,13 @@ jobs:
           reasoning instead of making the change. Be respectful but firm.
 
           **Skip**: Pure style suggestions that linters handle, subjective preferences without
-          technical justification.'
-
-          prompt_file="${RUNNER_TEMP}/feedback-prompt-${PR_NUMBER}.txt"
-          cat > "$prompt_file" << 'PROMPT_EOF'
-          Address review feedback on PR #__PR_NUMBER__ in __GITHUB_REPOSITORY__.
-
-          ## Your Task
-
-          Review feedback was just posted on this PR. Read the feedback, understand the issues
-          raised, make the necessary code changes, and push your fixes.
-
-          1. **Read the feedback**:
-             - Issue-level comments: `gh pr view __PR_NUMBER__ --comments`
-             - Formal reviews: `gh api repos/__GITHUB_REPOSITORY__/pulls/__PR_NUMBER__/reviews --jq '.[] | {user: .user.login, state: .state, body: .body}'`
-             - Line-level review comments: `gh api repos/__GITHUB_REPOSITORY__/pulls/__PR_NUMBER__/comments --jq '.[] | {path: .path, line: .line, body: .body}'`
-          2. **Understand the current code**: Use `gh pr diff __PR_NUMBER__` to see the PR changes.
-          3. **Make fixes**: Address each piece of actionable feedback.
-          4. **Verify**: Run tests and linters locally before pushing (`make lint`, `make test`).
-          5. **Push**: Commit and push all fixes together.
-          6. **Reply**: If you disagree with any feedback or cannot address it, reply to the specific review comment explaining your reasoning.
-
-          __FEEDBACK_RULES__
+          technical justification.
 
           ## Conventions
 
           Use git commit and git push to push fixes. If you need to respond to review feedback,
-          use `gh pr comment` or reply inline. Sign any comments with: — Authored by egg
+          use \`gh pr comment\` or reply inline. Sign any comments with: — Authored by egg
           PROMPT_EOF
-
-          # Substitute placeholders (sed is safe here since we control both the template and values)
-          sed -i "s|__PR_NUMBER__|${PR_NUMBER}|g" "$prompt_file"
-          sed -i "s|__GITHUB_REPOSITORY__|${GITHUB_REPOSITORY}|g" "$prompt_file"
-          sed -i "s|__FEEDBACK_RULES__|${feedback_rules}|g" "$prompt_file"
 
           {
             echo "prompt-file=${prompt_file}"
@@ -311,8 +309,10 @@ jobs:
 
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
             BODY="egg feedback addressed. [View run logs](${RUN_URL})"
-          else
+          elif [[ "${{ steps.egg.outcome }}" == "failure" ]]; then
             BODY="egg failed to address feedback. [View run logs](${RUN_URL})"
+          else
+            BODY="Workflow failed before running egg. [View run logs](${RUN_URL})"
           fi
 
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
