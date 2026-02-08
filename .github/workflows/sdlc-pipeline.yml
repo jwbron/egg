@@ -528,7 +528,7 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-      - name: Wait for all check runs to complete
+      - name: Wait for all check runs to pass
         id: wait
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -543,35 +543,41 @@ jobs:
             exit 0
           fi
 
-          # Use the final HEAD SHA captured after implementation completes,
-          # rather than fetching via API, to avoid race conditions where new
-          # commits push a different SHA between poll iterations
-          HEAD_SHA="${{ needs.implement.outputs.head_sha }}"
-          if [[ -z "$HEAD_SHA" ]]; then
-            # Fallback: fetch from API if implement didn't produce a SHA
-            HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
-            echo "::warning::Using HEAD SHA from API (implement job did not output head_sha)"
-          fi
-          echo "Waiting for checks on commit: ${HEAD_SHA}"
-
-          # Wait for all check runs to complete (CI, reviews, etc.)
           # Excludes this workflow's own checks to avoid self-deadlock
           SELF_WORKFLOW="egg: SDLC Pipeline"
 
-          # Maximum wait time (30 minutes — reviews can take a while)
+          # Maximum wait time (30 minutes)
           MAX_WAIT_SECONDS=1800
           POLL_INTERVAL=30
           start_time=$(date +%s)
+          prev_sha=""
           zero_checks_iterations=0
           # After 10 minutes with no checks, assume none are configured and pass
           MAX_ZERO_CHECKS_ITERATIONS=20
 
           while true; do
-            # Use wall-clock elapsed time (accounts for API latency, not just sleep)
             elapsed=$(( $(date +%s) - start_time ))
             if [[ $elapsed -ge $MAX_WAIT_SECONDS ]]; then
-              break
+              echo "::warning::Timeout waiting for checks after ${MAX_WAIT_SECONDS} seconds"
+              echo "passed=false" >> "$GITHUB_OUTPUT"
+              echo "timed_out=true" >> "$GITHUB_OUTPUT"
+              exit 0
             fi
+
+            # Fetch current HEAD SHA of the PR on each iteration.
+            # Autofix workflows may push new commits, changing the HEAD.
+            HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
+
+            if [[ "$HEAD_SHA" != "$prev_sha" ]]; then
+              if [[ -n "$prev_sha" ]]; then
+                echo "HEAD SHA changed: ${prev_sha:0:7} -> ${HEAD_SHA:0:7} (new commit detected)"
+              else
+                echo "Watching checks on commit: ${HEAD_SHA:0:7}"
+              fi
+              prev_sha="$HEAD_SHA"
+              zero_checks_iterations=0
+            fi
+
             # Get all check runs for this commit
             check_runs=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
               --jq '.check_runs | map({name: .name, status: .status, conclusion: .conclusion})')
@@ -585,7 +591,7 @@ jobs:
             failed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")] | length')
             pending=$(echo "$external_checks" | jq -r '[.[] | select(.status != "completed")] | map(.name) | join(", ")')
 
-            echo "Checks: ${completed}/${total} completed, ${failed} failed"
+            echo "Checks: ${completed}/${total} completed, ${failed} failed (elapsed: ${elapsed}s)"
 
             if [[ "$total" -eq 0 ]]; then
               zero_checks_iterations=$((zero_checks_iterations + 1))
@@ -599,31 +605,26 @@ jobs:
               sleep $POLL_INTERVAL
               continue
             fi
-            # Reset counter once checks appear
             zero_checks_iterations=0
 
-            # All checks completed
-            if [[ "$completed" -eq "$total" ]]; then
-              if [[ "$failed" -gt 0 ]]; then
-                echo "::error::${failed} check(s) failed"
-                echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | "  FAILED: \(.name) (\(.conclusion))"'
-                echo "passed=false" >> "$GITHUB_OUTPUT"
-                echo "timed_out=false" >> "$GITHUB_OUTPUT"
-              else
-                echo "All ${total} checks passed"
-                echo "passed=true" >> "$GITHUB_OUTPUT"
-                echo "timed_out=false" >> "$GITHUB_OUTPUT"
-              fi
+            # All checks completed and all passed — success
+            if [[ "$completed" -eq "$total" && "$failed" -eq 0 ]]; then
+              echo "All ${total} checks passed"
+              echo "passed=true" >> "$GITHUB_OUTPUT"
+              echo "timed_out=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
 
-            echo "Waiting for: ${pending}"
+            # All checks completed but some failed — keep waiting, autofix may push a new commit
+            if [[ "$completed" -eq "$total" && "$failed" -gt 0 ]]; then
+              echo "Checks completed with ${failed} failure(s) — waiting for autofix..."
+              echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | "  FAILED: \(.name) (\(.conclusion))"'
+            else
+              echo "Waiting for: ${pending}"
+            fi
+
             sleep $POLL_INTERVAL
           done
-
-          echo "::warning::Timeout waiting for checks after ${MAX_WAIT_SECONDS} seconds"
-          echo "passed=false" >> "$GITHUB_OUTPUT"
-          echo "timed_out=true" >> "$GITHUB_OUTPUT"
 
   # ============================================================
   # Finalize PR: Mark draft PR ready for human review
