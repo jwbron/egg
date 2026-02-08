@@ -72,10 +72,28 @@ def get_issue_comments(repo: str, issue_number: str, token: str) -> list[str]:
 
 
 def find_plan_comment(comments: list[str]) -> str | None:
-    """Find the plan document comment by looking for task markers."""
+    """Find the plan document comment by looking for task markers.
+
+    Detection priority:
+    1. yaml-tasks code fence (structured, preferred)
+    2. YAML front matter with tasks key
+    3. Legacy markdown format with [TASK-...] markers
+
+    Returns the most recent matching comment.
+    """
     for comment in reversed(comments):
+        # Priority 1: yaml-tasks code fence (Option C structured appendix)
+        if "# yaml-tasks" in comment and ("```yaml" in comment or "```yml" in comment):
+            return comment
+
+        # Priority 2: YAML front matter
+        if comment.strip().startswith("---") and "tasks:" in comment:
+            return comment
+
+        # Priority 3: Legacy markdown format
         if "[TASK-" in comment and ("## Phase" in comment or "Phase 1:" in comment):
             return comment
+
     return None
 
 

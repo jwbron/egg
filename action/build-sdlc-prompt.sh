@@ -212,18 +212,45 @@ Create a detailed implementation plan. Your goal is to:
 4. Identify test strategy
 5. Consider rollback and risks
 
-## Task ID Format
+## Task Format (Two-Pass Approach)
 
-Tasks MUST be marked with explicit IDs using this format:
-- \`[TASK-{phase}-{number}]\` — e.g., \`[TASK-1-1]\`, \`[TASK-2-3]\`
+Your plan has two parts:
+1. **Human-readable prose**: Markdown sections with phase goals, tasks, and context
+2. **Machine-readable appendix**: A YAML code block at the end for reliable extraction
 
-Example:
+### Prose Format (for humans)
+
+In the markdown sections, use this format for tasks:
 \`\`\`
 - [TASK-1-1] Create contract JSON schema — Acceptance: schema validates sample contracts
 - [TASK-1-2] Add Pydantic models — Acceptance: models match schema, unit tests pass
 \`\`\`
 
-These IDs will be extracted into the contract for tracking.
+### Structured Appendix (for machines)
+
+At the end of your plan, include a YAML code block with the \`# yaml-tasks\` marker:
+
+\`\`\`yaml
+# yaml-tasks
+phases:
+  - id: 1
+    name: Setup
+    goal: Initialize the project structure
+    tasks:
+      - id: TASK-1-1
+        description: Create contract JSON schema
+        acceptance: Schema validates sample contracts
+        files:
+          - .egg/schemas/contract.schema.json
+      - id: TASK-1-2
+        description: Add Pydantic models
+        acceptance: Models match schema, unit tests pass
+        files:
+          - shared/egg_contracts/models.py
+\`\`\`
+
+**CRITICAL**: The YAML appendix must accurately reflect the tasks in your prose.
+This structured format is extracted into the contract for tracking.
 
 ## Output Format
 
