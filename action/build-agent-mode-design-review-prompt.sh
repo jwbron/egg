@@ -71,12 +71,24 @@ Flag these **clear** anti-patterns:
 
 ## Posting Your Review
 
-Use \`gh pr review ${PR_NUMBER}\`:
+Write your review to a temp file, then post with \`--body-file\`:
+
+\`\`\`bash
+cat > /tmp/review-body.md << 'REVIEW_EOF'
+Your review here...
+
+— Authored by egg
+REVIEW_EOF
+
+gh pr review ${PR_NUMBER} --approve --body-file /tmp/review-body.md
+\`\`\`
+
+Use the appropriate flag:
 - \`--approve\`: Design aligns well with agent-mode principles (or no concerns)
 - \`--request-changes\`: Clear anti-patterns that significantly harm agent flexibility
 - \`--comment\`: Advisory suggestions (use sparingly for genuinely helpful improvements)
 
-Sign with: — Authored by egg
+Do NOT use \`--body\` with inline content — use \`--body-file\` to avoid shell escaping failures.
 "
     else
         prompt="**Specialized review**: Check PR #${PR_NUMBER} in ${GITHUB_REPOSITORY} for agent-mode design alignment.
@@ -116,12 +128,24 @@ Flag these **clear** anti-patterns:
 
 ## Posting Your Review
 
-Use \`gh pr review ${PR_NUMBER}\`:
+Write your review to a temp file, then post with \`--body-file\`:
+
+\`\`\`bash
+cat > /tmp/review-body.md << 'REVIEW_EOF'
+Your review here...
+
+— Authored by egg
+REVIEW_EOF
+
+gh pr review ${PR_NUMBER} --approve --body-file /tmp/review-body.md
+\`\`\`
+
+Use the appropriate flag:
 - \`--approve\`: Design aligns well with agent-mode principles (or no concerns)
 - \`--request-changes\`: Clear anti-patterns that significantly harm agent flexibility
 - \`--comment\`: Advisory suggestions (use sparingly for genuinely helpful improvements)
 
-Sign with: — Authored by egg
+Do NOT use \`--body\` with inline content — use \`--body-file\` to avoid shell escaping failures.
 "
     fi
 

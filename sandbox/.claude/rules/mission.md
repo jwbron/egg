@@ -77,8 +77,16 @@ git branch --show-current && git log --oneline -3
 
 **Reply INLINE to each comment** (not general comments). Use `gh`:
 ```bash
-gh pr review <PR> --comment --body "Response to review comments"
+cat > /tmp/review-response.md << 'REVIEW_EOF'
+Response to review comments
+
+— Authored by egg
+REVIEW_EOF
+
+gh pr review <PR> --comment --body-file /tmp/review-response.md
 ```
+
+Do NOT use `--body` with inline content — use `--body-file` to avoid shell escaping failures.
 
 **Response format**: `**Agreed.** [what changed]` | `**Disagree.** [reasoning]`
 

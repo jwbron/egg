@@ -8,21 +8,25 @@ Guidelines for how to communicate review findings.
 
 ## Posting Reviews
 
-Use `gh pr review <PR_NUMBER>` to post your review:
+**Always use `--body-file`** to post reviews. Writing the body to a file first
+avoids shell quoting and heredoc parsing failures with long multi-line content.
 
 ```bash
-# Request changes (use for any blocking issues)
-gh pr review 123 --request-changes --body "Issues identified that need to be addressed."
+# 1. Write your review to a temp file
+cat > /tmp/review-body.md << 'REVIEW_EOF'
+Your review content here...
 
-# Approve (only when no blocking issues remain)
-gh pr review 123 --approve --body "LGTM. No blocking issues found."
+— Authored by egg
+REVIEW_EOF
 
-# Comment only (advisory, non-blocking feedback)
-gh pr review 123 --comment --body "Advisory suggestions for consideration."
+# 2. Post using --body-file
+gh pr review 123 --request-changes --body-file /tmp/review-body.md
+gh pr review 123 --approve --body-file /tmp/review-body.md
+gh pr review 123 --comment --body-file /tmp/review-body.md
 ```
 
-For inline comments on specific lines, use the `--body-file` flag with a file
-containing your review, or post individual comments via the API.
+**Do NOT use `--body` with inline content** — long reviews will fail due to
+shell escaping issues. Always write to a file first, then use `--body-file`.
 
 ## When to Approve vs Request Changes
 
