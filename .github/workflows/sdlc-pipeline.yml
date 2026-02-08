@@ -249,6 +249,10 @@ jobs:
             --head "${BRANCH_NAME}")
 
           PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "::error::Failed to extract PR number from URL: ${PR_URL}"
+            exit 1
+          fi
           echo "Created draft PR #${PR_NUMBER}"
           echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
 
@@ -463,6 +467,7 @@ jobs:
     needs: [init, implement]
     if: always() && needs.implement.result == 'success' && needs.init.outputs.pr_number != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     outputs:
       all_passed: ${{ steps.wait.outputs.passed }}
       timed_out: ${{ steps.wait.outputs.timed_out }}

@@ -631,13 +631,14 @@ print(json.dumps({
                 echo "ERROR: Failed to post review as comment" >&2
                 return 1
             fi
+            return 0
         else
             # Not a self-review error — propagate the original failure
             echo "$error_msg" >&2
             return 1
         fi
     fi
-    # Temp file cleanup handled by trap
+    return 0
 }
 
 # Function to handle issue create - uses proper JSON escaping

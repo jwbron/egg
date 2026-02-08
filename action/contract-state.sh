@@ -15,6 +15,7 @@
 #   get-current-phase Get the current pipeline phase
 #
 # DEPRECATED commands (retained for compatibility, no longer used by pipeline):
+#   check-review-status    Check review results (no longer called by pipeline)
 #   check-circuit-breaker   Check circuit breaker status
 #   open-circuit-breaker    Open the circuit breaker
 #   close-circuit-breaker   Close the circuit breaker
@@ -471,13 +472,13 @@ main() {
       echo "Commands:"
       echo "  load                    Load and display contract state"
       echo "  update-after-implement  Update contract after implementation phase"
-      echo "  check-review-status     Check review results and determine next action"
       echo "  increment-cycle         Increment the pipeline cycle counter"
       echo "  get-current-phase       Get the current pipeline phase"
       echo "  set-phase <phase>       Set the current pipeline phase"
       echo "  summary                 Print contract summary"
       echo ""
       echo "Deprecated commands (retained for compatibility):"
+      echo "  check-review-status     Check review results (no longer called by pipeline)"
       echo "  check-circuit-breaker   Check circuit breaker status"
       echo "  open-circuit-breaker    Open the circuit breaker"
       echo "  close-circuit-breaker   Close the circuit breaker"

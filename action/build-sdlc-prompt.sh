@@ -299,10 +299,10 @@ EOF
 
 ## Prior Review Feedback
 
-This is a re-implementation cycle. Check PR review comments for feedback before coding:
+A draft PR (#${pr_number}) exists for this issue. Check for any existing review comments before coding:
 - \`gh pr view ${pr_number} --comments\` for general comments
 - \`gh api repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/reviews\` for review details
-- Address all issues raised by the reviewer
+- If there is prior feedback, address all issues raised by the reviewer
 EOF
   fi
 
