@@ -89,7 +89,7 @@ The workflow runs on:
    - PR is from the same repository (not a fork — bot can't push to forks)
    - PR author is the bot (unless manually triggered)
    - PR doesn't have `[skip-review]` marker
-   - Review is not an approval
+   - Review is not an approval (filtered at job level to prevent runner allocation)
    - Iteration count is below the limit (default: 3 rounds)
 
 2. **Comment cleanup** — Minimizes previous feedback-addressing comments to reduce clutter.
