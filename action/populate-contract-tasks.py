@@ -28,16 +28,19 @@ from egg_contracts.plan_parser import parse_plan
 from pydantic import ValidationError
 
 
-def get_issue_comments(repo: str, issue_number: str, token: str) -> list[dict]:
-    """Fetch all comments on a GitHub issue."""
+def get_issue_comments(repo: str, issue_number: str, token: str) -> list[str]:
+    """Fetch all comments on a GitHub issue.
+
+    Returns comment bodies as a list of strings. Each string is the full
+    body of a single comment, preserving newlines within the comment.
+    """
     result = subprocess.run(
         [
             "gh",
             "api",
             f"repos/{repo}/issues/{issue_number}/comments",
             "--paginate",
-            "--jq",
-            ".[].body",
+            "--slurp",
         ],
         capture_output=True,
         text=True,
@@ -47,7 +50,25 @@ def get_issue_comments(repo: str, issue_number: str, token: str) -> list[dict]:
         print(f"Failed to fetch comments: {result.stderr}", file=sys.stderr)
         sys.exit(1)
 
-    return [body for body in result.stdout.strip().split("\n") if body.strip()]
+    # With --slurp, gh outputs all pages as a single JSON array of arrays.
+    # Each inner array is one page of results.
+    output = result.stdout.strip()
+    if not output:
+        return []
+
+    try:
+        pages = json.loads(output)
+    except json.JSONDecodeError as e:
+        print(f"Failed to parse comments JSON: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Flatten pages and extract comment bodies
+    bodies: list[str] = []
+    for page in pages:
+        if isinstance(page, list):
+            bodies.extend(c.get("body", "") for c in page if c.get("body"))
+
+    return bodies
 
 
 def find_plan_comment(comments: list[str]) -> str | None:
