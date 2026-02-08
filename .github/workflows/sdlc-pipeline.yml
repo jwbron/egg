@@ -1154,7 +1154,7 @@ jobs:
           elif [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
             BODY="Refine phase completed. [View run logs](${RUN_URL})
 
-          Please review the analysis and approve to advance to the **plan** phase.
+          The analysis will now be reviewed automatically. If review passes, you will be asked to approve.
 
           <!-- egg-phase-approval phase=refine -->
           - [ ] Approve
@@ -1167,6 +1167,372 @@ jobs:
           fi
 
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+
+  # ============================================================
+  # Refine Review: Review the analysis before human approval
+  # ============================================================
+  refine-review:
+    name: Review analysis
+    needs: [init, refine]
+    if: >-
+      always() &&
+      needs.init.outputs.current_phase == 'refine' &&
+      needs.refine.result == 'success'
+    runs-on: ubuntu-latest
+
+    env:
+      BOT_USERNAME: james-in-a-box
+      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
+
+    outputs:
+      review_passed: ${{ steps.parse-verdict.outputs.passed }}
+      review_feedback: ${{ steps.parse-verdict.outputs.feedback }}
+      review_cycle: ${{ steps.get-cycle.outputs.cycle }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout main (trusted)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Save trusted action scripts
+        run: |
+          cp -r action "$RUNNER_TEMP/trusted-action"
+          cp -r shared "$RUNNER_TEMP/trusted-shared"
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Get review cycle from contract
+        id: get-cycle
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            # For refine phase, we track cycles in a special refine_review_cycles field
+            # Since refine doesn't have phases, we store it at the top level
+            CYCLE=$(jq -r '.refine_review_cycles // 0' "$CONTRACT_PATH")
+            CYCLE=$((CYCLE + 1))
+            {
+              echo "cycle=${CYCLE}"
+
+              # Get prior feedback if this is a re-review
+              if [[ "$CYCLE" -gt 1 ]]; then
+                PRIOR=$(jq -r '.refine_review_feedback // ""' "$CONTRACT_PATH")
+                echo "prior_feedback<<EOF"
+                echo "$PRIOR"
+                echo "EOF"
+              fi
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "cycle=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check circuit breaker
+        id: check-circuit-breaker
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
+            if [[ "$STATUS" == "open" ]]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Circuit breaker is OPEN — skipping review"
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build refine review prompt
+        id: prompt
+        if: steps.check-circuit-breaker.outputs.skip != 'true'
+        run: bash "$RUNNER_TEMP/trusted-action/build-refine-review-prompt.sh"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
+          REVIEW_CYCLE: ${{ steps.get-cycle.outputs.cycle }}
+          PRIOR_FEEDBACK: ${{ steps.get-cycle.outputs.prior_feedback }}
+
+      - name: Run reviewer agent
+        id: egg
+        if: steps.check-circuit-breaker.outputs.skip != 'true'
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: ${{ steps.prompt.outputs.prompt-file }}
+          model: ${{ steps.prompt.outputs.model }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          bot-username: ${{ env.BOT_USERNAME }}
+          timeout: "15"
+        env:
+          EGG_AGENT_ROLE: reviewer
+          EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
+
+      - name: Parse review verdict
+        id: parse-verdict
+        if: steps.check-circuit-breaker.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Look for the verdict marker in recent comments
+          RUN_START="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Fetch the MOST RECENT comment only (last one) to avoid race conditions
+          # with previous review cycles
+          LATEST_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-1].body // \"\"" 2>/dev/null || echo "")
+
+          if echo "$LATEST_COMMENT" | grep -q 'egg-refine-review-verdict: approved'; then
+            {
+              echo "passed=true"
+              echo "feedback="
+            } >> "$GITHUB_OUTPUT"
+            echo "Review verdict: APPROVED"
+          elif echo "$LATEST_COMMENT" | grep -q 'egg-refine-review-verdict: needs_revision'; then
+            # Extract feedback from BEFORE the verdict marker (the actual review content)
+            # The marker is at the end, so capture everything before it
+            FEEDBACK=$(echo "$LATEST_COMMENT" | sed -n '/^## .*Review:/,/egg-refine-review-verdict:/p' | head -50 || echo "Revision needed")
+            {
+              echo "passed=false"
+              echo "feedback<<EOF"
+              echo "$FEEDBACK"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "Review verdict: NEEDS REVISION"
+          else
+            # No verdict found — treat as passed to avoid blocking
+            {
+              echo "passed=true"
+              echo "feedback="
+            } >> "$GITHUB_OUTPUT"
+            echo "::warning::No review verdict marker found — proceeding as if approved"
+          fi
+
+      - name: Update contract with review state
+        if: steps.check-circuit-breaker.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          REVIEW_PASSED: ${{ steps.parse-verdict.outputs.passed }}
+          REVIEW_FEEDBACK: ${{ steps.parse-verdict.outputs.feedback }}
+          REVIEW_CYCLE: ${{ steps.get-cycle.outputs.cycle }}
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "james-in-a-box[bot]"
+          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+            # Update the contract with review cycle info
+            # Capture old value before update
+            OLD_CYCLES=$(jq -r '.refine_review_cycles // 0' "$CONTRACT_PATH")
+
+            jq --arg cycle "$REVIEW_CYCLE" \
+               --arg feedback "$REVIEW_FEEDBACK" \
+               --arg ts "$TIMESTAMP" \
+               --arg passed "$REVIEW_PASSED" \
+               --arg old_cycles "$OLD_CYCLES" '
+              .refine_review_cycles = ($cycle | tonumber) |
+              .refine_review_feedback = $feedback |
+              .audit_log += [{
+                "timestamp": $ts,
+                "actor": "system",
+                "role": "reviewer",
+                "action": "update",
+                "field_path": "refine_review_cycles",
+                "old_value": ($old_cycles | tonumber),
+                "new_value": ($cycle | tonumber),
+                "reason": ("Refine review cycle " + $cycle + ": " + (if $passed == "true" then "approved" else "needs_revision" end))
+              }]
+            ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+
+            # Check if we've exceeded max cycles (3 by default)
+            MAX_CYCLES=3
+            if [[ "$REVIEW_PASSED" != "true" && "$REVIEW_CYCLE" -ge "$MAX_CYCLES" ]]; then
+              # Add audit entry for circuit breaker opening
+              OLD_CB_STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
+              jq --arg ts "$TIMESTAMP" --arg old_status "$OLD_CB_STATUS" '
+                .circuit_breaker.status = "open" |
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "circuit_breaker.status",
+                  "old_value": $old_status,
+                  "new_value": "open",
+                  "reason": "Max refine review cycles exceeded"
+                }]
+              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              echo "::warning::Max review cycles exceeded — circuit breaker OPEN"
+            fi
+
+            git add "$CONTRACT_PATH"
+            git commit -m "Update refine review state (cycle ${REVIEW_CYCLE})" || true
+
+            # Push with retry
+            MAX_RETRIES=3
+            for i in $(seq 1 $MAX_RETRIES); do
+              if git push origin "${BRANCH_NAME}"; then
+                break
+              elif [[ $i -eq $MAX_RETRIES ]]; then
+                echo "::error::Push failed after $MAX_RETRIES attempts"
+                exit 1
+              else
+                git pull --rebase origin "${BRANCH_NAME}" || true
+              fi
+            done
+          fi
+
+      - name: Post review passed comment
+        if: steps.check-circuit-breaker.outputs.skip != 'true' && steps.parse-verdict.outputs.passed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          BODY="**Analysis review passed.** ✅
+
+          The analysis has been reviewed and approved by the automated reviewer.
+          Please review the analysis and approve to advance to the **plan** phase.
+
+          [View run logs](${RUN_URL})
+
+          ### Ready for Review
+
+          <!-- egg-phase-approval -->
+          - [ ] Approve and advance to plan phase
+
+          ---
+
+          *Authored-by: egg*"
+
+          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+
+  # ============================================================
+  # Refine Re-dispatch: Re-run refine if review failed
+  # ============================================================
+  refine-redispatch:
+    name: Re-dispatch refine
+    needs: [init, refine, refine-review]
+    if: >-
+      always() &&
+      needs.init.outputs.current_phase == 'refine' &&
+      needs.refine-review.result == 'success' &&
+      needs.refine-review.outputs.review_passed == 'false'
+    runs-on: ubuntu-latest
+
+    env:
+      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
+      REVIEW_CYCLE: ${{ needs.refine-review.outputs.review_cycle }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Check circuit breaker before re-dispatch
+        id: check-circuit-breaker
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
+            if [[ "$STATUS" == "open" ]]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Circuit breaker is OPEN — escalating to human instead of re-dispatch"
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post escalation comment
+        if: steps.check-circuit-breaker.outputs.skip == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          BODY="**Refine phase escalated to human review.**
+
+          The analysis has gone through ${REVIEW_CYCLE} review cycles without passing automated review.
+          Human intervention is required to either:
+
+          1. Provide guidance on the analysis issues
+          2. Override and approve the analysis as-is
+          3. Cancel and restart with different approach
+
+          [View run logs](${RUN_URL})
+
+          ---
+
+          <!-- egg-phase-approval -->
+          - [ ] Override: Approve analysis and advance to plan phase
+
+          ---
+
+          *Authored-by: egg*"
+
+          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+
+      - name: Re-dispatch refine phase
+        if: steps.check-circuit-breaker.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          echo "Re-dispatching refine phase (cycle $((REVIEW_CYCLE + 1)))"
+
+          gh workflow run sdlc-pipeline.yml \
+            --field issue_number="${ISSUE_NUMBER}" \
+            --field starting_phase="refine"
 
   # ============================================================
   # Plan: Create implementation plan
@@ -1352,7 +1718,7 @@ jobs:
           elif [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
             BODY="Plan phase completed. [View run logs](${RUN_URL})
 
-          Please review the implementation plan and approve to advance to the **implement** phase.
+          The plan will now be reviewed automatically. If review passes, you will be asked to approve.
 
           <!-- egg-phase-approval phase=plan -->
           - [ ] Approve
@@ -1365,3 +1731,368 @@ jobs:
           fi
 
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+
+  # ============================================================
+  # Plan Review: Review the plan before human approval
+  # ============================================================
+  plan-review:
+    name: Review plan
+    needs: [init, plan]
+    if: >-
+      always() &&
+      needs.init.outputs.current_phase == 'plan' &&
+      needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+
+    env:
+      BOT_USERNAME: james-in-a-box
+      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
+
+    outputs:
+      review_passed: ${{ steps.parse-verdict.outputs.passed }}
+      review_feedback: ${{ steps.parse-verdict.outputs.feedback }}
+      review_cycle: ${{ steps.get-cycle.outputs.cycle }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout main (trusted)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Save trusted action scripts
+        run: |
+          cp -r action "$RUNNER_TEMP/trusted-action"
+          cp -r shared "$RUNNER_TEMP/trusted-shared"
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Get review cycle from contract
+        id: get-cycle
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            # For plan phase, we track cycles in a special plan_review_cycles field
+            CYCLE=$(jq -r '.plan_review_cycles // 0' "$CONTRACT_PATH")
+            CYCLE=$((CYCLE + 1))
+            {
+              echo "cycle=${CYCLE}"
+
+              # Get prior feedback if this is a re-review
+              if [[ "$CYCLE" -gt 1 ]]; then
+                PRIOR=$(jq -r '.plan_review_feedback // ""' "$CONTRACT_PATH")
+                echo "prior_feedback<<EOF"
+                echo "$PRIOR"
+                echo "EOF"
+              fi
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "cycle=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check circuit breaker
+        id: check-circuit-breaker
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
+            if [[ "$STATUS" == "open" ]]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Circuit breaker is OPEN — skipping review"
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build plan review prompt
+        id: prompt
+        if: steps.check-circuit-breaker.outputs.skip != 'true'
+        run: bash "$RUNNER_TEMP/trusted-action/build-plan-review-prompt.sh"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
+          REVIEW_CYCLE: ${{ steps.get-cycle.outputs.cycle }}
+          PRIOR_FEEDBACK: ${{ steps.get-cycle.outputs.prior_feedback }}
+
+      - name: Run reviewer agent
+        id: egg
+        if: steps.check-circuit-breaker.outputs.skip != 'true'
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: ${{ steps.prompt.outputs.prompt-file }}
+          model: ${{ steps.prompt.outputs.model }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          bot-username: ${{ env.BOT_USERNAME }}
+          timeout: "15"
+        env:
+          EGG_AGENT_ROLE: reviewer
+          EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
+
+      - name: Parse review verdict
+        id: parse-verdict
+        if: steps.check-circuit-breaker.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Look for the verdict marker in recent comments
+          RUN_START="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Fetch the MOST RECENT comment only (last one) to avoid race conditions
+          # with previous review cycles
+          LATEST_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-1].body // \"\"" 2>/dev/null || echo "")
+
+          if echo "$LATEST_COMMENT" | grep -q 'egg-plan-review-verdict: approved'; then
+            {
+              echo "passed=true"
+              echo "feedback="
+            } >> "$GITHUB_OUTPUT"
+            echo "Review verdict: APPROVED"
+          elif echo "$LATEST_COMMENT" | grep -q 'egg-plan-review-verdict: needs_revision'; then
+            # Extract feedback from BEFORE the verdict marker (the actual review content)
+            # The marker is at the end, so capture everything before it
+            FEEDBACK=$(echo "$LATEST_COMMENT" | sed -n '/^## .*Review:/,/egg-plan-review-verdict:/p' | head -50 || echo "Revision needed")
+            {
+              echo "passed=false"
+              echo "feedback<<EOF"
+              echo "$FEEDBACK"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "Review verdict: NEEDS REVISION"
+          else
+            # No verdict found — treat as passed to avoid blocking
+            {
+              echo "passed=true"
+              echo "feedback="
+            } >> "$GITHUB_OUTPUT"
+            echo "::warning::No review verdict marker found — proceeding as if approved"
+          fi
+
+      - name: Update contract with review state
+        if: steps.check-circuit-breaker.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          REVIEW_PASSED: ${{ steps.parse-verdict.outputs.passed }}
+          REVIEW_FEEDBACK: ${{ steps.parse-verdict.outputs.feedback }}
+          REVIEW_CYCLE: ${{ steps.get-cycle.outputs.cycle }}
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "james-in-a-box[bot]"
+          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+            # Capture old value before update
+            OLD_CYCLES=$(jq -r '.plan_review_cycles // 0' "$CONTRACT_PATH")
+
+            # Update the contract with review cycle info
+            jq --arg cycle "$REVIEW_CYCLE" \
+               --arg feedback "$REVIEW_FEEDBACK" \
+               --arg ts "$TIMESTAMP" \
+               --arg passed "$REVIEW_PASSED" \
+               --arg old_cycles "$OLD_CYCLES" '
+              .plan_review_cycles = ($cycle | tonumber) |
+              .plan_review_feedback = $feedback |
+              .audit_log += [{
+                "timestamp": $ts,
+                "actor": "system",
+                "role": "reviewer",
+                "action": "update",
+                "field_path": "plan_review_cycles",
+                "old_value": ($old_cycles | tonumber),
+                "new_value": ($cycle | tonumber),
+                "reason": ("Plan review cycle " + $cycle + ": " + (if $passed == "true" then "approved" else "needs_revision" end))
+              }]
+            ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+
+            # Check if we've exceeded max cycles (3 by default)
+            MAX_CYCLES=3
+            if [[ "$REVIEW_PASSED" != "true" && "$REVIEW_CYCLE" -ge "$MAX_CYCLES" ]]; then
+              # Add audit entry for circuit breaker opening
+              OLD_CB_STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
+              jq --arg ts "$TIMESTAMP" --arg old_status "$OLD_CB_STATUS" '
+                .circuit_breaker.status = "open" |
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "circuit_breaker.status",
+                  "old_value": $old_status,
+                  "new_value": "open",
+                  "reason": "Max plan review cycles exceeded"
+                }]
+              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              echo "::warning::Max review cycles exceeded — circuit breaker OPEN"
+            fi
+
+            git add "$CONTRACT_PATH"
+            git commit -m "Update plan review state (cycle ${REVIEW_CYCLE})" || true
+
+            # Push with retry
+            MAX_RETRIES=3
+            for i in $(seq 1 $MAX_RETRIES); do
+              if git push origin "${BRANCH_NAME}"; then
+                break
+              elif [[ $i -eq $MAX_RETRIES ]]; then
+                echo "::error::Push failed after $MAX_RETRIES attempts"
+                exit 1
+              else
+                git pull --rebase origin "${BRANCH_NAME}" || true
+              fi
+            done
+          fi
+
+      - name: Post review passed comment
+        if: steps.check-circuit-breaker.outputs.skip != 'true' && steps.parse-verdict.outputs.passed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          BODY="**Plan review passed.** ✅
+
+          The implementation plan has been reviewed and approved by the automated reviewer.
+          Please review the plan and approve to advance to the **implement** phase.
+
+          [View run logs](${RUN_URL})
+
+          ### Ready for Review
+
+          <!-- egg-phase-approval -->
+          - [ ] Approve and advance to implement phase
+
+          ---
+
+          *Authored-by: egg*"
+
+          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+
+  # ============================================================
+  # Plan Re-dispatch: Re-run plan if review failed
+  # ============================================================
+  plan-redispatch:
+    name: Re-dispatch plan
+    needs: [init, plan, plan-review]
+    if: >-
+      always() &&
+      needs.init.outputs.current_phase == 'plan' &&
+      needs.plan-review.result == 'success' &&
+      needs.plan-review.outputs.review_passed == 'false'
+    runs-on: ubuntu-latest
+
+    env:
+      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
+      REVIEW_CYCLE: ${{ needs.plan-review.outputs.review_cycle }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Check circuit breaker before re-dispatch
+        id: check-circuit-breaker
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
+            if [[ "$STATUS" == "open" ]]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Circuit breaker is OPEN — escalating to human instead of re-dispatch"
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post escalation comment
+        if: steps.check-circuit-breaker.outputs.skip == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          BODY="**Plan phase escalated to human review.**
+
+          The implementation plan has gone through ${REVIEW_CYCLE} review cycles without passing automated review.
+          Human intervention is required to either:
+
+          1. Provide guidance on the plan issues
+          2. Override and approve the plan as-is
+          3. Cancel and restart with different approach
+
+          [View run logs](${RUN_URL})
+
+          ---
+
+          <!-- egg-phase-approval -->
+          - [ ] Override: Approve plan and advance to implement phase
+
+          ---
+
+          *Authored-by: egg*"
+
+          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+
+      - name: Re-dispatch plan phase
+        if: steps.check-circuit-breaker.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          echo "Re-dispatching plan phase (cycle $((REVIEW_CYCLE + 1)))"
+
+          gh workflow run sdlc-pipeline.yml \
+            --field issue_number="${ISSUE_NUMBER}" \
+            --field starting_phase="plan"
