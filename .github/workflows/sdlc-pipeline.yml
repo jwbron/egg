@@ -731,8 +731,8 @@ jobs:
   # ============================================================
   escalate:
     name: Escalate to human
-    needs: [init, loop]
-    if: always() && needs.loop.outputs.next_action == 'escalate'
+    needs: [init, check-review-status]
+    if: always() && needs.check-review-status.outputs.next_action == 'escalate'
     runs-on: ubuntu-latest
 
     env:
