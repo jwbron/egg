@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 331,
+    "title": "At the end of the SDLC workflow, tag the owner of the workflow on the PR for review",
+    "url": "https://github.com/jwbron/egg/issues/331"
+  },
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "audit_log": []
+}
