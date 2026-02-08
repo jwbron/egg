@@ -556,7 +556,10 @@ print(json.dumps({
 }))
 " "$repo" "$pr_number" "$body")
 
-        call_gateway "/api/v1/gh/pr/comment" "$comment_payload"
+        if ! call_gateway "/api/v1/gh/pr/comment" "$comment_payload"; then
+            echo "ERROR: Failed to post review as comment" >&2
+            return 1
+        fi
     fi
 }
 
