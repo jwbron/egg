@@ -163,8 +163,8 @@ This field can only be modified by role 'reviewer'.
 
 The implement phase uses PR-based automated code review:
 
-1. **Draft PR created** — When entering the implement phase, a draft PR is created automatically
-2. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
+1. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
+2. **Draft PR created** — After implementation succeeds, a draft PR is created automatically with commit messages in the description
 3. **CI and review checks** — The pipeline waits for all GitHub check runs (linting, tests, and PR review) to complete
 4. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
 5. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
@@ -305,15 +305,16 @@ Template sections:
 
 ### Task Population
 
-After the plan is approved, tasks are automatically extracted from the plan document and populated into the contract before the implement phase begins.
+Tasks are automatically extracted from the plan document and populated into the contract during the plan phase, after the plan document is validated.
 
 The `action/populate-contract-tasks.py` script:
 1. Fetches the plan comment from the GitHub issue
 2. Parses task markers using `shared/egg_contracts/plan_parser.py`
 3. Writes phases and tasks into `.egg-state/contracts/{issue-number}.json`
 4. Validates the contract against the JSON schema
+5. Commits the updated contract to the feature branch
 
-This ensures the implementer starts with a fully populated contract containing all planned tasks and acceptance criteria.
+This happens in the plan phase itself (before human approval) to provide early validation of the plan format. The implement phase also runs task population as a fallback in case the plan phase step failed or was skipped.
 
 ## Implementation Reference
 

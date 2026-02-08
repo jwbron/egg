@@ -554,6 +554,64 @@ handle_pr_review() {
         return 1
     fi
 
+    # Proactively detect self-authored PRs and downgrade review types accordingly.
+    # This avoids a wasted round-trip when the GitHub API rejects the request.
+    # See: https://github.com/jwbron/egg/issues/298
+    #
+    # We compare against the bot_name (from EGG_BOT_NAME env var) rather than
+    # querying the GitHub API. The `gh api user` endpoint doesn't work with
+    # GitHub App installation tokens (returns 403 "Resource not accessible by
+    # integration"), so we use pattern matching against known bot identity formats.
+    local original_review_type="$review_type"
+    if [ "$review_type" = "request-changes" ] || [ "$review_type" = "approve" ]; then
+        # Get PR author login
+        local pr_author_payload
+        pr_author_payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({'args': ['pr', 'view', sys.argv[2], '--repo', sys.argv[1], '--json', 'author', '--jq', '.author.login']}))
+" "$repo" "$pr_number")
+        local pr_author
+        local pr_author_stderr
+        pr_author_stderr=$(mktemp)
+        pr_author=$(call_gateway "/api/v1/gh/execute" "$pr_author_payload" 2>"$pr_author_stderr" | tr -d '[:space:]')
+        local pr_author_exit=$?
+
+        if [ $pr_author_exit -ne 0 ] || [ -z "$pr_author" ]; then
+            # Log error at debug level but continue (reactive fallback will catch self-reviews)
+            if [ -s "$pr_author_stderr" ]; then
+                echo "DEBUG: Failed to fetch PR author for proactive self-review check: $(cat "$pr_author_stderr")" >&2
+            fi
+            rm -f "$pr_author_stderr"
+        else
+            rm -f "$pr_author_stderr"
+
+            # Check if PR author matches known bot identity patterns:
+            # - "bot_name" (exact match)
+            # - "bot_name[bot]" (GitHub App format)
+            # - "app/bot_name" (alternative GitHub App format)
+            local is_self_authored=false
+            if [ "$pr_author" = "$bot_name" ] || \
+               [ "$pr_author" = "${bot_name}[bot]" ] || \
+               [ "$pr_author" = "app/${bot_name}" ]; then
+                is_self_authored=true
+            fi
+
+            if [ "$is_self_authored" = true ]; then
+                local action_desc=""
+                if [ "$review_type" = "request-changes" ]; then
+                    action_desc="request changes on"
+                else
+                    action_desc="approve"
+                fi
+                echo "INFO: Self-authored PR detected (author=$pr_author, bot=$bot_name). Downgrading --${review_type} to --comment." >&2
+                echo "  GitHub does not allow bots to $action_desc their own PRs." >&2
+                echo "  The review verdict is preserved in the marker comment." >&2
+                review_type="comment"
+            fi
+        fi
+    fi
+
     # Resolve body: --body and --body-file are mutually exclusive
     if [ -n "$body" ] && [ -n "$body_file" ]; then
         echo "ERROR: Cannot use both --body and --body-file" >&2
@@ -571,7 +629,8 @@ handle_pr_review() {
     # Add automated review marker to the body
     # Format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
     # This marker is hidden in rendered markdown but can be parsed by workflows
-    local verdict="${review_type:-comment}"
+    # Note: verdict preserves the original intent even if downgraded for self-review
+    local verdict="${original_review_type:-${review_type:-comment}}"
     local marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} verdict=${verdict} -->"
     if [ -n "$body" ]; then
         body="${body}
@@ -637,6 +696,7 @@ print(json.dumps({
                 echo "ERROR: Failed to post review as comment" >&2
                 return 1
             fi
+            echo "Review submitted successfully on PR #${pr_number} (verdict: ${verdict}, posted as comment due to self-review)"
             return 0
         else
             # Not a self-review error — propagate the original failure
@@ -644,6 +704,7 @@ print(json.dumps({
             return 1
         fi
     fi
+    echo "Review submitted successfully on PR #${pr_number} (verdict: ${verdict})"
     return 0
 }
 
