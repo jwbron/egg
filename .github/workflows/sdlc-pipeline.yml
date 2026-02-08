@@ -527,6 +527,7 @@ jobs:
           {
             printf '\n---\n\n'
             printf 'Closes #%s\n' "${ISSUE_NUMBER}"
+            # shellcheck disable=SC2016 # Backticks are literal markdown, not command substitution
             printf 'Branch: `%s`\n\n' "${BRANCH_NAME}"
             printf '%s\n' "This PR is managed by the SDLC pipeline. It will be marked ready for review once the implementation passes automated review."
           } >> "$PR_BODY_FILE"
