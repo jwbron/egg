@@ -188,7 +188,7 @@ def egg_stack() -> Generator[EggStack, None, None]:
 
         # Get the mapped gateway port
         result = subprocess.run(
-            [*compose_cmd, "port", "gateway", "9848"],
+            [*compose_cmd, "port", "gateway", str(GATEWAY_PORT)],
             env=env,
             capture_output=True,
             text=True,

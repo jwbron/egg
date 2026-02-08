@@ -28,7 +28,7 @@ class ContainerNetworkConfig:
     gateway_ip: str
     gateway_port: int
     repo_mode: str  # "private" or "public"
-    proxy_url: str | None = None  # e.g. "http://egg-gateway:{GATEWAY_PROXY_PORT}"
+    proxy_url: str | None = None  # Full proxy URL if provided; default uses GATEWAY_PROXY_PORT
 
 
 def build_sandbox_docker_cmd(

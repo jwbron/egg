@@ -77,8 +77,6 @@ ALLOWLIST_PATTERNS = [
     # Port in a comment explaining the constant
     r"#.*GATEWAY_PORT.*=.*9848",
     r"#.*GATEWAY_PROXY_PORT.*=.*3129",
-    # Port as part of a larger number (e.g., 39848, 19848)
-    r"\d{5,}",
 ]
 
 
