@@ -17,6 +17,7 @@
     "pr": {
       "type": "object",
       "description": "Optional PR metadata for when the implementation is ready to create a pull request",
+      "required": ["title"],
       "properties": {
         "title": {
           "type": "string",
