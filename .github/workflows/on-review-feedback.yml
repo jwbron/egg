@@ -35,13 +35,15 @@ jobs:
       (
         github.event_name == 'pull_request_review' &&
         (github.event.review.user.login == 'james-in-a-box' || github.event.review.user.login == 'james-in-a-box[bot]') &&
-        contains(github.event.review.body, 'egg-automated-review')
+        contains(github.event.review.body, 'egg-automated-review') &&
+        github.event.review.state != 'approved'
       ) ||
       (
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request != null &&
         (github.event.comment.user.login == 'james-in-a-box' || github.event.comment.user.login == 'james-in-a-box[bot]') &&
-        contains(github.event.comment.body, 'egg-automated-review')
+        contains(github.event.comment.body, 'egg-automated-review') &&
+        !contains(github.event.comment.body, 'verdict=approve')
       )
 
     permissions:
@@ -90,8 +92,6 @@ jobs:
           PR_TITLE: ${{ steps.pr-meta.outputs.title }}
           HEAD_REPO: ${{ steps.pr-meta.outputs.head-repo }}
           EVENT_NAME: ${{ github.event_name }}
-          REVIEW_STATE: ${{ github.event.review.state }}
-          COMMENT_ID: ${{ github.event.comment.id }}
         run: |
           set -euo pipefail
 
@@ -132,25 +132,8 @@ jobs:
             exit 0
           fi
 
-          # For pull_request_review, skip approvals
-          if [[ "$EVENT_NAME" == "pull_request_review" ]]; then
-            review_state_lower=$(echo "$REVIEW_STATE" | tr '[:upper:]' '[:lower:]')
-            if [[ "$review_state_lower" == "approved" ]]; then
-              echo "Review is an approval, nothing to address"
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-
-          # For issue_comment, skip if review verdict is approve
-          if [[ "$EVENT_NAME" == "issue_comment" && -n "$COMMENT_ID" ]]; then
-            comment_body=$(gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" --jq '.body')
-            if [[ "$comment_body" == *"verdict=approve"* ]]; then
-              echo "Review verdict is approve, nothing to address"
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
+          # NOTE: Approval checks are handled at job level to avoid spinning up
+          # runners for approvals. See job-level 'if' condition.
 
           # Check iteration count - prevent infinite feedback loops.
           # Count is checked before posting this run's marker, so it reflects
