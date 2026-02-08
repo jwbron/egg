@@ -1,14 +1,11 @@
 """GitHub Actions log collector.
 
 This module collects logs from GitHub Actions workflow runs using the gh CLI.
-Logs are downloaded as ZIP archives, extracted, and parsed into RunLog format.
+Logs are fetched via `gh run view --log` which returns plain-text output.
 """
 
 import json
-import os
 import subprocess
-import tempfile
-import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -17,11 +14,10 @@ from .base import LogCollector, RunLog
 
 
 class GHALogCollector(LogCollector):
-    """Collects logs from GitHub Actions via gh api.
+    """Collects logs from GitHub Actions via gh CLI.
 
-    Uses the gh CLI to fetch workflow runs and download log archives.
-    Each run's logs are extracted from ZIP format and aggregated into
-    a single RunLog instance.
+    Uses the gh CLI to fetch workflow runs and retrieve logs via
+    `gh run view --log` which returns plain-text output directly.
     """
 
     def __init__(self, repo: str | None = None) -> None:
@@ -131,7 +127,7 @@ class GHALogCollector(LogCollector):
         return filtered_runs
 
     def _process_run(self, run: dict[str, str | int]) -> RunLog | None:
-        """Download and extract logs for a single run.
+        """Fetch logs for a single run via gh run view --log.
 
         Args:
             run: Workflow run dictionary from the GitHub API
@@ -143,104 +139,73 @@ class GHALogCollector(LogCollector):
         if not run_id:
             return None
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            zip_path = Path(tmpdir) / "logs.zip"
-            extract_dir = Path(tmpdir) / "logs"
+        # Fetch logs via gh run view --log (returns plain text)
+        log_result = subprocess.run(
+            [
+                "gh",
+                "run",
+                "view",
+                str(run_id),
+                "--repo",
+                self.repo,
+                "--log",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
-            # Download logs ZIP
-            download_result = subprocess.run(
-                [
-                    "gh",
-                    "api",
-                    f"/repos/{self.repo}/actions/runs/{run_id}/logs",
-                ],
-                capture_output=True,
-                check=False,
-            )
+        if log_result.returncode != 0:
+            # Logs may not be available (e.g., run still in progress)
+            return None
 
-            if download_result.returncode != 0:
-                # Logs may not be available (e.g., run still in progress)
-                return None
+        logs = log_result.stdout
 
-            # Write binary content to file
-            zip_path.write_bytes(download_result.stdout)
+        # Parse timestamps
+        created_at_str = str(run.get("created_at", ""))
+        updated_at_str = str(run.get("updated_at", ""))
 
-            # Extract ZIP
+        try:
+            started_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+        except ValueError:
+            # Skip runs with malformed created_at timestamps
+            return None
+
+        completed_at = None
+        if updated_at_str:
             try:
-                with zipfile.ZipFile(zip_path, "r") as zf:
-                    zf.extractall(extract_dir)
-            except zipfile.BadZipFile:
-                return None
-
-            # Parse and aggregate all job logs
-            logs = self._aggregate_job_logs(extract_dir)
-
-            # Parse timestamps
-            created_at_str = str(run.get("created_at", ""))
-            updated_at_str = str(run.get("updated_at", ""))
-
-            try:
-                started_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                completed_at = datetime.fromisoformat(updated_at_str.replace("Z", "+00:00"))
             except ValueError:
-                # Skip runs with malformed created_at timestamps
-                return None
+                # If updated_at is malformed, just leave completed_at as None
+                pass
 
-            completed_at = None
-            if updated_at_str:
-                try:
-                    completed_at = datetime.fromisoformat(updated_at_str.replace("Z", "+00:00"))
-                except ValueError:
-                    # If updated_at is malformed, just leave completed_at as None
-                    pass
+        # Determine status
+        conclusion = run.get("conclusion")
+        status_val = run.get("status")
+        if conclusion == "success":
+            status = "success"
+        elif conclusion == "failure":
+            status = "failure"
+        elif conclusion == "cancelled":
+            status = "cancelled"
+        elif status_val == "in_progress" or status_val == "queued":
+            status = "running"
+        else:
+            status = "failure"  # Default to failure for unknown states
 
-            # Determine status
-            conclusion = run.get("conclusion")
-            status_val = run.get("status")
-            if conclusion == "success":
-                status = "success"
-            elif conclusion == "failure":
-                status = "failure"
-            elif conclusion == "cancelled":
-                status = "cancelled"
-            elif status_val == "in_progress" or status_val == "queued":
-                status = "running"
-            else:
-                status = "failure"  # Default to failure for unknown states
-
-            return RunLog(
-                run_id=str(run_id),
-                source="gha",
-                started_at=started_at,
-                completed_at=completed_at,
-                status=status,  # type: ignore[arg-type]
-                trigger=str(run.get("event", "unknown")),
-                logs=logs,
-                metadata={
-                    "workflow": str(run.get("name", "")),
-                    "head_branch": str(run.get("head_branch", "")),
-                    "run_number": int(run.get("run_number", 0)),
-                    "html_url": str(run.get("html_url", "")),
-                    "workflow_path": str(run.get("path", "")),
-                },
-            )
-
-    def _aggregate_job_logs(self, extract_dir: Path) -> str:
-        """Combine all job log files into a single string.
-
-        Args:
-            extract_dir: Directory containing extracted log files
-
-        Returns:
-            Combined log content with job separators
-        """
-        all_logs: list[str] = []
-        for root, _dirs, files in os.walk(extract_dir):
-            for file in sorted(files):
-                if file.endswith(".txt"):
-                    path = Path(root) / file
-                    try:
-                        content = path.read_text(errors="replace")
-                        all_logs.append(f"=== {file} ===\n{content}")
-                    except OSError:
-                        continue
-        return "\n\n".join(all_logs)
+        return RunLog(
+            run_id=str(run_id),
+            source="gha",
+            started_at=started_at,
+            completed_at=completed_at,
+            status=status,  # type: ignore[arg-type]
+            trigger=str(run.get("event", "unknown")),
+            logs=logs,
+            metadata={
+                "workflow": str(run.get("name", "")),
+                "head_branch": str(run.get("head_branch", "")),
+                "run_number": int(run.get("run_number", 0)),
+                "html_url": str(run.get("html_url", "")),
+                "workflow_path": str(run.get("path", "")),
+            },
+        )
