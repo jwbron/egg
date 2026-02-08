@@ -21,9 +21,10 @@ class TestWorkflowRegexPatterns:
     These patterns are extracted from .github/workflows/sdlc-hitl.yml
     """
 
-    # Pattern from sdlc-hitl.yml line 57:
+    # Pattern from sdlc-hitl.yml step "Parse decision changes":
     # grep -oP '<!-- egg-hitl-decision id=\K[a-z0-9-]+' | head -1
-    DECISION_ID_PATTERN = re.compile(r"<!-- egg-hitl-decision id=([a-z0-9-]+)")
+    # The regex requires a valid boundary (space or >) after the ID to match workflow behavior
+    DECISION_ID_PATTERN = re.compile(r"<!-- egg-hitl-decision id=([a-z0-9-]+)(?=[ >])")
 
     # Pattern from sdlc-hitl.yml line 72-73:
     # grep -oP '^\s*-\s*\[x\]\s*\K.+'

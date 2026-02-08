@@ -24,6 +24,7 @@ from egg_lib.contract_cli import (
     parse_phase_id,
     parse_task_id,
     validate_commit_sha,
+    validate_decision_id,
 )
 
 
@@ -562,6 +563,69 @@ class TestDecisionMarkdownFormat:
         result = format_decision_markdown("decision-4", "Is this a `code` example?", options)
 
         assert "**Is this a `code` example?**" in result
+
+    def test_format_decision_markdown_rejects_invalid_id(self):
+        """Test that format_decision_markdown rejects invalid decision IDs."""
+        options = [{"id": "opt-1", "label": "Yes"}]
+
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            format_decision_markdown("Decision-1", "Question?", options)
+
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            format_decision_markdown("decision_1", "Question?", options)
+
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            format_decision_markdown("decision 1", "Question?", options)
+
+
+class TestValidateDecisionId:
+    """Tests for validate_decision_id function."""
+
+    def test_valid_decision_ids(self):
+        """Test that valid decision IDs pass validation."""
+        valid_ids = [
+            "decision-1",
+            "decision-123",
+            "my-decision",
+            "abc123",
+            "a",
+            "1",
+            "a-b-c-1-2-3",
+        ]
+        for decision_id in valid_ids:
+            validate_decision_id(decision_id)  # Should not raise
+
+    def test_invalid_uppercase(self):
+        """Test that uppercase letters are rejected."""
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            validate_decision_id("Decision-1")
+
+    def test_invalid_underscore(self):
+        """Test that underscores are rejected."""
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            validate_decision_id("decision_1")
+
+    def test_invalid_spaces(self):
+        """Test that spaces are rejected."""
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            validate_decision_id("decision 1")
+
+    def test_invalid_special_chars(self):
+        """Test that special characters are rejected."""
+        invalid_ids = [
+            "decision-->",
+            "decision<1",
+            "decision!",
+            "decision@1",
+        ]
+        for decision_id in invalid_ids:
+            with pytest.raises(ValueError, match="Invalid decision_id"):
+                validate_decision_id(decision_id)
+
+    def test_empty_string(self):
+        """Test that empty string is rejected."""
+        with pytest.raises(ValueError, match="Invalid decision_id"):
+            validate_decision_id("")
 
 
 class TestAddDecisionWithMockGateway:
