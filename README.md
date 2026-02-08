@@ -16,7 +16,7 @@ egg takes a GitHub issue through a phased pipeline where the agent cannot skip s
                │                 │                   │                  │
                ▼                 ▼                   ▼                  ▼
           Human gate        Human gate         CI + review          GitHub UI
-         (approve)         (approve)          (draft PR)          (final merge)
+        (approve plan)  (approve tasks)    (draft PR checks)    (final merge)
 ```
 
 1. **Refine** — Agent analyzes the issue and produces a requirements document. Human approves.
@@ -111,6 +111,8 @@ egg includes GitHub Actions workflows that run inside the sandbox:
 | **AI Code Review** | Automatic PR reviews via `reusable-review.yml` |
 | **@mention Response** | Trigger tasks by mentioning egg in issues or PR comments |
 | **Check Autofixer** | Diagnoses and fixes CI failures automatically |
+| **Self-Improvement** | Nightly failure analysis with automatic issue creation |
+| **Custom Linters** | Project-specific safety checks (container boundaries, invocations, secrets) |
 
 ### Triggering the SDLC Pipeline
 
@@ -130,6 +132,7 @@ When issues arise, humans interact through checkbox-based UI in GitHub comments:
 
 - **Guidance**: Provide additional context, adjust acceptance criteria, break into subtasks
 - **Override**: Mark complete, skip tasks, cancel pipeline
+- **Manual**: Complete manually, reassign
 
 A 30-second debounce prevents accidental clicks.
 
@@ -212,9 +215,16 @@ See [GitHub Action documentation](action/README.md) for details.
 - [Credential Injection](docs/adr/implemented/ADR-Gateway-Credential-Injection.md) — Zero-credential sandbox design
 - [All ADRs](docs/adr/README.md) — Complete index
 
+### Component Documentation
+
+- [Shared Libraries](shared/README.md) — Config, logging, and git utilities
+- [Configuration](config/README.md) — Repository and host configuration
+
 ### Other
 
 - [GitHub Automation Guide](docs/guides/github-automation.md) — Review bots, autofixer, @mention
+- [Internet Tool Access Lockdown](docs/adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) — Public/private mode implementation
+- [GitHub Actions ADR](docs/adr/in-progress/ADR-GitHub-Actions-Support.md) — GitHub Actions support design
 - [Contributing](CONTRIBUTING.md) — Development setup and workflow
 - [Why egg Works](docs/collaboration-effectiveness.md) — Safety, quality, and collaboration
 
@@ -224,6 +234,7 @@ See [GitHub Action documentation](action/README.md) for details.
 make setup           # Set up development environment
 make lint            # Run all linters
 make test            # Run all tests
+make lint-fix        # Auto-fix lint issues
 make build           # Build Docker images
 ```
 
