@@ -238,7 +238,7 @@ handle_pr_create() {
     fi
 
     # Parse args for title, body, base, head
-    local title="" body="" base="main" head=""
+    local title="" body="" body_file="" base="main" head=""
 
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
@@ -250,6 +250,10 @@ handle_pr_create() {
             --body|-b)
                 ((i++))
                 body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
                 ;;
             --base|-B)
                 ((i++))
@@ -271,6 +275,20 @@ handle_pr_create() {
     if [ -z "$title" ]; then
         echo "ERROR: Missing --title for PR create" >&2
         return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
     fi
 
     # Build JSON payload using Python for proper escaping
@@ -598,7 +616,7 @@ handle_issue_create() {
     fi
 
     # Parse args for title, body, labels, assignees
-    local title="" body="" labels="" assignees=""
+    local title="" body="" body_file="" labels="" assignees=""
 
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
@@ -610,6 +628,10 @@ handle_issue_create() {
             --body|-b)
                 ((i++))
                 body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
                 ;;
             --label|-l)
                 ((i++))
@@ -634,6 +656,20 @@ handle_issue_create() {
     if [ -z "$title" ]; then
         echo "ERROR: Missing --title for issue create" >&2
         return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
     fi
 
     # Build args array for gateway execute with properly escaped content
@@ -741,7 +777,7 @@ handle_issue_edit() {
     fi
 
     # Parse args for issue number, title, body
-    local issue_number="" title="" body="" add_label="" remove_label="" add_assignee="" remove_assignee=""
+    local issue_number="" title="" body="" body_file="" add_label="" remove_label="" add_assignee="" remove_assignee=""
 
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
@@ -753,6 +789,10 @@ handle_issue_edit() {
             --body|-b)
                 ((i++))
                 body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
                 ;;
             --add-label)
                 ((i++))
@@ -798,6 +838,20 @@ handle_issue_edit() {
     if [ -z "$issue_number" ]; then
         echo "ERROR: Missing issue number" >&2
         return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
     fi
 
     # Build args array for gateway execute with properly escaped content

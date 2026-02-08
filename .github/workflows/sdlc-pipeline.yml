@@ -904,18 +904,20 @@ jobs:
         if: steps.egg.outputs.exit-code == '0'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          RUN_STARTED: ${{ github.event.workflow_run.created_at || github.event.repository.updated_at }}
+          RUN_STARTED: ${{ github.event.workflow_run.created_at || github.run_started_at }}
         run: |
           set -euo pipefail
           # Check that the agent posted an analysis comment during THIS run.
           # Use since= to filter out comments from previous runs, and check
           # only the last 5 comments as a belt-and-suspenders safeguard.
           RUN_START="${RUN_STARTED:-$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)}"
-          COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-5:][].body" \
-            2>/dev/null || echo "")
 
-          if echo "$COMMENTS" | grep -qE '## Problem Statement|## Recommended Approach|## Analysis'; then
+          # Fetch comments, distinguishing API failure from empty results
+          if ! COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-5:][].body" 2>&1); then
+            echo "WARNING: Failed to fetch comments: $COMMENTS" >&2
+            echo "found=unknown" >> "$GITHUB_OUTPUT"
+          elif echo "$COMMENTS" | grep -qE '## Problem Statement|## Recommended Approach|## Analysis'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
@@ -931,7 +933,13 @@ jobs:
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${ANALYSIS_FOUND}" == "false" ]]; then
+          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${ANALYSIS_FOUND:-}" == "unknown" ]]; then
+            BODY="**Warning:** Refine phase exited successfully but could not verify whether the analysis was posted (API error during validation). [View run logs](${RUN_URL})
+
+          Please check the run logs and verify manually.
+
+          --- Authored by egg"
+          elif [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${ANALYSIS_FOUND:-}" != "true" ]]; then
             BODY="**Warning:** Refine phase exited successfully but no analysis comment was detected. The agent may have failed to post its output (e.g., shell escaping issue). [View run logs](${RUN_URL})
 
           Please check the run logs and retry if needed.
@@ -1015,18 +1023,20 @@ jobs:
         if: steps.egg.outputs.exit-code == '0'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          RUN_STARTED: ${{ github.event.workflow_run.created_at || github.event.repository.updated_at }}
+          RUN_STARTED: ${{ github.event.workflow_run.created_at || github.run_started_at }}
         run: |
           set -euo pipefail
           # Check that the agent posted a plan comment during THIS run.
           # Use since= to filter out comments from previous runs, and check
           # only the last 5 comments as a belt-and-suspenders safeguard.
           RUN_START="${RUN_STARTED:-$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)}"
-          COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-5:][].body" \
-            2>/dev/null || echo "")
 
-          if echo "$COMMENTS" | grep -qE '## Implementation Phases|## Test Strategy|## Implementation Plan'; then
+          # Fetch comments, distinguishing API failure from empty results
+          if ! COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-5:][].body" 2>&1); then
+            echo "WARNING: Failed to fetch comments: $COMMENTS" >&2
+            echo "found=unknown" >> "$GITHUB_OUTPUT"
+          elif echo "$COMMENTS" | grep -qE '## Implementation Phases|## Test Strategy|## Implementation Plan'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
@@ -1042,7 +1052,13 @@ jobs:
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${PLAN_FOUND}" == "false" ]]; then
+          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${PLAN_FOUND:-}" == "unknown" ]]; then
+            BODY="**Warning:** Plan phase exited successfully but could not verify whether the plan was posted (API error during validation). [View run logs](${RUN_URL})
+
+          Please check the run logs and verify manually.
+
+          --- Authored by egg"
+          elif [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${PLAN_FOUND:-}" != "true" ]]; then
             BODY="**Warning:** Plan phase exited successfully but no plan comment was detected. The agent may have failed to post its output (e.g., shell escaping issue). [View run logs](${RUN_URL})
 
           Please check the run logs and retry if needed.
