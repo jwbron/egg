@@ -214,15 +214,11 @@ class Contract(BaseModel):
     refine_review_cycles: int = Field(
         default=0, ge=0, description="Number of refine phase review cycles"
     )
-    refine_review_feedback: str = Field(
-        default="", description="Feedback from last refine review"
-    )
+    refine_review_feedback: str = Field(default="", description="Feedback from last refine review")
     plan_review_cycles: int = Field(
         default=0, ge=0, description="Number of plan phase review cycles"
     )
-    plan_review_feedback: str = Field(
-        default="", description="Feedback from last plan review"
-    )
+    plan_review_feedback: str = Field(default="", description="Feedback from last plan review")
 
     def get_task(self, phase_id: str, task_id: str) -> Task | None:
         """Get a specific task by phase and task ID."""
