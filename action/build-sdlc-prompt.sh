@@ -304,7 +304,7 @@ In the implement phase:
 - You CAN push code (git push)
 - You CAN link commits to tasks (egg-contract add-commit)
 - You CAN add notes (egg-contract update-notes)
-- You CANNOT create PRs yet (gh pr create)
+- You MUST NOT create PRs (gh pr create) — PRs are created in a separate PR phase after implementation is verified complete. Creating a PR prematurely will result in an incomplete PR with only contract state files.
 
 ## Quality Checklist
 
@@ -354,10 +354,14 @@ ${issue_body}
 
 Create a pull request for this implementation.
 
-1. Ensure all commits are pushed
-2. Create the PR with a descriptive title and body
-3. Reference the issue in the PR description
-4. Wait for human review and approval
+1. Verify that the branch contains actual implementation code (not just contract state)
+2. Ensure all commits are pushed
+3. Verify that \`.egg-state/\` has been removed from the branch (it should have been cleaned up automatically; if not, run \`git rm -r .egg-state/ && git commit -m "Remove SDLC contract state"\`)
+4. Create the PR with a descriptive title and body summarizing the implementation
+5. Reference the issue in the PR description
+6. Wait for human review and approval
+
+**IMPORTANT**: The PR must contain the full implementation, not just pipeline state files. If the branch only contains \`.egg-state/\` contract files with no implementation code, do NOT create the PR — report the issue instead.
 
 ## PR Format
 

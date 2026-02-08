@@ -803,6 +803,18 @@ jobs:
           git config user.name "james-in-a-box[bot]"
           git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
 
+      - name: Remove contract state from branch
+        run: |
+          set -euo pipefail
+          # Contract state (.egg-state/) is used by the pipeline to track
+          # progress across workflow runs, but should never appear in the
+          # PR diff. Remove it before the agent creates the PR.
+          if [[ -d ".egg-state" ]]; then
+            git rm -r .egg-state/
+            git commit -m "Remove SDLC contract state before PR"
+            git push origin "${BRANCH_NAME}"
+          fi
+
       - name: Run egg to create PR
         id: egg
         uses: jwbron/egg/action@main
