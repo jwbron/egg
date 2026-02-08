@@ -26,13 +26,20 @@ and via `workflow_dispatch` with a PR number.
 ### How It Works
 
 1. **Skip checks** — Skips draft PRs and PRs with `[skip-review]` in the title.
-2. **Re-review detection** — Searches for an `<!-- egg-automated-review bot=<name> commit=<sha> -->`
+2. **Wait for CI checks** — Waits for all non-review checks (e.g., lint, tests) to complete
+   before starting the review. Skips checks that match `Code Review`, `Design Review`,
+   `SDLC Pipeline`, or `SDLC HITL` to avoid self-deadlock. If checks fail, the review is
+   skipped. Workflow dispatch triggers bypass this wait. Times out after 25 minutes with
+   a warning and proceeds anyway.
+3. **Re-review detection** — Searches for an `<!-- egg-automated-review bot=<name> commit=<sha> -->`
    marker in previous reviews/comments to identify the last reviewed commit. On re-review,
    the agent uses `git diff <last-commit>..HEAD` to focus on new changes only.
-3. **Stale review dismissal** — Dismisses previous bot reviews before posting a new one.
-4. **Trusted prompt build** — Checks out `main` (not the PR branch) to run
+4. **Stale review dismissal** — Dismisses previous bot reviews before posting a new one.
+5. **Trusted prompt build** — Checks out `main` (not the PR branch) to run
    `build-review-prompt.sh`, preventing prompt injection from malicious PRs.
-5. **Agent review** — Checks out the PR branch and runs egg with the review prompt.
+6. **SHA validation** — Verifies the PR HEAD still matches the commit that passed checks,
+   aborting if code was pushed after checks completed but before the review started.
+7. **Agent review** — Checks out the PR branch and runs egg with the review prompt.
    The agent reads the diff, examines context, and posts its review via `gh pr review`.
 
 ### Review Decisions
