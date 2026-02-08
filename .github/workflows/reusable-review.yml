@@ -115,7 +115,9 @@ jobs:
           # Regex to extract commit SHA from the automated review marker
           # Format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
           # The verdict field is optional for backwards compatibility with old markers
-          marker_regex='<!-- egg-automated-review bot=${{ inputs.bot_name }} commit=([a-f0-9]+)( verdict=([a-z-]+))? -->'
+          # Escape regex metacharacters in bot_name to prevent pattern breakage
+          escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[.[\*^$()+?{|\\]/\\&/g')
+          marker_regex="<!-- egg-automated-review bot=${escaped_bot_name} commit=([a-f0-9]+)( verdict=([a-z-]+))? -->"
 
           # Check reviews from the Reviews API for the marker
           # The marker is in the review body

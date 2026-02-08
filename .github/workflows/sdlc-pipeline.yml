@@ -269,6 +269,7 @@ jobs:
       implementation_complete: ${{ steps.implement.outputs.complete }}
       tasks_completed: ${{ steps.implement.outputs.tasks_completed }}
       checkpointed: ${{ steps.checkpoint.outputs.checkpointed }}
+      head_sha: ${{ steps.capture-sha.outputs.head_sha }}
 
     env:
       BOT_USERNAME: james-in-a-box
@@ -459,6 +460,20 @@ jobs:
 
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
 
+      - name: Capture final HEAD SHA
+        id: capture-sha
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
+        run: |
+          set -euo pipefail
+          # Fetch latest from remote to capture the final SHA after all pushes
+          git fetch origin "${BRANCH_NAME}" --quiet
+          HEAD_SHA=$(git rev-parse "origin/${BRANCH_NAME}")
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Captured final HEAD SHA: ${HEAD_SHA}"
+
   # ============================================================
   # Wait for checks: Wait for ALL check runs (CI + reviews) to complete
   # ============================================================
@@ -498,8 +513,15 @@ jobs:
             exit 0
           fi
 
-          # Get the head SHA for this PR
-          HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
+          # Use the final HEAD SHA captured after implementation completes,
+          # rather than fetching via API, to avoid race conditions where new
+          # commits push a different SHA between poll iterations
+          HEAD_SHA="${{ needs.implement.outputs.head_sha }}"
+          if [[ -z "$HEAD_SHA" ]]; then
+            # Fallback: fetch from API if implement didn't produce a SHA
+            HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
+            echo "::warning::Using HEAD SHA from API (implement job did not output head_sha)"
+          fi
           echo "Waiting for checks on commit: ${HEAD_SHA}"
 
           # Wait for all check runs to complete (CI, reviews, etc.)
@@ -509,12 +531,17 @@ jobs:
           # Maximum wait time (30 minutes — reviews can take a while)
           MAX_WAIT_SECONDS=1800
           POLL_INTERVAL=30
-          elapsed=0
+          start_time=$(date +%s)
           zero_checks_iterations=0
-          # After 5 minutes with no checks, assume none are configured and pass
-          MAX_ZERO_CHECKS_ITERATIONS=10
+          # After 10 minutes with no checks, assume none are configured and pass
+          MAX_ZERO_CHECKS_ITERATIONS=20
 
-          while [[ $elapsed -lt $MAX_WAIT_SECONDS ]]; do
+          while true; do
+            # Use wall-clock elapsed time (accounts for API latency, not just sleep)
+            elapsed=$(( $(date +%s) - start_time ))
+            if [[ $elapsed -ge $MAX_WAIT_SECONDS ]]; then
+              break
+            fi
             # Get all check runs for this commit
             check_runs=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
               --jq '.check_runs | map({name: .name, status: .status, conclusion: .conclusion})')
@@ -540,7 +567,6 @@ jobs:
               fi
               echo "No external checks found yet (attempt ${zero_checks_iterations}/${MAX_ZERO_CHECKS_ITERATIONS})"
               sleep $POLL_INTERVAL
-              elapsed=$((elapsed + POLL_INTERVAL))
               continue
             fi
             # Reset counter once checks appear
@@ -563,7 +589,6 @@ jobs:
 
             echo "Waiting for: ${pending}"
             sleep $POLL_INTERVAL
-            elapsed=$((elapsed + POLL_INTERVAL))
           done
 
           echo "::warning::Timeout waiting for checks after ${MAX_WAIT_SECONDS} seconds"
@@ -612,7 +637,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Remove [SDLC] prefix from title
+          # Set PR title to the original issue title (without the [SDLC] prefix
+          # that was added when the draft PR was created)
           CLEAN_TITLE="${ISSUE_TITLE}"
           gh pr edit "${PR_NUMBER}" --title "${CLEAN_TITLE}"
 
