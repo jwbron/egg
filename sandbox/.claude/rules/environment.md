@@ -50,7 +50,8 @@ Use `git push origin <branch>` (HTTPS). Operations are authenticated by the gate
 
 If push fails:
 - Check `git remote -v` is HTTPS
-- Check gateway sidecar is running: `curl http://egg-gateway:9847/api/v1/health`
+- Check gateway sidecar is running: `curl http://egg-gateway:9848/api/v1/health`
+  (Port 9848 is defined in shared/egg_config/constants.py)
 - Ensure branch is egg-owned (egg-prefixed or has your open PR)
 
 ## File System

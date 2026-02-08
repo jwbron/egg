@@ -42,7 +42,7 @@ The gateway already handles all git/GitHub authentication. Extending this to Ant
 │                                                                          │
 │  ┌─────────────────┐    ANTHROPIC_BASE_URL     ┌─────────────────────┐  │
 │  │  sandbox  │ ─────────────────────────▶│    egg-gateway      │  │
-│  │                 │   http://egg-gateway:9847 │                     │  │
+│  │                 │   http://egg-gateway:9848 │                     │  │
 │  │  Claude Code    │   /v1/messages            │  1. Receive request │  │
 │  │                 │   (no credentials)        │  2. Inject creds    │  │
 │  │  No API key     │                           │  3. Filter tools    │──┼──▶ api.anthropic.com
@@ -60,7 +60,7 @@ The gateway already handles all git/GitHub authentication. Extending this to Ant
 
 Claude Code officially supports custom API endpoints via `ANTHROPIC_BASE_URL` ([docs](https://code.claude.com/docs/en/llm-gateway)). This enables a clean architecture:
 
-- Container sets `ANTHROPIC_BASE_URL=http://egg-gateway:9847`
+- Container sets `ANTHROPIC_BASE_URL=http://egg-gateway:9848`
 - Claude Code sends requests to gateway over HTTP (internal network)
 - Gateway adds credentials and forwards over HTTPS to api.anthropic.com
 - **No SSL bump needed** - gateway receives plaintext, handles TLS outbound
@@ -92,7 +92,7 @@ The gateway exposes HTTP endpoints that proxy to Anthropic with credential injec
 ### Container Configuration
 
 The container entrypoint:
-1. Sets `ANTHROPIC_BASE_URL=http://egg-gateway:9847`
+1. Sets `ANTHROPIC_BASE_URL=http://egg-gateway:9848`
 2. Removes `ANTHROPIC_API_KEY` from environment (if present)
 3. Removes `ANTHROPIC_OAUTH_TOKEN` from environment (if present)
 4. Removes proxy environment variables for Node.js (Claude Code)
