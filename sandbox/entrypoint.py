@@ -1107,7 +1107,9 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
             "    2. Check Squid logs: docker exec egg-gateway cat /var/log/squid/cache.log"
         )
         logger.error("    3. Test proxy from host:")
-        logger.error(f"       curl -x http://localhost:{GATEWAY_PROXY_PORT} https://api.anthropic.com/")
+        logger.error(
+            f"       curl -x http://localhost:{GATEWAY_PROXY_PORT} https://api.anthropic.com/"
+        )
         logger.error("    4. Verify allowed_domains.txt includes api.anthropic.com")
     return False
 

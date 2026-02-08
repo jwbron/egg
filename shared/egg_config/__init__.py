@@ -38,6 +38,11 @@ from .base import (
 )
 from .config import Config, get_local_repos, get_repos_config_file
 
+# Service configurations
+from .configs.gateway import GatewayConfig
+from .configs.github import GitHubConfig
+from .configs.llm import LLMConfig
+
 # Centralized constants
 from .constants import (
     EGG_CONTAINER_IP,
@@ -54,11 +59,6 @@ from .constants import (
     TEST_GATEWAY_PORT,
     TEST_GATEWAY_PROXY_PORT,
 )
-
-# Service configurations
-from .configs.gateway import GatewayConfig
-from .configs.github import GitHubConfig
-from .configs.llm import LLMConfig
 from .registry import (
     AggregateHealthResult,
     AggregateValidationResult,

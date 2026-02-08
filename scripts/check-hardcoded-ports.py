@@ -211,7 +211,7 @@ def main() -> int:
         print("     from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT")
         print()
         print("  2. For shell scripts in sandbox/, use GATEWAY_URL env var:")
-        print('     GATEWAY_URL is set by the container launcher')
+        print("     GATEWAY_URL is set by the container launcher")
         print()
         print("  3. For test code, use TEST_GATEWAY_PORT from egg_config.constants")
         print()

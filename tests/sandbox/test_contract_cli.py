@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
 
 from egg_config import GATEWAY_PORT
-
 from egg_lib.contract_cli import (
     create_parser,
     format_decision_markdown,

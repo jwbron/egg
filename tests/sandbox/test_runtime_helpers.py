@@ -15,7 +15,6 @@ sandbox_path = Path(__file__).parent.parent.parent / "sandbox"
 sys.path.insert(0, str(sandbox_path))
 
 from egg_config import TEST_GATEWAY_PORT, TEST_GATEWAY_PROXY_PORT
-
 from egg_lib.runtime import (
     VALID_REPO_MODES,
     _allocate_container_ip,
