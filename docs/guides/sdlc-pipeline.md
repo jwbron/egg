@@ -68,7 +68,7 @@ The pipeline pauses for human approval at phase transitions and when circuit bre
 | **Refine** | Analyze issue, produce analysis document | `gh issue comment/edit` | Human approval |
 | **Plan** | Create implementation plan with tasks | `gh issue comment/edit`, `egg-contract add-decision` | Human approval |
 | **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
-| **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge |
+| **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
 
 ### Phase-Based Operation Filtering
 
@@ -170,6 +170,7 @@ The implement phase uses PR-based automated code review:
 4. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
 5. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
 6. **PR finalization** — Once all checks pass and review approves, the draft PR is marked ready for human merge
+7. **Issue closure** — When the PR is merged, the original issue is automatically closed (the PR body includes `Closes #<issue>`)
 
 This approach provides:
 - Line-level code review comments visible to humans
