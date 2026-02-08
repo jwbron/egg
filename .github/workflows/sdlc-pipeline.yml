@@ -1424,32 +1424,7 @@ jobs:
           DRAFT_FILE=".egg-state/drafts/${ISSUE_NUMBER}-analysis.md"
 
           if [[ -f "$DRAFT_FILE" ]]; then
-            # Read the draft analysis content
-            ANALYSIS_CONTENT=$(cat "$DRAFT_FILE")
-
-            # Create the final comment with the analysis and approval checkbox
-            cat > /tmp/final-analysis.md << 'ANALYSIS_EOF'
-${ANALYSIS_CONTENT}
-
----
-
-## Refine Phase Complete
-
-The analysis above has passed internal review and is ready for human approval.
-
-[View run logs](${RUN_URL})
-
-### Ready for Review
-
-<!-- egg-phase-approval -->
-- [ ] Approve and advance to plan phase
-
----
-
-*Authored-by: egg*
-ANALYSIS_EOF
-
-            # Use envsubst to expand variables in the comment
+            # Read the draft analysis content and create the final comment
             ANALYSIS_CONTENT=$(cat "$DRAFT_FILE")
             {
               echo "$ANALYSIS_CONTENT"
@@ -1475,23 +1450,25 @@ ANALYSIS_EOF
             gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/final-analysis.md
           else
             # Fallback: post a simple message if draft not found
-            BODY="**Analysis review passed.** ✅
+            {
+              echo "**Analysis review passed.** ✅"
+              echo ""
+              echo "The analysis has been reviewed and approved by the automated reviewer, but the draft file was not found."
+              echo "Please check the run logs."
+              echo ""
+              echo "[View run logs](${RUN_URL})"
+              echo ""
+              echo "### Ready for Review"
+              echo ""
+              echo "<!-- egg-phase-approval -->"
+              echo "- [ ] Approve and advance to plan phase"
+              echo ""
+              echo "---"
+              echo ""
+              echo "*Authored-by: egg*"
+            } > /tmp/fallback-analysis.md
 
-          The analysis has been reviewed and approved by the automated reviewer, but the draft file was not found.
-          Please check the run logs.
-
-          [View run logs](${RUN_URL})
-
-          ### Ready for Review
-
-          <!-- egg-phase-approval -->
-          - [ ] Approve and advance to plan phase
-
-          ---
-
-          *Authored-by: egg*"
-
-            gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+            gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/fallback-analysis.md
           fi
 
   # ============================================================
