@@ -343,10 +343,16 @@ In the markdown sections, use this format for tasks:
 
 ### Structured Appendix (for machines)
 
-At the end of your plan, include a YAML code block with the \`# yaml-tasks\` marker:
+At the end of your plan, include a YAML code block with the \`# yaml-tasks\` marker.
+Include a \`pr:\` section with a concise title and description for the pull request:
 
 \`\`\`yaml
 # yaml-tasks
+pr:
+  title: "Concise PR title (max 70 chars)"
+  description: |
+    Brief description of the PR explaining the problem being solved
+    and the approach taken. Link to the issue for additional context.
 phases:
   - id: 1
     name: Setup
@@ -366,6 +372,11 @@ phases:
 
 **CRITICAL**: The YAML appendix must accurately reflect the tasks in your prose.
 This structured format is extracted into the contract for tracking.
+
+**PR Metadata Guidelines**:
+- Keep the PR title under 70 characters for readability in GitHub UI
+- The description should explain the "why" and context, not just the "what"
+- Link to the issue for detailed background
 
 ## Output Format
 

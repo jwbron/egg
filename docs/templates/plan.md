@@ -58,10 +58,16 @@
 ## Structured Task Appendix
 
 The following YAML block is machine-readable and will be extracted into the contract.
-It must accurately reflect the tasks described above.
+It must accurately reflect the tasks described above. The `pr:` section provides the
+title and description that will be used when creating the pull request.
 
 ```yaml
 # yaml-tasks
+pr:
+  title: "[Concise PR title, max 70 chars]"
+  description: |
+    [2-3 sentence description of the PR. Explain the problem being solved
+    and the approach taken. Link to the issue for additional context.]
 phases:
   - id: 1
     name: [Phase Name]
