@@ -78,12 +78,36 @@ The pipeline pauses for human approval at phase transitions and when circuit bre
 
 ### Refine and Plan Phase Review Cycles
 
-The refine and plan phases now include an automated review step before human approval:
+The refine and plan phases include an automated internal review step before human approval. All reviews happen internally without posting to the issue until approval:
 
-1. **Producer agent runs** — The refine/plan agent produces its output (analysis or plan)
-2. **Reviewer agent runs** — A separate reviewer agent evaluates the output against quality criteria
-3. **If approved** — Human is asked to review and approve
-4. **If needs revision** — Producer agent is re-dispatched with feedback; cycle repeats
+1. **Producer agent runs** — The refine/plan agent writes its output to `.egg-state/drafts/{issue}-{analysis|plan}.md`
+2. **Reviewer agent runs** — Reads the draft and writes verdict to `.egg-state/reviews/{issue}-{refine|plan}-review.json`
+3. **If approved** — The final draft is posted to the issue with an approval checkbox for human review
+4. **If needs revision** — Producer agent is re-dispatched with feedback; cycle repeats without posting to issue
+
+**Key Benefit:** Internal review cycles don't create noise on the GitHub issue. Only the final approved analysis/plan is posted for human review.
+
+**File Structure:**
+```
+.egg-state/
+├── contracts/{issue}.json      # Contract state
+├── drafts/
+│   ├── {issue}-analysis.md     # Refine phase draft
+│   └── {issue}-plan.md         # Plan phase draft
+└── reviews/
+    ├── {issue}-refine-review.json  # Refine review verdict
+    └── {issue}-plan-review.json    # Plan review verdict
+```
+
+**Review Verdict JSON Schema:**
+```json
+{
+  "verdict": "approved" | "needs_revision",
+  "summary": "Brief summary of findings",
+  "feedback": "Detailed feedback (empty if approved)",
+  "timestamp": "ISO 8601 timestamp"
+}
+```
 
 **Review Criteria for Refine:**
 - Does the analysis address the issue description?
@@ -101,7 +125,7 @@ The refine and plan phases now include an automated review step before human app
 
 **Escalation:**
 - Max review cycles: 3 per phase
-- When exceeded, circuit breaker opens and human is asked to intervene
+- When exceeded, circuit breaker opens and the draft is posted with unresolved issues highlighted
 - Human can provide guidance, override and approve, or cancel
 
 ### Phase-Based Operation Filtering
@@ -123,6 +147,8 @@ This prevents incidents where agents push code during planning or manually creat
 | `.egg/schemas/` | Contract JSON schema definitions | `main` |
 | `.egg/phase-permissions.json` | Phase operation restrictions | `main` |
 | `.egg-state/contracts/` | Per-issue contract instances | Feature branches only |
+| `.egg-state/drafts/` | Draft analysis and plan documents | Feature branches only |
+| `.egg-state/reviews/` | Internal review verdicts (JSON) | Feature branches only |
 
 ### Contract Schema
 

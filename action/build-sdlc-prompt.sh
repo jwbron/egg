@@ -66,6 +66,7 @@ get_review_feedback() {
   local phase="$2"  # "refine" or "plan"
   local repo_path="${EGG_REPO_PATH:-$(find /home/egg/repos -maxdepth 1 -type d ! -name repos | head -1)}"
 
+  # First try to get feedback from the contract
   if [[ -f "${repo_path}/.egg-state/contracts/${issue_number}.json" ]]; then
     local contract
     contract=$(cat "${repo_path}/.egg-state/contracts/${issue_number}.json")
@@ -79,6 +80,25 @@ get_review_feedback() {
 
     if [[ -n "$feedback" && "$feedback" != "" && "$cycles" -gt 0 ]]; then
       echo "$feedback"
+      return
+    fi
+  fi
+
+  # Fallback: read directly from the review file (for first re-dispatch before contract is updated)
+  local review_file
+  if [[ "$phase" == "refine" ]]; then
+    review_file="${repo_path}/.egg-state/reviews/${issue_number}-refine-review.json"
+  else
+    review_file="${repo_path}/.egg-state/reviews/${issue_number}-plan-review.json"
+  fi
+
+  if [[ -f "$review_file" ]]; then
+    local verdict feedback_from_file
+    verdict=$(jq -r '.verdict // ""' "$review_file")
+    feedback_from_file=$(jq -r '.feedback // ""' "$review_file")
+
+    if [[ "$verdict" == "needs_revision" && -n "$feedback_from_file" ]]; then
+      echo "$feedback_from_file"
     fi
   fi
 }
@@ -94,6 +114,24 @@ get_review_cycle() {
     jq -r ".${cycles_field} // 0" "${repo_path}/.egg-state/contracts/${issue_number}.json"
   else
     echo "0"
+  fi
+}
+
+# Get prior draft content for a phase (for revision cycles)
+get_prior_draft() {
+  local issue_number="$1"
+  local phase="$2"  # "refine" or "plan"
+  local repo_path="${EGG_REPO_PATH:-$(find /home/egg/repos -maxdepth 1 -type d ! -name repos | head -1)}"
+
+  local draft_file
+  if [[ "$phase" == "refine" ]]; then
+    draft_file="${repo_path}/.egg-state/drafts/${issue_number}-analysis.md"
+  else
+    draft_file="${repo_path}/.egg-state/drafts/${issue_number}-plan.md"
+  fi
+
+  if [[ -f "$draft_file" ]]; then
+    cat "$draft_file"
   fi
 }
 
@@ -155,11 +193,13 @@ build_refine_prompt() {
     analysis_template=$(cat "${templates_dir}/analysis.md")
   fi
 
-  # Check for prior review feedback
+  # Check for prior review feedback and draft
   local prior_feedback
   prior_feedback=$(get_review_feedback "$issue_number" "refine")
   local review_cycle
   review_cycle=$(get_review_cycle "$issue_number" "refine")
+  local prior_draft
+  prior_draft=$(get_prior_draft "$issue_number" "refine")
 
   cat <<EOF
 You are in the **refine** phase of the SDLC pipeline.
@@ -185,6 +225,16 @@ ${prior_feedback}
 
 **Important:** Carefully address each issue raised above. Your revised analysis will be reviewed again.
 EOF
+
+    # Include the prior draft so the agent can revise it in place
+    if [[ -n "$prior_draft" ]]; then
+      cat <<EOF
+
+## Prior Draft (to revise)
+
+Your previous analysis is in \`.egg-state/drafts/${issue_number}-analysis.md\`. Read it, address the feedback above, and update it in place.
+EOF
+    fi
   fi
 
   cat <<EOF
@@ -215,9 +265,10 @@ ${analysis_template}
 ## Phase Restrictions
 
 In the refine phase:
-- You CAN comment on the issue (gh issue comment)
+- You CAN write draft analysis to \`.egg-state/drafts/\`
+- You CAN push the draft file (git push)
 - You CAN create HITL decisions (egg-contract add-decision)
-- You CANNOT push code (git push)
+- You CANNOT post analysis directly to the issue (internal review must pass first)
 - You CANNOT create PRs (gh pr create)
 
 ## HITL Decisions
@@ -237,32 +288,23 @@ List these as plain text in your analysis. The human will respond via comment.
 
 ## Phase Completion
 
-When your analysis is complete, post a completion comment with an approval section:
+When your analysis is complete:
 
-\`\`\`markdown
-## Refine Phase Complete
+1. Write your analysis to the draft file (it will be reviewed internally before posting to the issue)
+2. Commit the draft file to the branch
 
-[Summary of analysis and recommendation]
-
-### Ready for Review
-
-<!-- egg-phase-approval -->
-- [ ] Approve and advance to plan phase
-
----
-
-*Authored-by: egg*
-\`\`\`
+**IMPORTANT**: Do NOT post your analysis directly to the issue. The pipeline will:
+- Have an internal reviewer check your analysis
+- If revisions are needed, you'll be re-invoked with feedback
+- Only after internal review passes will the final analysis be posted for human approval
 
 ## Next Steps
 
-1. Write the analysis document to a file: \`/tmp/analysis.md\`
-2. Post via file to avoid shell escaping issues: \`gh issue comment ${issue_number} --body-file /tmp/analysis.md\`
-3. Wait for human approval (they check the approval checkbox)
+1. Write the analysis document: \`mkdir -p .egg-state/drafts && cat > .egg-state/drafts/${issue_number}-analysis.md << 'ANALYSIS_EOF'\`
+2. Commit the draft: \`git add .egg-state/drafts/${issue_number}-analysis.md && git commit -m "Draft analysis for issue #${issue_number}"\`
+3. Push the commit: \`git push origin \${EGG_BRANCH_NAME}\`
 
-**IMPORTANT**: Always use \`--body-file\` instead of \`--body\` when posting.
-Content containing \`\${{ }}\` expressions or other shell metacharacters will corrupt
-the comment if passed inline via \`--body\`.
+The internal review process will then evaluate your analysis. If approved, it will be posted to the issue for human review.
 EOF
 }
 
@@ -279,11 +321,13 @@ build_plan_prompt() {
     plan_template=$(cat "${templates_dir}/plan.md")
   fi
 
-  # Check for prior review feedback
+  # Check for prior review feedback and draft
   local prior_feedback
   prior_feedback=$(get_review_feedback "$issue_number" "plan")
   local review_cycle
   review_cycle=$(get_review_cycle "$issue_number" "plan")
+  local prior_draft
+  prior_draft=$(get_prior_draft "$issue_number" "plan")
 
   cat <<EOF
 You are in the **plan** phase of the SDLC pipeline.
@@ -309,6 +353,16 @@ ${prior_feedback}
 
 **Important:** Carefully address each issue raised above. Your revised plan will be reviewed again.
 EOF
+
+    # Include the prior draft so the agent can revise it in place
+    if [[ -n "$prior_draft" ]]; then
+      cat <<EOF
+
+## Prior Draft (to revise)
+
+Your previous plan is in \`.egg-state/drafts/${issue_number}-plan.md\`. Read it, address the feedback above, and update it in place.
+EOF
+    fi
   fi
 
   cat <<EOF
@@ -378,9 +432,10 @@ ${plan_template}
 ## Phase Restrictions
 
 In the plan phase:
-- You CAN comment on the issue (gh issue comment)
+- You CAN write draft plan to \`.egg-state/drafts/\`
+- You CAN push the draft file (git push)
 - You CAN create HITL decisions (egg-contract add-decision)
-- You CANNOT push code (git push)
+- You CANNOT post plan directly to the issue (internal review must pass first)
 - You CANNOT create PRs (gh pr create)
 
 ## HITL Decisions
@@ -400,28 +455,23 @@ List these as plain text. The human will respond via comment.
 
 ## Phase Completion
 
-When your plan is complete, include an approval section at the end:
+When your plan is complete:
 
-\`\`\`markdown
-### Ready for Review
+1. Write your plan to the draft file (it will be reviewed internally before posting to the issue)
+2. Commit the draft file to the branch
 
-<!-- egg-phase-approval -->
-- [ ] Approve and advance to implement phase
-
----
-
-*Authored-by: egg*
-\`\`\`
+**IMPORTANT**: Do NOT post your plan directly to the issue. The pipeline will:
+- Have an internal reviewer check your plan
+- If revisions are needed, you'll be re-invoked with feedback
+- Only after internal review passes will the final plan be posted for human approval
 
 ## Next Steps
 
-1. Write the plan document to a file: \`/tmp/plan.md\`
-2. Post via file to avoid shell escaping issues: \`gh issue comment ${issue_number} --body-file /tmp/plan.md\`
-3. Wait for human approval (they check the approval checkbox)
+1. Write the plan document: \`mkdir -p .egg-state/drafts && cat > .egg-state/drafts/${issue_number}-plan.md << 'PLAN_EOF'\`
+2. Commit the draft: \`git add .egg-state/drafts/${issue_number}-plan.md && git commit -m "Draft plan for issue #${issue_number}"\`
+3. Push the commit: \`git push origin \${EGG_BRANCH_NAME}\`
 
-**IMPORTANT**: Always use \`--body-file\` instead of \`--body\` when posting the plan.
-Content containing \`\${{ }}\` expressions or other shell metacharacters will corrupt
-the comment if passed inline via \`--body\`.
+The internal review process will then evaluate your plan. If approved, it will be posted to the issue for human review.
 EOF
 }
 

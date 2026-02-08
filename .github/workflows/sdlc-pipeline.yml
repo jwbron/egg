@@ -141,8 +141,10 @@ jobs:
             git checkout -b "${BRANCH_NAME}"
           fi
 
-          # Create contracts directory
+          # Create state directories
           mkdir -p .egg-state/contracts
+          mkdir -p .egg-state/drafts
+          mkdir -p .egg-state/reviews
 
           # Check if contract exists
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
@@ -1088,20 +1090,23 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           set -euo pipefail
-          # Check that the agent posted an analysis comment during THIS run.
-          # Use since= to filter out comments from previous runs, and check
-          # only the last 5 comments as a belt-and-suspenders safeguard.
-          RUN_START="$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)"
+          # Check that the agent wrote an analysis draft file to .egg-state/drafts/
+          # Pull latest to ensure we have the agent's commits
+          git pull origin "${BRANCH_NAME}" --rebase || true
 
-          # Fetch comments, distinguishing API failure from empty results
-          if ! COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-5:][].body" 2>&1); then
-            echo "WARNING: Failed to fetch comments: $COMMENTS" >&2
-            echo "found=unknown" >> "$GITHUB_OUTPUT"
-          elif echo "$COMMENTS" | grep -qE '## Problem Statement|## Recommended Approach|## Analysis'; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
+          DRAFT_FILE=".egg-state/drafts/${ISSUE_NUMBER}-analysis.md"
+          if [[ -f "$DRAFT_FILE" ]]; then
+            # Verify the draft has expected content
+            if grep -qE '## Problem Statement|## Recommended Approach|## Analysis' "$DRAFT_FILE"; then
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              echo "Draft analysis found at ${DRAFT_FILE}"
+            else
+              echo "found=false" >> "$GITHUB_OUTPUT"
+              echo "Draft file exists but missing expected sections"
+            fi
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No draft file found at ${DRAFT_FILE}"
           fi
 
       # Minimize previous pipeline status comments to reduce clutter
@@ -1129,8 +1134,8 @@ jobs:
               fi
             done
 
-      - name: Post completion comment
-        if: always()
+      - name: Post failure comment
+        if: always() && (steps.egg.outputs.exit-code != '0' || steps.validate-refine.outputs.found != 'true')
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
@@ -1139,34 +1144,22 @@ jobs:
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${ANALYSIS_FOUND:-}" == "unknown" ]]; then
-            BODY="**Warning:** Refine phase exited successfully but could not verify whether the analysis was posted (API error during validation). [View run logs](${RUN_URL})
-
-          Please check the run logs and verify manually.
-
-          --- Authored by egg"
-          elif [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${ANALYSIS_FOUND:-}" != "true" ]]; then
-            BODY="**Warning:** Refine phase exited successfully but no analysis comment was detected. The agent may have failed to post its output (e.g., shell escaping issue). [View run logs](${RUN_URL})
+          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${ANALYSIS_FOUND:-}" != "true" ]]; then
+            BODY="**Warning:** Refine phase exited successfully but no analysis draft was found. The agent may have failed to write to \`.egg-state/drafts/\`. [View run logs](${RUN_URL})
 
           Please check the run logs and retry if needed.
 
           --- Authored by egg"
-          elif [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
-            BODY="Refine phase completed. [View run logs](${RUN_URL})
-
-          The analysis will now be reviewed automatically. If review passes, you will be asked to approve.
-
-          <!-- egg-phase-approval phase=refine -->
-          - [ ] Approve
-
-          --- Authored by egg"
-          else
+          elif [[ "${EGG_EXIT_CODE:-1}" != "0" ]]; then
             BODY="Refine phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})
 
           --- Authored by egg"
           fi
 
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          # Only post if BODY is set (success cases don't post here - they wait for review)
+          if [[ -n "${BODY:-}" ]]; then
+            gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          fi
 
   # ============================================================
   # Refine Review: Review the analysis before human approval
@@ -1299,38 +1292,45 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Look for the verdict marker in recent comments
-          RUN_START="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+          # Pull latest to ensure we have the reviewer's commits
+          git pull origin "${BRANCH_NAME}" --rebase || true
 
-          # Fetch the MOST RECENT comment only (last one) to avoid race conditions
-          # with previous review cycles
-          LATEST_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-1].body // \"\"" 2>/dev/null || echo "")
+          # Read verdict from the review JSON file
+          REVIEW_FILE=".egg-state/reviews/${ISSUE_NUMBER}-refine-review.json"
 
-          if echo "$LATEST_COMMENT" | grep -q 'egg-refine-review-verdict: approved'; then
-            {
-              echo "passed=true"
-              echo "feedback="
-            } >> "$GITHUB_OUTPUT"
-            echo "Review verdict: APPROVED"
-          elif echo "$LATEST_COMMENT" | grep -q 'egg-refine-review-verdict: needs_revision'; then
-            # Extract feedback from BEFORE the verdict marker (the actual review content)
-            # The marker is at the end, so capture everything before it
-            FEEDBACK=$(echo "$LATEST_COMMENT" | sed -n '/^## .*Review:/,/egg-refine-review-verdict:/p' | head -50 || echo "Revision needed")
-            {
-              echo "passed=false"
-              echo "feedback<<EOF"
-              echo "$FEEDBACK"
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
-            echo "Review verdict: NEEDS REVISION"
+          if [[ -f "$REVIEW_FILE" ]]; then
+            VERDICT=$(jq -r '.verdict // ""' "$REVIEW_FILE")
+            FEEDBACK=$(jq -r '.feedback // ""' "$REVIEW_FILE")
+
+            if [[ "$VERDICT" == "approved" ]]; then
+              {
+                echo "passed=true"
+                echo "feedback="
+              } >> "$GITHUB_OUTPUT"
+              echo "Review verdict: APPROVED"
+            elif [[ "$VERDICT" == "needs_revision" ]]; then
+              {
+                echo "passed=false"
+                echo "feedback<<EOF"
+                echo "$FEEDBACK"
+                echo "EOF"
+              } >> "$GITHUB_OUTPUT"
+              echo "Review verdict: NEEDS REVISION"
+            else
+              # Unknown verdict — treat as passed to avoid blocking
+              {
+                echo "passed=true"
+                echo "feedback="
+              } >> "$GITHUB_OUTPUT"
+              echo "::warning::Unknown review verdict '${VERDICT}' — proceeding as if approved"
+            fi
           else
-            # No verdict found — treat as passed to avoid blocking
+            # No review file found — treat as passed to avoid blocking
             {
               echo "passed=true"
               echo "feedback="
             } >> "$GITHUB_OUTPUT"
-            echo "::warning::No review verdict marker found — proceeding as if approved"
+            echo "::warning::No review file found at ${REVIEW_FILE} — proceeding as if approved"
           fi
 
       - name: Update contract with review state
@@ -1413,7 +1413,7 @@ jobs:
             done
           fi
 
-      - name: Post review passed comment
+      - name: Post final analysis to issue
         if: steps.check-circuit-breaker.outputs.skip != 'true' && steps.parse-verdict.outputs.passed == 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -1421,10 +1421,64 @@ jobs:
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          BODY="**Analysis review passed.** ✅
+          DRAFT_FILE=".egg-state/drafts/${ISSUE_NUMBER}-analysis.md"
 
-          The analysis has been reviewed and approved by the automated reviewer.
-          Please review the analysis and approve to advance to the **plan** phase.
+          if [[ -f "$DRAFT_FILE" ]]; then
+            # Read the draft analysis content
+            ANALYSIS_CONTENT=$(cat "$DRAFT_FILE")
+
+            # Create the final comment with the analysis and approval checkbox
+            cat > /tmp/final-analysis.md << 'ANALYSIS_EOF'
+${ANALYSIS_CONTENT}
+
+---
+
+## Refine Phase Complete
+
+The analysis above has passed internal review and is ready for human approval.
+
+[View run logs](${RUN_URL})
+
+### Ready for Review
+
+<!-- egg-phase-approval -->
+- [ ] Approve and advance to plan phase
+
+---
+
+*Authored-by: egg*
+ANALYSIS_EOF
+
+            # Use envsubst to expand variables in the comment
+            ANALYSIS_CONTENT=$(cat "$DRAFT_FILE")
+            {
+              echo "$ANALYSIS_CONTENT"
+              echo ""
+              echo "---"
+              echo ""
+              echo "## Refine Phase Complete"
+              echo ""
+              echo "The analysis above has passed internal review and is ready for human approval."
+              echo ""
+              echo "[View run logs](${RUN_URL})"
+              echo ""
+              echo "### Ready for Review"
+              echo ""
+              echo "<!-- egg-phase-approval -->"
+              echo "- [ ] Approve and advance to plan phase"
+              echo ""
+              echo "---"
+              echo ""
+              echo "*Authored-by: egg*"
+            } > /tmp/final-analysis.md
+
+            gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/final-analysis.md
+          else
+            # Fallback: post a simple message if draft not found
+            BODY="**Analysis review passed.** ✅
+
+          The analysis has been reviewed and approved by the automated reviewer, but the draft file was not found.
+          Please check the run logs.
 
           [View run logs](${RUN_URL})
 
@@ -1437,7 +1491,8 @@ jobs:
 
           *Authored-by: egg*"
 
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+            gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          fi
 
   # ============================================================
   # Refine Re-dispatch: Re-run refine if review failed
@@ -1491,7 +1546,7 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Post escalation comment
+      - name: Post escalation comment with draft
         if: steps.check-circuit-breaker.outputs.skip == 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -1499,27 +1554,55 @@ jobs:
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          BODY="**Refine phase escalated to human review.**
+          DRAFT_FILE=".egg-state/drafts/${ISSUE_NUMBER}-analysis.md"
+          REVIEW_FILE=".egg-state/reviews/${ISSUE_NUMBER}-refine-review.json"
 
-          The analysis has gone through ${REVIEW_CYCLE} review cycles without passing automated review.
-          Human intervention is required to either:
+          # Read the last review feedback if available
+          LAST_FEEDBACK=""
+          if [[ -f "$REVIEW_FILE" ]]; then
+            LAST_FEEDBACK=$(jq -r '.feedback // ""' "$REVIEW_FILE")
+          fi
 
-          1. Provide guidance on the analysis issues
-          2. Override and approve the analysis as-is
-          3. Cancel and restart with different approach
+          {
+            echo "**⚠️ Refine phase escalated to human review.**"
+            echo ""
+            echo "The analysis has gone through ${REVIEW_CYCLE} review cycles without passing automated review."
+            echo ""
+            if [[ -n "$LAST_FEEDBACK" ]]; then
+              echo "### Unresolved Issues from Last Review"
+              echo ""
+              echo "$LAST_FEEDBACK"
+              echo ""
+            fi
+            echo "---"
+            echo ""
+            if [[ -f "$DRAFT_FILE" ]]; then
+              echo "### Current Draft Analysis"
+              echo ""
+              cat "$DRAFT_FILE"
+              echo ""
+            fi
+            echo "---"
+            echo ""
+            echo "Human intervention is required to either:"
+            echo ""
+            echo "1. Provide guidance on the analysis issues"
+            echo "2. Override and approve the analysis as-is"
+            echo "3. Cancel and restart with different approach"
+            echo ""
+            echo "[View run logs](${RUN_URL})"
+            echo ""
+            echo "---"
+            echo ""
+            echo "<!-- egg-phase-approval -->"
+            echo "- [ ] Override: Approve analysis and advance to plan phase"
+            echo ""
+            echo "---"
+            echo ""
+            echo "*Authored-by: egg*"
+          } > /tmp/escalation.md
 
-          [View run logs](${RUN_URL})
-
-          ---
-
-          <!-- egg-phase-approval -->
-          - [ ] Override: Approve analysis and advance to plan phase
-
-          ---
-
-          *Authored-by: egg*"
-
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/escalation.md
 
       - name: Re-dispatch refine phase
         if: steps.check-circuit-breaker.outputs.skip != 'true'
@@ -1605,20 +1688,23 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           set -euo pipefail
-          # Check that the agent posted a plan comment during THIS run.
-          # Use since= to filter out comments from previous runs, and check
-          # only the last 5 comments as a belt-and-suspenders safeguard.
-          RUN_START="$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)"
+          # Check that the agent wrote a plan draft file to .egg-state/drafts/
+          # Pull latest to ensure we have the agent's commits
+          git pull origin "${BRANCH_NAME}" --rebase || true
 
-          # Fetch comments, distinguishing API failure from empty results
-          if ! COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-5:][].body" 2>&1); then
-            echo "WARNING: Failed to fetch comments: $COMMENTS" >&2
-            echo "found=unknown" >> "$GITHUB_OUTPUT"
-          elif echo "$COMMENTS" | grep -qE '## Implementation Phases|## Test Strategy|## Implementation Plan'; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
+          DRAFT_FILE=".egg-state/drafts/${ISSUE_NUMBER}-plan.md"
+          if [[ -f "$DRAFT_FILE" ]]; then
+            # Verify the draft has expected content
+            if grep -qE '## Implementation Phases|## Test Strategy|## Implementation Plan' "$DRAFT_FILE"; then
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              echo "Draft plan found at ${DRAFT_FILE}"
+            else
+              echo "found=false" >> "$GITHUB_OUTPUT"
+              echo "Draft file exists but missing expected sections"
+            fi
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No draft file found at ${DRAFT_FILE}"
           fi
 
       - name: Populate contract from plan
@@ -1693,8 +1779,8 @@ jobs:
               fi
             done
 
-      - name: Post completion comment
-        if: always()
+      - name: Post failure comment
+        if: always() && (steps.egg.outputs.exit-code != '0' || steps.validate-plan.outputs.found != 'true')
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           EGG_EXIT_CODE: ${{ steps.egg.outputs.exit-code }}
@@ -1703,34 +1789,22 @@ jobs:
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${PLAN_FOUND:-}" == "unknown" ]]; then
-            BODY="**Warning:** Plan phase exited successfully but could not verify whether the plan was posted (API error during validation). [View run logs](${RUN_URL})
-
-          Please check the run logs and verify manually.
-
-          --- Authored by egg"
-          elif [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${PLAN_FOUND:-}" != "true" ]]; then
-            BODY="**Warning:** Plan phase exited successfully but no plan comment was detected. The agent may have failed to post its output (e.g., shell escaping issue). [View run logs](${RUN_URL})
+          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${PLAN_FOUND:-}" != "true" ]]; then
+            BODY="**Warning:** Plan phase exited successfully but no plan draft was found. The agent may have failed to write to \`.egg-state/drafts/\`. [View run logs](${RUN_URL})
 
           Please check the run logs and retry if needed.
 
           --- Authored by egg"
-          elif [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
-            BODY="Plan phase completed. [View run logs](${RUN_URL})
-
-          The plan will now be reviewed automatically. If review passes, you will be asked to approve.
-
-          <!-- egg-phase-approval phase=plan -->
-          - [ ] Approve
-
-          --- Authored by egg"
-          else
+          elif [[ "${EGG_EXIT_CODE:-1}" != "0" ]]; then
             BODY="Plan phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})
 
           --- Authored by egg"
           fi
 
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          # Only post if BODY is set (success cases don't post here - they wait for review)
+          if [[ -n "${BODY:-}" ]]; then
+            gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          fi
 
   # ============================================================
   # Plan Review: Review the plan before human approval
@@ -1862,38 +1936,45 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Look for the verdict marker in recent comments
-          RUN_START="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+          # Pull latest to ensure we have the reviewer's commits
+          git pull origin "${BRANCH_NAME}" --rebase || true
 
-          # Fetch the MOST RECENT comment only (last one) to avoid race conditions
-          # with previous review cycles
-          LATEST_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-1].body // \"\"" 2>/dev/null || echo "")
+          # Read verdict from the review JSON file
+          REVIEW_FILE=".egg-state/reviews/${ISSUE_NUMBER}-plan-review.json"
 
-          if echo "$LATEST_COMMENT" | grep -q 'egg-plan-review-verdict: approved'; then
-            {
-              echo "passed=true"
-              echo "feedback="
-            } >> "$GITHUB_OUTPUT"
-            echo "Review verdict: APPROVED"
-          elif echo "$LATEST_COMMENT" | grep -q 'egg-plan-review-verdict: needs_revision'; then
-            # Extract feedback from BEFORE the verdict marker (the actual review content)
-            # The marker is at the end, so capture everything before it
-            FEEDBACK=$(echo "$LATEST_COMMENT" | sed -n '/^## .*Review:/,/egg-plan-review-verdict:/p' | head -50 || echo "Revision needed")
-            {
-              echo "passed=false"
-              echo "feedback<<EOF"
-              echo "$FEEDBACK"
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
-            echo "Review verdict: NEEDS REVISION"
+          if [[ -f "$REVIEW_FILE" ]]; then
+            VERDICT=$(jq -r '.verdict // ""' "$REVIEW_FILE")
+            FEEDBACK=$(jq -r '.feedback // ""' "$REVIEW_FILE")
+
+            if [[ "$VERDICT" == "approved" ]]; then
+              {
+                echo "passed=true"
+                echo "feedback="
+              } >> "$GITHUB_OUTPUT"
+              echo "Review verdict: APPROVED"
+            elif [[ "$VERDICT" == "needs_revision" ]]; then
+              {
+                echo "passed=false"
+                echo "feedback<<EOF"
+                echo "$FEEDBACK"
+                echo "EOF"
+              } >> "$GITHUB_OUTPUT"
+              echo "Review verdict: NEEDS REVISION"
+            else
+              # Unknown verdict — treat as passed to avoid blocking
+              {
+                echo "passed=true"
+                echo "feedback="
+              } >> "$GITHUB_OUTPUT"
+              echo "::warning::Unknown review verdict '${VERDICT}' — proceeding as if approved"
+            fi
           else
-            # No verdict found — treat as passed to avoid blocking
+            # No review file found — treat as passed to avoid blocking
             {
               echo "passed=true"
               echo "feedback="
             } >> "$GITHUB_OUTPUT"
-            echo "::warning::No review verdict marker found — proceeding as if approved"
+            echo "::warning::No review file found at ${REVIEW_FILE} — proceeding as if approved"
           fi
 
       - name: Update contract with review state
@@ -1976,7 +2057,7 @@ jobs:
             done
           fi
 
-      - name: Post review passed comment
+      - name: Post final plan to issue
         if: steps.check-circuit-breaker.outputs.skip != 'true' && steps.parse-verdict.outputs.passed == 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -1984,10 +2065,39 @@ jobs:
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          BODY="**Plan review passed.** ✅
+          DRAFT_FILE=".egg-state/drafts/${ISSUE_NUMBER}-plan.md"
 
-          The implementation plan has been reviewed and approved by the automated reviewer.
-          Please review the plan and approve to advance to the **implement** phase.
+          if [[ -f "$DRAFT_FILE" ]]; then
+            # Read the draft plan content and create the final comment
+            PLAN_CONTENT=$(cat "$DRAFT_FILE")
+            {
+              echo "$PLAN_CONTENT"
+              echo ""
+              echo "---"
+              echo ""
+              echo "## Plan Phase Complete"
+              echo ""
+              echo "The implementation plan above has passed internal review and is ready for human approval."
+              echo ""
+              echo "[View run logs](${RUN_URL})"
+              echo ""
+              echo "### Ready for Review"
+              echo ""
+              echo "<!-- egg-phase-approval -->"
+              echo "- [ ] Approve and advance to implement phase"
+              echo ""
+              echo "---"
+              echo ""
+              echo "*Authored-by: egg*"
+            } > /tmp/final-plan.md
+
+            gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/final-plan.md
+          else
+            # Fallback: post a simple message if draft not found
+            BODY="**Plan review passed.** ✅
+
+          The implementation plan has been reviewed and approved by the automated reviewer, but the draft file was not found.
+          Please check the run logs.
 
           [View run logs](${RUN_URL})
 
@@ -2000,7 +2110,8 @@ jobs:
 
           *Authored-by: egg*"
 
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+            gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          fi
 
   # ============================================================
   # Plan Re-dispatch: Re-run plan if review failed
@@ -2054,7 +2165,7 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Post escalation comment
+      - name: Post escalation comment with draft
         if: steps.check-circuit-breaker.outputs.skip == 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -2062,25 +2173,55 @@ jobs:
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          BODY="**Plan phase escalated to human review.**
+          DRAFT_FILE=".egg-state/drafts/${ISSUE_NUMBER}-plan.md"
+          REVIEW_FILE=".egg-state/reviews/${ISSUE_NUMBER}-plan-review.json"
 
-          The implementation plan has gone through ${REVIEW_CYCLE} review cycles without passing automated review.
-          Human intervention is required to either:
+          # Read the last review feedback if available
+          LAST_FEEDBACK=""
+          if [[ -f "$REVIEW_FILE" ]]; then
+            LAST_FEEDBACK=$(jq -r '.feedback // ""' "$REVIEW_FILE")
+          fi
 
-          1. Provide guidance on the plan issues
-          2. Override and approve the plan as-is
-          3. Cancel and restart with different approach
+          {
+            echo "**⚠️ Plan phase escalated to human review.**"
+            echo ""
+            echo "The implementation plan has gone through ${REVIEW_CYCLE} review cycles without passing automated review."
+            echo ""
+            if [[ -n "$LAST_FEEDBACK" ]]; then
+              echo "### Unresolved Issues from Last Review"
+              echo ""
+              echo "$LAST_FEEDBACK"
+              echo ""
+            fi
+            echo "---"
+            echo ""
+            if [[ -f "$DRAFT_FILE" ]]; then
+              echo "### Current Draft Plan"
+              echo ""
+              cat "$DRAFT_FILE"
+              echo ""
+            fi
+            echo "---"
+            echo ""
+            echo "Human intervention is required to either:"
+            echo ""
+            echo "1. Provide guidance on the plan issues"
+            echo "2. Override and approve the plan as-is"
+            echo "3. Cancel and restart with different approach"
+            echo ""
+            echo "[View run logs](${RUN_URL})"
+            echo ""
+            echo "---"
+            echo ""
+            echo "<!-- egg-phase-approval -->"
+            echo "- [ ] Override: Approve plan and advance to implement phase"
+            echo ""
+            echo "---"
+            echo ""
+            echo "*Authored-by: egg*"
+          } > /tmp/escalation.md
 
-          [View run logs](${RUN_URL})
-
-          ---
-
-          <!-- egg-phase-approval -->
-          - [ ] Override: Approve plan and advance to implement phase
-
-          ---
-
-          *Authored-by: egg*"
+          gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/escalation.md
 
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
 
