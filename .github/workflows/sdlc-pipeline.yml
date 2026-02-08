@@ -456,15 +456,15 @@ jobs:
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
 
   # ============================================================
-  # Wait for CI: Ensure lint and test checks pass before review
+  # Wait for checks: Wait for ALL check runs (CI + reviews) to complete
   # ============================================================
-  wait-for-ci:
-    name: Wait for CI checks
+  wait-for-checks:
+    name: Wait for all checks
     needs: [init, implement]
     if: always() && needs.implement.result == 'success' && needs.init.outputs.pr_number != ''
     runs-on: ubuntu-latest
     outputs:
-      ci_passed: ${{ steps.wait.outputs.passed }}
+      all_passed: ${{ steps.wait.outputs.passed }}
 
     env:
       PR_NUMBER: ${{ needs.init.outputs.pr_number }}
@@ -477,7 +477,7 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-      - name: Wait for required checks
+      - name: Wait for all check runs to complete
         id: wait
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -488,64 +488,52 @@ jobs:
           HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
           echo "Waiting for checks on commit: ${HEAD_SHA}"
 
-          # Required check names to wait for
-          REQUIRED_CHECKS="Lint,Test"
+          # Wait for all check runs to complete (CI, reviews, etc.)
+          # Excludes this workflow's own checks to avoid self-deadlock
+          SELF_WORKFLOW="egg: SDLC Pipeline"
 
-          # Maximum wait time (15 minutes)
-          MAX_WAIT_SECONDS=900
+          # Maximum wait time (30 minutes — reviews can take a while)
+          MAX_WAIT_SECONDS=1800
           POLL_INTERVAL=30
           elapsed=0
 
           while [[ $elapsed -lt $MAX_WAIT_SECONDS ]]; do
-            all_passed=true
-            any_failed=false
-            pending_checks=""
-
-            # Get check runs for this commit
+            # Get all check runs for this commit
             check_runs=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
               --jq '.check_runs | map({name: .name, status: .status, conclusion: .conclusion})')
 
-            for check_name in ${REQUIRED_CHECKS//,/ }; do
-              # Find this check in the results (case-insensitive partial match)
-              check_status=$(echo "$check_runs" | jq -r --arg name "$check_name" \
-                '[.[] | select(.name | ascii_downcase | contains($name | ascii_downcase))] | .[0] // empty')
+            # Filter out our own workflow's checks
+            external_checks=$(echo "$check_runs" | jq --arg self "$SELF_WORKFLOW" \
+              '[.[] | select(.name | startswith($self) | not)]')
 
-              if [[ -z "$check_status" ]]; then
-                echo "Check '${check_name}' not found yet"
-                all_passed=false
-                pending_checks="${pending_checks}${check_name} (not started), "
-                continue
-              fi
+            total=$(echo "$external_checks" | jq 'length')
+            completed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed")] | length')
+            failed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")] | length')
+            pending=$(echo "$external_checks" | jq -r '[.[] | select(.status != "completed")] | map(.name) | join(", ")')
 
-              status=$(echo "$check_status" | jq -r '.status')
-              conclusion=$(echo "$check_status" | jq -r '.conclusion')
-              actual_name=$(echo "$check_status" | jq -r '.name')
+            echo "Checks: ${completed}/${total} completed, ${failed} failed"
 
-              if [[ "$status" != "completed" ]]; then
-                echo "Check '${actual_name}' is ${status}"
-                all_passed=false
-                pending_checks="${pending_checks}${actual_name} (${status}), "
-              elif [[ "$conclusion" != "success" ]]; then
-                echo "Check '${actual_name}' failed with conclusion: ${conclusion}"
-                any_failed=true
+            if [[ "$total" -eq 0 ]]; then
+              echo "No external checks found yet"
+              sleep $POLL_INTERVAL
+              elapsed=$((elapsed + POLL_INTERVAL))
+              continue
+            fi
+
+            # All checks completed
+            if [[ "$completed" -eq "$total" ]]; then
+              if [[ "$failed" -gt 0 ]]; then
+                echo "::error::${failed} check(s) failed"
+                echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | "  FAILED: \(.name) (\(.conclusion))"'
+                echo "passed=false" >> "$GITHUB_OUTPUT"
               else
-                echo "Check '${actual_name}' passed"
+                echo "All ${total} checks passed"
+                echo "passed=true" >> "$GITHUB_OUTPUT"
               fi
-            done
-
-            if [[ "$any_failed" == "true" ]]; then
-              echo "::error::One or more required checks failed"
-              echo "passed=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
 
-            if [[ "$all_passed" == "true" ]]; then
-              echo "All required checks passed"
-              echo "passed=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-
-            echo "Waiting for: ${pending_checks%%, }"
+            echo "Waiting for: ${pending}"
             sleep $POLL_INTERVAL
             elapsed=$((elapsed + POLL_INTERVAL))
           done
@@ -554,404 +542,12 @@ jobs:
           echo "passed=timeout" >> "$GITHUB_OUTPUT"
 
   # ============================================================
-  # Review: Run reusable-review.yml against the draft PR
-  # ============================================================
-  sdlc-review:
-    name: Auto-review via PR
-    needs: [init, implement, wait-for-ci]
-    if: always() && needs.wait-for-ci.result == 'success' && needs.wait-for-ci.outputs.ci_passed == 'true' && needs.init.outputs.pr_number != ''
-    uses: ./.github/workflows/reusable-review.yml
-    with:
-      pr_number: ${{ fromJSON(needs.init.outputs.pr_number) }}
-      bot_name: sdlc-review
-      force_review: true
-      is_draft: true
-      timeout: "30"
-    secrets: inherit
-
-  # Handle CI failure - post comment and stop pipeline
-  ci-failed:
-    name: CI checks failed
-    needs: [init, implement, wait-for-ci]
-    if: always() && needs.wait-for-ci.result == 'success' && needs.wait-for-ci.outputs.ci_passed != 'true' && needs.init.outputs.pr_number != ''
-    runs-on: ubuntu-latest
-
-    env:
-      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
-      PR_NUMBER: ${{ needs.init.outputs.pr_number }}
-      CI_RESULT: ${{ needs.wait-for-ci.outputs.ci_passed }}
-
-    steps:
-      - name: Generate bot token
-        id: bot-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-
-      - name: Post CI failure comment
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-        run: |
-          set -euo pipefail
-          PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
-
-          if [[ "$CI_RESULT" == "timeout" ]]; then
-            BODY="**CI checks timed out** while waiting for lint and test workflows.
-
-          This may indicate the workflows are queued or running slowly. Please check the PR for status: ${PR_URL}
-
-          The pipeline will re-trigger on the next implementation cycle once CI passes.
-
-          --- Authored by egg"
-          else
-            BODY="**CI checks failed** on draft PR #${PR_NUMBER}.
-
-          Please review the failing checks: ${PR_URL}
-
-          The pipeline will re-trigger implementation to address the failures.
-
-          --- Authored by egg"
-          fi
-
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
-
-  # Handle missing PR number (e.g., init failed or phase != implement)
-  sdlc-review-skipped:
-    name: Review skipped (no PR)
-    needs: [init, implement]
-    if: always() && needs.implement.result == 'success' && needs.init.outputs.pr_number == ''
-    runs-on: ubuntu-latest
-    steps:
-      - name: Log missing PR number
-        run: |
-          echo "::warning::PR number is empty. This can happen if:"
-          echo "  - The init job failed before creating the draft PR"
-          echo "  - The current_phase was not 'implement' during init"
-          echo "  - The gh pr create command failed"
-          echo ""
-          echo "Init job result: ${{ needs.init.result }}"
-          echo "Current phase: ${{ needs.init.outputs.current_phase }}"
-          echo ""
-          echo "Check the init job logs for details."
-
-  # ============================================================
-  # Check review status: Read PR review state and decide next step
-  # ============================================================
-  check-review-status:
-    name: Check review status
-    needs: [init, implement, wait-for-ci, sdlc-review, ci-failed]
-    if: always() && (needs.sdlc-review.result == 'success' || needs.ci-failed.result == 'success')
-    runs-on: ubuntu-latest
-    outputs:
-      next_action: ${{ steps.check.outputs.next_action }}
-      cycle_count: ${{ steps.check.outputs.cycle_count }}
-
-    env:
-      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
-      BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
-      PR_NUMBER: ${{ needs.init.outputs.pr_number }}
-
-    steps:
-      - name: Generate bot token
-        id: bot-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-
-      - name: Checkout issue branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.BRANCH_NAME }}
-          token: ${{ steps.bot-token.outputs.token }}
-
-      - name: Configure git identity
-        env:
-          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
-        run: |
-          git config user.name "james-in-a-box[bot]"
-          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
-
-      - name: Checkout trusted contract-state script
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          path: trusted-main
-          persist-credentials: false
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Check PR review state and update contract
-        id: check
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          REPO_PATH: ${{ github.workspace }}
-          CI_PASSED: ${{ needs.wait-for-ci.outputs.ci_passed }}
-        run: |
-          set -euo pipefail
-          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
-
-          if [[ ! -f "$CONTRACT_PATH" ]]; then
-            echo "Contract not found"
-            echo "next_action=error" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Get circuit breaker state
-          TOTAL_CYCLES=$(jq -r '.circuit_breaker.total_cycles' "$CONTRACT_PATH")
-          MAX_CYCLES=$(jq -r '.circuit_breaker.max_total_cycles' "$CONTRACT_PATH")
-          CB_STATUS=$(jq -r '.circuit_breaker.status' "$CONTRACT_PATH")
-
-          # Validate numeric values
-          TOTAL_CYCLES=${TOTAL_CYCLES:-0}
-          MAX_CYCLES=${MAX_CYCLES:-10}
-          if ! [[ "$TOTAL_CYCLES" =~ ^[0-9]+$ ]]; then
-            TOTAL_CYCLES=0
-          fi
-          if ! [[ "$MAX_CYCLES" =~ ^[0-9]+$ ]]; then
-            MAX_CYCLES=10
-          fi
-
-          # Check if circuit breaker is already open
-          if [[ "$CB_STATUS" == "open" ]]; then
-            echo "Circuit breaker is OPEN - human intervention required"
-            echo "next_action=escalate" >> "$GITHUB_OUTPUT"
-            echo "cycle_count=${TOTAL_CYCLES}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Handle CI failure - trigger re-implementation without incrementing cycle
-          if [[ "$CI_PASSED" != "true" ]]; then
-            echo "CI checks failed or timed out (result: ${CI_PASSED}) — triggering re-implementation"
-            echo "next_action=implement" >> "$GITHUB_OUTPUT"
-            echo "cycle_count=${TOTAL_CYCLES}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Read the latest bot review state from the PR
-          # First try the Reviews API, then fall back to issue comments
-          # (bots can't use the Reviews API on their own PRs — self-review)
-          BOT_GH_USERNAME="james-in-a-box"  # GitHub username for Reviews API
-          REVIEW_STATE=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
-            --jq "[.[] | select(.user.login == \"${BOT_GH_USERNAME}\" or .user.login == \"${BOT_GH_USERNAME}[bot]\")] | sort_by(.submitted_at) | last | .state // \"NONE\"")
-
-          echo "Reviews API state: ${REVIEW_STATE}"
-
-          # If no review found via Reviews API, check issue comments for
-          # the egg-automated-review marker with verdict (self-review fallback)
-          if [[ "$REVIEW_STATE" == "NONE" || "$REVIEW_STATE" == "null" ]]; then
-            echo "No review via Reviews API — checking issue comments for verdict marker"
-            BOT_MARKER_ID="sdlc-review"  # Identifier in the review marker (bot= field)
-            marker_regex='<!-- egg-automated-review bot='"${BOT_MARKER_ID}"' commit=([a-f0-9]+) verdict=([a-z-]+) -->'
-
-            COMMENT_VERDICT=""
-            COMMENT_TIME=""
-            comments=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-              --jq '[.[] | {body: .body, created_at: .created_at}]')
-
-            while IFS= read -r comment; do
-              body=$(echo "$comment" | jq -r '.body // ""')
-              created_at=$(echo "$comment" | jq -r '.created_at')
-              if [[ "$body" =~ $marker_regex ]]; then
-                verdict="${BASH_REMATCH[2]}"
-                if [[ -z "$COMMENT_TIME" || "$created_at" > "$COMMENT_TIME" ]]; then
-                  COMMENT_VERDICT="$verdict"
-                  COMMENT_TIME="$created_at"
-                fi
-              fi
-            done < <(echo "$comments" | jq -c '.[]')
-
-            if [[ -n "$COMMENT_VERDICT" ]]; then
-              echo "Found verdict in issue comment: ${COMMENT_VERDICT} at ${COMMENT_TIME}"
-              # Map verdict to Reviews API state names
-              case "$COMMENT_VERDICT" in
-                approve) REVIEW_STATE="APPROVED" ;;
-                request-changes) REVIEW_STATE="CHANGES_REQUESTED" ;;
-                comment) REVIEW_STATE="COMMENTED" ;;
-                *) REVIEW_STATE="NONE" ;;
-              esac
-            fi
-          fi
-
-          echo "Final review state: ${REVIEW_STATE}"
-
-          case "$REVIEW_STATE" in
-            APPROVED)
-              echo "PR review approved — advancing to finalize"
-              echo "next_action=pr" >> "$GITHUB_OUTPUT"
-              echo "cycle_count=${TOTAL_CYCLES}" >> "$GITHUB_OUTPUT"
-
-              # Update contract tasks via trusted script
-              if ! ISSUE_NUMBER="${ISSUE_NUMBER}" REPO_PATH="${REPO_PATH}" \
-                bash trusted-main/action/contract-state.sh update-from-pr-review APPROVED; then
-                echo "::error::Failed to update contract for APPROVED verdict"
-                exit 1
-              fi
-              ;;
-
-            CHANGES_REQUESTED)
-              echo "Review requested changes — triggering re-implementation cycle"
-
-              # Update contract tasks via trusted script (this increments the cycle counter)
-              if ! ISSUE_NUMBER="${ISSUE_NUMBER}" REPO_PATH="${REPO_PATH}" \
-                bash trusted-main/action/contract-state.sh update-from-pr-review CHANGES_REQUESTED; then
-                echo "::error::Failed to update contract for CHANGES_REQUESTED verdict"
-                exit 1
-              fi
-
-              # Re-read cycle count after increment
-              TOTAL_CYCLES=$(jq -r '.circuit_breaker.total_cycles' "$CONTRACT_PATH")
-              echo "cycle_count=${TOTAL_CYCLES}" >> "$GITHUB_OUTPUT"
-
-              # Check if max cycles exceeded after increment
-              if [[ "$TOTAL_CYCLES" -ge "$MAX_CYCLES" ]]; then
-                echo "Max cycles ($MAX_CYCLES) exceeded - triggering escalation"
-                echo "next_action=escalate" >> "$GITHUB_OUTPUT"
-
-                # Open circuit breaker
-                ISSUE_NUMBER="${ISSUE_NUMBER}" REPO_PATH="${REPO_PATH}" \
-                  bash trusted-main/action/contract-state.sh open-circuit-breaker "Max review cycles exceeded"
-              else
-                echo "next_action=implement" >> "$GITHUB_OUTPUT"
-              fi
-              ;;
-
-            COMMENTED|NONE|null)
-              # COMMENTED = advisory feedback without approve/reject decision
-              # NONE/null = no review found (e.g., review workflow hasn't run yet)
-              # In both cases, do NOT increment the cycle counter — wait for an
-              # explicit APPROVED or CHANGES_REQUESTED verdict.
-              echo "No explicit verdict (state: ${REVIEW_STATE}) — re-running review"
-              echo "next_action=implement" >> "$GITHUB_OUTPUT"
-              echo "cycle_count=${TOTAL_CYCLES}" >> "$GITHUB_OUTPUT"
-              ;;
-          esac
-
-          # Commit and push contract changes
-          if ! git diff --quiet "$CONTRACT_PATH" 2>/dev/null; then
-            git add "$CONTRACT_PATH"
-            git commit -m "Update contract after review cycle ${TOTAL_CYCLES} for issue #${ISSUE_NUMBER}"
-
-            MAX_RETRIES=3
-            for i in $(seq 1 $MAX_RETRIES); do
-              if git push origin "${BRANCH_NAME}"; then
-                echo "Push succeeded"
-                break
-              elif [[ $i -eq $MAX_RETRIES ]]; then
-                echo "Push failed after $MAX_RETRIES attempts"
-                exit 1
-              else
-                echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
-                git pull --rebase origin "${BRANCH_NAME}" || {
-                  echo "Rebase failed, cannot resolve conflict automatically"
-                  exit 1
-                }
-              fi
-            done
-          fi
-
-      - name: Post status comment
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          NEXT_ACTION: ${{ steps.check.outputs.next_action }}
-          CYCLE_COUNT: ${{ steps.check.outputs.cycle_count }}
-          CI_PASSED: ${{ needs.wait-for-ci.outputs.ci_passed }}
-        run: |
-          set -euo pipefail
-
-          # Skip posting if CI failed (ci-failed job already posted a comment)
-          if [[ "$CI_PASSED" != "true" ]]; then
-            echo "Skipping status comment — CI failure comment already posted"
-            exit 0
-          fi
-
-          case "$NEXT_ACTION" in
-            pr)
-              BODY="PR review approved. Marking PR ready for human review.
-
-          --- Authored by egg"
-              ;;
-            implement)
-              BODY="Review cycle ${CYCLE_COUNT} complete. Reviewer requested changes.
-          Re-running implementation to address feedback...
-
-          --- Authored by egg"
-              ;;
-            escalate)
-              BODY="**SDLC Pipeline Escalation Required**
-
-          The pipeline has reached its cycle limit or encountered a blocking issue.
-          Human intervention is required to proceed.
-
-          **Cycle count:** ${CYCLE_COUNT}
-          **Status:** Circuit breaker OPEN
-
-          Please review the PR comments and incomplete tasks, then provide guidance.
-
-          --- Authored by egg"
-              gh issue edit "${ISSUE_NUMBER}" --add-label "needs-human-intervention" 2>/dev/null || true
-              ;;
-            *)
-              BODY="Pipeline check complete.
-
-          --- Authored by egg"
-              ;;
-          esac
-
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
-
-  # ============================================================
-  # Escalate: Handle circuit breaker escalation
-  # ============================================================
-  escalate:
-    name: Escalate to human
-    needs: [init, check-review-status]
-    if: always() && needs.check-review-status.outputs.next_action == 'escalate'
-    runs-on: ubuntu-latest
-
-    env:
-      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
-      BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
-
-    steps:
-      - name: Generate bot token
-        id: bot-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-
-      - name: Checkout main (trusted)
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          persist-credentials: false
-
-      - name: Save trusted action scripts
-        run: cp -r action "$RUNNER_TEMP/trusted-action"
-
-      - name: Checkout issue branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.BRANCH_NAME }}
-          token: ${{ steps.bot-token.outputs.token }}
-
-      - name: Run escalation
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-        run: bash "$RUNNER_TEMP/trusted-action/escalate.sh" "${ISSUE_NUMBER}" "${{ github.workspace }}"
-
-  # ============================================================
   # Finalize PR: Mark draft PR ready for human review
   # ============================================================
   finalize-pr:
     name: Finalize pull request
-    needs: [init, check-review-status]
-    if: always() && needs.check-review-status.outputs.next_action == 'pr'
+    needs: [init, implement, wait-for-checks]
+    if: always() && needs.wait-for-checks.outputs.all_passed == 'true'
     runs-on: ubuntu-latest
 
     env:
@@ -994,7 +590,7 @@ jobs:
           # Update PR body with final details
           FINAL_BODY="## Summary"
           FINAL_BODY="${FINAL_BODY}"$'\n\n'"Implementation for issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}"
-          FINAL_BODY="${FINAL_BODY}"$'\n\n'"This PR was developed through the SDLC pipeline with automated review cycles."
+          FINAL_BODY="${FINAL_BODY}"$'\n\n'"This PR was developed through the SDLC pipeline with automated checks."
           FINAL_BODY="${FINAL_BODY}"$'\n\n'"Issue: ${{ github.server_url }}/${{ github.repository }}/issues/${ISSUE_NUMBER}"
           FINAL_BODY="${FINAL_BODY}"$'\n\n'"Authored-by: egg"
 
@@ -1043,23 +639,25 @@ jobs:
           PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
           BODY="Pull request ready for review: ${PR_URL}
 
-          The implementation has passed automated review and is ready for human review and merge.
+          All automated checks passed. The PR is ready for human review and merge.
 
           --- Authored by egg"
 
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
 
   # ============================================================
-  # Retrigger: Re-run pipeline for next implement cycle
+  # Checks failed: Post comment when checks don't all pass
   # ============================================================
-  retrigger:
-    name: Re-trigger implementation
-    needs: [init, check-review-status]
-    if: always() && needs.check-review-status.outputs.next_action == 'implement'
+  checks-failed:
+    name: Checks failed
+    needs: [init, implement, wait-for-checks]
+    if: always() && needs.wait-for-checks.result == 'success' && needs.wait-for-checks.outputs.all_passed != 'true' && needs.init.outputs.pr_number != ''
     runs-on: ubuntu-latest
 
     env:
       ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
+      PR_NUMBER: ${{ needs.init.outputs.pr_number }}
+      CHECK_RESULT: ${{ needs.wait-for-checks.outputs.all_passed }}
 
     steps:
       - name: Generate bot token
@@ -1069,20 +667,32 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-      - name: Re-trigger pipeline
+      - name: Post checks failure comment
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
-          # Validate ISSUE_NUMBER is numeric to prevent injection
-          if ! [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
-            echo "::error::Invalid ISSUE_NUMBER: ${ISSUE_NUMBER}"
-            exit 1
+          set -euo pipefail
+          PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
+
+          if [[ "$CHECK_RESULT" == "timeout" ]]; then
+            BODY="**Checks timed out** while waiting for all check runs to complete.
+
+          This may indicate workflows are queued or running slowly. Please check the PR for status: ${PR_URL}
+
+          The PR remains as a draft. Re-run the pipeline to retry.
+
+          --- Authored by egg"
+          else
+            BODY="**Checks failed** on draft PR #${PR_NUMBER}.
+
+          Please review the failing checks: ${PR_URL}
+
+          The PR remains as a draft. Fix the issues and re-run the pipeline.
+
+          --- Authored by egg"
           fi
 
-          gh workflow run sdlc-pipeline.yml \
-            --repo "${{ github.repository }}" \
-            --field issue_number="${ISSUE_NUMBER}" \
-            --field starting_phase="implement"
+          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
 
   # ============================================================
   # Refine: Analyze issue and produce analysis document

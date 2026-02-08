@@ -21,16 +21,6 @@ on:
         required: false
         type: string
         default: "10"
-      is_draft:
-        description: 'Whether the PR is a draft'
-        required: false
-        type: boolean
-        default: false
-      force_review:
-        description: 'Force review even on draft PRs (used by SDLC pipeline)'
-        required: false
-        type: boolean
-        default: false
       pr_title:
         description: 'PR title (for skip-review check)'
         required: false
@@ -66,12 +56,6 @@ jobs:
           # For workflow_dispatch, always run
           if [[ "${{ inputs.event_name }}" == "workflow_dispatch" ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Skip draft PRs (unless force_review is set by SDLC pipeline)
-          if [[ "${{ inputs.is_draft }}" == "true" && "${{ inputs.force_review }}" != "true" ]]; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
