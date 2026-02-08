@@ -128,11 +128,11 @@ class TestEnvironmentHelpers:
         """Test default gateway URL."""
         with patch.dict("os.environ", {}, clear=True):
             url = get_gateway_url()
-            assert url == "http://egg-gateway:9847"
+            assert url == "http://egg-gateway:9848"
 
     def test_get_gateway_url_from_env(self):
         """Test gateway URL from environment."""
-        with patch.dict("os.environ", {"EGG_GATEWAY_URL": "http://localhost:8080"}):
+        with patch.dict("os.environ", {"GATEWAY_URL": "http://localhost:8080"}):
             url = get_gateway_url()
             assert url == "http://localhost:8080"
 
@@ -349,7 +349,7 @@ class TestWithMockGateway:
         }
         mock_gateway = mock_gateway_factory(responses)
 
-        with patch.dict("os.environ", {"EGG_GATEWAY_URL": mock_gateway}):
+        with patch.dict("os.environ", {"GATEWAY_URL": mock_gateway}):
             result = main(["--issue", "123", "show"])
 
         assert result == 0
@@ -369,7 +369,7 @@ class TestWithMockGateway:
         with patch.dict(
             "os.environ",
             {
-                "EGG_GATEWAY_URL": mock_gateway,
+                "GATEWAY_URL": mock_gateway,
                 "EGG_ISSUE_NUMBER": "123",
             },
         ):

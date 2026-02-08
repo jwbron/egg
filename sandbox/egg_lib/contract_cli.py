@@ -37,7 +37,7 @@ COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 def get_gateway_url() -> str:
     """Get the gateway URL from environment or default."""
-    return os.environ.get("EGG_GATEWAY_URL", "http://egg-gateway:9847")
+    return os.environ.get("GATEWAY_URL", "http://egg-gateway:9848")
 
 
 def get_issue_number() -> int | None:
