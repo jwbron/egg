@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..base import BaseConfig, HealthCheckResult, ValidationResult
+from ..constants import GATEWAY_PORT
 from ..validators import mask_secret, validate_non_empty, validate_port
 
 
@@ -40,7 +41,7 @@ class GatewayConfig(BaseConfig):
     """
 
     host: str = "0.0.0.0"
-    port: int = 9848
+    port: int = GATEWAY_PORT
     secret: str = ""
     rate_limits: RateLimitConfig = field(default_factory=RateLimitConfig)
 
@@ -169,11 +170,11 @@ class GatewayConfig(BaseConfig):
 
         # Host and port from environment
         config.host = os.environ.get("GATEWAY_HOST", "0.0.0.0")
-        port_str = os.environ.get("GATEWAY_PORT", "9848")
+        port_str = os.environ.get("GATEWAY_PORT", str(GATEWAY_PORT))
         try:
             config.port = int(port_str)
         except ValueError:
-            config.port = 9848
+            config.port = GATEWAY_PORT
 
         # Load launcher secret from environment
         env_secret = os.environ.get("EGG_LAUNCHER_SECRET", "")

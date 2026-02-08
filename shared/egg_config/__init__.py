@@ -7,9 +7,11 @@ This module provides:
 - HealthCheckResult: Result of service health checks
 - ConfigRegistry: Central registry for all configs
 - Validators: Reusable validation functions
+- Constants: Centralized gateway/sandbox constants (ports, networks, etc.)
 
 Usage:
     from egg_config import BaseConfig, ValidationResult, get_registry
+    from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT  # Constants
     from egg_config.validators import validate_url, mask_secret
 
     # Register a config
@@ -36,6 +38,23 @@ from .base import (
 )
 from .config import Config, get_local_repos, get_repos_config_file
 
+# Centralized constants
+from .constants import (
+    EGG_CONTAINER_IP,
+    EGG_EXTERNAL_NETWORK,
+    EGG_EXTERNAL_SUBNET,
+    EGG_ISOLATED_NETWORK,
+    EGG_ISOLATED_SUBNET,
+    GATEWAY_CONTAINER_NAME,
+    GATEWAY_EXTERNAL_IP,
+    GATEWAY_IMAGE_NAME,
+    GATEWAY_ISOLATED_IP,
+    GATEWAY_PORT,
+    GATEWAY_PROXY_PORT,
+    TEST_GATEWAY_PORT,
+    TEST_GATEWAY_PROXY_PORT,
+)
+
 # Service configurations
 from .configs.gateway import GatewayConfig
 from .configs.github import GitHubConfig
@@ -58,11 +77,26 @@ __all__ = [
     # Registry
     "ConfigRegistry",
     "ConfigStatus",
+    # Constants
+    "EGG_CONTAINER_IP",
+    "EGG_EXTERNAL_NETWORK",
+    "EGG_EXTERNAL_SUBNET",
+    "EGG_ISOLATED_NETWORK",
+    "EGG_ISOLATED_SUBNET",
+    "GATEWAY_CONTAINER_NAME",
+    "GATEWAY_EXTERNAL_IP",
+    "GATEWAY_IMAGE_NAME",
+    "GATEWAY_ISOLATED_IP",
+    "GATEWAY_PORT",
+    "GATEWAY_PROXY_PORT",
     # Service configurations
     "GatewayConfig",
     "GitHubConfig",
     "HealthCheckResult",
     "LLMConfig",
+    # Test constants
+    "TEST_GATEWAY_PORT",
+    "TEST_GATEWAY_PROXY_PORT",
     "ValidationResult",
     "get_local_repos",
     "get_registry",
