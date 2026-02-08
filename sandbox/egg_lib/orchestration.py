@@ -112,7 +112,8 @@ class EggOrchestrator:
         info("Waiting for gateway health check...")
         if not self._wait_for_health(health_timeout):
             return OrchestrationResult(
-                success=False, error_message=f"Gateway health check timed out after {health_timeout}s"
+                success=False,
+                error_message=f"Gateway health check timed out after {health_timeout}s",
             )
 
         self.started = True
@@ -136,7 +137,7 @@ class EggOrchestrator:
         ctx = get_context()
 
         # Determine health check URL based on context
-        if ctx.publish_gateway_ports:
+        if ctx.publish_ports:
             # Local mode: gateway ports are published
             health_url = f"http://localhost:{ctx.gateway_port}/api/v1/health"
         else:
@@ -171,6 +172,7 @@ class EggOrchestrator:
                 result = subprocess.run(
                     ["curl", "-sf", health_url],
                     capture_output=True,
+                    text=True,
                     timeout=5,
                     check=False,
                 )

@@ -333,9 +333,7 @@ class EggLifecycleManager:
 
         return True
 
-    def _run_sandbox(
-        self, interactive: bool = True, prompt: str | None = None
-    ) -> int:
+    def _run_sandbox(self, interactive: bool = True, prompt: str | None = None) -> int:
         """Run a sandbox container.
 
         Args:
@@ -347,7 +345,9 @@ class EggLifecycleManager:
         """
         import datetime
 
-        container_name = f"{self.container.sandbox_prefix}-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        container_name = (
+            f"{self.container.sandbox_prefix}-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        )
 
         # Determine network based on mode
         if self.mode == "private":

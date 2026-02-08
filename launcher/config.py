@@ -95,9 +95,7 @@ class LauncherConfig:
 
         # Secrets
         config.launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET")
-        config.github_token = os.environ.get("GITHUB_USER_TOKEN") or os.environ.get(
-            "GITHUB_TOKEN"
-        )
+        config.github_token = os.environ.get("GITHUB_USER_TOKEN") or os.environ.get("GITHUB_TOKEN")
 
         # Git identity
         if git_name := os.environ.get("EGG_USER_GIT_NAME"):

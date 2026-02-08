@@ -266,7 +266,9 @@ def get_compose_gateway_ip(compose_file: Path) -> str:
                 "inspect",
                 container_name,
                 "--format",
-                "{{with index .NetworkSettings.Networks \"" + project_name + "-isolated\"}}{{.IPAddress}}{{end}}",
+                '{{with index .NetworkSettings.Networks "'
+                + project_name
+                + '-isolated"}}{{.IPAddress}}{{end}}',
             ],
             capture_output=True,
             text=True,
