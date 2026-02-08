@@ -79,13 +79,14 @@ The plan parser (`shared/egg_contracts/plan_parser.py`) extracts tasks from plan
 The SDLC pipeline orchestrates agent-based development with structurally enforced checkpoints through GitHub Actions workflows:
 
 **Core workflows:**
-- `.github/workflows/sdlc-pipeline.yml` - Main pipeline orchestration (init, refine, plan, implement, review, loop, create-pr phases)
+- `.github/workflows/sdlc-pipeline.yml` - Main pipeline orchestration (init, refine, plan, implement, wait-for-checks, finalize-pr phases)
+- `.github/workflows/reusable-review.yml` - PR-based code review (invoked for draft PRs during implement phase)
 - `.github/workflows/sdlc-hitl.yml` - Human-in-the-loop decision handling with debounce for rapid checkbox edits
 
 **Supporting scripts:**
 - `action/build-sdlc-prompt.sh` - Phase-specific prompt builder with context and document templates
-- `action/contract-state.sh` - Contract state management (load, update, check review status, circuit breaker)
-- `action/escalate.sh` - Circuit breaker escalation handler (labels issue, posts context, creates HITL decision checkboxes)
+- `action/contract-state.sh` - Contract state management (load, update, increment cycles)
+- `action/escalate.sh` - Circuit breaker escalation handler (deprecated as of PR #285)
 
 **Resilience features:**
 - Circuit breaker: Prevents infinite loops via per-task and total pipeline cycle limits
