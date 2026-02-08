@@ -36,6 +36,11 @@ on:
         required: false
         type: string
         default: ""
+      issue_number:
+        description: 'Issue number for contract operations (extracted from branch name if not provided)'
+        required: false
+        type: string
+        default: ""
     secrets:
       BOT_APP_ID:
         required: true
@@ -343,6 +348,7 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_NUMBER: ${{ env.PR_NUMBER }}
           LAST_REVIEW_COMMIT: ${{ steps.last-review.outputs.commit-sha }}
+          COMMIT_SHA: ${{ steps.pr-meta.outputs.head-sha }}
 
       - name: Checkout PR code for review
         uses: actions/checkout@v4
@@ -366,6 +372,7 @@ jobs:
         env:
           EGG_BOT_NAME: ${{ inputs.bot_name }}
           EGG_AGENT_ROLE: ${{ inputs.agent_role }}
+          EGG_ISSUE_NUMBER: ${{ inputs.issue_number }}
 
       - name: Post workflow run status to PR
         if: always() && !cancelled()

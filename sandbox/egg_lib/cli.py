@@ -277,6 +277,11 @@ def gha_exec() -> int:
     if issue_number:
         extra_env["EGG_ISSUE_NUMBER"] = issue_number
 
+    # Pass agent role for gateway authorization (e.g., reviewer role)
+    agent_role = os.environ.get("EGG_AGENT_ROLE")
+    if agent_role:
+        extra_env["EGG_AGENT_ROLE"] = agent_role
+
     success_flag = exec_in_new_container(
         command=command,
         timeout_minutes=timeout,

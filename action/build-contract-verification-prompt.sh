@@ -10,6 +10,7 @@
 #   GITHUB_REPOSITORY  — owner/repo
 #   RUNNER_TEMP        — Temp directory for prompt file
 #   LAST_REVIEW_COMMIT — (Optional) Commit SHA of last review, for incremental verification
+#   COMMIT_SHA         — Current PR head commit SHA (for review marker)
 #   EGG_ISSUE_NUMBER   — Issue number for the contract
 #
 # Output:
@@ -136,7 +137,7 @@ ${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\` with \`--bod
 Your review MUST include this HTML comment at the end of your review body for tracking:
 
 \`\`\`
-<!-- egg-automated-review bot=contract-verification commit=\$(git rev-parse HEAD) verdict=<approve|request-changes|comment> -->
+<!-- egg-automated-review bot=contract-verification commit=${COMMIT_SHA:-\$(git rev-parse HEAD)} verdict=<approve|request-changes|comment> -->
 \`\`\`
 "
     else
@@ -194,7 +195,7 @@ ${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\` with \`--bod
 Your review MUST include this HTML comment at the end of your review body for tracking:
 
 \`\`\`
-<!-- egg-automated-review bot=contract-verification commit=\$(git rev-parse HEAD) verdict=<approve|request-changes|comment> -->
+<!-- egg-automated-review bot=contract-verification commit=${COMMIT_SHA:-\$(git rev-parse HEAD)} verdict=<approve|request-changes|comment> -->
 \`\`\`
 "
     fi
