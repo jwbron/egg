@@ -19,6 +19,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+# Add shared module to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
+
+from egg_config import GATEWAY_PORT
+
 # Load the entrypoint module
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
 import entrypoint
@@ -674,18 +679,18 @@ class TestSetupAnthropicApi:
 
     def test_sets_anthropic_base_url(self, monkeypatch):
         """Sets ANTHROPIC_BASE_URL to gateway."""
-        monkeypatch.setenv("GATEWAY_URL", "http://test-gateway:9848")
+        monkeypatch.setenv("GATEWAY_URL", f"http://test-gateway:{GATEWAY_PORT}")
 
         config = MagicMock()
         logger = entrypoint.Logger(quiet=True)
 
         entrypoint.setup_anthropic_api(config, logger)
 
-        assert os.environ["ANTHROPIC_BASE_URL"] == "http://test-gateway:9848"
+        assert os.environ["ANTHROPIC_BASE_URL"] == f"http://test-gateway:{GATEWAY_PORT}"
 
     def test_sets_placeholder_oauth_token(self, monkeypatch):
         """Sets placeholder OAuth token for Claude Code validation."""
-        monkeypatch.setenv("GATEWAY_URL", "http://test-gateway:9848")
+        monkeypatch.setenv("GATEWAY_URL", f"http://test-gateway:{GATEWAY_PORT}")
 
         config = MagicMock()
         logger = entrypoint.Logger(quiet=True)
@@ -697,7 +702,7 @@ class TestSetupAnthropicApi:
 
     def test_removes_api_key_from_env(self, monkeypatch):
         """Removes ANTHROPIC_API_KEY from environment for security."""
-        monkeypatch.setenv("GATEWAY_URL", "http://test-gateway:9848")
+        monkeypatch.setenv("GATEWAY_URL", f"http://test-gateway:{GATEWAY_PORT}")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
 
         config = MagicMock()

@@ -11,8 +11,11 @@ from unittest.mock import patch
 
 import pytest
 
-# Add sandbox to path for import
+# Add shared and sandbox to path for import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
+
+from egg_config import GATEWAY_PORT
 
 from egg_lib.contract_cli import (
     create_parser,
@@ -150,7 +153,7 @@ class TestEnvironmentHelpers:
         """Test default gateway URL."""
         with patch.dict("os.environ", {}, clear=True):
             url = get_gateway_url()
-            assert url == "http://egg-gateway:9848"
+            assert url == f"http://egg-gateway:{GATEWAY_PORT}"
 
     def test_get_gateway_url_from_env(self):
         """Test gateway URL from environment."""

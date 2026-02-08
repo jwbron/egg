@@ -8,8 +8,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+# Add shared module to path for imports
+shared_path = Path(__file__).parent.parent.parent / "shared"
+sys.path.insert(0, str(shared_path))
 sandbox_path = Path(__file__).parent.parent.parent / "sandbox"
 sys.path.insert(0, str(sandbox_path))
+
+from egg_config import TEST_GATEWAY_PORT, TEST_GATEWAY_PROXY_PORT
 
 from egg_lib.runtime import (
     VALID_REPO_MODES,
@@ -24,7 +29,11 @@ from egg_lib.runtime import (
 
 
 def _mock_context(**overrides):
-    """Create a mock context with sensible defaults."""
+    """Create a mock context with sensible defaults.
+
+    Uses TEST_GATEWAY_PORT (1234) to make it obvious when tests
+    accidentally connect to real services.
+    """
     ctx = MagicMock()
     ctx.isolated_network = "egg-isolated"
     ctx.external_network = "egg-external"
@@ -33,8 +42,8 @@ def _mock_context(**overrides):
     ctx.gateway_isolated_ip = "172.32.0.2"
     ctx.gateway_external_ip = "172.33.0.2"
     ctx.gateway_container_name = "egg-gateway"
-    ctx.gateway_port = 9847
-    ctx.gateway_proxy_port = 3128
+    ctx.gateway_port = TEST_GATEWAY_PORT
+    ctx.gateway_proxy_port = TEST_GATEWAY_PROXY_PORT
     for k, v in overrides.items():
         setattr(ctx, k, v)
     return ctx

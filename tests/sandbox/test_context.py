@@ -4,9 +4,13 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+# Add shared module to path for imports
+shared_path = Path(__file__).parent.parent.parent / "shared"
+sys.path.insert(0, str(shared_path))
 sandbox_path = Path(__file__).parent.parent.parent / "sandbox"
 sys.path.insert(0, str(sandbox_path))
 
+from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT
 from egg_lib.context import AUTO, RuntimeContext, get_context, set_context
 
 
@@ -56,8 +60,8 @@ class TestRuntimeContextDefaults:
 
     def test_default_ports(self):
         ctx = RuntimeContext()
-        assert ctx.gateway_port == 9848
-        assert ctx.gateway_proxy_port == 3129
+        assert ctx.gateway_port == GATEWAY_PORT
+        assert ctx.gateway_proxy_port == GATEWAY_PROXY_PORT
 
 
 class TestRuntimeContextFromEnvironment:
