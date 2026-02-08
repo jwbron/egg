@@ -688,10 +688,13 @@ jobs:
 
           echo "PR mergeable status: ${MERGEABLE}"
 
-          if [[ "$MERGEABLE" == "CONFLICTING" ]]; then
+          if [[ "$MERGEABLE" == "MERGEABLE" ]]; then
+            echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$MERGEABLE" == "CONFLICTING" ]]; then
             echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Could not determine mergeable status after ${MAX_ATTEMPTS} attempts (status: ${MERGEABLE})"
+            exit 1
           fi
 
       - name: Post merge conflict comment
