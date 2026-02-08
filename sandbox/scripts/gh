@@ -554,6 +554,35 @@ handle_pr_review() {
         return 1
     fi
 
+    # Proactively detect self-authored PRs and downgrade --request-changes to --comment.
+    # This avoids a wasted round-trip when the GitHub API rejects the request.
+    # See: https://github.com/jwbron/egg/issues/298
+    local original_review_type="$review_type"
+    if [ "$review_type" = "request-changes" ]; then
+        # Get PR author login
+        local pr_author_payload
+        pr_author_payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({'args': ['pr', 'view', sys.argv[2], '--repo', sys.argv[1], '--json', 'author', '--jq', '.author.login']}))
+" "$repo" "$pr_number")
+        local pr_author
+        pr_author=$(call_gateway "/api/v1/gh/execute" "$pr_author_payload" 2>/dev/null | tr -d '[:space:]')
+
+        # Get current authenticated user login (the bot)
+        local viewer_payload
+        viewer_payload=$(python3 -c "import json; print(json.dumps({'args': ['api', 'user', '--jq', '.login']}))")
+        local viewer_login
+        viewer_login=$(call_gateway "/api/v1/gh/execute" "$viewer_payload" 2>/dev/null | tr -d '[:space:]')
+
+        if [ -n "$pr_author" ] && [ -n "$viewer_login" ] && [ "$pr_author" = "$viewer_login" ]; then
+            echo "INFO: Self-authored PR detected (author=$pr_author). Downgrading --request-changes to --comment." >&2
+            echo "  GitHub does not allow requesting changes on your own PR." >&2
+            echo "  The review verdict is preserved in the marker comment." >&2
+            review_type="comment"
+        fi
+    fi
+
     # Resolve body: --body and --body-file are mutually exclusive
     if [ -n "$body" ] && [ -n "$body_file" ]; then
         echo "ERROR: Cannot use both --body and --body-file" >&2
@@ -571,7 +600,8 @@ handle_pr_review() {
     # Add automated review marker to the body
     # Format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
     # This marker is hidden in rendered markdown but can be parsed by workflows
-    local verdict="${review_type:-comment}"
+    # Note: verdict preserves the original intent even if downgraded for self-review
+    local verdict="${original_review_type:-${review_type:-comment}}"
     local marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} verdict=${verdict} -->"
     if [ -n "$body" ]; then
         body="${body}

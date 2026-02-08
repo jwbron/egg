@@ -34,6 +34,15 @@ shell escaping issues. Always write to a file first, then use `--body-file`.
 - **Approve**: No blocking issues found after thorough review. Minor advisory suggestions are fine to include.
 - **Comment**: Non-blocking suggestions, questions, ideas for future improvement.
 
+## Self-Authored PRs
+
+When reviewing a PR authored by the same bot account, **use `--comment` instead of
+`--request-changes` or `--approve`**. GitHub does not allow users to request changes
+on their own PRs, and approval has no effect.
+
+The `gh` wrapper will auto-downgrade `--request-changes` to `--comment` for self-authored
+PRs, but you should proactively use `--comment` to avoid the extra API call and log noise.
+
 ## Comment Quality
 
 - **Be comprehensive**: Report all issues found, not just the first few. Categorize and structure if there are many.
