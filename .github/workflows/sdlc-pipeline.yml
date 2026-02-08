@@ -904,7 +904,7 @@ jobs:
         if: steps.egg.outputs.exit-code == '0'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          RUN_STARTED: ${{ github.event.workflow_run.created_at || github.run_started_at }}
+          RUN_STARTED: ${{ github.event.workflow_run.created_at || '' }}
         run: |
           set -euo pipefail
           # Check that the agent posted an analysis comment during THIS run.
@@ -1023,7 +1023,7 @@ jobs:
         if: steps.egg.outputs.exit-code == '0'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          RUN_STARTED: ${{ github.event.workflow_run.created_at || github.run_started_at }}
+          RUN_STARTED: ${{ github.event.workflow_run.created_at || '' }}
         run: |
           set -euo pipefail
           # Check that the agent posted a plan comment during THIS run.
