@@ -107,13 +107,14 @@ If commits lost: `git reflog` → `git cherry-pick <hash>`
 
 When running in `--print` mode (non-interactive), you MUST NOT:
 - Output text as your only response — text goes to CI logs, not GitHub
+- Use `EnterPlanMode` — `ExitPlanMode` requires user approval which blocks in headless mode
 
 You MUST:
 - Always post results via `gh issue comment` or `gh pr comment`
 - Write comment bodies to a temp file first, then use `--body-file`
 
-Note: `EnterPlanMode` is supported in headless mode — plans are auto-accepted
-when running with `--dangerously-skip-permissions`.
+For complex tasks requiring planning, reason through your approach in your
+response before implementing rather than using the plan mode tools.
 
 ## Notifications
 
