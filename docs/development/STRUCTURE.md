@@ -131,6 +131,7 @@ action/
 ├── generate-config.sh                      # Runtime config generator
 ├── build-mention-prompt.sh                 # @mention workflow prompt builder
 ├── build-review-prompt.sh                  # PR review workflow prompt builder
+├── build-feedback-prompt.sh                # Review feedback addressing workflow prompt builder
 ├── build-autofixer-prompt.sh               # Autofixer workflow prompt builder
 ├── build-agent-mode-design-review-prompt.sh # Agent-mode design review prompt
 ├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder
