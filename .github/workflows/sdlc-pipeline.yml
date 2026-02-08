@@ -1172,19 +1172,21 @@ jobs:
           # Look for the verdict marker in recent comments
           RUN_START="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
 
-          # Fetch recent comments
-          COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-3:][].body" 2>/dev/null || echo "")
+          # Fetch the MOST RECENT comment only (last one) to avoid race conditions
+          # with previous review cycles
+          LATEST_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-1].body // \"\"" 2>/dev/null || echo "")
 
-          if echo "$COMMENTS" | grep -q 'egg-refine-review-verdict: approved'; then
+          if echo "$LATEST_COMMENT" | grep -q 'egg-refine-review-verdict: approved'; then
             {
               echo "passed=true"
               echo "feedback="
             } >> "$GITHUB_OUTPUT"
             echo "Review verdict: APPROVED"
-          elif echo "$COMMENTS" | grep -q 'egg-refine-review-verdict: needs_revision'; then
-            # Extract feedback from the comment
-            FEEDBACK=$(echo "$COMMENTS" | grep -A 100 'egg-refine-review-verdict: needs_revision' | head -50 || echo "Revision needed")
+          elif echo "$LATEST_COMMENT" | grep -q 'egg-refine-review-verdict: needs_revision'; then
+            # Extract feedback from BEFORE the verdict marker (the actual review content)
+            # The marker is at the end, so capture everything before it
+            FEEDBACK=$(echo "$LATEST_COMMENT" | sed -n '/^## .*Review:/,/egg-refine-review-verdict:/p' | head -50 || echo "Revision needed")
             {
               echo "passed=false"
               echo "feedback<<EOF"
@@ -1221,10 +1223,14 @@ jobs:
             TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
             # Update the contract with review cycle info
+            # Capture old value before update
+            OLD_CYCLES=$(jq -r '.refine_review_cycles // 0' "$CONTRACT_PATH")
+
             jq --arg cycle "$REVIEW_CYCLE" \
                --arg feedback "$REVIEW_FEEDBACK" \
                --arg ts "$TIMESTAMP" \
-               --arg passed "$REVIEW_PASSED" '
+               --arg passed "$REVIEW_PASSED" \
+               --arg old_cycles "$OLD_CYCLES" '
               .refine_review_cycles = ($cycle | tonumber) |
               .refine_review_feedback = $feedback |
               .audit_log += [{
@@ -1233,7 +1239,7 @@ jobs:
                 "role": "reviewer",
                 "action": "update",
                 "field_path": "refine_review_cycles",
-                "old_value": ((.refine_review_cycles // 0) - 1),
+                "old_value": ($old_cycles | tonumber),
                 "new_value": ($cycle | tonumber),
                 "reason": ("Refine review cycle " + $cycle + ": " + (if $passed == "true" then "approved" else "needs_revision" end))
               }]
@@ -1242,7 +1248,20 @@ jobs:
             # Check if we've exceeded max cycles (3 by default)
             MAX_CYCLES=3
             if [[ "$REVIEW_PASSED" != "true" && "$REVIEW_CYCLE" -ge "$MAX_CYCLES" ]]; then
-              jq '.circuit_breaker.status = "open"' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              # Add audit entry for circuit breaker opening
+              jq --arg ts "$TIMESTAMP" '
+                .circuit_breaker.status = "open" |
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "circuit_breaker.status",
+                  "old_value": "closed",
+                  "new_value": "open",
+                  "reason": "Max refine review cycles exceeded"
+                }]
+              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
               echo "::warning::Max review cycles exceeded — circuit breaker OPEN"
             fi
 
@@ -1255,7 +1274,8 @@ jobs:
               if git push origin "${BRANCH_NAME}"; then
                 break
               elif [[ $i -eq $MAX_RETRIES ]]; then
-                echo "::warning::Push failed after $MAX_RETRIES attempts"
+                echo "::error::Push failed after $MAX_RETRIES attempts"
+                exit 1
               else
                 git pull --rebase origin "${BRANCH_NAME}" || true
               fi
@@ -1686,19 +1706,21 @@ jobs:
           # Look for the verdict marker in recent comments
           RUN_START="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
 
-          # Fetch recent comments
-          COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-3:][].body" 2>/dev/null || echo "")
+          # Fetch the MOST RECENT comment only (last one) to avoid race conditions
+          # with previous review cycles
+          LATEST_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-1].body // \"\"" 2>/dev/null || echo "")
 
-          if echo "$COMMENTS" | grep -q 'egg-plan-review-verdict: approved'; then
+          if echo "$LATEST_COMMENT" | grep -q 'egg-plan-review-verdict: approved'; then
             {
               echo "passed=true"
               echo "feedback="
             } >> "$GITHUB_OUTPUT"
             echo "Review verdict: APPROVED"
-          elif echo "$COMMENTS" | grep -q 'egg-plan-review-verdict: needs_revision'; then
-            # Extract feedback from the comment
-            FEEDBACK=$(echo "$COMMENTS" | grep -A 100 'egg-plan-review-verdict: needs_revision' | head -50 || echo "Revision needed")
+          elif echo "$LATEST_COMMENT" | grep -q 'egg-plan-review-verdict: needs_revision'; then
+            # Extract feedback from BEFORE the verdict marker (the actual review content)
+            # The marker is at the end, so capture everything before it
+            FEEDBACK=$(echo "$LATEST_COMMENT" | sed -n '/^## .*Review:/,/egg-plan-review-verdict:/p' | head -50 || echo "Revision needed")
             {
               echo "passed=false"
               echo "feedback<<EOF"
@@ -1734,11 +1756,15 @@ jobs:
           if [[ -f "$CONTRACT_PATH" ]]; then
             TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+            # Capture old value before update
+            OLD_CYCLES=$(jq -r '.plan_review_cycles // 0' "$CONTRACT_PATH")
+
             # Update the contract with review cycle info
             jq --arg cycle "$REVIEW_CYCLE" \
                --arg feedback "$REVIEW_FEEDBACK" \
                --arg ts "$TIMESTAMP" \
-               --arg passed "$REVIEW_PASSED" '
+               --arg passed "$REVIEW_PASSED" \
+               --arg old_cycles "$OLD_CYCLES" '
               .plan_review_cycles = ($cycle | tonumber) |
               .plan_review_feedback = $feedback |
               .audit_log += [{
@@ -1747,7 +1773,7 @@ jobs:
                 "role": "reviewer",
                 "action": "update",
                 "field_path": "plan_review_cycles",
-                "old_value": ((.plan_review_cycles // 0) - 1),
+                "old_value": ($old_cycles | tonumber),
                 "new_value": ($cycle | tonumber),
                 "reason": ("Plan review cycle " + $cycle + ": " + (if $passed == "true" then "approved" else "needs_revision" end))
               }]
@@ -1756,7 +1782,20 @@ jobs:
             # Check if we've exceeded max cycles (3 by default)
             MAX_CYCLES=3
             if [[ "$REVIEW_PASSED" != "true" && "$REVIEW_CYCLE" -ge "$MAX_CYCLES" ]]; then
-              jq '.circuit_breaker.status = "open"' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              # Add audit entry for circuit breaker opening
+              jq --arg ts "$TIMESTAMP" '
+                .circuit_breaker.status = "open" |
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "circuit_breaker.status",
+                  "old_value": "closed",
+                  "new_value": "open",
+                  "reason": "Max plan review cycles exceeded"
+                }]
+              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
               echo "::warning::Max review cycles exceeded — circuit breaker OPEN"
             fi
 
@@ -1769,7 +1808,8 @@ jobs:
               if git push origin "${BRANCH_NAME}"; then
                 break
               elif [[ $i -eq $MAX_RETRIES ]]; then
-                echo "::warning::Push failed after $MAX_RETRIES attempts"
+                echo "::error::Push failed after $MAX_RETRIES attempts"
+                exit 1
               else
                 git pull --rebase origin "${BRANCH_NAME}" || true
               fi

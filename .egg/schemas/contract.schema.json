@@ -80,6 +80,28 @@
         "$ref": "#/$defs/auditEntry"
       },
       "default": []
+    },
+    "refine_review_cycles": {
+      "type": "integer",
+      "description": "Number of refine phase review cycles",
+      "minimum": 0,
+      "default": 0
+    },
+    "refine_review_feedback": {
+      "type": "string",
+      "description": "Feedback from last refine review",
+      "default": ""
+    },
+    "plan_review_cycles": {
+      "type": "integer",
+      "description": "Number of plan phase review cycles",
+      "minimum": 0,
+      "default": 0
+    },
+    "plan_review_feedback": {
+      "type": "string",
+      "description": "Feedback from last plan review",
+      "default": ""
     }
   },
   "additionalProperties": false,
