@@ -370,14 +370,13 @@ jobs:
   handle-approval:
     name: Handle phase approval
     runs-on: ubuntu-latest
-    # Trigger on comments that approve a phase (e.g., "LGTM", "approved", checkbox approval)
+    # Trigger only on phase completion comments (with egg-phase-approval marker) where
+    # the approval checkbox has been checked. Both conditions must be true to prevent
+    # spurious approvals from editing unrelated comments.
     # Authorization: Only jwbron can trigger approvals, and bot cannot trigger itself
     if: >-
-      !contains(github.event.comment.body, '<!-- egg-hitl-decision') &&
-      (
-        contains(github.event.comment.body, '<!-- egg-phase-approval') ||
-        contains(github.event.comment.body, '[x] Approve')
-      ) &&
+      contains(github.event.comment.body, '<!-- egg-phase-approval') &&
+      contains(github.event.comment.body, '[x] Approve') &&
       github.event.sender.login == 'jwbron' &&
       github.event.sender.login != 'james-in-a-box' &&
       github.event.sender.login != 'james-in-a-box[bot]'

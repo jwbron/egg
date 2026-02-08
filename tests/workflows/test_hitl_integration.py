@@ -32,7 +32,7 @@ class TestWorkflowRegexPatterns:
     UNCHECKED_OPTION_PATTERN = re.compile(r"^\s*-\s*\[ \]\s*(.+)$", re.MULTILINE)
 
     # Phase approval markers from sdlc-hitl.yml job "handle-approval":
-    # contains(github.event.comment.body, '<!-- egg-phase-approval') ||
+    # contains(github.event.comment.body, '<!-- egg-phase-approval') &&
     # contains(github.event.comment.body, '[x] Approve')
     PHASE_APPROVAL_MARKER = "<!-- egg-phase-approval"
     APPROVE_CHECKBOX_PATTERN = re.compile(r"\[x\]\s*Approve")
