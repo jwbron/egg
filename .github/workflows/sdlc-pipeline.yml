@@ -257,7 +257,7 @@ jobs:
 
           --- Authored by egg"
 
-          gh issue comment "${{ steps.setup.outputs.issue_number }}" --body "$BODY"
+          gh issue comment "${{ steps.setup.outputs.issue_number }}" --repo "${{ github.repository }}" --body "$BODY"
 
       - name: Close stale PRs
         id: close-stale-prs
@@ -599,7 +599,7 @@ jobs:
           --- Authored by egg"
           fi
 
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
       - name: Capture final HEAD SHA
         id: capture-sha
@@ -991,7 +991,7 @@ jobs:
 
           --- Authored by egg"
 
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
   # ============================================================
   # Checks failed: Post comment when checks don't all pass
@@ -1212,7 +1212,7 @@ jobs:
 
           # Only post if BODY is set (success cases don't post here - they wait for review)
           if [[ -n "${BODY:-}" ]]; then
-            gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+            gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
           fi
 
   # ============================================================
@@ -1509,7 +1509,7 @@ jobs:
               echo "*Authored-by: egg*"
             } > /tmp/final-analysis.md
 
-            gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/final-analysis.md
+            gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/final-analysis.md
           else
             # Fallback: post a simple message if draft not found
             {
@@ -1530,7 +1530,7 @@ jobs:
               echo "*Authored-by: egg*"
             } > /tmp/fallback-analysis.md
 
-            gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/fallback-analysis.md
+            gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/fallback-analysis.md
           fi
 
   # ============================================================
@@ -1641,7 +1641,7 @@ jobs:
             echo "*Authored-by: egg*"
           } > /tmp/escalation.md
 
-          gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/escalation.md
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/escalation.md
 
       - name: Re-dispatch refine phase
         if: steps.check-circuit-breaker.outputs.skip != 'true'
@@ -1840,7 +1840,7 @@ jobs:
             printf '%s\n' "*Authored-by: egg*"
           } > "$COMMENT_FILE"
 
-          gh issue comment "${ISSUE_NUMBER}" --body-file "$COMMENT_FILE"
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file "$COMMENT_FILE"
           echo "Posted PR metadata comment"
 
       # Minimize previous pipeline status comments to reduce clutter
@@ -1892,7 +1892,7 @@ jobs:
 
           # Only post if BODY is set (success cases don't post here - they wait for review)
           if [[ -n "${BODY:-}" ]]; then
-            gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+            gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
           fi
 
   # ============================================================
@@ -2188,7 +2188,7 @@ jobs:
               echo "*Authored-by: egg*"
             } > /tmp/final-plan.md
 
-            gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/final-plan.md
+            gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/final-plan.md
           else
             # Fallback: post a simple message if draft not found
             {
@@ -2209,7 +2209,7 @@ jobs:
               echo "*Authored-by: egg*"
             } > /tmp/fallback-plan.md
 
-            gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/fallback-plan.md
+            gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/fallback-plan.md
           fi
 
   # ============================================================
@@ -2320,7 +2320,7 @@ jobs:
             echo "*Authored-by: egg*"
           } > /tmp/escalation.md
 
-          gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/escalation.md
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/escalation.md
 
       - name: Re-dispatch plan phase
         if: steps.check-circuit-breaker.outputs.skip != 'true'
