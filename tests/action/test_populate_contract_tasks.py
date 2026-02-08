@@ -10,7 +10,11 @@ sys.path.insert(0, str(PROJECT_ROOT / "shared"))
 
 from importlib import import_module
 
-from egg_contracts.plan_parser import ParsedPhase, ParsedTask
+from egg_contracts.plan_parser import (
+    PLACEHOLDER_ACCEPTANCE_CRITERIA,
+    ParsedPhase,
+    ParsedTask,
+)
 
 # Import the module dynamically since it has a hyphenated filename
 spec = import_module("populate-contract-tasks")
@@ -107,7 +111,7 @@ class TestExtractAcceptanceCriteria:
                 "Setup",
                 [
                     make_task(1, 1, "Real task", "Real criterion"),
-                    make_task(1, 2, "Placeholder task", "Human verification"),
+                    make_task(1, 2, "Placeholder task", PLACEHOLDER_ACCEPTANCE_CRITERIA),
                 ],
             )
         ]

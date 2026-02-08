@@ -25,7 +25,11 @@ import subprocess
 import sys
 
 from egg_contracts.models import Contract
-from egg_contracts.plan_parser import parse_plan
+from egg_contracts.plan_parser import (
+    PLACEHOLDER_ACCEPTANCE_CRITERIA,
+    ParsedPhase,
+    parse_plan,
+)
 from pydantic import ValidationError
 
 # Regex to detect yaml-tasks marker inside a YAML code fence
@@ -103,7 +107,7 @@ def find_plan_comment(comments: list[str]) -> str | None:
     return None
 
 
-def extract_acceptance_criteria(parsed_phases: list) -> list[dict]:
+def extract_acceptance_criteria(parsed_phases: list[ParsedPhase]) -> list[dict]:
     """Extract acceptance criteria from parsed plan phases.
 
     Uses the structured task-level acceptance criteria that were already parsed
@@ -127,7 +131,7 @@ def extract_acceptance_criteria(parsed_phases: list) -> list[dict]:
         for task in phase.tasks:
             if task.acceptance_criteria and task.acceptance_criteria.strip():
                 # Skip placeholder criteria from tasks that couldn't be parsed
-                if task.acceptance_criteria == "Human verification":
+                if task.acceptance_criteria == PLACEHOLDER_ACCEPTANCE_CRITERIA:
                     continue
                 criteria.append(
                     {
