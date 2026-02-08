@@ -41,7 +41,8 @@ jobs:
             -q '[.[] | select(.state == "open") | {number: .number, title: .title, head_repo: .head.repo.full_name}]')
 
           conflicting=()
-          for pr_json in $(echo "$prs" | jq -c '.[]'); do
+          while IFS= read -r pr_json; do
+            [[ -z "$pr_json" ]] && continue
             pr_num=$(echo "$pr_json" | jq -r '.number')
             pr_title=$(echo "$pr_json" | jq -r '.title')
             head_repo=$(echo "$pr_json" | jq -r '.head_repo')
@@ -67,7 +68,7 @@ jobs:
               fi
               conflicting+=("$pr_num")
             fi
-          done
+          done < <(echo "$prs" | jq -c '.[]')
 
           if [[ ${#conflicting[@]} -eq 0 ]]; then
             echo "No conflicting PRs found"
