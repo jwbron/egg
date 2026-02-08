@@ -277,7 +277,6 @@ jobs:
           EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
           EGG_PIPELINE_PHASE: implement
           EGG_BRANCH_NAME: ${{ env.BRANCH_NAME }}
-          EGG_PR_NUMBER: ${{ needs.init.outputs.pr_number }}
 
       - name: Checkout issue branch
         uses: actions/checkout@v4
