@@ -620,6 +620,16 @@ def extract_pr_metadata_from_yaml(
         pr_description = str(pr_description)
     pr_description = pr_description.strip()
 
+    # Warn if title exceeds recommended length (70 chars for GitHub readability)
+    if len(pr_title) > 70:
+        warnings.append(
+            ParseWarning(
+                line_number=None,
+                message=f"PR title exceeds recommended length of 70 characters ({len(pr_title)} chars)",
+                context="Consider shortening for better readability in GitHub UI",
+            )
+        )
+
     return pr_title, pr_description, warnings
 
 

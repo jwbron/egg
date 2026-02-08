@@ -1352,6 +1352,37 @@ Key changes:
         assert pr_description == ""
         assert len(warnings) == 0
 
+    def test_extract_pr_metadata_title_over_70_chars_warns(self):
+        """Test that PR titles over 70 characters generate a warning."""
+        long_title = "A" * 75  # 75 chars
+        yaml_data = {
+            "pr": {
+                "title": long_title,
+                "description": "Description",
+            },
+            "phases": [],
+        }
+        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        assert pr_title == long_title
+        assert pr_description == "Description"
+        assert len(warnings) == 1
+        assert "exceeds recommended length" in warnings[0].message
+        assert "75 chars" in warnings[0].message
+
+    def test_extract_pr_metadata_title_exactly_70_chars_no_warning(self):
+        """Test that PR titles at exactly 70 characters do not warn."""
+        title_70 = "A" * 70  # Exactly 70 chars
+        yaml_data = {
+            "pr": {
+                "title": title_70,
+                "description": "Description",
+            },
+            "phases": [],
+        }
+        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        assert pr_title == title_70
+        assert len(warnings) == 0
+
 
 class TestParsePlanWithPRMetadata:
     """Tests for parse_plan with PR metadata integration."""
