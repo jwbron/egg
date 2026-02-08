@@ -37,11 +37,12 @@ shell escaping issues. Always write to a file first, then use `--body-file`.
 ## Self-Authored PRs
 
 When reviewing a PR authored by the same bot account, **use `--comment` instead of
-`--request-changes` or `--approve`**. GitHub does not allow users to request changes
+`--request-changes` or `--approve`**. GitHub does not allow bots to request changes
 on their own PRs, and approval has no effect.
 
-The `gh` wrapper will auto-downgrade `--request-changes` to `--comment` for self-authored
-PRs, but you should proactively use `--comment` to avoid the extra API call and log noise.
+The `gh` wrapper will auto-downgrade both `--request-changes` and `--approve` to
+`--comment` for self-authored PRs, but you should proactively use `--comment` to
+avoid the extra API call and log noise.
 
 ## Comment Quality
 
