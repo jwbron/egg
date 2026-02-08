@@ -508,14 +508,19 @@ ${marker}"
     def test_marker_format_with_body(self):
         """Marker should be appended after body with blank line."""
         output = self._run_marker_generation(commit_sha="def456", body="LGTM!")
-        assert output == "LGTM!\n\n<!-- egg-automated-review bot=egg commit=def456 verdict=comment -->"
+        assert (
+            output == "LGTM!\n\n<!-- egg-automated-review bot=egg commit=def456 verdict=comment -->"
+        )
 
     def test_marker_uses_custom_bot_name(self):
         """Marker should use EGG_BOT_NAME if set."""
         output = self._run_marker_generation(
             commit_sha="abc123", body="", bot_name="james-in-a-box"
         )
-        assert output == "<!-- egg-automated-review bot=james-in-a-box commit=abc123 verdict=comment -->"
+        assert (
+            output
+            == "<!-- egg-automated-review bot=james-in-a-box commit=abc123 verdict=comment -->"
+        )
 
     def test_marker_with_multiline_body(self):
         """Marker should work with multiline review body."""
@@ -530,7 +535,9 @@ ${marker}"
 
         output = self._run_marker_generation(commit_sha="abc123def456789", body="LGTM!")
         # This is the regex used in reusable-review.yml (with optional verdict)
-        marker_regex = r"<!-- egg-automated-review bot=([^ ]+) commit=([a-f0-9]+)( verdict=([a-z-]+))? -->"
+        marker_regex = (
+            r"<!-- egg-automated-review bot=([^ ]+) commit=([a-f0-9]+)( verdict=([a-z-]+))? -->"
+        )
         match = re.search(marker_regex, output)
         assert match is not None
         assert match.group(1) == "egg"
@@ -548,7 +555,9 @@ ${marker}"
         # Generate marker with empty commit SHA directly (bypass default in helper)
         marker = "<!-- egg-automated-review bot=egg commit= verdict=comment -->"
         # The workflow regex requires at least one hex char: commit=([a-f0-9]+)
-        marker_regex = r"<!-- egg-automated-review bot=([^ ]+) commit=([a-f0-9]+)( verdict=([a-z-]+))? -->"
+        marker_regex = (
+            r"<!-- egg-automated-review bot=([^ ]+) commit=([a-f0-9]+)( verdict=([a-z-]+))? -->"
+        )
         match = re.search(marker_regex, marker)
         assert match is None, "Empty commit SHA should not match workflow regex"
 
@@ -709,7 +718,9 @@ class TestReviewMarkerFormat:
         echo "<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} verdict=${verdict} -->"
     """)
 
-    def _generate_marker(self, review_type: str, bot_name: str = "egg", commit_sha: str = "abc123") -> str:
+    def _generate_marker(
+        self, review_type: str, bot_name: str = "egg", commit_sha: str = "abc123"
+    ) -> str:
         """Run the marker generation logic and return the marker string."""
         result = subprocess.run(
             ["bash", "-c", self.MARKER_SCRIPT, "_", bot_name, commit_sha, review_type],
@@ -728,7 +739,9 @@ class TestReviewMarkerFormat:
     def test_request_changes_marker(self):
         """Request-changes review should produce verdict=request-changes in marker."""
         marker = self._generate_marker("request-changes")
-        assert marker == "<!-- egg-automated-review bot=egg commit=abc123 verdict=request-changes -->"
+        assert (
+            marker == "<!-- egg-automated-review bot=egg commit=abc123 verdict=request-changes -->"
+        )
 
     def test_comment_marker(self):
         """Comment review should produce verdict=comment in marker."""
