@@ -9,6 +9,7 @@ credentials, merge PRs, or push outside its branch namespace.
 | Workflow | Trigger | What It Does |
 |----------|---------|--------------|
 | [AI Code Review](#ai-code-review) | PR opened/updated | Reviews code changes, posts feedback via `gh pr review` |
+| [Address Review Feedback](#address-review-feedback) | Review posted on bot PR | Automatically addresses review feedback, enabling review loops |
 | [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
 | [@mention Response](#mention-response) | `@egg` in issues/PR comments | Runs arbitrary tasks requested by authorized users |
 | [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
@@ -65,6 +66,72 @@ skipping linter-handled style issues.
 
 This enables multiple specialized reviewers (e.g., security-focused, design-focused)
 by providing different prompt scripts while sharing the review infrastructure.
+
+## Address Review Feedback
+
+**Workflow:** [`.github/workflows/on-review-feedback.yml`](../../.github/workflows/on-review-feedback.yml)
+
+Triggers when a review bot posts feedback on a PR, enabling an automated review loop:
+PR opened → review → address feedback → re-review → ... → approval or human escalation.
+
+### Trigger Events
+
+The workflow runs on:
+- `pull_request_review` — Formal reviews posted via `gh pr review`
+- `issue_comment` — Self-reviews posted as comments (GitHub blocks bots from reviewing their own PRs via the Reviews API)
+- `workflow_dispatch` — Manual trigger with PR number (bypasses filters for debugging)
+
+### How It Works
+
+1. **Filter checks** — Only runs when:
+   - PR is open (not closed/merged)
+   - PR is from the same repository (not a fork — bot can't push to forks)
+   - PR author is the bot (unless manually triggered)
+   - PR doesn't have `[skip-review]` marker
+   - Review is not an approval
+   - Iteration count is below the limit (default: 3 rounds)
+
+2. **Comment cleanup** — Minimizes previous feedback-addressing comments to reduce clutter.
+
+3. **Acknowledgment** — Posts a comment indicating feedback is being addressed, with an `<!-- egg-feedback-addressing -->` marker for iteration tracking.
+
+4. **Trusted prompt build** — Checks out `main` (not the PR branch) to run `build-feedback-prompt.sh`, preventing prompt injection from malicious PRs.
+
+5. **Agent execution** — Checks out the PR branch and runs egg. The agent:
+   - Reads review feedback via `gh pr view`, `gh api` for reviews and line-level comments
+   - Understands the current code via `gh pr diff`
+   - Makes fixes addressing actionable feedback
+   - Runs tests and linters before pushing
+   - Commits and pushes all fixes together
+   - Replies to feedback it disagrees with or cannot address
+
+6. **Result comment** — Posts success or failure status with link to run logs.
+
+### Iteration Limiting
+
+To prevent infinite feedback loops, the workflow limits rounds to 3 by default:
+- Counts previous feedback-addressing runs via `<!-- egg-feedback-addressing -->` markers
+- When limit is reached, posts a comment requesting human review
+- Manual `workflow_dispatch` triggers bypass the limit for debugging
+
+There's a small race window where concurrent runs could exceed the limit by one round, but the concurrency group (`cancel-in-progress: true`) mitigates this for most cases.
+
+### Feedback Rules
+
+The agent addresses all actionable review feedback:
+
+| Action | When |
+|--------|------|
+| **Fix** | Correctness issues, security concerns, logic errors, missing error handling, resource leaks, breaking changes, pattern violations |
+| **Respond (do not fix)** | Disagreement with feedback — agent posts a reply explaining reasoning instead of making the change |
+| **Skip** | Pure style suggestions that linters handle, subjective preferences without technical justification |
+
+### Security
+
+The workflow follows the trusted prompt build pattern:
+1. Prompt script runs from `main` to prevent PR-based prompt injection
+2. Agent runs in the sandbox with no credential access
+3. Gateway enforces branch ownership and blocks merges
 
 ## Design Review
 
