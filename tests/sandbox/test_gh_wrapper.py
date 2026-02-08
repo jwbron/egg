@@ -1441,7 +1441,9 @@ print(json.dumps({'issue_number': sys.argv[1], 'title': sys.argv[2], 'body': sys
 
     def test_body_file_not_found_errors(self):
         """--body-file pointing to nonexistent file should error for issue edit."""
-        result = self._run_arg_parser(["issue", "edit", "42", "--body-file", "/nonexistent/file.md"])
+        result = self._run_arg_parser(
+            ["issue", "edit", "42", "--body-file", "/nonexistent/file.md"]
+        )
         assert result.returncode != 0
         assert "File not found" in result.stderr
 
