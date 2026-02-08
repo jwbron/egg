@@ -117,6 +117,14 @@ jobs:
           # Capture workflow owner (the user who triggered the workflow)
           # This is the user who added the egg-sdlc label or dispatched the workflow
           WORKFLOW_OWNER="${EVENT_SENDER:-}"
+
+          # Validate workflow owner format (defense-in-depth)
+          # GitHub usernames are alphanumeric with hyphens only
+          if [[ -n "$WORKFLOW_OWNER" ]] && ! [[ "$WORKFLOW_OWNER" =~ ^[a-zA-Z0-9-]+$ ]]; then
+            echo "::warning::Invalid workflow owner format, skipping: ${WORKFLOW_OWNER}"
+            WORKFLOW_OWNER=""
+          fi
+
           echo "workflow_owner=${WORKFLOW_OWNER}" >> "$GITHUB_OUTPUT"
 
           # Branch name for this issue
