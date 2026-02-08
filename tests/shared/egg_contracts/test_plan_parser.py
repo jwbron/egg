@@ -1155,9 +1155,7 @@ class TestFindPlanCommentPriority:
         """Test that yaml-tasks fence is detected."""
         import re
 
-        YAML_FENCE_DETECT = re.compile(
-            r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks", re.IGNORECASE
-        )
+        YAML_FENCE_DETECT = re.compile(r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks", re.IGNORECASE)
         comment = """
 # Plan
 
@@ -1180,9 +1178,7 @@ phases:
         """Test that yaml-tasks marker outside fence is not detected."""
         import re
 
-        YAML_FENCE_DETECT = re.compile(
-            r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks", re.IGNORECASE
-        )
+        YAML_FENCE_DETECT = re.compile(r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks", re.IGNORECASE)
         # Comment with yaml-tasks mentioned in prose but not inside a fence
         comment = """
 Here's a note about # yaml-tasks format.
