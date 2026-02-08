@@ -497,10 +497,14 @@ jobs:
             PR_TITLE="[SDLC] ${ISSUE_TITLE}"
           fi
 
-          # Build PR body
+          # Build PR body to temp file (avoids shell injection from planner-generated content)
+          PR_BODY_FILE=$(mktemp)
+          trap 'rm -f "$PR_BODY_FILE"' EXIT
+
           if [[ -n "$CONTRACT_PR_DESC" ]]; then
             # Use planner-generated description as the summary
-            PR_BODY="## Summary"$'\n\n'"${CONTRACT_PR_DESC}"
+            printf '%s\n\n' "## Summary" > "$PR_BODY_FILE"
+            printf '%s\n' "$CONTRACT_PR_DESC" >> "$PR_BODY_FILE"
           else
             # Fall back to building body from commit messages (excluding contract-only commits)
             # Get commits on this branch that aren't on main
@@ -515,19 +519,22 @@ jobs:
               COMMIT_MESSAGES="Initial implementation (see commit history for details)"
             fi
 
-            PR_BODY="## Summary"$'\n\n'"${COMMIT_MESSAGES}"
+            printf '%s\n\n' "## Summary" > "$PR_BODY_FILE"
+            printf '%s\n' "$COMMIT_MESSAGES" >> "$PR_BODY_FILE"
           fi
 
           # Add standard footer
-          PR_BODY="${PR_BODY}"$'\n\n'"---"
-          PR_BODY="${PR_BODY}"$'\n\n'"Closes #${ISSUE_NUMBER}"
-          PR_BODY="${PR_BODY}"$'\n'"Branch: \`${BRANCH_NAME}\`"
-          PR_BODY="${PR_BODY}"$'\n\n'"This PR is managed by the SDLC pipeline. It will be marked ready for review once the implementation passes automated review."
+          {
+            printf '\n---\n\n'
+            printf 'Closes #%s\n' "${ISSUE_NUMBER}"
+            printf 'Branch: `%s`\n\n' "${BRANCH_NAME}"
+            printf '%s\n' "This PR is managed by the SDLC pipeline. It will be marked ready for review once the implementation passes automated review."
+          } >> "$PR_BODY_FILE"
 
           PR_URL=$(gh pr create \
             --draft \
             --title "$PR_TITLE" \
-            --body "$PR_BODY" \
+            --body-file "$PR_BODY_FILE" \
             --base main \
             --head "${BRANCH_NAME}")
 
@@ -1728,24 +1735,25 @@ jobs:
           fi
 
           # Post PR metadata as a separate comment for easy editing
-          BODY="## Planned PR Metadata
+          # Use a temp file to avoid shell injection from planner-generated content
+          COMMENT_FILE=$(mktemp)
+          trap 'rm -f "$COMMENT_FILE"' EXIT
 
-          The following title and description will be used when creating the pull request.
-          You can edit this comment to adjust the PR content before approving the plan.
+          {
+            printf '%s\n\n' "## Planned PR Metadata"
+            printf '%s\n' "The following title and description will be used when creating the pull request."
+            printf '%s\n\n' "You can edit this comment to adjust the PR content before approving the plan."
+            printf '%s\n' "**Title:**"
+            printf '%s\n' '```'
+            printf '%s\n' "$PR_TITLE"
+            printf '%s\n\n' '```'
+            printf '%s\n' "**Description:**"
+            printf '%s\n' "$PR_DESC"
+            printf '\n---\n\n'
+            printf '%s\n' "*Authored-by: egg*"
+          } > "$COMMENT_FILE"
 
-          **Title:**
-          \`\`\`
-          ${PR_TITLE}
-          \`\`\`
-
-          **Description:**
-          ${PR_DESC}
-
-          ---
-
-          *Authored-by: egg*"
-
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          gh issue comment "${ISSUE_NUMBER}" --body-file "$COMMENT_FILE"
           echo "Posted PR metadata comment"
 
       # Minimize previous pipeline status comments to reduce clutter

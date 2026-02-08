@@ -391,7 +391,7 @@
     "prMetadata": {
       "type": "object",
       "description": "Planner-generated PR title and description",
-      "required": ["title", "description"],
+      "required": ["title"],
       "properties": {
         "title": {
           "type": "string",
@@ -400,7 +400,8 @@
         },
         "description": {
           "type": "string",
-          "description": "PR description/body explaining the context and changes"
+          "description": "PR description/body explaining the context and changes",
+          "default": ""
         }
       },
       "additionalProperties": false
