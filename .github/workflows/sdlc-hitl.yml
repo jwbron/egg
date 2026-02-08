@@ -343,6 +343,31 @@ jobs:
             fi
           done
 
+      # Minimize previous HITL status comments to reduce clutter
+      - name: Minimize previous HITL comments
+        if: steps.update.outputs.contract_updated == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Find previous bot comments that are HITL decision status updates
+          # shellcheck disable=SC2016
+          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            | jq -r --arg bot "${{ env.BOT_USERNAME }}" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("Decision .* resolved|Phase .* approved|Advancing to")) | .node_id' \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              if ! gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id"; then
+                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
+              fi
+            done
+
       - name: Post status comment
         if: steps.update.outputs.contract_updated == 'true'
         env:
@@ -538,6 +563,31 @@ jobs:
               }
             fi
           done
+
+      # Minimize previous HITL status comments to reduce clutter
+      - name: Minimize previous HITL comments
+        if: steps.approve.outputs.approved == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Find previous bot comments that are HITL decision/approval status updates
+          # shellcheck disable=SC2016
+          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            | jq -r --arg bot "${{ env.BOT_USERNAME }}" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("Decision .* resolved|Phase .* approved|Advancing to")) | .node_id' \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              if ! gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id"; then
+                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
+              fi
+            done
 
       - name: Post approval comment
         if: steps.approve.outputs.approved == 'true'

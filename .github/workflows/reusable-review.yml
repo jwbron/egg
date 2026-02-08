@@ -374,6 +374,32 @@ jobs:
           EGG_AGENT_ROLE: ${{ inputs.agent_role }}
           EGG_ISSUE_NUMBER: ${{ inputs.issue_number }}
 
+      # Minimize previous status comments to reduce clutter
+      - name: Minimize previous status comments
+        if: always() && !cancelled()
+        run: |
+          set -euo pipefail
+          # Find previous bot comments that are status updates for this bot
+          # Match: "egg <bot_name> completed" or "egg <bot_name> failed"
+          # shellcheck disable=SC2016
+          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            | jq -r --arg bot "$BOT_USERNAME" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("egg ${{ inputs.bot_name }} (completed|failed)")) | .node_id' \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              if ! gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id"; then
+                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
+              fi
+            done
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
       - name: Post workflow run status to PR
         if: always() && !cancelled()
         run: |

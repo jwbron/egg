@@ -136,6 +136,40 @@ jobs:
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.BOT_USERNAME }}
 
+      # Minimize previous status comments to reduce clutter
+      - name: Minimize previous status comments
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Determine where to look for comments
+          if [[ "${{ github.event_name }}" == "pull_request_review_comment" || "${{ github.event_name }}" == "pull_request_review" ]]; then
+            ISSUE_NUMBER="${{ github.event.pull_request.number }}"
+          else
+            ISSUE_NUMBER="${{ github.event.issue.number }}"
+          fi
+
+          # Find previous bot comments that are status updates
+          # Match: "egg run", "egg finished", "👀 Working on it"
+          # shellcheck disable=SC2016
+          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            | jq -r --arg bot "${{ env.BOT_USERNAME }}" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("egg run|egg finished|👀 Working on it")) | .node_id' \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              if ! gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id"; then
+                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
+              fi
+            done
+
       - name: Post result comment
         if: always()
         env:
