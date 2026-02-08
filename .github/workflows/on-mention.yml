@@ -20,7 +20,7 @@ jobs:
       (
         (github.event_name == 'issue_comment' && (contains(github.event.comment.body, '@james-in-a-box') || contains(github.event.comment.body, '@egg'))) ||
         (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '@james-in-a-box') || contains(github.event.comment.body, '@egg'))) ||
-        (github.event_name == 'pull_request_review' && (contains(github.event.review.body, '@james-in-a-box') || contains(github.event.review.body, '@egg'))) ||
+        (github.event_name == 'pull_request_review' && github.event.review.body != null && (contains(github.event.review.body, '@james-in-a-box') || contains(github.event.review.body, '@egg'))) ||
         (github.event_name == 'issues' && (contains(github.event.issue.body, '@james-in-a-box') || contains(github.event.issue.body, '@egg')))
       ) &&
       github.event.sender.login == 'jwbron' &&

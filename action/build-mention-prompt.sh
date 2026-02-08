@@ -264,7 +264,7 @@ review comment confirming what you changed."
       pr_url=$(jq_raw '.pull_request.html_url')
       pr_head=$(jq_raw '.pull_request.head.ref')
       pr_base=$(jq_raw '.pull_request.base.ref')
-      review_body=$(jq_raw '.review.body')
+      review_body=$(jq_raw '.review.body // ""')
       review_state=$(jq_raw '.review.state')
 
       local pr_details
@@ -289,8 +289,23 @@ review comment confirming what you changed."
       local review_comments=""
       local review_id
       review_id=$(jq_raw '.review.id')
-      review_comments=$(gh_api_safe "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/reviews/${review_id}/comments" \
-        --jq '.[] | "### \(.path):\(.line // .original_line // "?")\n\(.diff_hunk)\n\n\(.body)\n"' 2>/dev/null || true)
+      local review_comments_json
+      review_comments_json=$(gh_api_safe "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/reviews/${review_id}/comments")
+      if [[ -n "$review_comments_json" && "$review_comments_json" != "[]" ]]; then
+        review_comments=$(echo "$review_comments_json" | jq -r '.[] | @base64' | while read -r encoded; do
+          local path line diff_hunk body
+          path=$(echo "$encoded" | base64 -d | jq -r '.path // ""')
+          line=$(echo "$encoded" | base64 -d | jq -r '.line // .original_line // "?"')
+          diff_hunk=$(echo "$encoded" | base64 -d | jq -r '.diff_hunk // ""')
+          body=$(echo "$encoded" | base64 -d | jq -r '.body // ""')
+          diff_hunk=$(truncate_text "$diff_hunk" "$MAX_BODY_CHARS")
+          echo "### ${path}:${line}"
+          echo "$diff_hunk"
+          echo ""
+          echo "$body"
+          echo ""
+        done)
+      fi
 
       prompt="You were mentioned in a pull request review submission.
 
