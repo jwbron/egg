@@ -43,7 +43,7 @@ See [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) for operational details 
 | Agent self-approves work | Implementer cannot modify task status — only the PR review workflow can approve changes |
 | Agent skips review | Gateway blocks phase transitions without passing all check runs (CI + PR review) |
 | Agent pushes code before plan approval | Gateway blocks `git push` during refine and plan phases |
-| Agent creates PR before implementing | Draft PR is created automatically by the pipeline when entering implement phase |
+| Agent creates PR before implementing | Draft PR is created automatically — the pipeline creates it when entering implement phase |
 
 ### Infrastructure-Enforced Security
 
@@ -111,7 +111,7 @@ Each phase has permitted operations enforced by the gateway:
 | **Refine** | `gh issue comment/edit` | Human approval |
 | **Plan** | `gh issue comment/edit`, `egg-contract add-decision` | Human approval |
 | **Implement** | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
-| **PR** | `gh pr edit`, `git push` | Human merge |
+| **Merge** | `gh pr edit`, `git push` | Human merge |
 
 ### PR-Based Review
 
