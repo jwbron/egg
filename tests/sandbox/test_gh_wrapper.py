@@ -721,7 +721,13 @@ class TestIssueCommentHandler:
         """Simple body text should be escaped correctly."""
         result = self._run_issue_comment_escaper("owner/repo", "42", "Hello world")
         assert result["args"] == [
-            "issue", "comment", "42", "--repo", "owner/repo", "--body", "Hello world"
+            "issue",
+            "comment",
+            "42",
+            "--repo",
+            "owner/repo",
+            "--body",
+            "Hello world",
         ]
 
     def test_body_with_curly_braces(self):
@@ -838,9 +844,7 @@ print(json.dumps({'issue_number': sys.argv[1], 'body': sys.argv[2]}))
             tmpfile = f.name
 
         try:
-            result = self._run_arg_parser(
-                ["issue", "comment", "42", "--body-file", tmpfile]
-            )
+            result = self._run_arg_parser(["issue", "comment", "42", "--body-file", tmpfile])
             assert result["issue_number"] == "42"
             assert result["body"] == content
         finally:
@@ -856,9 +860,7 @@ print(json.dumps({'issue_number': sys.argv[1], 'body': sys.argv[2]}))
             tmpfile = f.name
 
         try:
-            result = self._run_arg_parser(
-                ["issue", "comment", "42", "-F", tmpfile]
-            )
+            result = self._run_arg_parser(["issue", "comment", "42", "-F", tmpfile])
             assert result["issue_number"] == "42"
             assert result["body"] == content
         finally:
@@ -882,9 +884,7 @@ print(json.dumps({'issue_number': sys.argv[1], 'body': sys.argv[2]}))
             tmpfile = f.name
 
         try:
-            result = self._run_arg_parser(
-                ["issue", "comment", "283", "--body-file", tmpfile]
-            )
+            result = self._run_arg_parser(["issue", "comment", "283", "--body-file", tmpfile])
             assert result["issue_number"] == "283"
             assert "${{ github.repository }}" in result["body"]
             assert "${{ github.event.issue.number }}" in result["body"]
@@ -894,6 +894,14 @@ print(json.dumps({'issue_number': sys.argv[1], 'body': sys.argv[2]}))
     def test_body_flag_takes_precedence_over_empty_body_file(self):
         """If --body is provided but --body-file points to nonexistent file, --body wins."""
         result = self._run_arg_parser(
-            ["issue", "comment", "42", "--body", "inline content", "--body-file", "/nonexistent/file.md"]
+            [
+                "issue",
+                "comment",
+                "42",
+                "--body",
+                "inline content",
+                "--body-file",
+                "/nonexistent/file.md",
+            ]
         )
         assert result["body"] == "inline content"
