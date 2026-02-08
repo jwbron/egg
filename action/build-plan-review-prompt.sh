@@ -156,12 +156,13 @@ Write your verdict to \`.egg-state/reviews/${issue_number}-plan-review.json\`:
 
 \`\`\`bash
 mkdir -p .egg-state/reviews
-cat > .egg-state/reviews/${issue_number}-plan-review.json << 'REVIEW_EOF'
+TIMESTAMP=\$(date -u +%Y-%m-%dT%H:%M:%SZ)
+cat > .egg-state/reviews/${issue_number}-plan-review.json << REVIEW_EOF
 {
   \"verdict\": \"approved\",
   \"summary\": \"The implementation plan meets quality standards and is ready for the implement phase.\",
   \"feedback\": \"\",
-  \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+  \"timestamp\": \"\$TIMESTAMP\"
 }
 REVIEW_EOF
 git add .egg-state/reviews/${issue_number}-plan-review.json
@@ -173,12 +174,13 @@ git push origin \\\${EGG_BRANCH_NAME}
 
 \`\`\`bash
 mkdir -p .egg-state/reviews
-cat > .egg-state/reviews/${issue_number}-plan-review.json << 'REVIEW_EOF'
+TIMESTAMP=\$(date -u +%Y-%m-%dT%H:%M:%SZ)
+cat > .egg-state/reviews/${issue_number}-plan-review.json << REVIEW_EOF
 {
   \"verdict\": \"needs_revision\",
   \"summary\": \"The plan requires revision before proceeding.\",
   \"feedback\": \"### Issues Found\\n\\n1. **[Category]**: [Specific issue]\\n2. **[Category]**: [Specific issue]\\n\\n### Suggestions\\n\\n- [Actionable suggestion]\",
-  \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+  \"timestamp\": \"\$TIMESTAMP\"
 }
 REVIEW_EOF
 git add .egg-state/reviews/${issue_number}-plan-review.json

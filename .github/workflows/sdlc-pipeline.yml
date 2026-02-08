@@ -1092,7 +1092,13 @@ jobs:
           set -euo pipefail
           # Check that the agent wrote an analysis draft file to .egg-state/drafts/
           # Pull latest to ensure we have the agent's commits
-          git pull origin "${BRANCH_NAME}" --rebase || true
+          for i in 1 2 3; do
+            if git pull origin "${BRANCH_NAME}" --rebase; then
+              break
+            fi
+            echo "::warning::git pull attempt $i failed, retrying..."
+            sleep 2
+          done
 
           DRAFT_FILE=".egg-state/drafts/${ISSUE_NUMBER}-analysis.md"
           if [[ -f "$DRAFT_FILE" ]]; then
@@ -1293,7 +1299,13 @@ jobs:
           set -euo pipefail
 
           # Pull latest to ensure we have the reviewer's commits
-          git pull origin "${BRANCH_NAME}" --rebase || true
+          for i in 1 2 3; do
+            if git pull origin "${BRANCH_NAME}" --rebase; then
+              break
+            fi
+            echo "::warning::git pull attempt $i failed, retrying..."
+            sleep 2
+          done
 
           # Read verdict from the review JSON file
           REVIEW_FILE=".egg-state/reviews/${ISSUE_NUMBER}-refine-review.json"
@@ -1408,7 +1420,9 @@ jobs:
                 echo "::error::Push failed after $MAX_RETRIES attempts"
                 exit 1
               else
-                git pull --rebase origin "${BRANCH_NAME}" || true
+                if ! git pull --rebase origin "${BRANCH_NAME}"; then
+                  echo "::warning::git pull attempt in push retry $i failed"
+                fi
               fi
             done
           fi
@@ -1667,7 +1681,13 @@ jobs:
           set -euo pipefail
           # Check that the agent wrote a plan draft file to .egg-state/drafts/
           # Pull latest to ensure we have the agent's commits
-          git pull origin "${BRANCH_NAME}" --rebase || true
+          for i in 1 2 3; do
+            if git pull origin "${BRANCH_NAME}" --rebase; then
+              break
+            fi
+            echo "::warning::git pull attempt $i failed, retrying..."
+            sleep 2
+          done
 
           DRAFT_FILE=".egg-state/drafts/${ISSUE_NUMBER}-plan.md"
           if [[ -f "$DRAFT_FILE" ]]; then
@@ -1914,7 +1934,13 @@ jobs:
           set -euo pipefail
 
           # Pull latest to ensure we have the reviewer's commits
-          git pull origin "${BRANCH_NAME}" --rebase || true
+          for i in 1 2 3; do
+            if git pull origin "${BRANCH_NAME}" --rebase; then
+              break
+            fi
+            echo "::warning::git pull attempt $i failed, retrying..."
+            sleep 2
+          done
 
           # Read verdict from the review JSON file
           REVIEW_FILE=".egg-state/reviews/${ISSUE_NUMBER}-plan-review.json"
@@ -2029,7 +2055,9 @@ jobs:
                 echo "::error::Push failed after $MAX_RETRIES attempts"
                 exit 1
               else
-                git pull --rebase origin "${BRANCH_NAME}" || true
+                if ! git pull --rebase origin "${BRANCH_NAME}"; then
+                  echo "::warning::git pull attempt in push retry $i failed"
+                fi
               fi
             done
           fi
@@ -2071,23 +2099,25 @@ jobs:
             gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/final-plan.md
           else
             # Fallback: post a simple message if draft not found
-            BODY="**Plan review passed.** ✅
+            {
+              echo "**Plan review passed.** ✅"
+              echo ""
+              echo "The implementation plan has been reviewed and approved by the automated reviewer, but the draft file was not found."
+              echo "Please check the run logs."
+              echo ""
+              echo "[View run logs](${RUN_URL})"
+              echo ""
+              echo "### Ready for Review"
+              echo ""
+              echo "<!-- egg-phase-approval -->"
+              echo "- [ ] Approve and advance to implement phase"
+              echo ""
+              echo "---"
+              echo ""
+              echo "*Authored-by: egg*"
+            } > /tmp/fallback-plan.md
 
-          The implementation plan has been reviewed and approved by the automated reviewer, but the draft file was not found.
-          Please check the run logs.
-
-          [View run logs](${RUN_URL})
-
-          ### Ready for Review
-
-          <!-- egg-phase-approval -->
-          - [ ] Approve and advance to implement phase
-
-          ---
-
-          *Authored-by: egg*"
-
-            gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+            gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/fallback-plan.md
           fi
 
   # ============================================================
@@ -2199,8 +2229,6 @@ jobs:
           } > /tmp/escalation.md
 
           gh issue comment "${ISSUE_NUMBER}" --body-file /tmp/escalation.md
-
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
 
       - name: Re-dispatch plan phase
         if: steps.check-circuit-breaker.outputs.skip != 'true'
