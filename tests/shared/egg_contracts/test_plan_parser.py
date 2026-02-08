@@ -769,16 +769,12 @@ class TestParsePhasesFromYaml:
                 {
                     "id": 1,
                     "name": "Setup",
-                    "tasks": [
-                        {"id": "TASK-1-1", "description": "Task 1", "acceptance": "Done"}
-                    ],
+                    "tasks": [{"id": "TASK-1-1", "description": "Task 1", "acceptance": "Done"}],
                 },
                 {
                     "id": 2,
                     "name": "Build",
-                    "tasks": [
-                        {"id": "TASK-2-1", "description": "Task 2", "acceptance": "Done"}
-                    ],
+                    "tasks": [{"id": "TASK-2-1", "description": "Task 2", "acceptance": "Done"}],
                 },
             ]
         }
@@ -794,9 +790,7 @@ class TestParsePhasesFromYaml:
                 {
                     "id": "phase-3",
                     "name": "Test Phase",
-                    "tasks": [
-                        {"id": "TASK-3-1", "description": "Test", "acceptance": "Done"}
-                    ],
+                    "tasks": [{"id": "TASK-3-1", "description": "Test", "acceptance": "Done"}],
                 }
             ]
         }
@@ -811,9 +805,7 @@ class TestParsePhasesFromYaml:
                 {
                     "id": "2",
                     "name": "Second",
-                    "tasks": [
-                        {"id": "TASK-2-1", "description": "Test", "acceptance": "Done"}
-                    ],
+                    "tasks": [{"id": "TASK-2-1", "description": "Test", "acceptance": "Done"}],
                 }
             ]
         }
@@ -822,9 +814,7 @@ class TestParsePhasesFromYaml:
 
     def test_missing_phases_key_with_legacy_tasks(self):
         """Test fallback when phases key missing but tasks present."""
-        yaml_data = {
-            "tasks": [{"id": "TASK-1-1", "description": "Legacy", "acceptance": "Done"}]
-        }
+        yaml_data = {"tasks": [{"id": "TASK-1-1", "description": "Legacy", "acceptance": "Done"}]}
         phases, warnings = parse_phases_from_yaml(yaml_data)
         assert len(phases) == 0  # Returns empty so caller falls back to legacy
 
@@ -834,9 +824,7 @@ class TestParsePhasesFromYaml:
             "phases": [
                 {
                     "name": "No ID Phase",
-                    "tasks": [
-                        {"id": "TASK-1-1", "description": "Test", "acceptance": "Done"}
-                    ],
+                    "tasks": [{"id": "TASK-1-1", "description": "Test", "acceptance": "Done"}],
                 }
             ]
         }
@@ -917,23 +905,17 @@ class TestParsePhasesFromYaml:
                 {
                     "id": 3,
                     "name": "Third",
-                    "tasks": [
-                        {"id": "TASK-3-1", "description": "Test", "acceptance": "Done"}
-                    ],
+                    "tasks": [{"id": "TASK-3-1", "description": "Test", "acceptance": "Done"}],
                 },
                 {
                     "id": 1,
                     "name": "First",
-                    "tasks": [
-                        {"id": "TASK-1-1", "description": "Test", "acceptance": "Done"}
-                    ],
+                    "tasks": [{"id": "TASK-1-1", "description": "Test", "acceptance": "Done"}],
                 },
                 {
                     "id": 2,
                     "name": "Second",
-                    "tasks": [
-                        {"id": "TASK-2-1", "description": "Test", "acceptance": "Done"}
-                    ],
+                    "tasks": [{"id": "TASK-2-1", "description": "Test", "acceptance": "Done"}],
                 },
             ]
         }
@@ -1142,9 +1124,7 @@ phases:
 ```
 """
         # Check detection logic
-        has_yaml_tasks = "# yaml-tasks" in comment and (
-            "```yaml" in comment or "```yml" in comment
-        )
+        has_yaml_tasks = "# yaml-tasks" in comment and ("```yaml" in comment or "```yml" in comment)
         assert has_yaml_tasks
 
     def test_frontmatter_detection(self):
@@ -1168,7 +1148,5 @@ tasks:
 
 - [TASK-1-1] Test task — Acceptance: Done
 """
-        has_markdown = "[TASK-" in comment and (
-            "## Phase" in comment or "Phase 1:" in comment
-        )
+        has_markdown = "[TASK-" in comment and ("## Phase" in comment or "Phase 1:" in comment)
         assert has_markdown
