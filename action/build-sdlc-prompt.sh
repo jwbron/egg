@@ -163,9 +163,14 @@ In the refine phase:
 ## Next Steps
 
 When your analysis is complete:
-1. Post the analysis as an issue comment
-2. If you have open questions, use \`egg-contract add-decision --question "..."\`
-3. Wait for human approval to advance to the plan phase
+1. Write the analysis document to a file: \`/tmp/analysis.md\`
+2. Post via file to avoid shell escaping issues: \`gh issue comment ${issue_number} --body-file /tmp/analysis.md\`
+3. If you have open questions, use \`egg-contract add-decision --question "..."\`
+4. Wait for human approval to advance to the plan phase
+
+**IMPORTANT**: Always use \`--body-file\` instead of \`--body\` when posting analysis.
+Content containing \`\${{ }}\` expressions or other shell metacharacters will corrupt
+the comment if passed inline via \`--body\`.
 EOF
 }
 
@@ -239,9 +244,14 @@ In the plan phase:
 ## Next Steps
 
 When your plan is complete:
-1. Post the plan as an issue comment
-2. If you have open questions, use \`egg-contract add-decision --question "..."\`
-3. Wait for human approval to advance to the implement phase
+1. Write the plan document to a file: \`/tmp/plan.md\`
+2. Post via file to avoid shell escaping issues: \`gh issue comment ${issue_number} --body-file /tmp/plan.md\`
+3. If you have open questions, use \`egg-contract add-decision --question "..."\`
+4. Wait for human approval to advance to the implement phase
+
+**IMPORTANT**: Always use \`--body-file\` instead of \`--body\` when posting the plan.
+Content containing \`\${{ }}\` expressions or other shell metacharacters will corrupt
+the comment if passed inline via \`--body\`.
 EOF
 }
 
