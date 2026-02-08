@@ -160,13 +160,13 @@ jobs:
 
           # Delete the branch
           echo "Deleting branch ${BRANCH_NAME}..."
-          if gh api "repos/${{ github.repository }}/git/refs/heads/${BRANCH_NAME}" -X DELETE 2>/dev/null; then
+          if ERROR_OUTPUT=$(gh api "repos/${{ github.repository }}/git/refs/heads/${BRANCH_NAME}" -X DELETE 2>&1); then
             echo "Branch ${BRANCH_NAME} deleted successfully"
             echo "branch_deleted=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::Failed to delete branch ${BRANCH_NAME}"
+            echo "::warning::Failed to delete branch ${BRANCH_NAME}: ${ERROR_OUTPUT}"
             echo "branch_deleted=false" >> "$GITHUB_OUTPUT"
-            echo "error=Failed to delete branch" >> "$GITHUB_OUTPUT"
+            echo "error=Failed to delete branch: ${ERROR_OUTPUT}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Post cleanup summary comment

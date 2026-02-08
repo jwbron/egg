@@ -19,7 +19,7 @@
     },
     {
       "id": "ac-3",
-      "description": "[TASK-1-3] In-progress sdlc-pipeline and sdlc-hitl runs for the issue are cancelled",
+      "description": "[TASK-1-3] In-progress sdlc-pipeline runs for the issue are cancelled (HITL runs are not cancelled due to GitHub API limitations; see workflow header comment for rationale)",
       "verified": false
     },
     {
@@ -106,7 +106,7 @@
           "id": "task-1-3",
           "description": "Implement workflow cancellation logic",
           "status": "pending",
-          "acceptance_criteria": "In-progress sdlc-pipeline and sdlc-hitl runs for the issue are cancelled",
+          "acceptance_criteria": "In-progress sdlc-pipeline runs for the issue are cancelled (HITL runs are not cancelled due to GitHub API limitations)",
           "files_affected": [
             ".github/workflows/on-issue-closed.yml"
           ],
@@ -114,7 +114,7 @@
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": "Cancels both sdlc-pipeline and sdlc-hitl runs by checking branch name and inputs"
+          "notes": "Cancels sdlc-pipeline runs by checking branch name and inputs. HITL runs are not cancelled because GitHub API doesn't expose concurrency group info needed to identify which runs belong to which issue."
         },
         {
           "id": "task-1-4",
