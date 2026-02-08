@@ -1,25 +1,60 @@
 # egg
 
-A hardened sandbox for autonomous LLM code agents with infrastructure-enforced security controls.
+A hardened sandbox for autonomous LLM code agents with infrastructure-enforced security controls and a structurally enforced SDLC pipeline.
 
 > *Inspired by Andy Weir's short story "The Egg" - a contained environment where development happens before emerging into the world. The AI agent works inside the egg; when ready, it "hatches" via human review and merge.*
 
 ## The Core Principle
 
-**Security through infrastructure, not instructions.**
+**Security and quality through infrastructure, not instructions.**
 
-Behavioral controls (telling an LLM "don't do X") can be bypassed through prompt injection, jailbreaks, or model drift. egg enforces security at the infrastructure level - the agent physically cannot perform unauthorized actions because the capabilities don't exist in its environment.
+Behavioral controls (telling an LLM "don't do X") can be bypassed through prompt injection, jailbreaks, or model drift. egg enforces both security and software development process at the infrastructure level — the agent physically cannot perform unauthorized actions or skip verification steps because the capabilities don't exist in its environment.
+
+## How It Works
+
+egg turns a GitHub issue into a reviewed pull request through a structurally enforced pipeline. The agent cannot skip steps, self-approve work, or bypass review — these constraints are enforced by the gateway, not by prompts.
+
+```
+         ┌───────────┐     ┌───────────┐     ┌───────────────┐     ┌──────────┐
+         │  REFINE   │────▶│   PLAN    │────▶│  IMPLEMENT    │────▶│  HUMAN   │
+         │  issue    │     │           │     │  + PR review  │     │  MERGE   │
+         └─────┬─────┘     └─────┬─────┘     └───────┬───────┘     └────┬─────┘
+               │                 │                   │                  │
+               ▼                 ▼                   ▼                  ▼
+          Human gate        Human gate         CI + review          GitHub UI
+         (approve plan)   (approve tasks)    (draft PR checks)    (final merge)
+```
+
+### 1. Refine — Analyze the issue and produce a requirements document
+### 2. Plan — Break work into tasks with acceptance criteria. Human approves before any code is written.
+### 3. Implement — Create a draft PR and implement tasks. CI runs and `reusable-review.yml` provides line-level code review. Re-implementation cycles continue until all checks pass.
+### 4. Merge — Once checks pass, the draft PR is marked ready. Only a human can merge via GitHub UI.
+
+The pipeline state lives in a JSON contract (`.egg-state/contracts/{issue}.json`) committed to the feature branch, giving full auditability of every phase transition and decision.
+
+See [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) for operational details and [ADR: SDLC Pipeline](docs/adr/implemented/ADR-SDLC-Pipeline.md) for the architecture.
 
 ## What Makes egg Robust
 
+### Structurally Enforced Process
+
 | Threat | How egg Prevents It |
 |--------|---------------------|
-| Agent steals credentials | Credentials never enter the sandbox - gateway injects them at request time |
+| Agent self-approves work | Implementer cannot modify task status — only the PR review workflow can approve changes |
+| Agent skips review | Gateway blocks phase transitions without passing all check runs (CI + PR review) |
+| Agent pushes code before plan approval | Gateway blocks `git push` during refine and plan phases |
+| Agent creates PR before implementing | Draft PR is created automatically — the pipeline creates it when entering implement phase |
+
+### Infrastructure-Enforced Security
+
+| Threat | How egg Prevents It |
+|--------|---------------------|
+| Agent steals credentials | Credentials never enter the sandbox — gateway injects them at request time |
 | Agent pushes to main | Gateway enforces branch policies; agent can only push to `egg/*` branches |
-| Agent merges its own PR | Gateway has no merge endpoint - humans must merge via GitHub UI |
+| Agent merges its own PR | Gateway has no merge endpoint — humans must merge via GitHub UI |
 | Agent exfiltrates code | Private mode restricts network to Anthropic API + private GitHub repos only |
 | Agent accesses other workspaces | Each agent gets isolated git worktree; `.git/` is shadowed |
-| Agent bypasses controls via git config | Sandbox has no git metadata - all git ops go through gateway |
+| Agent bypasses controls via git config | Sandbox has no git metadata — all git ops go through gateway |
 
 ## Architecture
 
@@ -34,6 +69,12 @@ Behavioral controls (telling an LLM "don't do X") can be bypassed through prompt
 │   │  ┌─────────────────────┐  │   HTTP   │  ┌─────────────────────────┐  │  │
 │   │  │ Git/GH Policy       │◄─┼──────────┼──│ git/gh wrappers         │  │  │
 │   │  │ Engine              │  │   API    │  │ (intercept all ops)     │  │  │
+│   │  └─────────────────────┘  │          │  └─────────────────────────┘  │  │
+│   │                           │          │                               │  │
+│   │  ┌─────────────────────┐  │          │  ┌─────────────────────────┐  │  │
+│   │  │ SDLC Pipeline       │  │ Contract │  │ egg-contract CLI        │  │  │
+│   │  │ (phase enforcement, │◄─┼──────────┼──│ (state mutations)       │  │  │
+│   │  │  role validation)   │  │   API    │  │                         │  │  │
 │   │  └─────────────────────┘  │          │  └─────────────────────────┘  │  │
 │   │                           │          │                               │  │
 │   │  ┌─────────────────────┐  │   API    │  ┌─────────────────────────┐  │  │
@@ -59,6 +100,52 @@ Behavioral controls (telling an LLM "don't do X") can be bypassed through prompt
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+## SDLC Pipeline Details
+
+### Phase-Based Operation Filtering
+
+Each phase has permitted operations enforced by the gateway:
+
+| Phase | Allowed Operations | Exit Requires |
+|-------|-------------------|---------------|
+| **Refine** | `gh issue comment/edit` | Human approval |
+| **Plan** | `gh issue comment/edit`, `egg-contract add-decision` | Human approval |
+| **Implement** | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
+| **Merge** | `gh pr edit`, `git push` | Human merge |
+
+### PR-Based Review
+
+The implement phase uses PR-based automated code review:
+
+1. **Draft PR created** — When entering implement, a draft PR is created automatically
+2. **Implementer executes tasks** — The agent commits and pushes to the branch
+3. **CI and review checks** — Pipeline waits for all GitHub check runs to complete
+4. **Review feedback** — `reusable-review.yml` provides line-level code review comments
+5. **Re-implementation cycles** — If checks fail, the implementer is re-invoked with feedback
+6. **Ready for merge** — Once all checks pass, the draft PR is marked ready for human merge
+
+This provides line-level review comments visible to humans at every implementation cycle.
+
+### Human-in-the-Loop Decisions
+
+When issues arise, humans interact through checkbox-based UI in GitHub issue comments:
+
+- **Guidance**: Provide additional context, adjust acceptance criteria, break into subtasks
+- **Override**: Mark complete, skip tasks, cancel pipeline
+- **Manual**: Complete manually, reassign
+
+A 30-second debounce prevents accidental clicks.
+
+### Triggering the Pipeline
+
+```bash
+# Via label
+gh issue edit 123 --add-label "egg-sdlc"
+
+# Via workflow dispatch
+gh workflow run sdlc-pipeline.yml -f issue_number=123 -f starting_phase=refine
+```
+
 ## Why Use egg?
 
 egg provides a **public, async workflow** for AI-assisted development that makes AI work visible to the whole team. Every interaction happens in GitHub: @mention to assign, review plans before implementation, and full reasoning in workflow logs.
@@ -79,6 +166,7 @@ inside the sandbox with full security controls:
 
 | Capability | Description |
 |-----------|-------------|
+| **SDLC Pipeline** | End-to-end issue→PR workflow with structurally enforced review gates |
 | **AI Code Review** | Automatic PR reviews with reusable framework and specialized reviewers |
 | **@mention Response** | Trigger tasks by mentioning egg in issues or PR comments |
 | **Check Autofixer** | Diagnoses and fixes CI failures on PRs automatically |
@@ -133,6 +221,7 @@ Every operation through the gateway is logged:
 - Git operations (status, diff, commit, push)
 - GitHub CLI operations (PR create, comment)
 - Policy violations (attempted, blocked)
+- SDLC pipeline state transitions and phase changes
 - Session lifecycle
 
 ## Quick Start
@@ -194,6 +283,11 @@ Trigger egg via @mentions in issues and PRs, or run it on any GitHub Actions eve
 - [GitHub Action](action/README.md) - CI/CD integration
 - [GitHub Automation](docs/guides/github-automation.md) - Review bots, autofixer, @mention, self-improvement
 
+### SDLC Pipeline
+
+- [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) - Operational guide, CLI commands, triggering
+- [ADR: SDLC Pipeline](docs/adr/implemented/ADR-SDLC-Pipeline.md) - Architecture, threat model, security properties
+
 ### Component Documentation
 
 - [Gateway Sidecar](gateway/README.md) - Policy enforcement, API endpoints, credential injection
@@ -203,6 +297,7 @@ Trigger egg via @mentions in issues and PRs, or run it on any GitHub Actions eve
 
 ### Architecture Decision Records
 
+- [SDLC Pipeline](docs/adr/implemented/ADR-SDLC-Pipeline.md) - Structurally enforced agent checkpoints
 - [Git Isolation Architecture](docs/adr/implemented/ADR-Git-Isolation-Architecture.md) - Worktree isolation design
 - [Credential Injection](docs/adr/implemented/ADR-Gateway-Credential-Injection.md) - Zero-credential sandbox design
 - [Internet Tool Access Lockdown](docs/adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) - Public/private mode implementation
