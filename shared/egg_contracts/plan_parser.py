@@ -57,6 +57,10 @@ import yaml
 
 from .models import Phase, PhaseStatus, Task, TaskStatus
 
+# Placeholder acceptance criteria for tasks that couldn't be parsed.
+# Used as a sentinel value to filter out non-real criteria during aggregation.
+PLACEHOLDER_ACCEPTANCE_CRITERIA = "Human verification"
+
 
 @dataclass
 class ParsedTask:
@@ -696,7 +700,7 @@ def parse_plan(content: str) -> ParseResult:
                     phase_number=phase.number,
                     task_number=1,
                     description=f"Review phase '{phase.name}' manually",
-                    acceptance_criteria="Human verification",
+                    acceptance_criteria=PLACEHOLDER_ACCEPTANCE_CRITERIA,
                 )
             )
 
