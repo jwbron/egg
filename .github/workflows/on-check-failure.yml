@@ -69,6 +69,7 @@ jobs:
         id: author-check
         env:
           PR_AUTHOR: ${{ steps.pr-meta.outputs.author }}
+          BOT_USERNAME: james-in-a-box
         run: |
           # For workflow_dispatch, always run (manual override)
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -77,7 +78,7 @@ jobs:
           fi
 
           # Only auto-fix PRs authored by the bot itself
-          if [[ "$PR_AUTHOR" == "james-in-a-box" || "$PR_AUTHOR" == "james-in-a-box[bot]" ]]; then
+          if [[ "$PR_AUTHOR" == "$BOT_USERNAME" || "$PR_AUTHOR" == "${BOT_USERNAME}[bot]" ]]; then
             echo "authorized=true" >> "$GITHUB_OUTPUT"
           else
             echo "Skipping autofix: PR author '$PR_AUTHOR' is not the bot"

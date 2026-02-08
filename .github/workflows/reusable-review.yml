@@ -32,7 +32,7 @@ on:
         type: string
         default: "pull_request"
       pr_author:
-        description: 'PR author login (for author filtering)'
+        description: 'PR author login (for author filtering). Only used for automated triggers (pull_request events). For workflow_dispatch, this is empty but bypassed entirely since manual triggers allow reviewing any PR.'
         required: false
         type: string
         default: ""
@@ -58,6 +58,7 @@ jobs:
         env:
           PR_TITLE: ${{ inputs.pr_title }}
           PR_AUTHOR: ${{ inputs.pr_author }}
+          BOT_USERNAME: james-in-a-box
         run: |
           # For workflow_dispatch, always run (manual override)
           if [[ "${{ inputs.event_name }}" == "workflow_dispatch" ]]; then
@@ -73,7 +74,7 @@ jobs:
 
           # Author filtering: only auto-respond on PRs authored by the bot itself
           # This prevents auto-reviewing PRs from external contributors without human oversight
-          if [[ "$PR_AUTHOR" != "james-in-a-box" && "$PR_AUTHOR" != "james-in-a-box[bot]" ]]; then
+          if [[ "$PR_AUTHOR" != "$BOT_USERNAME" && "$PR_AUTHOR" != "${BOT_USERNAME}[bot]" ]]; then
             echo "Skipping auto-review: PR author '$PR_AUTHOR' is not the bot"
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
