@@ -297,6 +297,12 @@ GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE = frozenset(
 # gh CLI template variables that need resolution from current repo context
 GH_TEMPLATE_VARIABLES = frozenset({"{owner}", "{repo}"})
 
+# Valid GitHub identifier pattern: alphanumeric, hyphens, underscores, periods
+# Must not start with hyphen. Max 39 chars for users, 100 for orgs/repos.
+import re
+
+GITHUB_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
+
 
 def has_gh_template_variables(api_path: str) -> bool:
     """
@@ -362,6 +368,24 @@ def resolve_gh_api_template_variables(api_path: str, cwd: str | None) -> str | N
             "Could not parse repository from remote URL",
             api_path=api_path,
             remote_url=remote_url,
+        )
+        return None
+
+    # Validate owner/repo contain only valid GitHub identifier characters
+    # This prevents path injection from malicious .git/config remotes
+    if not GITHUB_IDENTIFIER_PATTERN.match(repo_info.owner):
+        logger.warning(
+            "Invalid owner identifier in remote URL",
+            api_path=api_path,
+            owner=repo_info.owner,
+        )
+        return None
+
+    if not GITHUB_IDENTIFIER_PATTERN.match(repo_info.repo):
+        logger.warning(
+            "Invalid repo identifier in remote URL",
+            api_path=api_path,
+            repo=repo_info.repo,
         )
         return None
 

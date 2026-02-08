@@ -677,7 +677,7 @@ class TestGhExecute:
         with (
             patch.object(gateway, "get_github_client") as mock_gh,
             patch.object(gateway, "get_auth_mode", return_value="bot"),
-            patch("gateway.resolve_gh_api_template_variables") as mock_resolve,
+            patch.object(gateway, "resolve_gh_api_template_variables") as mock_resolve,
         ):
             # Mock successful template resolution
             mock_resolve.return_value = "repos/myowner/myrepo/pulls/123/commits"
@@ -726,7 +726,7 @@ class TestGhExecute:
 
     def test_execute_api_template_resolution_fails_returns_error(self, client, auth_headers):
         """Execute returns 400 when template variable resolution fails."""
-        with patch("gateway.resolve_gh_api_template_variables") as mock_resolve:
+        with patch.object(gateway, "resolve_gh_api_template_variables") as mock_resolve:
             # Mock failed template resolution (no cwd or no remote)
             mock_resolve.return_value = None
 
@@ -1161,11 +1161,13 @@ class TestRepoExtraction:
 
     def test_resolve_gh_api_template_variables_with_cwd(self):
         """Template variables are resolved from cwd's git remote."""
+        import repo_parser
         from github_client import resolve_gh_api_template_variables
         from repo_parser import RepoInfo
 
-        with patch("repo_parser.get_remote_url") as mock_get_remote:
-            with patch("repo_parser.parse_github_url") as mock_parse:
+        # Patch repo_parser module - the import happens at runtime inside the function
+        with patch.object(repo_parser, "get_remote_url") as mock_get_remote:
+            with patch.object(repo_parser, "parse_github_url") as mock_parse:
                 mock_get_remote.return_value = "https://github.com/myowner/myrepo.git"
                 mock_parse.return_value = RepoInfo(owner="myowner", repo="myrepo")
 
@@ -1178,15 +1180,68 @@ class TestRepoExtraction:
 
     def test_resolve_gh_api_template_variables_remote_failure(self):
         """Template variable resolution fails gracefully when remote unavailable."""
+        import repo_parser
         from github_client import resolve_gh_api_template_variables
 
-        with patch("repo_parser.get_remote_url") as mock_get_remote:
+        # Patch repo_parser module - the import happens at runtime inside the function
+        with patch.object(repo_parser, "get_remote_url") as mock_get_remote:
             mock_get_remote.return_value = None
 
             result = resolve_gh_api_template_variables(
                 "repos/{owner}/{repo}/pulls", "/path/to/repo"
             )
             assert result is None
+
+    def test_resolve_gh_api_template_variables_non_github_remote(self):
+        """Template resolution fails when remote is not a GitHub URL."""
+        import repo_parser
+        from github_client import resolve_gh_api_template_variables
+
+        # Patch repo_parser module - the import happens at runtime inside the function
+        with patch.object(repo_parser, "get_remote_url") as mock_get_remote:
+            with patch.object(repo_parser, "parse_github_url") as mock_parse:
+                # Remote exists but is not a GitHub URL
+                mock_get_remote.return_value = "https://gitlab.com/myowner/myrepo.git"
+                mock_parse.return_value = None
+
+                result = resolve_gh_api_template_variables(
+                    "repos/{owner}/{repo}/pulls", "/path/to/repo"
+                )
+                assert result is None
+
+    def test_resolve_gh_api_template_variables_invalid_owner(self):
+        """Template resolution fails when owner contains invalid characters."""
+        import repo_parser
+        from github_client import resolve_gh_api_template_variables
+        from repo_parser import RepoInfo
+
+        with patch.object(repo_parser, "get_remote_url") as mock_get_remote:
+            with patch.object(repo_parser, "parse_github_url") as mock_parse:
+                mock_get_remote.return_value = "https://github.com/bad/../owner/repo.git"
+                # Simulate a malicious remote with path traversal in owner
+                mock_parse.return_value = RepoInfo(owner="../admin", repo="myrepo")
+
+                result = resolve_gh_api_template_variables(
+                    "repos/{owner}/{repo}/pulls", "/path/to/repo"
+                )
+                assert result is None
+
+    def test_resolve_gh_api_template_variables_invalid_repo(self):
+        """Template resolution fails when repo contains invalid characters."""
+        import repo_parser
+        from github_client import resolve_gh_api_template_variables
+        from repo_parser import RepoInfo
+
+        with patch.object(repo_parser, "get_remote_url") as mock_get_remote:
+            with patch.object(repo_parser, "parse_github_url") as mock_parse:
+                mock_get_remote.return_value = "https://github.com/owner/bad.git"
+                # Simulate a malicious remote with path traversal in repo
+                mock_parse.return_value = RepoInfo(owner="myowner", repo="../../admin/users")
+
+                result = resolve_gh_api_template_variables(
+                    "repos/{owner}/{repo}/pulls", "/path/to/repo"
+                )
+                assert result is None
 
     def test_extract_repo_from_gh_command_with_template_variables(self):
         """gh api commands with template variables return None for repo."""
