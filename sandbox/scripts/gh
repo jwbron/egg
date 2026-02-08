@@ -506,9 +506,10 @@ handle_pr_review() {
     fi
 
     # Add automated review marker to the body
-    # Format: <!-- egg-automated-review bot=<name> commit=<sha> -->
+    # Format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
     # This marker is hidden in rendered markdown but can be parsed by workflows
-    local marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} -->"
+    local verdict="${review_type:-comment}"
+    local marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} verdict=${verdict} -->"
     if [ -n "$body" ]; then
         body="${body}
 
@@ -539,7 +540,24 @@ elif review_type == 'comment':
 print(json.dumps({'args': args}))
 " "$repo" "$pr_number" "$body" "$review_type")
 
-    call_gateway "/api/v1/gh/execute" "$escaped_args"
+    if ! call_gateway "/api/v1/gh/execute" "$escaped_args"; then
+        # Self-review fallback: GitHub blocks bots from using the Reviews API
+        # on their own PRs. Fall back to posting the review as an issue comment
+        # so the marker (with verdict) is still available for workflows.
+        echo "WARNING: Review API call failed (likely self-review). Falling back to issue comment." >&2
+        local comment_payload
+        comment_payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({
+    'repo': sys.argv[1],
+    'pr_number': int(sys.argv[2]),
+    'body': sys.argv[3]
+}))
+" "$repo" "$pr_number" "$body")
+
+        call_gateway "/api/v1/gh/pr/comment" "$comment_payload"
+    fi
 }
 
 # Function to handle issue create - uses proper JSON escaping

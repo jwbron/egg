@@ -459,7 +459,7 @@ class TestPrReviewMarker:
     via `gh pr review`. This allows workflows to identify automated reviews
     by looking for the marker rather than relying on username heuristics.
 
-    Marker format: <!-- egg-automated-review bot=<name> commit=<sha> -->
+    Marker format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
     """
 
     # Extract the handle_pr_review logic for marker generation
@@ -469,8 +469,10 @@ class TestPrReviewMarker:
         commit_sha="${1:-abc123def456}"
         bot_name="${EGG_BOT_NAME:-egg}"
         body="${2:-}"
+        review_type="${3:-comment}"
+        verdict="${review_type:-comment}"
 
-        marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} -->"
+        marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} verdict=${verdict} -->"
         if [ -n "$body" ]; then
             echo "${body}
 
@@ -501,25 +503,25 @@ ${marker}"
     def test_marker_format_no_body(self):
         """Marker alone should have correct format."""
         output = self._run_marker_generation(commit_sha="abc123", body="")
-        assert output == "<!-- egg-automated-review bot=egg commit=abc123 -->"
+        assert output == "<!-- egg-automated-review bot=egg commit=abc123 verdict=comment -->"
 
     def test_marker_format_with_body(self):
         """Marker should be appended after body with blank line."""
         output = self._run_marker_generation(commit_sha="def456", body="LGTM!")
-        assert output == "LGTM!\n\n<!-- egg-automated-review bot=egg commit=def456 -->"
+        assert output == "LGTM!\n\n<!-- egg-automated-review bot=egg commit=def456 verdict=comment -->"
 
     def test_marker_uses_custom_bot_name(self):
         """Marker should use EGG_BOT_NAME if set."""
         output = self._run_marker_generation(
             commit_sha="abc123", body="", bot_name="james-in-a-box"
         )
-        assert output == "<!-- egg-automated-review bot=james-in-a-box commit=abc123 -->"
+        assert output == "<!-- egg-automated-review bot=james-in-a-box commit=abc123 verdict=comment -->"
 
     def test_marker_with_multiline_body(self):
         """Marker should work with multiline review body."""
         body = "Great changes!\n\nSome minor suggestions:\n- Fix typo on line 10"
         output = self._run_marker_generation(commit_sha="789abc", body=body)
-        expected = f"{body}\n\n<!-- egg-automated-review bot=egg commit=789abc -->"
+        expected = f"{body}\n\n<!-- egg-automated-review bot=egg commit=789abc verdict=comment -->"
         assert output == expected
 
     def test_marker_is_parseable_by_workflow(self):
@@ -527,12 +529,13 @@ ${marker}"
         import re
 
         output = self._run_marker_generation(commit_sha="abc123def456789", body="LGTM!")
-        # This is the regex used in on-pull-request.yml
-        marker_regex = r"<!-- egg-automated-review bot=([^ ]+) commit=([a-f0-9]+) -->"
+        # This is the regex used in reusable-review.yml (with optional verdict)
+        marker_regex = r"<!-- egg-automated-review bot=([^ ]+) commit=([a-f0-9]+)( verdict=([a-z-]+))? -->"
         match = re.search(marker_regex, output)
         assert match is not None
         assert match.group(1) == "egg"
         assert match.group(2) == "abc123def456789"
+        assert match.group(4) == "comment"
 
     def test_empty_commit_sha_not_parseable(self):
         """Marker with empty commit SHA should not match the workflow regex.
@@ -543,9 +546,9 @@ ${marker}"
         import re
 
         # Generate marker with empty commit SHA directly (bypass default in helper)
-        marker = "<!-- egg-automated-review bot=egg commit= -->"
+        marker = "<!-- egg-automated-review bot=egg commit= verdict=comment -->"
         # The workflow regex requires at least one hex char: commit=([a-f0-9]+)
-        marker_regex = r"<!-- egg-automated-review bot=([^ ]+) commit=([a-f0-9]+) -->"
+        marker_regex = r"<!-- egg-automated-review bot=([^ ]+) commit=([a-f0-9]+)( verdict=([a-z-]+))? -->"
         match = re.search(marker_regex, marker)
         assert match is None, "Empty commit SHA should not match workflow regex"
 
@@ -687,3 +690,63 @@ class TestPrReviewHandler:
         result = self._run_pr_review_escaper("owner/repo", "123", body, "comment")
         assert result["args"][6] == body
         assert "\n" in result["args"][6]
+
+
+class TestReviewMarkerFormat:
+    """Test the automated review marker includes the verdict field.
+
+    The gh wrapper generates a marker in the format:
+      <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
+    This tests that the marker is correctly formed for each review type.
+    """
+
+    # Bash snippet that reproduces the marker generation logic from handle_pr_review
+    MARKER_SCRIPT = textwrap.dedent("""\
+        bot_name="${1:-egg}"
+        commit_sha="${2:-abc123}"
+        review_type="$3"
+        verdict="${review_type:-comment}"
+        echo "<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} verdict=${verdict} -->"
+    """)
+
+    def _generate_marker(self, review_type: str, bot_name: str = "egg", commit_sha: str = "abc123") -> str:
+        """Run the marker generation logic and return the marker string."""
+        result = subprocess.run(
+            ["bash", "-c", self.MARKER_SCRIPT, "_", bot_name, commit_sha, review_type],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        return result.stdout.strip()
+
+    def test_approve_marker(self):
+        """Approve review should produce verdict=approve in marker."""
+        marker = self._generate_marker("approve")
+        assert marker == "<!-- egg-automated-review bot=egg commit=abc123 verdict=approve -->"
+
+    def test_request_changes_marker(self):
+        """Request-changes review should produce verdict=request-changes in marker."""
+        marker = self._generate_marker("request-changes")
+        assert marker == "<!-- egg-automated-review bot=egg commit=abc123 verdict=request-changes -->"
+
+    def test_comment_marker(self):
+        """Comment review should produce verdict=comment in marker."""
+        marker = self._generate_marker("comment")
+        assert marker == "<!-- egg-automated-review bot=egg commit=abc123 verdict=comment -->"
+
+    def test_empty_review_type_defaults_to_comment(self):
+        """Empty review type should default to verdict=comment."""
+        marker = self._generate_marker("")
+        assert "verdict=comment" in marker
+
+    def test_custom_bot_name(self):
+        """Marker should use the provided bot name."""
+        marker = self._generate_marker("approve", bot_name="sdlc-review")
+        assert "bot=sdlc-review" in marker
+
+    def test_marker_is_html_comment(self):
+        """Marker should be a valid HTML comment (hidden in rendered markdown)."""
+        marker = self._generate_marker("approve")
+        assert marker.startswith("<!--")
+        assert marker.endswith("-->")

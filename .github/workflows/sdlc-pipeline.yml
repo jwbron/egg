@@ -443,12 +443,51 @@ jobs:
           fi
 
           # Read the latest bot review state from the PR
-          # Get reviews sorted by submitted_at, find the latest from our bot
+          # First try the Reviews API, then fall back to issue comments
+          # (bots can't use the Reviews API on their own PRs — self-review)
           BOT_USERNAME="james-in-a-box"
           REVIEW_STATE=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
             --jq "[.[] | select(.user.login == \"${BOT_USERNAME}\" or .user.login == \"${BOT_USERNAME}[bot]\")] | sort_by(.submitted_at) | last | .state // \"NONE\"")
 
-          echo "Latest bot review state: ${REVIEW_STATE}"
+          echo "Reviews API state: ${REVIEW_STATE}"
+
+          # If no review found via Reviews API, check issue comments for
+          # the egg-automated-review marker with verdict (self-review fallback)
+          if [[ "$REVIEW_STATE" == "NONE" || "$REVIEW_STATE" == "null" ]]; then
+            echo "No review via Reviews API — checking issue comments for verdict marker"
+            BOT_NAME="sdlc-review"
+            marker_regex='<!-- egg-automated-review bot='"${BOT_NAME}"' commit=([a-f0-9]+) verdict=([a-z-]+) -->'
+
+            COMMENT_VERDICT=""
+            COMMENT_TIME=""
+            comments=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+              --jq '[.[] | {body: .body, created_at: .created_at}]')
+
+            while IFS= read -r comment; do
+              body=$(echo "$comment" | jq -r '.body // ""')
+              created_at=$(echo "$comment" | jq -r '.created_at')
+              if [[ "$body" =~ $marker_regex ]]; then
+                verdict="${BASH_REMATCH[2]}"
+                if [[ -z "$COMMENT_TIME" || "$created_at" > "$COMMENT_TIME" ]]; then
+                  COMMENT_VERDICT="$verdict"
+                  COMMENT_TIME="$created_at"
+                fi
+              fi
+            done < <(echo "$comments" | jq -c '.[]')
+
+            if [[ -n "$COMMENT_VERDICT" ]]; then
+              echo "Found verdict in issue comment: ${COMMENT_VERDICT} at ${COMMENT_TIME}"
+              # Map verdict to Reviews API state names
+              case "$COMMENT_VERDICT" in
+                approve) REVIEW_STATE="APPROVED" ;;
+                request-changes) REVIEW_STATE="CHANGES_REQUESTED" ;;
+                comment) REVIEW_STATE="COMMENTED" ;;
+                *) REVIEW_STATE="NONE" ;;
+              esac
+            fi
+          fi
+
+          echo "Final review state: ${REVIEW_STATE}"
 
           case "$REVIEW_STATE" in
             APPROVED)

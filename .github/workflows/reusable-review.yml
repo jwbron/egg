@@ -121,7 +121,7 @@ jobs:
 
       # Capture last bot review info before dismissing (for re-review context)
       # The gh wrapper adds a marker to all automated reviews:
-      #   <!-- egg-automated-review bot=<name> commit=<sha> -->
+      #   <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
       # We search for this marker in reviews and comments to find the last review.
       - name: Find last bot review commit for re-review context
         id: last-review
@@ -129,8 +129,9 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           # Regex to extract commit SHA from the automated review marker
-          # Format: <!-- egg-automated-review bot=<name> commit=<sha> -->
-          marker_regex='<!-- egg-automated-review bot=${{ inputs.bot_name }} commit=([a-f0-9]+) -->'
+          # Format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
+          # The verdict field is optional for backwards compatibility with old markers
+          marker_regex='<!-- egg-automated-review bot=${{ inputs.bot_name }} commit=([a-f0-9]+)( verdict=([a-z-]+))? -->'
 
           # Check reviews from the Reviews API for the marker
           # The marker is in the review body
