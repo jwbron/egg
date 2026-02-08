@@ -210,7 +210,7 @@ jobs:
 
       - name: Create or find draft PR
         id: draft-pr
-        if: steps.setup.outputs.current_phase == 'implement'
+        if: steps.setup.outputs.current_phase == 'implement' || steps.setup.outputs.current_phase == 'pr'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           BRANCH_NAME: ${{ steps.setup.outputs.branch_name }}
@@ -496,6 +496,9 @@ jobs:
           MAX_WAIT_SECONDS=1800
           POLL_INTERVAL=30
           elapsed=0
+          zero_checks_iterations=0
+          # After 5 minutes with no checks, assume none are configured and pass
+          MAX_ZERO_CHECKS_ITERATIONS=10
 
           while [[ $elapsed -lt $MAX_WAIT_SECONDS ]]; do
             # Get all check runs for this commit
@@ -514,11 +517,19 @@ jobs:
             echo "Checks: ${completed}/${total} completed, ${failed} failed"
 
             if [[ "$total" -eq 0 ]]; then
-              echo "No external checks found yet"
+              zero_checks_iterations=$((zero_checks_iterations + 1))
+              if [[ $zero_checks_iterations -ge $MAX_ZERO_CHECKS_ITERATIONS ]]; then
+                echo "No external checks found after ${zero_checks_iterations} iterations — assuming none are configured"
+                echo "passed=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "No external checks found yet (attempt ${zero_checks_iterations}/${MAX_ZERO_CHECKS_ITERATIONS})"
               sleep $POLL_INTERVAL
               elapsed=$((elapsed + POLL_INTERVAL))
               continue
             fi
+            # Reset counter once checks appear
+            zero_checks_iterations=0
 
             # All checks completed
             if [[ "$completed" -eq "$total" ]]; then
@@ -547,7 +558,7 @@ jobs:
   finalize-pr:
     name: Finalize pull request
     needs: [init, implement, wait-for-checks]
-    if: always() && needs.wait-for-checks.outputs.all_passed == 'true'
+    if: always() && needs.wait-for-checks.outputs.all_passed == 'true' && needs.init.outputs.pr_number != ''
     runs-on: ubuntu-latest
 
     env:

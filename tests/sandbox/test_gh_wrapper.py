@@ -480,7 +480,11 @@ ${marker}"
     """)
 
     def _run_marker_generation(
-        self, commit_sha: str = "abc123def456", body: str = "", bot_name: str = ""
+        self,
+        commit_sha: str = "abc123def456",
+        body: str = "",
+        bot_name: str = "",
+        review_type: str = "comment",
     ) -> str:
         """Run the marker generation logic and return the result."""
         env = os.environ.copy()
@@ -488,7 +492,7 @@ ${marker}"
             env["EGG_BOT_NAME"] = bot_name
 
         result = subprocess.run(
-            ["bash", "-c", self.MARKER_GENERATION, "_", commit_sha, body],
+            ["bash", "-c", self.MARKER_GENERATION, "_", commit_sha, body, review_type],
             capture_output=True,
             text=True,
             env=env,
@@ -1429,6 +1433,74 @@ print(json.dumps({'title': sys.argv[1], 'body': sys.argv[2]}))
         )
         assert result.returncode != 0
         assert "File not found" in result.stderr
+
+
+class TestSelfReviewFallbackDetection:
+    """Test the self-review error detection logic in handle_pr_review.
+
+    When a bot tries to review its own PR, GitHub returns a 422 error with
+    a specific message. The handler should detect this and fall back to
+    posting an issue comment instead. Other 422 errors should NOT trigger
+    the fallback.
+    """
+
+    # Bash snippet that replicates the self-review detection logic
+    SELF_REVIEW_DETECTION = textwrap.dedent("""\
+        error_msg="$1"
+
+        # This is the pattern from handle_pr_review in sandbox/scripts/gh
+        if echo "$error_msg" | grep -qiE "(cannot review your own|can't review your own)"; then
+            echo "FALLBACK"
+        else
+            echo "PROPAGATE"
+        fi
+    """)
+
+    def _run_detection(self, error_msg: str) -> str:
+        """Run the self-review detection logic and return FALLBACK or PROPAGATE."""
+        result = subprocess.run(
+            ["bash", "-c", self.SELF_REVIEW_DETECTION, "_", error_msg],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        return result.stdout.strip()
+
+    def test_detects_github_self_review_error(self):
+        """GitHub's 'can't review your own' message should trigger fallback."""
+        error_msg = "gh: You can't review your own pull request"
+        assert self._run_detection(error_msg) == "FALLBACK"
+
+    def test_detects_api_self_review_error(self):
+        """API's 'cannot review your own' message should trigger fallback."""
+        error_msg = "ERROR: cannot review your own pull request (422 Unprocessable Entity)"
+        assert self._run_detection(error_msg) == "FALLBACK"
+
+    def test_case_insensitive_detection(self):
+        """Detection should be case-insensitive."""
+        error_msg = "ERROR: CANNOT REVIEW YOUR OWN PULL REQUEST"
+        assert self._run_detection(error_msg) == "FALLBACK"
+
+    def test_does_not_trigger_on_generic_422(self):
+        """Generic 422 error should NOT trigger fallback."""
+        error_msg = "ERROR: 422 Unprocessable Entity - validation failed"
+        assert self._run_detection(error_msg) == "PROPAGATE"
+
+    def test_does_not_trigger_on_unprocessable(self):
+        """'Unprocessable' without self-review context should NOT trigger fallback."""
+        error_msg = "ERROR: Unprocessable Entity - invalid PR state"
+        assert self._run_detection(error_msg) == "PROPAGATE"
+
+    def test_does_not_trigger_on_unrelated_error(self):
+        """Unrelated errors should NOT trigger fallback."""
+        error_msg = "ERROR: Not Found - PR does not exist"
+        assert self._run_detection(error_msg) == "PROPAGATE"
+
+    def test_does_not_trigger_on_body_validation_error(self):
+        """Body validation errors should NOT trigger fallback."""
+        error_msg = "ERROR: 422 Unprocessable Entity - body is required"
+        assert self._run_detection(error_msg) == "PROPAGATE"
 
 
 class TestIssueEditBodyFile:
