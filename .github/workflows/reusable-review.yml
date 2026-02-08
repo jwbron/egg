@@ -136,14 +136,14 @@ jobs:
             no_checks_count=0
 
             completed=$(echo "$checks" | jq '[.[] | select(.status == "completed")] | length')
-            failed=$(echo "$checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")] | length')
+            failed=$(echo "$checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length')
 
             echo "Checks: ${completed}/${total} completed, ${failed} failed"
 
             if [[ "$completed" -eq "$total" ]]; then
               if [[ "$failed" -gt 0 ]]; then
                 echo "::warning::${failed} check(s) failed — skipping review"
-                echo "$checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | "  FAILED: \(.name) (\(.conclusion))"'
+                echo "$checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled") | "  FAILED: \(.name) (\(.conclusion))"'
                 echo "passed=false" >> "$GITHUB_OUTPUT"
               else
                 echo "All ${total} checks passed"
