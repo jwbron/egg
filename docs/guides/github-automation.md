@@ -20,15 +20,22 @@ credentials, merge PRs, or push outside its branch namespace.
 **Workflow:** [`.github/workflows/on-pull-request.yml`](../../.github/workflows/on-pull-request.yml)
 **Framework:** [`.github/workflows/reusable-review.yml`](../../.github/workflows/reusable-review.yml)
 
-Triggers on `workflow_run` events when `Lint` or `Test` workflows complete successfully,
+Triggers on `workflow_run` events when the `Test` workflow completes successfully,
 and via `workflow_dispatch` with a PR number. This ensures the reviewer only runs after
-all CI checks have passed, reducing noise from reviews that happen while the autofixer
-is still fixing issues.
+CI checks have passed, reducing noise from reviews that happen while the autofixer
+is still fixing issues. We trigger on `Test` only (not both `Lint` and `Test`) to avoid
+duplicate workflow runs — the `wait-for-checks` job polls for any remaining checks.
+
+### Limitations
+
+- **Fork PRs not supported** — The `workflow_run.pull_requests` array is empty for workflows
+  triggered by fork PRs (a GitHub limitation). Reviews are silently skipped for fork PRs.
+  This matches the autofixer behavior, which has the same limitation.
 
 ### How It Works
 
-1. **Trigger filtering** — Only runs after `Lint` or `Test` workflows complete successfully.
-   If either workflow fails, the review is skipped (autofixer handles failures first).
+1. **Trigger filtering** — Only runs after the `Test` workflow completes successfully.
+   If the workflow fails, the review is skipped (autofixer handles failures first).
 2. **Wait for all checks** — Before reviewing, polls for any other checks to complete.
    This prevents reviewing while other CI checks are still running.
 3. **Skip checks** — Skips draft PRs and PRs with `[skip-review]` in the title.

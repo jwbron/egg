@@ -195,6 +195,12 @@ jobs:
     # Run if:
     # 1. should-run passed AND
     # 2. Either wait_for_checks is false (skip waiting), OR wait-for-checks passed
+    #
+    # NOTE: always() is required here because wait-for-checks is conditionally skipped
+    # when wait_for_checks=false. Without always(), GitHub Actions would skip this job
+    # when any upstream job is skipped (default behavior). The explicit output checks
+    # ensure we only run when upstream jobs actually succeeded - always() just prevents
+    # the automatic skip propagation.
     if: >-
       always() &&
       needs.should-run.outputs.run == 'true' &&
