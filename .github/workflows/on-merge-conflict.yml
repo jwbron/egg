@@ -76,7 +76,7 @@ jobs:
           else
             echo "Found conflicting PRs: ${conflicting[*]}"
             # Convert to JSON array
-            json_array=$(printf '%s\n' "${conflicting[@]}" | jq -R . | jq -s .)
+            json_array=$(printf '%s\n' "${conflicting[@]}" | jq -R . | jq -sc .)
             echo "prs=${json_array}" >> "$GITHUB_OUTPUT"
           fi
         env:
