@@ -9,6 +9,8 @@ on:
       - '.github/workflows/**'
       - 'sandbox/**/*.md'
       - 'docs/guides/agent-mode-design.md'
+      - 'docs/guides/sdlc-pipeline.md'
+      - 'docs/architecture/**'
   workflow_dispatch:
     inputs:
       pr_number:
