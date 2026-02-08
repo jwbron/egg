@@ -478,22 +478,47 @@ jobs:
             exit 0
           fi
 
-          # Build PR body from commit messages (excluding contract-only commits)
-          # Get commits on this branch that aren't on main
-          # Use a single grep -Ev with || true to avoid exit code 1 when all lines are filtered
-          COMMIT_MESSAGES=$(git log origin/main..HEAD --pretty=format:'%s%n%n%b' --reverse \
-            | grep -Ev "^(Initialize SDLC contract|Populate contract tasks|Advance to .* phase|Checkpoint state)" || true)
-          # Clean up consecutive blank lines
-          COMMIT_MESSAGES=$(echo "$COMMIT_MESSAGES" | sed '/^$/N;/^\n$/d')
-
-          # Fallback if all commits were filtered out
-          if [[ -z "$COMMIT_MESSAGES" ]]; then
-            COMMIT_MESSAGES="Initial implementation (see commit history for details)"
+          # Try to read PR metadata from contract (planner-generated title/description)
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          CONTRACT_PR_TITLE=""
+          CONTRACT_PR_DESC=""
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            CONTRACT_PR_TITLE=$(jq -r '.pr.title // empty' "$CONTRACT_PATH" 2>/dev/null || true)
+            CONTRACT_PR_DESC=$(jq -r '.pr.description // empty' "$CONTRACT_PATH" 2>/dev/null || true)
+            if [[ -n "$CONTRACT_PR_TITLE" ]]; then
+              echo "Using planner-generated PR metadata from contract"
+            fi
           fi
 
-          # Build PR body with commit messages and context
-          PR_BODY="## Summary"
-          PR_BODY="${PR_BODY}"$'\n\n'"${COMMIT_MESSAGES}"
+          # Build PR title: use contract title if available, otherwise fall back to issue title
+          if [[ -n "$CONTRACT_PR_TITLE" ]]; then
+            PR_TITLE="[SDLC] ${CONTRACT_PR_TITLE}"
+          else
+            PR_TITLE="[SDLC] ${ISSUE_TITLE}"
+          fi
+
+          # Build PR body
+          if [[ -n "$CONTRACT_PR_DESC" ]]; then
+            # Use planner-generated description as the summary
+            PR_BODY="## Summary"$'\n\n'"${CONTRACT_PR_DESC}"
+          else
+            # Fall back to building body from commit messages (excluding contract-only commits)
+            # Get commits on this branch that aren't on main
+            # Use a single grep -Ev with || true to avoid exit code 1 when all lines are filtered
+            COMMIT_MESSAGES=$(git log origin/main..HEAD --pretty=format:'%s%n%n%b' --reverse \
+              | grep -Ev "^(Initialize SDLC contract|Populate contract tasks|Advance to .* phase|Checkpoint state)" || true)
+            # Clean up consecutive blank lines
+            COMMIT_MESSAGES=$(echo "$COMMIT_MESSAGES" | sed '/^$/N;/^\n$/d')
+
+            # Fallback if all commits were filtered out
+            if [[ -z "$COMMIT_MESSAGES" ]]; then
+              COMMIT_MESSAGES="Initial implementation (see commit history for details)"
+            fi
+
+            PR_BODY="## Summary"$'\n\n'"${COMMIT_MESSAGES}"
+          fi
+
+          # Add standard footer
           PR_BODY="${PR_BODY}"$'\n\n'"---"
           PR_BODY="${PR_BODY}"$'\n\n'"Closes #${ISSUE_NUMBER}"
           PR_BODY="${PR_BODY}"$'\n'"Branch: \`${BRANCH_NAME}\`"
@@ -501,7 +526,7 @@ jobs:
 
           PR_URL=$(gh pr create \
             --draft \
-            --title "[SDLC] ${ISSUE_TITLE}" \
+            --title "$PR_TITLE" \
             --body "$PR_BODY" \
             --base main \
             --head "${BRANCH_NAME}")
@@ -829,9 +854,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Set PR title to the original issue title (without the [SDLC] prefix
-          # that was added when the draft PR was created)
-          CLEAN_TITLE="${ISSUE_TITLE}"
+          # Try to read planner-generated PR title from contract
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          CONTRACT_PR_TITLE=""
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            CONTRACT_PR_TITLE=$(jq -r '.pr.title // empty' "$CONTRACT_PATH" 2>/dev/null || true)
+          fi
+
+          # Set PR title: use contract title if available, otherwise fall back to issue title
+          # (removes the [SDLC] prefix that was added when the draft PR was created)
+          if [[ -n "$CONTRACT_PR_TITLE" ]]; then
+            CLEAN_TITLE="${CONTRACT_PR_TITLE}"
+            echo "Using planner-generated PR title from contract"
+          else
+            CLEAN_TITLE="${ISSUE_TITLE}"
+          fi
           gh pr edit "${PR_NUMBER}" --title "${CLEAN_TITLE}"
 
           # Preserve the existing PR body (which contains commit messages from create-pr)
@@ -1667,6 +1704,49 @@ jobs:
           else
             echo "Contract already up to date"
           fi
+
+      - name: Post PR metadata comment
+        if: steps.egg.outputs.exit-code == '0' && steps.populate-contract.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Read PR metadata from contract
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          if [[ ! -f "$CONTRACT_PATH" ]]; then
+            echo "Contract not found, skipping PR metadata comment"
+            exit 0
+          fi
+
+          PR_TITLE=$(jq -r '.pr.title // empty' "$CONTRACT_PATH" 2>/dev/null || true)
+          PR_DESC=$(jq -r '.pr.description // empty' "$CONTRACT_PATH" 2>/dev/null || true)
+
+          if [[ -z "$PR_TITLE" ]]; then
+            echo "No PR metadata in contract, skipping comment"
+            exit 0
+          fi
+
+          # Post PR metadata as a separate comment for easy editing
+          BODY="## Planned PR Metadata
+
+The following title and description will be used when creating the pull request.
+You can edit this comment to adjust the PR content before approving the plan.
+
+**Title:**
+\`\`\`
+${PR_TITLE}
+\`\`\`
+
+**Description:**
+${PR_DESC}
+
+---
+
+*Authored-by: egg*"
+
+          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          echo "Posted PR metadata comment"
 
       # Minimize previous pipeline status comments to reduce clutter
       - name: Minimize previous pipeline comments
