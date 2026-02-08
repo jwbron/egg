@@ -13,6 +13,13 @@ set -e
 #
 # This allows private and public containers to run simultaneously without
 # gateway restarts.
+#
+# PORT CONFIGURATION:
+# The gateway uses hardcoded port values (9848 for API, 3129 for proxy).
+# These are the source of truth - the Python constants in
+# shared/egg_config/constants.py must match these values.
+# Shell scripts cannot import Python modules, so gateway scripts define
+# the ports directly. If ports need to change, update both locations.
 # =============================================================================
 
 echo "=== Gateway Sidecar Starting (Per-Container Mode Architecture) ==="

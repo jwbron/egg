@@ -7,6 +7,13 @@
 # - egg-external: Gateway's external network for filtered internet access
 #
 # All network traffic from egg container is routed through Squid proxy for filtering.
+#
+# PORT CONFIGURATION:
+# The gateway uses hardcoded port values (9848 for API, 3129 for proxy).
+# These are the source of truth - the Python constants in
+# shared/egg_config/constants.py must match these values.
+# Shell scripts cannot import Python modules, so gateway scripts define
+# the ports directly. If ports need to change, update both locations.
 
 set -e
 
