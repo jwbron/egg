@@ -73,6 +73,8 @@ Only runs on PRs that modify agent-related files:
 - `.github/workflows/**` — Workflow definitions
 - `sandbox/**/*.md` — Sandbox documentation
 - `docs/guides/agent-mode-design.md` — The design guide itself
+- `docs/guides/sdlc-pipeline.md` — SDLC pipeline operational guide
+- `docs/architecture/**` — Architecture documentation
 
 ### What It Reviews
 
