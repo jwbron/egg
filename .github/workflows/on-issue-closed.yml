@@ -1,9 +1,15 @@
 name: "egg: Cleanup SDLC State on Issue Close"
 
 # This workflow cleans up SDLC state when an issue is closed:
-# - Cancels in-progress sdlc-pipeline and sdlc-hitl workflow runs
+# - Cancels in-progress sdlc-pipeline workflow runs for the issue
 # - Deletes the issue branch (egg/issue-{N}) if no open PR exists
 # - Posts an audit comment documenting what was cleaned up
+#
+# Note: HITL runs (sdlc-hitl.yml) are NOT cancelled by this workflow.
+# HITL runs trigger on issue_comment events and run on main branch,
+# making it impractical to reliably identify which runs belong to which issue.
+# Once an issue is closed, HITL runs will naturally complete or fail since
+# no further comments can trigger new actions on the closed issue.
 
 on:
   issues:
@@ -81,45 +87,21 @@ jobs:
 
             if [[ "$RUN_BRANCH" == "egg/issue-${ISSUE_NUMBER}" ]] || [[ "$RUN_ISSUE" == "${ISSUE_NUMBER}" ]]; then
               echo "Cancelling sdlc-pipeline run ${RUN_ID}..."
-              if gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/cancel" -X POST 2>/dev/null; then
+              if ERROR_OUTPUT=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/cancel" -X POST 2>&1); then
                 CANCELLED_COUNT=$((CANCELLED_COUNT + 1))
               else
-                ERRORS="${ERRORS}Failed to cancel pipeline run ${RUN_ID}. "
+                ERRORS="${ERRORS}Failed to cancel pipeline run ${RUN_ID}: ${ERROR_OUTPUT}. "
               fi
             fi
           done
 
-          # Cancel sdlc-hitl runs for this issue
-          echo "Checking for in-progress sdlc-hitl runs..."
-          HITL_RUNS=$(gh api "repos/${{ github.repository }}/actions/workflows/sdlc-hitl.yml/runs" \
-            --jq "[.workflow_runs[] | select(.status == \"in_progress\" or .status == \"queued\")] | .[].id" 2>/dev/null || echo "")
-
-          for RUN_ID in $HITL_RUNS; do
-            # Check if this run is for our issue
-            RUN_DATA=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}" 2>/dev/null || echo "{}")
-            RUN_BRANCH=$(echo "$RUN_DATA" | jq -r '.head_branch // ""')
-
-            # HITL runs are tied to issues via concurrency group, check branch name
-            if [[ "$RUN_BRANCH" == "egg/issue-${ISSUE_NUMBER}" ]] || [[ "$RUN_BRANCH" == "main" ]]; then
-              # For main branch runs, we need to check the triggering issue
-              # The concurrency group contains the issue number
-              CONCURRENCY_GROUP=$(echo "$RUN_DATA" | jq -r '.name // ""')
-              if [[ "$RUN_BRANCH" == "main" ]] && [[ "$CONCURRENCY_GROUP" != *"${ISSUE_NUMBER}"* ]]; then
-                continue
-              fi
-
-              echo "Cancelling sdlc-hitl run ${RUN_ID}..."
-              if gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/cancel" -X POST 2>/dev/null; then
-                CANCELLED_COUNT=$((CANCELLED_COUNT + 1))
-              else
-                ERRORS="${ERRORS}Failed to cancel HITL run ${RUN_ID}. "
-              fi
-            fi
-          done
+          # Note: HITL runs are NOT cancelled here. They run on main branch
+          # triggered by issue_comment events, and the GitHub API doesn't expose
+          # concurrency group info needed to identify which runs belong to which issue.
+          # HITL runs will naturally complete once the issue is closed.
 
           {
             echo "cancelled_count=${CANCELLED_COUNT}"
-            echo "workflows_cancelled=true"
             if [[ -n "$ERRORS" ]]; then
               echo "errors=${ERRORS}"
             fi
@@ -166,6 +148,9 @@ jobs:
           fi
 
           # Check if branch exists
+          # Note: There's a small race window where a new commit could be pushed
+          # between this check and the deletion. This is acceptable for cleanup
+          # purposes; the branch can be manually deleted if needed.
           if ! gh api "repos/${{ github.repository }}/git/refs/heads/${BRANCH_NAME}" >/dev/null 2>&1; then
             echo "Branch ${BRANCH_NAME} does not exist (already deleted or never created)"
             echo "branch_deleted=false" >> "$GITHUB_OUTPUT"
