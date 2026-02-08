@@ -147,11 +147,13 @@ action/
 ├── build-autofixer-prompt.sh               # Autofixer workflow prompt builder
 ├── build-agent-mode-design-review-prompt.sh # Agent-mode design review prompt
 ├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder
+├── build-conflict-prompt.sh                # Conflict resolution workflow prompt builder
 ├── build-sdlc-prompt.sh                    # SDLC pipeline prompt builder
 ├── contract-state.sh                       # Contract state management utility
 ├── escalate.sh                             # SDLC pipeline escalation handler
 ├── populate-contract-tasks.py              # Populates contract tasks from plan document
 ├── autofixer-conventions.md                # Guidelines for autofixer behavior
+├── conflict-conventions.md                 # Guidelines for conflict resolution via rebase
 ├── review-conventions.md                   # Guidelines for review communication
 └── README.md
 ```
