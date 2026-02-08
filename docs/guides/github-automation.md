@@ -108,7 +108,8 @@ than providing general feedback that duplicates the base review.
 Triggers when an authorized user mentions `@egg` or `@james-in-a-box` in:
 - Issue comments
 - PR comments
-- PR review comments (inline)
+- PR review comments (inline code comments)
+- PR review submissions (full review summary)
 - New issues
 
 ### How It Works
