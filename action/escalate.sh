@@ -1,8 +1,14 @@
 #!/bin/bash
 # escalate.sh - Handle SDLC pipeline escalation
 #
-# This script is called when the circuit breaker opens and human intervention
-# is required. It:
+# DEPRECATED: This script is no longer used by the SDLC pipeline as of PR #285.
+# The pipeline now relies on PR-based auto-reviews instead of the internal
+# review loop with circuit breaker escalation. This file is retained for
+# potential future use or manual invocation but is not called by any workflow.
+#
+# Original purpose:
+# This script was called when the circuit breaker opened and human intervention
+# was required. It:
 # - Labels the issue with 'needs-human-intervention'
 # - Posts a context comment with task history and reviewer feedback
 # - Creates HITL decision checkboxes for the stuck task

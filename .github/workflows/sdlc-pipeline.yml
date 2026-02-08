@@ -465,6 +465,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       all_passed: ${{ steps.wait.outputs.passed }}
+      timed_out: ${{ steps.wait.outputs.timed_out }}
 
     env:
       PR_NUMBER: ${{ needs.init.outputs.pr_number }}
@@ -483,6 +484,14 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           set -euo pipefail
+
+          # Validate PR_NUMBER (defensive check - job condition should prevent this)
+          if [[ -z "$PR_NUMBER" || ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::PR_NUMBER is empty or invalid: '${PR_NUMBER}'"
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "timed_out=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           # Get the head SHA for this PR
           HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
@@ -521,6 +530,7 @@ jobs:
               if [[ $zero_checks_iterations -ge $MAX_ZERO_CHECKS_ITERATIONS ]]; then
                 echo "No external checks found after ${zero_checks_iterations} iterations — assuming none are configured"
                 echo "passed=true" >> "$GITHUB_OUTPUT"
+                echo "timed_out=false" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
               echo "No external checks found yet (attempt ${zero_checks_iterations}/${MAX_ZERO_CHECKS_ITERATIONS})"
@@ -537,9 +547,11 @@ jobs:
                 echo "::error::${failed} check(s) failed"
                 echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | "  FAILED: \(.name) (\(.conclusion))"'
                 echo "passed=false" >> "$GITHUB_OUTPUT"
+                echo "timed_out=false" >> "$GITHUB_OUTPUT"
               else
                 echo "All ${total} checks passed"
                 echo "passed=true" >> "$GITHUB_OUTPUT"
+                echo "timed_out=false" >> "$GITHUB_OUTPUT"
               fi
               exit 0
             fi
@@ -550,7 +562,8 @@ jobs:
           done
 
           echo "::warning::Timeout waiting for checks after ${MAX_WAIT_SECONDS} seconds"
-          echo "passed=timeout" >> "$GITHUB_OUTPUT"
+          echo "passed=false" >> "$GITHUB_OUTPUT"
+          echo "timed_out=true" >> "$GITHUB_OUTPUT"
 
   # ============================================================
   # Finalize PR: Mark draft PR ready for human review
@@ -668,7 +681,7 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
       PR_NUMBER: ${{ needs.init.outputs.pr_number }}
-      CHECK_RESULT: ${{ needs.wait-for-checks.outputs.all_passed }}
+      TIMED_OUT: ${{ needs.wait-for-checks.outputs.timed_out }}
 
     steps:
       - name: Generate bot token
@@ -685,7 +698,7 @@ jobs:
           set -euo pipefail
           PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
 
-          if [[ "$CHECK_RESULT" == "timeout" ]]; then
+          if [[ "$TIMED_OUT" == "true" ]]; then
             BODY="**Checks timed out** while waiting for all check runs to complete.
 
           This may indicate workflows are queued or running slowly. Please check the PR for status: ${PR_URL}

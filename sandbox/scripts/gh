@@ -615,7 +615,7 @@ print(json.dumps({'args': args}))
         # GitHub's exact error messages: "You can't review your own pull request" or
         # "cannot review your own pull request" (the latter is from older API versions)
         if echo "$error_msg" | grep -qiE "(cannot review your own|can't review your own)"; then
-            echo "WARNING: Self-review detected. Falling back to issue comment." >&2
+            echo "WARNING: Self-review detected. Falling back to issue comment (review verdict will be recorded in marker but PR approval state unchanged)." >&2
             local comment_payload
             comment_payload=$(python3 -c "
 import json
