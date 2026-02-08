@@ -31,6 +31,11 @@ on:
         required: false
         type: string
         default: "pull_request"
+      agent_role:
+        description: 'Agent role for contract mutations (implementer or reviewer)'
+        required: false
+        type: string
+        default: ""
     secrets:
       BOT_APP_ID:
         required: true
@@ -115,9 +120,10 @@ jobs:
             # - "Design Review" matches "egg: Agent-Mode Design Review / Agent-Mode Design Review"
             # - "SDLC Pipeline" matches "egg: SDLC Pipeline / Initialize pipeline", etc.
             # - "SDLC HITL" matches "egg: SDLC HITL Decision Handler / Handle HITL decision", etc.
+            # - "Contract Verification" matches "egg: Contract Verification / ..."
             checks=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
               --jq '.check_runs | [.[] | select(
-                (.name | test("Code Review|Design Review|SDLC Pipeline|SDLC HITL") | not)
+                (.name | test("Code Review|Design Review|SDLC Pipeline|SDLC HITL|Contract Verification") | not)
               ) | {name, status, conclusion}]')
 
             total=$(echo "$checks" | jq 'length')
@@ -359,6 +365,7 @@ jobs:
           timeout: ${{ inputs.timeout }}
         env:
           EGG_BOT_NAME: ${{ inputs.bot_name }}
+          EGG_AGENT_ROLE: ${{ inputs.agent_role }}
 
       - name: Post workflow run status to PR
         if: always() && !cancelled()

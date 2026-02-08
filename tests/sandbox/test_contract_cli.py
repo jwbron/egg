@@ -21,6 +21,7 @@ from egg_lib.contract_cli import (
     get_issue_number,
     get_repo_path,
     main,
+    parse_criterion_id,
     parse_phase_id,
     parse_task_id,
     validate_commit_sha,
@@ -142,6 +143,13 @@ class TestArgumentParsing:
         args = parser.parse_args(["add-decision", "--question", "Which approach?"])
         assert args.format == "json"
 
+    def test_verify_criterion_command(self):
+        """Test parsing verify-criterion command."""
+        parser = create_parser()
+        args = parser.parse_args(["verify-criterion", "--criterion", "ac-1"])
+        assert args.command == "verify-criterion"
+        assert args.criterion == "ac-1"
+
 
 class TestEnvironmentHelpers:
     """Tests for environment variable helpers."""
@@ -241,6 +249,32 @@ class TestTaskIdParsing:
         # because the split creates multiple parts
         with pytest.raises(ValueError):
             parse_task_id("task--1")
+
+
+class TestCriterionIdParsing:
+    """Tests for criterion ID parsing."""
+
+    def test_valid_criterion_id(self):
+        """Test parsing valid criterion ID."""
+        criterion_idx = parse_criterion_id("ac-1")
+        assert criterion_idx == 0
+
+    def test_criterion_id_case_insensitive(self):
+        """Test that criterion ID parsing is case insensitive."""
+        criterion_idx = parse_criterion_id("AC-2")
+        assert criterion_idx == 1
+
+    def test_criterion_id_non_numeric(self):
+        """Test that non-numeric criterion ID raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_criterion_id("ac-abc")
+        assert "Invalid criterion ID" in str(exc_info.value)
+
+    def test_criterion_id_zero(self):
+        """Test that criterion number 0 raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_criterion_id("ac-0")
+        assert "must be >= 1" in str(exc_info.value)
 
 
 class TestPhaseIdParsing:
@@ -484,6 +518,30 @@ class TestErrorPaths:
         assert result == 1
         captured = capsys.readouterr()
         assert "Invalid commit SHA" in captured.err
+
+    def test_verify_criterion_no_issue_number(self, capsys):
+        """Test verify-criterion without issue number."""
+        with patch.dict("os.environ", {}, clear=True):
+            result = main(["verify-criterion", "--criterion", "ac-1"])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Issue number required" in captured.err
+
+    def test_verify_criterion_invalid_criterion_id(self, capsys):
+        """Test verify-criterion with invalid criterion ID."""
+        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
+            result = main(["verify-criterion", "--criterion", "ac-abc"])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Invalid criterion ID" in captured.err
+
+    def test_verify_criterion_zero_criterion(self, capsys):
+        """Test verify-criterion with zero criterion number."""
+        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
+            result = main(["verify-criterion", "--criterion", "ac-0"])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "must be >= 1" in captured.err
 
 
 class TestCommitShaValidation:
