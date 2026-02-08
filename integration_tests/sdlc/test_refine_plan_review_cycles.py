@@ -155,9 +155,7 @@ class TestPlanReviewCycle:
         contract = json.loads(contract_path.read_text())
         assert contract["plan_review_cycles"] == 2
 
-    def test_plan_review_triggers_circuit_breaker_after_max_cycles(
-        self, temp_repo, base_contract
-    ):
+    def test_plan_review_triggers_circuit_breaker_after_max_cycles(self, temp_repo, base_contract):
         """Circuit breaker opens after max plan review cycles."""
         base_contract["current_phase"] = "plan"
         contract_path = temp_repo / ".egg-state" / "contracts" / "400.json"
@@ -391,9 +389,7 @@ class TestAuditLogIntegration:
 
         contract = json.loads(contract_path.read_text())
         circuit_breaker_entries = [
-            e
-            for e in contract["audit_log"]
-            if e["field_path"] == "circuit_breaker.status"
+            e for e in contract["audit_log"] if e["field_path"] == "circuit_breaker.status"
         ]
         assert len(circuit_breaker_entries) == 1
         assert circuit_breaker_entries[0]["new_value"] == "open"
