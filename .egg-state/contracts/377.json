@@ -190,10 +190,22 @@
       "old_value": "refine",
       "new_value": "plan",
       "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-08T21:25:38Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Plan review cycle 1: approved"
     }
   ],
   "pr": {
     "title": "Skip address-feedback job early for approval reviews",
     "description": "Adds an approval state check to the job-level condition in on-review-feedback.yml,\npreventing the job from starting for pull_request_review approval events. This\neliminates wasted compute (token generation, API calls) for the common case.\n\nFixes #377."
-  }
+  },
+  "plan_review_cycles": 1,
+  "plan_review_feedback": ""
 }
