@@ -949,6 +949,37 @@ jobs:
             echo "found=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Populate contract from plan
+        id: populate-contract
+        if: steps.egg.outputs.exit-code == '0' && steps.validate-plan.outputs.found == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          set -euo pipefail
+
+          # Configure git for potential commit
+          git config user.name "james-in-a-box[bot]"
+          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+
+          # Install dependencies and run the populate script
+          pip install -q pyyaml pydantic
+          PYTHONPATH="${GITHUB_WORKSPACE}/shared:${PYTHONPATH:-}" \
+            python3 action/populate-contract-tasks.py
+
+          # Commit if contract was updated
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          if ! git diff --quiet "$CONTRACT_PATH" 2>/dev/null; then
+            git add "$CONTRACT_PATH"
+            git commit -m "Populate contract from plan for issue #${ISSUE_NUMBER}"
+            git push origin "${BRANCH_NAME}"
+            echo "Contract populated and pushed"
+          else
+            echo "Contract already up to date"
+          fi
+
       - name: Post completion comment
         if: always()
         env:
