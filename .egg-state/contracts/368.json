@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 368,
+    "title": "SDLC refine and plan reviews shouldn't be posted to the issue",
+    "url": "https://github.com/jwbron/egg/issues/368"
+  },
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": []
+}
