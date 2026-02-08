@@ -145,26 +145,40 @@ A 30-second debounce prevents accidental clicks.
 3. The pipeline begins: refine → plan → implement → ready for merge
 4. Review and merge the PR via GitHub UI
 
-### Local Development
+### Docker Compose (Recommended)
 
 ```bash
 # Clone and set up
-git clone https://github.com/YOUR_USERNAME/egg.git
+git clone https://github.com/jwbron/egg.git
 cd egg
-make setup
 
-# Configure credentials
-cp secrets.yaml.example ~/.config/egg/secrets.yaml
-# Edit with your GitHub App / PAT and Anthropic credentials
+# Initialize configuration
+bin/egg-deploy init
 
-# Start the sandbox (public mode)
-egg start --config egg.yaml
+# Edit .env with your credentials (GITHUB_USER_TOKEN, etc.)
+vim .env
 
-# Start with network lockdown (private mode)
-egg start --config egg.yaml --private
+# Start the gateway
+bin/egg-deploy up
+
+# Start a sandbox session
+egg --public    # Full internet access
+egg --private   # Anthropic API only
 ```
 
-### GitHub Action
+### CLI Mode
+
+```bash
+# Start gateway via compose, then sandbox
+egg --compose
+
+# Or use the traditional flow
+egg --public
+```
+
+See the [Deployment Guide](docs/guides/deployment.md) for production deployment options.
+
+## GitHub Action
 
 egg can run as a GitHub Action for CI/CD automation:
 
@@ -179,20 +193,41 @@ See [GitHub Action documentation](action/README.md) for details.
 
 ## CLI Reference
 
+### egg CLI
+
 | Command | Description |
 |---------|-------------|
-| `egg start` | Start the sandbox (gateway + container) |
-| `egg stop` | Stop the sandbox |
-| `egg exec <cmd>` | Execute a command inside the sandbox |
-| `egg logs [--follow]` | View container logs |
-| `egg status` | Show running containers and health |
-| `egg config validate` | Validate configuration files |
+| `egg` | Start interactive sandbox session (public mode) |
+| `egg --public` | Explicit public mode (full internet access) |
+| `egg --private` | Private mode (Anthropic API only, network lockdown) |
+| `egg --compose` | Start gateway via Docker Compose |
+| `egg --compose --down` | Stop the Docker Compose stack |
+| `egg --exec <cmd>` | Execute command in ephemeral container |
+| `egg --setup` | Run interactive setup wizard |
+| `egg --reset` | Reset configuration and start over |
+
+### egg-deploy CLI
+
+| Command | Description |
+|---------|-------------|
+| `bin/egg-deploy init` | Initialize configuration files |
+| `bin/egg-deploy up` | Start the gateway stack |
+| `bin/egg-deploy down` | Stop the gateway stack |
+| `bin/egg-deploy status` | Show container status and health |
+| `bin/egg-deploy logs` | Follow gateway logs |
+| `bin/egg-deploy build` | Rebuild Docker images |
+
+### Flags
 
 | Flag | Description |
 |------|-------------|
-| `--config <path>` | Path to egg.yaml config file |
 | `--private` | Enable private mode (Anthropic API + private GitHub repos only) |
-| `-p`, `--prompt` | Run with a prompt in non-interactive mode |
+| `--public` | Enable public mode (full internet access, default) |
+| `--compose` | Use Docker Compose for gateway management |
+| `--exec <cmd>` | Execute command in new ephemeral container |
+| `--timeout <min>` | Timeout for --exec commands (default: 30) |
+| `--rebuild` | Force rebuild Docker image |
+| `-v, --verbose` | Show detailed output instead of progress bar |
 
 ## Documentation
 

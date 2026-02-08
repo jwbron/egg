@@ -1,6 +1,10 @@
 # Integration test stack for egg gateway.
 #
-# Starts the gateway sidecar on two isolated networks to mirror production:
+# This follows the same unified Docker Compose approach as the production
+# docker-compose.yml, using test-specific subnets and project names to avoid
+# conflicts with any running development instances.
+#
+# Network topology (same as production, different subnets):
 #   - egg-test-isolated (172.40.0.0/24): private mode traffic, proxy-routed
 #   - egg-test-external (172.41.0.0/24): public mode traffic, direct internet
 #

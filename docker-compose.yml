@@ -1,0 +1,116 @@
+# Production Docker Compose for egg deployment
+#
+# This provides a unified deployment method for the egg gateway and sandbox.
+# The gateway runs on dual networks (isolated + external) and manages sandbox
+# container lifecycle via API.
+#
+# Usage:
+#   1. Copy .env.example to .env and configure
+#   2. docker compose up -d
+#   3. Run egg --compose to start sandbox sessions
+#
+# Or use the unified launcher:
+#   bin/egg-deploy up
+#
+# Network topology:
+#   sandbox (172.32.0.x) -> gateway (172.32.0.2:3129) -> Internet (allowlisted)
+#
+# The gateway enforces:
+#   - Git branch ownership (egg/ prefix required)
+#   - Merge blocking (humans must merge via GitHub UI)
+#   - Credential injection (sandbox never sees tokens)
+#   - Network filtering (private mode: api.anthropic.com only)
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    image: ${EGG_GATEWAY_IMAGE:-egg-gateway:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-egg}-gateway
+    networks:
+      egg-isolated:
+        ipv4_address: 172.32.0.2
+      egg-external:
+        ipv4_address: 172.33.0.2
+    ports:
+      # Gateway API - used by sandbox for git/gh operations
+      - "${GATEWAY_API_PORT:-9848}:9848"
+      # Squid proxy - used by sandbox for filtered internet access
+      - "${GATEWAY_PROXY_PORT:-3129}:3129"
+    environment:
+      # Required configuration
+      - EGG_REPO_CONFIG=/config/repositories.yaml
+      - EGG_LAUNCHER_SECRET=${EGG_LAUNCHER_SECRET}
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
+      - HOST_HOME=${HOST_HOME:-/home/egg}
+      # GitHub authentication
+      - GITHUB_USER_TOKEN=${GITHUB_USER_TOKEN:-}
+      - BOT_GITHUB_TOKEN=${BOT_GITHUB_TOKEN:-}
+      # Git identity for commits
+      - EGG_USER_GIT_NAME=${EGG_USER_GIT_NAME:-egg}
+      - EGG_USER_GIT_EMAIL=${EGG_USER_GIT_EMAIL:-egg@localhost}
+      # Gateway policy configuration
+      - GATEWAY_BOT_NAME=${GATEWAY_BOT_NAME:-}
+      - GATEWAY_BOT_BRANCH_PREFIX=${GATEWAY_BOT_BRANCH_PREFIX:-egg/}
+      - GATEWAY_TRUSTED_USERS=${GATEWAY_TRUSTED_USERS:-}
+    volumes:
+      # Repository configuration (required)
+      - ${EGG_CONFIG_DIR:-.}/repositories.yaml:/config/repositories.yaml:ro
+      # Secrets directory (contains secrets.env, github-app.pem, launcher-secret)
+      - ${EGG_CONFIG_DIR:-.}:/secrets:ro
+      # Repositories directory (RW for worktree operations)
+      - ${EGG_REPOS_DIR:-./repos}:/home/egg/repos
+      # Worktrees directory (per-container isolated worktrees)
+      - worktrees:/home/egg/.egg-worktrees
+      # State directory (session persistence)
+      - state:/home/egg/.egg-state
+      # Shared certs (gateway writes CA cert for sandbox SSL trust)
+      - certs:/shared/certs
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9848/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    security_opt:
+      - label=disable
+
+  # Sandbox service template - not started by compose directly
+  # Use egg --compose or bin/egg-deploy to start sandboxes with proper config
+  # This is here as documentation and for potential future use
+  # sandbox:
+  #   build:
+  #     context: .
+  #     dockerfile: sandbox/Dockerfile
+  #   image: ${EGG_SANDBOX_IMAGE:-egg-sandbox:latest}
+  #   network_mode: none  # Sandboxes started dynamically with proper networking
+  #   profiles:
+  #     - sandbox  # Not started unless explicitly requested
+
+volumes:
+  worktrees:
+    name: ${COMPOSE_PROJECT_NAME:-egg}-worktrees
+  state:
+    name: ${COMPOSE_PROJECT_NAME:-egg}-state
+  certs:
+    name: ${COMPOSE_PROJECT_NAME:-egg}-certs
+
+networks:
+  egg-isolated:
+    name: ${COMPOSE_PROJECT_NAME:-egg}-isolated
+    driver: bridge
+    internal: true  # No external route - sandbox must use gateway proxy
+    ipam:
+      config:
+        - subnet: 172.32.0.0/24
+          gateway: 172.32.0.1
+  egg-external:
+    name: ${COMPOSE_PROJECT_NAME:-egg}-external
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.33.0.0/24
+          gateway: 172.33.0.1

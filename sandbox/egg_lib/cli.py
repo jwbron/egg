@@ -43,6 +43,11 @@ Network modes:
   egg --public                             # Public mode: full internet + public repos only (default)
   egg --private                            # Private mode: network lockdown + private repos only
 
+Docker Compose mode:
+  egg --compose                            # Start gateway via docker compose
+  egg --compose --down                     # Stop the compose stack
+  egg --compose --build                    # Rebuild images before starting
+
 Note: --exec spawns a new container for each execution (automatic cleanup with --rm)
       Default timeout is 30 minutes, configurable via --timeout
       If setup is incomplete, egg will prompt to run setup automatically
@@ -89,6 +94,23 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
         help="Force rebuild of Docker image even if files haven't changed",
     )
 
+    # Docker Compose mode arguments
+    parser.add_argument(
+        "--compose",
+        action="store_true",
+        help="Use Docker Compose to manage the gateway stack",
+    )
+    parser.add_argument(
+        "--down",
+        action="store_true",
+        help="Stop the Docker Compose stack (use with --compose)",
+    )
+    parser.add_argument(
+        "--build",
+        action="store_true",
+        help="Rebuild images when starting Docker Compose (use with --compose)",
+    )
+
     # Private mode arguments (mutually exclusive)
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
@@ -103,6 +125,12 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
     )
 
     args = parser.parse_args()
+
+    # Handle compose mode early (before other checks)
+    if args.compose:
+        from .compose import run_compose_mode
+
+        return run_compose_mode(down=args.down, build=args.build)
 
     # Enable timing if --time flag is set
     if args.time:

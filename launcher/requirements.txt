@@ -1,0 +1,2 @@
+# egg-launcher dependencies
+pyyaml>=6.0

@@ -1,6 +1,15 @@
 #!/bin/bash
 # create-networks.sh - Create Docker networks for network lockdown
 #
+# DEPRECATION NOTICE:
+# This script is deprecated. Networks are now managed by Docker Compose.
+# Use one of the following methods instead:
+#   - Docker Compose: bin/egg-deploy up
+#   - CLI: egg --compose
+#   - Launcher container: docker run ghcr.io/jwbron/egg-launcher:latest
+#
+# See docs/guides/deploy-migration.md for migration instructions.
+#
 # This script creates the dual-network architecture for full network isolation:
 # - egg-isolated: Internal network (no external route) for egg container
 # - egg-external: Standard bridge network for gateway external access
@@ -9,6 +18,13 @@
 # connects only to egg-isolated and must route all traffic through the gateway.
 
 set -e
+
+# Show deprecation warning
+echo "WARNING: create-networks.sh is deprecated." >&2
+echo "Networks are now managed by Docker Compose." >&2
+echo "Please migrate to: bin/egg-deploy up" >&2
+echo "See docs/guides/deploy-migration.md for details." >&2
+echo "" >&2
 
 # Network configuration (can be overridden via environment)
 # Note: 172.30.x and 172.31.x may be used by Docker, so we use 172.32.x and 172.33.x
