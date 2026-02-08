@@ -45,9 +45,9 @@ See the [main README](../../README.md) for the architecture diagram.
 Contracts are JSON documents that track issue progress through SDLC phases, tasks, decisions, and acceptance criteria. They provide structurally-verified agent checkpoints.
 
 **Schemas**:
-- `.egg/schemas/contract.schema.json` - Contract structure and role-based field ownership
-- `.egg/schemas/yaml-tasks.schema.json` - Structured YAML task format for plan documents
-- `.egg/schemas/phase-permissions.schema.json` - Phase-based operation permissions
+- `.egg/schemas/contract.schema.json` – Contract structure and role-based field ownership
+- `.egg/schemas/yaml-tasks.schema.json` – Structured appendix format for plan documents (used by plan parser)
+- `.egg/schemas/phase-permissions.schema.json` – Allowed git/gh operations per SDLC phase
 
 **Role-based ownership**: Each contract field is owned by a specific role:
 - `implementer`: `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected`
@@ -74,7 +74,7 @@ Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib
 
 The plan parser (`shared/egg_contracts/plan_parser.py`) extracts tasks from plan documents using three extraction modes in priority order:
 
-1. **YAML code fence** (preferred): A `yaml` code block marked with `# yaml-tasks` header, validated against `.egg/schemas/yaml-tasks.schema.json`. Provides machine-readable task data while allowing human-readable prose above it.
+1. **YAML code fence** (preferred): A `yaml` code block marked with `# yaml-tasks` header, structured according to `.egg/schemas/yaml-tasks.schema.json`. Provides machine-readable task data while allowing human-readable prose above it.
 2. **YAML front matter** (legacy): A `---`-delimited YAML block at the document start. Supported for backwards compatibility.
 3. **Markdown regex** (fallback): Parses `[TASK-X-Y]` patterns from markdown. Fragile and may miss tasks if LLM output format drifts.
 
