@@ -9,7 +9,6 @@
 #   EGG_ISSUE_NUMBER   — GitHub issue number
 #   EGG_PIPELINE_PHASE — Current phase (refine, plan, implement, pr)
 #   EGG_BRANCH_NAME    — Current branch name
-#   EGG_PR_NUMBER      — PR number for implement phase feedback (optional)
 #   EGG_REPO_PATH      — Path to repository (optional, defaults to /home/egg/repos/*)
 #
 # Output:
@@ -263,8 +262,6 @@ build_implement_prompt() {
   local contract_summary
   contract_summary=$(get_contract_summary "$issue_number")
 
-  local pr_number="${EGG_PR_NUMBER:-}"
-
   cat <<EOF
 You are in the **implement** phase of the SDLC pipeline.
 
@@ -275,15 +272,6 @@ Issue: #${issue_number} — ${issue_title}
 Issue URL: ${issue_url}
 Phase: implement
 Branch: ${EGG_BRANCH_NAME}
-EOF
-
-  if [[ -n "$pr_number" ]]; then
-    cat <<EOF
-Draft PR: #${pr_number}
-EOF
-  fi
-
-  cat <<EOF
 
 ## Contract State
 
@@ -292,61 +280,55 @@ ${contract_summary}
 ## Issue Description
 
 ${issue_body}
-EOF
-
-  if [[ -n "$pr_number" ]]; then
-    cat <<EOF
-
-## Prior Review Feedback
-
-A draft PR (#${pr_number}) exists for this issue. Check for any existing review comments before coding:
-- \`gh pr view ${pr_number} --comments\` for general comments
-- \`gh api repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/reviews\` for review details
-- If there is prior feedback, address all issues raised by the reviewer
-EOF
-  fi
-
-  cat <<EOF
 
 ## Your Task
 
 Implement the tasks defined in the contract. For each task:
 
-1. Check the task status with \`egg-contract show\`
+1. Review the issue comments for the approved plan
 2. Implement the required changes
 3. Run tests to verify
 4. Commit with a descriptive message
-5. Link the commit: \`egg-contract add-commit --task task-1 --commit <sha>\`
-6. Add notes if helpful: \`egg-contract update-notes --task task-1 --notes "..."\`
 
-## Contract CLI Commands
+## Quality Checklist
 
-- \`egg-contract show\` — View current contract state
-- \`egg-contract add-commit --task <id> --commit <sha>\` — Link commit to task
-- \`egg-contract update-notes --task <id> --notes <text>\` — Add implementation notes
+Before creating the PR:
+- [ ] All tasks are implemented
+- [ ] Tests pass
+- [ ] Linters pass
+- [ ] No debug code left behind
+
+## Creating the PR
+
+When implementation is complete and the quality checklist passes:
+1. Push your changes: \`git push origin ${EGG_BRANCH_NAME}\`
+2. Create the PR:
+
+\`\`\`bash
+gh pr create --title "Brief description" --body "\$(cat <<'BODY'
+## Summary
+<1-3 bullet points>
+
+## Test plan
+<Steps for reviewers>
+
+Issue: ${issue_url}
+
+Authored-by: egg
+BODY
+)"
+\`\`\`
+
+**IMPORTANT**: Only create the PR once you have working implementation code
+pushed to the branch. The PR must contain the full implementation, not just
+pipeline state. If you cannot complete the implementation, do NOT create a PR.
 
 ## Phase Restrictions
 
 In the implement phase:
 - You CAN push code (git push)
-- You CAN link commits to tasks (egg-contract add-commit)
-- You CAN add notes (egg-contract update-notes)
-- You CANNOT create PRs (the pipeline manages the PR)
-
-## Quality Checklist
-
-Before completing this phase:
-- [ ] All tasks have linked commits
-- [ ] Tests pass
-- [ ] Linters pass
-- [ ] No debug code left behind
-
-## Next Steps
-
-When implementation is complete:
-1. Ensure all tasks are linked to commits
-2. Push your changes: \`git push origin ${EGG_BRANCH_NAME}\`
-3. The pipeline will automatically trigger a review on the draft PR
+- You CAN create PRs (gh pr create) — but ONLY after implementation is complete
+- You CANNOT merge PRs (human must merge)
 EOF
 }
 

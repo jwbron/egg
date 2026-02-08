@@ -21,6 +21,7 @@ jobs:
       pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
       bot_name: review
       timeout: "10"
+      is_draft: ${{ github.event.pull_request.draft || false }}
       pr_title: ${{ github.event.pull_request.title || '' }}
       event_name: ${{ github.event_name }}
     secrets:

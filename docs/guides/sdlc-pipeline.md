@@ -24,17 +24,15 @@ All pipeline state is stored in JSON contracts at `.egg-state/contracts/{issue-n
 - Recovery from failures without losing progress
 - Clear handoff between phases and agents
 
-### 3. Role-Based Access Control
+### 3. Worker-Reviewer Separation
 
-The pipeline enforces role-based field ownership in contracts:
+The implementer and reviewer are separate agent invocations with different permissions:
 
 | Role | Can Modify | Cannot Modify |
 |------|------------|---------------|
 | **Implementer** | `commit`, `notes`, `files_affected` | `status`, `verified`, `review_feedback` |
 | **Reviewer** | `status`, `review_feedback`, `current_phase` | `commit`, task definitions |
 | **Human** | All fields | — |
-
-Code reviews are performed by the existing PR review workflow (`reusable-review.yml`), which provides line-level feedback on draft PRs created during the implement phase.
 
 ### 4. Human-in-the-Loop at Critical Points
 
@@ -67,18 +65,18 @@ The pipeline pauses for human approval at phase transitions and when circuit bre
 |-------|---------|-------------------|---------------|
 | **Refine** | Analyze issue, produce analysis document | `gh issue comment/edit` | Human approval |
 | **Plan** | Create implementation plan with tasks | `gh issue comment/edit`, `egg-contract add-decision` | Human approval |
-| **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
-| **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge |
+| **Implement** | Execute tasks, implement→review cycles | `git push`, `egg-contract add-commit/update-notes/mark-task` | Reviewer approval |
+| **PR** | Create pull request for human review | `gh pr create/edit`, `git push` | Human merge |
 
 ### Phase-Based Operation Filtering
 
 Each phase has a defined set of permitted operations. The gateway blocks all other operations:
 
 - **Refine/Plan phases**: Cannot `git push` or `gh pr create`—prevents code changes before plan approval
-- **Implement phase**: Can `git push` to the branch; draft PR is created automatically by the pipeline
-- **PR phase**: Can update the PR; human must merge
+- **Implement phase**: Cannot `gh pr create` until reviewer marks tasks complete
+- **PR phase**: All operations allowed; human must merge
 
-This prevents incidents where agents push code during planning or manually create PRs before implementation is complete.
+This prevents incidents where agents push code during planning or create PRs before implementation is verified.
 
 ## Contract System
 
@@ -159,48 +157,80 @@ This field can only be modified by role 'reviewer'.
 
 ## Implementation Workflow
 
-### Implement and PR-Based Review
+### Implement→Review Cycle
 
-The implement phase uses PR-based automated code review:
+The implement phase uses a cyclic pattern:
 
-1. **Draft PR created** — When entering the implement phase, a draft PR is created automatically
-2. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
-3. **CI and review checks** — The pipeline waits for all GitHub check runs (linting, tests, and PR review) to complete
-4. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
-5. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
-6. **PR finalization** — Once all checks pass and review approves, the draft PR is marked ready for human merge
+1. **Implementer** executes all tasks in the current phase
+2. **Reviewer** evaluates each task against acceptance criteria
+3. **Incomplete tasks** are marked with feedback and returned to implementer
+4. **Cycle repeats** until all tasks pass or circuit breaker triggers
+5. **Human review** only triggered if circuit breaker opens
 
-This approach provides:
-- Line-level code review comments visible to humans
-- Integration with existing PR review workflows
-- Human visibility into every implementation cycle
-- CI/test validation before review
+```yaml
+# From .github/workflows/sdlc-pipeline.yml
+jobs:
+  implement:
+    env:
+      EGG_AGENT_ROLE: implementer
+    # Runs egg with implementer prompt
+
+  review:
+    needs: implement
+    env:
+      EGG_AGENT_ROLE: reviewer
+    # Evaluates tasks, marks status
+
+  loop:
+    needs: review
+    # Checks if more cycles needed or advance to PR
+```
 
 ### Context Window Isolation
 
-Each agent invocation runs in a fresh container with no memory of previous runs. All state transfer happens through:
+Each job runs in a fresh container with no memory of previous invocations. All state transfer happens through:
 
 1. The contract JSON in `.egg-state/contracts/`
 2. Git commits on the feature branch
-3. GitHub issue/PR comments and reviews
+3. GitHub issue/PR comments
 
-This prevents context pollution and ensures reproducible behavior. When the implementer is re-invoked after review feedback, it receives the PR review comments as part of its prompt context.
+This prevents context pollution and ensures reproducible behavior.
 
 ## Circuit Breaker and Escalation
 
-**Note:** Circuit breaker functionality is deprecated as of PR #285. The pipeline now relies on PR-based reviews with human-visible feedback at every cycle, reducing the need for automated escalation thresholds.
-
-### Legacy Circuit Breaker (Deprecated)
-
-The circuit breaker tracked implementation cycles and escalated to humans when thresholds were exceeded:
+### Thresholds
 
 | Metric | Threshold | Action |
 |--------|-----------|--------|
 | Per-task review cycles | 3 | Escalate task to human |
 | Total pipeline cycles | 10 | Open circuit breaker, pause pipeline |
 
-This functionality has been replaced by the PR-based review workflow, which provides continuous human visibility without requiring explicit escalation triggers.
+### Circuit Breaker States
 
+- **CLOSED**: Normal operation, implement→review cycles continue
+- **OPEN**: Human intervention required; pipeline paused
+
+When the circuit breaker opens:
+
+1. Issue is labeled `needs-human-intervention`
+2. Context comment posted with task history and review feedback
+3. HITL decision checkboxes presented for human guidance
+
+### Escalation Summary
+
+The `circuit_breaker.py` module provides escalation summaries:
+
+```python
+def get_escalation_summary(contract):
+    return {
+        "circuit_breaker_status": "open",
+        "total_cycles": 8,
+        "escalated_tasks": [
+            {"id": "task-1-2", "cycles": 3, "description": "..."}
+        ],
+        "recommendation": "Review acceptance criteria..."
+    }
+```
 
 ## Human-in-the-Loop Decisions
 
@@ -322,17 +352,13 @@ This ensures the implementer starts with a fully populated contract containing a
 | File | Purpose |
 |------|---------|
 | `.github/workflows/sdlc-pipeline.yml` | Main pipeline orchestration |
-| `.github/workflows/reusable-review.yml` | PR-based code review workflow |
 | `.github/workflows/sdlc-hitl.yml` | HITL checkbox detection |
-| `action/build-sdlc-prompt.sh` | Phase-specific prompt builder |
 | `action/populate-contract-tasks.py` | Extracts tasks from plan into contract |
-| `action/contract-state.sh` | Contract state management utility |
-| `sandbox/scripts/gh` | gh wrapper with self-review fallback |
 | `shared/egg_contracts/models.py` | Pydantic models for contract |
 | `shared/egg_contracts/plan_parser.py` | Parses plan documents for task extraction |
 | `shared/egg_contracts/roles.py` | Role definitions and field ownership |
 | `shared/egg_contracts/validator.py` | Mutation validation |
-| `shared/egg_contracts/circuit_breaker.py` | Escalation logic (deprecated) |
+| `shared/egg_contracts/circuit_breaker.py` | Escalation logic |
 | `shared/egg_contracts/hitl.py` | Checkbox parsing and debounce |
 | `.egg/schemas/contract.schema.json` | JSON schema definition |
 | `.egg/phase-permissions.json` | Phase operation restrictions |
@@ -361,11 +387,12 @@ egg-contract add-commit --task task-1-1 --commit abc1234
 # Add implementation notes (implementer)
 egg-contract update-notes --task task-1-1 --notes "Completed validation"
 
-# Create HITL decision point
-egg-contract add-decision --question "Should we proceed with approach X?"
-```
+# Mark task status (reviewer only)
+egg-contract mark-task --task task-1-1 --status complete
 
-**Note:** `mark-task` and `mark-phase` commands (previously used by the dedicated reviewer agent) are deprecated as of PR #285. Task validation now happens via PR-based code review.
+# Mark phase status (reviewer only)
+egg-contract mark-phase --phase phase-1 --passed true
+```
 
 ---
 

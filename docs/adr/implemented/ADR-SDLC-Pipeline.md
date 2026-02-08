@@ -114,7 +114,7 @@ This architecture does **not** protect against:
 |-------|---------|---------------|
 | **refine** | Problem analysis and requirements gathering | Human approval |
 | **plan** | Implementation planning with task breakdown | Human approval |
-| **implement** | Task execution and code changes | All checks pass (CI + PR review) |
+| **implement** | Task execution and code changes | Reviewer approval (all tasks) |
 | **pr** | Pull request creation and merge | Human merge |
 
 ### Role Permissions
@@ -122,7 +122,7 @@ This architecture does **not** protect against:
 | Role | Can Modify | Cannot Modify |
 |------|------------|---------------|
 | **Implementer** | Task commit, notes, files_affected | Task status, phase status, current_phase |
-| **Reviewer** | Task status, phase status, current_phase, acceptance_criteria.verified (deprecated as of PR #285) | Task commit, notes, decision resolution |
+| **Reviewer** | Task status, phase status, current_phase, acceptance_criteria.verified | Task commit, notes, decision resolution |
 | **Human** | All fields | — |
 | **System** | Initial contract creation | Owned fields after creation |
 
@@ -167,13 +167,11 @@ The contract is a JSON document that tracks the complete state of an issue throu
 
 ---
 
-## Circuit Breaker (Deprecated)
+## Circuit Breaker
 
-**Note:** Circuit breaker functionality is deprecated as of PR #285. The pipeline now relies on PR-based reviews with human-visible feedback at every cycle, reducing the need for automated escalation thresholds.
+The circuit breaker prevents infinite implement→review cycles by triggering human intervention when thresholds are exceeded.
 
-The circuit breaker was designed to prevent infinite implement→review cycles by triggering human intervention when thresholds were exceeded.
-
-### Legacy Thresholds
+### Thresholds
 
 | Threshold | Default | Description |
 |-----------|---------|-------------|
@@ -181,7 +179,7 @@ The circuit breaker was designed to prevent infinite implement→review cycles b
 | Phase cycles | 3 | Max phase-level review cycles |
 | Pipeline total | 10 | Max total cycles across all tasks |
 
-### Legacy State Transitions
+### State Transitions
 
 ```
      ┌──────────────────────────────────────────┐
@@ -198,7 +196,12 @@ The circuit breaker was designed to prevent infinite implement→review cycles b
      pipeline resumes ──────────────────────────┘
 ```
 
-This functionality has been replaced by the PR-based review workflow, which provides continuous human visibility without requiring explicit escalation triggers.
+### Escalation Summary
+
+When the circuit breaker opens, an escalation summary is generated:
+- Stuck tasks with cycle counts
+- Incomplete tasks across phases
+- Recommendations for human intervention
 
 ---
 
@@ -263,16 +266,14 @@ jobs:
     # Initialize contract from issue
 
   implement:
-    # Execute tasks with implementer role, push to draft PR
+    # Execute tasks with implementer role
 
-  wait-for-checks:
-    # Wait for CI and PR review (reusable-review.yml)
+  review:
+    # Review implementation with reviewer role
 
-  finalize-pr:
-    # Mark PR ready for human merge when all checks pass
+  loop:
+    # Repeat implement→review until complete or escalation
 ```
-
-**Note:** As of PR #285, the dedicated `review` and `loop` jobs were replaced with PR-based review via `reusable-review.yml`. Code review now happens through GitHub PR comments instead of a separate reviewer agent.
 
 ### HITL Workflow
 
@@ -335,7 +336,6 @@ Long-running jobs checkpoint state before timeout:
 | Contract library | `shared/egg_contracts/` |
 | Gateway endpoints | `gateway/contract_api.py`, `gateway/phase_api.py` |
 | CLI tools | `sandbox/egg_lib/contract_cli.py` |
-| PR review workflow | `.github/workflows/reusable-review.yml` |
 | Workflow files | `.github/workflows/sdlc-*.yml` |
 | Templates | `docs/templates/analysis.md`, `docs/templates/plan.md` |
 
