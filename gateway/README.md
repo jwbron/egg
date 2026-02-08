@@ -61,7 +61,7 @@ The gateway enforces phase-specific operation restrictions based on the current 
 |-------|-------------------|-------------------|---------------|
 | **refine** | `gh issue comment/edit`, `egg-contract add-decision` | `git push`, `gh pr create` | Human approval |
 | **plan** | `gh issue comment/edit`, `egg-contract add-decision` | `git push`, `gh pr create` | Human approval |
-| **implement** | `git push`, `egg-contract add-commit/mark-task/update-notes/mark-phase` | `gh pr create` | Reviewer approval |
+| **implement** | `git push`, `egg-contract add-commit/update-notes` | `gh pr create` | All checks pass |
 | **pr** | `gh pr create/edit`, `git push` | — | Human merge |
 
 > **Note:** `egg-contract show *` is allowed in all phases for contract state viewing.
