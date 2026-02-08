@@ -20,7 +20,6 @@ Exit codes:
 
 import json
 import os
-import re
 import subprocess
 import sys
 
@@ -80,67 +79,40 @@ def find_plan_comment(comments: list[str]) -> str | None:
     return None
 
 
-def extract_acceptance_criteria(plan_content: str) -> list[dict]:
-    """Extract acceptance criteria from plan content.
+def extract_acceptance_criteria(parsed_phases: list) -> list[dict]:
+    """Extract acceptance criteria from parsed plan phases.
 
-    Looks for:
-    - Exit criteria from phase sections (e.g., "**Exit criteria**: ...")
-    - Test strategy sections (unit tests, integration tests, manual testing)
+    Uses the structured task-level acceptance criteria that were already parsed
+    from the plan document using the standard format:
+        [TASK-{phase}-{number}] Description — Acceptance: criteria
 
-    Returns a list of acceptance criterion dicts matching the contract schema:
-    [{"id": "ac-1", "description": "...", "verified": False}, ...]
+    This approach is robust because it relies on the well-defined plan template
+    format (see docs/templates/plan.md) rather than ad-hoc regex parsing.
+
+    Args:
+        parsed_phases: List of ParsedPhase objects from plan_parser.parse_plan()
+
+    Returns:
+        List of acceptance criterion dicts matching the contract schema:
+        [{"id": "ac-1", "description": "...", "verified": False}, ...]
     """
     criteria: list[dict] = []
     criterion_id = 1
 
-    # Pattern for exit criteria (handles both ** and non-bold variants)
-    # Matches: "**Exit criteria**:" or "Exit criteria:" followed by content
-    # Captures until double newline, end of string, or next section header
-    # Uses a more permissive pattern that captures multi-line content
-    exit_criteria_pattern = re.compile(
-        r"\*{0,2}Exit criteria\*{0,2}\s*:\s*(.+?)(?=\n\n|\n#{2,}|\Z)",
-        re.IGNORECASE | re.DOTALL,
-    )
-
-    for match in exit_criteria_pattern.finditer(plan_content):
-        criterion_text = match.group(1).strip()
-        # Clean up the criterion text - remove leading dashes/bullets
-        criterion_text = criterion_text.lstrip("- ").strip()
-        if criterion_text and len(criterion_text) > 5:  # Skip empty or tiny matches
-            criteria.append(
-                {
-                    "id": f"ac-{criterion_id}",
-                    "description": criterion_text,
-                    "verified": False,
-                }
-            )
-            criterion_id += 1
-
-    # Also extract from Test Strategy section if present
-    # Use negative lookbehind to ensure we match exactly ## (not ### or more)
-    test_strategy_pattern = re.compile(
-        r"(?:^|\n)##(?!#)\s*Test Strategy\s*\n(.*?)(?=\n##(?!#)|\Z)",
-        re.IGNORECASE | re.DOTALL,
-    )
-    test_match = test_strategy_pattern.search(plan_content)
-    if test_match:
-        test_section = test_match.group(1)
-        # Look for bullet points in the test strategy
-        for line in test_section.split("\n"):
-            line = line.strip()
-            if line.startswith("-") or line.startswith("*"):
-                # Extract the test item
-                test_item = line.lstrip("-* ").strip()
-                # Skip template placeholders (lines starting with "[")
-                if test_item and not test_item.startswith("[") and len(test_item) > 10:
-                    criteria.append(
-                        {
-                            "id": f"ac-{criterion_id}",
-                            "description": f"Test: {test_item}",
-                            "verified": False,
-                        }
-                    )
-                    criterion_id += 1
+    for phase in parsed_phases:
+        for task in phase.tasks:
+            if task.acceptance_criteria and task.acceptance_criteria.strip():
+                # Skip placeholder criteria from tasks that couldn't be parsed
+                if task.acceptance_criteria == "Human verification":
+                    continue
+                criteria.append(
+                    {
+                        "id": f"ac-{criterion_id}",
+                        "description": f"[{task.id}] {task.acceptance_criteria}",
+                        "verified": False,
+                    }
+                )
+                criterion_id += 1
 
     return criteria
 
@@ -227,8 +199,8 @@ def main() -> None:
         print("No tasks extracted from plan document", file=sys.stderr)
         sys.exit(1)
 
-    # Extract acceptance criteria from the plan
-    acceptance_criteria = extract_acceptance_criteria(plan_content)
+    # Extract acceptance criteria from the parsed phases
+    acceptance_criteria = extract_acceptance_criteria(result.phases)
     if acceptance_criteria:
         print(f"Extracted {len(acceptance_criteria)} acceptance criteria from plan")
 

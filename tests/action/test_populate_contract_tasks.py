@@ -6,282 +6,179 @@ from pathlib import Path
 # Add action directory to path so we can import the module
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "action"))
+sys.path.insert(0, str(PROJECT_ROOT / "shared"))
 
 from importlib import import_module
+
+from egg_contracts.plan_parser import ParsedPhase, ParsedTask
 
 # Import the module dynamically since it has a hyphenated filename
 spec = import_module("populate-contract-tasks")
 extract_acceptance_criteria = spec.extract_acceptance_criteria
 
 
-class TestExtractExitCriteria:
-    """Tests for extracting exit criteria from plan content."""
+def make_task(phase: int, task: int, description: str, acceptance: str) -> ParsedTask:
+    """Helper to create a ParsedTask."""
+    return ParsedTask(
+        id=f"TASK-{phase}-{task}",
+        phase_number=phase,
+        task_number=task,
+        description=description,
+        acceptance_criteria=acceptance,
+    )
 
-    def test_extracts_bold_exit_criteria(self):
-        """Test extracting **Exit criteria**: format."""
-        content = """
-## Phase 1: Setup
 
-Some description here.
+def make_phase(number: int, name: str, tasks: list[ParsedTask]) -> ParsedPhase:
+    """Helper to create a ParsedPhase."""
+    return ParsedPhase(
+        number=number,
+        name=name,
+        goal="",
+        tasks=tasks,
+    )
 
-**Exit criteria**: All tests pass and linting succeeds
-"""
-        criteria = extract_acceptance_criteria(content)
-        assert len(criteria) == 1
+
+class TestExtractAcceptanceCriteria:
+    """Tests for extracting acceptance criteria from parsed phases."""
+
+    def test_extracts_task_acceptance_criteria(self):
+        """Test extracting acceptance criteria from tasks."""
+        phases = [
+            make_phase(
+                1,
+                "Setup",
+                [
+                    make_task(1, 1, "Create schema", "Schema validates test contracts"),
+                    make_task(1, 2, "Add validation", "Unauthorized mutations rejected"),
+                ],
+            )
+        ]
+        criteria = extract_acceptance_criteria(phases)
+        assert len(criteria) == 2
         assert criteria[0]["id"] == "ac-1"
-        assert criteria[0]["description"] == "All tests pass and linting succeeds"
+        assert "[TASK-1-1]" in criteria[0]["description"]
+        assert "Schema validates test contracts" in criteria[0]["description"]
         assert criteria[0]["verified"] is False
+        assert criteria[1]["id"] == "ac-2"
+        assert "[TASK-1-2]" in criteria[1]["description"]
+        assert "Unauthorized mutations rejected" in criteria[1]["description"]
 
-    def test_extracts_non_bold_exit_criteria(self):
-        """Test extracting Exit criteria: format (without bold)."""
-        content = """
-## Phase 1: Setup
-
-Exit criteria: Tests are green
-"""
-        criteria = extract_acceptance_criteria(content)
-        assert len(criteria) == 1
-        assert "Tests are green" in criteria[0]["description"]
-
-    def test_extracts_multiple_exit_criteria(self):
-        """Test extracting exit criteria from multiple phases."""
-        content = """
-## Phase 1: Setup
-**Exit criteria**: Phase 1 complete
-
-## Phase 2: Implementation
-**Exit criteria**: Phase 2 done
-"""
-        criteria = extract_acceptance_criteria(content)
+    def test_extracts_from_multiple_phases(self):
+        """Test extracting acceptance criteria from multiple phases."""
+        phases = [
+            make_phase(
+                1,
+                "Setup",
+                [make_task(1, 1, "Task 1", "Criterion 1")],
+            ),
+            make_phase(
+                2,
+                "Implementation",
+                [make_task(2, 1, "Task 2", "Criterion 2")],
+            ),
+        ]
+        criteria = extract_acceptance_criteria(phases)
         assert len(criteria) == 2
         assert criteria[0]["id"] == "ac-1"
         assert criteria[1]["id"] == "ac-2"
 
-    def test_multiline_exit_criteria(self):
-        """Test extracting multi-line exit criteria."""
-        content = """
-## Phase 1: Setup
-
-**Exit criteria**: All tests pass
-and the build succeeds
-and documentation is updated
-
-## Phase 2: Implementation
-"""
-        criteria = extract_acceptance_criteria(content)
+    def test_skips_empty_acceptance_criteria(self):
+        """Test that empty acceptance criteria are skipped."""
+        phases = [
+            make_phase(
+                1,
+                "Setup",
+                [
+                    make_task(1, 1, "Has criteria", "Valid criterion"),
+                    make_task(1, 2, "No criteria", ""),
+                    make_task(1, 3, "Whitespace only", "   "),
+                ],
+            )
+        ]
+        criteria = extract_acceptance_criteria(phases)
         assert len(criteria) == 1
-        # Should capture all the continuation lines
-        assert "tests pass" in criteria[0]["description"].lower()
-        assert "build succeeds" in criteria[0]["description"]
+        assert "Valid criterion" in criteria[0]["description"]
 
-    def test_exit_criteria_ends_at_double_newline(self):
-        """Test that exit criteria capture ends at double newline."""
-        content = """
-**Exit criteria**: First criterion only
-
-Some unrelated text that should not be captured.
-"""
-        criteria = extract_acceptance_criteria(content)
+    def test_skips_placeholder_criteria(self):
+        """Test that placeholder criteria from unparseable tasks are skipped."""
+        phases = [
+            make_phase(
+                1,
+                "Setup",
+                [
+                    make_task(1, 1, "Real task", "Real criterion"),
+                    make_task(1, 2, "Placeholder task", "Human verification"),
+                ],
+            )
+        ]
+        criteria = extract_acceptance_criteria(phases)
         assert len(criteria) == 1
-        assert "unrelated" not in criteria[0]["description"]
+        assert "Real criterion" in criteria[0]["description"]
 
-    def test_exit_criteria_ends_at_next_header(self):
-        """Test that exit criteria capture ends at next section header."""
-        content = """
-**Exit criteria**: Tests pass
-
-## Next Section
-
-This should not be captured.
-"""
-        criteria = extract_acceptance_criteria(content)
-        assert len(criteria) == 1
-        assert "Next Section" not in criteria[0]["description"]
-
-
-class TestExtractTestStrategy:
-    """Tests for extracting test strategy items."""
-
-    def test_extracts_test_strategy_bullets(self):
-        """Test extracting bullet points from Test Strategy section."""
-        content = """
-## Test Strategy
-
-- **Unit tests**: Test the parser functions
-- **Integration tests**: Verify end-to-end workflow
-"""
-        criteria = extract_acceptance_criteria(content)
-        assert len(criteria) == 2
-        # Note: leading ** is stripped by lstrip("-* ")
-        assert "Test:" in criteria[0]["description"]
-        assert "Unit tests" in criteria[0]["description"]
-        assert "Test the parser functions" in criteria[0]["description"]
-        assert "Integration tests" in criteria[1]["description"]
-
-    def test_ignores_h3_test_strategy(self):
-        """Test that ### Test Strategy is NOT matched (only ## Test Strategy)."""
-        content = """
-### Test Strategy
-
-- **Unit tests**: Should not be captured
-- **Integration tests**: Should not be captured
-
-## Test Strategy
-
-- **Real tests**: Should be captured
-"""
-        criteria = extract_acceptance_criteria(content)
-        # Should only capture from the ## section, not ###
-        assert len(criteria) == 1
-        assert "Real tests" in criteria[0]["description"]
-
-    def test_test_strategy_ends_at_next_h2(self):
-        """Test that Test Strategy section ends at next ## header."""
-        content = """
-## Test Strategy
-
-- **Unit tests**: Parser tests
-
-## Next Section
-
-- **Not tests**: Should not be captured
-"""
-        criteria = extract_acceptance_criteria(content)
-        assert len(criteria) == 1
-        assert "Parser tests" in criteria[0]["description"]
-
-    def test_skips_template_placeholders(self):
-        """Test that template placeholders like [placeholder] are skipped."""
-        content = """
-## Test Strategy
-
-- [Add your tests here]
-- **Unit tests**: Actual tests
-"""
-        criteria = extract_acceptance_criteria(content)
-        assert len(criteria) == 1
-        assert "Actual tests" in criteria[0]["description"]
-
-    def test_skips_short_items(self):
-        """Test that very short bullet points are skipped."""
-        content = """
-## Test Strategy
-
-- Short
-- **Unit tests**: This is a longer description that should be captured
-"""
-        criteria = extract_acceptance_criteria(content)
-        assert len(criteria) == 1
-        assert "longer description" in criteria[0]["description"]
-
-    def test_asterisk_bullets(self):
-        """Test that * bullets are also captured."""
-        content = """
-## Test Strategy
-
-* **Unit tests**: Test with asterisk bullet
-"""
-        criteria = extract_acceptance_criteria(content)
-        assert len(criteria) == 1
-        assert "asterisk bullet" in criteria[0]["description"]
-
-
-class TestCombinedExtraction:
-    """Tests for extracting both exit criteria and test strategy."""
-
-    def test_extracts_both_types(self):
-        """Test extracting exit criteria and test strategy together."""
-        content = """
-## Phase 1: Setup
-
-**Exit criteria**: All tests pass
-
-## Test Strategy
-
-- **Unit tests**: Test the parser
-- **Integration tests**: Test end-to-end
-"""
-        criteria = extract_acceptance_criteria(content)
-        assert len(criteria) == 3
-        # First is exit criteria
-        assert criteria[0]["id"] == "ac-1"
-        assert "tests pass" in criteria[0]["description"].lower()
-        # Next are test strategy items
-        assert criteria[1]["id"] == "ac-2"
-        assert "Test:" in criteria[1]["description"]
-        assert criteria[2]["id"] == "ac-3"
-
-    def test_empty_content(self):
-        """Test with empty content."""
-        criteria = extract_acceptance_criteria("")
+    def test_empty_phases(self):
+        """Test with empty phases list."""
+        criteria = extract_acceptance_criteria([])
         assert len(criteria) == 0
 
-    def test_no_matching_patterns(self):
-        """Test content with no matching patterns."""
-        content = """
-## Introduction
-
-This is just some intro text with no exit criteria or test strategy.
-"""
-        criteria = extract_acceptance_criteria(content)
+    def test_phase_with_no_tasks(self):
+        """Test phase with no tasks."""
+        phases = [make_phase(1, "Empty Phase", [])]
+        criteria = extract_acceptance_criteria(phases)
         assert len(criteria) == 0
 
-    def test_case_insensitive_matching(self):
-        """Test that matching is case-insensitive."""
-        content = """
-**EXIT CRITERIA**: Uppercase works
-
-## TEST STRATEGY
-
-- **Unit tests**: Uppercase section
-"""
-        criteria = extract_acceptance_criteria(content)
-        assert len(criteria) == 2
-
-
-class TestEdgeCases:
-    """Tests for edge cases and robustness."""
-
-    def test_exit_criteria_with_leading_dash(self):
-        """Test exit criteria that starts with a dash."""
-        content = """
-**Exit criteria**: - All tests pass
-"""
-        criteria = extract_acceptance_criteria(content)
+    def test_criterion_includes_task_id(self):
+        """Test that criterion description includes the task ID for traceability."""
+        phases = [
+            make_phase(
+                3,
+                "Testing",
+                [make_task(3, 5, "Run tests", "All tests pass")],
+            )
+        ]
+        criteria = extract_acceptance_criteria(phases)
         assert len(criteria) == 1
+        assert "[TASK-3-5]" in criteria[0]["description"]
         assert "All tests pass" in criteria[0]["description"]
 
-    def test_whitespace_handling(self):
-        """Test that extra whitespace is handled correctly."""
-        content = """
-**Exit criteria**:    Lots of spaces
-
-"""
-        criteria = extract_acceptance_criteria(content)
+    def test_preserves_criterion_text(self):
+        """Test that criterion text is preserved exactly."""
+        long_criterion = (
+            "All unit tests pass with >90% coverage, "
+            "integration tests complete successfully, "
+            "and linting shows no errors"
+        )
+        phases = [
+            make_phase(
+                1,
+                "Quality",
+                [make_task(1, 1, "Quality checks", long_criterion)],
+            )
+        ]
+        criteria = extract_acceptance_criteria(phases)
         assert len(criteria) == 1
-        assert criteria[0]["description"] == "Lots of spaces"
+        assert long_criterion in criteria[0]["description"]
 
-    def test_test_strategy_at_end_of_file(self):
-        """Test that Test Strategy at end of file is captured."""
-        content = """
-## Test Strategy
-
-- **Unit tests**: Last item in file"""
-        criteria = extract_acceptance_criteria(content)
-        assert len(criteria) == 1
-        assert "Last item" in criteria[0]["description"]
-
-    def test_h4_test_strategy_not_matched(self):
-        """Test that #### Test Strategy is NOT matched."""
-        content = """
-#### Test Strategy
-
-- **Deep nested**: Should not be captured
-
-## Test Strategy
-
-- **Correct level**: Should be captured
-"""
-        criteria = extract_acceptance_criteria(content)
-        assert len(criteria) == 1
-        assert "Correct level" in criteria[0]["description"]
+    def test_sequential_ids(self):
+        """Test that criteria get sequential IDs across all phases."""
+        phases = [
+            make_phase(
+                1,
+                "Phase 1",
+                [
+                    make_task(1, 1, "T1", "C1"),
+                    make_task(1, 2, "T2", "C2"),
+                ],
+            ),
+            make_phase(
+                2,
+                "Phase 2",
+                [
+                    make_task(2, 1, "T3", "C3"),
+                ],
+            ),
+        ]
+        criteria = extract_acceptance_criteria(phases)
+        assert len(criteria) == 3
+        assert criteria[0]["id"] == "ac-1"
+        assert criteria[1]["id"] == "ac-2"
+        assert criteria[2]["id"] == "ac-3"
