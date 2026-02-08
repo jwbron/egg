@@ -6,8 +6,393 @@
     "url": "https://github.com/jwbron/egg/issues/286"
   },
   "current_phase": "plan",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Workflow runs every 5 minutes, detects PRs with CONFLICTING mergeable status, triggers for each conflicting PR",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Can manually trigger conflict resolution for a specific PR via workflow_dispatch",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] PRs with marker are skipped",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Only one conflict resolution runs per PR at a time",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-1] Script generates a prompt with rebase instructions, includes PR context",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-2] Prompt instructs agent to fetch main, attempt rebase, resolve conflicts, run local checks, push once",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-3] Prompt instructs agent to abort rebase and post comment explaining which files need human review",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-1] Covers rebase workflow, git commands, resolution strategies, when to abort",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-2] Agent knows when to auto-resolve vs escalate",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-3] Clear guidance on lock files, formatting, additive changes vs semantic conflicts",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-4-1] Follows trusted prompt build pattern like on-check-failure.yml",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-4-2] Uses jwbron/egg/action@main with appropriate timeout",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-4-3] Posts egg is resolving merge conflicts comment",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-4-4] Posts success/failure status with run logs link",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-5-1] Documents trigger, how it works, resolution strategy, skip markers",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-5-2] Table includes conflict resolver entry",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-5-3] Skip labels section includes new marker",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Create Conflict Resolution Workflow",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create on-merge-conflict.yml scheduled workflow",
+          "status": "pending",
+          "acceptance_criteria": "Workflow runs every 5 minutes, detects PRs with CONFLICTING mergeable status, triggers for each conflicting PR",
+          "files_affected": [
+            ".github/workflows/on-merge-conflict.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add workflow dispatch input for manual triggering",
+          "status": "pending",
+          "acceptance_criteria": "Can manually trigger conflict resolution for a specific PR via workflow_dispatch",
+          "files_affected": [
+            ".github/workflows/on-merge-conflict.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add skip marker support for skip-conflict-fix",
+          "status": "pending",
+          "acceptance_criteria": "PRs with marker are skipped",
+          "files_affected": [
+            ".github/workflows/on-merge-conflict.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add concurrency group per PR",
+          "status": "pending",
+          "acceptance_criteria": "Only one conflict resolution runs per PR at a time",
+          "files_affected": [
+            ".github/workflows/on-merge-conflict.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Create Conflict Resolution Prompt Builder",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create build-conflict-prompt.sh script",
+          "status": "pending",
+          "acceptance_criteria": "Script generates a prompt with rebase instructions, includes PR context",
+          "files_affected": [
+            "action/build-conflict-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add conflict-specific conventions to the prompt",
+          "status": "pending",
+          "acceptance_criteria": "Prompt instructs agent to fetch main, attempt rebase, resolve conflicts, run local checks, push once",
+          "files_affected": [
+            "action/build-conflict-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add fallback instructions for unresolvable conflicts",
+          "status": "pending",
+          "acceptance_criteria": "Prompt instructs agent to abort rebase and post comment explaining which files need human review",
+          "files_affected": [
+            "action/build-conflict-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Create Conflict Resolution Conventions",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Create conflict-conventions.md with conflict resolution guidelines",
+          "status": "pending",
+          "acceptance_criteria": "Covers rebase workflow, git commands, resolution strategies, when to abort",
+          "files_affected": [
+            "action/conflict-conventions.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add decision framework for conflict types",
+          "status": "pending",
+          "acceptance_criteria": "Agent knows when to auto-resolve vs escalate",
+          "files_affected": [
+            "action/conflict-conventions.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add examples of resolvable vs unresolvable conflicts",
+          "status": "pending",
+          "acceptance_criteria": "Clear guidance on lock files, formatting, additive changes vs semantic conflicts",
+          "files_affected": [
+            "action/conflict-conventions.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Integrate with Existing Autofixer Infrastructure",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add conflict resolution step sequence in workflow",
+          "status": "pending",
+          "acceptance_criteria": "Follows trusted prompt build pattern like on-check-failure.yml",
+          "files_affected": [
+            ".github/workflows/on-merge-conflict.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Configure workflow to use egg action with conflict prompt",
+          "status": "pending",
+          "acceptance_criteria": "Uses jwbron/egg/action@main with appropriate timeout",
+          "files_affected": [
+            ".github/workflows/on-merge-conflict.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add acknowledgment comment when starting conflict resolution",
+          "status": "pending",
+          "acceptance_criteria": "Posts egg is resolving merge conflicts comment",
+          "files_affected": [
+            ".github/workflows/on-merge-conflict.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Add result comment on completion or failure",
+          "status": "pending",
+          "acceptance_criteria": "Posts success/failure status with run logs link",
+          "files_affected": [
+            ".github/workflows/on-merge-conflict.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Update Documentation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Add conflict resolver section to github-automation.md",
+          "status": "pending",
+          "acceptance_criteria": "Documents trigger, how it works, resolution strategy, skip markers",
+          "files_affected": [
+            "docs/guides/github-automation.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Update workflows overview table with new workflow",
+          "status": "pending",
+          "acceptance_criteria": "Table includes conflict resolver entry",
+          "files_affected": [
+            "docs/guides/github-automation.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Add skip-conflict-fix to skip labels documentation",
+          "status": "pending",
+          "acceptance_criteria": "Skip labels section includes new marker",
+          "files_affected": [
+            "docs/guides/github-automation.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 0,
