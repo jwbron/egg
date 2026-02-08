@@ -6,8 +6,192 @@
     "url": "https://github.com/jwbron/egg/issues/340"
   },
   "current_phase": "plan",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Step queries for bot comments matching status patterns and minimizes them using GraphQL mutation",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Pattern matches \"egg .* completed\" and \"egg .* failed\" but not substantive review content",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-2-1] Step queries for bot comments matching status patterns and minimizes them",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-2] Pattern matches success, failure, error status messages and Working on it acknowledgment",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-3] Minimization runs correctly regardless of trigger event",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-3-1] Previous status comment is minimized when new review posts",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-3-2] Previous status comments and acknowledgments are minimized",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-3] Only status messages matching defined patterns are minimized",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Add Minimization to Reusable Review",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add minimize previous status comments step before Post workflow run status",
+          "status": "pending",
+          "acceptance_criteria": "Step queries for bot comments matching status patterns and minimizes them using GraphQL mutation",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Define regex pattern to match bot status comments",
+          "status": "pending",
+          "acceptance_criteria": "Pattern matches \"egg .* completed\" and \"egg .* failed\" but not substantive review content",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Add Minimization to @mention Workflow",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add minimize previous status comments step before Post result comment",
+          "status": "pending",
+          "acceptance_criteria": "Step queries for bot comments matching status patterns and minimizes them",
+          "files_affected": [
+            ".github/workflows/on-mention.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Define regex pattern to match mention workflow status comments",
+          "status": "pending",
+          "acceptance_criteria": "Pattern matches success, failure, error status messages and Working on it acknowledgment",
+          "files_affected": [
+            ".github/workflows/on-mention.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Handle minimization for both issue_comment and pull_request_review event types",
+          "status": "pending",
+          "acceptance_criteria": "Minimization runs correctly regardless of trigger event",
+          "files_affected": [
+            ".github/workflows/on-mention.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Testing and Validation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Test reusable-review.yml by triggering a re-review on an existing PR",
+          "status": "pending",
+          "acceptance_criteria": "Previous status comment is minimized when new review posts",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Test on-mention.yml by mentioning the bot multiple times on a PR",
+          "status": "pending",
+          "acceptance_criteria": "Previous status comments and acknowledgments are minimized",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Verify substantive bot content is NOT minimized",
+          "status": "pending",
+          "acceptance_criteria": "Only status messages matching defined patterns are minimized",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 0,
