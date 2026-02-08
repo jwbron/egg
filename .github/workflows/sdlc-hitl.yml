@@ -387,7 +387,7 @@ jobs:
               "$DECISION_ID" "$SELECTED_OPTION")
           fi
 
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
   # ============================================================
   # Handle phase approval comments
@@ -602,4 +602,4 @@ jobs:
           BODY=$(printf 'Phase **%s** approved by @%s.\n\nAdvancing to **%s** phase.\n\n--- Authored by egg' \
             "$PREVIOUS_PHASE" "$SENDER_LOGIN" "$NEXT_PHASE")
 
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
