@@ -901,6 +901,9 @@ jobs:
 
           Please review the analysis and approve to advance to the **plan** phase.
 
+          <!-- egg-phase-approval phase=refine -->
+          - [ ] Approve
+
           --- Authored by egg"
           else
             BODY="Refine phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})
@@ -1070,6 +1073,9 @@ jobs:
             BODY="Plan phase completed. [View run logs](${RUN_URL})
 
           Please review the implementation plan and approve to advance to the **implement** phase.
+
+          <!-- egg-phase-approval phase=plan -->
+          - [ ] Approve
 
           --- Authored by egg"
           else
