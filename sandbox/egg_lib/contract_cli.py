@@ -438,7 +438,7 @@ def cmd_mark_phase(args: argparse.Namespace) -> int:
         return 1
 
 
-def format_decision_markdown(decision_id: str, question: str, options: list[dict]) -> str:
+def format_decision_markdown(decision_id: str, question: str, options: list[dict[str, Any]]) -> str:
     """Format a HITL decision as markdown with proper markers.
 
     The output format matches what sdlc-hitl.yml expects:

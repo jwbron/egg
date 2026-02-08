@@ -614,14 +614,16 @@ class TestAddDecisionWithMockGateway:
             "os.environ",
             {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123"},
         ):
-            result = main([
-                "add-decision",
-                "--question",
-                "Which approach?",
-                "--options",
-                "Option A",
-                "Option B",
-            ])
+            result = main(
+                [
+                    "add-decision",
+                    "--question",
+                    "Which approach?",
+                    "--options",
+                    "Option A",
+                    "Option B",
+                ]
+            )
 
         assert result == 0
 
@@ -648,16 +650,18 @@ class TestAddDecisionWithMockGateway:
             "os.environ",
             {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123"},
         ):
-            result = main([
-                "add-decision",
-                "--question",
-                "Which approach?",
-                "--options",
-                "Option A",
-                "Option B",
-                "--format",
-                "markdown",
-            ])
+            result = main(
+                [
+                    "add-decision",
+                    "--question",
+                    "Which approach?",
+                    "--options",
+                    "Option A",
+                    "Option B",
+                    "--format",
+                    "markdown",
+                ]
+            )
 
         assert result == 0
         captured = capsys.readouterr()
@@ -690,13 +694,15 @@ class TestAddDecisionWithMockGateway:
             "os.environ",
             {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123"},
         ):
-            result = main([
-                "add-decision",
-                "--question",
-                "Open-ended question?",
-                "--format",
-                "markdown",
-            ])
+            result = main(
+                [
+                    "add-decision",
+                    "--question",
+                    "Open-ended question?",
+                    "--format",
+                    "markdown",
+                ]
+            )
 
         assert result == 0
         captured = capsys.readouterr()
