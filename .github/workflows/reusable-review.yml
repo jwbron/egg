@@ -324,7 +324,7 @@ jobs:
         run: |
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
-            --jq --arg bot "$BOT_USERNAME" \
+            | jq -r --arg bot "$BOT_USERNAME" \
             '[.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.state | test("PENDING|COMMENTED|CHANGES_REQUESTED"))] | .[].id' \
           | while read -r id; do
               gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews/$id/dismissals" \
