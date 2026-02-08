@@ -212,9 +212,11 @@ jobs:
             exit 1
           fi
 
-          echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')" >> "$GITHUB_OUTPUT"
-          echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')" >> "$GITHUB_OUTPUT"
-          echo "head-sha=${current_sha}" >> "$GITHUB_OUTPUT"
+          {
+            echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"
+            echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')"
+            echo "head-sha=${current_sha}"
+          } >> "$GITHUB_OUTPUT"
 
       # Capture last bot review info before dismissing (for re-review context)
       # The gh wrapper adds a marker to all automated reviews:
