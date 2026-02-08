@@ -5,6 +5,7 @@ from egg_contracts.plan_parser import (
     ParsedTask,
     ParseResult,
     ParseWarning,
+    extract_pr_metadata_from_yaml,
     format_warnings_for_comment,
     parse_phases_from_markdown,
     parse_phases_from_yaml,
@@ -1214,3 +1215,219 @@ tasks:
 """
         has_markdown = "[TASK-" in comment and ("## Phase" in comment or "Phase 1:" in comment)
         assert has_markdown
+
+
+class TestPRMetadataExtraction:
+    """Tests for PR metadata extraction from YAML."""
+
+    def test_extract_pr_metadata_present(self):
+        """Test extracting PR metadata when present."""
+        yaml_data = {
+            "pr": {
+                "title": "Add feature X",
+                "description": "This PR adds feature X to improve Y.",
+            },
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Setup",
+                    "tasks": [{"id": "TASK-1-1", "description": "Test", "acceptance": "Done"}],
+                }
+            ],
+        }
+        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        assert pr_title == "Add feature X"
+        assert pr_description == "This PR adds feature X to improve Y."
+        assert len(warnings) == 0
+
+    def test_extract_pr_metadata_absent(self):
+        """Test extracting PR metadata when absent."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Setup",
+                    "tasks": [{"id": "TASK-1-1", "description": "Test", "acceptance": "Done"}],
+                }
+            ],
+        }
+        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        assert pr_title is None
+        assert pr_description is None
+        assert len(warnings) == 0
+
+    def test_extract_pr_metadata_none_yaml(self):
+        """Test extracting PR metadata with None yaml_data."""
+        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(None)
+        assert pr_title is None
+        assert pr_description is None
+        assert len(warnings) == 0
+
+    def test_extract_pr_metadata_invalid_type(self):
+        """Test extracting PR metadata when pr field is not an object."""
+        yaml_data = {
+            "pr": "not an object",
+            "phases": [],
+        }
+        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        assert pr_title is None
+        assert pr_description is None
+        assert len(warnings) == 1
+        assert "must be an object" in warnings[0].message
+
+    def test_extract_pr_metadata_missing_title(self):
+        """Test extracting PR metadata when title is missing."""
+        yaml_data = {
+            "pr": {
+                "description": "No title here",
+            },
+            "phases": [],
+        }
+        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        assert pr_title is None
+        assert pr_description is None
+        assert len(warnings) == 1
+        assert "missing required 'title' field" in warnings[0].message
+
+    def test_extract_pr_metadata_empty_title(self):
+        """Test extracting PR metadata when title is empty."""
+        yaml_data = {
+            "pr": {
+                "title": "   ",
+                "description": "Has description but empty title",
+            },
+            "phases": [],
+        }
+        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        assert pr_title is None
+        assert pr_description is None
+        assert len(warnings) == 1
+        assert "cannot be empty" in warnings[0].message
+
+    def test_extract_pr_metadata_title_not_string(self):
+        """Test extracting PR metadata when title is not a string."""
+        yaml_data = {
+            "pr": {
+                "title": 123,
+                "description": "Title is a number",
+            },
+            "phases": [],
+        }
+        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        assert pr_title is None
+        assert pr_description is None
+        assert len(warnings) == 1
+        assert "must be a string" in warnings[0].message
+
+    def test_extract_pr_metadata_multiline_description(self):
+        """Test extracting PR metadata with multiline description."""
+        yaml_data = {
+            "pr": {
+                "title": "Add feature X",
+                "description": """This PR adds feature X.
+
+Key changes:
+- Change 1
+- Change 2
+""",
+            },
+            "phases": [],
+        }
+        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        assert pr_title == "Add feature X"
+        assert "Key changes:" in pr_description
+        assert "- Change 1" in pr_description
+        assert len(warnings) == 0
+
+    def test_extract_pr_metadata_empty_description(self):
+        """Test extracting PR metadata with empty description."""
+        yaml_data = {
+            "pr": {
+                "title": "Add feature X",
+            },
+            "phases": [],
+        }
+        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        assert pr_title == "Add feature X"
+        assert pr_description == ""
+        assert len(warnings) == 0
+
+
+class TestParsePlanWithPRMetadata:
+    """Tests for parse_plan with PR metadata integration."""
+
+    def test_parse_plan_with_pr_metadata(self):
+        """Test parsing a complete plan with PR metadata."""
+        content = """
+# Plan
+
+## Structured Task Appendix
+
+```yaml
+# yaml-tasks
+pr:
+  title: "Add retry logic"
+  description: |
+    Implements exponential backoff retry for API requests.
+    This improves reliability.
+phases:
+  - id: 1
+    name: Implementation
+    goal: Add retry logic
+    tasks:
+      - id: TASK-1-1
+        description: Add retry module
+        acceptance: Module works
+```
+"""
+        result = parse_plan(content)
+        assert result.success
+        assert result.pr_title == "Add retry logic"
+        assert "exponential backoff" in result.pr_description
+        assert len(result.phases) == 1
+
+    def test_parse_plan_without_pr_metadata(self):
+        """Test parsing a plan without PR metadata."""
+        content = """
+# Plan
+
+```yaml
+# yaml-tasks
+phases:
+  - id: 1
+    name: Implementation
+    tasks:
+      - id: TASK-1-1
+        description: Test task
+        acceptance: Done
+```
+"""
+        result = parse_plan(content)
+        assert result.success
+        assert result.pr_title is None
+        assert result.pr_description is None
+        assert len(result.phases) == 1
+
+    def test_parse_plan_pr_metadata_warning_preserved(self):
+        """Test that PR metadata warnings are preserved in parse result."""
+        content = """
+# Plan
+
+```yaml
+# yaml-tasks
+pr:
+  description: "Missing title"
+phases:
+  - id: 1
+    name: Implementation
+    tasks:
+      - id: TASK-1-1
+        description: Test task
+        acceptance: Done
+```
+"""
+        result = parse_plan(content)
+        assert result.success
+        assert result.pr_title is None
+        assert result.pr_description is None
+        assert any("missing required 'title' field" in w.message for w in result.warnings)
