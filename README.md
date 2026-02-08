@@ -2,7 +2,7 @@
 
 A structurally enforced SDLC pipeline for autonomous LLM agents — turning GitHub issues into reviewed pull requests with mandatory human gates.
 
-> *The agent works inside the egg; when ready, it "hatches" via human review and merge.*
+> *Inspired by Andy Weir's short story "The Egg" — a contained environment where development happens before emerging into the world. The agent works inside the egg; when ready, it "hatches" via human review and merge.*
 
 ## How It Works
 
