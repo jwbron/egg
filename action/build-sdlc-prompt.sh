@@ -60,6 +60,43 @@ find_templates_dir() {
   echo "${repo_root}/docs/templates"
 }
 
+# Get prior review feedback for a phase
+get_review_feedback() {
+  local issue_number="$1"
+  local phase="$2"  # "refine" or "plan"
+  local repo_path="${EGG_REPO_PATH:-$(find /home/egg/repos -maxdepth 1 -type d ! -name repos | head -1)}"
+
+  if [[ -f "${repo_path}/.egg-state/contracts/${issue_number}.json" ]]; then
+    local contract
+    contract=$(cat "${repo_path}/.egg-state/contracts/${issue_number}.json")
+
+    local feedback_field="${phase}_review_feedback"
+    local cycles_field="${phase}_review_cycles"
+
+    local feedback cycles
+    feedback=$(echo "$contract" | jq -r ".${feedback_field} // \"\"")
+    cycles=$(echo "$contract" | jq -r ".${cycles_field} // 0")
+
+    if [[ -n "$feedback" && "$feedback" != "" && "$cycles" -gt 0 ]]; then
+      echo "$feedback"
+    fi
+  fi
+}
+
+# Get review cycle count for a phase
+get_review_cycle() {
+  local issue_number="$1"
+  local phase="$2"  # "refine" or "plan"
+  local repo_path="${EGG_REPO_PATH:-$(find /home/egg/repos -maxdepth 1 -type d ! -name repos | head -1)}"
+
+  if [[ -f "${repo_path}/.egg-state/contracts/${issue_number}.json" ]]; then
+    local cycles_field="${phase}_review_cycles"
+    jq -r ".${cycles_field} // 0" "${repo_path}/.egg-state/contracts/${issue_number}.json"
+  else
+    echo "0"
+  fi
+}
+
 # Get contract state summary
 get_contract_summary() {
   local issue_number="$1"
@@ -118,6 +155,12 @@ build_refine_prompt() {
     analysis_template=$(cat "${templates_dir}/analysis.md")
   fi
 
+  # Check for prior review feedback
+  local prior_feedback
+  prior_feedback=$(get_review_feedback "$issue_number" "refine")
+  local review_cycle
+  review_cycle=$(get_review_cycle "$issue_number" "refine")
+
   cat <<EOF
 You are in the **refine** phase of the SDLC pipeline.
 
@@ -128,6 +171,23 @@ Issue: #${issue_number} — ${issue_title}
 Issue URL: ${issue_url}
 Phase: refine
 Branch: ${EGG_BRANCH_NAME}
+EOF
+
+  # Add review cycle info if this is a re-run after review feedback
+  if [[ -n "$prior_feedback" && "$review_cycle" -gt 0 ]]; then
+    cat <<EOF
+
+## ⚠️ Prior Review Feedback (Cycle ${review_cycle})
+
+Your previous analysis was reviewed and needs revision. Address the following feedback:
+
+${prior_feedback}
+
+**Important:** Carefully address each issue raised above. Your revised analysis will be reviewed again.
+EOF
+  fi
+
+  cat <<EOF
 
 ## Issue Description
 
@@ -219,6 +279,12 @@ build_plan_prompt() {
     plan_template=$(cat "${templates_dir}/plan.md")
   fi
 
+  # Check for prior review feedback
+  local prior_feedback
+  prior_feedback=$(get_review_feedback "$issue_number" "plan")
+  local review_cycle
+  review_cycle=$(get_review_cycle "$issue_number" "plan")
+
   cat <<EOF
 You are in the **plan** phase of the SDLC pipeline.
 
@@ -229,6 +295,23 @@ Issue: #${issue_number} — ${issue_title}
 Issue URL: ${issue_url}
 Phase: plan
 Branch: ${EGG_BRANCH_NAME}
+EOF
+
+  # Add review cycle info if this is a re-run after review feedback
+  if [[ -n "$prior_feedback" && "$review_cycle" -gt 0 ]]; then
+    cat <<EOF
+
+## ⚠️ Prior Review Feedback (Cycle ${review_cycle})
+
+Your previous plan was reviewed and needs revision. Address the following feedback:
+
+${prior_feedback}
+
+**Important:** Carefully address each issue raised above. Your revised plan will be reviewed again.
+EOF
+  fi
+
+  cat <<EOF
 
 ## Issue Description
 

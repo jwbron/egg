@@ -49,14 +49,20 @@ The pipeline pauses for human approval at phase transitions and when circuit bre
 │                                                                         │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌──────────┐  │
 │  │   REFINE    │───▶│    PLAN     │───▶│  IMPLEMENT  │───▶│ CREATE   │  │
-│  │   ISSUE     │    │             │    │  (cycles)   │    │   PR     │  │
+│  │  (cycles)   │    │  (cycles)   │    │  (cycles)   │    │   PR     │  │
 │  └─────────────┘    └─────────────┘    └─────────────┘    └──────────┘  │
 │        │                  │                  │                  │       │
 │        ▼                  ▼                  ▼                  ▼       │
 │   ┌─────────┐        ┌─────────┐        ┌─────────┐        ┌─────────┐  │
-│   │ HITL    │        │ HITL    │        │ REVIEW  │        │  HUMAN  │  │
-│   │ Approve │        │ Approve │        │ (auto)  │        │  MERGE  │  │
-│   └─────────┘        └─────────┘        └─────────┘        └─────────┘  │
+│   │ REVIEW  │        │ REVIEW  │        │ REVIEW  │        │  HUMAN  │  │
+│   │ (auto)  │        │ (auto)  │        │ (auto)  │        │  MERGE  │  │
+│   └────┬────┘        └────┬────┘        └─────────┘        └─────────┘  │
+│        │                  │                                             │
+│        ▼                  ▼                                             │
+│   ┌─────────┐        ┌─────────┐                                        │
+│   │ HITL    │        │ HITL    │                                        │
+│   │ Approve │        │ Approve │                                        │
+│   └─────────┘        └─────────┘                                        │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -65,10 +71,38 @@ The pipeline pauses for human approval at phase transitions and when circuit bre
 
 | Phase | Purpose | Allowed Operations | Exit Requires |
 |-------|---------|-------------------|---------------|
-| **Refine** | Analyze issue, produce analysis document | `gh issue comment/edit` | Human approval |
-| **Plan** | Create implementation plan with tasks | `gh issue comment/edit`, `egg-contract add-decision` | Human approval |
+| **Refine** | Analyze issue, produce analysis document | `gh issue comment/edit` | Auto-review pass + Human approval |
+| **Plan** | Create implementation plan with tasks | `gh issue comment/edit`, `egg-contract add-decision` | Auto-review pass + Human approval |
 | **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
 | **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge |
+
+### Refine and Plan Phase Review Cycles
+
+The refine and plan phases now include an automated review step before human approval:
+
+1. **Producer agent runs** — The refine/plan agent produces its output (analysis or plan)
+2. **Reviewer agent runs** — A separate reviewer agent evaluates the output against quality criteria
+3. **If approved** — Human is asked to review and approve
+4. **If needs revision** — Producer agent is re-dispatched with feedback; cycle repeats
+
+**Review Criteria for Refine:**
+- Does the analysis address the issue description?
+- Are options meaningfully different and well-reasoned?
+- Are constraints and dependencies identified?
+- Are open questions specific enough for a human to answer?
+- Is the recommended approach justified?
+
+**Review Criteria for Plan:**
+- Does the plan align with the approved analysis?
+- Are tasks broken down with clear acceptance criteria?
+- Are dependencies between tasks identified?
+- Is the test strategy adequate?
+- Is the YAML appendix correct for task extraction?
+
+**Escalation:**
+- Max review cycles: 3 per phase
+- When exceeded, circuit breaker opens and human is asked to intervene
+- Human can provide guidance, override and approve, or cancel
 
 ### Phase-Based Operation Filtering
 
@@ -326,7 +360,9 @@ This happens in the plan phase itself (before human approval) to provide early v
 | `.github/workflows/sdlc-pipeline.yml` | Main pipeline orchestration |
 | `.github/workflows/reusable-review.yml` | PR-based code review workflow |
 | `.github/workflows/sdlc-hitl.yml` | HITL checkbox detection |
-| `action/build-sdlc-prompt.sh` | Phase-specific prompt builder |
+| `action/build-sdlc-prompt.sh` | Phase-specific prompt builder (includes review feedback injection) |
+| `action/build-refine-review-prompt.sh` | Reviewer prompt for refine phase analysis |
+| `action/build-plan-review-prompt.sh` | Reviewer prompt for plan phase output |
 | `action/populate-contract-tasks.py` | Extracts tasks from plan into contract |
 | `action/contract-state.sh` | Contract state management utility |
 | `sandbox/scripts/gh` | gh wrapper with self-review fallback |
@@ -334,7 +370,7 @@ This happens in the plan phase itself (before human approval) to provide early v
 | `shared/egg_contracts/plan_parser.py` | Parses plan documents for task extraction |
 | `shared/egg_contracts/roles.py` | Role definitions and field ownership |
 | `shared/egg_contracts/validator.py` | Mutation validation |
-| `shared/egg_contracts/circuit_breaker.py` | Escalation logic (deprecated) |
+| `shared/egg_contracts/circuit_breaker.py` | Escalation logic for review cycles |
 | `shared/egg_contracts/hitl.py` | Checkbox parsing and debounce |
 | `.egg/schemas/contract.schema.json` | JSON schema definition |
 | `.egg/phase-permissions.json` | Phase operation restrictions |
