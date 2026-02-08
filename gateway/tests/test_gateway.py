@@ -668,6 +668,85 @@ class TestGhExecute:
             assert executed_args[1] == "owner/repo"
             assert executed_args[2] == "pr"
 
+    def test_execute_api_with_template_variables_resolved(self, client, auth_headers):
+        """Execute resolves {owner}/{repo} template variables from cwd.
+
+        This tests the fix for issue #321: gateway should resolve gh CLI
+        template variables before checking visibility.
+        """
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+            patch("gateway.resolve_gh_api_template_variables") as mock_resolve,
+        ):
+            # Mock successful template resolution
+            mock_resolve.return_value = "repos/myowner/myrepo/pulls/123/commits"
+
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '[{"sha": "abc123"}]'
+            mock_result.stderr = ""
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": '[{"sha": "abc123"}]',
+                "stderr": "",
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "repos/{owner}/{repo}/pulls/123/commits",
+                            "--jq",
+                            ".[-1].sha",
+                        ],
+                        "cwd": "/home/egg/repos/myrepo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+            # Verify template resolution was called with correct args
+            mock_resolve.assert_called_once_with(
+                "repos/{owner}/{repo}/pulls/123/commits", "/home/egg/repos/myrepo"
+            )
+
+            # Verify the resolved path was passed to execute
+            call_args = mock_gh.return_value.execute.call_args
+            executed_args = call_args[0][0]
+            assert "repos/myowner/myrepo/pulls/123/commits" in executed_args
+
+    def test_execute_api_template_resolution_fails_returns_error(self, client, auth_headers):
+        """Execute returns 400 when template variable resolution fails."""
+        with patch("gateway.resolve_gh_api_template_variables") as mock_resolve:
+            # Mock failed template resolution (no cwd or no remote)
+            mock_resolve.return_value = None
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "repos/{owner}/{repo}/pulls"],
+                        # No cwd provided, resolution should fail
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert data["success"] is False
+            assert "template variables" in data["message"].lower()
+
 
 class TestGitFetch:
     """Tests for /api/v1/git/fetch endpoint."""
@@ -1036,6 +1115,87 @@ class TestRepoExtraction:
         assert (
             extract_repo_from_gh_command(["repo", "view", "other/repo", "-R", "owner/repo"])
             == "owner/repo"
+        )
+
+    def test_extract_repo_from_gh_api_path_with_template_variables(self):
+        """Template variables in API path return None (need resolution first)."""
+        from github_client import extract_repo_from_gh_api_path
+
+        # Paths with {owner} and {repo} template variables should return None
+        # because they need to be resolved from the current repo's git remote
+        assert extract_repo_from_gh_api_path("repos/{owner}/{repo}/pulls") is None
+        assert extract_repo_from_gh_api_path("repos/{owner}/{repo}/pulls/123/commits") is None
+        assert extract_repo_from_gh_api_path("/repos/{owner}/{repo}/issues") is None
+
+    def test_has_gh_template_variables(self):
+        """Test detection of template variables in API paths."""
+        from github_client import has_gh_template_variables
+
+        # Paths with template variables
+        assert has_gh_template_variables("repos/{owner}/{repo}/pulls") is True
+        assert has_gh_template_variables("repos/{owner}/myrepo/pulls") is True
+        assert has_gh_template_variables("repos/myowner/{repo}/pulls") is True
+
+        # Paths without template variables
+        assert has_gh_template_variables("repos/owner/repo/pulls") is False
+        assert has_gh_template_variables("user") is False
+        assert has_gh_template_variables("rate_limit") is False
+
+    def test_resolve_gh_api_template_variables_no_variables(self):
+        """Paths without template variables are returned unchanged."""
+        from github_client import resolve_gh_api_template_variables
+
+        # No resolution needed, return as-is
+        assert (
+            resolve_gh_api_template_variables("repos/owner/repo/pulls", None)
+            == "repos/owner/repo/pulls"
+        )
+        assert resolve_gh_api_template_variables("user", None) == "user"
+
+    def test_resolve_gh_api_template_variables_no_cwd(self):
+        """Template variables without cwd return None."""
+        from github_client import resolve_gh_api_template_variables
+
+        # Cannot resolve without cwd
+        assert resolve_gh_api_template_variables("repos/{owner}/{repo}/pulls", None) is None
+
+    def test_resolve_gh_api_template_variables_with_cwd(self):
+        """Template variables are resolved from cwd's git remote."""
+        from github_client import resolve_gh_api_template_variables
+        from repo_parser import RepoInfo
+
+        with patch("repo_parser.get_remote_url") as mock_get_remote:
+            with patch("repo_parser.parse_github_url") as mock_parse:
+                mock_get_remote.return_value = "https://github.com/myowner/myrepo.git"
+                mock_parse.return_value = RepoInfo(owner="myowner", repo="myrepo")
+
+                result = resolve_gh_api_template_variables(
+                    "repos/{owner}/{repo}/pulls/123/commits", "/path/to/repo"
+                )
+                assert result == "repos/myowner/myrepo/pulls/123/commits"
+
+                mock_get_remote.assert_called_once_with("/path/to/repo", "origin")
+
+    def test_resolve_gh_api_template_variables_remote_failure(self):
+        """Template variable resolution fails gracefully when remote unavailable."""
+        from github_client import resolve_gh_api_template_variables
+
+        with patch("repo_parser.get_remote_url") as mock_get_remote:
+            mock_get_remote.return_value = None
+
+            result = resolve_gh_api_template_variables(
+                "repos/{owner}/{repo}/pulls", "/path/to/repo"
+            )
+            assert result is None
+
+    def test_extract_repo_from_gh_command_with_template_variables(self):
+        """gh api commands with template variables return None for repo."""
+        from github_client import extract_repo_from_gh_command
+
+        # Template variables in API path mean repo can't be extracted
+        assert extract_repo_from_gh_command(["api", "repos/{owner}/{repo}/pulls"]) is None
+        assert (
+            extract_repo_from_gh_command(["api", "repos/{owner}/{repo}/pulls/123/commits"]) is None
         )
 
 
