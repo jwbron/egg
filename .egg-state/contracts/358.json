@@ -14,7 +14,7 @@
     },
     {
       "id": "ac-2",
-      "description": "[TASK-1-2] Pipeline diagram (refine\u2192plan\u2192implement\u2192merge) is the first visual element; human gates are emphasized",
+      "description": "[TASK-1-2] Pipeline diagram (refine→plan→implement→merge) is the first visual element; human gates are emphasized",
       "verified": false
     },
     {
@@ -92,7 +92,7 @@
           "id": "task-1-2",
           "description": "Write How It Works section with SDLC pipeline focus",
           "status": "pending",
-          "acceptance_criteria": "Pipeline diagram (refine\u2192plan\u2192implement\u2192merge) is the first visual element; human gates are emphasized",
+          "acceptance_criteria": "Pipeline diagram (refine→plan→implement→merge) is the first visual element; human gates are emphasized",
           "files_affected": [
             "README.md"
           ],
@@ -313,8 +313,20 @@
       "old_value": "refine",
       "new_value": "plan",
       "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-08T19:12:16Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Plan review cycle 1: approved"
     }
   ],
   "refine_review_cycles": 1,
-  "refine_review_feedback": ""
+  "refine_review_feedback": "",
+  "plan_review_cycles": 1,
+  "plan_review_feedback": ""
 }
