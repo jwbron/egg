@@ -1098,15 +1098,17 @@ jobs:
             # Since refine doesn't have phases, we store it at the top level
             CYCLE=$(jq -r '.refine_review_cycles // 0' "$CONTRACT_PATH")
             CYCLE=$((CYCLE + 1))
-            echo "cycle=${CYCLE}" >> "$GITHUB_OUTPUT"
+            {
+              echo "cycle=${CYCLE}"
 
-            # Get prior feedback if this is a re-review
-            if [[ "$CYCLE" -gt 1 ]]; then
-              PRIOR=$(jq -r '.refine_review_feedback // ""' "$CONTRACT_PATH")
-              echo "prior_feedback<<EOF" >> "$GITHUB_OUTPUT"
-              echo "$PRIOR" >> "$GITHUB_OUTPUT"
-              echo "EOF" >> "$GITHUB_OUTPUT"
-            fi
+              # Get prior feedback if this is a re-review
+              if [[ "$CYCLE" -gt 1 ]]; then
+                PRIOR=$(jq -r '.refine_review_feedback // ""' "$CONTRACT_PATH")
+                echo "prior_feedback<<EOF"
+                echo "$PRIOR"
+                echo "EOF"
+              fi
+            } >> "$GITHUB_OUTPUT"
           else
             echo "cycle=1" >> "$GITHUB_OUTPUT"
           fi
@@ -1175,21 +1177,27 @@ jobs:
             --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-3:][].body" 2>/dev/null || echo "")
 
           if echo "$COMMENTS" | grep -q 'egg-refine-review-verdict: approved'; then
-            echo "passed=true" >> "$GITHUB_OUTPUT"
-            echo "feedback=" >> "$GITHUB_OUTPUT"
+            {
+              echo "passed=true"
+              echo "feedback="
+            } >> "$GITHUB_OUTPUT"
             echo "Review verdict: APPROVED"
           elif echo "$COMMENTS" | grep -q 'egg-refine-review-verdict: needs_revision'; then
-            echo "passed=false" >> "$GITHUB_OUTPUT"
             # Extract feedback from the comment
             FEEDBACK=$(echo "$COMMENTS" | grep -A 100 'egg-refine-review-verdict: needs_revision' | head -50 || echo "Revision needed")
-            echo "feedback<<EOF" >> "$GITHUB_OUTPUT"
-            echo "$FEEDBACK" >> "$GITHUB_OUTPUT"
-            echo "EOF" >> "$GITHUB_OUTPUT"
+            {
+              echo "passed=false"
+              echo "feedback<<EOF"
+              echo "$FEEDBACK"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
             echo "Review verdict: NEEDS REVISION"
           else
             # No verdict found — treat as passed to avoid blocking
-            echo "passed=true" >> "$GITHUB_OUTPUT"
-            echo "feedback=" >> "$GITHUB_OUTPUT"
+            {
+              echo "passed=true"
+              echo "feedback="
+            } >> "$GITHUB_OUTPUT"
             echo "::warning::No review verdict marker found — proceeding as if approved"
           fi
 
@@ -1604,15 +1612,17 @@ jobs:
             # For plan phase, we track cycles in a special plan_review_cycles field
             CYCLE=$(jq -r '.plan_review_cycles // 0' "$CONTRACT_PATH")
             CYCLE=$((CYCLE + 1))
-            echo "cycle=${CYCLE}" >> "$GITHUB_OUTPUT"
+            {
+              echo "cycle=${CYCLE}"
 
-            # Get prior feedback if this is a re-review
-            if [[ "$CYCLE" -gt 1 ]]; then
-              PRIOR=$(jq -r '.plan_review_feedback // ""' "$CONTRACT_PATH")
-              echo "prior_feedback<<EOF" >> "$GITHUB_OUTPUT"
-              echo "$PRIOR" >> "$GITHUB_OUTPUT"
-              echo "EOF" >> "$GITHUB_OUTPUT"
-            fi
+              # Get prior feedback if this is a re-review
+              if [[ "$CYCLE" -gt 1 ]]; then
+                PRIOR=$(jq -r '.plan_review_feedback // ""' "$CONTRACT_PATH")
+                echo "prior_feedback<<EOF"
+                echo "$PRIOR"
+                echo "EOF"
+              fi
+            } >> "$GITHUB_OUTPUT"
           else
             echo "cycle=1" >> "$GITHUB_OUTPUT"
           fi
@@ -1681,21 +1691,27 @@ jobs:
             --jq "[ .[] | select(.created_at >= \"${RUN_START}\") ] | .[-3:][].body" 2>/dev/null || echo "")
 
           if echo "$COMMENTS" | grep -q 'egg-plan-review-verdict: approved'; then
-            echo "passed=true" >> "$GITHUB_OUTPUT"
-            echo "feedback=" >> "$GITHUB_OUTPUT"
+            {
+              echo "passed=true"
+              echo "feedback="
+            } >> "$GITHUB_OUTPUT"
             echo "Review verdict: APPROVED"
           elif echo "$COMMENTS" | grep -q 'egg-plan-review-verdict: needs_revision'; then
-            echo "passed=false" >> "$GITHUB_OUTPUT"
             # Extract feedback from the comment
             FEEDBACK=$(echo "$COMMENTS" | grep -A 100 'egg-plan-review-verdict: needs_revision' | head -50 || echo "Revision needed")
-            echo "feedback<<EOF" >> "$GITHUB_OUTPUT"
-            echo "$FEEDBACK" >> "$GITHUB_OUTPUT"
-            echo "EOF" >> "$GITHUB_OUTPUT"
+            {
+              echo "passed=false"
+              echo "feedback<<EOF"
+              echo "$FEEDBACK"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
             echo "Review verdict: NEEDS REVISION"
           else
             # No verdict found — treat as passed to avoid blocking
-            echo "passed=true" >> "$GITHUB_OUTPUT"
-            echo "feedback=" >> "$GITHUB_OUTPUT"
+            {
+              echo "passed=true"
+              echo "feedback="
+            } >> "$GITHUB_OUTPUT"
             echo "::warning::No review verdict marker found — proceeding as if approved"
           fi
 
