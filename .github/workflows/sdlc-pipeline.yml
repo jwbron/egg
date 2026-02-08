@@ -25,7 +25,6 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
-  actions: write
 
 # Prevent concurrent pipeline runs for the same issue
 concurrency:
