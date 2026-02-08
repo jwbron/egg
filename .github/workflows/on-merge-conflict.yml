@@ -32,20 +32,32 @@ jobs:
       - name: Find PRs with merge conflicts
         id: find
         run: |
+          set -euo pipefail
+
           # Get all open PRs and filter for those with mergeable_state = CONFLICTING
           # Note: mergeable_state is only available after GitHub computes it,
           # which happens asynchronously. PRs with "UNKNOWN" state are skipped.
           prs=$(gh api repos/${{ github.repository }}/pulls --paginate \
-            -q '[.[] | select(.state == "open") | {number: .number, title: .title}]')
+            -q '[.[] | select(.state == "open") | {number: .number, title: .title, head_repo: .head.repo.full_name}]')
 
           conflicting=()
           for pr_json in $(echo "$prs" | jq -c '.[]'); do
             pr_num=$(echo "$pr_json" | jq -r '.number')
             pr_title=$(echo "$pr_json" | jq -r '.title')
+            head_repo=$(echo "$pr_json" | jq -r '.head_repo')
+
+            # Skip fork PRs — bot can't push to forks
+            if [[ "$head_repo" != "${{ github.repository }}" ]]; then
+              echo "PR #${pr_num} is from a fork ($head_repo), skipping — bot cannot push to forks"
+              continue
+            fi
 
             # Check mergeable state via the detailed PR endpoint
             mergeable_state=$(gh api "repos/${{ github.repository }}/pulls/${pr_num}" \
               -q '.mergeable_state')
+
+            # Add small delay to reduce API rate limit pressure
+            sleep 0.5
 
             if [[ "$mergeable_state" == "dirty" ]]; then
               # Check for skip marker
@@ -103,6 +115,7 @@ jobs:
       - name: Fetch PR metadata
         id: pr-meta
         run: |
+          set -euo pipefail
           pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
           {
             echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"
@@ -113,9 +126,46 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
+      # Skip fork PRs — bot can't push to forks
+      - name: Check for fork PR
+        id: fork-check
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.pr-meta.outputs.head-repo }}" != "${{ github.repository }}" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR is from a fork (${{ steps.pr-meta.outputs.head-repo }}), skipping — bot cannot push to forks"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Early exit if fork
+        if: steps.fork-check.outputs.skip == 'true'
+        run: echo "Skipping conflict resolution for fork PR"
+
+      # Check for skip marker (re-verify in case title changed since detection)
+      - name: Check for skip marker
+        if: steps.fork-check.outputs.skip != 'true'
+        id: skip-check
+        env:
+          PR_TITLE: ${{ steps.pr-meta.outputs.title }}
+        run: |
+          set -euo pipefail
+          if [[ "$PR_TITLE" == *"[skip-conflict-fix]"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR has [skip-conflict-fix] marker, skipping"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Early exit if skipped
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip == 'true'
+        run: echo "Skipping conflict resolution due to [skip-conflict-fix] marker"
+
       # Minimize previous conflict resolution comments
       - name: Minimize previous conflict comments
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         run: |
+          set -euo pipefail
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
             --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("egg is resolving|egg conflict resolution")) | .node_id' \
           | while read -r node_id; do
@@ -126,13 +176,15 @@ jobs:
                     minimizedComment { isMinimized }
                   }
                 }
-              ' -f id="$node_id" || true
+              ' -f id="$node_id" || echo "Failed to minimize comment $node_id"
             done
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
       - name: Post starting comment
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         run: |
+          set -euo pipefail
           BODY="egg is resolving merge conflicts for this PR..."
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
         env:
@@ -140,12 +192,14 @@ jobs:
 
       # SECURITY: Build the conflict prompt from a trusted checkout (main).
       - name: Checkout main (trusted)
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           ref: main
           persist-credentials: false
 
       - name: Build conflict prompt
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         id: prompt
         run: bash action/build-conflict-prompt.sh
         env:
@@ -154,6 +208,7 @@ jobs:
           BASE_REF: ${{ steps.pr-meta.outputs.base-ref }}
 
       - name: Checkout PR branch
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ steps.pr-meta.outputs.head-repo }}
@@ -162,6 +217,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run egg conflict resolution
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         id: egg
         uses: jwbron/egg/action@main
         with:
@@ -175,8 +231,9 @@ jobs:
           timeout: "30"
 
       - name: Post result comment
-        if: always() && !cancelled()
+        if: always() && !cancelled() && steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         run: |
+          set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
@@ -218,6 +275,7 @@ jobs:
       - name: Fetch PR metadata
         id: pr-meta
         run: |
+          set -euo pipefail
           pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
           {
             echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"
@@ -228,12 +286,30 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
+      # Skip fork PRs — bot can't push to forks
+      - name: Check for fork PR
+        id: fork-check
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.pr-meta.outputs.head-repo }}" != "${{ github.repository }}" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR is from a fork (${{ steps.pr-meta.outputs.head-repo }}), skipping — bot cannot push to forks"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Early exit if fork
+        if: steps.fork-check.outputs.skip == 'true'
+        run: echo "Skipping conflict resolution for fork PR"
+
       # Check for skip marker
       - name: Check for skip marker
+        if: steps.fork-check.outputs.skip != 'true'
         id: skip-check
         env:
           PR_TITLE: ${{ steps.pr-meta.outputs.title }}
         run: |
+          set -euo pipefail
           if [[ "$PR_TITLE" == *"[skip-conflict-fix]"* ]]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "PR has [skip-conflict-fix] marker, skipping"
@@ -242,13 +318,14 @@ jobs:
           fi
 
       - name: Early exit if skipped
-        if: steps.skip-check.outputs.skip == 'true'
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip == 'true'
         run: echo "Skipping conflict resolution due to [skip-conflict-fix] marker"
 
       # Minimize previous conflict resolution comments
       - name: Minimize previous conflict comments
-        if: steps.skip-check.outputs.skip != 'true'
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         run: |
+          set -euo pipefail
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
             --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("egg is resolving|egg conflict resolution")) | .node_id' \
           | while read -r node_id; do
@@ -259,14 +336,15 @@ jobs:
                     minimizedComment { isMinimized }
                   }
                 }
-              ' -f id="$node_id" || true
+              ' -f id="$node_id" || echo "Failed to minimize comment $node_id"
             done
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
       - name: Post starting comment
-        if: steps.skip-check.outputs.skip != 'true'
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         run: |
+          set -euo pipefail
           BODY="egg is resolving merge conflicts for this PR..."
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
         env:
@@ -274,14 +352,14 @@ jobs:
 
       # SECURITY: Build the conflict prompt from a trusted checkout (main).
       - name: Checkout main (trusted)
-        if: steps.skip-check.outputs.skip != 'true'
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           ref: main
           persist-credentials: false
 
       - name: Build conflict prompt
-        if: steps.skip-check.outputs.skip != 'true'
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         id: prompt
         run: bash action/build-conflict-prompt.sh
         env:
@@ -290,7 +368,7 @@ jobs:
           BASE_REF: ${{ steps.pr-meta.outputs.base-ref }}
 
       - name: Checkout PR branch
-        if: steps.skip-check.outputs.skip != 'true'
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ steps.pr-meta.outputs.head-repo }}
@@ -299,7 +377,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run egg conflict resolution
-        if: steps.skip-check.outputs.skip != 'true'
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         id: egg
         uses: jwbron/egg/action@main
         with:
@@ -313,8 +391,9 @@ jobs:
           timeout: "30"
 
       - name: Post result comment
-        if: always() && !cancelled() && steps.skip-check.outputs.skip != 'true'
+        if: always() && !cancelled() && steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         run: |
+          set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then

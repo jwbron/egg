@@ -42,7 +42,7 @@ During a rebase, "HEAD" is the base branch and the bottom section is your change
 
 ## Resolution Strategies
 
-### Lock Files (package-lock.json, yarn.lock, poetry.lock)
+### Lock Files (package-lock.json, yarn.lock, poetry.lock, uv.lock)
 
 **Always regenerate, never manually merge.**
 
@@ -58,6 +58,10 @@ yarn install
 # For poetry
 git checkout --theirs poetry.lock
 poetry lock
+
+# For uv
+git checkout --theirs uv.lock
+uv lock
 ```
 
 ### Additive Changes (Both Sides Add Content)
