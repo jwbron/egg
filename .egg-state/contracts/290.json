@@ -6,8 +6,230 @@
     "url": "https://github.com/jwbron/egg/issues/290"
   },
   "current_phase": "plan",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Command executes successfully and returns plain-text log content",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] No ZIP-related code remains in _process_run()",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Method deleted, no references to it remain",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Docstring accurately describes the current implementation",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-1] Existing tests pass with updated mocks",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-2] New test verifies command arguments include gh run view with correct flags",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-3] Test confirms None is returned on failure",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-1] All tests pass",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-2] No linting errors",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-3] Command returns readable log content",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Replace Log Download Method",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Modify _process_run() to use gh run view <run_id> --log -R <repo> instead of gh api .../logs",
+          "status": "pending",
+          "acceptance_criteria": "Command executes successfully and returns plain-text log content",
+          "files_affected": [
+            "sandbox/egg_lib/self_improvement/collectors/gha.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Remove ZIP handling code (tempfile, zipfile imports if unused, zip_path/extract_dir variables, ZIP extraction logic)",
+          "status": "pending",
+          "acceptance_criteria": "No ZIP-related code remains in _process_run()",
+          "files_affected": [
+            "sandbox/egg_lib/self_improvement/collectors/gha.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Remove the _aggregate_job_logs() method entirely",
+          "status": "pending",
+          "acceptance_criteria": "Method deleted, no references to it remain",
+          "files_affected": [
+            "sandbox/egg_lib/self_improvement/collectors/gha.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Update module docstring to reflect the new approach (plain-text logs, not ZIP archives)",
+          "status": "pending",
+          "acceptance_criteria": "Docstring accurately describes the current implementation",
+          "files_affected": [
+            "sandbox/egg_lib/self_improvement/collectors/gha.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Update Tests",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Update mocked subprocess calls in test_self_improvement.py to match the new gh run view command signature",
+          "status": "pending",
+          "acceptance_criteria": "Existing tests pass with updated mocks",
+          "files_affected": [
+            "tests/sandbox/test_self_improvement.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add a unit test for _process_run() that verifies the correct gh run view command is invoked",
+          "status": "pending",
+          "acceptance_criteria": "New test verifies command arguments include gh run view with correct flags",
+          "files_affected": [
+            "tests/sandbox/test_self_improvement.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add a test case for _process_run() returning None when gh run view fails",
+          "status": "pending",
+          "acceptance_criteria": "Test confirms None is returned on failure",
+          "files_affected": [
+            "tests/sandbox/test_self_improvement.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Verify and Document",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Run the full test suite to ensure no regressions",
+          "status": "pending",
+          "acceptance_criteria": "All tests pass",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Run linting to ensure code quality",
+          "status": "pending",
+          "acceptance_criteria": "No linting errors",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Verify the fix manually by running gh run view against a real workflow run",
+          "status": "pending",
+          "acceptance_criteria": "Command returns readable log content",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 0,
