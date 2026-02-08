@@ -67,10 +67,95 @@ jobs:
 
           echo "run=true" >> "$GITHUB_OUTPUT"
 
+  wait-for-checks:
+    name: Wait for CI checks
+    needs: should-run
+    if: needs.should-run.outputs.run == 'true' && inputs.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      all_passed: ${{ steps.wait.outputs.passed }}
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Wait for all non-review checks to complete
+        id: wait
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
+          echo "Waiting for checks on commit: ${HEAD_SHA}"
+
+          MAX_WAIT=1800
+          INTERVAL=30
+          start=$(date +%s)
+          no_checks_count=0
+
+          while true; do
+            elapsed=$(( $(date +%s) - start ))
+            if [[ $elapsed -ge $MAX_WAIT ]]; then
+              echo "::warning::Timed out waiting for checks after ${MAX_WAIT}s — proceeding with review"
+              echo "passed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            checks=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
+              --jq '.check_runs | [.[] | select(
+                (.name | test("Code Review|Design Review|SDLC") | not)
+              ) | {name, status, conclusion}]')
+
+            total=$(echo "$checks" | jq 'length')
+
+            if [[ "$total" -eq 0 ]]; then
+              no_checks_count=$((no_checks_count + 1))
+              if [[ $no_checks_count -ge 20 ]]; then
+                echo "No checks found after ${no_checks_count} polls — proceeding"
+                echo "passed=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "No checks yet (poll ${no_checks_count}/20)"
+              sleep "$INTERVAL"
+              continue
+            fi
+            no_checks_count=0
+
+            completed=$(echo "$checks" | jq '[.[] | select(.status == "completed")] | length')
+            failed=$(echo "$checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")] | length')
+
+            echo "Checks: ${completed}/${total} completed, ${failed} failed"
+
+            if [[ "$completed" -eq "$total" ]]; then
+              if [[ "$failed" -gt 0 ]]; then
+                echo "::warning::${failed} check(s) failed — skipping review"
+                echo "$checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | "  FAILED: \(.name) (\(.conclusion))"'
+                echo "passed=false" >> "$GITHUB_OUTPUT"
+              else
+                echo "All ${total} checks passed"
+                echo "passed=true" >> "$GITHUB_OUTPUT"
+              fi
+              exit 0
+            fi
+
+            pending=$(echo "$checks" | jq -r '[.[] | select(.status != "completed") | .name] | join(", ")')
+            echo "Waiting for: ${pending}"
+            sleep "$INTERVAL"
+          done
+
   review:
     name: Run review
-    needs: should-run
-    if: needs.should-run.outputs.run == 'true'
+    needs: [should-run, wait-for-checks]
+    if: >-
+      always() &&
+      needs.should-run.outputs.run == 'true' &&
+      (needs.wait-for-checks.result == 'skipped' || needs.wait-for-checks.outputs.all_passed == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
