@@ -116,6 +116,7 @@ jobs:
           # Format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
           # The verdict field is optional for backwards compatibility with old markers
           # Escape regex metacharacters in bot_name to prevent pattern breakage
+          # shellcheck disable=SC2016
           escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[.[\*^$()+?{|\\]/\\&/g')
           marker_regex="<!-- egg-automated-review bot=${escaped_bot_name} commit=([a-f0-9]+)( verdict=([a-z-]+))? -->"
 
