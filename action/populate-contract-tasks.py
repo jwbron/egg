@@ -28,16 +28,18 @@ from egg_contracts.plan_parser import parse_plan
 from pydantic import ValidationError
 
 
-def get_issue_comments(repo: str, issue_number: str, token: str) -> list[dict]:
-    """Fetch all comments on a GitHub issue."""
+def get_issue_comments(repo: str, issue_number: str, token: str) -> list[str]:
+    """Fetch all comments on a GitHub issue.
+
+    Returns comment bodies as a list of strings. Each string is the full
+    body of a single comment, preserving newlines within the comment.
+    """
     result = subprocess.run(
         [
             "gh",
             "api",
             f"repos/{repo}/issues/{issue_number}/comments",
             "--paginate",
-            "--jq",
-            ".[].body",
         ],
         capture_output=True,
         text=True,
@@ -47,7 +49,36 @@ def get_issue_comments(repo: str, issue_number: str, token: str) -> list[dict]:
         print(f"Failed to fetch comments: {result.stderr}", file=sys.stderr)
         sys.exit(1)
 
-    return [body for body in result.stdout.strip().split("\n") if body.strip()]
+    # Parse as JSON to correctly handle multi-line comment bodies.
+    # With --paginate, gh outputs one JSON array per page, so we need to
+    # handle the case where there are multiple arrays concatenated.
+    bodies: list[str] = []
+    output = result.stdout.strip()
+    if not output:
+        return bodies
+
+    # gh --paginate outputs arrays on separate lines when fetching multiple pages
+    # We need to parse each array and collect all bodies
+    try:
+        # Try parsing as a single JSON array first (single page case)
+        data = json.loads(output)
+        if isinstance(data, list):
+            bodies.extend(comment.get("body", "") for comment in data if comment.get("body"))
+    except json.JSONDecodeError:
+        # Multiple pages: each line is a separate JSON array
+        for line in output.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+                if isinstance(data, list):
+                    bodies.extend(comment.get("body", "") for comment in data if comment.get("body"))
+            except json.JSONDecodeError as e:
+                print(f"Warning: Failed to parse comment JSON: {e}", file=sys.stderr)
+                continue
+
+    return bodies
 
 
 def find_plan_comment(comments: list[str]) -> str | None:
