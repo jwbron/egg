@@ -58,7 +58,10 @@ build_prompt() {
 Review feedback was just posted on this PR. Read the feedback, understand the issues
 raised, make the necessary code changes, and push your fixes.
 
-1. **Read the feedback**: Use \`gh pr view ${PR_NUMBER} --comments\` and check PR reviews to see all review feedback.
+1. **Read the feedback**:
+   - Issue-level comments: \`gh pr view ${PR_NUMBER} --comments\`
+   - Formal reviews: \`gh api repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews --jq '.[] | {user: .user.login, state: .state, body: .body}'\`
+   - Line-level review comments: \`gh api repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments --jq '.[] | {path: .path, line: .line, body: .body}'\`
 2. **Understand the current code**: Use \`gh pr diff ${PR_NUMBER}\` to see the PR changes.
 3. **Make fixes**: Address each piece of actionable feedback.
 4. **Verify**: Run tests and linters locally before pushing (\`make lint\`, \`make test\`).
