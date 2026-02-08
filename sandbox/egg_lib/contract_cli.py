@@ -31,13 +31,15 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from .config import GATEWAY_PORT
+
 # Regex for validating git commit SHAs (7-40 hex characters)
 COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 
 def get_gateway_url() -> str:
     """Get the gateway URL from environment or default."""
-    return os.environ.get("GATEWAY_URL", "http://egg-gateway:9848")
+    return os.environ.get("GATEWAY_URL", f"http://egg-gateway:{GATEWAY_PORT}")
 
 
 def get_issue_number() -> int | None:
