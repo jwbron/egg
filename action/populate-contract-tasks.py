@@ -232,10 +232,21 @@ def main() -> None:
     if acceptance_criteria:
         print(f"Extracted {len(acceptance_criteria)} acceptance criteria from plan")
 
+    # Extract PR metadata if present
+    pr_metadata = None
+    if result.pr_title:
+        pr_metadata = {
+            "title": result.pr_title,
+            "description": result.pr_description or "",
+        }
+        print(f'Extracted PR metadata: "{result.pr_title}"')
+
     # Update contract and validate
     contract["phases"] = phases_data
     if acceptance_criteria:
         contract["acceptance_criteria"] = acceptance_criteria
+    if pr_metadata:
+        contract["pr"] = pr_metadata
 
     try:
         Contract.model_validate(contract)

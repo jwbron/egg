@@ -102,6 +102,14 @@
       "type": "string",
       "description": "Feedback from last plan review",
       "default": ""
+    },
+    "pr": {
+      "oneOf": [
+        { "$ref": "#/$defs/prMetadata" },
+        { "type": "null" }
+      ],
+      "description": "Planner-generated PR metadata for use during PR creation",
+      "default": null
     }
   },
   "additionalProperties": false,
@@ -376,6 +384,24 @@
           "description": "Circuit breaker status",
           "enum": ["closed", "open"],
           "default": "closed"
+        }
+      },
+      "additionalProperties": false
+    },
+    "prMetadata": {
+      "type": "object",
+      "description": "Planner-generated PR title and description",
+      "required": ["title"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "PR title (recommended max 70 characters for readability)",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "description": "PR description/body explaining the context and changes",
+          "default": ""
         }
       },
       "additionalProperties": false

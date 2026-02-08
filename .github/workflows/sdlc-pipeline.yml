@@ -478,31 +478,64 @@ jobs:
             exit 0
           fi
 
-          # Build PR body from commit messages (excluding contract-only commits)
-          # Get commits on this branch that aren't on main
-          # Use a single grep -Ev with || true to avoid exit code 1 when all lines are filtered
-          COMMIT_MESSAGES=$(git log origin/main..HEAD --pretty=format:'%s%n%n%b' --reverse \
-            | grep -Ev "^(Initialize SDLC contract|Populate contract tasks|Advance to .* phase|Checkpoint state)" || true)
-          # Clean up consecutive blank lines
-          COMMIT_MESSAGES=$(echo "$COMMIT_MESSAGES" | sed '/^$/N;/^\n$/d')
-
-          # Fallback if all commits were filtered out
-          if [[ -z "$COMMIT_MESSAGES" ]]; then
-            COMMIT_MESSAGES="Initial implementation (see commit history for details)"
+          # Try to read PR metadata from contract (planner-generated title/description)
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          CONTRACT_PR_TITLE=""
+          CONTRACT_PR_DESC=""
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            CONTRACT_PR_TITLE=$(jq -r '.pr.title // empty' "$CONTRACT_PATH" 2>/dev/null || true)
+            CONTRACT_PR_DESC=$(jq -r '.pr.description // empty' "$CONTRACT_PATH" 2>/dev/null || true)
+            if [[ -n "$CONTRACT_PR_TITLE" ]]; then
+              echo "Using planner-generated PR metadata from contract"
+            fi
           fi
 
-          # Build PR body with commit messages and context
-          PR_BODY="## Summary"
-          PR_BODY="${PR_BODY}"$'\n\n'"${COMMIT_MESSAGES}"
-          PR_BODY="${PR_BODY}"$'\n\n'"---"
-          PR_BODY="${PR_BODY}"$'\n\n'"Closes #${ISSUE_NUMBER}"
-          PR_BODY="${PR_BODY}"$'\n'"Branch: \`${BRANCH_NAME}\`"
-          PR_BODY="${PR_BODY}"$'\n\n'"This PR is managed by the SDLC pipeline. It will be marked ready for review once the implementation passes automated review."
+          # Build PR title: use contract title if available, otherwise fall back to issue title
+          if [[ -n "$CONTRACT_PR_TITLE" ]]; then
+            PR_TITLE="[SDLC] ${CONTRACT_PR_TITLE}"
+          else
+            PR_TITLE="[SDLC] ${ISSUE_TITLE}"
+          fi
+
+          # Build PR body to temp file (avoids shell injection from planner-generated content)
+          PR_BODY_FILE=$(mktemp)
+          trap 'rm -f "$PR_BODY_FILE"' EXIT
+
+          if [[ -n "$CONTRACT_PR_DESC" ]]; then
+            # Use planner-generated description as the summary
+            printf '%s\n\n' "## Summary" > "$PR_BODY_FILE"
+            printf '%s\n' "$CONTRACT_PR_DESC" >> "$PR_BODY_FILE"
+          else
+            # Fall back to building body from commit messages (excluding contract-only commits)
+            # Get commits on this branch that aren't on main
+            # Use a single grep -Ev with || true to avoid exit code 1 when all lines are filtered
+            COMMIT_MESSAGES=$(git log origin/main..HEAD --pretty=format:'%s%n%n%b' --reverse \
+              | grep -Ev "^(Initialize SDLC contract|Populate contract tasks|Advance to .* phase|Checkpoint state)" || true)
+            # Clean up consecutive blank lines
+            COMMIT_MESSAGES=$(echo "$COMMIT_MESSAGES" | sed '/^$/N;/^\n$/d')
+
+            # Fallback if all commits were filtered out
+            if [[ -z "$COMMIT_MESSAGES" ]]; then
+              COMMIT_MESSAGES="Initial implementation (see commit history for details)"
+            fi
+
+            printf '%s\n\n' "## Summary" > "$PR_BODY_FILE"
+            printf '%s\n' "$COMMIT_MESSAGES" >> "$PR_BODY_FILE"
+          fi
+
+          # Add standard footer
+          {
+            printf '\n---\n\n'
+            printf 'Closes #%s\n' "${ISSUE_NUMBER}"
+            # shellcheck disable=SC2016 # Backticks are literal markdown, not command substitution
+            printf 'Branch: `%s`\n\n' "${BRANCH_NAME}"
+            printf '%s\n' "This PR is managed by the SDLC pipeline. It will be marked ready for review once the implementation passes automated review."
+          } >> "$PR_BODY_FILE"
 
           PR_URL=$(gh pr create \
             --draft \
-            --title "[SDLC] ${ISSUE_TITLE}" \
-            --body "$PR_BODY" \
+            --title "$PR_TITLE" \
+            --body-file "$PR_BODY_FILE" \
             --base main \
             --head "${BRANCH_NAME}")
 
@@ -829,28 +862,43 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Set PR title to the original issue title (without the [SDLC] prefix
-          # that was added when the draft PR was created)
-          CLEAN_TITLE="${ISSUE_TITLE}"
+          # Try to read planner-generated PR title from contract
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          CONTRACT_PR_TITLE=""
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            CONTRACT_PR_TITLE=$(jq -r '.pr.title // empty' "$CONTRACT_PATH" 2>/dev/null || true)
+          fi
+
+          # Set PR title: use contract title if available, otherwise fall back to issue title
+          # (removes the [SDLC] prefix that was added when the draft PR was created)
+          if [[ -n "$CONTRACT_PR_TITLE" ]]; then
+            CLEAN_TITLE="${CONTRACT_PR_TITLE}"
+            echo "Using planner-generated PR title from contract"
+          else
+            CLEAN_TITLE="${ISSUE_TITLE}"
+          fi
           gh pr edit "${PR_NUMBER}" --title "${CLEAN_TITLE}"
 
           # Preserve the existing PR body (which contains commit messages from create-pr)
           # and append a completion note
           EXISTING_BODY=$(gh pr view "${PR_NUMBER}" --json body --jq '.body')
 
-          # Append completion status to existing body
-          FINAL_BODY="${EXISTING_BODY}"
-          FINAL_BODY="${FINAL_BODY}"$'\n\n'"---"
-          FINAL_BODY="${FINAL_BODY}"$'\n\n'"✅ All automated checks passed. Ready for human review."
+          # Write final body to temp file to avoid shell injection from planner-generated content
+          FINAL_BODY_FILE=$(mktemp)
+          trap 'rm -f "$FINAL_BODY_FILE"' EXIT
+
+          # Start with existing body and append completion status
+          printf '%s\n\n---\n\n' "$EXISTING_BODY" > "$FINAL_BODY_FILE"
+          printf '%s\n' "✅ All automated checks passed. Ready for human review." >> "$FINAL_BODY_FILE"
 
           # Add reviewer assignment note if workflow owner is available
           if [[ -n "${WORKFLOW_OWNER}" ]]; then
-            FINAL_BODY="${FINAL_BODY}"$'\n\n'"Reviewer: @${WORKFLOW_OWNER}"
+            printf '\n%s\n' "Reviewer: @${WORKFLOW_OWNER}" >> "$FINAL_BODY_FILE"
           fi
 
-          FINAL_BODY="${FINAL_BODY}"$'\n\n'"Authored-by: egg"
+          printf '\n%s\n' "Authored-by: egg" >> "$FINAL_BODY_FILE"
 
-          gh pr edit "${PR_NUMBER}" --body "$FINAL_BODY"
+          gh pr edit "${PR_NUMBER}" --body-file "$FINAL_BODY_FILE"
 
           # Mark draft as ready for review
           gh pr ready "${PR_NUMBER}"
@@ -1667,6 +1715,50 @@ jobs:
           else
             echo "Contract already up to date"
           fi
+
+      - name: Post PR metadata comment
+        if: steps.egg.outputs.exit-code == '0' && steps.populate-contract.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Read PR metadata from contract
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          if [[ ! -f "$CONTRACT_PATH" ]]; then
+            echo "Contract not found, skipping PR metadata comment"
+            exit 0
+          fi
+
+          PR_TITLE=$(jq -r '.pr.title // empty' "$CONTRACT_PATH" 2>/dev/null || true)
+          PR_DESC=$(jq -r '.pr.description // empty' "$CONTRACT_PATH" 2>/dev/null || true)
+
+          if [[ -z "$PR_TITLE" ]]; then
+            echo "No PR metadata in contract, skipping comment"
+            exit 0
+          fi
+
+          # Post PR metadata as a separate comment for easy editing
+          # Use a temp file to avoid shell injection from planner-generated content
+          COMMENT_FILE=$(mktemp)
+          trap 'rm -f "$COMMENT_FILE"' EXIT
+
+          {
+            printf '%s\n\n' "## Planned PR Metadata"
+            printf '%s\n' "The following title and description will be used when creating the pull request."
+            printf '%s\n\n' "You can edit this comment to adjust the PR content before approving the plan."
+            printf '%s\n' "**Title:**"
+            printf '%s\n' '```'
+            printf '%s\n' "$PR_TITLE"
+            printf '%s\n\n' '```'
+            printf '%s\n' "**Description:**"
+            printf '%s\n' "$PR_DESC"
+            printf '\n---\n\n'
+            printf '%s\n' "*Authored-by: egg*"
+          } > "$COMMENT_FILE"
+
+          gh issue comment "${ISSUE_NUMBER}" --body-file "$COMMENT_FILE"
+          echo "Posted PR metadata comment"
 
       # Minimize previous pipeline status comments to reduce clutter
       - name: Minimize previous pipeline comments

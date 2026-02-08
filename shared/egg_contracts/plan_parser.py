@@ -123,6 +123,8 @@ class ParseResult:
     warnings: list[ParseWarning] = field(default_factory=list)
     error: str | None = None
     raw_yaml: dict[str, Any] | None = None
+    pr_title: str | None = None
+    pr_description: str | None = None
 
     def to_contract_phases(self) -> list[Phase]:
         """Convert all parsed phases to contract Phase models."""
@@ -535,6 +537,102 @@ def parse_tasks_from_markdown(content: str) -> tuple[list[ParsedTask], list[Pars
     return tasks, warnings
 
 
+def extract_pr_metadata_from_yaml(
+    yaml_data: dict[str, Any] | None,
+) -> tuple[str | None, str | None, list[ParseWarning]]:
+    """
+    Extract PR metadata (title and description) from YAML data.
+
+    Expected format in yaml-tasks block:
+    ```yaml
+    # yaml-tasks
+    pr:
+      title: "PR title here"
+      description: |
+        PR description here.
+    phases:
+      ...
+    ```
+
+    Args:
+        yaml_data: Parsed YAML data from code fence or frontmatter
+
+    Returns:
+        Tuple of (pr_title, pr_description, warnings)
+    """
+    warnings: list[ParseWarning] = []
+
+    if yaml_data is None:
+        return None, None, warnings
+
+    pr_data = yaml_data.get("pr")
+    if pr_data is None:
+        return None, None, warnings
+
+    if not isinstance(pr_data, dict):
+        warnings.append(
+            ParseWarning(
+                line_number=None,
+                message=f"'pr' field must be an object, got {type(pr_data).__name__}",
+                context="PR metadata will be ignored",
+            )
+        )
+        return None, None, warnings
+
+    pr_title = pr_data.get("title")
+    pr_description = pr_data.get("description", "")
+
+    if pr_title is None:
+        warnings.append(
+            ParseWarning(
+                line_number=None,
+                message="'pr' object is missing required 'title' field",
+                context="PR metadata will be ignored",
+            )
+        )
+        return None, None, warnings
+
+    if not isinstance(pr_title, str):
+        warnings.append(
+            ParseWarning(
+                line_number=None,
+                message=f"'pr.title' must be a string, got {type(pr_title).__name__}",
+                context="PR metadata will be ignored",
+            )
+        )
+        return None, None, warnings
+
+    pr_title = pr_title.strip()
+    if not pr_title:
+        warnings.append(
+            ParseWarning(
+                line_number=None,
+                message="'pr.title' cannot be empty",
+                context="PR metadata will be ignored",
+            )
+        )
+        return None, None, warnings
+
+    # Normalize description to string
+    if pr_description is None:
+        pr_description = ""
+    elif not isinstance(pr_description, str):
+        pr_description = str(pr_description)
+    pr_description = pr_description.strip()
+
+    # Warn if title exceeds recommended length (70 chars for GitHub readability)
+    if len(pr_title) > 70:
+        warnings.append(
+            ParseWarning(
+                line_number=None,
+                message=f"PR title exceeds recommended length of 70 characters ({len(pr_title)} chars)",
+                context="Consider shortening for better readability in GitHub UI",
+            )
+        )
+
+    return pr_title, pr_description, warnings
+
+
 def parse_phases_from_markdown(content: str) -> list[ParsedPhase]:
     """
     Parse phase sections from markdown content.
@@ -713,11 +811,17 @@ def parse_plan(content: str) -> ParseResult:
             "[TASK-{phase}-{number}] description — Acceptance: criteria",
         )
 
+    # Extract PR metadata from YAML data
+    pr_title, pr_description, pr_warnings = extract_pr_metadata_from_yaml(yaml_data)
+    warnings.extend(pr_warnings)
+
     return ParseResult(
         success=True,
         phases=phases,
         warnings=warnings,
         raw_yaml=yaml_data,
+        pr_title=pr_title,
+        pr_description=pr_description,
     )
 
 
