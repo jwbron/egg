@@ -342,6 +342,8 @@ Template sections:
 - [TASK-1-2] Add role validation — Acceptance: Unauthorized mutations rejected
 ```
 
+**PR Metadata**: The plan should include a `pr:` section in the YAML appendix with a title and description for the pull request that will be created. The pipeline uses this metadata when creating and finalizing the PR. If not provided, the PR title defaults to the issue title, and the PR description is built from commit messages.
+
 ### Phase Completion Comments
 
 When a phase is complete and ready for human approval, agents post a comment using the [Phase Completion Template](../templates/phase-completion.md). This format includes the `<!-- egg-phase-approval -->` marker which the HITL workflow uses to detect approval checkbox changes.
@@ -352,12 +354,14 @@ Tasks are automatically extracted from the plan document and populated into the 
 
 The `action/populate-contract-tasks.py` script:
 1. Fetches the plan comment from the GitHub issue
-2. Parses task markers using `shared/egg_contracts/plan_parser.py`
-3. Writes phases and tasks into `.egg-state/contracts/{issue-number}.json`
+2. Parses task markers and PR metadata using `shared/egg_contracts/plan_parser.py`
+3. Writes phases, tasks, and PR metadata into `.egg-state/contracts/{issue-number}.json`
 4. Validates the contract against the JSON schema
 5. Commits the updated contract to the feature branch
 
 This happens in the plan phase itself (before human approval) to provide early validation of the plan format. The implement phase also runs task population as a fallback in case the plan phase step failed or was skipped.
+
+The PR metadata (title and description) from the plan is stored in the contract's `pr` field and used when creating the draft PR during the implement phase.
 
 ## Implementation Reference
 

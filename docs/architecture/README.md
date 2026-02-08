@@ -74,11 +74,13 @@ Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib
 
 ### Plan Parser
 
-The plan parser (`shared/egg_contracts/plan_parser.py`) extracts tasks from plan documents using three extraction modes in priority order:
+The plan parser (`shared/egg_contracts/plan_parser.py`) extracts tasks and PR metadata from plan documents using three extraction modes in priority order:
 
-1. **YAML code fence** (preferred): A `yaml` code block marked with `# yaml-tasks` header, structured according to `.egg/schemas/yaml-tasks.schema.json`. Provides machine-readable task data while allowing human-readable prose above it.
+1. **YAML code fence** (preferred): A `yaml` code block marked with `# yaml-tasks` header, structured according to `.egg/schemas/yaml-tasks.schema.json`. Provides machine-readable task data and PR metadata while allowing human-readable prose above it.
 2. **YAML front matter** (legacy): A `---`-delimited YAML block at the document start. Supported for backwards compatibility.
 3. **Markdown regex** (fallback): Parses `[TASK-X-Y]` patterns from markdown. Fragile and may miss tasks if LLM output format drifts.
+
+The parser also extracts optional PR metadata (title and description) from the `pr:` field in the YAML data. If provided, this metadata is used when creating the pull request during the implement phase.
 
 The parser generates placeholder tasks for empty phases and includes warnings for human review when parsing issues occur.
 

@@ -13,6 +13,23 @@
       "items": {
         "$ref": "#/$defs/phase"
       }
+    },
+    "pr": {
+      "type": "object",
+      "description": "Optional PR metadata for when the implementation is ready to create a pull request",
+      "required": ["title"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "PR title (recommended max 70 characters for readability)",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "description": "PR description/body explaining the context and changes"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,
