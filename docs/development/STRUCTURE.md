@@ -70,9 +70,10 @@ sandbox/
 ├── bin/                    # Git/gh wrapper scripts (route to gateway)
 │   ├── git
 │   ├── gh
+│   ├── egg-contract        # Symlink to contract_cli.py
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
-│   └── contract_cli.py     # SDLC contract CLI (egg-contract)
+│   └── contract_cli.py     # SDLC contract CLI implementation
 ├── llm/                    # Claude Code / Agent SDK integration
 ├── tools/                  # Interactive tools
 │   ├── discover-tests.py   # Test framework discovery
