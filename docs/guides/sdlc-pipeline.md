@@ -333,6 +333,18 @@ Template sections:
 - [TASK-1-2] Add role validation — Acceptance: Unauthorized mutations rejected
 ```
 
+### Task Population
+
+After the plan is approved, tasks are automatically extracted from the plan document and populated into the contract before the implement phase begins.
+
+The `action/populate-contract-tasks.py` script:
+1. Fetches the plan comment from the GitHub issue
+2. Parses task markers using `shared/egg_contracts/plan_parser.py`
+3. Writes phases and tasks into `.egg-state/contracts/{issue-number}.json`
+4. Validates the contract against the JSON schema
+
+This ensures the implementer starts with a fully populated contract containing all planned tasks and acceptance criteria.
+
 ## Implementation Reference
 
 ### Key Files
@@ -341,7 +353,9 @@ Template sections:
 |------|---------|
 | `.github/workflows/sdlc-pipeline.yml` | Main pipeline orchestration |
 | `.github/workflows/sdlc-hitl.yml` | HITL checkbox detection |
+| `action/populate-contract-tasks.py` | Extracts tasks from plan into contract |
 | `shared/egg_contracts/models.py` | Pydantic models for contract |
+| `shared/egg_contracts/plan_parser.py` | Parses plan documents for task extraction |
 | `shared/egg_contracts/roles.py` | Role definitions and field ownership |
 | `shared/egg_contracts/validator.py` | Mutation validation |
 | `shared/egg_contracts/circuit_breaker.py` | Escalation logic |
