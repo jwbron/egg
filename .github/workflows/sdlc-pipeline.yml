@@ -690,7 +690,57 @@ jobs:
           git config user.name "james-in-a-box[bot]"
           git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
 
+      - name: Check for merge conflicts
+        id: merge-check
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # GitHub computes mergeability asynchronously, so poll until
+          # the status is no longer UNKNOWN (up to ~60 seconds)
+          MAX_ATTEMPTS=12
+          POLL_INTERVAL=5
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            MERGEABLE=$(gh pr view "${PR_NUMBER}" --json mergeable --jq '.mergeable')
+            if [[ "$MERGEABLE" != "UNKNOWN" ]]; then
+              break
+            fi
+            echo "Merge status unknown (attempt ${i}/${MAX_ATTEMPTS}), waiting..."
+            sleep $POLL_INTERVAL
+          done
+
+          echo "PR mergeable status: ${MERGEABLE}"
+
+          if [[ "$MERGEABLE" == "MERGEABLE" ]]; then
+            echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$MERGEABLE" == "CONFLICTING" ]]; then
+            echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Could not determine mergeable status after ${MAX_ATTEMPTS} attempts (status: ${MERGEABLE})"
+            exit 1
+          fi
+
+      - name: Post merge conflict comment
+        if: steps.merge-check.outputs.has_conflicts == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
+
+          BODY="**Merge conflicts detected** on draft PR #${PR_NUMBER}.
+
+          The branch has conflicts with \`main\` that must be resolved before the PR can be marked ready for review: ${PR_URL}
+
+          The PR remains as a draft. Resolve the conflicts and re-run the pipeline.
+
+          --- Authored by egg"
+
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
+
       - name: Update PR title and mark ready
+        if: steps.merge-check.outputs.has_conflicts != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
@@ -740,6 +790,7 @@ jobs:
           fi
 
       - name: Update contract phase
+        if: steps.merge-check.outputs.has_conflicts != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
@@ -770,6 +821,7 @@ jobs:
           fi
 
       - name: Post completion comment
+        if: steps.merge-check.outputs.has_conflicts != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
