@@ -126,8 +126,6 @@ The agent addresses all actionable review feedback:
 | **Respond (do not fix)** | Disagreement with feedback — agent posts a reply explaining reasoning instead of making the change |
 | **Skip** | Pure style suggestions that linters handle, subjective preferences without technical justification |
 
-Custom rules can be provided via `.egg/feedback-rules.md` (currently unused by default).
-
 ### Security
 
 The workflow follows the trusted prompt build pattern:
