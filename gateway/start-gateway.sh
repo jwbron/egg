@@ -6,7 +6,6 @@
 # This script is deprecated. Please use one of the following methods instead:
 #   - Docker Compose: bin/egg-deploy up
 #   - CLI: egg --compose
-#   - Launcher container: docker run ghcr.io/jwbron/egg-launcher:latest
 #
 # See docs/guides/deployment.md for migration instructions.
 #
