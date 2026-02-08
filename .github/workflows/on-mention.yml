@@ -152,9 +152,11 @@ jobs:
           fi
 
           # Check if egg already posted a substantive comment since the triggering event
-          TRIGGER_TIME="${{ github.event.comment.created_at || github.event.issue.created_at }}"
+          # For pull_request_review events, use review.submitted_at; for comments, use comment.created_at; fallback to issue.created_at
+          TRIGGER_TIME="${{ github.event.comment.created_at || github.event.review.submitted_at || github.event.issue.created_at }}"
+          # Match both "james-in-a-box" and "james-in-a-box[bot]" since GitHub App comments use the [bot] suffix
           EXISTING_COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq "[.[] | select(.user.login == \"${{ env.BOT_USERNAME }}\" and .created_at > \"${TRIGGER_TIME}\" and (.body | test(\"finished successfully|run failed|Working on it\") | not))] | length")
+            --jq "[.[] | select((.user.login == \"${{ env.BOT_USERNAME }}\" or .user.login == \"${{ env.BOT_USERNAME }}[bot]\") and .created_at > \"${TRIGGER_TIME}\" and (.body | test(\"finished successfully|run failed|👀 Working on it\") | not))] | length")
 
           if [[ "${EXISTING_COMMENTS:-0}" -gt 0 ]]; then
             # Agent already posted a substantive comment — only add run link on failure
