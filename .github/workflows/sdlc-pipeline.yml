@@ -1730,20 +1730,20 @@ jobs:
           # Post PR metadata as a separate comment for easy editing
           BODY="## Planned PR Metadata
 
-The following title and description will be used when creating the pull request.
-You can edit this comment to adjust the PR content before approving the plan.
+          The following title and description will be used when creating the pull request.
+          You can edit this comment to adjust the PR content before approving the plan.
 
-**Title:**
-\`\`\`
-${PR_TITLE}
-\`\`\`
+          **Title:**
+          \`\`\`
+          ${PR_TITLE}
+          \`\`\`
 
-**Description:**
-${PR_DESC}
+          **Description:**
+          ${PR_DESC}
 
----
+          ---
 
-*Authored-by: egg*"
+          *Authored-by: egg*"
 
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
           echo "Posted PR metadata comment"
