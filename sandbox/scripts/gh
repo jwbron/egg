@@ -67,7 +67,7 @@ Please ensure:
      systemctl --user status gateway-sidecar
 
   2. The container can reach the gateway:
-     curl http://egg-gateway:9847/api/v1/health
+     curl http://egg-gateway:9848/api/v1/health
 
 ================================================================================
 

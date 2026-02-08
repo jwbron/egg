@@ -38,7 +38,7 @@ In the gateway-managed worktree architecture:
 - The gateway holds credentials and enforces policies
 
 Please ensure the gateway sidecar is running:
-  curl http://egg-gateway:9847/api/v1/health
+  curl http://egg-gateway:9848/api/v1/health
 
 ================================================================================
 
