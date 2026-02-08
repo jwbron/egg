@@ -150,7 +150,9 @@ ${recent_comments}
 
 You are checked out on the PR's head branch (${pr_head}). Read the
 conversation and perform the requested task. You can modify code, push
-commits, and post comments."
+commits, and post comments.
+
+IMPORTANT: You MUST post a comment on the PR (using \`gh issue comment ${issue_number} --body-file /tmp/response.md\`) summarizing what you did. This is your only way to communicate results — text output alone is not visible. Do not use EnterPlanMode or other interactive features. Write your response to a file first, then post it."
 
       else
         # This is a comment on an issue
@@ -174,8 +176,9 @@ ${recent_comments}
 ## Your task
 @jwbron said: ${comment_body}
 
-Read the conversation above and perform the requested task. After completing
-your work, post a comment on the issue summarizing what you did."
+Read the conversation above and perform the requested task.
+
+IMPORTANT: You MUST post a comment on the issue (using \`gh issue comment ${issue_number} --body-file /tmp/response.md\`) summarizing what you did. This is your only way to communicate results — text output alone is not visible. Do not use EnterPlanMode or other interactive features. Write your response to a file first, then post it."
       fi
       ;;
 
@@ -247,7 +250,9 @@ ${comment_body}
 ## Your task
 Address this inline review comment. You are checked out on the PR's head
 branch (${pr_head}). Make the requested changes, commit, and push. Then reply to the
-review comment confirming what you changed."
+review comment confirming what you changed.
+
+IMPORTANT: You MUST post a comment on the PR (using \`gh issue comment ${pr_number} --body-file /tmp/response.md\`) summarizing what you did. This is your only way to communicate results — text output alone is not visible. Do not use EnterPlanMode or other interactive features. Write your response to a file first, then post it."
       ;;
 
     pull_request_review)
@@ -340,7 +345,9 @@ ${review_comments}
 ## Your task
 Address the review feedback above. You are checked out on the PR's head
 branch (${pr_head}). Make the requested changes, commit, and push. Then reply
-to the review confirming what you changed."
+to the review confirming what you changed.
+
+IMPORTANT: You MUST post a comment on the PR (using \`gh issue comment ${pr_number} --body-file /tmp/response.md\`) summarizing what you did. This is your only way to communicate results — text output alone is not visible. Do not use EnterPlanMode or other interactive features. Write your response to a file first, then post it."
       ;;
 
     issues)
@@ -368,8 +375,9 @@ ${issue_body}
 
 ## Your task
 Read the issue above and work on it. Create a branch, implement the
-changes, write tests, and open a pull request. Post a comment on the
-issue with a link to the PR."
+changes, write tests, and open a pull request.
+
+IMPORTANT: You MUST post a comment on the issue (using \`gh issue comment ${issue_number} --body-file /tmp/response.md\`) with a link to the PR and a summary of what you did. This is your only way to communicate results — text output alone is not visible. Do not use EnterPlanMode or other interactive features. Write your response to a file first, then post it."
       ;;
 
     *)

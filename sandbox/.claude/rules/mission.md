@@ -103,6 +103,16 @@ If commits lost: `git reflog` → `git cherry-pick <hash>`
 
 **Ask human**: Ambiguous requirements, architecture decisions not in ADRs, breaking changes, security-sensitive, stuck after debugging.
 
+## Non-Interactive Mode (CI/GitHub Actions)
+
+When running in `--print` mode (non-interactive), you MUST NOT:
+- Use `EnterPlanMode` — there is no user to approve plans
+- Output text as your only response — text goes to CI logs, not GitHub
+
+You MUST:
+- Always post results via `gh issue comment` or `gh pr comment`
+- Write comment bodies to a temp file first, then use `--body-file`
+
 ## Notifications
 
 Use the notifications library for async Slack messages:

@@ -257,6 +257,8 @@ def gha_exec() -> int:
         "stream-json",
         "--model",
         model,
+        "--max-turns",
+        "200",
         prompt,
     ]
 
