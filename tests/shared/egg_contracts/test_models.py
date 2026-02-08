@@ -226,6 +226,31 @@ class TestContract:
         assert contract.current_phase == PipelinePhase.REFINE
         assert contract.phases == []
         assert contract.decisions == []
+        assert contract.workflow_owner is None
+
+    def test_contract_with_workflow_owner(self):
+        """Test creating a contract with workflow_owner field."""
+        contract = Contract(
+            issue=IssueInfo(
+                number=133,
+                title="Test issue",
+                url="https://github.com/owner/repo/issues/133",
+            ),
+            workflow_owner="jwbron",
+        )
+        assert contract.workflow_owner == "jwbron"
+
+    def test_contract_workflow_owner_null(self):
+        """Test that workflow_owner can be explicitly set to None."""
+        contract = Contract(
+            issue=IssueInfo(
+                number=133,
+                title="Test issue",
+                url="https://github.com/owner/repo/issues/133",
+            ),
+            workflow_owner=None,
+        )
+        assert contract.workflow_owner is None
 
     def test_full_contract(self):
         """Test creating a contract with all fields."""
@@ -339,3 +364,41 @@ class TestContractSerialization:
         assert restored.issue.number == original.issue.number
         assert len(restored.phases) == 1
         assert restored.phases[0].tasks[0].id == "task-1"
+
+    def test_json_roundtrip_with_workflow_owner(self):
+        """Test that workflow_owner serializes and deserializes correctly."""
+        original = Contract(
+            issue=IssueInfo(
+                number=133,
+                title="Test",
+                url="https://example.com",
+            ),
+            workflow_owner="testuser",
+        )
+
+        # Serialize
+        data = original.model_dump(mode="json")
+        assert data["workflow_owner"] == "testuser"
+
+        # Deserialize
+        restored = Contract.model_validate(data)
+        assert restored.workflow_owner == "testuser"
+
+    def test_json_roundtrip_with_null_workflow_owner(self):
+        """Test that null workflow_owner serializes correctly."""
+        original = Contract(
+            issue=IssueInfo(
+                number=133,
+                title="Test",
+                url="https://example.com",
+            ),
+            workflow_owner=None,
+        )
+
+        # Serialize
+        data = original.model_dump(mode="json")
+        assert data["workflow_owner"] is None
+
+        # Deserialize
+        restored = Contract.model_validate(data)
+        assert restored.workflow_owner is None

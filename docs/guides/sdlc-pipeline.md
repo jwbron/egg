@@ -124,6 +124,7 @@ This prevents incidents where agents push code during planning or manually creat
     "max_total_cycles": 10,
     "status": "closed"
   },
+  "workflow_owner": "jwbron",
   "audit_log": []
 }
 ```
