@@ -15,5 +15,18 @@
     "status": "closed"
   },
   "workflow_owner": "jwbron",
-  "audit_log": []
+  "audit_log": [
+    {
+      "timestamp": "2026-02-08T18:51:38Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Refine review cycle 1: approved"
+    }
+  ],
+  "refine_review_cycles": 1,
+  "refine_review_feedback": ""
 }
