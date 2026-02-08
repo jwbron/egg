@@ -5,7 +5,7 @@
 # additional context, then outputs a structured prompt via $GITHUB_OUTPUT.
 #
 # Environment variables:
-#   GITHUB_EVENT_NAME  — event type (issue_comment, pull_request_review_comment, issues)
+#   GITHUB_EVENT_NAME  — event type (issue_comment, pull_request_review_comment, pull_request_review, issues)
 #   GITHUB_EVENT_PATH  — path to event JSON payload
 #   GITHUB_REPOSITORY  — owner/repo
 #   BOT_USERNAME       — bot name to strip from mention (default: james-in-a-box)
@@ -248,6 +248,84 @@ ${comment_body}
 Address this inline review comment. You are checked out on the PR's head
 branch (${pr_head}). Make the requested changes, commit, and push. Then reply to the
 review comment confirming what you changed."
+      ;;
+
+    pull_request_review)
+      local pr_number
+      local pr_title
+      local pr_url
+      local pr_head
+      local pr_base
+      local review_body
+      local review_state
+
+      pr_number=$(jq_raw '.pull_request.number')
+      pr_title=$(jq_raw '.pull_request.title')
+      pr_url=$(jq_raw '.pull_request.html_url')
+      pr_head=$(jq_raw '.pull_request.head.ref')
+      pr_base=$(jq_raw '.pull_request.base.ref')
+      review_body=$(jq_raw '.review.body')
+      review_state=$(jq_raw '.review.state')
+
+      local pr_details
+      pr_details=$(fetch_pr_details "$pr_number")
+      local pr_body_raw pr_body pr_state pr_merged pr_display_state
+      pr_state=$(echo "$pr_details" | jq -r '.state')
+      pr_merged=$(echo "$pr_details" | jq -r '.merged')
+      pr_body_raw=$(echo "$pr_details" | jq -r '.body // ""')
+      pr_body=$(truncate_text "$pr_body_raw" "$MAX_BODY_CHARS")
+      pr_display_state="$pr_state"
+      if [[ "$pr_merged" == "true" ]]; then
+        pr_display_state="merged"
+      fi
+
+      local changed_files
+      changed_files=$(fetch_pr_files "$pr_number")
+
+      local recent_comments
+      recent_comments=$(fetch_recent_comments "$pr_number")
+
+      # Fetch review comments (inline comments attached to this review)
+      local review_comments=""
+      local review_id
+      review_id=$(jq_raw '.review.id')
+      review_comments=$(gh_api_safe "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/reviews/${review_id}/comments" \
+        --jq '.[] | "### \(.path):\(.line // .original_line // "?")\n\(.diff_hunk)\n\n\(.body)\n"' 2>/dev/null || true)
+
+      prompt="You were mentioned in a pull request review submission.
+
+Repository: ${GITHUB_REPOSITORY}
+Pull Request: #${pr_number} — ${pr_title}
+PR URL: ${pr_url}
+PR state: ${pr_display_state}
+PR base: ${pr_base} <- ${pr_head}
+Review state: ${review_state}
+
+## PR description
+${pr_body}
+
+## Changed files
+${changed_files}
+
+## Recent conversation (last 10 comments)
+${recent_comments}
+
+## Review body
+${review_body}
+"
+
+      if [[ -n "$review_comments" ]]; then
+        prompt+="
+## Inline review comments
+${review_comments}
+"
+      fi
+
+      prompt+="
+## Your task
+Address the review feedback above. You are checked out on the PR's head
+branch (${pr_head}). Make the requested changes, commit, and push. Then reply
+to the review confirming what you changed."
       ;;
 
     issues)
