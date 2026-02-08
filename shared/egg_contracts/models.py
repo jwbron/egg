@@ -175,6 +175,13 @@ class CircuitBreaker(BaseModel):
     )
 
 
+class PRMetadata(BaseModel):
+    """Planner-generated PR title and description."""
+
+    title: str = Field(..., min_length=1, description="PR title (recommended max 70 chars)")
+    description: str = Field(default="", description="PR description/body")
+
+
 class AuditEntry(BaseModel):
     """Audit log entry for contract modifications."""
 
@@ -219,6 +226,9 @@ class Contract(BaseModel):
         default=0, ge=0, description="Number of plan phase review cycles"
     )
     plan_review_feedback: str = Field(default="", description="Feedback from last plan review")
+    pr: PRMetadata | None = Field(
+        default=None, description="Planner-generated PR metadata for use during PR creation"
+    )
 
     def get_task(self, phase_id: str, task_id: str) -> Task | None:
         """Get a specific task by phase and task ID."""
