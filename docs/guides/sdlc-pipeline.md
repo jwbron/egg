@@ -168,7 +168,7 @@ The implement phase uses PR-based automated code review:
 3. **CI and review checks** — The pipeline waits for all GitHub check runs (linting, tests, and PR review) to complete
 4. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
 5. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
-6. **Merge conflict check** — Before finalization, the pipeline checks if the PR has conflicts with the base branch. If conflicts exist, the PR remains as draft and the pipeline pauses until conflicts are resolved
+6. **Merge conflict check** — Before finalization, the pipeline checks if the PR has conflicts with the base branch. If conflicts exist, the PR remains as draft and the pipeline exits; conflicts must be resolved and the pipeline re-run
 7. **PR finalization** — Once all checks pass, review approves, and no merge conflicts exist, the draft PR is marked ready for human merge
 
 This approach provides:
