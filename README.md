@@ -25,10 +25,10 @@ egg turns a GitHub issue into a reviewed pull request through a structurally enf
          (approve plan)   (approve tasks)    (draft PR checks)    (final merge)
 ```
 
-### 1. Refine — Analyze the issue and produce a requirements document
-### 2. Plan — Break work into tasks with acceptance criteria. Human approves before any code is written.
-### 3. Implement — Create a draft PR and implement tasks. CI runs and `reusable-review.yml` provides line-level code review. Re-implementation cycles continue until all checks pass.
-### 4. Merge — Once checks pass, the draft PR is marked ready. Only a human can merge via GitHub UI.
+1. **Refine** — Analyze the issue and produce a requirements document.
+2. **Plan** — Break work into tasks with acceptance criteria. Human approves before any code is written.
+3. **Implement** — Create a draft PR and implement tasks. CI runs and `reusable-review.yml` provides line-level code review. Re-implementation cycles continue until all checks pass.
+4. **Merge** — Once checks pass, the draft PR is marked ready. Only a human can merge via GitHub UI.
 
 The pipeline state lives in a JSON contract (`.egg-state/contracts/{issue}.json`) committed to the feature branch, giving full auditability of every phase transition and decision.
 
