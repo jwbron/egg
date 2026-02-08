@@ -38,9 +38,11 @@ jobs:
             # For manual dispatch, use the provided PR number (bypass path filter)
             PR_NUMBER="${{ github.event.inputs.pr_number }}"
             PR_TITLE=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.title')
-            echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
-            echo "pr_title=${PR_TITLE}" >> "$GITHUB_OUTPUT"
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "pr_number=${PR_NUMBER}"
+              echo "pr_title=${PR_TITLE}"
+              echo "should_run=true"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -89,9 +91,11 @@ jobs:
           # Fetch PR title for skip-review check
           PR_TITLE=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.title')
 
-          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
-          echo "pr_title=${PR_TITLE}" >> "$GITHUB_OUTPUT"
-          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "pr_number=${PR_NUMBER}"
+            echo "pr_title=${PR_TITLE}"
+            echo "should_run=true"
+          } >> "$GITHUB_OUTPUT"
           echo "Found PR #${PR_NUMBER}: ${PR_TITLE} (matches agent-related path filter)"
 
   review:

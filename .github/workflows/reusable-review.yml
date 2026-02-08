@@ -118,7 +118,7 @@ jobs:
 
           # Wait for all check runs to complete (CI, other reviews, etc.)
           # Excludes this workflow's own checks to avoid self-deadlock
-          SELF_CHECKS=("egg: Code Review" "egg: Agent-Mode Design Review")
+          # (filtering is done inline in jq below)
 
           # Maximum wait time (30 minutes)
           MAX_WAIT_SECONDS=1800
