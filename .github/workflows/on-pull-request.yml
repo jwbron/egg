@@ -1,8 +1,12 @@
 name: "egg: Code Review"
 
+# Trigger on workflow_run completion (not directly on pull_request).
+# This ensures the reviewer only runs after Lint and Test workflows complete,
+# reducing noise from reviews that happen while checks are still running.
 on:
-  pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+  workflow_run:
+    workflows: ["Lint", "Test"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -11,18 +15,72 @@ on:
         type: number
 
 jobs:
+  # Determine if this workflow_run is associated with a PR and should proceed
+  get-pr:
+    name: Get PR context
+    runs-on: ubuntu-latest
+    # Skip if the triggering workflow failed (let autofixer handle failures)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    outputs:
+      pr_number: ${{ steps.pr-info.outputs.pr_number }}
+      pr_title: ${{ steps.pr-info.outputs.pr_title }}
+      should_run: ${{ steps.pr-info.outputs.should_run }}
+    steps:
+      - name: Get PR information from workflow_run
+        id: pr-info
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # For manual dispatch, use the provided PR number
+            PR_NUMBER="${{ github.event.inputs.pr_number }}"
+            PR_TITLE=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.title')
+            echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "pr_title=${PR_TITLE}" >> "$GITHUB_OUTPUT"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # For workflow_run, get PR from the triggering workflow's context
+          # workflow_run.pull_requests contains PRs associated with the head SHA
+          PULL_REQUESTS='${{ toJson(github.event.workflow_run.pull_requests) }}'
+          PR_COUNT=$(echo "$PULL_REQUESTS" | jq 'length')
+
+          if [[ "$PR_COUNT" -eq 0 ]]; then
+            echo "No pull request associated with this workflow run"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Use the first PR (typically there's only one)
+          PR_NUMBER=$(echo "$PULL_REQUESTS" | jq -r '.[0].number')
+
+          # Fetch PR title for skip-review check
+          PR_TITLE=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.title')
+
+          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "pr_title=${PR_TITLE}" >> "$GITHUB_OUTPUT"
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "Found PR #${PR_NUMBER}: ${PR_TITLE}"
+
   review:
     name: AI Code Review
+    needs: get-pr
+    if: needs.get-pr.outputs.should_run == 'true'
     permissions:
       contents: read
       pull-requests: write
     uses: ./.github/workflows/reusable-review.yml
     with:
-      pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+      pr_number: ${{ fromJson(needs.get-pr.outputs.pr_number) }}
       bot_name: review
       timeout: "10"
-      pr_title: ${{ github.event.pull_request.title || '' }}
+      pr_title: ${{ needs.get-pr.outputs.pr_title }}
       event_name: ${{ github.event_name }}
+      head_sha: ${{ github.event.workflow_run.head_sha || '' }}
+      wait_for_checks: true
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
       BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}

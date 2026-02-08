@@ -20,19 +20,25 @@ credentials, merge PRs, or push outside its branch namespace.
 **Workflow:** [`.github/workflows/on-pull-request.yml`](../../.github/workflows/on-pull-request.yml)
 **Framework:** [`.github/workflows/reusable-review.yml`](../../.github/workflows/reusable-review.yml)
 
-Triggers on `pull_request` events (`opened`, `synchronize`, `ready_for_review`, `reopened`)
-and via `workflow_dispatch` with a PR number.
+Triggers on `workflow_run` events when `Lint` or `Test` workflows complete successfully,
+and via `workflow_dispatch` with a PR number. This ensures the reviewer only runs after
+all CI checks have passed, reducing noise from reviews that happen while the autofixer
+is still fixing issues.
 
 ### How It Works
 
-1. **Skip checks** — Skips draft PRs and PRs with `[skip-review]` in the title.
-2. **Re-review detection** — Searches for an `<!-- egg-automated-review bot=<name> commit=<sha> -->`
+1. **Trigger filtering** — Only runs after `Lint` or `Test` workflows complete successfully.
+   If either workflow fails, the review is skipped (autofixer handles failures first).
+2. **Wait for all checks** — Before reviewing, polls for any other checks to complete.
+   This prevents reviewing while other CI checks are still running.
+3. **Skip checks** — Skips draft PRs and PRs with `[skip-review]` in the title.
+4. **Re-review detection** — Searches for an `<!-- egg-automated-review bot=<name> commit=<sha> -->`
    marker in previous reviews/comments to identify the last reviewed commit. On re-review,
    the agent uses `git diff <last-commit>..HEAD` to focus on new changes only.
-3. **Stale review dismissal** — Dismisses previous bot reviews before posting a new one.
-4. **Trusted prompt build** — Checks out `main` (not the PR branch) to run
+5. **Stale review dismissal** — Dismisses previous bot reviews before posting a new one.
+6. **Trusted prompt build** — Checks out `main` (not the PR branch) to run
    `build-review-prompt.sh`, preventing prompt injection from malicious PRs.
-5. **Agent review** — Checks out the PR branch and runs egg with the review prompt.
+7. **Agent review** — Checks out the PR branch and runs egg with the review prompt.
    The agent reads the diff, examines context, and posts its review via `gh pr review`.
 
 ### Review Decisions
@@ -64,7 +70,9 @@ by providing different prompt scripts while sharing the review infrastructure.
 **Workflow:** [`.github/workflows/on-pull-request-agent-mode-design.yml`](../../.github/workflows/on-pull-request-agent-mode-design.yml)
 
 A specialized reviewer that checks PRs for alignment with [agent-mode design principles](agent-mode-design.md).
-Uses the same reusable framework as AI Code Review but with a focused prompt.
+Uses the same reusable framework as AI Code Review but with a focused prompt. Like the
+base code review, it triggers on `workflow_run` completion rather than directly on PR events,
+ensuring checks pass before the review runs.
 
 ### Trigger Scope
 
