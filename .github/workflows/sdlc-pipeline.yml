@@ -48,6 +48,7 @@ jobs:
       branch_name: ${{ steps.setup.outputs.branch_name }}
       current_phase: ${{ steps.setup.outputs.current_phase }}
       contract_exists: ${{ steps.setup.outputs.contract_exists }}
+      workflow_owner: ${{ steps.setup.outputs.workflow_owner }}
 
     steps:
       - name: Generate bot token
@@ -87,6 +88,7 @@ jobs:
           DISPATCH_ISSUE: ${{ github.event.inputs.issue_number }}
           LABELED_ISSUE: ${{ github.event.issue.number }}
           STARTING_PHASE: ${{ github.event.inputs.starting_phase || 'refine' }}
+          EVENT_SENDER: ${{ github.event.sender.login }}
         run: |
           set -euo pipefail
 
@@ -111,6 +113,19 @@ jobs:
           ISSUE_URL=$(echo "$ISSUE_DATA" | jq -r '.html_url')
 
           echo "issue_title=${ISSUE_TITLE}" >> "$GITHUB_OUTPUT"
+
+          # Capture workflow owner (the user who triggered the workflow)
+          # This is the user who added the egg-sdlc label or dispatched the workflow
+          WORKFLOW_OWNER="${EVENT_SENDER:-}"
+
+          # Validate workflow owner format (defense-in-depth)
+          # GitHub usernames are alphanumeric with hyphens only
+          if [[ -n "$WORKFLOW_OWNER" ]] && ! [[ "$WORKFLOW_OWNER" =~ ^[a-zA-Z0-9-]+$ ]]; then
+            echo "::warning::Invalid workflow owner format, skipping: ${WORKFLOW_OWNER}"
+            WORKFLOW_OWNER=""
+          fi
+
+          echo "workflow_owner=${WORKFLOW_OWNER}" >> "$GITHUB_OUTPUT"
 
           # Branch name for this issue
           BRANCH_NAME="egg/issue-${ISSUE_NUMBER}"
@@ -140,6 +155,13 @@ jobs:
             echo "current_phase=${STARTING_PHASE}" >> "$GITHUB_OUTPUT"
 
             # Create initial contract
+            # Build workflow_owner value (null if empty, quoted string otherwise)
+            if [[ -n "$WORKFLOW_OWNER" ]]; then
+              WORKFLOW_OWNER_JSON="\"${WORKFLOW_OWNER}\""
+            else
+              WORKFLOW_OWNER_JSON="null"
+            fi
+
             cat > "$CONTRACT_PATH" << EOF
           {
             "schemaVersion": "1.0",
@@ -157,6 +179,7 @@ jobs:
               "max_total_cycles": 10,
               "status": "closed"
             },
+            "workflow_owner": ${WORKFLOW_OWNER_JSON},
             "audit_log": []
           }
           EOF
@@ -644,6 +667,7 @@ jobs:
       ISSUE_TITLE: ${{ needs.init.outputs.issue_title }}
       BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
       PR_NUMBER: ${{ needs.implement.outputs.pr_number }}
+      WORKFLOW_OWNER: ${{ needs.init.outputs.workflow_owner }}
 
     steps:
       - name: Generate bot token
@@ -685,6 +709,12 @@ jobs:
           FINAL_BODY="${EXISTING_BODY}"
           FINAL_BODY="${FINAL_BODY}"$'\n\n'"---"
           FINAL_BODY="${FINAL_BODY}"$'\n\n'"✅ All automated checks passed. Ready for human review."
+
+          # Add reviewer assignment note if workflow owner is available
+          if [[ -n "${WORKFLOW_OWNER}" ]]; then
+            FINAL_BODY="${FINAL_BODY}"$'\n\n'"Reviewer: @${WORKFLOW_OWNER}"
+          fi
+
           FINAL_BODY="${FINAL_BODY}"$'\n\n'"Authored-by: egg"
 
           gh pr edit "${PR_NUMBER}" --body "$FINAL_BODY"
@@ -693,6 +723,21 @@ jobs:
           gh pr ready "${PR_NUMBER}"
 
           echo "PR #${PR_NUMBER} marked ready for human review"
+
+      - name: Add workflow owner as reviewer
+        if: env.WORKFLOW_OWNER != ''
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Add the workflow owner as a PR reviewer
+          # This may warn if the user doesn't have permission but won't fail
+          if gh pr edit "${PR_NUMBER}" --add-reviewer "${WORKFLOW_OWNER}"; then
+            echo "Added @${WORKFLOW_OWNER} as reviewer for PR #${PR_NUMBER}"
+          else
+            echo "::warning::Could not add @${WORKFLOW_OWNER} as reviewer (they may not have permission)"
+          fi
 
       - name: Update contract phase
         env:

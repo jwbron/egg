@@ -206,6 +206,10 @@ class Contract(BaseModel):
     circuit_breaker: CircuitBreaker = Field(
         default_factory=CircuitBreaker, description="Circuit breaker state"
     )
+    workflow_owner: str | None = Field(
+        default=None,
+        description="GitHub username of the user who initiated the SDLC workflow",
+    )
     audit_log: list[AuditEntry] = Field(default_factory=list, description="Audit trail")
 
     def get_task(self, phase_id: str, task_id: str) -> Task | None:
