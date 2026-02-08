@@ -430,12 +430,16 @@ jobs:
 
           # Build PR body from commit messages (excluding contract-only commits)
           # Get commits on this branch that aren't on main
+          # Use a single grep -Ev with || true to avoid exit code 1 when all lines are filtered
           COMMIT_MESSAGES=$(git log origin/main..HEAD --pretty=format:'%s%n%n%b' --reverse \
-            | grep -v "^Initialize SDLC contract" \
-            | grep -v "^Populate contract tasks" \
-            | grep -v "^Advance to .* phase" \
-            | grep -v "^Checkpoint state" \
-            | sed '/^$/N;/^\n$/d')
+            | grep -Ev "^(Initialize SDLC contract|Populate contract tasks|Advance to .* phase|Checkpoint state)" || true)
+          # Clean up consecutive blank lines
+          COMMIT_MESSAGES=$(echo "$COMMIT_MESSAGES" | sed '/^$/N;/^\n$/d')
+
+          # Fallback if all commits were filtered out
+          if [[ -z "$COMMIT_MESSAGES" ]]; then
+            COMMIT_MESSAGES="Initial implementation (see commit history for details)"
+          fi
 
           # Build PR body with commit messages and context
           PR_BODY="## Summary"
@@ -672,11 +676,14 @@ jobs:
           CLEAN_TITLE="${ISSUE_TITLE}"
           gh pr edit "${PR_NUMBER}" --title "${CLEAN_TITLE}"
 
-          # Update PR body with final details
-          FINAL_BODY="## Summary"
-          FINAL_BODY="${FINAL_BODY}"$'\n\n'"Implementation for issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}"
-          FINAL_BODY="${FINAL_BODY}"$'\n\n'"This PR was developed through the SDLC pipeline with automated checks."
-          FINAL_BODY="${FINAL_BODY}"$'\n\n'"Issue: ${{ github.server_url }}/${{ github.repository }}/issues/${ISSUE_NUMBER}"
+          # Preserve the existing PR body (which contains commit messages from create-pr)
+          # and append a completion note
+          EXISTING_BODY=$(gh pr view "${PR_NUMBER}" --json body --jq '.body')
+
+          # Append completion status to existing body
+          FINAL_BODY="${EXISTING_BODY}"
+          FINAL_BODY="${FINAL_BODY}"$'\n\n'"---"
+          FINAL_BODY="${FINAL_BODY}"$'\n\n'"✅ All automated checks passed. Ready for human review."
           FINAL_BODY="${FINAL_BODY}"$'\n\n'"Authored-by: egg"
 
           gh pr edit "${PR_NUMBER}" --body "$FINAL_BODY"
