@@ -97,7 +97,7 @@ Phase approval is a simpler mechanism for advancing the pipeline.
 The `sdlc-hitl.yml` workflow triggers on `issue_comment.edited` events. It checks:
 
 1. **For decisions**: Comment contains `<!-- egg-hitl-decision` and a checkbox changed
-2. **For approvals**: Comment contains `<!-- egg-phase-approval` or `[x] Approve`
+2. **For approvals**: Comment contains `<!-- egg-phase-approval` AND `[x] Approve`
 
 ### Security
 
