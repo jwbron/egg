@@ -4,20 +4,22 @@ Technical design and system architecture.
 
 ## System Overview
 
-egg runs as two Docker containers working together:
+egg is a structurally enforced SDLC pipeline that turns GitHub issues into reviewed pull requests. The system runs as two Docker containers working together:
 
-- **Gateway sidecar** (trusted) - Holds credentials, enforces policies, proxies all external access
+- **Gateway sidecar** (trusted) - Enforces SDLC phases, validates role permissions, injects credentials, proxies all external access
 - **Sandbox container** (untrusted) - Where the LLM agent runs with no credentials and restricted network
+
+The gateway acts as the enforcement engine for both process controls (SDLC phases) and security controls (credential isolation).
 
 See the [main README](../../README.md) for the architecture diagram.
 
 ## Key Design Principles
 
-**Sandboxing:**
-- Docker container isolation
-- No credentials in sandbox container
-- All git/GitHub operations proxied through gateway
-- Network restricted via Squid proxy (private mode)
+**Structurally Enforced SDLC:**
+- Work progresses through defined phases (refine → plan → implement → merge)
+- Each phase has specific permitted operations enforced by the gateway
+- Phase transitions require human approval
+- Role-based contract mutations prevent agents from self-approving work
 
 **Credential Isolation:**
 - Gateway injects Anthropic API keys at proxy time

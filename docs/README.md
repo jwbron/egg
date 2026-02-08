@@ -1,6 +1,6 @@
 # Egg Documentation
 
-Complete documentation for egg: a hardened sandbox for autonomous LLM code agents.
+Complete documentation for egg: a structurally enforced SDLC pipeline for autonomous LLM agents.
 
 > **For LLMs**: Start with the [Documentation Index](index.md) for efficient navigation.
 

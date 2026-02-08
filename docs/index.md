@@ -1,6 +1,6 @@
 # Documentation Index
 
-> egg: A hardened sandbox for autonomous LLM code agents with infrastructure-enforced security controls.
+> egg: A structurally enforced SDLC pipeline for autonomous LLM agents — turning GitHub issues into reviewed pull requests with mandatory human gates.
 
 This index helps both humans and LLMs navigate the documentation efficiently.
 
