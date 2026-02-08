@@ -1020,7 +1020,7 @@ jobs:
           --- Authored by egg"
           fi
 
-          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
   # ============================================================
   # Refine: Analyze issue and produce analysis document
