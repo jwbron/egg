@@ -294,6 +294,113 @@ GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE = frozenset(
 )
 
 
+# gh CLI template variables that need resolution from current repo context
+GH_TEMPLATE_VARIABLES = frozenset({"{owner}", "{repo}"})
+
+# Valid GitHub identifier pattern: alphanumeric, hyphens, underscores, periods
+# Must not start with hyphen. Max 39 chars for users, 100 for orgs/repos.
+GITHUB_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
+
+
+def has_gh_template_variables(api_path: str) -> bool:
+    """
+    Check if an API path contains gh CLI template variables.
+
+    The gh CLI supports {owner} and {repo} template variables that are
+    resolved from the current repository's git remote.
+
+    Args:
+        api_path: The API path to check
+
+    Returns:
+        True if the path contains template variables
+    """
+    return any(var in api_path for var in GH_TEMPLATE_VARIABLES)
+
+
+def resolve_gh_api_template_variables(api_path: str, cwd: str | None) -> str | None:
+    """
+    Resolve {owner} and {repo} template variables in a gh api path.
+
+    The gh CLI automatically resolves these variables from the current
+    repository's git remote. This function replicates that behavior so
+    the gateway can perform visibility checks on the resolved path.
+
+    Args:
+        api_path: The API path, possibly containing {owner} and {repo}
+        cwd: Working directory to resolve the current repo from
+
+    Returns:
+        The resolved API path, or None if resolution failed
+    """
+    if not has_gh_template_variables(api_path):
+        return api_path
+
+    if not cwd:
+        logger.warning(
+            "Cannot resolve template variables without cwd",
+            api_path=api_path,
+        )
+        return None
+
+    # Import here to avoid circular dependency
+    try:
+        from repo_parser import get_remote_url, parse_github_url  # type: ignore[import-not-found]
+    except ImportError:
+        from .repo_parser import get_remote_url, parse_github_url
+
+    # Get the remote URL from the working directory
+    remote_url = get_remote_url(cwd, "origin")
+    if not remote_url:
+        logger.warning(
+            "Could not get remote URL to resolve template variables",
+            api_path=api_path,
+            cwd=cwd,
+        )
+        return None
+
+    # Parse the URL to get owner/repo
+    repo_info = parse_github_url(remote_url)
+    if not repo_info:
+        logger.warning(
+            "Could not parse repository from remote URL",
+            api_path=api_path,
+            remote_url=remote_url,
+        )
+        return None
+
+    # Validate owner/repo contain only valid GitHub identifier characters
+    # This prevents path injection from malicious .git/config remotes
+    if not GITHUB_IDENTIFIER_PATTERN.match(repo_info.owner):
+        logger.warning(
+            "Invalid owner identifier in remote URL",
+            api_path=api_path,
+            owner=repo_info.owner,
+        )
+        return None
+
+    if not GITHUB_IDENTIFIER_PATTERN.match(repo_info.repo):
+        logger.warning(
+            "Invalid repo identifier in remote URL",
+            api_path=api_path,
+            repo=repo_info.repo,
+        )
+        return None
+
+    # Resolve the template variables
+    resolved = api_path.replace("{owner}", repo_info.owner).replace("{repo}", repo_info.repo)
+
+    logger.debug(
+        "Resolved template variables in API path",
+        original=api_path,
+        resolved=resolved,
+        owner=repo_info.owner,
+        repo=repo_info.repo,
+    )
+
+    return resolved
+
+
 def extract_repo_from_gh_api_path(api_path: str) -> str | None:
     """
     Extract owner/repo from a gh api path.
@@ -302,8 +409,12 @@ def extract_repo_from_gh_api_path(api_path: str) -> str | None:
         "repos/owner/repo/pulls" -> "owner/repo"
         "repos/owner/repo" -> "owner/repo"
         "/repos/owner/repo/issues/123" -> "owner/repo"
+        "repos/{owner}/{repo}/pulls" -> None (template variables not resolved)
         "user" -> None
         "orgs/myorg/repos" -> None
+
+    Note: Paths containing {owner} and {repo} template variables return None.
+    Use resolve_gh_api_template_variables() first to resolve them.
 
     Args:
         api_path: The API path (with or without leading slash)
@@ -322,7 +433,15 @@ def extract_repo_from_gh_api_path(api_path: str) -> str | None:
     if len(parts) >= 3:
         owner, repo = parts[1], parts[2]
         # Validate they look like valid GitHub identifiers
-        if owner and repo and not owner.startswith("-") and not repo.startswith("-"):
+        # Reject template variables like {owner} and {repo}
+        if (
+            owner
+            and repo
+            and not owner.startswith("-")
+            and not repo.startswith("-")
+            and not owner.startswith("{")
+            and not repo.startswith("{")
+        ):
             return f"{owner}/{repo}"
 
     return None

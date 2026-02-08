@@ -72,6 +72,7 @@ try:
         extract_repo_from_gh_command,
         get_github_client,
         parse_gh_api_args,
+        resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
     from .policy import (
@@ -113,6 +114,7 @@ except ImportError:
         extract_repo_from_gh_command,
         get_github_client,
         parse_gh_api_args,
+        resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
     from policy import (  # type: ignore[no-redef, import-not-found]
@@ -1627,6 +1629,36 @@ def gh_execute() -> tuple[Response, int] | Response:
                 details={"command_args": args},
             )
             return make_error("No API path provided in gh api command", status_code=400)
+
+        # Resolve {owner} and {repo} template variables if present
+        # The gh CLI resolves these from the current repo's git remote
+        resolved_api_path = resolve_gh_api_template_variables(api_path, cwd)
+        if resolved_api_path is None:
+            audit_log(
+                "api_path_template_resolution_failed",
+                "gh_execute",
+                success=False,
+                details={
+                    "api_path": api_path,
+                    "cwd": cwd,
+                    "reason": "Could not resolve template variables",
+                },
+            )
+            return make_error(
+                "Could not resolve {owner}/{repo} template variables. "
+                "Ensure you are in a git repository with an 'origin' remote.",
+                status_code=400,
+            )
+
+        # If template variables were resolved, update the args to use resolved path
+        if resolved_api_path != api_path:
+            # Find and replace the API path in args
+            args = list(args)  # Make a mutable copy
+            for i, arg in enumerate(args):
+                if arg == api_path:
+                    args[i] = resolved_api_path
+                    break
+            api_path = resolved_api_path
 
         path_valid, path_error = validate_gh_api_path(api_path, method)
         if not path_valid:
