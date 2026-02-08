@@ -125,7 +125,7 @@ ${review_rules}
 
 ## Review Conventions
 
-${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --approve if the PR looks good, --request-changes for blocking issues, or --comment for advisory feedback. Be specific and suggest fixes. Sign your review with: — Authored by egg}
+${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\` with \`--body-file\`. Always write your review to a temp file first, then use --body-file to post it. Do NOT use --body with inline content — long reviews will fail due to shell escaping. Example: \`cat > /tmp/review-body.md << 'REVIEW_EOF'\` then \`gh pr review ${PR_NUMBER} --request-changes --body-file /tmp/review-body.md\`. Use --approve, --request-changes, or --comment as appropriate. Sign your review with: — Authored by egg}
 "
     else
         prompt="Review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
@@ -153,7 +153,7 @@ ${review_rules}
 
 ## Review Conventions
 
-${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\`. Use --approve if the PR looks good, --request-changes for blocking issues, or --comment for advisory feedback. Be specific and suggest fixes. Sign your review with: — Authored by egg}
+${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\` with \`--body-file\`. Always write your review to a temp file first, then use --body-file to post it. Do NOT use --body with inline content — long reviews will fail due to shell escaping. Example: \`cat > /tmp/review-body.md << 'REVIEW_EOF'\` then \`gh pr review ${PR_NUMBER} --request-changes --body-file /tmp/review-body.md\`. Use --approve, --request-changes, or --comment as appropriate. Sign your review with: — Authored by egg}
 "
     fi
 
