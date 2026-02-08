@@ -299,8 +299,6 @@ GH_TEMPLATE_VARIABLES = frozenset({"{owner}", "{repo}"})
 
 # Valid GitHub identifier pattern: alphanumeric, hyphens, underscores, periods
 # Must not start with hyphen. Max 39 chars for users, 100 for orgs/repos.
-import re
-
 GITHUB_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
 
 
