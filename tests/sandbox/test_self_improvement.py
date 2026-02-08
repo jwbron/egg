@@ -258,6 +258,72 @@ class TestGHALogCollector:
         assert len(runs) == 1
         assert runs[0]["id"] == 1
 
+    @patch("subprocess.run")
+    def test_process_run_invokes_gh_run_view(self, mock_run: MagicMock):
+        """_process_run invokes gh run view with correct arguments."""
+        now = datetime.now(UTC)
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="Job log content here",
+        )
+
+        collector = GHALogCollector(repo="owner/repo")
+        run = {
+            "id": 12345,
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+            "status": "completed",
+            "conclusion": "success",
+            "event": "push",
+            "name": "Test Workflow",
+            "head_branch": "main",
+            "run_number": 42,
+            "html_url": "https://github.com/owner/repo/actions/runs/12345",
+            "path": ".github/workflows/test.yml",
+        }
+
+        result = collector._process_run(run)
+
+        # Verify gh run view was called with correct arguments
+        mock_run.assert_called_once_with(
+            ["gh", "run", "view", "12345", "--repo", "owner/repo", "--log"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        # Verify the result
+        assert result is not None
+        assert result.run_id == "12345"
+        assert result.logs == "Job log content here"
+        assert result.status == "success"
+        assert result.metadata["workflow"] == "Test Workflow"
+
+    @patch("subprocess.run")
+    def test_process_run_returns_none_on_failure(self, mock_run: MagicMock):
+        """_process_run returns None when gh run view fails."""
+        now = datetime.now(UTC)
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="failed to fetch logs",
+        )
+
+        collector = GHALogCollector(repo="owner/repo")
+        run = {
+            "id": 99999,
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+            "status": "in_progress",
+            "conclusion": None,
+            "event": "push",
+        }
+
+        result = collector._process_run(run)
+
+        # Should return None when command fails
+        assert result is None
+
 
 class TestCollect:
     """Tests for the collect module."""
