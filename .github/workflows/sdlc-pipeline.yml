@@ -456,12 +456,110 @@ jobs:
           gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
 
   # ============================================================
+  # Wait for CI: Ensure lint and test checks pass before review
+  # ============================================================
+  wait-for-ci:
+    name: Wait for CI checks
+    needs: [init, implement]
+    if: always() && needs.implement.result == 'success' && needs.init.outputs.pr_number != ''
+    runs-on: ubuntu-latest
+    outputs:
+      ci_passed: ${{ steps.wait.outputs.passed }}
+
+    env:
+      PR_NUMBER: ${{ needs.init.outputs.pr_number }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Wait for required checks
+        id: wait
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Get the head SHA for this PR
+          HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
+          echo "Waiting for checks on commit: ${HEAD_SHA}"
+
+          # Required check names to wait for
+          REQUIRED_CHECKS="Lint,Test"
+
+          # Maximum wait time (15 minutes)
+          MAX_WAIT_SECONDS=900
+          POLL_INTERVAL=30
+          elapsed=0
+
+          while [[ $elapsed -lt $MAX_WAIT_SECONDS ]]; do
+            all_passed=true
+            any_failed=false
+            pending_checks=""
+
+            # Get check runs for this commit
+            check_runs=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
+              --jq '.check_runs | map({name: .name, status: .status, conclusion: .conclusion})')
+
+            for check_name in ${REQUIRED_CHECKS//,/ }; do
+              # Find this check in the results (case-insensitive partial match)
+              check_status=$(echo "$check_runs" | jq -r --arg name "$check_name" \
+                '[.[] | select(.name | ascii_downcase | contains($name | ascii_downcase))] | .[0] // empty')
+
+              if [[ -z "$check_status" ]]; then
+                echo "Check '${check_name}' not found yet"
+                all_passed=false
+                pending_checks="${pending_checks}${check_name} (not started), "
+                continue
+              fi
+
+              status=$(echo "$check_status" | jq -r '.status')
+              conclusion=$(echo "$check_status" | jq -r '.conclusion')
+              actual_name=$(echo "$check_status" | jq -r '.name')
+
+              if [[ "$status" != "completed" ]]; then
+                echo "Check '${actual_name}' is ${status}"
+                all_passed=false
+                pending_checks="${pending_checks}${actual_name} (${status}), "
+              elif [[ "$conclusion" != "success" ]]; then
+                echo "Check '${actual_name}' failed with conclusion: ${conclusion}"
+                any_failed=true
+              else
+                echo "Check '${actual_name}' passed"
+              fi
+            done
+
+            if [[ "$any_failed" == "true" ]]; then
+              echo "::error::One or more required checks failed"
+              echo "passed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if [[ "$all_passed" == "true" ]]; then
+              echo "All required checks passed"
+              echo "passed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            echo "Waiting for: ${pending_checks%%, }"
+            sleep $POLL_INTERVAL
+            elapsed=$((elapsed + POLL_INTERVAL))
+          done
+
+          echo "::warning::Timeout waiting for checks after ${MAX_WAIT_SECONDS} seconds"
+          echo "passed=timeout" >> "$GITHUB_OUTPUT"
+
+  # ============================================================
   # Review: Run reusable-review.yml against the draft PR
   # ============================================================
   sdlc-review:
     name: Auto-review via PR
-    needs: [init, implement]
-    if: always() && needs.implement.result == 'success' && needs.init.outputs.pr_number != ''
+    needs: [init, implement, wait-for-ci]
+    if: always() && needs.wait-for-ci.result == 'success' && needs.wait-for-ci.outputs.ci_passed == 'true' && needs.init.outputs.pr_number != ''
     uses: ./.github/workflows/reusable-review.yml
     with:
       pr_number: ${{ fromJSON(needs.init.outputs.pr_number) }}
@@ -470,6 +568,53 @@ jobs:
       is_draft: true
       timeout: "30"
     secrets: inherit
+
+  # Handle CI failure - post comment and stop pipeline
+  ci-failed:
+    name: CI checks failed
+    needs: [init, implement, wait-for-ci]
+    if: always() && needs.wait-for-ci.result == 'success' && needs.wait-for-ci.outputs.ci_passed != 'true' && needs.init.outputs.pr_number != ''
+    runs-on: ubuntu-latest
+
+    env:
+      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
+      PR_NUMBER: ${{ needs.init.outputs.pr_number }}
+      CI_RESULT: ${{ needs.wait-for-ci.outputs.ci_passed }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Post CI failure comment
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
+
+          if [[ "$CI_RESULT" == "timeout" ]]; then
+            BODY="**CI checks timed out** while waiting for lint and test workflows.
+
+          This may indicate the workflows are queued or running slowly. Please check the PR for status: ${PR_URL}
+
+          The pipeline will re-trigger on the next implementation cycle once CI passes.
+
+          --- Authored by egg"
+          else
+            BODY="**CI checks failed** on draft PR #${PR_NUMBER}.
+
+          Please review the failing checks: ${PR_URL}
+
+          The pipeline will re-trigger implementation to address the failures.
+
+          --- Authored by egg"
+          fi
+
+          gh issue comment "${ISSUE_NUMBER}" --body "$BODY"
 
   # Handle missing PR number (e.g., init failed or phase != implement)
   sdlc-review-skipped:
@@ -495,8 +640,8 @@ jobs:
   # ============================================================
   check-review-status:
     name: Check review status
-    needs: [init, implement, sdlc-review]
-    if: always() && needs.sdlc-review.result == 'success'
+    needs: [init, implement, wait-for-ci, sdlc-review, ci-failed]
+    if: always() && (needs.sdlc-review.result == 'success' || needs.ci-failed.result == 'success')
     runs-on: ubuntu-latest
     outputs:
       next_action: ${{ steps.check.outputs.next_action }}
@@ -545,6 +690,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           REPO_PATH: ${{ github.workspace }}
+          CI_PASSED: ${{ needs.wait-for-ci.outputs.ci_passed }}
         run: |
           set -euo pipefail
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
@@ -574,6 +720,14 @@ jobs:
           if [[ "$CB_STATUS" == "open" ]]; then
             echo "Circuit breaker is OPEN - human intervention required"
             echo "next_action=escalate" >> "$GITHUB_OUTPUT"
+            echo "cycle_count=${TOTAL_CYCLES}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Handle CI failure - trigger re-implementation without incrementing cycle
+          if [[ "$CI_PASSED" != "true" ]]; then
+            echo "CI checks failed or timed out (result: ${CI_PASSED}) — triggering re-implementation"
+            echo "next_action=implement" >> "$GITHUB_OUTPUT"
             echo "cycle_count=${TOTAL_CYCLES}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -705,8 +859,16 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           NEXT_ACTION: ${{ steps.check.outputs.next_action }}
           CYCLE_COUNT: ${{ steps.check.outputs.cycle_count }}
+          CI_PASSED: ${{ needs.wait-for-ci.outputs.ci_passed }}
         run: |
           set -euo pipefail
+
+          # Skip posting if CI failed (ci-failed job already posted a comment)
+          if [[ "$CI_PASSED" != "true" ]]; then
+            echo "Skipping status comment — CI failure comment already posted"
+            exit 0
+          fi
+
           case "$NEXT_ACTION" in
             pr)
               BODY="PR review approved. Marking PR ready for human review.
