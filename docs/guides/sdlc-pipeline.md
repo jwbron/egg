@@ -124,6 +124,7 @@ This prevents incidents where agents push code during planning or manually creat
     "max_total_cycles": 10,
     "status": "closed"
   },
+  "workflow_owner": "jwbron",
   "audit_log": []
 }
 ```
@@ -168,7 +169,8 @@ The implement phase uses PR-based automated code review:
 3. **CI and review checks** — The pipeline waits for all GitHub check runs (linting, tests, and PR review) to complete
 4. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
 5. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
-6. **PR finalization** — Once all checks pass and review approves, the draft PR is marked ready for human merge
+6. **Merge conflict check** — Before finalization, the pipeline checks if the PR has conflicts with the base branch. If conflicts exist, the PR remains as draft and the pipeline exits; conflicts must be resolved and the pipeline re-run
+7. **PR finalization** — Once all checks pass, review approves, and no merge conflicts exist, the draft PR is marked ready for human merge
 
 This approach provides:
 - Line-level code review comments visible to humans
@@ -204,24 +206,26 @@ This functionality has been replaced by the PR-based review workflow, which prov
 
 ## Human-in-the-Loop Decisions
 
+For detailed documentation on HITL workflows, see [HITL Decisions](../hitl-decisions.md).
+
 ### Checkbox-Based Interface
 
-HITL decisions render as checkboxes in bot comments:
+HITL decisions render as checkboxes in bot comments. The `<!-- egg-hitl-decision id=... -->` marker identifies each decision:
 
 ```markdown
 ## Human Decision Required
 
-### Option 1: Provide Guidance
-<!-- HITL-DECISION: guidance -->
-- [ ] I will provide additional context or requirements below
-- [ ] The acceptance criteria should be adjusted
-- [ ] Break this task into smaller sub-tasks
+<!-- egg-hitl-decision id=decision-1 -->
 
-### Option 2: Override
-<!-- HITL-DECISION: override -->
+**How should we proceed with this task?**
+
+- [ ] Provide additional context or requirements below
+- [ ] Adjust the acceptance criteria
+- [ ] Break this task into smaller sub-tasks
 - [ ] Mark current tasks as complete (override review)
 - [ ] Skip remaining tasks in this phase
 - [ ] Cancel the pipeline for this issue
+- [ ] Other (explain in reply)
 ```
 
 ### Debounce Mechanism
@@ -303,6 +307,10 @@ Template sections:
 - [TASK-1-2] Add role validation — Acceptance: Unauthorized mutations rejected
 ```
 
+### Phase Completion Comments
+
+When a phase is complete and ready for human approval, agents post a comment using the [Phase Completion Template](../templates/phase-completion.md). This format includes the `<!-- egg-phase-approval -->` marker which the HITL workflow uses to detect approval checkbox changes.
+
 ### Task Population
 
 Tasks are automatically extracted from the plan document and populated into the contract during the plan phase, after the plan document is validated.
@@ -362,8 +370,11 @@ egg-contract add-commit --task task-1-1 --commit abc1234
 # Add implementation notes (implementer)
 egg-contract update-notes --task task-1-1 --notes "Completed validation"
 
-# Create HITL decision point
+# Create HITL decision point (plain text)
 egg-contract add-decision --question "Should we proceed with approach X?"
+
+# Create HITL decision point with markdown checkbox format (for GitHub comments)
+egg-contract add-decision --question "Which approach?" --options "A" "B" --format markdown
 ```
 
 **Note:** `mark-task` and `mark-phase` commands (previously used by the dedicated reviewer agent) are deprecated as of PR #285. Task validation now happens via PR-based code review.
