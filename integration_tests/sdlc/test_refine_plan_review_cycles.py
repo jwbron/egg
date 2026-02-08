@@ -6,6 +6,8 @@ Tests the review cycle mechanism for refine and plan phases:
 3. Feedback injection into producer prompts
 4. Circuit breaker escalation after max cycles
 5. Re-dispatch logic on review failure
+6. File-based draft storage
+7. File-based review verdicts
 """
 
 import json
@@ -20,8 +22,10 @@ def temp_repo():
     """Create a temporary repository directory for testing."""
     with TemporaryDirectory() as tmpdir:
         repo_path = Path(tmpdir)
-        contracts_dir = repo_path / ".egg-state" / "contracts"
-        contracts_dir.mkdir(parents=True)
+        # Create all state directories
+        (repo_path / ".egg-state" / "contracts").mkdir(parents=True)
+        (repo_path / ".egg-state" / "drafts").mkdir(parents=True)
+        (repo_path / ".egg-state" / "reviews").mkdir(parents=True)
         yield repo_path
 
 
@@ -258,84 +262,161 @@ class TestCircuitBreakerIntegration:
         # When open, re-dispatch job should post escalation comment instead
 
     def test_escalation_provides_context(self, temp_repo, base_contract):
-        """Escalation comment includes cycle count and guidance options."""
+        """Escalation includes cycle count, feedback, and draft content."""
         contract_path = temp_repo / ".egg-state" / "contracts" / "400.json"
         base_contract["circuit_breaker"]["status"] = "open"
         base_contract["refine_review_cycles"] = 3
         base_contract["refine_review_feedback"] = "Repeated issues with problem statement"
         contract_path.write_text(json.dumps(base_contract))
 
+        # Create the draft file that would be included in escalation
+        draft_file = temp_repo / ".egg-state" / "drafts" / "400-analysis.md"
+        draft_file.write_text("## Problem Statement\n\nDraft content for escalation.")
+
+        # Create the review file with last feedback
+        review_file = temp_repo / ".egg-state" / "reviews" / "400-refine-review.json"
+        review_data = {
+            "verdict": "needs_revision",
+            "summary": "Still has issues.",
+            "feedback": "Problem statement needs more detail.",
+            "timestamp": "2026-02-08T12:00:00Z",
+        }
+        review_file.write_text(json.dumps(review_data))
+
         contract = json.loads(contract_path.read_text())
-        # The escalation comment template includes:
-        # - cycle count
-        # - guidance options (provide guidance, override, cancel)
-        # - approval checkbox for override
         assert contract["refine_review_cycles"] == 3
         assert contract["circuit_breaker"]["status"] == "open"
 
+        # Verify draft and review files exist for escalation
+        assert draft_file.exists()
+        assert review_file.exists()
+        review = json.loads(review_file.read_text())
+        assert review["feedback"] == "Problem statement needs more detail."
 
-class TestReviewVerdictParsing:
-    """Tests for review verdict marker parsing."""
 
-    def test_approved_verdict_detected(self):
-        """Approved verdict marker is detected correctly."""
-        comment = """## Refine Review: ✅ Approved
+class TestReviewVerdictFileParsing:
+    """Tests for file-based review verdict parsing."""
 
-The analysis meets quality standards.
+    def test_approved_verdict_from_file(self, temp_repo):
+        """Approved verdict is correctly read from JSON file."""
+        review_file = temp_repo / ".egg-state" / "reviews" / "400-refine-review.json"
+        review_data = {
+            "verdict": "approved",
+            "summary": "The analysis meets quality standards.",
+            "feedback": "",
+            "timestamp": "2026-02-08T12:00:00Z",
+        }
+        review_file.write_text(json.dumps(review_data))
 
-<!-- egg-refine-review-verdict: approved -->
+        loaded = json.loads(review_file.read_text())
+        assert loaded["verdict"] == "approved"
+        assert loaded["feedback"] == ""
 
----
+    def test_needs_revision_verdict_from_file(self, temp_repo):
+        """Needs revision verdict is correctly read from JSON file."""
+        review_file = temp_repo / ".egg-state" / "reviews" / "400-refine-review.json"
+        feedback = "### Issues Found\\n\\n1. **Problem Understanding**: Missing root cause"
+        review_data = {
+            "verdict": "needs_revision",
+            "summary": "The analysis requires revision.",
+            "feedback": feedback,
+            "timestamp": "2026-02-08T12:00:00Z",
+        }
+        review_file.write_text(json.dumps(review_data))
 
-*Authored-by: egg*"""
+        loaded = json.loads(review_file.read_text())
+        assert loaded["verdict"] == "needs_revision"
+        assert "Problem Understanding" in loaded["feedback"]
 
-        assert "egg-refine-review-verdict: approved" in comment
+    def test_plan_approved_verdict_from_file(self, temp_repo):
+        """Plan approved verdict is correctly read from JSON file."""
+        review_file = temp_repo / ".egg-state" / "reviews" / "400-plan-review.json"
+        review_data = {
+            "verdict": "approved",
+            "summary": "The plan is well-structured.",
+            "feedback": "",
+            "timestamp": "2026-02-08T12:00:00Z",
+        }
+        review_file.write_text(json.dumps(review_data))
 
-    def test_needs_revision_verdict_detected(self):
-        """Needs revision verdict marker is detected correctly."""
-        comment = """## Refine Review: 🔄 Needs Revision
+        loaded = json.loads(review_file.read_text())
+        assert loaded["verdict"] == "approved"
 
-### Issues Found
+    def test_plan_needs_revision_verdict_from_file(self, temp_repo):
+        """Plan needs revision verdict is correctly read from JSON file."""
+        review_file = temp_repo / ".egg-state" / "reviews" / "400-plan-review.json"
+        feedback = "### Issues Found\\n\\n1. **Task Breakdown**: Tasks too large"
+        review_data = {
+            "verdict": "needs_revision",
+            "summary": "The plan requires revision.",
+            "feedback": feedback,
+            "timestamp": "2026-02-08T12:00:00Z",
+        }
+        review_file.write_text(json.dumps(review_data))
 
-1. **Problem Understanding**: Missing root cause analysis
+        loaded = json.loads(review_file.read_text())
+        assert loaded["verdict"] == "needs_revision"
+        assert "Task Breakdown" in loaded["feedback"]
 
-<!-- egg-refine-review-verdict: needs_revision -->
 
----
+class TestDraftFileStorage:
+    """Tests for file-based draft storage."""
 
-*Authored-by: egg*"""
+    def test_analysis_draft_file_created(self, temp_repo):
+        """Analysis draft file is created in correct location."""
+        draft_file = temp_repo / ".egg-state" / "drafts" / "400-analysis.md"
+        draft_content = """# Analysis: Test Issue
 
-        assert "egg-refine-review-verdict: needs_revision" in comment
+## Problem Statement
 
-    def test_plan_approved_verdict_detected(self):
-        """Plan approved verdict marker is detected correctly."""
-        comment = """## Plan Review: ✅ Approved
+This is the problem statement.
 
-The plan is well-structured.
+## Recommended Approach
 
-<!-- egg-plan-review-verdict: approved -->
+Option A is recommended.
+"""
+        draft_file.write_text(draft_content)
 
----
+        assert draft_file.exists()
+        content = draft_file.read_text()
+        assert "## Problem Statement" in content
+        assert "## Recommended Approach" in content
 
-*Authored-by: egg*"""
+    def test_plan_draft_file_created(self, temp_repo):
+        """Plan draft file is created in correct location."""
+        draft_file = temp_repo / ".egg-state" / "drafts" / "400-plan.md"
+        draft_content = """# Plan: Test Issue
 
-        assert "egg-plan-review-verdict: approved" in comment
+## Implementation Phases
 
-    def test_plan_needs_revision_verdict_detected(self):
-        """Plan needs revision verdict marker is detected correctly."""
-        comment = """## Plan Review: 🔄 Needs Revision
+### Phase 1: Setup
 
-### Issues Found
+- [TASK-1-1] Create schema — Acceptance: Schema validates
 
-1. **Task Breakdown**: Tasks too large
+## Test Strategy
 
-<!-- egg-plan-review-verdict: needs_revision -->
+Unit and integration tests.
+"""
+        draft_file.write_text(draft_content)
 
----
+        assert draft_file.exists()
+        content = draft_file.read_text()
+        assert "## Implementation Phases" in content
+        assert "## Test Strategy" in content
 
-*Authored-by: egg*"""
+    def test_draft_updated_on_revision(self, temp_repo):
+        """Draft file is updated in place during revision cycles."""
+        draft_file = temp_repo / ".egg-state" / "drafts" / "400-analysis.md"
 
-        assert "egg-plan-review-verdict: needs_revision" in comment
+        # First draft
+        draft_file.write_text("## Problem Statement\n\nOriginal content.")
+
+        # Revision
+        draft_file.write_text("## Problem Statement\n\nRevised content with more detail.")
+
+        content = draft_file.read_text()
+        assert "Revised content" in content
+        assert "Original content" not in content
 
 
 class TestAuditLogIntegration:

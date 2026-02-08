@@ -59,13 +59,13 @@ ${PRIOR_FEEDBACK:-No prior feedback available}
 
 ### Steps
 
-1. **Fetch the latest analysis**: Use \`gh issue view ${issue_number} --comments\` to find the most recent analysis comment (look for \"## Problem Statement\" or \"## Analysis\" headers).
+1. **Read the draft analysis**: The analysis is in \`.egg-state/drafts/${issue_number}-analysis.md\`. Use the Read tool or \`cat\` to read it.
 
 2. **Compare against prior feedback**: Check that each concern raised has been properly addressed, not just superficially acknowledged.
 
 3. **Apply review criteria** (below) to the revised analysis.
 
-4. **Post your verdict** using the format specified below.
+4. **Write your verdict** to the review file (format specified below).
 
 "
     else
@@ -77,7 +77,7 @@ Evaluate the quality of the refine phase analysis. The analysis should provide a
 
 ### Steps
 
-1. **Fetch the analysis**: Use \`gh issue view ${issue_number} --comments\` to find the analysis comment (look for \"## Problem Statement\" or \"## Analysis\" headers).
+1. **Read the draft analysis**: The analysis is in \`.egg-state/drafts/${issue_number}-analysis.md\`. Use the Read tool or \`cat\` to read it.
 
 2. **Review the original issue** for context:
 
@@ -88,7 +88,7 @@ ${issue_body}
 
 3. **Apply the review criteria** below systematically.
 
-4. **Post your verdict** using the format specified below.
+4. **Write your verdict** to the review file (format specified below).
 
 "
     fi
@@ -129,45 +129,55 @@ Evaluate the analysis against these criteria:
 
 ## Verdict Format
 
-After your review, post a comment with your verdict:
+After your review, write your verdict to a JSON file. **Do NOT post to the issue** — the verdict is internal.
+
+### JSON Schema
+
+Write your verdict to \`.egg-state/reviews/${issue_number}-refine-review.json\`:
+
+\`\`\`json
+{
+  \"verdict\": \"approved\" | \"needs_revision\",
+  \"summary\": \"Brief summary of review findings\",
+  \"feedback\": \"Detailed feedback if needs_revision, empty string if approved\",
+  \"timestamp\": \"ISO 8601 timestamp\"
+}
+\`\`\`
 
 ### If the analysis PASSES review:
 
-\`\`\`markdown
-## Refine Review: ✅ Approved
-
-The analysis meets quality standards and is ready for the plan phase.
-
-[Optional: Brief summary of strengths]
-
-<!-- egg-refine-review-verdict: approved -->
-
----
-
-*Authored-by: egg*
+\`\`\`bash
+mkdir -p .egg-state/reviews
+TIMESTAMP=\$(date -u +%Y-%m-%dT%H:%M:%SZ)
+cat > .egg-state/reviews/${issue_number}-refine-review.json << REVIEW_EOF
+{
+  \"verdict\": \"approved\",
+  \"summary\": \"The analysis meets quality standards and is ready for the plan phase.\",
+  \"feedback\": \"\",
+  \"timestamp\": \"\$TIMESTAMP\"
+}
+REVIEW_EOF
+git add .egg-state/reviews/${issue_number}-refine-review.json
+git commit -m \"Refine review: approved for issue #${issue_number}\"
+git push origin \\\${EGG_BRANCH_NAME}
 \`\`\`
 
 ### If the analysis NEEDS REVISION:
 
-\`\`\`markdown
-## Refine Review: 🔄 Needs Revision
-
-The analysis requires revision before proceeding. Please address the following:
-
-### Issues Found
-
-1. **[Category]**: [Specific issue and what needs to change]
-2. **[Category]**: [Specific issue and what needs to change]
-
-### Suggestions
-
-- [Actionable suggestion for improvement]
-
-<!-- egg-refine-review-verdict: needs_revision -->
-
----
-
-*Authored-by: egg*
+\`\`\`bash
+mkdir -p .egg-state/reviews
+TIMESTAMP=\$(date -u +%Y-%m-%dT%H:%M:%SZ)
+cat > .egg-state/reviews/${issue_number}-refine-review.json << REVIEW_EOF
+{
+  \"verdict\": \"needs_revision\",
+  \"summary\": \"The analysis requires revision before proceeding.\",
+  \"feedback\": \"### Issues Found\\n\\n1. **[Category]**: [Specific issue]\\n2. **[Category]**: [Specific issue]\\n\\n### Suggestions\\n\\n- [Actionable suggestion]\",
+  \"timestamp\": \"\$TIMESTAMP\"
+}
+REVIEW_EOF
+git add .egg-state/reviews/${issue_number}-refine-review.json
+git commit -m \"Refine review: needs revision for issue #${issue_number}\"
+git push origin \\\${EGG_BRANCH_NAME}
 \`\`\`
 
 ## Important Notes
@@ -175,8 +185,8 @@ The analysis requires revision before proceeding. Please address the following:
 - Be thorough but fair. The goal is to catch quality issues before human review.
 - Provide specific, actionable feedback when requesting revision.
 - Do not request changes for minor style issues — focus on substantive problems.
-- Write your review to a temp file first: \`cat > /tmp/review.md << 'REVIEW_EOF'\`
-- Post using: \`gh issue comment ${issue_number} --body-file /tmp/review.md\`
+- **Do NOT post to the issue** — your review is internal and will only be shared with the refiner agent if revision is needed.
+- Escape newlines in the feedback field as \\\\n for valid JSON.
 "
 
     # Write prompt to temp file
