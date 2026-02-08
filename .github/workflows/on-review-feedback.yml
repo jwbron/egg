@@ -190,41 +190,76 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
-      # SECURITY: Build the feedback prompt from a trusted checkout (main).
-      # A malicious PR could replace build-feedback-prompt.sh to exfiltrate
-      # the bot token. By checking out main for prompt building, we ensure
-      # untrusted code never runs with secrets.
-      - name: Checkout main (trusted)
-        if: steps.should-run.outputs.run == 'true'
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          persist-credentials: false
-
-      - name: Build feedback prompt
-        if: steps.should-run.outputs.run == 'true'
-        id: prompt
-        run: |
-          if [[ ! -f action/build-feedback-prompt.sh ]]; then
-            echo "::warning::action/build-feedback-prompt.sh not found on main (bootstrap). Skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          bash action/build-feedback-prompt.sh
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          PR_NUMBER: ${{ env.PR_NUMBER }}
-
       - name: Checkout PR branch
-        if: steps.should-run.outputs.run == 'true' && steps.prompt.outputs.skip != 'true'
+        if: steps.should-run.outputs.run == 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ steps.pr-meta.outputs.head-repo }}
           ref: ${{ steps.pr-meta.outputs.head-ref }}
           persist-credentials: false
 
+      - name: Build feedback prompt
+        if: steps.should-run.outputs.run == 'true'
+        id: prompt
+        run: |
+          # Read custom feedback rules, or use defaults
+          if [[ -f ".egg/feedback-rules.md" ]]; then
+            feedback_rules=$(< ".egg/feedback-rules.md")
+          else
+            feedback_rules=$(cat << 'RULES_EOF'
+          ## Feedback Rules
+
+          Address all actionable review feedback:
+
+          **Fix**: Correctness issues, security concerns, logic errors, missing error handling,
+          resource leaks, breaking changes, pattern violations.
+
+          **Respond (don't fix)**: If you disagree with feedback, post a reply explaining your
+          reasoning instead of making the change. Be respectful but firm.
+
+          **Skip**: Pure style suggestions that linters handle, subjective preferences without
+          technical justification.
+          RULES_EOF
+          )
+          fi
+
+          prompt_file="${RUNNER_TEMP}/feedback-prompt-${PR_NUMBER}.txt"
+          cat > "$prompt_file" << PROMPT_EOF
+          Address review feedback on PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
+
+          ## Your Task
+
+          Review feedback was just posted on this PR. Read the feedback, understand the issues
+          raised, make the necessary code changes, and push your fixes.
+
+          1. **Read the feedback**:
+             - Issue-level comments: \`gh pr view ${PR_NUMBER} --comments\`
+             - Formal reviews: \`gh api repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews --jq '.[] | {user: .user.login, state: .state, body: .body}'\`
+             - Line-level review comments: \`gh api repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments --jq '.[] | {path: .path, line: .line, body: .body}'\`
+          2. **Understand the current code**: Use \`gh pr diff ${PR_NUMBER}\` to see the PR changes.
+          3. **Make fixes**: Address each piece of actionable feedback.
+          4. **Verify**: Run tests and linters locally before pushing (\`make lint\`, \`make test\`).
+          5. **Push**: Commit and push all fixes together.
+          6. **Reply**: If you disagree with any feedback or cannot address it, reply to the specific review comment explaining your reasoning.
+
+          ${feedback_rules}
+
+          ## Conventions
+
+          Use git commit and git push to push fixes. If you need to respond to review feedback,
+          use \`gh pr comment\` or reply inline. Sign any comments with: — Authored by egg
+          PROMPT_EOF
+
+          {
+            echo "prompt-file=${prompt_file}"
+            echo "model=opus"
+          } >> "$GITHUB_OUTPUT"
+          echo "Feedback prompt built: $(wc -c < "$prompt_file") bytes, model=opus"
+        env:
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+
       - name: Run egg to address feedback
-        if: steps.should-run.outputs.run == 'true' && steps.prompt.outputs.skip != 'true'
+        if: steps.should-run.outputs.run == 'true'
         id: egg
         uses: jwbron/egg/action@main
         with:
@@ -240,7 +275,7 @@ jobs:
           EGG_BOT_NAME: feedback
 
       - name: Post result comment
-        if: always() && !cancelled() && steps.should-run.outputs.run == 'true' && steps.prompt.outputs.skip != 'true'
+        if: always() && !cancelled() && steps.should-run.outputs.run == 'true'
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
