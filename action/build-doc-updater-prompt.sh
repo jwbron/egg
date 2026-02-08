@@ -73,6 +73,7 @@ find_related_docs() {
         sed 's|/| |g; s|\.| |g; s|_| |g; s|-| |g' | \
         tr ' ' '\n' | \
         tr '[:upper:]' '[:lower:]' | \
+        grep -E '^[a-z0-9]+$' | \
         grep -v -E '^(src|lib|pkg|cmd|internal|test|tests|unit|spec|py|ts|tsx|js|jsx|json|yml|yaml|md|txt|cfg|toml|ini|lock|go|rs|java|sh|bash|css|scss|html|init|main|index|utils|helpers|common|config|setup|__pycache__|node_modules|dist|build|vendor|egg|action|sandbox|github|workflows|on|push|prompt|integration|service|server|client|handler|manager|factory|model|view|controller|schema|migration|fixture|mock|stub)$' | \
         grep -E '.{4,}' | \
         sort -u || true)
@@ -85,6 +86,7 @@ find_related_docs() {
         sed 's/[^a-zA-Z]/ /g' | \
         tr ' ' '\n' | \
         tr '[:upper:]' '[:lower:]' | \
+        grep -E '^[a-z]+$' | \
         grep -v -E '^(the|and|for|with|from|that|this|not|but|can|all|its|into|also|new|add|fix|update|change|move|remove|use|make|set|get|run|docs|code|commit|merge|push|pull|review|test|bug|feat|chore|refactor|style|perf|revert|egg|none|before|after|when|only|some|more|other|wait|failing|failed|workflow|pipeline)$' | \
         grep -E '.{4,}' | \
         sort -u || true)
@@ -218,6 +220,9 @@ ${related_docs:-none found}
    and implemented ADRs (\`docs/adr/implemented/\`) — these are most likely to
    need updates. You can skip docs that only mention the terms in passing
    (e.g., a table of contents entry) without discussing the changed feature.
+
+   **Skip ADRs larger than 10KB** — these are reference material that rarely
+   need updating from code changes, and reading them burns significant context.
 
    This step is critical — guides and ADRs that discuss the same feature area
    often need updating when that feature changes. For example, if a commit adds
