@@ -5,7 +5,7 @@
     "title": "Rewrite the main egg readme",
     "url": "https://github.com/jwbron/egg/issues/358"
   },
-  "current_phase": "implement",
+  "current_phase": "pr",
   "acceptance_criteria": [
     {
       "id": "ac-1",
