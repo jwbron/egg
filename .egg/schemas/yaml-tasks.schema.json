@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jwbron/egg/schemas/yaml-tasks.schema.json",
+  "title": "YAML Tasks Schema",
+  "description": "Schema for the structured yaml-tasks appendix in plan documents. This schema defines the machine-readable format that accompanies human-readable plan prose.",
+  "type": "object",
+  "required": ["phases"],
+  "properties": {
+    "phases": {
+      "type": "array",
+      "description": "Implementation phases with their tasks",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/phase"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "phase": {
+      "type": "object",
+      "description": "An implementation phase containing tasks",
+      "required": ["id", "name", "tasks"],
+      "properties": {
+        "id": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Phase number (e.g., 1, 2, 3)"
+            },
+            {
+              "type": "string",
+              "pattern": "^(phase-)?[0-9]+$",
+              "description": "Phase identifier (e.g., '1' or 'phase-1')"
+            }
+          ],
+          "description": "Unique phase identifier"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable phase name",
+          "minLength": 1
+        },
+        "goal": {
+          "type": "string",
+          "description": "What this phase achieves"
+        },
+        "dependencies": {
+          "type": "string",
+          "description": "What must be completed before this phase"
+        },
+        "exit_criteria": {
+          "type": "string",
+          "description": "How we know this phase is complete"
+        },
+        "tasks": {
+          "type": "array",
+          "description": "Tasks in this phase",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/task"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "task": {
+      "type": "object",
+      "description": "A task within a phase",
+      "required": ["id", "description", "acceptance"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Task identifier in TASK-{phase}-{number} format",
+          "pattern": "^[Tt][Aa][Ss][Kk]-[0-9]+-[0-9]+$"
+        },
+        "description": {
+          "type": "string",
+          "description": "What needs to be done",
+          "minLength": 1
+        },
+        "acceptance": {
+          "type": "string",
+          "description": "Acceptance criteria - how we know the task is complete",
+          "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "description": "Files that will be created or modified",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -55,4 +55,39 @@
 
 ---
 
+## Structured Task Appendix
+
+The following YAML block is machine-readable and will be extracted into the contract.
+It must accurately reflect the tasks described above.
+
+```yaml
+# yaml-tasks
+phases:
+  - id: 1
+    name: [Phase Name]
+    goal: [What this phase achieves]
+    tasks:
+      - id: TASK-1-1
+        description: [Task description]
+        acceptance: [Criteria for completion]
+        files:
+          - [path/to/file]
+      - id: TASK-1-2
+        description: [Task description]
+        acceptance: [Criteria for completion]
+        files:
+          - [path/to/file]
+  - id: 2
+    name: [Phase Name]
+    goal: [What this phase achieves]
+    tasks:
+      - id: TASK-2-1
+        description: [Task description]
+        acceptance: [Criteria for completion]
+        files:
+          - [path/to/file]
+```
+
+---
+
 *Authored-by: egg*

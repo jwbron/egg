@@ -4,14 +4,46 @@ Plan document parser for extracting tasks into contract format.
 This module parses plan documents (markdown) and extracts structured task
 information that can be written to the contract JSON.
 
+Parsing Strategy (Option C - Two-Pass Approach):
+    The parser supports three extraction modes, in order of preference:
+
+    1. YAML Code Fence (preferred): A ```yaml block marked with `# yaml-tasks`
+       header containing structured task data. This is machine-parseable and
+       type-checked, while allowing humans to review the prose plan above it.
+
+    2. YAML Front Matter (legacy): A ---delimited YAML block at the start of
+       the document. Still supported for backwards compatibility.
+
+    3. Markdown Regex (fallback): Extract tasks from markdown list items using
+       the [TASK-{phase}-{number}] pattern. This is fragile and may miss tasks
+       if the LLM's output format drifts.
+
 Task ID Format:
-    Tasks must be marked with explicit IDs: [TASK-{phase}-{number}]
-    Example: [TASK-1-1] Create contract JSON schema — Acceptance: schema validates
+    Tasks must use the format: TASK-{phase}-{number}
+    Example: TASK-1-1, TASK-2-3
+
+YAML Code Fence Format:
+    The structured appendix should be a YAML code block with the marker comment:
+
+    ```yaml
+    # yaml-tasks
+    phases:
+      - id: 1
+        name: Setup
+        goal: Initialize the project
+        tasks:
+          - id: TASK-1-1
+            description: Create contract JSON schema
+            acceptance: Schema validates sample contracts
+            files:
+              - .egg/schemas/contract.schema.json
+    ```
 
 Parse Failure Handling:
     - If a phase contains no parseable tasks, a placeholder task is created
     - If the plan document is missing or malformed, parsing fails with a structured error
     - Parse results include a warnings[] array for human review
+    - If YAML code fence parsing fails, falls back to markdown regex with a warning
 """
 
 from __future__ import annotations
@@ -113,6 +145,78 @@ GOAL_PATTERN = re.compile(r"\*\*Goal\*\*:\s*(.+)", re.IGNORECASE)
 # Pattern for files in brackets
 FILES_PATTERN = re.compile(r"\[([^\]]+)\]")
 
+# Pattern for YAML code fence with yaml-tasks marker
+# Matches: ```yaml\n# yaml-tasks\n...\n```
+YAML_FENCE_PATTERN = re.compile(
+    r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n(.*?)```",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def parse_yaml_code_fence(content: str) -> tuple[dict[str, Any] | None, str, list[ParseWarning]]:
+    """
+    Extract YAML data from a code fence with the yaml-tasks marker.
+
+    The code fence must be formatted as:
+    ```yaml
+    # yaml-tasks
+    phases:
+      - id: 1
+        name: Phase Name
+        ...
+    ```
+
+    Args:
+        content: The document content
+
+    Returns:
+        Tuple of (yaml_data, remaining_content, warnings)
+    """
+    warnings: list[ParseWarning] = []
+    match = YAML_FENCE_PATTERN.search(content)
+
+    if not match:
+        return None, content, warnings
+
+    yaml_block = match.group(1)
+
+    try:
+        yaml_data = yaml.safe_load(yaml_block)
+        if yaml_data is None:
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message="yaml-tasks code fence is empty",
+                    context="Falling back to markdown parsing",
+                )
+            )
+            return None, content, warnings
+
+        # Validate required structure
+        if not isinstance(yaml_data, dict):
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message="yaml-tasks must contain a YAML mapping (dict)",
+                    context="Falling back to markdown parsing",
+                )
+            )
+            return None, content, warnings
+
+        # Remove the YAML fence from content for markdown fallback parsing
+        remaining = content[: match.start()] + content[match.end() :]
+        return yaml_data, remaining.strip(), warnings
+
+    except yaml.YAMLError as e:
+        warnings.append(
+            ParseWarning(
+                line_number=None,
+                message=f"Invalid YAML in yaml-tasks code fence: {e}",
+                context="Falling back to markdown parsing",
+            )
+        )
+        return None, content, warnings
+
 
 def parse_yaml_frontmatter(content: str) -> tuple[dict[str, Any] | None, str]:
     """
@@ -150,7 +254,7 @@ def parse_yaml_frontmatter(content: str) -> tuple[dict[str, Any] | None, str]:
 
 def parse_tasks_from_yaml(yaml_data: dict[str, Any]) -> list[ParsedTask]:
     """
-    Parse tasks from YAML front matter.
+    Parse tasks from YAML front matter (legacy flat task list format).
 
     Args:
         yaml_data: Parsed YAML data
@@ -168,6 +272,14 @@ def parse_tasks_from_yaml(yaml_data: dict[str, Any]) -> list[ParsedTask]:
         if match:
             phase_num = int(match.group(1))
             task_num = int(match.group(2))
+
+            # Normalize files field to list
+            files = task_data.get("files", [])
+            if isinstance(files, str):
+                files = [files]
+            elif not isinstance(files, list):
+                files = []
+
             tasks.append(
                 ParsedTask(
                     id=task_id,
@@ -175,11 +287,203 @@ def parse_tasks_from_yaml(yaml_data: dict[str, Any]) -> list[ParsedTask]:
                     task_number=task_num,
                     description=task_data.get("description", ""),
                     acceptance_criteria=task_data.get("acceptance", ""),
-                    files_affected=task_data.get("files", []),
+                    files_affected=files,
                 )
             )
 
     return tasks
+
+
+def parse_phases_from_yaml(
+    yaml_data: dict[str, Any],
+) -> tuple[list[ParsedPhase], list[ParseWarning]]:
+    """
+    Parse phases and tasks from structured YAML (yaml-tasks code fence format).
+
+    Expected format:
+    ```yaml
+    # yaml-tasks
+    phases:
+      - id: 1
+        name: Setup
+        goal: Initialize the project
+        tasks:
+          - id: TASK-1-1
+            description: Create contract JSON schema
+            acceptance: Schema validates sample contracts
+            files:
+              - schema.json
+    ```
+
+    Args:
+        yaml_data: Parsed YAML data from code fence
+
+    Returns:
+        Tuple of (phases, warnings)
+    """
+    phases: list[ParsedPhase] = []
+    warnings: list[ParseWarning] = []
+    seen_phase_ids: set[int] = set()
+
+    phase_list = yaml_data.get("phases", [])
+
+    if not phase_list:
+        # Check for legacy flat task list format
+        if "tasks" in yaml_data:
+            return [], warnings  # Let caller fall back to legacy parsing
+        warnings.append(
+            ParseWarning(
+                line_number=None,
+                message="yaml-tasks block has no 'phases' key",
+                context="Expected format: phases: [...]",
+            )
+        )
+        return phases, warnings
+
+    for phase_data in phase_list:
+        if not isinstance(phase_data, dict):
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=f"Invalid phase entry (expected dict, got {type(phase_data).__name__})",
+                )
+            )
+            continue
+
+        # Extract phase info
+        phase_id = phase_data.get("id")
+        if phase_id is None:
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message="Phase missing 'id' field",
+                    context=f"Phase data: {phase_data}",
+                )
+            )
+            continue
+
+        # Handle both numeric and string IDs
+        try:
+            phase_num = int(phase_id)
+        except (ValueError, TypeError):
+            # Try extracting number from string like "phase-1"
+            id_match = re.search(r"(\d+)", str(phase_id))
+            if id_match:
+                phase_num = int(id_match.group(1))
+            else:
+                warnings.append(
+                    ParseWarning(
+                        line_number=None,
+                        message=f"Cannot parse phase ID: {phase_id}",
+                    )
+                )
+                continue
+
+        # Check for duplicate phase IDs
+        if phase_num in seen_phase_ids:
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=f"Duplicate phase ID: {phase_num}",
+                    context="Skipping duplicate phase",
+                )
+            )
+            continue
+        seen_phase_ids.add(phase_num)
+
+        phase_name = phase_data.get("name", f"Phase {phase_num}")
+        phase_goal = phase_data.get("goal", "")
+        phase_dependencies = phase_data.get("dependencies", "")
+        phase_exit_criteria = phase_data.get("exit_criteria", "")
+
+        # Parse tasks for this phase
+        parsed_tasks: list[ParsedTask] = []
+        task_list = phase_data.get("tasks", [])
+
+        for task_data in task_list:
+            if not isinstance(task_data, dict):
+                warnings.append(
+                    ParseWarning(
+                        line_number=None,
+                        message=f"Invalid task entry in phase {phase_num}",
+                    )
+                )
+                continue
+
+            task_id = task_data.get("id", "")
+            description = task_data.get("description", "")
+            acceptance = task_data.get("acceptance", "")
+            files = task_data.get("files", [])
+
+            # Ensure files is a list
+            if isinstance(files, str):
+                files = [files]
+            elif not isinstance(files, list):
+                files = []
+
+            # Parse task ID: TASK-{phase}-{number}
+            id_match = re.match(r"TASK-(\d+)-(\d+)", str(task_id), re.IGNORECASE)
+            if id_match:
+                task_phase = int(id_match.group(1))
+                task_num = int(id_match.group(2))
+            else:
+                # Try to use sequence number if ID doesn't match pattern
+                task_num = len(parsed_tasks) + 1
+                task_phase = phase_num
+                task_id = f"TASK-{phase_num}-{task_num}"
+                warnings.append(
+                    ParseWarning(
+                        line_number=None,
+                        message=f"Task ID '{task_data.get('id', 'missing')}' doesn't match pattern, "
+                        f"assigned {task_id}",
+                    )
+                )
+
+            # Validate task phase matches container phase
+            if task_phase != phase_num:
+                warnings.append(
+                    ParseWarning(
+                        line_number=None,
+                        message=f"Task {task_id} is in phase {phase_num} but ID suggests phase {task_phase}",
+                        context="Task will be assigned to its container phase",
+                    )
+                )
+                task_phase = phase_num
+
+            if not description:
+                warnings.append(
+                    ParseWarning(
+                        line_number=None,
+                        message=f"Task {task_id} has empty description",
+                    )
+                )
+
+            parsed_tasks.append(
+                ParsedTask(
+                    id=task_id.upper(),
+                    phase_number=task_phase,
+                    task_number=task_num,
+                    description=description,
+                    acceptance_criteria=acceptance,
+                    files_affected=files,
+                )
+            )
+
+        phases.append(
+            ParsedPhase(
+                number=phase_num,
+                name=phase_name,
+                goal=phase_goal,
+                tasks=parsed_tasks,
+                dependencies=phase_dependencies,
+                exit_criteria=phase_exit_criteria,
+            )
+        )
+
+    # Sort phases by number
+    phases.sort(key=lambda p: p.number)
+
+    return phases, warnings
 
 
 def parse_tasks_from_markdown(content: str) -> tuple[list[ParsedTask], list[ParseWarning]]:
@@ -270,8 +574,13 @@ def parse_plan(content: str) -> ParseResult:
     """
     Parse a plan document and extract tasks and phases.
 
+    Parsing priority (Option C two-pass approach):
+    1. YAML code fence with `# yaml-tasks` marker (preferred, structured)
+    2. YAML front matter with `tasks:` key (legacy)
+    3. Markdown regex extraction (fallback, fragile)
+
     Args:
-        content: The plan document content (markdown with optional YAML front matter)
+        content: The plan document content (markdown with optional structured YAML)
 
     Returns:
         ParseResult with extracted phases, tasks, and any warnings
@@ -283,41 +592,90 @@ def parse_plan(content: str) -> ParseResult:
         )
 
     warnings: list[ParseWarning] = []
+    phases: list[ParsedPhase] = []
+    yaml_data: dict[str, Any] | None = None
 
-    # Try YAML front matter first
-    yaml_data, markdown_content = parse_yaml_frontmatter(content)
+    # === Priority 1: YAML code fence with yaml-tasks marker ===
+    fence_yaml, remaining_content, fence_warnings = parse_yaml_code_fence(content)
+    warnings.extend(fence_warnings)
 
-    tasks: list[ParsedTask] = []
-    if yaml_data and "tasks" in yaml_data:
-        # Parse from YAML
-        tasks = parse_tasks_from_yaml(yaml_data)
-    else:
-        # Parse from markdown
+    if fence_yaml is not None:
+        yaml_data = fence_yaml
+        # Try structured phases format first
+        fence_phases, phase_warnings = parse_phases_from_yaml(fence_yaml)
+        warnings.extend(phase_warnings)
+
+        if fence_phases:
+            phases = fence_phases
+            # Still parse markdown phases for any additional metadata
+            md_phases = parse_phases_from_markdown(remaining_content)
+            # Merge goal/dependencies from markdown if missing in YAML
+            for md_phase in md_phases:
+                for phase in phases:
+                    if phase.number == md_phase.number:
+                        if not phase.goal and md_phase.goal:
+                            phase.goal = md_phase.goal
+                        break
+
+    # === Priority 2: YAML front matter (legacy) ===
+    if not phases:
+        frontmatter_yaml, markdown_content = parse_yaml_frontmatter(content)
+        if frontmatter_yaml and "tasks" in frontmatter_yaml:
+            yaml_data = frontmatter_yaml
+            tasks = parse_tasks_from_yaml(frontmatter_yaml)
+
+            # Parse phases from markdown
+            phases = parse_phases_from_markdown(markdown_content)
+
+            # Assign tasks to phases
+            for task in tasks:
+                for phase in phases:
+                    if phase.number == task.phase_number:
+                        phase.tasks.append(task)
+                        break
+                else:
+                    # Create phase for orphan task
+                    matching = [p for p in phases if p.number == task.phase_number]
+                    if not matching:
+                        phases.append(
+                            ParsedPhase(
+                                number=task.phase_number,
+                                name=f"Phase {task.phase_number}",
+                                goal="",
+                                tasks=[task],
+                            )
+                        )
+        else:
+            markdown_content = content
+
+    # === Priority 3: Markdown regex extraction (fallback) ===
+    if not phases:
         tasks, md_warnings = parse_tasks_from_markdown(markdown_content)
         warnings.extend(md_warnings)
 
-    # Parse phases from markdown
-    phases = parse_phases_from_markdown(markdown_content)
+        # Parse phases from markdown headers
+        phases = parse_phases_from_markdown(markdown_content)
 
-    # Assign tasks to phases
-    for task in tasks:
-        for phase in phases:
-            if phase.number == task.phase_number:
-                phase.tasks.append(task)
-                break
-        else:
-            # Task references a phase that doesn't exist in headers
-            # Create the phase if needed
-            matching_phases = [p for p in phases if p.number == task.phase_number]
-            if not matching_phases:
-                phases.append(
-                    ParsedPhase(
-                        number=task.phase_number,
-                        name=f"Phase {task.phase_number}",
-                        goal="",
-                        tasks=[task],
+        # Assign tasks to phases
+        for task in tasks:
+            assigned = False
+            for phase in phases:
+                if phase.number == task.phase_number:
+                    phase.tasks.append(task)
+                    assigned = True
+                    break
+            if not assigned:
+                # Create phase for orphan task
+                matching = [p for p in phases if p.number == task.phase_number]
+                if not matching:
+                    phases.append(
+                        ParsedPhase(
+                            number=task.phase_number,
+                            name=f"Phase {task.phase_number}",
+                            goal="",
+                            tasks=[task],
+                        )
                     )
-                )
 
     # Sort phases by number
     phases.sort(key=lambda p: p.number)
@@ -343,11 +701,12 @@ def parse_plan(content: str) -> ParseResult:
             )
 
     # Warn if no tasks at all were found
-    if not tasks and not phases:
+    if not phases:
         return ParseResult(
             success=False,
             error="No tasks or phases found in plan document. "
-            "Tasks must use format: [TASK-{phase}-{number}] description — Acceptance: criteria",
+            "Use a yaml-tasks code fence or format tasks as: "
+            "[TASK-{phase}-{number}] description — Acceptance: criteria",
         )
 
     return ParseResult(
