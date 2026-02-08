@@ -170,10 +170,10 @@ class EggOrchestrator:
         while elapsed < timeout:
             try:
                 result = subprocess.run(
-                    ["curl", "-sf", health_url],
+                    ["curl", "-sf", "--max-time", "5", health_url],
                     capture_output=True,
                     text=True,
-                    timeout=5,
+                    timeout=10,  # subprocess timeout slightly higher than curl's
                     check=False,
                 )
                 if result.returncode == 0:

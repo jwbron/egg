@@ -215,9 +215,9 @@ def wait_for_gateway(compose_file: Path, timeout: int = 60) -> bool:
     while elapsed < timeout:
         try:
             result = subprocess.run(
-                ["curl", "-sf", health_url],
+                ["curl", "-sf", "--max-time", "5", health_url],
                 capture_output=True,
-                timeout=5,
+                timeout=10,  # subprocess timeout slightly higher than curl's
                 check=False,
             )
             if result.returncode == 0:
