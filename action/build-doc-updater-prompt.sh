@@ -52,6 +52,79 @@ get_new_files() {
         grep -v -E '\.md$' || true
 }
 
+find_related_docs() {
+    local base_commit="${COMMIT_SHA:-HEAD~1}"
+
+    # Extract meaningful terms from changed CODE file paths (not docs) to
+    # find documentation that discusses the same components/concepts.
+    # We focus on domain-specific terms (e.g. "hitl", "sdlc", "gateway")
+    # and filter out generic project structure words.
+    local code_files
+    code_files=$(git diff --name-only "${base_commit}..HEAD" 2>/dev/null | \
+        grep -v -E '^docs/' | \
+        grep -v -E '\.md$' || true)
+
+    if [[ -z "$code_files" ]]; then
+        return
+    fi
+
+    local path_terms
+    path_terms=$(echo "$code_files" | \
+        sed 's|/| |g; s|\.| |g; s|_| |g; s|-| |g' | \
+        tr ' ' '\n' | \
+        tr '[:upper:]' '[:lower:]' | \
+        grep -v -E '^(src|lib|pkg|cmd|internal|test|tests|unit|spec|py|ts|tsx|js|jsx|json|yml|yaml|md|txt|cfg|toml|ini|lock|go|rs|java|sh|bash|css|scss|html|init|main|index|utils|helpers|common|config|setup|__pycache__|node_modules|dist|build|vendor|egg|action|sandbox|github|workflows|on|push|prompt|integration|service|server|client|handler|manager|factory|model|view|controller|schema|migration|fixture|mock|stub)$' | \
+        grep -E '.{4,}' | \
+        sort -u || true)
+
+    # Extract key terms from commit subject lines only (not full bodies,
+    # which contain too much noise). Focus on feature/component nouns.
+    local commit_terms
+    commit_terms=$(git log --format='%s' "${base_commit}..HEAD" 2>/dev/null | \
+        sed 's/\[.*\]//g; s/([^)]*)//g; s/#[0-9]*//g' | \
+        sed 's/[^a-zA-Z]/ /g' | \
+        tr ' ' '\n' | \
+        tr '[:upper:]' '[:lower:]' | \
+        grep -v -E '^(the|and|for|with|from|that|this|not|but|can|all|its|into|also|new|add|fix|update|change|move|remove|use|make|set|get|run|docs|code|commit|merge|push|pull|review|test|bug|feat|chore|refactor|style|perf|revert|egg|none|before|after|when|only|some|more|other|wait|failing|failed|workflow|pipeline)$' | \
+        grep -E '.{4,}' | \
+        sort -u || true)
+
+    # Combine and deduplicate terms, take top candidates
+    local all_terms
+    all_terms=$(printf '%s\n%s\n' "$path_terms" "$commit_terms" | \
+        grep -v '^$' | sort -u | head -20)
+
+    if [[ -z "$all_terms" ]]; then
+        return
+    fi
+
+    # Build grep pattern from terms
+    local pattern
+    pattern=$(echo "$all_terms" | tr '\n' '|' | sed 's/|$//')
+
+    # Get list of docs changed in this commit (already being processed)
+    local changed_docs
+    changed_docs=$(git diff --name-only "${base_commit}..HEAD" 2>/dev/null | \
+        grep -E '^docs/' || true)
+
+    # Search all doc files for references to these terms, excluding:
+    # - structural docs (already checked separately in step 3)
+    # - docs changed in this same commit (already being processed)
+    local results
+    results=$(grep -rl -i -E "$pattern" docs/ 2>/dev/null | \
+        grep -v -E '(docs/index\.md|docs/development/STRUCTURE\.md|docs/architecture/README\.md)$' | \
+        sort -u || true)
+
+    # Filter out docs that were changed in the same commit
+    if [[ -n "$changed_docs" ]]; then
+        local exclude_pattern
+        exclude_pattern=$(echo "$changed_docs" | tr '\n' '|' | sed 's/|$//')
+        echo "$results" | grep -v -E "^($exclude_pattern)$" || true
+    else
+        echo "$results"
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # Build the prompt
 # ---------------------------------------------------------------------------
@@ -65,6 +138,7 @@ build_prompt() {
     commit_messages=$(get_commit_messages)
     diff_stats=$(get_diff_stats)
     new_files=$(get_new_files)
+    related_docs=$(find_related_docs)
 
     # If no code files changed, skip
     if [[ -z "$changed_files" ]]; then
@@ -105,6 +179,11 @@ New files added:
 ${new_files:-none}
 \`\`\`
 
+Docs that reference related terms (may need updating):
+\`\`\`
+${related_docs:-none found}
+\`\`\`
+
 ## Your Task
 
 1. **Analyze the changes**: Read the changed files and understand what was modified.
@@ -125,16 +204,28 @@ ${new_files:-none}
    Skip updates for: internal refactoring that doesn't change interfaces,
    performance improvements, bug fixes, test-only changes, or prompt tuning.
 
-3. **Check these docs specifically** (read them, don't delegate to sub-agents for
+3. **Check these structural docs** (read them, don't delegate to sub-agents for
    large files):
    - \`docs/development/STRUCTURE.md\` — Does it list all current directories and
      key files? Are new packages/modules missing?
    - \`docs/architecture/README.md\` — Does it cover the components added/changed?
    - \`docs/index.md\` — Are new docs or templates referenced?
-   Do NOT read ADRs larger than 10KB — they are reference material and rarely need
-   updating from code changes.
 
-4. **If updates are needed**:
+4. **Check related docs**: The "Docs that reference related terms" list above
+   shows doc files that mention concepts related to the code changes. For each
+   file, read it and check whether it describes behavior, interfaces, or
+   workflows that were affected by this commit. Prioritize guides (\`docs/guides/\`)
+   and implemented ADRs (\`docs/adr/implemented/\`) — these are most likely to
+   need updates. You can skip docs that only mention the terms in passing
+   (e.g., a table of contents entry) without discussing the changed feature.
+
+   This step is critical — guides and ADRs that discuss the same feature area
+   often need updating when that feature changes. For example, if a commit adds
+   a new CLI flag, any guide that documents that CLI needs to mention the new
+   flag. If a commit changes a workflow's behavior, any guide or ADR that
+   describes that workflow needs to reflect the new behavior.
+
+5. **If updates are needed**:
    - Create a new branch: \`egg/doc-update-<short-description>\`
    - Make the documentation changes
    - Create a PR with:
@@ -142,7 +233,7 @@ ${new_files:-none}
      - Body: Explain what code changes prompted the doc updates
      - Add \`[doc-updater]\` tag at the end of the title to prevent loops
 
-5. **If no updates are needed**:
+6. **If no updates are needed**:
    - Report that documentation is up to date
    - No PR needed
 
