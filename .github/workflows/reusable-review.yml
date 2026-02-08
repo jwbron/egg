@@ -367,8 +367,10 @@ jobs:
           set -euo pipefail
           # Find previous bot comments that are status updates for this bot
           # Match: "egg <bot_name> completed" or "egg <bot_name> failed"
+          # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq '.[] | select(.user.login == "${{ env.BOT_USERNAME }}" or .user.login == "${{ env.BOT_USERNAME }}[bot]") | select(.body | test("egg ${{ inputs.bot_name }} (completed|failed)")) | .node_id' \
+            --jq --arg bot "$BOT_USERNAME" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("egg ${{ inputs.bot_name }} (completed|failed)")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='

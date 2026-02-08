@@ -153,8 +153,10 @@ jobs:
 
           # Find previous bot comments that are status updates
           # Match: "egg run", "egg finished", "👀 Working on it"
+          # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq '.[] | select(.user.login == "${{ env.BOT_USERNAME }}" or .user.login == "${{ env.BOT_USERNAME }}[bot]") | select(.body | test("egg run|egg finished|👀 Working on it")) | .node_id' \
+            --jq --arg bot "${{ env.BOT_USERNAME }}" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("egg run|egg finished|👀 Working on it")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='

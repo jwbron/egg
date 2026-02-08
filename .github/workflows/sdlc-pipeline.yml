@@ -218,12 +218,15 @@ jobs:
         if: steps.setup.outputs.contract_exists == 'false'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BOT_USERNAME: james-in-a-box
         run: |
           set -euo pipefail
           # Find previous bot comments that are pipeline status updates
           # Match: "SDLC Pipeline", "phase completed", "phase encountered"
+          # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${{ steps.setup.outputs.issue_number }}/comments" \
-            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
+            --jq --arg bot "$BOT_USERNAME" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -519,8 +522,10 @@ jobs:
         run: |
           set -euo pipefail
           # Find previous bot comments that are pipeline status updates
+          # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready")) | .node_id' \
+            --jq --arg bot "$BOT_USERNAME" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -820,11 +825,14 @@ jobs:
       - name: Minimize previous pipeline comments
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BOT_USERNAME: james-in-a-box
         run: |
           set -euo pipefail
           # Find previous bot comments that are pipeline status updates
+          # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready|Checks timed out|Checks failed")) | .node_id' \
+            --jq --arg bot "$BOT_USERNAME" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready|Checks timed out|Checks failed")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -883,11 +891,14 @@ jobs:
       - name: Minimize previous pipeline comments
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BOT_USERNAME: james-in-a-box
         run: |
           set -euo pipefail
           # Find previous bot comments that are pipeline status updates
+          # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready|Checks timed out|Checks failed")) | .node_id' \
+            --jq --arg bot "$BOT_USERNAME" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready|Checks timed out|Checks failed")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -1018,8 +1029,10 @@ jobs:
         run: |
           set -euo pipefail
           # Find previous bot comments that are pipeline status updates
+          # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
+            --jq --arg bot "$BOT_USERNAME" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -1211,8 +1224,10 @@ jobs:
         run: |
           set -euo pipefail
           # Find previous bot comments that are pipeline status updates
+          # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
+            --jq --arg bot "$BOT_USERNAME" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
