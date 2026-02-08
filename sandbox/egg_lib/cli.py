@@ -248,6 +248,9 @@ def gha_exec() -> int:
     model = os.environ.get("INPUT_MODEL", "opus")
     timeout = int(os.environ.get("INPUT_TIMEOUT", "30"))
 
+    # --max-turns 200: Ensure agent has enough turns to complete work and post
+    # comments. Default (100) was observed to be insufficient for tasks requiring
+    # codebase exploration + implementation + testing + comment posting.
     command = [
         "claude",
         "--dangerously-skip-permissions",
@@ -257,6 +260,8 @@ def gha_exec() -> int:
         "stream-json",
         "--model",
         model,
+        "--max-turns",
+        "200",
         prompt,
     ]
 

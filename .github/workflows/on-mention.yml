@@ -144,12 +144,6 @@ jobs:
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
-            BODY="egg finished successfully. [View run logs](${RUN_URL})"
-          else
-            BODY="egg run failed (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
-          fi
-
           # Determine where to post the comment
           if [[ "${{ github.event_name }}" == "pull_request_review_comment" || "${{ github.event_name }}" == "pull_request_review" ]]; then
             ISSUE_NUMBER="${{ github.event.pull_request.number }}"
@@ -157,5 +151,27 @@ jobs:
             ISSUE_NUMBER="${{ github.event.issue.number }}"
           fi
 
-          gh api repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments \
-            -X POST -f body="${BODY}"
+          # Check if egg already posted a substantive comment since the triggering event
+          # For pull_request_review events, use review.submitted_at; for comments, use comment.created_at; fallback to issue.created_at
+          TRIGGER_TIME="${{ github.event.comment.created_at || github.event.review.submitted_at || github.event.issue.created_at }}"
+          # Match both "james-in-a-box" and "james-in-a-box[bot]" since GitHub App comments use the [bot] suffix
+          EXISTING_COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq "[.[] | select((.user.login == \"${{ env.BOT_USERNAME }}\" or .user.login == \"${{ env.BOT_USERNAME }}[bot]\") and .created_at > \"${TRIGGER_TIME}\" and (.body | test(\"finished successfully|run failed|👀 Working on it\") | not))] | length")
+
+          if [[ "${EXISTING_COMMENTS:-0}" -gt 0 ]]; then
+            # Agent already posted a substantive comment — only add run link on failure
+            if [[ "${EGG_EXIT_CODE:-1}" != "0" ]]; then
+              BODY="egg run had errors (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
+              gh api repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments \
+                -X POST -f body="${BODY}"
+            fi
+          else
+            # No substantive comment posted — post fallback
+            if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
+              BODY="egg finished successfully but did not post a response. [View run logs](${RUN_URL})"
+            else
+              BODY="egg run failed (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
+            fi
+            gh api repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments \
+              -X POST -f body="${BODY}"
+          fi
