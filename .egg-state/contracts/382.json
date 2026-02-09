@@ -6,8 +6,335 @@
     "url": "https://github.com/jwbron/egg/issues/382"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Job name follows egg-reviewer-{bot_name} pattern",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Code Review job appears as egg-reviewer-review in check runs",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Design Review job appears as egg-reviewer-agent-mode-design",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Contract Verification job appears as egg-reviewer-contract-verification",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-1] Step polls check runs API and logs progress",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-2] Correctly identifies all reviewer checks",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-3] Workflow proceeds after 10-minute timeout with warning",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-4] Workflow exits early when no egg-reviewer-* checks exist",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-5] Workflow proceeds when all checks complete",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-1] Review workflows don't wait for each other",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-2] SDLC pipeline identifies reviews by standardized name",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-4-1] Feedback runs once after all reviewers complete",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-4-2] Feedback runs after single reviewer without waiting forever",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-4-3] Feedback workflow exits gracefully",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-4-4] Feedback still runs for completed reviews",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Standardize Reviewer Job Names",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Update reusable-review.yml to use standardized job name format",
+          "status": "pending",
+          "acceptance_criteria": "Job name follows egg-reviewer-{bot_name} pattern",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Update on-pull-request.yml to use standardized job name",
+          "status": "pending",
+          "acceptance_criteria": "Code Review job appears as egg-reviewer-review in check runs",
+          "files_affected": [
+            ".github/workflows/on-pull-request.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Update on-pull-request-agent-mode-design.yml to use standardized job name",
+          "status": "pending",
+          "acceptance_criteria": "Design Review job appears as egg-reviewer-agent-mode-design",
+          "files_affected": [
+            ".github/workflows/on-pull-request-agent-mode-design.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Update on-pull-request-contract-verify.yml to use standardized job name",
+          "status": "pending",
+          "acceptance_criteria": "Contract Verification job appears as egg-reviewer-contract-verification",
+          "files_affected": [
+            ".github/workflows/on-pull-request-contract-verify.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Add Wait-for-Reviewers Logic",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add wait step after trigger filter in on-review-feedback.yml",
+          "status": "pending",
+          "acceptance_criteria": "Step polls check runs API and logs progress",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Implement polling loop for egg-reviewer-* pattern matching",
+          "status": "pending",
+          "acceptance_criteria": "Correctly identifies all reviewer checks",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add timeout handling with graceful proceed",
+          "status": "pending",
+          "acceptance_criteria": "Workflow proceeds after 10-minute timeout with warning",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Handle edge case when no reviewer checks found",
+          "status": "pending",
+          "acceptance_criteria": "Workflow exits early when no egg-reviewer-* checks exist",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "Handle edge case when all reviewer checks skip/neutral",
+          "status": "pending",
+          "acceptance_criteria": "Workflow proceeds when all checks complete",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Update Exclusion Lists",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Update reusable-review.yml wait-for-checks to exclude egg-reviewer-*",
+          "status": "pending",
+          "acceptance_criteria": "Review workflows don't wait for each other",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update sdlc-pipeline.yml to use new pattern for reviewer detection",
+          "status": "pending",
+          "acceptance_criteria": "SDLC pipeline identifies reviews by standardized name",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Testing and Validation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Test multiple reviewers trigger concurrently",
+          "status": "pending",
+          "acceptance_criteria": "Feedback runs once after all reviewers complete",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Test single reviewer scenario (path filters)",
+          "status": "pending",
+          "acceptance_criteria": "Feedback runs after single reviewer without waiting forever",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Test no reviewers scenario",
+          "status": "pending",
+          "acceptance_criteria": "Feedback workflow exits gracefully",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Test reviewer timeout or failure scenario",
+          "status": "pending",
+          "acceptance_criteria": "Feedback still runs for completed reviews",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 0,
@@ -60,5 +387,9 @@
   "refine_review_cycles": 1,
   "refine_review_feedback": "",
   "plan_review_cycles": 1,
-  "plan_review_feedback": ""
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Wait for all reviewers before addressing feedback",
+    "description": "The address-feedback bot currently triggers on each reviewer's feedback,\ncausing race conditions. This change adds a wait step that polls for all\n`egg-reviewer-*` checks to complete before running.\n\nFixes #382"
+  }
 }
