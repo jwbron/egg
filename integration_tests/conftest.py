@@ -25,6 +25,7 @@ from typing import Any
 
 import pytest
 import requests
+from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT
 from egg_container import (
     ContainerNetworkConfig,
     build_sandbox_docker_cmd,
@@ -45,8 +46,8 @@ ISOLATED_SUBNET = "172.40.0.0/24"
 EXTERNAL_SUBNET = "172.41.0.0/24"
 GATEWAY_ISOLATED_IP = "172.40.0.2"
 GATEWAY_EXTERNAL_IP = "172.41.0.2"
-GATEWAY_PORT = 9848
-PROXY_PORT = 3129
+# Use constants from shared module for port configuration
+PROXY_PORT = GATEWAY_PROXY_PORT
 
 # Counter for allocating unique container IPs within the test subnet.
 # Starts at 100 to leave room for gateway (.2) and other infrastructure.
@@ -187,7 +188,7 @@ def egg_stack() -> Generator[EggStack, None, None]:
 
         # Get the mapped gateway port
         result = subprocess.run(
-            [*compose_cmd, "port", "gateway", "9848"],
+            [*compose_cmd, "port", "gateway", str(GATEWAY_PORT)],
             env=env,
             capture_output=True,
             text=True,

@@ -164,9 +164,76 @@ jobs:
 
           echo "run=true" >> "$GITHUB_OUTPUT"
 
+      # Wait for all reviewer checks to complete before addressing feedback.
+      # This ensures we don't run multiple times when multiple reviewers trigger concurrently.
+      - name: Wait for all reviewer checks to complete
+        id: wait-for-reviewers
+        if: steps.should-run.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Get the HEAD SHA for this PR
+          HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}" --jq '.head.sha')
+          echo "Waiting for reviewer checks on commit: ${HEAD_SHA}"
+
+          # Maximum wait time (10 minutes)
+          MAX_WAIT_SECONDS=600
+          POLL_INTERVAL=15
+          start_time=$(date +%s)
+          no_reviewers_count=0
+          # After 2 minutes with no reviewer checks, assume none exist and proceed
+          MAX_NO_REVIEWERS_ITERATIONS=8
+
+          while true; do
+            elapsed=$(( $(date +%s) - start_time ))
+            if [[ $elapsed -ge $MAX_WAIT_SECONDS ]]; then
+              echo "::warning::Timeout waiting for reviewer checks after ${MAX_WAIT_SECONDS} seconds — proceeding with feedback"
+              echo "proceed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            # Get all check runs matching egg-reviewer-* pattern
+            reviewer_checks=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
+              --jq '.check_runs | [.[] | select(.name | test("egg-reviewer-")) | {name: .name, status: .status, conclusion: .conclusion}]')
+
+            total=$(echo "$reviewer_checks" | jq 'length')
+
+            # Handle case where no reviewer checks exist
+            if [[ "$total" -eq 0 ]]; then
+              no_reviewers_count=$((no_reviewers_count + 1))
+              if [[ $no_reviewers_count -ge $MAX_NO_REVIEWERS_ITERATIONS ]]; then
+                echo "::warning::No egg-reviewer-* checks found but workflow was triggered by feedback. Check reviewer naming patterns."
+                echo "proceed=false" >> "$GITHUB_OUTPUT"
+                echo "reason=no_reviewers" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "No reviewer checks yet (poll ${no_reviewers_count}/${MAX_NO_REVIEWERS_ITERATIONS})"
+              sleep "$POLL_INTERVAL"
+              continue
+            fi
+            no_reviewers_count=0
+
+            completed=$(echo "$reviewer_checks" | jq '[.[] | select(.status == "completed")] | length')
+            pending_names=$(echo "$reviewer_checks" | jq -r '[.[] | select(.status != "completed") | .name] | join(", ")')
+
+            echo "Reviewer checks: ${completed}/${total} completed"
+
+            if [[ "$completed" -eq "$total" ]]; then
+              echo "All ${total} reviewer check(s) completed"
+              echo "$reviewer_checks" | jq -r '.[] | "  \(.name): \(.conclusion)"'
+              echo "proceed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            echo "Waiting for: ${pending_names}"
+            sleep "$POLL_INTERVAL"
+          done
+
       # Minimize previous feedback status comments to reduce clutter
       - name: Minimize previous feedback comments
-        if: steps.should-run.outputs.run == 'true'
+        if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
         run: |
           set -euo pipefail
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
@@ -188,7 +255,7 @@ jobs:
 
       # Post acknowledgment comment with marker for iteration tracking
       - name: Post starting comment
-        if: steps.should-run.outputs.run == 'true'
+        if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
         run: |
           set -euo pipefail
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
@@ -200,21 +267,21 @@ jobs:
       # This prevents malicious PRs from injecting content via .egg/feedback-rules.md.
       # The agent will check out the PR branch itself after the prompt is built.
       - name: Checkout main (trusted)
-        if: steps.should-run.outputs.run == 'true'
+        if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
         uses: actions/checkout@v4
         with:
           ref: main
           persist-credentials: false
 
       - name: Build feedback prompt
-        if: steps.should-run.outputs.run == 'true'
+        if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
         id: prompt
         run: bash action/build-feedback-prompt.sh
         env:
           PR_NUMBER: ${{ env.PR_NUMBER }}
 
       - name: Checkout PR branch
-        if: steps.should-run.outputs.run == 'true'
+        if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ steps.pr-meta.outputs.head-repo }}
@@ -222,7 +289,7 @@ jobs:
           persist-credentials: false
 
       - name: Run egg to address feedback
-        if: steps.should-run.outputs.run == 'true'
+        if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
         id: egg
         uses: jwbron/egg/action@main
         with:
@@ -238,7 +305,7 @@ jobs:
           EGG_BOT_NAME: feedback
 
       - name: Post result comment
-        if: always() && !cancelled() && steps.should-run.outputs.run == 'true'
+        if: always() && !cancelled() && steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
         run: |
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

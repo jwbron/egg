@@ -34,6 +34,7 @@ from statusbar import status, status_finish
 
 from .auth import get_anthropic_api_key, get_anthropic_auth_method
 from .config import (
+    GATEWAY_PORT,
     get_local_repos,
 )
 from .container_logging import (
@@ -596,7 +597,9 @@ def run_claude(repo_mode: str | None = None) -> bool:
             # Session creation failed - cannot proceed without a session
             # since git/gh wrappers require EGG_SESSION_TOKEN (PR #666)
             error("Session creation failed. Check that:")
-            error("  1. Gateway sidecar is running: curl http://localhost:9848/api/v1/health")
+            error(
+                f"  1. Gateway sidecar is running: curl http://localhost:{GATEWAY_PORT}/api/v1/health"
+            )
             error("  2. Launcher secret exists: ~/.config/egg/launcher-secret")
             error("  Fix: Re-run gateway/setup.sh to sync secrets")
             return False
@@ -855,7 +858,9 @@ def exec_in_new_container(
             # Session creation failed - cannot proceed without a session
             # since git/gh wrappers require EGG_SESSION_TOKEN (PR #666)
             error("Session creation failed. Check that:")
-            error("  1. Gateway sidecar is running: curl http://localhost:9848/api/v1/health")
+            error(
+                f"  1. Gateway sidecar is running: curl http://localhost:{GATEWAY_PORT}/api/v1/health"
+            )
             error("  2. Launcher secret exists: ~/.config/egg/launcher-secret")
             error("  Fix: Re-run gateway/setup.sh to sync secrets")
             return False

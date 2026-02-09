@@ -107,3 +107,6 @@ jobs:
 
       - name: Check workflow secret safety
         run: .venv/bin/python scripts/check-workflow-secrets.py
+
+      - name: Check hardcoded ports
+        run: .venv/bin/python scripts/check-hardcoded-ports.py

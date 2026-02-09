@@ -2,13 +2,36 @@
 # Dynamic startup script for gateway
 # Generates container mounts at startup rather than relying on stale config files
 #
+# DEPRECATION NOTICE:
+# This script is deprecated. Please use one of the following methods instead:
+#   - Docker Compose: bin/egg-deploy up
+#   - CLI: egg --compose
+#
+# See docs/guides/deployment.md for migration instructions.
+#
 # This script runs in network lockdown mode with dual network architecture:
 # - egg-isolated: Internal network for egg container (no external route)
 # - egg-external: Gateway's external network for filtered internet access
 #
 # All network traffic from egg container is routed through Squid proxy for filtering.
+#
+# PORT CONFIGURATION:
+# The gateway uses hardcoded port values (9848 for API, 3129 for proxy).
+# These are the source of truth - the Python constants in
+# shared/egg_config/constants.py must match these values.
+# Shell scripts cannot import Python modules, so gateway scripts define
+# the ports directly. If ports need to change, update both locations.
 
 set -e
+
+# Show deprecation warning
+echo "WARNING: start-gateway.sh is deprecated." >&2
+echo "Please migrate to Docker Compose deployment:" >&2
+echo "  bin/egg-deploy up" >&2
+echo "Or use the egg CLI:" >&2
+echo "  egg --compose" >&2
+echo "See docs/guides/deployment.md for details." >&2
+echo "" >&2
 
 # Get home directory (works with systemd %h substitution)
 HOME_DIR="${HOME:-$(eval echo ~)}"

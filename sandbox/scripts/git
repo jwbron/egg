@@ -15,7 +15,16 @@
 
 # Real git binary - relocated to hidden path (used only for gateway fallback testing)
 REAL_GIT=/opt/.egg-internal/git
-GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9848}"
+
+# GATEWAY_URL is set by the container launcher (egg_container.build_sandbox_docker_cmd).
+# We require it to be set - no hardcoded fallback to avoid port drift.
+# See shared/egg_config/constants.py for port definitions.
+if [ -z "$GATEWAY_URL" ]; then
+    echo "ERROR: GATEWAY_URL environment variable is not set." >&2
+    echo "This variable must be set by the container launcher." >&2
+    echo "If running manually, set GATEWAY_URL=http://egg-gateway:<port>" >&2
+    exit 1
+fi
 CONTAINER_ID="${CONTAINER_ID:-unknown}"
 # shellcheck disable=SC2034  # available for future path translation
 CONTAINER_REPOS_DIR="${HOME}/repos"
@@ -38,7 +47,7 @@ In the gateway-managed worktree architecture:
 - The gateway holds credentials and enforces policies
 
 Please ensure the gateway sidecar is running:
-  curl http://egg-gateway:9848/api/v1/health
+  curl $GATEWAY_URL/api/v1/health
 
 ================================================================================
 

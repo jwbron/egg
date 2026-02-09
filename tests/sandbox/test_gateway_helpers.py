@@ -7,9 +7,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 from urllib.error import URLError
 
+# Add shared module to path for imports
+shared_path = Path(__file__).parent.parent.parent / "shared"
+sys.path.insert(0, str(shared_path))
 sandbox_path = Path(__file__).parent.parent.parent / "sandbox"
 sys.path.insert(0, str(sandbox_path))
 
+from egg_config import TEST_GATEWAY_PORT, TEST_GATEWAY_PROXY_PORT
 from egg_lib.gateway import (
     _get_user_git_config,
     _hash_directory,
@@ -32,16 +36,20 @@ from egg_lib.gateway import (
 
 
 def _mock_context(**overrides):
-    """Create a mock context with sensible defaults."""
+    """Create a mock context with sensible defaults.
+
+    Uses TEST_GATEWAY_PORT (1234) to make it obvious when tests
+    accidentally connect to real services.
+    """
     ctx = MagicMock()
     ctx.config_dir = Path("/tmp/test-config")
     ctx.launcher_secret = None
     ctx.publish_ports = True
-    ctx.gateway_port = 9847
+    ctx.gateway_port = TEST_GATEWAY_PORT
     ctx.gateway_isolated_ip = "172.32.0.2"
     ctx.gateway_container_name = "egg-gateway"
     ctx.gateway_image = "egg-gateway:latest"
-    ctx.gateway_proxy_port = 3128
+    ctx.gateway_proxy_port = TEST_GATEWAY_PROXY_PORT
     for k, v in overrides.items():
         setattr(ctx, k, v)
     return ctx
@@ -353,7 +361,9 @@ class TestLauncherApiCall:
 
     def test_get_request(self):
         """Makes GET request with auth header."""
-        ctx = _mock_context(launcher_secret="test-secret", publish_ports=True, gateway_port=9847)
+        ctx = _mock_context(
+            launcher_secret="test-secret", publish_ports=True, gateway_port=TEST_GATEWAY_PORT
+        )
         response_data = {"success": True, "status": "ok"}
         mock_response = self._make_mock_response(response_data)
 
@@ -365,7 +375,9 @@ class TestLauncherApiCall:
 
     def test_post_request(self):
         """Makes POST request with JSON body."""
-        ctx = _mock_context(launcher_secret="test-secret", publish_ports=True, gateway_port=9847)
+        ctx = _mock_context(
+            launcher_secret="test-secret", publish_ports=True, gateway_port=TEST_GATEWAY_PORT
+        )
         response_data = {"success": True, "created": True}
         mock_response = self._make_mock_response(response_data)
 
@@ -378,7 +390,9 @@ class TestLauncherApiCall:
 
     def test_returns_false_without_success_key(self):
         """Returns False when response lacks success: true."""
-        ctx = _mock_context(launcher_secret="test-secret", publish_ports=True, gateway_port=9847)
+        ctx = _mock_context(
+            launcher_secret="test-secret", publish_ports=True, gateway_port=TEST_GATEWAY_PORT
+        )
         response_data = {"status": "ok"}  # No "success" key
         mock_response = self._make_mock_response(response_data)
 
@@ -389,7 +403,9 @@ class TestLauncherApiCall:
 
     def test_handles_url_error(self):
         """Returns failure on URL error."""
-        ctx = _mock_context(launcher_secret="test-secret", publish_ports=True, gateway_port=9847)
+        ctx = _mock_context(
+            launcher_secret="test-secret", publish_ports=True, gateway_port=TEST_GATEWAY_PORT
+        )
         with patch("egg_lib.gateway.get_context", return_value=ctx):
             with patch("egg_lib.gateway.urlopen", side_effect=URLError("connection refused")):
                 success, data = launcher_api_call("/api/v1/health")
@@ -397,7 +413,9 @@ class TestLauncherApiCall:
 
     def test_handles_timeout(self):
         """Returns failure on timeout."""
-        ctx = _mock_context(launcher_secret="test-secret", publish_ports=True, gateway_port=9847)
+        ctx = _mock_context(
+            launcher_secret="test-secret", publish_ports=True, gateway_port=TEST_GATEWAY_PORT
+        )
         with patch("egg_lib.gateway.get_context", return_value=ctx):
             with patch("egg_lib.gateway.urlopen", side_effect=TimeoutError("timed out")):
                 success, data = launcher_api_call("/api/v1/health")
@@ -408,7 +426,7 @@ class TestLauncherApiCall:
         ctx = _mock_context(
             launcher_secret="test-secret",
             publish_ports=False,
-            gateway_port=9847,
+            gateway_port=TEST_GATEWAY_PORT,
             gateway_isolated_ip="172.32.0.2",
         )
         response_data = {"success": True}

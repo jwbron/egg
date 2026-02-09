@@ -160,6 +160,14 @@ action/
 └── README.md
 ```
 
+## GitHub Workflows Scripts
+
+```
+.github/
+└── scripts/
+    └── push-contract-update.sh             # Conflict-resistant contract push utility
+```
+
 ## Config Directory
 
 ```

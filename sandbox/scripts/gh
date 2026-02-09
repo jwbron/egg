@@ -10,8 +10,16 @@
 # - Read-only operations are passed through
 #
 
-# Gateway runs as container on egg-network, reachable by container name
-GATEWAY_URL="${GATEWAY_URL:-http://egg-gateway:9848}"
+# Gateway runs as container on egg-network, reachable by container name.
+# GATEWAY_URL is set by the container launcher (egg_container.build_sandbox_docker_cmd).
+# We require it to be set - no hardcoded fallback to avoid port drift.
+# See shared/egg_config/constants.py for port definitions.
+if [ -z "$GATEWAY_URL" ]; then
+    echo "ERROR: GATEWAY_URL environment variable is not set." >&2
+    echo "This variable must be set by the container launcher." >&2
+    echo "If running manually, set GATEWAY_URL=http://egg-gateway:<port>" >&2
+    exit 1
+fi
 # Session token for per-container authentication (required)
 EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-}"
 # Worktree container ID - set by egg launcher to translate container paths
@@ -67,7 +75,7 @@ Please ensure:
      systemctl --user status gateway-sidecar
 
   2. The container can reach the gateway:
-     curl http://egg-gateway:9848/api/v1/health
+     curl $GATEWAY_URL/api/v1/health
 
 ================================================================================
 

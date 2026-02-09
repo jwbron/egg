@@ -360,7 +360,22 @@ jobs:
           if ! git diff --quiet "$CONTRACT_PATH" 2>/dev/null; then
             git add "$CONTRACT_PATH"
             git commit -m "Populate contract tasks from plan for issue #${ISSUE_NUMBER}"
-            git push origin "${BRANCH_NAME}"
+
+            # Create reapply script for retry logic
+            # Export RUNNER_TEMP so it's available in the child script
+            export RUNNER_TEMP
+            cat > /tmp/reapply-populate.sh << 'REAPPLY_EOF'
+          pip install -q pyyaml pydantic
+          PYTHONPATH="${RUNNER_TEMP}/trusted-shared:${PYTHONPATH:-}" \
+            python3 "${RUNNER_TEMP}/trusted-action/populate-contract-tasks.py"
+          REAPPLY_EOF
+
+            # Push with conflict-resistant retry logic
+            export CONTRACT_PATH
+            export BRANCH_NAME
+            export COMMIT_MESSAGE="Populate contract tasks from plan for issue #${ISSUE_NUMBER}"
+            export JQ_SCRIPT_PATH="/tmp/reapply-populate.sh"
+            .github/scripts/push-contract-update.sh
           fi
 
       - name: Run egg implementer
@@ -416,7 +431,10 @@ jobs:
             CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
             if [[ -f "$CONTRACT_PATH" ]]; then
               TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-              jq --arg ts "$TIMESTAMP" --arg reason "Checkpoint: ${REMAINING_MINUTES} minutes remaining before timeout" '
+              # Store checkpoint reason for use in JQ_FILTER (needed for reapply on retry)
+              CHECKPOINT_REASON="Checkpoint: ${REMAINING_MINUTES} minutes remaining before timeout"
+
+              jq --arg ts "$TIMESTAMP" --arg reason "$CHECKPOINT_REASON" '
                 .audit_log += [{
                   "timestamp": $ts,
                   "actor": "system",
@@ -432,23 +450,32 @@ jobs:
               git add "$CONTRACT_PATH"
               git commit -m "Checkpoint state before timeout (${REMAINING_MINUTES}m remaining)" || true
 
-              # Retry push with rebase on conflict
-              MAX_RETRIES=3
-              for i in $(seq 1 $MAX_RETRIES); do
-                if git push origin "${BRANCH_NAME}"; then
-                  echo "Push succeeded"
-                  break
-                elif [[ $i -eq $MAX_RETRIES ]]; then
-                  echo "::warning::Checkpoint push failed after $MAX_RETRIES attempts"
-                  break
-                else
-                  echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
-                  git pull --rebase origin "${BRANCH_NAME}" || {
-                    echo "::warning::Rebase failed, checkpoint may be lost"
-                    break
-                  }
-                fi
-              done
+              # Create reapply script for retry logic (uses current timestamp on each retry)
+              # Export variables needed by the reapply script
+              export CHECKPOINT_REASON
+              export CONTRACT_PATH
+              cat > /tmp/reapply-checkpoint.sh << 'REAPPLY_EOF'
+              TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+              jq --arg ts "$TS" --arg reason "${CHECKPOINT_REASON}" '
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "checkpoint",
+                  "old_value": null,
+                  "new_value": "timeout_checkpoint",
+                  "reason": $reason
+                }]
+              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+          REAPPLY_EOF
+
+              # Push with conflict-resistant retry logic (soft-fail for checkpoints)
+              export BRANCH_NAME
+              export COMMIT_MESSAGE="Checkpoint state before timeout (${REMAINING_MINUTES}m remaining)"
+              export JQ_SCRIPT_PATH="/tmp/reapply-checkpoint.sh"
+              export SOFT_FAIL=true
+              .github/scripts/push-contract-update.sh
             fi
           else
             echo "checkpointed=false" >> "$GITHUB_OUTPUT"
@@ -728,8 +755,9 @@ jobs:
                 continue
               fi
 
-              # All checks passed - now verify automated reviewers have approved
-              # Get all reviews with egg-automated-review marker
+              # All checks passed - now verify automated reviewers have approved.
+              # (Reviewer jobs use egg-reviewer-* names for coordination, but we identify
+              # their reviews by the egg-automated-review marker in the review body.)
               reviews=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
                 --jq '[.[] | select(.body | contains("egg-automated-review"))]')
 
@@ -935,22 +963,12 @@ jobs:
             git add "$CONTRACT_PATH"
             git commit -m "Advance to PR phase for issue #${ISSUE_NUMBER}"
 
-            MAX_RETRIES=3
-            for i in $(seq 1 $MAX_RETRIES); do
-              if git push origin "${BRANCH_NAME}"; then
-                echo "Push succeeded"
-                break
-              elif [[ $i -eq $MAX_RETRIES ]]; then
-                echo "Push failed after $MAX_RETRIES attempts"
-                exit 1
-              else
-                echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
-                git pull --rebase origin "${BRANCH_NAME}" || {
-                  echo "Rebase failed, cannot resolve conflict automatically"
-                  exit 1
-                }
-              fi
-            done
+            # Push with conflict-resistant retry logic
+            export CONTRACT_PATH
+            export BRANCH_NAME
+            export COMMIT_MESSAGE="Advance to PR phase for issue #${ISSUE_NUMBER}"
+            export JQ_FILTER='.current_phase = "pr"'
+            .github/scripts/push-contract-update.sh
           fi
 
       # Minimize previous pipeline status comments to reduce clutter
@@ -1410,10 +1428,57 @@ jobs:
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
           if [[ -f "$CONTRACT_PATH" ]]; then
-            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            # Create reapply script for retry logic (complex multi-step jq)
+            cat > /tmp/reapply-refine-review.sh << 'REAPPLY_EOF'
+            TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
             # Update the contract with review cycle info
             # Capture old value before update
+            OLD_CYCLES=$(jq -r '.refine_review_cycles // 0' "$CONTRACT_PATH")
+
+            jq --arg cycle "$REVIEW_CYCLE" \
+               --arg feedback "$REVIEW_FEEDBACK" \
+               --arg ts "$TS" \
+               --arg passed "$REVIEW_PASSED" \
+               --arg old_cycles "$OLD_CYCLES" '
+              .refine_review_cycles = ($cycle | tonumber) |
+              .refine_review_feedback = $feedback |
+              .audit_log += [{
+                "timestamp": $ts,
+                "actor": "system",
+                "role": "reviewer",
+                "action": "update",
+                "field_path": "refine_review_cycles",
+                "old_value": ($old_cycles | tonumber),
+                "new_value": ($cycle | tonumber),
+                "reason": ("Refine review cycle " + $cycle + ": " + (if $passed == "true" then "approved" else "needs_revision" end))
+              }]
+            ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+
+            # Check if we've exceeded max cycles (3 by default)
+            MAX_CYCLES=3
+            if [[ "$REVIEW_PASSED" != "true" && "$REVIEW_CYCLE" -ge "$MAX_CYCLES" ]]; then
+              # Add audit entry for circuit breaker opening
+              OLD_CB_STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
+              jq --arg ts "$TS" --arg old_status "$OLD_CB_STATUS" '
+                .circuit_breaker.status = "open" |
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "circuit_breaker.status",
+                  "old_value": $old_status,
+                  "new_value": "open",
+                  "reason": "Max refine review cycles exceeded"
+                }]
+              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              echo "::warning::Max review cycles exceeded — circuit breaker OPEN"
+            fi
+          REAPPLY_EOF
+
+            # Apply transformation initially
+            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
             OLD_CYCLES=$(jq -r '.refine_review_cycles // 0' "$CONTRACT_PATH")
 
             jq --arg cycle "$REVIEW_CYCLE" \
@@ -1438,7 +1503,6 @@ jobs:
             # Check if we've exceeded max cycles (3 by default)
             MAX_CYCLES=3
             if [[ "$REVIEW_PASSED" != "true" && "$REVIEW_CYCLE" -ge "$MAX_CYCLES" ]]; then
-              # Add audit entry for circuit breaker opening
               OLD_CB_STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
               jq --arg ts "$TIMESTAMP" --arg old_status "$OLD_CB_STATUS" '
                 .circuit_breaker.status = "open" |
@@ -1459,20 +1523,15 @@ jobs:
             git add "$CONTRACT_PATH"
             git commit -m "Update refine review state (cycle ${REVIEW_CYCLE})" || true
 
-            # Push with retry
-            MAX_RETRIES=3
-            for i in $(seq 1 $MAX_RETRIES); do
-              if git push origin "${BRANCH_NAME}"; then
-                break
-              elif [[ $i -eq $MAX_RETRIES ]]; then
-                echo "::error::Push failed after $MAX_RETRIES attempts"
-                exit 1
-              else
-                if ! git pull --rebase origin "${BRANCH_NAME}"; then
-                  echo "::warning::git pull attempt in push retry $i failed"
-                fi
-              fi
-            done
+            # Push with conflict-resistant retry logic
+            export CONTRACT_PATH
+            export BRANCH_NAME
+            export COMMIT_MESSAGE="Update refine review state (cycle ${REVIEW_CYCLE})"
+            export JQ_SCRIPT_PATH="/tmp/reapply-refine-review.sh"
+            export REVIEW_CYCLE
+            export REVIEW_FEEDBACK
+            export REVIEW_PASSED
+            .github/scripts/push-contract-update.sh
           fi
 
       - name: Post final analysis to issue
@@ -1778,23 +1837,23 @@ jobs:
             git add "$CONTRACT_PATH"
             git commit -m "Populate contract from plan for issue #${ISSUE_NUMBER}"
 
-            # Retry push with rebase on conflict (matches implement phase pattern)
-            MAX_RETRIES=3
-            for i in $(seq 1 $MAX_RETRIES); do
-              if git push origin "${BRANCH_NAME}"; then
-                echo "Contract populated and pushed"
-                break
-              elif [[ $i -eq $MAX_RETRIES ]]; then
-                echo "Push failed after $MAX_RETRIES attempts"
-                exit 1
-              else
-                echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
-                git pull --rebase origin "${BRANCH_NAME}" || {
-                  echo "Rebase failed, cannot resolve conflict automatically"
-                  exit 1
-                }
-              fi
-            done
+            # Create reapply script for retry logic
+            # Export RUNNER_TEMP so it's available in the child script
+            export RUNNER_TEMP
+            cat > /tmp/reapply-populate-plan.sh << 'REAPPLY_EOF'
+            pip install -q pyyaml pydantic
+            PYTHONPATH="${RUNNER_TEMP}/trusted-shared:${PYTHONPATH:-}" \
+              python3 "${RUNNER_TEMP}/trusted-action/populate-contract-tasks.py"
+          REAPPLY_EOF
+
+            # Push with conflict-resistant retry logic
+            export CONTRACT_PATH
+            export BRANCH_NAME
+            export COMMIT_MESSAGE="Populate contract from plan for issue #${ISSUE_NUMBER}"
+            export JQ_SCRIPT_PATH="/tmp/reapply-populate-plan.sh"
+            .github/scripts/push-contract-update.sh
+
+            echo "Contract populated and pushed"
           else
             echo "Contract already up to date"
           fi
@@ -2089,12 +2148,59 @@ jobs:
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
           if [[ -f "$CONTRACT_PATH" ]]; then
-            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            # Create reapply script for retry logic (complex multi-step jq)
+            cat > /tmp/reapply-plan-review.sh << 'REAPPLY_EOF'
+            TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
             # Capture old value before update
             OLD_CYCLES=$(jq -r '.plan_review_cycles // 0' "$CONTRACT_PATH")
 
             # Update the contract with review cycle info
+            jq --arg cycle "$REVIEW_CYCLE" \
+               --arg feedback "$REVIEW_FEEDBACK" \
+               --arg ts "$TS" \
+               --arg passed "$REVIEW_PASSED" \
+               --arg old_cycles "$OLD_CYCLES" '
+              .plan_review_cycles = ($cycle | tonumber) |
+              .plan_review_feedback = $feedback |
+              .audit_log += [{
+                "timestamp": $ts,
+                "actor": "system",
+                "role": "reviewer",
+                "action": "update",
+                "field_path": "plan_review_cycles",
+                "old_value": ($old_cycles | tonumber),
+                "new_value": ($cycle | tonumber),
+                "reason": ("Plan review cycle " + $cycle + ": " + (if $passed == "true" then "approved" else "needs_revision" end))
+              }]
+            ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+
+            # Check if we've exceeded max cycles (3 by default)
+            MAX_CYCLES=3
+            if [[ "$REVIEW_PASSED" != "true" && "$REVIEW_CYCLE" -ge "$MAX_CYCLES" ]]; then
+              # Add audit entry for circuit breaker opening
+              OLD_CB_STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
+              jq --arg ts "$TS" --arg old_status "$OLD_CB_STATUS" '
+                .circuit_breaker.status = "open" |
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "circuit_breaker.status",
+                  "old_value": $old_status,
+                  "new_value": "open",
+                  "reason": "Max plan review cycles exceeded"
+                }]
+              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              echo "::warning::Max review cycles exceeded — circuit breaker OPEN"
+            fi
+          REAPPLY_EOF
+
+            # Apply transformation initially
+            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            OLD_CYCLES=$(jq -r '.plan_review_cycles // 0' "$CONTRACT_PATH")
+
             jq --arg cycle "$REVIEW_CYCLE" \
                --arg feedback "$REVIEW_FEEDBACK" \
                --arg ts "$TIMESTAMP" \
@@ -2117,7 +2223,6 @@ jobs:
             # Check if we've exceeded max cycles (3 by default)
             MAX_CYCLES=3
             if [[ "$REVIEW_PASSED" != "true" && "$REVIEW_CYCLE" -ge "$MAX_CYCLES" ]]; then
-              # Add audit entry for circuit breaker opening
               OLD_CB_STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
               jq --arg ts "$TIMESTAMP" --arg old_status "$OLD_CB_STATUS" '
                 .circuit_breaker.status = "open" |
@@ -2138,20 +2243,15 @@ jobs:
             git add "$CONTRACT_PATH"
             git commit -m "Update plan review state (cycle ${REVIEW_CYCLE})" || true
 
-            # Push with retry
-            MAX_RETRIES=3
-            for i in $(seq 1 $MAX_RETRIES); do
-              if git push origin "${BRANCH_NAME}"; then
-                break
-              elif [[ $i -eq $MAX_RETRIES ]]; then
-                echo "::error::Push failed after $MAX_RETRIES attempts"
-                exit 1
-              else
-                if ! git pull --rebase origin "${BRANCH_NAME}"; then
-                  echo "::warning::git pull attempt in push retry $i failed"
-                fi
-              fi
-            done
+            # Push with conflict-resistant retry logic
+            export CONTRACT_PATH
+            export BRANCH_NAME
+            export COMMIT_MESSAGE="Update plan review state (cycle ${REVIEW_CYCLE})"
+            export JQ_SCRIPT_PATH="/tmp/reapply-plan-review.sh"
+            export REVIEW_CYCLE
+            export REVIEW_FEEDBACK
+            export REVIEW_PASSED
+            .github/scripts/push-contract-update.sh
           fi
 
       - name: Post final plan to issue

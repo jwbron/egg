@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from egg_config import GATEWAY_PROXY_PORT
+
 # Index where lifecycle flags (--rm, -it, -d) should be inserted.
 # The returned command always has ["docker", "run", ...], so index 2 is
 # immediately after "run". This constant makes the convention explicit
@@ -26,7 +28,7 @@ class ContainerNetworkConfig:
     gateway_ip: str
     gateway_port: int
     repo_mode: str  # "private" or "public"
-    proxy_url: str | None = None  # e.g. "http://egg-gateway:3129"
+    proxy_url: str | None = None  # Full proxy URL if provided; default uses GATEWAY_PROXY_PORT
 
 
 def build_sandbox_docker_cmd(
@@ -111,7 +113,7 @@ def build_sandbox_docker_cmd(
     # --- Mode-specific network settings ---
 
     if network.repo_mode == "private":
-        proxy = network.proxy_url or f"http://{network.gateway_hostname}:3129"
+        proxy = network.proxy_url or f"http://{network.gateway_hostname}:{GATEWAY_PROXY_PORT}"
         no_proxy = f"localhost,127.0.0.1,{network.gateway_hostname}"
         cmd.extend(
             [
