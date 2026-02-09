@@ -185,12 +185,65 @@ jobs:
             exit 0
           fi
 
+          # Create reapply script for retry logic (multi-step jq transformation)
+          # Store values needed by script (SENDER_LOGIN is from GitHub context)
+          SENDER_LOGIN="${{ github.event.sender.login }}"
+          export SENDER_LOGIN DECISION_ID SELECTED_OPTION DECISION_INDEX
+
+          cat > /tmp/reapply-hitl-decision.sh << 'REAPPLY_EOF'
+          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Re-find the decision index (may have changed after reset)
+          DECISION_INDEX=$(jq --arg id "$DECISION_ID" \
+            '.decisions | to_entries | .[] | select(.value.id == $id) | .key' \
+            "$CONTRACT_PATH")
+
+          if [[ -z "$DECISION_INDEX" ]]; then
+            echo "Decision ${DECISION_ID} not found in contract after reset"
+            exit 1
+          fi
+
           # Update the decision
+          jq --arg idx "$DECISION_INDEX" \
+             --arg resolution "$SELECTED_OPTION" \
+             --arg timestamp "$TS" \
+             --arg actor "$SENDER_LOGIN" \
+            '.decisions[$idx | tonumber].resolved = true |
+             .decisions[$idx | tonumber].resolution = $resolution |
+             .decisions[$idx | tonumber].resolved_by = $actor |
+             .decisions[$idx | tonumber].resolved_at = $timestamp' \
+            "$CONTRACT_PATH" > /tmp/contract.json
+
+          mv /tmp/contract.json "$CONTRACT_PATH"
+
+          # Add audit entry
+          AUDIT_ENTRY=$(jq -n \
+            --arg timestamp "$TS" \
+            --arg actor "$SENDER_LOGIN" \
+            --arg decision "$DECISION_ID" \
+            --arg resolution "$SELECTED_OPTION" \
+            '{
+              timestamp: $timestamp,
+              actor: $actor,
+              role: "human",
+              action: "update",
+              field_path: ("decisions." + $decision),
+              old_value: null,
+              new_value: $resolution,
+              reason: "HITL decision resolved"
+            }')
+
+          jq --argjson entry "$AUDIT_ENTRY" '.audit_log += [$entry]' \
+            "$CONTRACT_PATH" > /tmp/contract.json
+          mv /tmp/contract.json "$CONTRACT_PATH"
+          REAPPLY_EOF
+
+          # Apply transformation initially
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           jq --arg idx "$DECISION_INDEX" \
              --arg resolution "$SELECTED_OPTION" \
              --arg timestamp "$TIMESTAMP" \
-             --arg actor "${{ github.event.sender.login }}" \
+             --arg actor "$SENDER_LOGIN" \
             '.decisions[$idx | tonumber].resolved = true |
              .decisions[$idx | tonumber].resolution = $resolution |
              .decisions[$idx | tonumber].resolved_by = $actor |
@@ -202,7 +255,7 @@ jobs:
           # Add audit entry
           AUDIT_ENTRY=$(jq -n \
             --arg timestamp "$TIMESTAMP" \
-            --arg actor "${{ github.event.sender.login }}" \
+            --arg actor "$SENDER_LOGIN" \
             --arg decision "$DECISION_ID" \
             --arg resolution "$SELECTED_OPTION" \
             '{
@@ -220,29 +273,19 @@ jobs:
             "$CONTRACT_PATH" > /tmp/contract.json
           mv /tmp/contract.json "$CONTRACT_PATH"
 
-          # Commit the update with retry logic to handle race conditions
+          # Commit the update
           git add "$CONTRACT_PATH"
           git commit -m "Resolve HITL decision ${DECISION_ID} for issue #${ISSUE_NUMBER}"
 
-          # Retry push with rebase on conflict (handles race conditions)
-          MAX_RETRIES=3
-          for i in $(seq 1 $MAX_RETRIES); do
-            if git push origin "${BRANCH_NAME}"; then
-              echo "Push succeeded"
-              break
-            elif [[ $i -eq $MAX_RETRIES ]]; then
-              echo "Push failed after $MAX_RETRIES attempts"
-              echo "contract_updated=false" >> "$GITHUB_OUTPUT"
-              exit 1
-            else
-              echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
-              git pull --rebase origin "${BRANCH_NAME}" || {
-                echo "Rebase failed, cannot resolve conflict automatically"
-                echo "contract_updated=false" >> "$GITHUB_OUTPUT"
-                exit 1
-              }
-            fi
-          done
+          # Push with conflict-resistant retry logic
+          if ! CONTRACT_PATH="$CONTRACT_PATH" \
+               BRANCH_NAME="${BRANCH_NAME}" \
+               COMMIT_MESSAGE="Resolve HITL decision ${DECISION_ID} for issue #${ISSUE_NUMBER}" \
+               JQ_SCRIPT_PATH="/tmp/reapply-hitl-decision.sh" \
+               .github/scripts/push-contract-update.sh; then
+            echo "contract_updated=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
 
           echo "contract_updated=true" >> "$GITHUB_OUTPUT"
 
@@ -325,23 +368,12 @@ jobs:
           git add "$CONTRACT_PATH"
           git commit -m "Advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
 
-          # Retry push with rebase on conflict
-          MAX_RETRIES=3
-          for i in $(seq 1 $MAX_RETRIES); do
-            if git push origin "${BRANCH_NAME}"; then
-              echo "Push succeeded"
-              break
-            elif [[ $i -eq $MAX_RETRIES ]]; then
-              echo "Push failed after $MAX_RETRIES attempts"
-              exit 1
-            else
-              echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
-              git pull --rebase origin "${BRANCH_NAME}" || {
-                echo "Rebase failed, cannot resolve conflict automatically"
-                exit 1
-              }
-            fi
-          done
+          # Push with conflict-resistant retry logic
+          CONTRACT_PATH="$CONTRACT_PATH" \
+          BRANCH_NAME="${BRANCH_NAME}" \
+          COMMIT_MESSAGE="Advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}" \
+          JQ_FILTER=".current_phase = \"${NEXT_PHASE}\"" \
+          .github/scripts/push-contract-update.sh
 
       # Minimize previous HITL status comments to reduce clutter
       - name: Minimize previous HITL comments
@@ -523,11 +555,38 @@ jobs:
           set -euo pipefail
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
+          # Store actor for reapply script
+          SENDER_LOGIN="${{ github.event.sender.login }}"
+          export SENDER_LOGIN NEXT_PHASE PREVIOUS_PHASE
+
+          # Create reapply script for retry logic (includes audit log entry)
+          cat > /tmp/reapply-approve-phase.sh << 'REAPPLY_EOF'
+          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          jq --arg phase "$NEXT_PHASE" \
+             --arg old_phase "$PREVIOUS_PHASE" \
+             --arg timestamp "$TS" \
+             --arg actor "$SENDER_LOGIN" \
+            '.current_phase = $phase |
+             .audit_log += [{
+               timestamp: $timestamp,
+               actor: $actor,
+               role: "human",
+               action: "transition",
+               field_path: "current_phase",
+               old_value: $old_phase,
+               new_value: $phase,
+               reason: "Phase approved by human"
+             }]' \
+            "$CONTRACT_PATH" > /tmp/contract.json
+          mv /tmp/contract.json "$CONTRACT_PATH"
+          REAPPLY_EOF
+
+          # Apply transformation initially
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           jq --arg phase "$NEXT_PHASE" \
              --arg old_phase "$PREVIOUS_PHASE" \
              --arg timestamp "$TIMESTAMP" \
-             --arg actor "${{ github.event.sender.login }}" \
+             --arg actor "$SENDER_LOGIN" \
             '.current_phase = $phase |
              .audit_log += [{
                timestamp: $timestamp,
@@ -546,23 +605,12 @@ jobs:
           git add "$CONTRACT_PATH"
           git commit -m "Approve and advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
 
-          # Retry push with rebase on conflict (handles race conditions)
-          MAX_RETRIES=3
-          for i in $(seq 1 $MAX_RETRIES); do
-            if git push origin "${BRANCH_NAME}"; then
-              echo "Push succeeded"
-              break
-            elif [[ $i -eq $MAX_RETRIES ]]; then
-              echo "Push failed after $MAX_RETRIES attempts"
-              exit 1
-            else
-              echo "Push failed (attempt $i/$MAX_RETRIES), trying rebase..."
-              git pull --rebase origin "${BRANCH_NAME}" || {
-                echo "Rebase failed, cannot resolve conflict automatically"
-                exit 1
-              }
-            fi
-          done
+          # Push with conflict-resistant retry logic
+          CONTRACT_PATH="$CONTRACT_PATH" \
+          BRANCH_NAME="${BRANCH_NAME}" \
+          COMMIT_MESSAGE="Approve and advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}" \
+          JQ_SCRIPT_PATH="/tmp/reapply-approve-phase.sh" \
+          .github/scripts/push-contract-update.sh
 
       # Minimize previous HITL status comments to reduce clutter
       - name: Minimize previous HITL comments
