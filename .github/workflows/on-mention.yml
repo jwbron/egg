@@ -120,6 +120,7 @@ jobs:
           REVIEW_BODY: ${{ github.event.review.body }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
+          set -euo pipefail
           # Check if sender is authorized (comma-separated list)
           is_authorized=false
           IFS=',' read -ra users <<< "$AUTHORIZED_USERS"
@@ -341,9 +342,13 @@ jobs:
           # Check if egg already posted a substantive comment since the triggering event
           # For pull_request_review events, use review.submitted_at; for comments, use comment.created_at; fallback to issue.created_at
           TRIGGER_TIME="${{ github.event.comment.created_at || github.event.review.submitted_at || github.event.issue.created_at }}"
+          # Handle null/empty TRIGGER_TIME (GitHub expression may return literal "null")
+          if [[ -z "$TRIGGER_TIME" || "$TRIGGER_TIME" == "null" ]]; then
+            TRIGGER_TIME="1970-01-01"
+          fi
           # Match both bot username and bot[bot] since GitHub App comments use the [bot] suffix
           EXISTING_COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments" \
-            --jq "[.[] | select((.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") and .created_at > \"${TRIGGER_TIME:-1970-01-01}\" and (.body | test(\"finished successfully|run failed|👀 Working on it\") | not))] | length")
+            --jq "[.[] | select((.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") and .created_at > \"${TRIGGER_TIME}\" and (.body | test(\"finished successfully|run failed|👀 Working on it\") | not))] | length")
 
           if [[ "${EXISTING_COMMENTS:-0}" -gt 0 ]]; then
             # Agent already posted a substantive comment — only add run link on failure
