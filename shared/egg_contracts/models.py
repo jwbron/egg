@@ -54,6 +54,21 @@ class CircuitBreakerStatus(StrEnum):
     OPEN = "open"
 
 
+class CheckStatus(StrEnum):
+    """Status values for check results."""
+
+    PASS = "pass"
+    FAIL = "fail"
+    SKIP = "skip"
+
+
+class HumanReviewMechanism(StrEnum):
+    """Mechanism for human review in a phase."""
+
+    ISSUE_CHECKBOX = "ISSUE_CHECKBOX"
+    PR_REVIEW = "PR_REVIEW"
+
+
 class AuditAction(StrEnum):
     """Types of audit actions."""
 
@@ -182,6 +197,50 @@ class PRMetadata(BaseModel):
     description: str = Field(default="", description="PR description/body")
 
 
+class CheckDefinition(BaseModel):
+    """Definition of a check to run during a phase."""
+
+    id: str = Field(
+        ...,
+        pattern=r"^check-[a-z0-9-]+$",
+        description="Unique check identifier (e.g., check-lint)",
+    )
+    name: str = Field(..., min_length=1, description="Human-readable check name")
+    script: str = Field(..., min_length=1, description="Script to run for this check")
+    required: bool = Field(default=True, description="Whether this check must pass")
+    retry_on_fail: bool = Field(default=False, description="Whether to retry on failure")
+    max_retries: int = Field(default=0, ge=0, description="Maximum number of retries")
+
+
+class CheckResult(BaseModel):
+    """Result of running a check."""
+
+    check_id: str = Field(
+        ...,
+        pattern=r"^check-[a-z0-9-]+$",
+        description="ID of the check that was run",
+    )
+    status: CheckStatus = Field(..., description="Check result status")
+    message: str = Field(default="", description="Human-readable result message")
+    details: dict[str, Any] = Field(default_factory=dict, description="Additional details")
+    fixable: bool = Field(default=False, description="Whether this failure can be auto-fixed")
+
+
+class PhaseConfig(BaseModel):
+    """Configuration for a pipeline phase."""
+
+    checks: list[CheckDefinition] = Field(
+        default_factory=list, description="Checks to run in this phase"
+    )
+    max_review_cycles: int = Field(
+        default=3, ge=1, description="Max review cycles before escalation"
+    )
+    human_review_mechanism: HumanReviewMechanism = Field(
+        default=HumanReviewMechanism.ISSUE_CHECKBOX,
+        description="Mechanism for human review",
+    )
+
+
 class FeedbackQuestion(BaseModel):
     """A question for human feedback."""
 
@@ -283,6 +342,10 @@ class Contract(BaseModel):
     )
     feedback: Feedback | None = Field(
         default=None, description="Active feedback request for collecting open-ended questions"
+    )
+    phase_configs: dict[PipelinePhase, PhaseConfig] | None = Field(
+        default=None,
+        description="Optional phase-specific configurations (overrides defaults)",
     )
 
     def get_task(self, phase_id: str, task_id: str) -> Task | None:
