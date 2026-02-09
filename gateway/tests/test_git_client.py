@@ -11,6 +11,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from git_client import (
     BLOCKED_GIT_FLAGS,
     GIT_ALLOWED_COMMANDS,
+    PROTECTED_FILE_PATTERNS,
+    check_protected_files_in_push,
+    get_changed_files_in_push,
     is_repos_parent_directory,
     is_ssh_url,
     normalize_flag,
@@ -373,6 +376,160 @@ class TestGitHubClientExecuteEnvironment:
 
             assert found_git_at, "Missing URL rewrite for git@github.com: format"
             assert found_ssh_protocol, "Missing URL rewrite for ssh://git@github.com/ format"
+
+
+class TestProtectedFilePatterns:
+    """Tests for protected file patterns configuration."""
+
+    def test_contract_files_protected(self):
+        """Contract files should be in the protected patterns list."""
+        assert ".egg-state/contracts/" in PROTECTED_FILE_PATTERNS
+
+
+class TestCheckProtectedFilesInPush:
+    """Tests for checking protected files in push operations."""
+
+    def test_contract_file_detected(self):
+        """Contract JSON files should be detected as protected."""
+        from unittest.mock import patch
+
+        with patch("git_client.get_changed_files_in_push") as mock_get_files:
+            mock_get_files.return_value = (
+                [
+                    "src/main.py",
+                    ".egg-state/contracts/123.json",
+                    "README.md",
+                ],
+                None,
+            )
+
+            has_protected, protected_files = check_protected_files_in_push(
+                "/fake/repo", "origin", "main"
+            )
+
+            assert has_protected
+            assert ".egg-state/contracts/123.json" in protected_files
+            assert len(protected_files) == 1
+
+    def test_no_protected_files(self):
+        """Normal files should not be detected as protected."""
+        from unittest.mock import patch
+
+        with patch("git_client.get_changed_files_in_push") as mock_get_files:
+            mock_get_files.return_value = (
+                [
+                    "src/main.py",
+                    "tests/test_main.py",
+                    "README.md",
+                ],
+                None,
+            )
+
+            has_protected, protected_files = check_protected_files_in_push(
+                "/fake/repo", "origin", "main"
+            )
+
+            assert not has_protected
+            assert protected_files == []
+
+    def test_multiple_contract_files(self):
+        """Multiple contract files should all be detected."""
+        from unittest.mock import patch
+
+        with patch("git_client.get_changed_files_in_push") as mock_get_files:
+            mock_get_files.return_value = (
+                [
+                    ".egg-state/contracts/123.json",
+                    ".egg-state/contracts/456.json",
+                    "src/code.py",
+                ],
+                None,
+            )
+
+            has_protected, protected_files = check_protected_files_in_push(
+                "/fake/repo", "origin", "feature"
+            )
+
+            assert has_protected
+            assert len(protected_files) == 2
+            assert ".egg-state/contracts/123.json" in protected_files
+            assert ".egg-state/contracts/456.json" in protected_files
+
+    def test_error_returns_no_protected(self):
+        """When git diff fails, should fail open (no protected files)."""
+        from unittest.mock import patch
+
+        with patch("git_client.get_changed_files_in_push") as mock_get_files:
+            mock_get_files.return_value = ([], "Timeout determining changed files")
+
+            has_protected, protected_files = check_protected_files_in_push(
+                "/fake/repo", "origin", "main"
+            )
+
+            # Should fail open - allow the push
+            assert not has_protected
+            assert protected_files == []
+
+    def test_empty_file_list(self):
+        """Empty changed file list should return no protected files."""
+        from unittest.mock import patch
+
+        with patch("git_client.get_changed_files_in_push") as mock_get_files:
+            mock_get_files.return_value = ([], None)
+
+            has_protected, protected_files = check_protected_files_in_push(
+                "/fake/repo", "origin", "main"
+            )
+
+            assert not has_protected
+            assert protected_files == []
+
+
+class TestGetChangedFilesInPush:
+    """Tests for getting changed files in a push."""
+
+    def test_successful_diff(self):
+        """Should return files from git diff output."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "file1.py\nfile2.py\ndir/file3.txt\n"
+            mock_run.return_value = mock_result
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            assert error is None
+            assert files == ["file1.py", "file2.py", "dir/file3.txt"]
+
+    def test_timeout_returns_error(self):
+        """Should return error on timeout."""
+        from subprocess import TimeoutExpired
+        from unittest.mock import patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = TimeoutExpired(cmd="git diff", timeout=30)
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            assert files == []
+            assert "Timeout" in error
+
+    def test_empty_output(self):
+        """Should handle empty diff output."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+            mock_run.return_value = mock_result
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            assert error is None
+            assert files == []
 
 
 if __name__ == "__main__":

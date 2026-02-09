@@ -949,6 +949,155 @@ def cleanup_credential_helper(path: str | None) -> None:
             os.unlink(path)
 
 
+# =============================================================================
+# Protected File Validation
+# =============================================================================
+
+# Files that cannot be modified via git push by the implementer role
+# Contract files are owned by the SDLC system and should only be modified
+# through the contract API, not by direct git commits
+PROTECTED_FILE_PATTERNS = [
+    ".egg-state/contracts/",  # Contract JSON files
+]
+
+
+def get_changed_files_in_push(
+    repo_path: str, remote: str, branch: str
+) -> tuple[list[str], str | None]:
+    """
+    Get the list of files that would be changed by a push.
+
+    Compares local branch to remote tracking branch to determine what
+    files are being modified in the commits being pushed.
+
+    Args:
+        repo_path: Path to the git repository
+        remote: Remote name (e.g., "origin")
+        branch: Branch name being pushed
+
+    Returns:
+        Tuple of (changed_files, error_message)
+        - changed_files: List of file paths that are changed
+        - error_message: Error string if the check failed, None on success
+    """
+    import subprocess
+
+    # Get the merge base between local and remote
+    # This shows what commits are being pushed (local commits not on remote)
+    try:
+        # First, try to get files changed between remote tracking branch and local
+        # Using --name-only with git diff to get just file names
+        result = subprocess.run(
+            git_cmd(
+                "diff",
+                "--name-only",
+                f"{remote}/{branch}...HEAD",
+            ),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        if result.returncode == 0:
+            files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
+            return files, None
+
+        # If remote branch doesn't exist yet, get all files in all commits on the branch
+        # that aren't on the default branch
+        result = subprocess.run(
+            git_cmd(
+                "diff",
+                "--name-only",
+                f"{remote}/main...HEAD",
+            ),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        if result.returncode == 0:
+            files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
+            return files, None
+
+        # Try master if main doesn't exist
+        result = subprocess.run(
+            git_cmd(
+                "diff",
+                "--name-only",
+                f"{remote}/master...HEAD",
+            ),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        if result.returncode == 0:
+            files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
+            return files, None
+
+        # If none of the above work, we can't determine what files are being pushed
+        # Fail open (allow) but log the situation
+        logger.warning(
+            "Could not determine changed files in push",
+            repo_path=repo_path,
+            remote=remote,
+            branch=branch,
+            stderr=result.stderr,
+        )
+        return [], None
+
+    except subprocess.TimeoutExpired:
+        return [], "Timeout determining changed files"
+    except Exception as e:
+        return [], f"Error determining changed files: {e}"
+
+
+def check_protected_files_in_push(
+    repo_path: str, remote: str, branch: str
+) -> tuple[bool, list[str]]:
+    """
+    Check if a push contains modifications to protected files.
+
+    Protected files include:
+    - .egg-state/contracts/*.json (SDLC contract files)
+
+    Args:
+        repo_path: Path to the git repository
+        remote: Remote name (e.g., "origin")
+        branch: Branch name being pushed
+
+    Returns:
+        Tuple of (has_protected_files, protected_file_list)
+        - has_protected_files: True if any protected files are modified
+        - protected_file_list: List of protected files that are modified
+    """
+    changed_files, error = get_changed_files_in_push(repo_path, remote, branch)
+
+    if error:
+        logger.warning(
+            "Could not check protected files",
+            error=error,
+            repo_path=repo_path,
+        )
+        # Fail open - if we can't determine files, don't block
+        return False, []
+
+    protected_files = []
+    for file_path in changed_files:
+        for pattern in PROTECTED_FILE_PATTERNS:
+            if file_path.startswith(pattern):
+                protected_files.append(file_path)
+                break
+
+    return len(protected_files) > 0, protected_files
+
+
 def get_token_for_repo(repo: str) -> tuple[str | None, str, str]:
     """
     Get the authentication token for a repository.

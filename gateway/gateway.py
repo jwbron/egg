@@ -56,6 +56,7 @@ try:
     from .anthropic_credentials import get_credentials_manager
     from .git_client import (
         GIT_ALLOWED_COMMANDS,
+        check_protected_files_in_push,
         cleanup_credential_helper,
         create_credential_helper,
         get_authenticated_remote_target,
@@ -98,6 +99,7 @@ except ImportError:
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from git_client import (  # type: ignore[no-redef, import-not-found]
         GIT_ALLOWED_COMMANDS,
+        check_protected_files_in_push,
         cleanup_credential_helper,
         create_credential_helper,
         get_authenticated_remote_target,
@@ -543,6 +545,43 @@ def git_push() -> tuple[Response, int] | Response:
             status_code=403,
             details=policy_result.details,
         )
+
+    # SECURITY: Check for protected file modifications based on agent role
+    # Implementer agents are NOT allowed to modify contract files via git push.
+    # Contract modifications must go through the contract API which enforces
+    # role-based permissions. This prevents implementers from bypassing the
+    # SDLC contract system by directly committing to contract files.
+    session_role = None
+    if hasattr(g, "session") and g.session:
+        session_role = getattr(g.session, "agent_role", None)
+
+    if session_role and session_role.lower() == "implementer":
+        has_protected, protected_files = check_protected_files_in_push(
+            exec_path, remote, branch
+        )
+        if has_protected:
+            audit_log(
+                "push_denied_protected_files",
+                "git_push",
+                success=False,
+                details={
+                    "repo": repo,
+                    "branch": branch,
+                    "role": session_role,
+                    "protected_files": protected_files,
+                },
+            )
+            return make_error(
+                f"Push denied: Implementer role cannot modify protected files: "
+                f"{', '.join(protected_files)}. Contract modifications must go "
+                "through the contract API.",
+                status_code=403,
+                details={
+                    "role": session_role,
+                    "protected_files": protected_files,
+                    "hint": "Use egg-contract CLI commands to update contract state.",
+                },
+            )
 
     # Get authentication token using shared helper
     token_str, auth_mode, token_error = get_token_for_repo(repo)
