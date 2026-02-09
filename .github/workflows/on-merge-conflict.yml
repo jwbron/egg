@@ -186,7 +186,8 @@ jobs:
         if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          BODY="egg is resolving merge conflicts for this PR..."
+          BODY="<!-- egg-status-comment -->
+          egg is resolving merge conflicts for this PR..."
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -238,9 +239,11 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
-            BODY="egg conflict resolution completed. [View run logs](${RUN_URL})"
+            BODY="<!-- egg-status-comment -->
+          egg conflict resolution completed. [View run logs](${RUN_URL})"
           else
-            BODY="egg conflict resolution encountered an issue. [View run logs](${RUN_URL})"
+            BODY="<!-- egg-status-comment -->
+          egg conflict resolution encountered an issue. [View run logs](${RUN_URL})"
           fi
 
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
@@ -346,7 +349,8 @@ jobs:
         if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          BODY="egg is resolving merge conflicts for this PR..."
+          BODY="<!-- egg-status-comment -->
+          egg is resolving merge conflicts for this PR..."
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -398,9 +402,11 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
-            BODY="egg conflict resolution completed. [View run logs](${RUN_URL})"
+            BODY="<!-- egg-status-comment -->
+          egg conflict resolution completed. [View run logs](${RUN_URL})"
           else
-            BODY="egg conflict resolution encountered an issue. [View run logs](${RUN_URL})"
+            BODY="<!-- egg-status-comment -->
+          egg conflict resolution encountered an issue. [View run logs](${RUN_URL})"
           fi
 
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"

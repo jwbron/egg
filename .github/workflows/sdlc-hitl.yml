@@ -412,10 +412,10 @@ jobs:
           set -euo pipefail
           # Use printf to safely construct comment body (prevents command injection)
           if [[ "$SHOULD_ADVANCE" == "true" ]]; then
-            BODY=$(printf 'Decision **%s** resolved: %s\n\nAll pending decisions resolved. Advancing to **%s** phase.\n\n--- Authored by egg' \
+            BODY=$(printf '<!-- egg-status-comment -->\nDecision **%s** resolved: %s\n\nAll pending decisions resolved. Advancing to **%s** phase.\n\n--- Authored by egg' \
               "$DECISION_ID" "$SELECTED_OPTION" "$NEXT_PHASE")
           else
-            BODY=$(printf 'Decision **%s** resolved: %s\n\n--- Authored by egg' \
+            BODY=$(printf '<!-- egg-status-comment -->\nDecision **%s** resolved: %s\n\n--- Authored by egg' \
               "$DECISION_ID" "$SELECTED_OPTION")
           fi
 
@@ -646,7 +646,7 @@ jobs:
         run: |
           set -euo pipefail
           # Use printf to safely construct comment body (prevents command injection)
-          BODY=$(printf 'Phase **%s** approved by @%s.\n\nAdvancing to **%s** phase.\n\n--- Authored by egg' \
+          BODY=$(printf '<!-- egg-status-comment -->\nPhase **%s** approved by @%s.\n\nAdvancing to **%s** phase.\n\n--- Authored by egg' \
             "$PREVIOUS_PHASE" "$SENDER_LOGIN" "$NEXT_PHASE")
 
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"

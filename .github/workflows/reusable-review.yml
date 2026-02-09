@@ -402,9 +402,11 @@ jobs:
         if: always() && !cancelled()
         run: |
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
-            BODY="egg ${{ inputs.bot_name }} completed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            BODY="<!-- egg-status-comment -->
+          egg ${{ inputs.bot_name }} completed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           else
-            BODY="egg ${{ inputs.bot_name }} failed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            BODY="<!-- egg-status-comment -->
+          egg ${{ inputs.bot_name }} failed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           fi
           gh pr comment "${{ env.PR_NUMBER }}" --repo "${{ github.repository }}" --body "$BODY"
         env:
