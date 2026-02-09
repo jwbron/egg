@@ -5,7 +5,11 @@ name: "egg: Autofix Check Failures"
 # allowing us to identify the PR and check details.
 on:
   workflow_run:
-    workflows: ["Lint", "Test"]
+    workflows:
+      - "Lint"
+      - "Test"
+      - "egg: Code Review"
+      - "egg: Contract Verification"
     types: [completed]
   workflow_dispatch:
     inputs:

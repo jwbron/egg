@@ -1,0 +1,492 @@
+name: "egg: Finalize PR on Check Success"
+
+# Event-driven workflow that replaces the polling-based wait-for-checks job.
+# Triggers when CI/review workflows complete and checks if an SDLC draft PR
+# can be marked ready-for-review.
+#
+# Issue #387: Replace busy-wait polling with event-driven PR finalization.
+
+on:
+  workflow_run:
+    workflows:
+      - "Lint"
+      - "Test"
+      - "egg: Code Review"
+      - "egg: Contract Verification"
+    types: [completed]
+
+  # Scheduled fallback to catch stuck PRs (runs every 15 minutes)
+  schedule:
+    - cron: "*/15 * * * *"
+
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to finalize (manual trigger)'
+        required: true
+        type: number
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  finalize-sdlc-pr:
+    name: Finalize SDLC PR
+    runs-on: ubuntu-latest
+    # Only run when:
+    # - workflow_run: triggering workflow succeeded (or concluded) AND was for a PR
+    # - schedule: always (will filter by label below)
+    # - workflow_dispatch: always (manual trigger for specific PR)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.event == 'pull_request' &&
+        github.event.workflow_run.pull_requests[0] != null
+      )
+
+    # Deduplicate concurrent triggers for the same PR
+    concurrency:
+      group: egg-finalize-pr-${{ github.event.workflow_run.pull_requests[0].number || github.event.inputs.pr_number || 'scheduled' }}
+      cancel-in-progress: true
+
+    env:
+      BOT_USERNAME: james-in-a-box
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      # ============================================================
+      # TASK-1-2: Identify SDLC draft PRs
+      # ============================================================
+      - name: Identify target PRs
+        id: identify-prs
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Manual trigger: use provided PR number
+            PR_NUMBER="${{ github.event.inputs.pr_number }}"
+            echo "pr_numbers=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "Manual trigger for PR #${PR_NUMBER}"
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            # Scheduled: find all open SDLC draft PRs
+            PR_NUMBERS=$(gh pr list \
+              --repo "${{ github.repository }}" \
+              --state open \
+              --draft \
+              --label "egg-sdlc" \
+              --json number \
+              --jq '.[].number' | tr '\n' ' ')
+            echo "pr_numbers=${PR_NUMBERS}" >> "$GITHUB_OUTPUT"
+            echo "Scheduled run found draft PRs: ${PR_NUMBERS:-none}"
+          else
+            # workflow_run: get PR from triggering workflow
+            PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
+            echo "pr_numbers=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "workflow_run trigger for PR #${PR_NUMBER}"
+          fi
+
+      - name: Check for SDLC draft PRs
+        id: check-sdlc
+        if: steps.identify-prs.outputs.pr_numbers != ''
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBERS: ${{ steps.identify-prs.outputs.pr_numbers }}
+        run: |
+          set -euo pipefail
+
+          ELIGIBLE_PRS=""
+
+          for PR_NUMBER in $PR_NUMBERS; do
+            # Skip invalid PR numbers
+            if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+              continue
+            fi
+
+            # Fetch PR metadata
+            PR_DATA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" 2>/dev/null || echo "{}")
+
+            # Check if PR exists
+            if [[ "$PR_DATA" == "{}" || "$(echo "$PR_DATA" | jq -r '.message // empty')" == "Not Found" ]]; then
+              echo "PR #${PR_NUMBER} not found, skipping"
+              continue
+            fi
+
+            # Check if PR is a draft
+            IS_DRAFT=$(echo "$PR_DATA" | jq -r '.draft')
+            if [[ "$IS_DRAFT" != "true" ]]; then
+              echo "PR #${PR_NUMBER} is not a draft, skipping"
+              continue
+            fi
+
+            # Check for egg-sdlc label
+            HAS_LABEL=$(echo "$PR_DATA" | jq -r '.labels | map(.name) | any(. == "egg-sdlc")')
+            if [[ "$HAS_LABEL" != "true" ]]; then
+              echo "PR #${PR_NUMBER} does not have egg-sdlc label, skipping"
+              continue
+            fi
+
+            echo "PR #${PR_NUMBER} is eligible for finalization"
+            ELIGIBLE_PRS="${ELIGIBLE_PRS} ${PR_NUMBER}"
+          done
+
+          # Trim leading space
+          ELIGIBLE_PRS="${ELIGIBLE_PRS# }"
+
+          if [[ -z "$ELIGIBLE_PRS" ]]; then
+            echo "No eligible SDLC draft PRs found"
+            echo "has_eligible=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Eligible PRs: ${ELIGIBLE_PRS}"
+            echo "has_eligible=true" >> "$GITHUB_OUTPUT"
+            echo "eligible_prs=${ELIGIBLE_PRS}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ============================================================
+      # TASK-1-3: Check aggregation logic
+      # ============================================================
+      - name: Verify checks and reviews
+        id: verify
+        if: steps.check-sdlc.outputs.has_eligible == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          ELIGIBLE_PRS: ${{ steps.check-sdlc.outputs.eligible_prs }}
+        run: |
+          set -euo pipefail
+
+          # Workflow name to exclude from check aggregation (avoid self-deadlock)
+          SELF_WORKFLOWS=("egg: SDLC Pipeline" "egg: Finalize PR on Check Success")
+
+          READY_PRS=""
+
+          for PR_NUMBER in $ELIGIBLE_PRS; do
+            echo "--- Checking PR #${PR_NUMBER} ---"
+
+            # Get PR head SHA
+            HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
+            echo "HEAD SHA: ${HEAD_SHA}"
+
+            # Get all check runs for this commit
+            check_runs=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
+              --jq '.check_runs | map({name: .name, status: .status, conclusion: .conclusion})')
+
+            # Filter out self-workflow checks to avoid self-deadlock
+            external_checks=$(echo "$check_runs" | jq '
+              [.[] | select(
+                (.name | startswith("egg: SDLC Pipeline") | not) and
+                (.name | startswith("egg: Finalize PR on Check Success") | not)
+              )]
+            ')
+
+            total=$(echo "$external_checks" | jq 'length')
+            completed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed")] | length')
+            failed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length')
+            pending=$(echo "$external_checks" | jq -r '[.[] | select(.status != "completed")] | map(.name) | join(", ")')
+
+            echo "Checks: ${completed}/${total} completed, ${failed} failed"
+
+            # TASK-4-2: Handle zero checks edge case
+            if [[ "$total" -eq 0 ]]; then
+              echo "No external checks found for PR #${PR_NUMBER}"
+              # For scheduled runs, skip PRs with no checks (they may still be setting up)
+              if [[ "${{ github.event_name }}" == "schedule" ]]; then
+                echo "Skipping PR with no checks on scheduled run"
+                continue
+              fi
+              # For workflow_run, this shouldn't happen (we were triggered by a check)
+              # Proceed anyway
+            fi
+
+            # Check if all checks are complete
+            if [[ "$completed" -ne "$total" ]]; then
+              echo "Not all checks completed for PR #${PR_NUMBER}: waiting for ${pending}"
+              continue
+            fi
+
+            # Check if any checks failed
+            if [[ "$failed" -gt 0 ]]; then
+              echo "PR #${PR_NUMBER} has ${failed} failed check(s)"
+              echo "$external_checks" | jq -r '.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled") | "  FAILED: \(.name) (\(.conclusion))"'
+              continue
+            fi
+
+            # TASK-1-4: Verify automated reviews
+            reviews=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
+              --jq '[.[] | select(.body | contains("egg-automated-review"))]')
+
+            # Group by user, take latest review per user
+            latest_reviews=$(echo "$reviews" | jq '
+              group_by(.user.login) |
+              map(sort_by(.submitted_at) | last) |
+              [.[] | {user: .user.login, state: .state}]
+            ')
+
+            # Check if any automated reviewer has requested changes
+            changes_requested=$(echo "$latest_reviews" | jq '[.[] | select(.state == "CHANGES_REQUESTED")] | length')
+
+            if [[ "$changes_requested" -gt 0 ]]; then
+              echo "Automated reviewer(s) requested changes for PR #${PR_NUMBER}"
+              echo "$latest_reviews" | jq -r '.[] | select(.state == "CHANGES_REQUESTED") | "  \(.user): CHANGES_REQUESTED"'
+              continue
+            fi
+
+            echo "PR #${PR_NUMBER} passed all checks and reviews"
+            READY_PRS="${READY_PRS} ${PR_NUMBER}"
+          done
+
+          # Trim leading space
+          READY_PRS="${READY_PRS# }"
+
+          if [[ -z "$READY_PRS" ]]; then
+            echo "No PRs ready for finalization"
+            echo "has_ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "PRs ready for finalization: ${READY_PRS}"
+            echo "has_ready=true" >> "$GITHUB_OUTPUT"
+            echo "ready_prs=${READY_PRS}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ============================================================
+      # TASK-2-1 through TASK-2-7: Finalize eligible PRs
+      # ============================================================
+      - name: Checkout repository
+        if: steps.verify.outputs.has_ready == 'true'
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.bot-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Configure git identity
+        if: steps.verify.outputs.has_ready == 'true'
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "james-in-a-box[bot]"
+          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+
+      - name: Finalize PRs
+        if: steps.verify.outputs.has_ready == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          READY_PRS: ${{ steps.verify.outputs.ready_prs }}
+        run: |
+          set -euo pipefail
+
+          for PR_NUMBER in $READY_PRS; do
+            echo "=== Finalizing PR #${PR_NUMBER} ==="
+
+            # Fetch PR metadata
+            PR_DATA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}")
+            BRANCH_NAME=$(echo "$PR_DATA" | jq -r '.head.ref')
+
+            # Extract issue number from branch name (egg/issue-NNN pattern)
+            if [[ "$BRANCH_NAME" =~ ^egg/issue-([0-9]+)$ ]]; then
+              ISSUE_NUMBER="${BASH_REMATCH[1]}"
+            else
+              echo "Warning: Could not extract issue number from branch ${BRANCH_NAME}"
+              # Try to get from PR body (look for "Fixes #NNN")
+              ISSUE_NUMBER=$(echo "$PR_DATA" | jq -r '.body' | grep -oP 'Fixes #\K[0-9]+' | head -1 || true)
+              if [[ -z "$ISSUE_NUMBER" ]]; then
+                echo "Could not determine issue number, skipping PR #${PR_NUMBER}"
+                continue
+              fi
+            fi
+
+            echo "Associated issue: #${ISSUE_NUMBER}"
+
+            # Checkout the branch
+            git fetch origin "${BRANCH_NAME}"
+            git checkout "${BRANCH_NAME}"
+            git pull origin "${BRANCH_NAME}"
+
+            # TASK-2-1: Check for merge conflicts
+            MAX_ATTEMPTS=12
+            POLL_INTERVAL=5
+            MERGEABLE="UNKNOWN"
+            for i in $(seq 1 $MAX_ATTEMPTS); do
+              MERGEABLE=$(gh pr view "${PR_NUMBER}" --json mergeable --jq '.mergeable')
+              if [[ "$MERGEABLE" != "UNKNOWN" ]]; then
+                break
+              fi
+              echo "Merge status unknown (attempt ${i}/${MAX_ATTEMPTS}), waiting..."
+              sleep $POLL_INTERVAL
+            done
+
+            echo "PR mergeable status: ${MERGEABLE}"
+
+            if [[ "$MERGEABLE" == "CONFLICTING" ]]; then
+              # Post conflict comment to issue
+              PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
+              BODY="**Merge conflicts detected** on draft PR #${PR_NUMBER}.
+
+              The branch has conflicts with \`main\` that must be resolved before the PR can be marked ready for review: ${PR_URL}
+
+              The PR remains as a draft. Resolve the conflicts and the pipeline will retry.
+
+              --- Authored by egg"
+
+              gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
+              echo "Posted conflict comment for PR #${PR_NUMBER}"
+              continue
+            fi
+
+            if [[ "$MERGEABLE" != "MERGEABLE" ]]; then
+              echo "::error::Could not determine mergeable status for PR #${PR_NUMBER} (status: ${MERGEABLE})"
+              continue
+            fi
+
+            # TASK-2-2: Update PR title from contract
+            CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+            CONTRACT_PR_TITLE=""
+            WORKFLOW_OWNER=""
+            if [[ -f "$CONTRACT_PATH" ]]; then
+              CONTRACT_PR_TITLE=$(jq -r '.pr.title // empty' "$CONTRACT_PATH" 2>/dev/null || true)
+              WORKFLOW_OWNER=$(jq -r '.workflow_owner // empty' "$CONTRACT_PATH" 2>/dev/null || true)
+            fi
+
+            # Get issue title as fallback
+            ISSUE_TITLE=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}" --jq '.title')
+
+            # Set PR title
+            if [[ -n "$CONTRACT_PR_TITLE" ]]; then
+              CLEAN_TITLE="${CONTRACT_PR_TITLE}"
+              echo "Using planner-generated PR title from contract"
+            else
+              CLEAN_TITLE="${ISSUE_TITLE}"
+            fi
+            gh pr edit "${PR_NUMBER}" --title "${CLEAN_TITLE}"
+
+            # TASK-2-3: Update PR body
+            EXISTING_BODY=$(gh pr view "${PR_NUMBER}" --json body --jq '.body')
+            FINAL_BODY_FILE=$(mktemp)
+
+            printf '%s\n\n---\n\n' "$EXISTING_BODY" > "$FINAL_BODY_FILE"
+            printf '%s\n' "All automated checks passed. Ready for human review." >> "$FINAL_BODY_FILE"
+
+            if [[ -n "${WORKFLOW_OWNER}" ]]; then
+              printf '\n%s\n' "Reviewer: @${WORKFLOW_OWNER}" >> "$FINAL_BODY_FILE"
+            fi
+
+            printf '\n%s\n' "Authored-by: egg" >> "$FINAL_BODY_FILE"
+
+            gh pr edit "${PR_NUMBER}" --body-file "$FINAL_BODY_FILE"
+            rm -f "$FINAL_BODY_FILE"
+
+            # TASK-2-4: Mark draft as ready
+            gh pr ready "${PR_NUMBER}"
+            echo "PR #${PR_NUMBER} marked ready for human review"
+
+            # TASK-2-5: Add reviewer and update contract phase
+            if [[ -n "${WORKFLOW_OWNER}" ]]; then
+              if gh pr edit "${PR_NUMBER}" --add-reviewer "${WORKFLOW_OWNER}"; then
+                echo "Added @${WORKFLOW_OWNER} as reviewer for PR #${PR_NUMBER}"
+              else
+                echo "::warning::Could not add @${WORKFLOW_OWNER} as reviewer"
+              fi
+            fi
+
+            # Update contract phase to "pr"
+            if [[ -f "$CONTRACT_PATH" ]]; then
+              jq '.current_phase = "pr"' "$CONTRACT_PATH" > /tmp/contract.json
+              mv /tmp/contract.json "$CONTRACT_PATH"
+              git add "$CONTRACT_PATH"
+              git commit -m "Advance to PR phase for issue #${ISSUE_NUMBER}"
+
+              # Push with conflict-resistant retry logic
+              export CONTRACT_PATH
+              export BRANCH_NAME
+              export COMMIT_MESSAGE="Advance to PR phase for issue #${ISSUE_NUMBER}"
+              export JQ_FILTER='.current_phase = "pr"'
+              .github/scripts/push-contract-update.sh || echo "::warning::Contract push failed"
+            fi
+
+            # TASK-2-6: Minimize previous pipeline comments
+            gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+              | jq -r --arg bot "$BOT_USERNAME" \
+              '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready|Checks timed out|Checks failed")) | .node_id' \
+            | while read -r node_id; do
+                # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+                if ! gh api graphql -f query='
+                  mutation($id: ID!) {
+                    minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                      minimizedComment { isMinimized }
+                    }
+                  }
+                ' -f id="$node_id"; then
+                  echo "Warning: Failed to minimize comment $node_id"
+                fi
+              done
+
+            # TASK-2-7: Post completion comment to issue
+            PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
+            BODY="Pull request ready for review: ${PR_URL}
+
+            All automated checks passed. The PR is ready for human review and merge.
+
+            --- Authored by egg"
+
+            gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
+            echo "Posted completion comment for PR #${PR_NUMBER}"
+          done
+
+      # ============================================================
+      # TASK-4-3: Handle check failures (post to issue)
+      # ============================================================
+      - name: Handle check failures
+        if: >-
+          steps.check-sdlc.outputs.has_eligible == 'true' &&
+          steps.verify.outputs.has_ready != 'true' &&
+          github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'failure'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          ELIGIBLE_PRS: ${{ steps.check-sdlc.outputs.eligible_prs }}
+          FAILED_WORKFLOW: ${{ github.event.workflow_run.name }}
+          FAILED_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+
+          # Only post failure comments when the triggering workflow failed
+          # and none of the eligible PRs could be finalized
+          for PR_NUMBER in $ELIGIBLE_PRS; do
+            # Get PR metadata
+            PR_DATA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" 2>/dev/null || echo "{}")
+            if [[ "$PR_DATA" == "{}" ]]; then
+              continue
+            fi
+
+            BRANCH_NAME=$(echo "$PR_DATA" | jq -r '.head.ref')
+
+            # Extract issue number from branch name
+            if [[ "$BRANCH_NAME" =~ ^egg/issue-([0-9]+)$ ]]; then
+              ISSUE_NUMBER="${BASH_REMATCH[1]}"
+            else
+              continue
+            fi
+
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${FAILED_RUN_ID}"
+            PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
+
+            BODY="**Check failed**: [${FAILED_WORKFLOW}](${RUN_URL}) failed on draft PR #${PR_NUMBER}.
+
+            The PR remains as a draft. View the failing check and address the issues: ${PR_URL}
+
+            The autofix workflow may attempt to fix the issue. If not, manual intervention is needed.
+
+            --- Authored by egg"
+
+            gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
+            echo "Posted failure comment for PR #${PR_NUMBER}"
+          done
