@@ -9,6 +9,7 @@ Unified configuration framework for egg services.
 - **Validation** with clear error messages
 - **Health checks** to verify API connectivity
 - **Secret masking** in logs and debug output
+- **System constants** for ports, network names, and container configuration
 
 ## Quick Start
 
@@ -77,6 +78,28 @@ CONFLUENCE_API_TOKEN="your-atlassian-api-token"
 # Gateway
 GATEWAY_SECRET="your-gateway-secret"
 ```
+
+## System Constants
+
+The `constants` module provides centralized definitions for ports, network names, and container configuration:
+
+```python
+from egg_config.constants import GATEWAY_PORT, GATEWAY_PROXY_PORT
+from egg_config.constants import EGG_ISOLATED_NETWORK, EGG_EXTERNAL_NETWORK
+
+# Use in code instead of hardcoding values
+health_url = f"http://localhost:{GATEWAY_PORT}/api/v1/health"
+```
+
+Available constants:
+- `GATEWAY_PORT` (9848) - Gateway HTTP API port
+- `GATEWAY_PROXY_PORT` (3129) - Gateway filtering proxy port
+- `GATEWAY_CONTAINER_NAME`, `GATEWAY_IMAGE_NAME` - Container identifiers
+- `EGG_ISOLATED_NETWORK`, `EGG_EXTERNAL_NETWORK` - Docker network names
+- `EGG_ISOLATED_SUBNET`, `EGG_EXTERNAL_SUBNET` - Network CIDR ranges
+- `EGG_CONTAINER_IP`, `GATEWAY_ISOLATED_IP`, `GATEWAY_EXTERNAL_IP` - Fixed IP addresses
+
+See `shared/egg_config/constants.py` for the full list.
 
 ## Available Configs
 
