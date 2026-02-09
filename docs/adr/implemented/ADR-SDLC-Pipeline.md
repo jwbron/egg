@@ -270,20 +270,17 @@ on:
     types: [labeled]
 
 jobs:
+  resolve-inputs:
+    # Resolve inputs for reusable workflow support
+
   init:
-    # Initialize contract from issue
+    # Initialize contract from issue, create branch
 
-  implement:
-    # Execute tasks with implementer role, push to draft PR
-
-  wait-for-checks:
-    # Wait for CI and PR review (reusable-review.yml)
-
-  finalize-pr:
-    # Mark PR ready for human merge when all checks pass
+  work-loop:
+    # Unified work/review/respond cycle for all phases
 ```
 
-**Note:** As of PR #285, the dedicated `review` and `loop` jobs were replaced with PR-based review via `reusable-review.yml`. Code review now happens through GitHub PR comments instead of a separate reviewer agent.
+**Note:** As of PR #285, the pipeline was consolidated from separate phase jobs (implement, wait-for-checks, finalize-pr) into a unified `work-loop` job. Code review now happens through PR comments via `reusable-review.yml` instead of a separate reviewer agent.
 
 ### HITL Workflow
 
