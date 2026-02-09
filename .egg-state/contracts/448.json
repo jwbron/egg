@@ -6,8 +6,660 @@
     "url": "https://github.com/jwbron/egg/issues/448"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Enums follow existing StrEnum pattern with correct values",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Model has id, name, script, required, retry_on_fail, max_retries fields",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Model has check_id, status, message, details, fixable fields",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Model has checks, max_review_cycles, human_review_mechanism fields",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-1-5] Field is optional dict, defaults to None, existing contracts valid",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-1] Schema matches Pydantic model structure with proper patterns",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-2] Schema matches Pydantic model with enum for status",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-3] Schema matches Pydantic model with proper nested structure",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-4] Property is optional, uses correct pattern for phase keys",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-2-5] All existing contracts pass validation",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-1] Module exports function returning PhaseConfig for any phase",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-2] Includes draft-validation-check with appropriate settings",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-3-3] Includes plan-yaml-check with appropriate settings",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-3-4] Includes merge-conflict, lint, test, check-fixer checks",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-3-5] Function merges contract overrides with defaults correctly",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-4-1] Directory has __init__.py and base.py files",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-4-2] Base class defines run() method returning CheckResult",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-4-3] Script accepts check name and contract path, outputs JSON",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-4-4] Detects merge conflict markers, returns CheckResult",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-4-5] Validates draft file exists and has required sections",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-4-6] Validates plan has yaml-tasks block and parses correctly",
+      "verified": false
+    },
+    {
+      "id": "ac-22",
+      "description": "[TASK-4-7] Runs linter, captures output, returns CheckResult with fixable=true",
+      "verified": false
+    },
+    {
+      "id": "ac-23",
+      "description": "[TASK-4-8] Runs test command, captures output, returns CheckResult",
+      "verified": false
+    },
+    {
+      "id": "ac-24",
+      "description": "[TASK-4-9] Attempts auto-fix for fixable checks, returns CheckResult",
+      "verified": false
+    },
+    {
+      "id": "ac-25",
+      "description": "[TASK-5-1] Tests cover all enum values and string serialization",
+      "verified": false
+    },
+    {
+      "id": "ac-26",
+      "description": "[TASK-5-2] Tests cover valid creation, ID pattern validation, defaults",
+      "verified": false
+    },
+    {
+      "id": "ac-27",
+      "description": "[TASK-5-3] Tests cover valid creation, status enum, JSON serialization",
+      "verified": false
+    },
+    {
+      "id": "ac-28",
+      "description": "[TASK-5-4] Tests cover valid creation, nested list, defaults",
+      "verified": false
+    },
+    {
+      "id": "ac-29",
+      "description": "[TASK-5-5] Tests cover optional field, roundtrip, backward compatibility",
+      "verified": false
+    },
+    {
+      "id": "ac-30",
+      "description": "[TASK-5-6] Tests cover default retrieval for all phases, override merging",
+      "verified": false
+    },
+    {
+      "id": "ac-31",
+      "description": "[TASK-5-7] Each check script has tests verifying JSON output format",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Contract Schema Extension",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add CheckStatus and HumanReviewMechanism enums to models.py",
+          "status": "pending",
+          "acceptance_criteria": "Enums follow existing StrEnum pattern with correct values",
+          "files_affected": [
+            "shared/egg_contracts/models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add CheckDefinition model to models.py",
+          "status": "pending",
+          "acceptance_criteria": "Model has id, name, script, required, retry_on_fail, max_retries fields",
+          "files_affected": [
+            "shared/egg_contracts/models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add CheckResult model to models.py",
+          "status": "pending",
+          "acceptance_criteria": "Model has check_id, status, message, details, fixable fields",
+          "files_affected": [
+            "shared/egg_contracts/models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add PhaseConfig model to models.py",
+          "status": "pending",
+          "acceptance_criteria": "Model has checks, max_review_cycles, human_review_mechanism fields",
+          "files_affected": [
+            "shared/egg_contracts/models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add optional phase_configs field to Contract model",
+          "status": "pending",
+          "acceptance_criteria": "Field is optional dict, defaults to None, existing contracts valid",
+          "files_affected": [
+            "shared/egg_contracts/models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "JSON Schema Update",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add checkDefinition to $defs in schema",
+          "status": "pending",
+          "acceptance_criteria": "Schema matches Pydantic model structure with proper patterns",
+          "files_affected": [
+            ".egg/schemas/contract.schema.json"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add checkResult to $defs in schema",
+          "status": "pending",
+          "acceptance_criteria": "Schema matches Pydantic model with enum for status",
+          "files_affected": [
+            ".egg/schemas/contract.schema.json"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add phaseConfig to $defs in schema",
+          "status": "pending",
+          "acceptance_criteria": "Schema matches Pydantic model with proper nested structure",
+          "files_affected": [
+            ".egg/schemas/contract.schema.json"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Add phase_configs property to root schema",
+          "status": "pending",
+          "acceptance_criteria": "Property is optional, uses correct pattern for phase keys",
+          "files_affected": [
+            ".egg/schemas/contract.schema.json"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "Validate schema against existing contracts",
+          "status": "pending",
+          "acceptance_criteria": "All existing contracts pass validation",
+          "files_affected": [
+            ".egg/schemas/contract.schema.json"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Phase Defaults Module",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Create phase_defaults.py with get_default_phase_config function",
+          "status": "pending",
+          "acceptance_criteria": "Module exports function returning PhaseConfig for any phase",
+          "files_affected": [
+            "shared/egg_contracts/phase_defaults.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Define default checks for refine phase",
+          "status": "pending",
+          "acceptance_criteria": "Includes draft-validation-check with appropriate settings",
+          "files_affected": [
+            "shared/egg_contracts/phase_defaults.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Define default checks for plan phase",
+          "status": "pending",
+          "acceptance_criteria": "Includes plan-yaml-check with appropriate settings",
+          "files_affected": [
+            "shared/egg_contracts/phase_defaults.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Define default checks for implement phase",
+          "status": "pending",
+          "acceptance_criteria": "Includes merge-conflict, lint, test, check-fixer checks",
+          "files_affected": [
+            "shared/egg_contracts/phase_defaults.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-5",
+          "description": "Add get_effective_phase_config helper for merging overrides",
+          "status": "pending",
+          "acceptance_criteria": "Function merges contract overrides with defaults correctly",
+          "files_affected": [
+            "shared/egg_contracts/phase_defaults.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Check Script Infrastructure",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Create .github/scripts/checks/ directory with base structure",
+          "status": "pending",
+          "acceptance_criteria": "Directory has __init__.py and base.py files",
+          "files_affected": [
+            ".github/scripts/checks/__init__.py",
+            ".github/scripts/checks/base.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Implement base.py with CheckRunner base class",
+          "status": "pending",
+          "acceptance_criteria": "Base class defines run() method returning CheckResult",
+          "files_affected": [
+            ".github/scripts/checks/base.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Create run_check.py entry point script",
+          "status": "pending",
+          "acceptance_criteria": "Script accepts check name and contract path, outputs JSON",
+          "files_affected": [
+            ".github/scripts/checks/run_check.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Implement merge_conflict_check.py",
+          "status": "pending",
+          "acceptance_criteria": "Detects merge conflict markers, returns CheckResult",
+          "files_affected": [
+            ".github/scripts/checks/merge_conflict_check.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-5",
+          "description": "Implement draft_validation_check.py",
+          "status": "pending",
+          "acceptance_criteria": "Validates draft file exists and has required sections",
+          "files_affected": [
+            ".github/scripts/checks/draft_validation_check.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-6",
+          "description": "Implement plan_yaml_check.py",
+          "status": "pending",
+          "acceptance_criteria": "Validates plan has yaml-tasks block and parses correctly",
+          "files_affected": [
+            ".github/scripts/checks/plan_yaml_check.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-7",
+          "description": "Implement lint_check.py",
+          "status": "pending",
+          "acceptance_criteria": "Runs linter, captures output, returns CheckResult with fixable=true",
+          "files_affected": [
+            ".github/scripts/checks/lint_check.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-8",
+          "description": "Implement test_check.py",
+          "status": "pending",
+          "acceptance_criteria": "Runs test command, captures output, returns CheckResult",
+          "files_affected": [
+            ".github/scripts/checks/test_check.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-9",
+          "description": "Implement check_fixer.py",
+          "status": "pending",
+          "acceptance_criteria": "Attempts auto-fix for fixable checks, returns CheckResult",
+          "files_affected": [
+            ".github/scripts/checks/check_fixer.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Unit Tests",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Add tests for CheckStatus and HumanReviewMechanism enums",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover all enum values and string serialization",
+          "files_affected": [
+            "tests/shared/egg_contracts/test_models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Add tests for CheckDefinition model",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover valid creation, ID pattern validation, defaults",
+          "files_affected": [
+            "tests/shared/egg_contracts/test_models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Add tests for CheckResult model",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover valid creation, status enum, JSON serialization",
+          "files_affected": [
+            "tests/shared/egg_contracts/test_models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-4",
+          "description": "Add tests for PhaseConfig model",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover valid creation, nested list, defaults",
+          "files_affected": [
+            "tests/shared/egg_contracts/test_models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-5",
+          "description": "Add tests for Contract with phase_configs field",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover optional field, roundtrip, backward compatibility",
+          "files_affected": [
+            "tests/shared/egg_contracts/test_models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-6",
+          "description": "Add tests for phase_defaults module",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover default retrieval for all phases, override merging",
+          "files_affected": [
+            "tests/shared/egg_contracts/test_phase_defaults.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-7",
+          "description": "Add tests for check scripts",
+          "status": "pending",
+          "acceptance_criteria": "Each check script has tests verifying JSON output format",
+          "files_affected": [
+            "tests/github_scripts/test_checks.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 0,
@@ -60,5 +712,9 @@
   "refine_review_cycles": 1,
   "refine_review_feedback": "",
   "plan_review_cycles": 1,
-  "plan_review_feedback": ""
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add PhaseConfig, CheckDefinition models and check scripts",
+    "description": "Part 1 of 4 for SDLC Unification. Extends the contract schema with PhaseConfig\nand CheckDefinition models, creates Python-based check script infrastructure.\nThis foundation enables the unified work loop in subsequent PRs.\n\nIssue: #448"
+  }
 }
