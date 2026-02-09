@@ -6,8 +6,549 @@
     "url": "https://github.com/jwbron/egg/issues/255"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Input defined with default, used in BOT_USERNAME env var and shell steps",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Input defined with default, used in uses step",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Wrapper passes inputs with defaults matching current behavior",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Wrapper uses new inputs correctly",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-1-5] Wrapper uses new inputs correctly",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-1] New reusable workflow accepts bot-username, action-ref, pr_number inputs",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-2] Existing behavior preserved, uses reusable workflow internally",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-3] New reusable workflow accepts bot-username, action-ref, pr_number inputs",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-4] Scheduled and manual triggers work, resolve logic delegated",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-2-5] Consuming repos can override default prompt scripts",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-1] Accepts bot-username, action-ref, authorized-users, max-feedback-rounds",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-2] Job-level if uses workaround, shell steps use env var",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-3-3] Accepts bot-username, action-ref, authorized-users, mention-patterns",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-3-4] Mention patterns defined as input, used in conditions",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-3-5] Both workflows accept comma-separated list of authorized users",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-4-1] Accepts bot-username, action-ref, authorized-users, branch-prefix inputs",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-4-2] Git identity and comment filtering use input parameter",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-4-3] Branch naming uses parameterized prefix pattern",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-4-4] Accepts bot-username, authorized-users, branch-prefix inputs",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-4-5] Authorization check uses input parameter",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-5-1] Uses branch-prefix input for pattern matching",
+      "verified": false
+    },
+    {
+      "id": "ac-22",
+      "description": "[TASK-5-2] Uses configurable action reference",
+      "verified": false
+    },
+    {
+      "id": "ac-23",
+      "description": "[TASK-5-3] Uses configurable action reference",
+      "verified": false
+    },
+    {
+      "id": "ac-24",
+      "description": "[TASK-5-4] Documents all inputs, shows example wrapper workflows",
+      "verified": false
+    },
+    {
+      "id": "ac-25",
+      "description": "[TASK-5-5] Working examples for PR review, autofix, and SDLC pipeline",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Core Parameterization Foundation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add bot-username input to reusable-review.yml",
+          "status": "pending",
+          "acceptance_criteria": "Input defined with default, used in BOT_USERNAME env var and shell steps",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add action-ref input to reusable-review.yml",
+          "status": "pending",
+          "acceptance_criteria": "Input defined with default, used in uses step",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Update on-pull-request.yml to pass new inputs",
+          "status": "pending",
+          "acceptance_criteria": "Wrapper passes inputs with defaults matching current behavior",
+          "files_affected": [
+            ".github/workflows/on-pull-request.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Update on-pull-request-agent-mode-design.yml to pass new inputs",
+          "status": "pending",
+          "acceptance_criteria": "Wrapper uses new inputs correctly",
+          "files_affected": [
+            ".github/workflows/on-pull-request-agent-mode-design.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-5",
+          "description": "Update on-pull-request-contract-verify.yml to pass new inputs",
+          "status": "pending",
+          "acceptance_criteria": "Wrapper uses new inputs correctly",
+          "files_affected": [
+            ".github/workflows/on-pull-request-contract-verify.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Autofix and Conflict Resolution Workflows",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create reusable-autofix.yml from on-check-failure.yml core logic",
+          "status": "pending",
+          "acceptance_criteria": "New reusable workflow accepts bot-username, action-ref, pr_number inputs",
+          "files_affected": [
+            ".github/workflows/reusable-autofix.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Convert on-check-failure.yml to thin wrapper",
+          "status": "pending",
+          "acceptance_criteria": "Existing behavior preserved, uses reusable workflow internally",
+          "files_affected": [
+            ".github/workflows/on-check-failure.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Create reusable-conflict-resolve.yml from on-merge-conflict.yml",
+          "status": "pending",
+          "acceptance_criteria": "New reusable workflow accepts bot-username, action-ref, pr_number inputs",
+          "files_affected": [
+            ".github/workflows/reusable-conflict-resolve.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Convert on-merge-conflict.yml to use reusable workflow",
+          "status": "pending",
+          "acceptance_criteria": "Scheduled and manual triggers work, resolve logic delegated",
+          "files_affected": [
+            ".github/workflows/on-merge-conflict.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "Add prompt-script input to both reusable workflows",
+          "status": "pending",
+          "acceptance_criteria": "Consuming repos can override default prompt scripts",
+          "files_affected": [
+            ".github/workflows/reusable-autofix.yml",
+            ".github/workflows/reusable-conflict-resolve.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Feedback and Mention Workflows",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add workflow_call trigger to on-review-feedback.yml with inputs",
+          "status": "pending",
+          "acceptance_criteria": "Accepts bot-username, action-ref, authorized-users, max-feedback-rounds",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Replace hardcoded james-in-a-box in on-review-feedback.yml",
+          "status": "pending",
+          "acceptance_criteria": "Job-level if uses workaround, shell steps use env var",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add workflow_call trigger to on-mention.yml with inputs",
+          "status": "pending",
+          "acceptance_criteria": "Accepts bot-username, action-ref, authorized-users, mention-patterns",
+          "files_affected": [
+            ".github/workflows/on-mention.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Replace hardcoded mention patterns with configurable input",
+          "status": "pending",
+          "acceptance_criteria": "Mention patterns defined as input, used in conditions",
+          "files_affected": [
+            ".github/workflows/on-mention.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-5",
+          "description": "Replace hardcoded jwbron authorization with authorized-users input",
+          "status": "pending",
+          "acceptance_criteria": "Both workflows accept comma-separated list of authorized users",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml",
+            ".github/workflows/on-mention.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Core SDLC Pipeline Parameterization",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add workflow_call trigger to sdlc-pipeline.yml with full input set",
+          "status": "pending",
+          "acceptance_criteria": "Accepts bot-username, action-ref, authorized-users, branch-prefix inputs",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Replace hardcoded james-in-a-box in git config and filtering",
+          "status": "pending",
+          "acceptance_criteria": "Git identity and comment filtering use input parameter",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Replace hardcoded egg/issue- branch prefix with input",
+          "status": "pending",
+          "acceptance_criteria": "Branch naming uses parameterized prefix pattern",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Add workflow_call trigger to sdlc-hitl.yml with authorization inputs",
+          "status": "pending",
+          "acceptance_criteria": "Accepts bot-username, authorized-users, branch-prefix inputs",
+          "files_affected": [
+            ".github/workflows/sdlc-hitl.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-5",
+          "description": "Replace hardcoded jwbron authorization in sdlc-hitl.yml",
+          "status": "pending",
+          "acceptance_criteria": "Authorization check uses input parameter",
+          "files_affected": [
+            ".github/workflows/sdlc-hitl.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Utility Workflows and Documentation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Parameterize on-issue-closed.yml branch prefix",
+          "status": "pending",
+          "acceptance_criteria": "Uses branch-prefix input for pattern matching",
+          "files_affected": [
+            ".github/workflows/on-issue-closed.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Parameterize on-push-doc-updater.yml with action-ref input",
+          "status": "pending",
+          "acceptance_criteria": "Uses configurable action reference",
+          "files_affected": [
+            ".github/workflows/on-push-doc-updater.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Parameterize self-improvement.yml with action-ref input",
+          "status": "pending",
+          "acceptance_criteria": "Uses configurable action reference",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-4",
+          "description": "Create docs/guides/reusable-workflows.md consumer guide",
+          "status": "pending",
+          "acceptance_criteria": "Documents all inputs, shows example wrapper workflows",
+          "files_affected": [
+            "docs/guides/reusable-workflows.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-5",
+          "description": "Create example wrapper workflows in examples/ directory",
+          "status": "pending",
+          "acceptance_criteria": "Working examples for PR review, autofix, and SDLC pipeline",
+          "files_affected": [
+            "examples/workflows/on-pull-request.yml",
+            "examples/workflows/on-check-failure.yml",
+            "examples/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 0,
@@ -60,5 +601,9 @@
   "refine_review_cycles": 1,
   "refine_review_feedback": "",
   "plan_review_cycles": 1,
-  "plan_review_feedback": ""
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Make SDLC workflows reusable for external repositories",
+    "description": "Converts all SDLC-related workflows to reusable workflows that other repositories\ncan adopt. Parameterizes hardcoded values (bot username, authorized users, action\nreference, branch prefix) while maintaining backward compatibility via defaults.\n\nCloses #255"
+  }
 }
