@@ -43,7 +43,7 @@ class ParsedFeedbackResponse:
         """Check if all questions have been answered."""
         return all(answer is not None and answer.strip() for answer in self.questions.values())
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, str | bool | dict[str, str | None]]:
         """Convert to dictionary for serialization."""
         return {
             "feedback_id": self.feedback_id,
