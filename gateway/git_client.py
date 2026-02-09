@@ -961,6 +961,31 @@ PROTECTED_FILE_PATTERNS = [
 ]
 
 
+def _normalize_file_path(file_path: str) -> str:
+    """
+    Normalize a file path to prevent bypass via path manipulation.
+
+    Handles:
+    - Leading ./ prefix (./egg-state/contracts/ -> .egg-state/contracts/)
+    - Double slashes (.egg-state//contracts/ -> .egg-state/contracts/)
+    - Trailing slashes on file paths
+
+    Args:
+        file_path: Raw file path from git diff
+
+    Returns:
+        Normalized file path
+    """
+    import posixpath
+
+    # Normalize the path (handles .., ., double slashes)
+    normalized = posixpath.normpath(file_path)
+    # Remove leading ./ if present
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized
+
+
 def get_changed_files_in_push(
     repo_path: str, remote: str, branch: str
 ) -> tuple[list[str], str | None]:
@@ -969,6 +994,10 @@ def get_changed_files_in_push(
 
     Compares local branch to remote tracking branch to determine what
     files are being modified in the commits being pushed.
+
+    SECURITY: This function is used for security-critical file restriction checks.
+    If it returns an error, the caller MUST treat it as a security failure and
+    block the push. Never fail open on git diff errors.
 
     Args:
         repo_path: Path to the git repository
@@ -984,6 +1013,8 @@ def get_changed_files_in_push(
 
     # Get the merge base between local and remote
     # This shows what commits are being pushed (local commits not on remote)
+    # Using two-dot (..) syntax to get the actual diff, not three-dot (...)
+    # which uses the merge-base and may miss files if remote has been updated
     try:
         # First, try to get files changed between remote tracking branch and local
         # Using --name-only with git diff to get just file names
@@ -991,7 +1022,7 @@ def get_changed_files_in_push(
             git_cmd(
                 "diff",
                 "--name-only",
-                f"{remote}/{branch}...HEAD",
+                f"{remote}/{branch}..HEAD",
             ),
             cwd=repo_path,
             capture_output=True,
@@ -1010,7 +1041,7 @@ def get_changed_files_in_push(
             git_cmd(
                 "diff",
                 "--name-only",
-                f"{remote}/main...HEAD",
+                f"{remote}/main..HEAD",
             ),
             cwd=repo_path,
             capture_output=True,
@@ -1028,7 +1059,7 @@ def get_changed_files_in_push(
             git_cmd(
                 "diff",
                 "--name-only",
-                f"{remote}/master...HEAD",
+                f"{remote}/master..HEAD",
             ),
             cwd=repo_path,
             capture_output=True,
@@ -1041,16 +1072,18 @@ def get_changed_files_in_push(
             files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
             return files, None
 
-        # If none of the above work, we can't determine what files are being pushed
-        # Fail open (allow) but log the situation
-        logger.warning(
-            "Could not determine changed files in push",
+        # SECURITY: If we cannot determine what files are being pushed, we MUST
+        # fail closed to prevent bypass of file restrictions. An attacker could
+        # intentionally cause git diff to fail (e.g., corrupt refs, timeout) to
+        # bypass protection. This follows the codebase's fail-closed security pattern.
+        logger.error(
+            "Could not determine changed files in push - failing closed for security",
             repo_path=repo_path,
             remote=remote,
             branch=branch,
             stderr=result.stderr,
         )
-        return [], None
+        return [], "Could not determine changed files - push blocked for security"
 
     except subprocess.TimeoutExpired:
         return [], "Timeout determining changed files"
@@ -1060,12 +1093,16 @@ def get_changed_files_in_push(
 
 def check_protected_files_in_push(
     repo_path: str, remote: str, branch: str
-) -> tuple[bool, list[str]]:
+) -> tuple[bool, list[str], str | None]:
     """
     Check if a push contains modifications to protected files.
 
     Protected files include:
     - .egg-state/contracts/*.json (SDLC contract files)
+
+    SECURITY: This function follows fail-closed semantics. If we cannot
+    determine what files are being pushed (git diff fails), we return
+    an error and the caller MUST block the push.
 
     Args:
         repo_path: Path to the git repository
@@ -1073,29 +1110,33 @@ def check_protected_files_in_push(
         branch: Branch name being pushed
 
     Returns:
-        Tuple of (has_protected_files, protected_file_list)
+        Tuple of (has_protected_files, protected_file_list, error)
         - has_protected_files: True if any protected files are modified
         - protected_file_list: List of protected files that are modified
+        - error: Error string if the check failed (push MUST be blocked), None on success
     """
     changed_files, error = get_changed_files_in_push(repo_path, remote, branch)
 
     if error:
-        logger.warning(
-            "Could not check protected files",
+        # SECURITY: Fail closed - if we can't determine files, block the push.
+        # This prevents bypass via git diff manipulation (timeout, corrupt refs, etc.)
+        logger.error(
+            "Protected files check failed - blocking push for security",
             error=error,
             repo_path=repo_path,
         )
-        # Fail open - if we can't determine files, don't block
-        return False, []
+        return False, [], error
 
     protected_files = []
     for file_path in changed_files:
+        # Normalize path to prevent bypass via path manipulation
+        normalized_path = _normalize_file_path(file_path)
         for pattern in PROTECTED_FILE_PATTERNS:
-            if file_path.startswith(pattern):
+            if normalized_path.startswith(pattern):
                 protected_files.append(file_path)
                 break
 
-    return len(protected_files) > 0, protected_files
+    return len(protected_files) > 0, protected_files, None
 
 
 def get_token_for_repo(repo: str) -> tuple[str | None, str, str]:

@@ -403,10 +403,11 @@ class TestCheckProtectedFilesInPush:
                 None,
             )
 
-            has_protected, protected_files = check_protected_files_in_push(
+            has_protected, protected_files, error = check_protected_files_in_push(
                 "/fake/repo", "origin", "main"
             )
 
+            assert error is None
             assert has_protected
             assert ".egg-state/contracts/123.json" in protected_files
             assert len(protected_files) == 1
@@ -425,10 +426,11 @@ class TestCheckProtectedFilesInPush:
                 None,
             )
 
-            has_protected, protected_files = check_protected_files_in_push(
+            has_protected, protected_files, error = check_protected_files_in_push(
                 "/fake/repo", "origin", "main"
             )
 
+            assert error is None
             assert not has_protected
             assert protected_files == []
 
@@ -446,27 +448,30 @@ class TestCheckProtectedFilesInPush:
                 None,
             )
 
-            has_protected, protected_files = check_protected_files_in_push(
+            has_protected, protected_files, error = check_protected_files_in_push(
                 "/fake/repo", "origin", "feature"
             )
 
+            assert error is None
             assert has_protected
             assert len(protected_files) == 2
             assert ".egg-state/contracts/123.json" in protected_files
             assert ".egg-state/contracts/456.json" in protected_files
 
-    def test_error_returns_no_protected(self):
-        """When git diff fails, should fail open (no protected files)."""
+    def test_error_returns_error_fail_closed(self):
+        """When git diff fails, should fail closed and return error."""
         from unittest.mock import patch
 
         with patch("git_client.get_changed_files_in_push") as mock_get_files:
             mock_get_files.return_value = ([], "Timeout determining changed files")
 
-            has_protected, protected_files = check_protected_files_in_push(
+            has_protected, protected_files, error = check_protected_files_in_push(
                 "/fake/repo", "origin", "main"
             )
 
-            # Should fail open - allow the push
+            # SECURITY: Should fail closed - return error so caller blocks the push
+            assert error is not None
+            assert "Timeout" in error
             assert not has_protected
             assert protected_files == []
 
@@ -477,12 +482,36 @@ class TestCheckProtectedFilesInPush:
         with patch("git_client.get_changed_files_in_push") as mock_get_files:
             mock_get_files.return_value = ([], None)
 
-            has_protected, protected_files = check_protected_files_in_push(
+            has_protected, protected_files, error = check_protected_files_in_push(
                 "/fake/repo", "origin", "main"
             )
 
+            assert error is None
             assert not has_protected
             assert protected_files == []
+
+    def test_path_normalization_bypass_prevented(self):
+        """Path manipulation attempts should be normalized and still caught."""
+        from unittest.mock import patch
+
+        with patch("git_client.get_changed_files_in_push") as mock_get_files:
+            # Attempt to bypass with path manipulation
+            mock_get_files.return_value = (
+                [
+                    "./.egg-state/contracts/123.json",  # Leading ./
+                    ".egg-state//contracts/456.json",  # Double slash
+                ],
+                None,
+            )
+
+            has_protected, protected_files, error = check_protected_files_in_push(
+                "/fake/repo", "origin", "main"
+            )
+
+            assert error is None
+            assert has_protected
+            # Both files should be detected despite path manipulation
+            assert len(protected_files) == 2
 
 
 class TestGetChangedFilesInPush:
@@ -530,6 +559,42 @@ class TestGetChangedFilesInPush:
 
             assert error is None
             assert files == []
+
+    def test_all_remotes_fail_returns_error(self):
+        """When all git diff attempts fail, should return error (fail closed)."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            # All attempts fail
+            mock_result = MagicMock()
+            mock_result.returncode = 128
+            mock_result.stderr = "fatal: ambiguous argument"
+            mock_run.return_value = mock_result
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            # SECURITY: Should fail closed with error
+            assert files == []
+            assert error is not None
+            assert "blocked for security" in error.lower()
+
+    def test_uses_two_dot_syntax(self):
+        """Should use two-dot syntax (..) not three-dot (...) for accuracy."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "file.py\n"
+            mock_run.return_value = mock_result
+
+            get_changed_files_in_push("/fake/repo", "origin", "feature")
+
+            # Check that the command uses two-dot syntax
+            call_args = mock_run.call_args[0][0]
+            assert any(".." in arg and "..." not in arg for arg in call_args), (
+                f"Expected two-dot syntax (..) in git diff, got: {call_args}"
+            )
 
 
 if __name__ == "__main__":

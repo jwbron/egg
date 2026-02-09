@@ -551,12 +551,47 @@ def git_push() -> tuple[Response, int] | Response:
     # Contract modifications must go through the contract API which enforces
     # role-based permissions. This prevents implementers from bypassing the
     # SDLC contract system by directly committing to contract files.
+    #
+    # Note: Only the "implementer" role is blocked. The SYSTEM role is NOT blocked
+    # because SYSTEM never makes git pushes - it only initializes contracts via the
+    # contract API. The gateway itself runs without a role context. If SYSTEM were
+    # to start making pushes in the future, this check should be revisited.
     session_role = None
     if hasattr(g, "session") and g.session:
         session_role = getattr(g.session, "agent_role", None)
 
+    # Use lowercase comparison for role matching. The Role enum uses lowercase
+    # values ("implementer", "reviewer", etc.) but we normalize to handle any
+    # case variations that may come from the session.
     if session_role and session_role.lower() == "implementer":
-        has_protected, protected_files = check_protected_files_in_push(exec_path, remote, branch)
+        has_protected, protected_files, check_error = check_protected_files_in_push(
+            exec_path, remote, branch
+        )
+
+        # SECURITY: Fail closed - if we can't determine changed files, block the push.
+        # This prevents bypass via git diff manipulation (timeout, corrupt refs, etc.)
+        if check_error:
+            audit_log(
+                "push_denied_file_check_failed",
+                "git_push",
+                success=False,
+                details={
+                    "repo": repo,
+                    "branch": branch,
+                    "role": session_role,
+                    "error": check_error,
+                },
+            )
+            return make_error(
+                f"Push denied: Could not verify file changes for security check. {check_error}",
+                status_code=500,
+                details={
+                    "role": session_role,
+                    "error": check_error,
+                    "hint": "This is a security precaution. Try again or contact support.",
+                },
+            )
+
         if has_protected:
             audit_log(
                 "push_denied_protected_files",
