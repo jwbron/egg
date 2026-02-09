@@ -28,6 +28,37 @@ on:
         required: false
         default: false
         type: boolean
+  workflow_call:
+    inputs:
+      commit_sha:
+        description: "Analyze changes from this commit (defaults to HEAD~1)"
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Dry run mode (analyze only, don't create PR)"
+        required: false
+        type: boolean
+        default: false
+      action_ref:
+        description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
+        required: false
+        type: string
+        default: "jwbron/egg/action@main"
+      prompt_script:
+        description: 'Path to prompt builder script (relative to repo root)'
+        required: false
+        type: string
+        default: "action/build-doc-updater-prompt.sh"
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
+      BOT_APP_INSTALLATION_ID:
+        required: true
+      ANTHROPIC_OAUTH_TOKEN:
+        required: true
 
 jobs:
   doc-update-check:
@@ -37,8 +68,8 @@ jobs:
       contents: write
       pull-requests: write
 
-    # Avoid running on merge commits from doc-updater PRs
-    if: "!contains(github.event.head_commit.message, '[doc-updater]')"
+    # Avoid running on merge commits from doc-updater PRs (event-triggered only)
+    if: github.event_name == 'workflow_call' || !contains(github.event.head_commit.message, '[doc-updater]')
 
     concurrency:
       group: egg-doc-updater-${{ github.sha }}
@@ -61,10 +92,10 @@ jobs:
       - name: Build task prompt
         id: prompt
         env:
-          COMMIT_SHA: ${{ github.event.inputs.commit_sha || '' }}
-          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          COMMIT_SHA: ${{ inputs.commit_sha || github.event.inputs.commit_sha || '' }}
+          DRY_RUN: ${{ inputs.dry_run || github.event.inputs.dry_run || 'false' }}
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-        run: bash action/build-doc-updater-prompt.sh
+        run: bash ${{ inputs.prompt_script || 'action/build-doc-updater-prompt.sh' }}
 
       - name: Run egg
         id: egg

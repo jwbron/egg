@@ -1,0 +1,200 @@
+name: Reusable Autofix Workflow
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to fix checks for'
+        required: true
+        type: number
+      failed_workflow:
+        description: 'Name of the failed workflow'
+        required: false
+        type: string
+        default: "manual"
+      failed_run_id:
+        description: 'Run ID of the failed workflow'
+        required: false
+        type: string
+        default: ""
+      bot_username:
+        description: 'GitHub username of the bot (for comment filtering)'
+        required: false
+        type: string
+        default: "james-in-a-box"
+      action_ref:
+        description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
+        required: false
+        type: string
+        default: "jwbron/egg/action@main"
+      prompt_script:
+        description: 'Path to prompt builder script (relative to repo root)'
+        required: false
+        type: string
+        default: "action/build-autofixer-prompt.sh"
+      timeout:
+        description: 'Timeout in minutes'
+        required: false
+        type: string
+        default: "20"
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
+      BOT_APP_INSTALLATION_ID:
+        required: true
+      ANTHROPIC_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  autofix:
+    name: Autofix PR Checks
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+
+    concurrency:
+      group: egg-autofix-${{ inputs.pr_number }}
+      cancel-in-progress: true
+
+    env:
+      PR_NUMBER: ${{ inputs.pr_number }}
+      FAILED_WORKFLOW: ${{ inputs.failed_workflow }}
+      FAILED_RUN_ID: ${{ inputs.failed_run_id }}
+      BOT_USERNAME: ${{ inputs.bot_username }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      # For workflow_dispatch, fetch PR metadata via API
+      - name: Fetch PR metadata
+        id: pr-meta
+        run: |
+          pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
+          {
+            echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"
+            echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')"
+            echo "title=$(echo "$pr_json" | jq -r '.title')"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
+      # Skip if PR has [skip-autofix] in title
+      - name: Check for skip marker
+        id: skip-check
+        env:
+          PR_TITLE: ${{ steps.pr-meta.outputs.title }}
+        run: |
+          if [[ "$PR_TITLE" == *"[skip-autofix]"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR has [skip-autofix] marker, skipping"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Skip the rest of the workflow if [skip-autofix] is present
+      - name: Early exit if skipped
+        if: steps.skip-check.outputs.skip == 'true'
+        run: echo "Skipping autofix due to [skip-autofix] marker"
+
+      # Minimize previous "investigating" comments to avoid clutter
+      - name: Minimize previous autofix comments
+        if: steps.skip-check.outputs.skip != 'true'
+        run: |
+          # Find previous bot comments that are "investigating" status updates
+          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            --jq ".[] | select(.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") | select(.body | test(\"egg is investigating|egg autofix\")) | .node_id" \
+          | while read -r node_id; do
+              # Minimize the comment using GraphQL
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id" || true
+            done
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
+      # Post acknowledgment comment
+      - name: Post starting comment
+        if: steps.skip-check.outputs.skip != 'true'
+        run: |
+          if [[ -n "${{ env.FAILED_RUN_ID }}" ]]; then
+            RUN_LINK="[${FAILED_WORKFLOW}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ env.FAILED_RUN_ID }})"
+            BODY="egg is investigating the ${RUN_LINK} check failure..."
+          else
+            BODY="egg is investigating check failures for this PR..."
+          fi
+          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
+      # SECURITY: Build the autofixer prompt from a trusted checkout (main).
+      # A malicious PR could replace build-autofixer-prompt.sh to exfiltrate
+      # the bot token. By checking out main for prompt building, we ensure
+      # untrusted code never runs with secrets.
+      - name: Checkout main (trusted)
+        if: steps.skip-check.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Build autofixer prompt
+        if: steps.skip-check.outputs.skip != 'true'
+        id: prompt
+        run: bash ${{ inputs.prompt_script }}
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          FAILED_WORKFLOW: ${{ env.FAILED_WORKFLOW }}
+          FAILED_RUN_ID: ${{ env.FAILED_RUN_ID }}
+
+      - name: Checkout PR branch
+        if: steps.skip-check.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.pr-meta.outputs.head-repo }}
+          ref: ${{ steps.pr-meta.outputs.head-ref }}
+          persist-credentials: false
+
+      - name: Run egg autofix
+        if: steps.skip-check.outputs.skip != 'true'
+        id: egg
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: ${{ steps.prompt.outputs.prompt-file }}
+          model: ${{ steps.prompt.outputs.model }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          bot-username: ${{ env.BOT_USERNAME }}
+          timeout: ${{ inputs.timeout }}
+
+      - name: Post result comment
+        if: always() && !cancelled() && steps.skip-check.outputs.skip != 'true'
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
+            BODY="egg autofix completed. [View run logs](${RUN_URL})"
+          else
+            BODY="egg autofix encountered an issue. [View run logs](${RUN_URL})"
+          fi
+
+          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}

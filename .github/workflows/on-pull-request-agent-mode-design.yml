@@ -20,7 +20,7 @@ on:
 
 jobs:
   review:
-    name: Agent-Mode Design Review
+    name: egg-review / Agent-Mode Design
     permissions:
       contents: read
       pull-requests: write
@@ -28,6 +28,8 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
       bot_name: agent-mode-design
+      bot_username: james-in-a-box
+      # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
       prompt_script: action/build-agent-mode-design-review-prompt.sh
       timeout: "10"
       pr_title: ${{ github.event.pull_request.title || '' }}

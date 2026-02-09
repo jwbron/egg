@@ -11,6 +11,16 @@ on:
         description: 'Bot name for status messages and marker detection'
         required: true
         type: string
+      bot_username:
+        description: 'GitHub username of the bot (for review dismissal and comment filtering)'
+        required: false
+        type: string
+        default: "james-in-a-box"
+      action_ref:
+        description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
+        required: false
+        type: string
+        default: "jwbron/egg/action@main"
       prompt_script:
         description: 'Path to prompt builder script (relative to repo root)'
         required: false
@@ -205,13 +215,14 @@ jobs:
             fi
 
             # Filter out review bot checks and SDLC pipeline checks to avoid self-deadlock.
-            # - egg-reviewer- pattern matches all reviewer jobs (e.g., "AI Code Review / egg-reviewer-review")
-            #   Note: No ^ anchor because GitHub prefixes job names with "Workflow Name / "
+            # Patterns matched (no ^ anchor because GitHub may prefix with workflow name):
+            # - egg-review / matches the standardized prefix for all reviewer caller job names
+            # - egg-reviewer- matches nested reviewer jobs (e.g., "egg-review / Code / egg-reviewer-review")
             # - SDLC Pipeline matches "egg: SDLC Pipeline / Initialize pipeline", etc.
             # - SDLC HITL matches "egg: SDLC HITL Decision Handler / Handle HITL decision", etc.
             checks=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
               --jq '.check_runs | [.[] | select(
-                (.name | test("egg-reviewer-|SDLC Pipeline|SDLC HITL") | not)
+                (.name | test("egg-review /|egg-reviewer-|SDLC Pipeline|SDLC HITL") | not)
               ) | {name, status, conclusion}]')
 
             total=$(echo "$checks" | jq 'length')
@@ -276,7 +287,7 @@ jobs:
 
     env:
       PR_NUMBER: ${{ inputs.pr_number }}
-      BOT_USERNAME: james-in-a-box
+      BOT_USERNAME: ${{ inputs.bot_username }}
 
     steps:
       - name: Generate GitHub App token for bot

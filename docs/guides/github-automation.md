@@ -31,10 +31,11 @@ and via `workflow_dispatch` with a PR number.
    the current HEAD commit has already been reviewed by the same bot. This prevents redundant
    reviews when a draft PR is marked as ready for review without new commits.
 2. **Wait for CI checks** — Waits for all non-review checks (e.g., lint, tests) to complete
-   before starting the review. Skips checks that match `Code Review`, `Design Review`,
-   `SDLC Pipeline`, or `SDLC HITL` to avoid self-deadlock. If checks fail, the review is
-   skipped. Workflow dispatch triggers bypass this wait and the already-reviewed check. Times
-   out after 25 minutes with a warning and proceeds anyway.
+   before starting the review. Skips checks matching `egg-review /` (the standard reviewer
+   job prefix), `egg-reviewer-` (nested reviewer jobs), `SDLC Pipeline`, or `SDLC HITL` to
+   avoid self-deadlock. If checks fail, the review is skipped. Workflow dispatch triggers
+   bypass this wait and the already-reviewed check. Times out after 25 minutes with a warning
+   and proceeds anyway.
 3. **Re-review detection** — Searches for an `<!-- egg-automated-review bot=<name> commit=<sha> -->`
    marker in previous reviews/comments to identify the last reviewed commit. On re-review,
    the agent uses `git diff <last-commit>..HEAD` to focus on new changes only.
@@ -70,6 +71,27 @@ skipping linter-handled style issues.
 This enables multiple specialized reviewers (e.g., security-focused, design-focused)
 by providing different prompt scripts while sharing the review infrastructure.
 
+### Reviewer Job Naming Convention
+
+**All reviewer workflows must use the `egg-review /` prefix for their job names.** This
+standardized prefix ensures the wait-for-checks logic correctly filters out all reviewer
+jobs to prevent self-deadlock.
+
+Example job definition:
+```yaml
+jobs:
+  review:
+    name: egg-review / My Custom Review  # Must start with "egg-review /"
+    uses: ./.github/workflows/reusable-review.yml
+    with:
+      bot_name: my-custom-review
+      # ...
+```
+
+The wait-for-checks filter matches `egg-review /` in check run names. If a new reviewer
+workflow doesn't follow this convention, it will cause infinite loops where reviewers
+wait on each other indefinitely.
+
 ## Address Review Feedback
 
 **Workflow:** [`.github/workflows/on-review-feedback.yml`](../../.github/workflows/on-review-feedback.yml)
@@ -94,13 +116,21 @@ The workflow runs on:
    - Review is not an approval (filtered at job level to prevent runner allocation)
    - Iteration count is below the limit (default: 3 rounds)
 
-2. **Comment cleanup** — Minimizes previous feedback-addressing comments to reduce clutter.
+2. **Wait for all reviewers** — Polls GitHub check runs for all `egg-reviewer-*` jobs
+   to complete before proceeding. This prevents race conditions when multiple reviewers
+   (e.g., Code Review and Design Review) trigger the feedback workflow concurrently.
+   The workflow waits up to 10 minutes, proceeding with a warning on timeout. If no
+   reviewer checks are found after 2 minutes, the workflow exits with a warning (this
+   indicates a potential configuration issue since the workflow was triggered by
+   reviewer feedback).
 
-3. **Acknowledgment** — Posts a comment indicating feedback is being addressed, with an `<!-- egg-feedback-addressing -->` marker for iteration tracking.
+3. **Comment cleanup** — Minimizes previous feedback-addressing comments to reduce clutter.
 
-4. **Trusted prompt build** — Checks out `main` (not the PR branch) to run `build-feedback-prompt.sh`, preventing prompt injection from malicious PRs.
+4. **Acknowledgment** — Posts a comment indicating feedback is being addressed, with an `<!-- egg-feedback-addressing -->` marker for iteration tracking.
 
-5. **Agent execution** — Checks out the PR branch and runs egg. The agent:
+5. **Trusted prompt build** — Checks out `main` (not the PR branch) to run `build-feedback-prompt.sh`, preventing prompt injection from malicious PRs.
+
+6. **Agent execution** — Checks out the PR branch and runs egg. The agent:
    - Reads review feedback via `gh pr view`, `gh api` for reviews and line-level comments
    - Understands the current code via `gh pr diff`
    - Makes fixes addressing actionable feedback
@@ -108,7 +138,7 @@ The workflow runs on:
    - Commits and pushes all fixes together
    - Replies to feedback it disagrees with or cannot address
 
-6. **Result comment** — Posts success or failure status with link to run logs.
+7. **Result comment** — Posts success or failure status with link to run logs.
 
 ### Iteration Limiting
 
