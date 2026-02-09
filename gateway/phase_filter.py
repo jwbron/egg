@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import fnmatch
 import json
-from dataclasses import dataclass
+import posixpath
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,94 @@ class Operation:
         """
         # Use fnmatch for wildcard matching
         return fnmatch.fnmatch(command, self.pattern)
+
+
+@dataclass
+class FileRestriction:
+    """Role-based file path restriction for git push operations.
+
+    File restrictions prevent certain roles from modifying specific files
+    via git push. This is used to protect sensitive files like SDLC contracts
+    that should only be modified through dedicated APIs.
+    """
+
+    role: str
+    blocked_patterns: list[str] = field(default_factory=list)
+    blocked_reason: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> FileRestriction:
+        """Create FileRestriction from a dictionary."""
+        return cls(
+            role=data["role"],
+            blocked_patterns=data.get("blocked_patterns", []),
+            blocked_reason=data.get("blocked_reason", ""),
+        )
+
+    def is_file_blocked(self, file_path: str) -> bool:
+        """Check if a file path is blocked by this restriction.
+
+        Args:
+            file_path: The file path to check (relative to repo root)
+
+        Returns:
+            True if the file matches any blocked pattern
+        """
+        normalized = self._normalize_path(file_path)
+        return any(normalized.startswith(pattern) for pattern in self.blocked_patterns)
+
+    @staticmethod
+    def _normalize_path(file_path: str) -> str:
+        """Normalize a file path to prevent bypass via path manipulation.
+
+        Handles:
+        - Leading ./ prefix (./egg-state/contracts/ -> .egg-state/contracts/)
+        - Double slashes (.egg-state//contracts/ -> .egg-state/contracts/)
+        - Trailing slashes on file paths
+
+        Args:
+            file_path: Raw file path from git diff
+
+        Returns:
+            Normalized file path
+        """
+        normalized = posixpath.normpath(file_path)
+        if normalized.startswith("./"):
+            normalized = normalized[2:]
+        return normalized
+
+
+@dataclass
+class FileRestrictionResult:
+    """Result of a file restriction check."""
+
+    allowed: bool
+    message: str
+    role: str | None = None
+    blocked_files: list[str] = field(default_factory=list)
+    blocked_reason: str | None = None
+
+    @classmethod
+    def allow(cls, message: str = "Files allowed") -> FileRestrictionResult:
+        """Create an allowed result."""
+        return cls(allowed=True, message=message)
+
+    @classmethod
+    def block(
+        cls,
+        message: str,
+        role: str,
+        blocked_files: list[str],
+        blocked_reason: str,
+    ) -> FileRestrictionResult:
+        """Create a blocked result."""
+        return cls(
+            allowed=False,
+            message=message,
+            role=role,
+            blocked_files=blocked_files,
+            blocked_reason=blocked_reason,
+        )
 
 
 @dataclass
@@ -136,6 +225,7 @@ class PhaseFilter:
                             If None, uses the default path.
         """
         self._permissions: dict[PipelinePhase, PhasePermissions] = {}
+        self._file_restrictions: list[FileRestriction] = []
         self._permissions_path = permissions_path
         self._loaded = False
 
@@ -165,6 +255,7 @@ class PhaseFilter:
         if not path.exists():
             # Use default permissions if file doesn't exist
             self._permissions = self._get_default_permissions()
+            self._file_restrictions = self._get_default_file_restrictions()
             self._loaded = True
             return
 
@@ -179,6 +270,18 @@ class PhaseFilter:
             except ValueError:
                 # Skip unknown phases
                 pass
+
+        # Load file restrictions
+        # SECURITY: When file_restrictions key is missing from config, use defaults
+        # to ensure protection even for legacy configs that predate this feature.
+        file_restrictions_data = data.get("file_restrictions", [])
+        if file_restrictions_data:
+            self._file_restrictions = [
+                FileRestriction.from_dict(fr) for fr in file_restrictions_data
+            ]
+        else:
+            # Use defaults when file_restrictions not configured (backwards compatibility)
+            self._file_restrictions = self._get_default_file_restrictions()
 
         self._loaded = True
 
@@ -240,6 +343,88 @@ class PhaseFilter:
                 exit_requires="human",
             ),
         }
+
+    def _get_default_file_restrictions(self) -> list[FileRestriction]:
+        """Get default file restrictions when no file is available.
+
+        These defaults protect contract files from being modified directly
+        via git push by implementer agents.
+        """
+        return [
+            FileRestriction(
+                role="implementer",
+                blocked_patterns=[".egg-state/contracts/"],
+                blocked_reason="Contract files can only be modified through the contract API",
+            ),
+        ]
+
+    def get_file_restrictions(self) -> list[FileRestriction]:
+        """Get all configured file restrictions.
+
+        Returns:
+            List of FileRestriction objects
+        """
+        self._load_permissions()
+        return self._file_restrictions
+
+    def get_file_restrictions_for_role(self, role: str) -> list[FileRestriction]:
+        """Get file restrictions that apply to a specific role.
+
+        Args:
+            role: The role to get restrictions for (e.g., "implementer")
+
+        Returns:
+            List of FileRestriction objects that apply to this role
+        """
+        self._load_permissions()
+        role_lower = role.lower()
+        return [fr for fr in self._file_restrictions if fr.role.lower() == role_lower]
+
+    def check_file_restrictions(self, role: str, files: list[str]) -> FileRestrictionResult:
+        """Check if any files are blocked for the given role.
+
+        This method checks a list of files against the configured file restrictions
+        for the specified role. It's used to validate git push operations.
+
+        SECURITY: This method implements role-based file access control. The implementer
+        role is blocked from modifying contract files to prevent bypassing the SDLC
+        contract system via direct git commits.
+
+        Args:
+            role: The role attempting the operation (e.g., "implementer")
+            files: List of file paths being modified
+
+        Returns:
+            FileRestrictionResult indicating whether the files are allowed
+        """
+        self._load_permissions()
+
+        if not role or not files:
+            return FileRestrictionResult.allow("No role or files to check")
+
+        restrictions = self.get_file_restrictions_for_role(role)
+        if not restrictions:
+            return FileRestrictionResult.allow(f"No file restrictions for role: {role}")
+
+        blocked_files: list[str] = []
+        blocked_reason = ""
+
+        for restriction in restrictions:
+            for file_path in files:
+                if restriction.is_file_blocked(file_path):
+                    if file_path not in blocked_files:
+                        blocked_files.append(file_path)
+                    blocked_reason = restriction.blocked_reason
+
+        if blocked_files:
+            return FileRestrictionResult.block(
+                message=f"Role '{role}' cannot modify: {', '.join(blocked_files)}",
+                role=role,
+                blocked_files=blocked_files,
+                blocked_reason=blocked_reason,
+            )
+
+        return FileRestrictionResult.allow("All files allowed")
 
     def get_permissions(self, phase: PipelinePhase) -> PhasePermissions | None:
         """Get the permissions for a phase.
@@ -426,3 +611,23 @@ def is_operation_blocked(
         operation_type = OperationType(operation_type)
 
     return get_phase_filter().is_operation_blocked(phase, operation_type, command)
+
+
+def check_file_restrictions(role: str, files: list[str]) -> FileRestrictionResult:
+    """Check if files are blocked for a role (convenience function).
+
+    This function checks a list of files against the configured file restrictions
+    for the specified role, following the same pattern as filter_operation().
+
+    SECURITY: Implements role-based file access control. The implementer role is
+    blocked from modifying contract files to prevent bypassing the SDLC contract
+    system via direct git commits.
+
+    Args:
+        role: The role attempting the operation (e.g., "implementer")
+        files: List of file paths being modified
+
+    Returns:
+        FileRestrictionResult indicating whether the files are allowed
+    """
+    return get_phase_filter().check_file_restrictions(role, files)

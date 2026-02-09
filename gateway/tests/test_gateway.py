@@ -306,6 +306,575 @@ class TestGitPush:
             data = json.loads(response.data)
             assert data["success"] is True
 
+    def test_push_denied_for_implementer_modifying_contract_files(self, client):
+        """Push denied when implementer tries to modify contract files."""
+        import sys
+
+        import auth
+
+        # Create a session with implementer role
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.agent_role = "implementer"
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode - access allowed",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
+            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
+        ):
+            # Mock git remote get-url
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="https://github.com/owner/repo.git\n",
+                stderr="",
+            )
+
+            # Mock policy approval (branch ownership OK)
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned by egg",
+                details={"branch": "egg-feature"},
+            )
+            mock_policy.return_value = mock_engine
+
+            # Mock get_changed_files_in_push - returns files being modified
+            mock_get_changed_files.return_value = (
+                ["src/main.py", ".egg-state/contracts/123.json"],
+                None,
+            )
+
+            # Mock check_file_restrictions - contract file is blocked
+            from phase_filter import FileRestrictionResult
+
+            mock_check_restrictions.return_value = FileRestrictionResult.block(
+                message="Role 'implementer' cannot modify: .egg-state/contracts/123.json",
+                role="implementer",
+                blocked_files=[".egg-state/contracts/123.json"],
+                blocked_reason="Contract files can only be modified through the contract API",
+            )
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg-feature",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "cannot modify" in data["message"].lower()
+            assert ".egg-state/contracts/123.json" in data["data"]["blocked_files"]
+            assert data["data"]["role"] == "implementer"
+
+    def test_push_allowed_for_reviewer_modifying_contract_files(self, client):
+        """Push allowed when reviewer modifies contract files.
+
+        The protected files check should NOT be invoked for reviewer role.
+        """
+        import sys
+
+        import auth
+
+        # Create a session with reviewer role
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.agent_role = "reviewer"
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode - access allowed",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
+            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+
+                if "remote" in cmd and "get-url" in cmd:
+                    result.stdout = "https://github.com/owner/repo.git\n"
+                elif "branch" in cmd and "--show-current" in cmd:
+                    result.stdout = "egg-feature\n"
+                elif "push" in cmd:
+                    result.stdout = "Everything up-to-date\n"
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+
+            # Mock policy approval (branch ownership OK)
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned by egg",
+                details={"branch": "egg-feature"},
+            )
+            mock_policy.return_value = mock_engine
+
+            # Mock get_token_for_repo to return valid token
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            # Mock get_changed_files_in_push
+            mock_get_changed_files.return_value = ([".egg-state/contracts/123.json"], None)
+
+            # Mock check_file_restrictions - reviewer is allowed (no restrictions for reviewer)
+            from phase_filter import FileRestrictionResult
+
+            mock_check_restrictions.return_value = FileRestrictionResult.allow(
+                "No file restrictions for role: reviewer"
+            )
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg-feature",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            # Reviewer should be allowed to push
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+    def test_push_allowed_for_implementer_without_contract_files(self, client):
+        """Push allowed when implementer is not modifying contract files."""
+        import sys
+
+        import auth
+
+        # Create a session with implementer role
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.agent_role = "implementer"
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode - access allowed",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
+            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+
+                if "remote" in cmd and "get-url" in cmd:
+                    result.stdout = "https://github.com/owner/repo.git\n"
+                elif "branch" in cmd and "--show-current" in cmd:
+                    result.stdout = "egg-feature\n"
+                elif "push" in cmd:
+                    result.stdout = "Everything up-to-date\n"
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+
+            # Mock policy approval (branch ownership OK)
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned by egg",
+                details={"branch": "egg-feature"},
+            )
+            mock_policy.return_value = mock_engine
+
+            # Mock get_changed_files_in_push - NO contract files being modified
+            mock_get_changed_files.return_value = (["src/main.py", "README.md"], None)
+
+            # Mock check_file_restrictions - all files allowed
+            from phase_filter import FileRestrictionResult
+
+            mock_check_restrictions.return_value = FileRestrictionResult.allow("All files allowed")
+
+            # Mock get_token_for_repo to return valid token
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg-feature",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            # Implementer should be allowed when not modifying protected files
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+    def test_push_denied_when_file_check_fails(self, client):
+        """Push denied when protected files check fails (fail closed)."""
+        import sys
+
+        import auth
+
+        # Create a session with implementer role
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.agent_role = "implementer"
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode - access allowed",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
+        ):
+            # Mock git remote get-url
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="https://github.com/owner/repo.git\n",
+                stderr="",
+            )
+
+            # Mock policy approval (branch ownership OK)
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned by egg",
+                details={"branch": "egg-feature"},
+            )
+            mock_policy.return_value = mock_engine
+
+            # Mock get_changed_files_in_push - returns error (fail closed)
+            mock_get_changed_files.return_value = ([], "Timeout determining changed files")
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg-feature",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            # SECURITY: Should fail closed with 500 error
+            assert response.status_code == 500
+            data = json.loads(response.data)
+            assert "could not verify" in data["message"].lower()
+            assert data["data"]["role"] == "implementer"
+
+    def test_force_push_with_protected_files_blocked(self, client):
+        """Force push containing protected files should also be blocked."""
+        import sys
+
+        import auth
+
+        # Create a session with implementer role
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.agent_role = "implementer"
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode - access allowed",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
+            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
+        ):
+            # Mock git remote get-url
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="https://github.com/owner/repo.git\n",
+                stderr="",
+            )
+
+            # Mock policy approval (branch ownership OK)
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned by egg",
+                details={"branch": "egg-feature"},
+            )
+            mock_policy.return_value = mock_engine
+
+            # Mock get_changed_files_in_push - contract file is being modified
+            mock_get_changed_files.return_value = ([".egg-state/contracts/123.json"], None)
+
+            # Mock check_file_restrictions - contract file is blocked
+            from phase_filter import FileRestrictionResult
+
+            mock_check_restrictions.return_value = FileRestrictionResult.block(
+                message="Role 'implementer' cannot modify: .egg-state/contracts/123.json",
+                role="implementer",
+                blocked_files=[".egg-state/contracts/123.json"],
+                blocked_reason="Contract files can only be modified through the contract API",
+            )
+
+            # Request with force=true
+            response = client.post(
+                "/api/v1/git/push",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg-feature",
+                        "force": True,
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            # Force push with blocked files should still be blocked
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "cannot modify" in data["message"].lower()
+
+    def test_push_allowed_when_role_unavailable(self, client):
+        """Push allowed when session role is unavailable (backwards compatibility).
+
+        This ensures pushes work for legacy sessions without role information,
+        as documented in ac-14 of the contract.
+        """
+        import sys
+
+        import auth
+
+        # Create a session WITHOUT agent_role (backwards compatibility)
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        # Explicitly NOT setting agent_role to simulate legacy session
+        mock_session.agent_role = None
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode - access allowed",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
+            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+
+                if "remote" in cmd and "get-url" in cmd:
+                    result.stdout = "https://github.com/owner/repo.git\n"
+                elif "branch" in cmd and "--show-current" in cmd:
+                    result.stdout = "egg-feature\n"
+                elif "push" in cmd:
+                    result.stdout = "Everything up-to-date\n"
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+
+            # Mock policy approval (branch ownership OK)
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned by egg",
+                details={"branch": "egg-feature"},
+            )
+            mock_policy.return_value = mock_engine
+
+            # Mock get_token_for_repo to return valid token
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            # Even though we're pushing contract files, the check should NOT run
+            # when role is unavailable (backwards compatibility)
+            mock_get_changed_files.return_value = ([".egg-state/contracts/123.json"], None)
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg-feature",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            # BACKWARDS COMPATIBILITY: Push should succeed when role is unavailable
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+            # Verify file restriction check was NOT invoked
+            mock_check_restrictions.assert_not_called()
+
+            # Verify get_changed_files_in_push was NOT invoked (check skipped entirely)
+            mock_get_changed_files.assert_not_called()
+
 
 class TestGhPrCreate:
     """Tests for /api/v1/gh/pr/create endpoint."""

@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from git_client import (
     BLOCKED_GIT_FLAGS,
     GIT_ALLOWED_COMMANDS,
+    get_changed_files_in_push,
     is_repos_parent_directory,
     is_ssh_url,
     normalize_flag,
@@ -373,6 +374,89 @@ class TestGitHubClientExecuteEnvironment:
 
             assert found_git_at, "Missing URL rewrite for git@github.com: format"
             assert found_ssh_protocol, "Missing URL rewrite for ssh://git@github.com/ format"
+
+
+class TestGetChangedFilesInPush:
+    """Tests for getting changed files in a push."""
+
+    def test_successful_diff(self):
+        """Should return files from git diff output."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "file1.py\nfile2.py\ndir/file3.txt\n"
+            mock_run.return_value = mock_result
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            assert error is None
+            assert files == ["file1.py", "file2.py", "dir/file3.txt"]
+
+    def test_timeout_returns_error(self):
+        """Should return error on timeout."""
+        from subprocess import TimeoutExpired
+        from unittest.mock import patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = TimeoutExpired(cmd="git diff", timeout=30)
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            assert files == []
+            assert "Timeout" in error
+
+    def test_empty_output(self):
+        """Should handle empty diff output."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+            mock_run.return_value = mock_result
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            assert error is None
+            assert files == []
+
+    def test_all_remotes_fail_returns_error(self):
+        """When all git diff attempts fail, should return error (fail closed)."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            # All attempts fail
+            mock_result = MagicMock()
+            mock_result.returncode = 128
+            mock_result.stderr = "fatal: ambiguous argument"
+            mock_run.return_value = mock_result
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            # SECURITY: Should fail closed with error
+            assert files == []
+            assert error is not None
+            assert "blocked for security" in error.lower()
+
+    def test_uses_two_dot_syntax(self):
+        """Should use two-dot syntax (..) not three-dot (...) for accuracy."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "file.py\n"
+            mock_run.return_value = mock_result
+
+            get_changed_files_in_push("/fake/repo", "origin", "feature")
+
+            # Check that the command uses two-dot syntax
+            call_args = mock_run.call_args[0][0]
+            assert any(".." in arg and "..." not in arg for arg in call_args), (
+                f"Expected two-dot syntax (..) in git diff, got: {call_args}"
+            )
 
 
 if __name__ == "__main__":

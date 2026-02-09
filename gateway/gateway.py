@@ -59,6 +59,7 @@ try:
         cleanup_credential_helper,
         create_credential_helper,
         get_authenticated_remote_target,
+        get_changed_files_in_push,
         get_token_for_repo,
         git_cmd,
         is_repos_parent_directory,
@@ -75,6 +76,7 @@ try:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
+    from .phase_filter import check_file_restrictions
     from .policy import (
         extract_branch_from_refspec,
         extract_repo_from_remote,
@@ -101,6 +103,7 @@ except ImportError:
         cleanup_credential_helper,
         create_credential_helper,
         get_authenticated_remote_target,
+        get_changed_files_in_push,
         get_token_for_repo,
         git_cmd,
         is_repos_parent_directory,
@@ -117,6 +120,7 @@ except ImportError:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
+    from phase_filter import check_file_restrictions  # type: ignore[no-redef, import-not-found]
     from policy import (  # type: ignore[no-redef, import-not-found]
         extract_branch_from_refspec,
         extract_repo_from_remote,
@@ -543,6 +547,72 @@ def git_push() -> tuple[Response, int] | Response:
             status_code=403,
             details=policy_result.details,
         )
+
+    # SECURITY: Check for protected file modifications based on agent role.
+    # File restrictions are configured in phase-permissions.json and enforced
+    # by the PhaseFilter module. This prevents certain roles from modifying
+    # specific files via git push (e.g., implementers cannot modify contract files).
+    #
+    # Note: Only configured roles are checked. The SYSTEM role is typically NOT
+    # blocked because SYSTEM never makes git pushes - it only initializes contracts
+    # via the contract API. The gateway itself runs without a role context.
+    session_role = None
+    if hasattr(g, "session") and g.session:
+        session_role = getattr(g.session, "agent_role", None)
+
+    if session_role:
+        # Get the list of files being pushed
+        changed_files, check_error = get_changed_files_in_push(exec_path, remote, branch)
+
+        # SECURITY: Fail closed - if we can't determine changed files, block the push.
+        # This prevents bypass via git diff manipulation (timeout, corrupt refs, etc.)
+        if check_error:
+            audit_log(
+                "push_denied_file_check_failed",
+                "git_push",
+                success=False,
+                details={
+                    "repo": repo,
+                    "branch": branch,
+                    "role": session_role,
+                    "error": check_error,
+                },
+            )
+            return make_error(
+                f"Push denied: Could not verify file changes for security check: {check_error}",
+                status_code=500,
+                details={
+                    "role": session_role,
+                    "error": check_error,
+                    "hint": "This is a security precaution. Try again or contact support.",
+                },
+            )
+
+        # Check file restrictions using the PhaseFilter configuration
+        restriction_result = check_file_restrictions(session_role, changed_files)
+        if not restriction_result.allowed:
+            audit_log(
+                "push_denied_protected_files",
+                "git_push",
+                success=False,
+                details={
+                    "repo": repo,
+                    "branch": branch,
+                    "role": session_role,
+                    "blocked_files": restriction_result.blocked_files,
+                    "blocked_reason": restriction_result.blocked_reason,
+                },
+            )
+            return make_error(
+                f"Push denied: {restriction_result.message}. {restriction_result.blocked_reason}",
+                status_code=403,
+                details={
+                    "role": session_role,
+                    "blocked_files": restriction_result.blocked_files,
+                    "blocked_reason": restriction_result.blocked_reason,
+                    "hint": "Use egg-contract CLI commands to update contract state.",
+                },
+            )
 
     # Get authentication token using shared helper
     token_str, auth_mode, token_error = get_token_for_repo(repo)

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/jwbron/egg/schemas/phase-permissions.schema.json",
   "title": "SDLC Phase Permissions",
-  "description": "Defines operation permissions for each pipeline phase",
+  "description": "Defines operation permissions and file restrictions for each pipeline phase",
   "type": "object",
   "required": ["schemaVersion", "phases"],
   "properties": {
@@ -31,6 +31,13 @@
         "pr": {
           "$ref": "#/$defs/phasePermissions"
         }
+      }
+    },
+    "file_restrictions": {
+      "type": "array",
+      "description": "Role-based file path restrictions for git push operations",
+      "items": {
+        "$ref": "#/$defs/fileRestriction"
       }
     }
   },
@@ -80,6 +87,33 @@
         "description": {
           "type": "string",
           "description": "Human-readable description of the operation"
+        }
+      },
+      "additionalProperties": false
+    },
+    "fileRestriction": {
+      "type": "object",
+      "description": "Role-based file path restriction for git push operations",
+      "required": ["role", "blocked_patterns", "blocked_reason"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "description": "The role to which this restriction applies",
+          "enum": ["implementer", "reviewer", "human"]
+        },
+        "blocked_patterns": {
+          "type": "array",
+          "description": "File path patterns that are blocked for this role (prefix matching)",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "blocked_reason": {
+          "type": "string",
+          "description": "Human-readable explanation for why these files are restricted",
+          "minLength": 1
         }
       },
       "additionalProperties": false

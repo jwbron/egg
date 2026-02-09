@@ -57,6 +57,37 @@ The gateway enforces phase-specific operation restrictions based on the current 
 
 **Phase permissions** (configured in `.egg/phase-permissions.json`):
 
+### File-Level Access Restrictions
+
+The gateway enforces file-level access restrictions to prevent certain roles from modifying protected files via `git push`. This protects sensitive files like SDLC contracts that should only be modified through dedicated APIs.
+
+**Configuration** (in `.egg/phase-permissions.json`):
+
+```json
+{
+  "file_restrictions": [
+    {
+      "role": "implementer",
+      "blocked_patterns": [".egg-state/contracts/"],
+      "blocked_reason": "Contract files can only be modified through the contract API"
+    }
+  ]
+}
+```
+
+**Key behaviors:**
+- Restrictions are role-based: each entry specifies a role and its blocked file patterns
+- Pattern matching uses prefix matching on normalized file paths
+- Path normalization prevents bypass via `./`, `../`, or `//` manipulation
+- Fail-closed security: if file detection fails, push is blocked with HTTP 500
+- Backwards compatibility: when session role is unavailable, file restrictions are skipped to support legacy sessions
+
+**Error messages:**
+- `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) - File blocked by restriction
+- `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) - Detection failure
+
+**Phase permissions** (also in `.egg/phase-permissions.json`):
+
 | Phase | Allowed Operations | Blocked Operations | Exit Requires |
 |-------|-------------------|-------------------|---------------|
 | **refine** | `gh issue comment/edit`, `egg-contract add-decision` | `git push`, `gh pr create` | Human approval |

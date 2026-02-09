@@ -949,6 +949,116 @@ def cleanup_credential_helper(path: str | None) -> None:
             os.unlink(path)
 
 
+# =============================================================================
+# Changed Files Detection
+# =============================================================================
+
+
+def get_changed_files_in_push(
+    repo_path: str, remote: str, branch: str
+) -> tuple[list[str], str | None]:
+    """
+    Get the list of files that would be changed by a push.
+
+    Compares local branch to remote tracking branch to determine what
+    files are being modified in the commits being pushed.
+
+    SECURITY: This function is used for security-critical file restriction checks.
+    If it returns an error, the caller MUST treat it as a security failure and
+    block the push. Never fail open on git diff errors.
+
+    Args:
+        repo_path: Path to the git repository
+        remote: Remote name (e.g., "origin")
+        branch: Branch name being pushed
+
+    Returns:
+        Tuple of (changed_files, error_message)
+        - changed_files: List of file paths that are changed
+        - error_message: Error string if the check failed, None on success
+    """
+    import subprocess
+
+    # Get the merge base between local and remote
+    # This shows what commits are being pushed (local commits not on remote)
+    # Using two-dot (..) syntax to get the actual diff, not three-dot (...)
+    # which uses the merge-base and may miss files if remote has been updated
+    try:
+        # First, try to get files changed between remote tracking branch and local
+        # Using --name-only with git diff to get just file names
+        result = subprocess.run(
+            git_cmd(
+                "diff",
+                "--name-only",
+                f"{remote}/{branch}..HEAD",
+            ),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        if result.returncode == 0:
+            files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
+            return files, None
+
+        # If remote branch doesn't exist yet, get all files in all commits on the branch
+        # that aren't on the default branch
+        result = subprocess.run(
+            git_cmd(
+                "diff",
+                "--name-only",
+                f"{remote}/main..HEAD",
+            ),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        if result.returncode == 0:
+            files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
+            return files, None
+
+        # Try master if main doesn't exist
+        result = subprocess.run(
+            git_cmd(
+                "diff",
+                "--name-only",
+                f"{remote}/master..HEAD",
+            ),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        if result.returncode == 0:
+            files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
+            return files, None
+
+        # SECURITY: If we cannot determine what files are being pushed, we MUST
+        # fail closed to prevent bypass of file restrictions. An attacker could
+        # intentionally cause git diff to fail (e.g., corrupt refs, timeout) to
+        # bypass protection. This follows the codebase's fail-closed security pattern.
+        logger.error(
+            "Could not determine changed files in push - failing closed for security",
+            repo_path=repo_path,
+            remote=remote,
+            branch=branch,
+            stderr=result.stderr,
+        )
+        return [], "Could not determine changed files - push blocked for security"
+
+    except subprocess.TimeoutExpired:
+        return [], "Timeout determining changed files"
+    except Exception as e:
+        return [], f"Error determining changed files: {e}"
+
+
 def get_token_for_repo(repo: str) -> tuple[str | None, str, str]:
     """
     Get the authentication token for a repository.
