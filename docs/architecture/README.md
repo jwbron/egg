@@ -41,6 +41,7 @@ See the [main README](../../README.md) for the architecture diagram.
 | **Sandbox** | Agent execution environment, git/gh wrappers | [Sandbox README](../../sandbox/README.md) |
 | **Shared Libraries** | Config, logging, git utilities | [Shared README](../../shared/README.md) |
 | **egg_contracts** | SDLC contract models, role-based mutation validation | `shared/egg_contracts/` |
+| **Check Scripts** | Phase-specific validation (lint, test, merge conflicts) | `.github/scripts/checks/` |
 
 ## SDLC Contracts
 
@@ -84,6 +85,31 @@ The plan parser (`shared/egg_contracts/plan_parser.py`) extracts tasks and PR me
 The parser also extracts optional PR metadata (title and description) from the `pr:` field in the YAML data. If provided, this metadata is used when creating the pull request during the implement phase.
 
 The parser generates placeholder tasks for empty phases and includes warnings for human review when parsing issues occur.
+
+### Phase Checks
+
+Each SDLC phase can have configurable automated checks that run before completion. The check system (`shared/egg_contracts/phase_defaults.py` and `.github/scripts/checks/`) provides:
+
+**Check framework:**
+- `CheckRunner` base class for implementing checks
+- `run_check.py` entry point for executing checks by name
+- JSON-based check results with pass/fail/skip status
+
+**Built-in checks:**
+- `lint`: Runs project linter (via `make lint`)
+- `test`: Runs project tests (via `make test` or pytest)
+- `merge-conflict`: Detects merge conflicts with base branch
+- `draft-validation`: Validates refine phase draft documents
+- `plan-yaml`: Validates plan phase YAML appendix
+- `fixer`: Auto-fixes certain check failures when possible
+
+**Phase defaults:**
+- Refine: draft validation
+- Plan: YAML validation
+- Implement: merge conflict, lint (auto-retry), tests, auto-fixer
+- PR: none
+
+Contracts can override phase defaults via the `phase_configs` field, allowing per-issue check customization.
 
 ### SDLC Pipeline
 
