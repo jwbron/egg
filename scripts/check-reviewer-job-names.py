@@ -3,7 +3,7 @@
 Lint check: Ensure reviewer workflows use the standard job naming convention.
 
 All workflows that use reusable-review.yml must have job names prefixed with
-"egg-review /" to ensure the wait-for-checks filter correctly excludes them.
+"egg-review /" to ensure check-waiting logic correctly excludes them.
 
 This prevents infinite loops where reviewers wait for each other indefinitely.
 
@@ -90,14 +90,14 @@ def main(repo_root: Path | None = None) -> int:
         print("ERROR: Found reviewer jobs without required naming prefix!\n")
         print("=" * 70)
         print("All jobs using reusable-review.yml must have names starting with")
-        print(f"'{REQUIRED_PREFIX}' to prevent self-deadlock in wait-for-checks.")
+        print(f"'{REQUIRED_PREFIX}' to prevent self-deadlock in check-waiting logic.")
         print("=" * 70)
         print()
         for v in all_violations:
             print(v)
             print()
         print("Why this matters:")
-        print("  The wait-for-checks job filters out checks matching 'egg-review /'")
+        print("  Check-waiting logic filters out checks matching 'egg-review /'")
         print("  to prevent reviewers from waiting on each other indefinitely.")
         print("  Without this prefix, a new reviewer will cause infinite loops.")
         print()
