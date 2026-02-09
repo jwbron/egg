@@ -64,8 +64,9 @@ def check_workflow(workflow_path: Path) -> list[str]:
     return violations
 
 
-def main() -> int:
-    repo_root = Path(__file__).resolve().parent.parent
+def main(repo_root: Path | None = None) -> int:
+    if repo_root is None:
+        repo_root = Path(__file__).resolve().parent.parent
     workflows_dir = repo_root / ".github" / "workflows"
 
     if not workflows_dir.exists():
