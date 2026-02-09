@@ -1271,33 +1271,49 @@ jobs:
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
           if [[ -f "$CONTRACT_PATH" ]]; then
-            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-            OLD_PHASE=$(jq -r '.current_phase' "$CONTRACT_PATH")
+            # Function to apply the jq transformation (idempotent - can be re-run)
+            apply_phase_update() {
+              local contract_path="$1"
 
-            jq --arg phase "pr" --arg ts "$TIMESTAMP" --arg old_phase "$OLD_PHASE" '
-              .current_phase = $phase |
-              .audit_log += [{
-                "timestamp": $ts,
-                "actor": "system",
-                "role": "system",
-                "action": "transition",
-                "field_path": "current_phase",
-                "old_value": $old_phase,
-                "new_value": "pr",
-                "reason": "Implementation complete, PR ready for review"
-              }]
-            ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              # Re-read current state on each call (for idempotent re-application)
+              local timestamp
+              timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+              local old_phase
+              old_phase=$(jq -r '.current_phase' "$contract_path")
+
+              jq --arg phase "pr" --arg ts "$timestamp" --arg old_phase "$old_phase" '
+                .current_phase = $phase |
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "transition",
+                  "field_path": "current_phase",
+                  "old_value": $old_phase,
+                  "new_value": "pr",
+                  "reason": "Implementation complete, PR ready for review"
+                }]
+              ' "$contract_path" > /tmp/contract.json && mv /tmp/contract.json "$contract_path"
+            }
+
+            # Run transformation once to update contract
+            apply_phase_update "$CONTRACT_PATH"
 
             git add "$CONTRACT_PATH"
             git commit -m "Advance to PR phase for issue #${ISSUE_NUMBER}"
 
-            # Push with retry
+            # Push with conflict-resistant retry (re-apply transformation on each retry)
             for i in 1 2 3; do
               if git push origin "${BRANCH_NAME}"; then
+                echo "Push succeeded"
                 break
               fi
-              echo "::warning::Push failed (attempt $i), retrying with rebase..."
-              git pull --rebase origin "${BRANCH_NAME}"
+              echo "::warning::Push failed (attempt $i), resetting and reapplying transformation..."
+              git fetch origin "${BRANCH_NAME}"
+              git reset --hard "origin/${BRANCH_NAME}"
+              apply_phase_update "$CONTRACT_PATH"
+              git add "$CONTRACT_PATH"
+              git commit -m "Advance to PR phase for issue #${ISSUE_NUMBER}"
             done
           fi
 
