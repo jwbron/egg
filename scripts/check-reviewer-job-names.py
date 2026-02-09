@@ -90,7 +90,7 @@ def main() -> int:
     if all_violations:
         print("ERROR: Found reviewer jobs without required naming prefix!\n")
         print("=" * 70)
-        print(f"All jobs using reusable-review.yml must have names starting with")
+        print("All jobs using reusable-review.yml must have names starting with")
         print(f"'{REQUIRED_PREFIX}' to prevent self-deadlock in wait-for-checks.")
         print("=" * 70)
         print()
