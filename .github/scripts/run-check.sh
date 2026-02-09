@@ -161,9 +161,13 @@ if [[ -n "$WORKING_DIR" ]]; then
 fi
 
 # Export additional environment variables
-for env_var in "${EXTRA_ENV[@]:-}"; do
-    export "${env_var?}"
-done
+if [[ ${#EXTRA_ENV[@]} -gt 0 ]]; then
+    for env_var in "${EXTRA_ENV[@]}"; do
+        if [[ -n "$env_var" ]]; then
+            export "${env_var?}"
+        fi
+    done
+fi
 
 # Run check with retries
 attempt=1
