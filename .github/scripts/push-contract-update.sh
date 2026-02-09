@@ -165,6 +165,29 @@ handle_failure() {
 # Main push loop
 push_succeeded=false
 
+# Apply initial transformation before first push attempt
+# This ensures the contract update is committed before we try to push
+if [[ -n "${JQ_FILTER:-}" || -n "${JQ_SCRIPT_PATH:-}" ]]; then
+  echo "Applying initial transformation..."
+  if ! apply_transformation; then
+    echo "::error::Initial transformation failed"
+    exit 1
+  fi
+
+  git add "$CONTRACT_PATH"
+
+  # Commit the change (may fail if nothing to commit)
+  commit_output=$(git commit -m "$COMMIT_MESSAGE" 2>&1) || {
+    commit_exit_code=$?
+    if echo "$commit_output" | grep -qE "(nothing to commit|no changes added)"; then
+      echo "Nothing to commit - transformation may already be applied"
+    else
+      echo "::error::git commit failed: $commit_output"
+      exit $commit_exit_code
+    fi
+  }
+fi
+
 for i in $(seq 1 "$MAX_RETRIES"); do
   if git push origin "${BRANCH_NAME}"; then
     echo "Push succeeded"

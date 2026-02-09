@@ -485,8 +485,8 @@ jobs:
 
             BRANCH_NAME=$(echo "$PR_DATA" | jq -r '.head.ref')
 
-            # Extract issue number from branch name
-            if [[ "$BRANCH_NAME" =~ ^egg/issue-([0-9]+)$ ]]; then
+            # Extract issue number from branch name (egg/issue-NNN or egg-issue-NNN pattern)
+            if [[ "$BRANCH_NAME" =~ ^egg[/-]issue-([0-9]+) ]]; then
               ISSUE_NUMBER="${BASH_REMATCH[1]}"
             else
               continue
