@@ -871,8 +871,10 @@ jobs:
     runs-on: ubuntu-latest
     # Trigger on feedback comments (with egg-feedback marker) where the submit
     # checkbox has been checked.
-    # NOTE: Authorization is checked in the first step using authorized_users input,
-    # not hardcoded here. Bot self-trigger prevention still hardcoded as safety check.
+    # NOTE: Authorization is checked dynamically in the first step using authorized_users input.
+    # Bot self-trigger prevention is hardcoded here because job-level `if:` conditions cannot
+    # access `needs` outputs (GitHub Actions limitation). This is a safety check; the step-level
+    # auth check handles the full authorization logic including configured bot_username.
     if: >-
       contains(github.event.comment.body, '<!-- egg-feedback') &&
       contains(github.event.comment.body, '[x] Submit feedback') &&
@@ -975,14 +977,14 @@ jobs:
           fi
 
       - name: Checkout repository
-        if: steps.debounce.outputs.should_process == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.debounce.outputs.should_process == 'true'
         uses: actions/checkout@v4
         with:
           token: ${{ steps.bot-token.outputs.token }}
           fetch-depth: 0
 
       - name: Find and checkout issue branch
-        if: steps.debounce.outputs.should_process == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.debounce.outputs.should_process == 'true'
         id: branch
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -1008,15 +1010,15 @@ jobs:
           fi
 
       - name: Configure git identity
-        if: steps.branch.outputs.branch_exists == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.branch.outputs.branch_exists == 'true'
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "james-in-a-box[bot]"
-          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Parse and update feedback in contract
-        if: steps.branch.outputs.branch_exists == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.branch.outputs.branch_exists == 'true'
         id: update
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -1171,7 +1173,7 @@ jobs:
 
       # Trigger pipeline to resume with the feedback
       - name: Trigger pipeline continuation
-        if: steps.update.outputs.feedback_updated == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.update.outputs.feedback_updated == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1188,7 +1190,7 @@ jobs:
           fi
 
       - name: Post status comment
-        if: steps.update.outputs.feedback_updated == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.update.outputs.feedback_updated == 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           FEEDBACK_ID: ${{ steps.parse.outputs.feedback_id }}
