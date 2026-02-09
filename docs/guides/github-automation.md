@@ -27,12 +27,15 @@ and via `workflow_dispatch` with a PR number.
 
 ### How It Works
 
-1. **Skip checks** — Skips draft PRs and PRs with `[skip-review]` in the title.
+1. **Skip checks** — Skips draft PRs, PRs with `[skip-review]` in the title, and PRs where
+   the current HEAD commit has already been reviewed by the same bot. This prevents redundant
+   reviews when a draft PR is marked as ready for review without new commits.
 2. **Wait for CI checks** — Waits for all non-review checks (e.g., lint, tests) to complete
    before starting the review. Skips checks matching `egg-review /` (the standard reviewer
    job prefix), `egg-reviewer-` (nested reviewer jobs), `SDLC Pipeline`, or `SDLC HITL` to
    avoid self-deadlock. If checks fail, the review is skipped. Workflow dispatch triggers
-   bypass this wait. Times out after 25 minutes with a warning and proceeds anyway.
+   bypass this wait and the already-reviewed check. Times out after 25 minutes with a warning
+   and proceeds anyway.
 3. **Re-review detection** — Searches for an `<!-- egg-automated-review bot=<name> commit=<sha> -->`
    marker in previous reviews/comments to identify the last reviewed commit. On re-review,
    the agent uses `git diff <last-commit>..HEAD` to focus on new changes only.
