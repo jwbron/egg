@@ -58,10 +58,73 @@ jobs:
     outputs:
       run: ${{ steps.check.outputs.run }}
     steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Get PR HEAD SHA
+        id: pr-head
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          head_sha=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
+          echo "sha=${head_sha}" >> "$GITHUB_OUTPUT"
+          echo "PR HEAD SHA: ${head_sha}"
+
+      - name: Check if commit already reviewed
+        id: already-reviewed
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ steps.pr-head.outputs.sha }}
+        run: |
+          # Check if this commit has already been reviewed by this bot
+          # Marker format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
+          # Escape regex metacharacters in bot_name to prevent pattern breakage
+          # shellcheck disable=SC2016
+          escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[.[\*^$()+?{|\\]/\\&/g')
+          marker_regex="<!-- egg-automated-review bot=${escaped_bot_name} commit=${HEAD_SHA}( verdict=([a-z-]+))? -->"
+
+          found="false"
+
+          # Check reviews from the Reviews API
+          reviews=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
+            --jq '[.[] | .body // ""]')
+
+          while IFS= read -r body; do
+            if [[ "$body" =~ $marker_regex ]]; then
+              echo "Found review marker for commit ${HEAD_SHA} in Reviews API"
+              found="true"
+              break
+            fi
+          done < <(echo "$reviews" | jq -r '.[]')
+
+          # Also check issue comments if not found
+          if [[ "$found" == "false" ]]; then
+            comments=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+              --jq '[.[] | .body // ""]')
+
+            while IFS= read -r body; do
+              if [[ "$body" =~ $marker_regex ]]; then
+                echo "Found review marker for commit ${HEAD_SHA} in issue comments"
+                found="true"
+                break
+              fi
+            done < <(echo "$comments" | jq -r '.[]')
+          fi
+
+          echo "already-reviewed=${found}" >> "$GITHUB_OUTPUT"
+
       - name: Check if PR is ready for review
         id: check
         env:
           PR_TITLE: ${{ inputs.pr_title }}
+          ALREADY_REVIEWED: ${{ steps.already-reviewed.outputs.already-reviewed }}
+          HEAD_SHA: ${{ steps.pr-head.outputs.sha }}
         run: |
           # For workflow_dispatch, always run
           if [[ "${{ inputs.event_name }}" == "workflow_dispatch" ]]; then
@@ -71,6 +134,13 @@ jobs:
 
           # Skip if [skip-review] in title
           if [[ "$PR_TITLE" == *"[skip-review]"* ]]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Skip if this commit was already reviewed by this bot
+          if [[ "$ALREADY_REVIEWED" == "true" ]]; then
+            echo "::notice::Skipping review: commit ${HEAD_SHA} was already reviewed by ${{ inputs.bot_name }}"
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
