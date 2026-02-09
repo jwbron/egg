@@ -557,7 +557,7 @@ jobs:
 
           # Store actor for reapply script
           SENDER_LOGIN="${{ github.event.sender.login }}"
-          export SENDER_LOGIN NEXT_PHASE PREVIOUS_PHASE
+          export SENDER_LOGIN NEXT_PHASE PREVIOUS_PHASE CONTRACT_PATH
 
           # Create reapply script for retry logic (includes audit log entry)
           cat > /tmp/reapply-approve-phase.sh << 'REAPPLY_EOF'
@@ -606,7 +606,6 @@ jobs:
           git commit -m "Approve and advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
 
           # Push with conflict-resistant retry logic
-          export CONTRACT_PATH
           export BRANCH_NAME
           export COMMIT_MESSAGE="Approve and advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
           export JQ_SCRIPT_PATH="/tmp/reapply-approve-phase.sh"
