@@ -247,6 +247,193 @@ class AuditEntry(BaseModel):
     reason: str | None = Field(default=None, description="Reason for change")
 
 
+class CheckStatus(StrEnum):
+    """Status values for intermediate checks."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    PASSED = "passed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    FIXED = "fixed"
+
+
+class WorkLoopStep(StrEnum):
+    """Steps within a work loop cycle."""
+
+    PRODUCER = "producer"
+    INTERMEDIATE_CHECKS = "intermediate_checks"
+    REVIEWER = "reviewer"
+    DECISION = "decision"
+    HUMAN_REVIEW = "human_review"
+
+
+class WorkLoopPhase(StrEnum):
+    """Phases that use the work loop."""
+
+    REFINE = "refine"
+    PLAN = "plan"
+    IMPLEMENT = "implement"
+
+
+class ReviewerVerdict(StrEnum):
+    """Possible verdicts from the reviewer agent."""
+
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    ESCALATE = "escalate"
+
+
+class HumanReviewMechanism(StrEnum):
+    """How human review is collected."""
+
+    ISSUE_COMMENT = "issue_comment"
+    PR_REVIEW = "pr_review"
+
+
+class IntermediateCheck(BaseModel):
+    """A check to run between producer and reviewer steps in the work loop."""
+
+    id: str = Field(
+        ...,
+        pattern=r"^check-[a-z0-9-]+$",
+        description="Unique check identifier (e.g., check-lint, check-test)",
+    )
+    name: str = Field(..., min_length=1, description="Human-readable check name")
+    command: str = Field(
+        ...,
+        min_length=1,
+        description="Shell command or workflow reference to execute",
+    )
+    auto_fix: bool = Field(
+        default=False, description="Whether this check supports automatic fixing"
+    )
+    auto_fix_command: str | None = Field(
+        default=None, description="Command to run for automatic fixing"
+    )
+    depends_on: list[str] = Field(
+        default_factory=list,
+        description="IDs of checks that must complete before this one",
+    )
+    required: bool = Field(
+        default=True, description="Whether this check must pass to proceed"
+    )
+    timeout_minutes: int = Field(
+        default=30, ge=1, description="Maximum time for this check to complete"
+    )
+
+
+class CheckResult(BaseModel):
+    """Result of running an intermediate check."""
+
+    check_id: str = Field(
+        ...,
+        pattern=r"^check-[a-z0-9-]+$",
+        description="ID of the check that was run",
+    )
+    status: CheckStatus = Field(..., description="Check result status")
+    started_at: datetime | None = Field(default=None, description="When the check started")
+    completed_at: datetime | None = Field(
+        default=None, description="When the check completed"
+    )
+    output: str = Field(default="", description="Check output or error message")
+    auto_fix_attempted: bool = Field(
+        default=False, description="Whether auto-fix was attempted"
+    )
+    auto_fix_commit: str | None = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{7,40}$",
+        description="Commit SHA of auto-fix changes",
+    )
+
+    @field_validator("auto_fix_commit", mode="before")
+    @classmethod
+    def validate_auto_fix_commit(cls, v: Any) -> str | None:
+        if v is None or v == "":
+            return None
+        return str(v)
+
+
+class PhaseConfig(BaseModel):
+    """Configuration for a single work loop phase (refine, plan, or implement)."""
+
+    producer_prompt_script: str = Field(
+        ...,
+        min_length=1,
+        description="Path to the script that builds the producer agent prompt",
+    )
+    producer_timeout_minutes: int = Field(
+        default=60, ge=1, description="Timeout for producer agent execution"
+    )
+    reviewer_prompt_script: str | None = Field(
+        default=None,
+        description="Path to reviewer prompt script (null for PR-based review)",
+    )
+    reviewer_timeout_minutes: int = Field(
+        default=30, ge=1, description="Timeout for reviewer agent execution"
+    )
+    max_cycles: int = Field(
+        default=3, ge=1, description="Maximum work-review cycles before escalation"
+    )
+    intermediate_checks: list[IntermediateCheck] = Field(
+        default_factory=list,
+        description="Checks to run between producer and reviewer steps",
+    )
+    human_review_mechanism: HumanReviewMechanism = Field(
+        default=HumanReviewMechanism.ISSUE_COMMENT,
+        description="How human review is collected",
+    )
+    output_artifact_path: str | None = Field(
+        default=None,
+        description="Path pattern for phase output artifact",
+    )
+    post_producer_script: str | None = Field(
+        default=None,
+        description="Optional script to run after producer completes",
+    )
+
+
+class PhaseConfigMap(BaseModel):
+    """Map of phase configurations keyed by phase name."""
+
+    refine: PhaseConfig | None = Field(default=None, description="Refine phase config")
+    plan: PhaseConfig | None = Field(default=None, description="Plan phase config")
+    implement: PhaseConfig | None = Field(
+        default=None, description="Implement phase config"
+    )
+
+    def get_config(self, phase: WorkLoopPhase) -> PhaseConfig | None:
+        """Get configuration for a specific phase."""
+        return getattr(self, phase.value, None)
+
+
+class WorkLoopState(BaseModel):
+    """Current state of work loop execution within a phase."""
+
+    phase: WorkLoopPhase = Field(..., description="Current work loop phase")
+    cycle: int = Field(..., ge=1, description="Current cycle number (1-indexed)")
+    step: WorkLoopStep = Field(..., description="Current step within the cycle")
+    check_results: list[CheckResult] = Field(
+        default_factory=list,
+        description="Results of intermediate checks in current cycle",
+    )
+    last_producer_output: str | None = Field(
+        default=None, description="Path to or content of last producer output"
+    )
+    last_reviewer_verdict: ReviewerVerdict | None = Field(
+        default=None, description="Verdict from last reviewer"
+    )
+    last_reviewer_feedback: str = Field(
+        default="", description="Feedback from last reviewer"
+    )
+    human_feedback_pending: bool = Field(
+        default=False, description="Whether waiting for human feedback"
+    )
+    started_at: datetime | None = Field(
+        default=None, description="When this work loop iteration started"
+    )
+
+
 class Contract(BaseModel):
     """The complete SDLC contract."""
 
@@ -283,6 +470,12 @@ class Contract(BaseModel):
     )
     feedback: Feedback | None = Field(
         default=None, description="Active feedback request for collecting open-ended questions"
+    )
+    phase_config: PhaseConfigMap | None = Field(
+        default=None, description="Configuration for work loop phases"
+    )
+    work_loop_state: WorkLoopState | None = Field(
+        default=None, description="Current state of work loop execution"
     )
 
     def get_task(self, phase_id: str, task_id: str) -> Task | None:

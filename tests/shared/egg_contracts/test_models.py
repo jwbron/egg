@@ -7,17 +7,27 @@ from egg_contracts.models import (
     AuditAction,
     AuditEntry,
     AuditRole,
+    CheckResult,
+    CheckStatus,
     CircuitBreaker,
     CircuitBreakerStatus,
     Contract,
     Decision,
     DecisionType,
+    HumanReviewMechanism,
+    IntermediateCheck,
     IssueInfo,
     Phase,
+    PhaseConfig,
+    PhaseConfigMap,
     PhaseStatus,
     PipelinePhase,
+    ReviewerVerdict,
     Task,
     TaskStatus,
+    WorkLoopPhase,
+    WorkLoopState,
+    WorkLoopStep,
 )
 from pydantic import ValidationError
 
@@ -402,3 +412,376 @@ class TestContractSerialization:
         # Deserialize
         restored = Contract.model_validate(data)
         assert restored.workflow_owner is None
+
+
+# =============================================================================
+# Work Loop Model Tests
+# =============================================================================
+
+
+class TestIntermediateCheck:
+    """Tests for IntermediateCheck model."""
+
+    def test_valid_check(self):
+        """Test creating a valid intermediate check."""
+        check = IntermediateCheck(
+            id="check-lint",
+            name="Run Linter",
+            command="make lint",
+        )
+        assert check.id == "check-lint"
+        assert check.name == "Run Linter"
+        assert check.command == "make lint"
+        assert check.auto_fix is False
+        assert check.depends_on == []
+        assert check.required is True
+        assert check.timeout_minutes == 30
+
+    def test_check_with_auto_fix(self):
+        """Test check with auto-fix enabled."""
+        check = IntermediateCheck(
+            id="check-lint",
+            name="Run Linter",
+            command="make lint",
+            auto_fix=True,
+            auto_fix_command="make fix",
+        )
+        assert check.auto_fix is True
+        assert check.auto_fix_command == "make fix"
+
+    def test_check_with_dependencies(self):
+        """Test check with dependencies."""
+        check = IntermediateCheck(
+            id="check-test",
+            name="Run Tests",
+            command="make test",
+            depends_on=["check-lint", "check-build"],
+        )
+        assert check.depends_on == ["check-lint", "check-build"]
+
+    def test_invalid_check_id_pattern(self):
+        """Test that check ID must match pattern."""
+        with pytest.raises(ValidationError):
+            IntermediateCheck(
+                id="invalid-id",  # Missing 'check-' prefix
+                name="Test",
+                command="test",
+            )
+
+    def test_depends_on_accepts_any_strings(self):
+        """Test that depends_on accepts any strings (schema validates pattern)."""
+        # Note: Pattern validation is done at schema level, not Pydantic level
+        # This test documents that Pydantic model accepts any strings
+        check = IntermediateCheck(
+            id="check-test",
+            name="Test",
+            command="test",
+            depends_on=["check-lint", "check-build"],
+        )
+        assert check.depends_on == ["check-lint", "check-build"]
+
+    def test_workflow_reference_command(self):
+        """Test check with workflow reference as command."""
+        check = IntermediateCheck(
+            id="check-autofix",
+            name="Run Autofix",
+            command="workflow:reusable-autofix.yml",
+        )
+        assert check.command == "workflow:reusable-autofix.yml"
+
+
+class TestCheckResult:
+    """Tests for CheckResult model."""
+
+    def test_pending_result(self):
+        """Test creating a pending check result."""
+        result = CheckResult(
+            check_id="check-lint",
+            status=CheckStatus.PENDING,
+        )
+        assert result.check_id == "check-lint"
+        assert result.status == CheckStatus.PENDING
+        assert result.started_at is None
+        assert result.completed_at is None
+        assert result.output == ""
+
+    def test_completed_result(self):
+        """Test creating a completed check result."""
+        now = datetime.now(UTC)
+        result = CheckResult(
+            check_id="check-lint",
+            status=CheckStatus.PASSED,
+            started_at=now,
+            completed_at=now,
+            output="All checks passed",
+        )
+        assert result.status == CheckStatus.PASSED
+        assert result.output == "All checks passed"
+
+    def test_failed_with_auto_fix(self):
+        """Test result with auto-fix attempt."""
+        result = CheckResult(
+            check_id="check-lint",
+            status=CheckStatus.FIXED,
+            auto_fix_attempted=True,
+            auto_fix_commit="abc1234",
+        )
+        assert result.status == CheckStatus.FIXED
+        assert result.auto_fix_attempted is True
+        assert result.auto_fix_commit == "abc1234"
+
+    def test_all_check_statuses(self):
+        """Test all valid check statuses."""
+        for status in CheckStatus:
+            result = CheckResult(
+                check_id="check-test",
+                status=status,
+            )
+            assert result.status == status
+
+
+class TestPhaseConfig:
+    """Tests for PhaseConfig model."""
+
+    def test_minimal_config(self):
+        """Test creating minimal phase config."""
+        config = PhaseConfig(
+            producer_prompt_script="action/build-refine-prompt.sh",
+            max_cycles=3,
+        )
+        assert config.producer_prompt_script == "action/build-refine-prompt.sh"
+        assert config.max_cycles == 3
+        assert config.reviewer_prompt_script is None
+        assert config.intermediate_checks == []
+        assert config.human_review_mechanism == HumanReviewMechanism.ISSUE_COMMENT
+
+    def test_full_config(self):
+        """Test creating full phase config."""
+        check = IntermediateCheck(
+            id="check-lint",
+            name="Lint",
+            command="make lint",
+        )
+        config = PhaseConfig(
+            producer_prompt_script="action/build-implement-prompt.sh",
+            producer_timeout_minutes=120,
+            reviewer_prompt_script="action/build-review-prompt.sh",
+            reviewer_timeout_minutes=45,
+            max_cycles=5,
+            intermediate_checks=[check],
+            human_review_mechanism=HumanReviewMechanism.PR_REVIEW,
+            output_artifact_path=".egg-state/drafts/{issue}-impl.md",
+            post_producer_script="action/populate-contract-tasks.py",
+        )
+        assert config.producer_timeout_minutes == 120
+        assert config.reviewer_timeout_minutes == 45
+        assert len(config.intermediate_checks) == 1
+        assert config.human_review_mechanism == HumanReviewMechanism.PR_REVIEW
+
+    def test_invalid_max_cycles(self):
+        """Test that max_cycles must be at least 1."""
+        with pytest.raises(ValidationError):
+            PhaseConfig(
+                producer_prompt_script="test.sh",
+                max_cycles=0,
+            )
+
+
+class TestPhaseConfigMap:
+    """Tests for PhaseConfigMap model."""
+
+    def test_empty_config_map(self):
+        """Test creating empty config map."""
+        config_map = PhaseConfigMap()
+        assert config_map.refine is None
+        assert config_map.plan is None
+        assert config_map.implement is None
+
+    def test_partial_config_map(self):
+        """Test creating partial config map."""
+        refine_config = PhaseConfig(
+            producer_prompt_script="action/build-refine-prompt.sh",
+            max_cycles=3,
+        )
+        config_map = PhaseConfigMap(refine=refine_config)
+        assert config_map.refine is not None
+        assert config_map.plan is None
+        assert config_map.implement is None
+
+    def test_get_config_method(self):
+        """Test get_config helper method."""
+        refine_config = PhaseConfig(
+            producer_prompt_script="refine.sh",
+            max_cycles=3,
+        )
+        plan_config = PhaseConfig(
+            producer_prompt_script="plan.sh",
+            max_cycles=2,
+        )
+        config_map = PhaseConfigMap(refine=refine_config, plan=plan_config)
+
+        assert config_map.get_config(WorkLoopPhase.REFINE) == refine_config
+        assert config_map.get_config(WorkLoopPhase.PLAN) == plan_config
+        assert config_map.get_config(WorkLoopPhase.IMPLEMENT) is None
+
+
+class TestWorkLoopState:
+    """Tests for WorkLoopState model."""
+
+    def test_initial_state(self):
+        """Test creating initial work loop state."""
+        state = WorkLoopState(
+            phase=WorkLoopPhase.REFINE,
+            cycle=1,
+            step=WorkLoopStep.PRODUCER,
+        )
+        assert state.phase == WorkLoopPhase.REFINE
+        assert state.cycle == 1
+        assert state.step == WorkLoopStep.PRODUCER
+        assert state.check_results == []
+        assert state.last_reviewer_verdict is None
+        assert state.human_feedback_pending is False
+
+    def test_state_with_check_results(self):
+        """Test state with intermediate check results."""
+        result = CheckResult(
+            check_id="check-lint",
+            status=CheckStatus.PASSED,
+        )
+        state = WorkLoopState(
+            phase=WorkLoopPhase.IMPLEMENT,
+            cycle=2,
+            step=WorkLoopStep.INTERMEDIATE_CHECKS,
+            check_results=[result],
+        )
+        assert len(state.check_results) == 1
+        assert state.check_results[0].check_id == "check-lint"
+
+    def test_state_with_reviewer_verdict(self):
+        """Test state with reviewer verdict."""
+        state = WorkLoopState(
+            phase=WorkLoopPhase.PLAN,
+            cycle=1,
+            step=WorkLoopStep.DECISION,
+            last_reviewer_verdict=ReviewerVerdict.APPROVED,
+            last_reviewer_feedback="Plan looks good",
+        )
+        assert state.last_reviewer_verdict == ReviewerVerdict.APPROVED
+        assert state.last_reviewer_feedback == "Plan looks good"
+
+    def test_invalid_cycle_number(self):
+        """Test that cycle must be at least 1."""
+        with pytest.raises(ValidationError):
+            WorkLoopState(
+                phase=WorkLoopPhase.REFINE,
+                cycle=0,
+                step=WorkLoopStep.PRODUCER,
+            )
+
+    def test_all_work_loop_steps(self):
+        """Test all valid work loop steps."""
+        for step in WorkLoopStep:
+            state = WorkLoopState(
+                phase=WorkLoopPhase.REFINE,
+                cycle=1,
+                step=step,
+            )
+            assert state.step == step
+
+    def test_all_reviewer_verdicts(self):
+        """Test all valid reviewer verdicts."""
+        for verdict in ReviewerVerdict:
+            state = WorkLoopState(
+                phase=WorkLoopPhase.REFINE,
+                cycle=1,
+                step=WorkLoopStep.DECISION,
+                last_reviewer_verdict=verdict,
+            )
+            assert state.last_reviewer_verdict == verdict
+
+
+class TestContractWithWorkLoopFields:
+    """Tests for Contract with work loop fields."""
+
+    def test_contract_with_phase_config(self):
+        """Test contract with phase_config field."""
+        config_map = PhaseConfigMap(
+            refine=PhaseConfig(
+                producer_prompt_script="refine.sh",
+                max_cycles=3,
+            )
+        )
+        contract = Contract(
+            issue=IssueInfo(
+                number=430,
+                title="Test",
+                url="https://example.com",
+            ),
+            phase_config=config_map,
+        )
+        assert contract.phase_config is not None
+        assert contract.phase_config.refine is not None
+
+    def test_contract_with_work_loop_state(self):
+        """Test contract with work_loop_state field."""
+        state = WorkLoopState(
+            phase=WorkLoopPhase.IMPLEMENT,
+            cycle=2,
+            step=WorkLoopStep.REVIEWER,
+        )
+        contract = Contract(
+            issue=IssueInfo(
+                number=430,
+                title="Test",
+                url="https://example.com",
+            ),
+            work_loop_state=state,
+        )
+        assert contract.work_loop_state is not None
+        assert contract.work_loop_state.phase == WorkLoopPhase.IMPLEMENT
+        assert contract.work_loop_state.cycle == 2
+
+    def test_contract_serialization_with_work_loop_fields(self):
+        """Test that work loop fields serialize correctly."""
+        config_map = PhaseConfigMap(
+            implement=PhaseConfig(
+                producer_prompt_script="impl.sh",
+                max_cycles=3,
+                intermediate_checks=[
+                    IntermediateCheck(
+                        id="check-test",
+                        name="Tests",
+                        command="make test",
+                    )
+                ],
+            )
+        )
+        state = WorkLoopState(
+            phase=WorkLoopPhase.IMPLEMENT,
+            cycle=1,
+            step=WorkLoopStep.PRODUCER,
+            started_at=datetime.now(UTC),
+        )
+        contract = Contract(
+            issue=IssueInfo(
+                number=430,
+                title="Test",
+                url="https://example.com",
+            ),
+            phase_config=config_map,
+            work_loop_state=state,
+        )
+
+        # Serialize
+        data = contract.model_dump(mode="json")
+        assert "phase_config" in data
+        assert data["phase_config"]["implement"]["intermediate_checks"][0]["id"] == "check-test"
+        assert data["work_loop_state"]["phase"] == "implement"
+
+        # Deserialize
+        restored = Contract.model_validate(data)
+        assert restored.phase_config is not None
+        assert restored.phase_config.implement is not None
+        assert len(restored.phase_config.implement.intermediate_checks) == 1
+        assert restored.work_loop_state is not None
+        assert restored.work_loop_state.phase == WorkLoopPhase.IMPLEMENT

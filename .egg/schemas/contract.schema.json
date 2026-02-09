@@ -118,6 +118,18 @@
       ],
       "description": "Active feedback request for collecting open-ended questions from humans",
       "default": null
+    },
+    "phase_config": {
+      "$ref": "#/$defs/phaseConfigMap",
+      "description": "Configuration for work loop phases (refine, plan, implement)"
+    },
+    "work_loop_state": {
+      "oneOf": [
+        { "$ref": "#/$defs/workLoopState" },
+        { "type": "null" }
+      ],
+      "description": "Current state of the work loop execution",
+      "default": null
     }
   },
   "additionalProperties": false,
@@ -527,6 +539,239 @@
         "reason": {
           "type": "string",
           "description": "Reason for the change"
+        }
+      },
+      "additionalProperties": false
+    },
+    "intermediateCheck": {
+      "type": "object",
+      "description": "A check to run between producer and reviewer steps in the work loop",
+      "required": ["id", "name", "command"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique check identifier (e.g., check-lint, check-test)",
+          "pattern": "^check-[a-z0-9-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable check name",
+          "minLength": 1
+        },
+        "command": {
+          "type": "string",
+          "description": "Shell command or workflow reference to execute (e.g., 'make lint' or 'workflow:reusable-autofix.yml')",
+          "minLength": 1
+        },
+        "auto_fix": {
+          "type": "boolean",
+          "description": "Whether this check supports automatic fixing",
+          "default": false
+        },
+        "auto_fix_command": {
+          "type": ["string", "null"],
+          "description": "Command to run for automatic fixing (if auto_fix is true)",
+          "default": null
+        },
+        "depends_on": {
+          "type": "array",
+          "description": "IDs of checks that must complete before this one (DAG dependencies)",
+          "items": {
+            "type": "string",
+            "pattern": "^check-[a-z0-9-]+$"
+          },
+          "default": []
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether this check must pass for the work loop to proceed",
+          "default": true
+        },
+        "timeout_minutes": {
+          "type": "integer",
+          "description": "Maximum time for this check to complete",
+          "minimum": 1,
+          "default": 30
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkResult": {
+      "type": "object",
+      "description": "Result of running an intermediate check",
+      "required": ["check_id", "status"],
+      "properties": {
+        "check_id": {
+          "type": "string",
+          "description": "ID of the check that was run",
+          "pattern": "^check-[a-z0-9-]+$"
+        },
+        "status": {
+          "type": "string",
+          "description": "Check result status",
+          "enum": ["pending", "running", "passed", "failed", "skipped", "fixed"]
+        },
+        "started_at": {
+          "type": ["string", "null"],
+          "description": "When the check started",
+          "format": "date-time",
+          "default": null
+        },
+        "completed_at": {
+          "type": ["string", "null"],
+          "description": "When the check completed",
+          "format": "date-time",
+          "default": null
+        },
+        "output": {
+          "type": "string",
+          "description": "Check output or error message",
+          "default": ""
+        },
+        "auto_fix_attempted": {
+          "type": "boolean",
+          "description": "Whether auto-fix was attempted",
+          "default": false
+        },
+        "auto_fix_commit": {
+          "type": ["string", "null"],
+          "description": "Commit SHA of auto-fix changes if any",
+          "pattern": "^[a-f0-9]{7,40}$",
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "phaseConfig": {
+      "type": "object",
+      "description": "Configuration for a single work loop phase (refine, plan, or implement)",
+      "required": ["producer_prompt_script", "max_cycles"],
+      "properties": {
+        "producer_prompt_script": {
+          "type": "string",
+          "description": "Path to the script that builds the producer agent prompt",
+          "minLength": 1
+        },
+        "producer_timeout_minutes": {
+          "type": "integer",
+          "description": "Timeout for producer agent execution",
+          "minimum": 1,
+          "default": 60
+        },
+        "reviewer_prompt_script": {
+          "type": ["string", "null"],
+          "description": "Path to the script that builds the reviewer agent prompt (null for PR-based review)",
+          "default": null
+        },
+        "reviewer_timeout_minutes": {
+          "type": "integer",
+          "description": "Timeout for reviewer agent execution",
+          "minimum": 1,
+          "default": 30
+        },
+        "max_cycles": {
+          "type": "integer",
+          "description": "Maximum work-review cycles before escalation",
+          "minimum": 1,
+          "default": 3
+        },
+        "intermediate_checks": {
+          "type": "array",
+          "description": "Checks to run between producer and reviewer steps",
+          "items": {
+            "$ref": "#/$defs/intermediateCheck"
+          },
+          "default": []
+        },
+        "human_review_mechanism": {
+          "type": "string",
+          "description": "How human review is collected for this phase",
+          "enum": ["issue_comment", "pr_review"],
+          "default": "issue_comment"
+        },
+        "output_artifact_path": {
+          "type": ["string", "null"],
+          "description": "Path pattern for the phase output artifact (e.g., .egg-state/drafts/{issue}-analysis.md)",
+          "default": null
+        },
+        "post_producer_script": {
+          "type": ["string", "null"],
+          "description": "Optional script to run after producer completes (e.g., populate-contract-tasks.py)",
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "phaseConfigMap": {
+      "type": "object",
+      "description": "Map of phase configurations keyed by phase name",
+      "properties": {
+        "refine": {
+          "$ref": "#/$defs/phaseConfig"
+        },
+        "plan": {
+          "$ref": "#/$defs/phaseConfig"
+        },
+        "implement": {
+          "$ref": "#/$defs/phaseConfig"
+        }
+      },
+      "additionalProperties": false
+    },
+    "workLoopState": {
+      "type": "object",
+      "description": "Current state of work loop execution within a phase",
+      "required": ["phase", "cycle", "step"],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "description": "Current work loop phase",
+          "enum": ["refine", "plan", "implement"]
+        },
+        "cycle": {
+          "type": "integer",
+          "description": "Current cycle number (1-indexed)",
+          "minimum": 1
+        },
+        "step": {
+          "type": "string",
+          "description": "Current step within the cycle",
+          "enum": ["producer", "intermediate_checks", "reviewer", "decision", "human_review"]
+        },
+        "check_results": {
+          "type": "array",
+          "description": "Results of intermediate checks in current cycle",
+          "items": {
+            "$ref": "#/$defs/checkResult"
+          },
+          "default": []
+        },
+        "last_producer_output": {
+          "type": ["string", "null"],
+          "description": "Path to or content of last producer output",
+          "default": null
+        },
+        "last_reviewer_verdict": {
+          "type": ["string", "null"],
+          "description": "Verdict from last reviewer (approved, rejected, escalate)",
+          "enum": ["approved", "rejected", "escalate", null],
+          "default": null
+        },
+        "last_reviewer_feedback": {
+          "type": "string",
+          "description": "Feedback from last reviewer",
+          "default": ""
+        },
+        "human_feedback_pending": {
+          "type": "boolean",
+          "description": "Whether waiting for human feedback",
+          "default": false
+        },
+        "started_at": {
+          "type": ["string", "null"],
+          "description": "When this work loop iteration started",
+          "format": "date-time",
+          "default": null
         }
       },
       "additionalProperties": false
