@@ -35,8 +35,20 @@
       "old_value": "refine",
       "new_value": "plan",
       "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-09T06:54:11Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Plan review cycle 1: approved"
     }
   ],
   "refine_review_cycles": 1,
-  "refine_review_feedback": ""
+  "refine_review_feedback": "",
+  "plan_review_cycles": 1,
+  "plan_review_feedback": ""
 }
