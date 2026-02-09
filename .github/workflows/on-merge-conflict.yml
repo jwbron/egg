@@ -1,10 +1,12 @@
 name: "egg: Resolve Merge Conflicts"
 
-# Trigger on schedule (every 5 minutes) to check for conflicting PRs,
-# or via manual dispatch for a specific PR.
+# Trigger on push to main (when conflicts are actually introduced),
+# with a schedule as a safety net, or via manual dispatch for a specific PR.
 on:
+  push:
+    branches: [main]
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '0 */2 * * *'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -13,15 +15,29 @@ on:
         type: number
 
 jobs:
-  # Scheduled job: find all PRs with merge conflicts
+  # Find all PRs with merge conflicts (runs on push to main and schedule)
   find-conflicts:
     name: Find Conflicting PRs
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'push' || github.event_name == 'schedule'
     outputs:
       prs: ${{ steps.find.outputs.prs }}
 
+    # When multiple pushes to main happen in quick succession (e.g. merging
+    # several PRs), only the latest push matters for conflict detection.
+    concurrency:
+      group: egg-find-conflicts
+      cancel-in-progress: true
+
     steps:
+      # After a push to main, GitHub recomputes mergeable_state asynchronously.
+      # Wait to give it time to settle before we check. In rare cases (large
+      # repos or GitHub load), 60s may not be enough—those conflicts will be
+      # caught by the 2-hour scheduled fallback.
+      - name: Wait for mergeable state computation
+        if: github.event_name == 'push'
+        run: sleep 60
+
       - name: Generate bot token
         id: bot-token
         uses: actions/create-github-app-token@v1
