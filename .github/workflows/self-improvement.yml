@@ -21,6 +21,32 @@ on:
         required: false
         default: false
         type: boolean
+  workflow_call:
+    inputs:
+      since_hours:
+        description: "Analyze runs from the last N hours"
+        required: false
+        type: string
+        default: "24"
+      dry_run:
+        description: "Dry run mode (analyze only, don't create issues)"
+        required: false
+        type: boolean
+        default: false
+      action_ref:
+        description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
+        required: false
+        type: string
+        default: "jwbron/egg/action@main"
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
+      BOT_APP_INSTALLATION_ID:
+        required: true
+      ANTHROPIC_OAUTH_TOKEN:
+        required: true
 
 jobs:
   # Job 1: Collect run data and determine partitions
@@ -54,8 +80,8 @@ jobs:
         id: collect
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          SINCE_HOURS: ${{ github.event.inputs.since_hours || '24' }}
-          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          SINCE_HOURS: ${{ inputs.since_hours || github.event.inputs.since_hours || '24' }}
+          DRY_RUN: ${{ inputs.dry_run || github.event.inputs.dry_run || 'false' }}
         run: |
           # Pre-collect run data and partition for parallel egg instances
           # This follows agent-mode design: provide orientation, not constraint
