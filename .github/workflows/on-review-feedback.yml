@@ -114,7 +114,7 @@ jobs:
           REVIEW_STATE: ${{ github.event.review.state }}
           COMMENT_USER: ${{ github.event.comment.user.login }}
           COMMENT_BODY: ${{ github.event.comment.body }}
-          IS_PR: ${{ github.event.issue.pull_request }}
+          IS_PR: ${{ github.event.issue.pull_request != null }}
         run: |
           # For pull_request_review events
           if [[ "$EVENT_NAME" == "pull_request_review" ]]; then
@@ -127,7 +127,7 @@ jobs:
             fi
           # For issue_comment events (self-review as comment)
           elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
-            if [[ -n "$IS_PR" && \
+            if [[ "$IS_PR" == "true" && \
                   ("$COMMENT_USER" == "$BOT_USERNAME" || "$COMMENT_USER" == "${BOT_USERNAME}[bot]") && \
                   "$COMMENT_BODY" == *"egg-automated-review"* && \
                   "$COMMENT_BODY" != *"verdict=approve"* ]]; then
