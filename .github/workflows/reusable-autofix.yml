@@ -133,10 +133,15 @@ jobs:
         run: |
           if [[ -n "${{ env.FAILED_RUN_ID }}" ]]; then
             RUN_LINK="[${FAILED_WORKFLOW}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ env.FAILED_RUN_ID }})"
-            BODY="egg is investigating the ${RUN_LINK} check failure..."
+            BODY="<!-- egg-status-comment -->
+          egg is investigating the ${RUN_LINK} check failure..."
           else
-            BODY="egg is investigating check failures for this PR..."
+            BODY="<!-- egg-status-comment -->
+          egg is investigating check failures for this PR..."
           fi
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -190,11 +195,16 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
-            BODY="egg autofix completed. [View run logs](${RUN_URL})"
+            BODY="<!-- egg-status-comment -->
+          egg autofix completed. [View run logs](${RUN_URL})"
           else
-            BODY="egg autofix encountered an issue. [View run logs](${RUN_URL})"
+            BODY="<!-- egg-status-comment -->
+          egg autofix encountered an issue. [View run logs](${RUN_URL})"
           fi
 
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
