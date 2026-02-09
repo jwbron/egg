@@ -648,6 +648,46 @@ class TestDefaultFileRestrictions:
 
         assert result.allowed is True
 
+    def test_defaults_applied_when_config_lacks_file_restrictions_key(self):
+        """Default restrictions should be applied when config exists but lacks file_restrictions.
+
+        SECURITY: This ensures protection for legacy configs that predate the
+        file_restrictions feature. Without this, a config file missing the
+        file_restrictions key would silently disable all file restrictions.
+        """
+        # Create a config file WITHOUT the file_restrictions key
+        permissions = {
+            "schemaVersion": "1.0",
+            "phases": {
+                "implement": {
+                    "allowed_operations": [
+                        {"type": "git", "pattern": "push *", "description": "Push code"},
+                    ],
+                    "blocked_operations": [],
+                    "exit_requires": "reviewer",
+                },
+            },
+            # Intentionally NO file_restrictions key
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(permissions, f)
+            temp_path = Path(f.name)
+
+        try:
+            pf = PhaseFilter(permissions_path=temp_path)
+
+            # Should use default restrictions when key is missing
+            result = pf.check_file_restrictions(
+                "implementer",
+                [".egg-state/contracts/123.json"],
+            )
+
+            # Default restrictions should block implementer from contracts
+            assert result.allowed is False
+            assert ".egg-state/contracts/123.json" in result.blocked_files
+        finally:
+            temp_path.unlink()
+
 
 class TestCheckFileRestrictionsFunction:
     """Tests for the convenience check_file_restrictions function."""

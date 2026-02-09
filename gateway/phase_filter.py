@@ -272,8 +272,16 @@ class PhaseFilter:
                 pass
 
         # Load file restrictions
+        # SECURITY: When file_restrictions key is missing from config, use defaults
+        # to ensure protection even for legacy configs that predate this feature.
         file_restrictions_data = data.get("file_restrictions", [])
-        self._file_restrictions = [FileRestriction.from_dict(fr) for fr in file_restrictions_data]
+        if file_restrictions_data:
+            self._file_restrictions = [
+                FileRestriction.from_dict(fr) for fr in file_restrictions_data
+            ]
+        else:
+            # Use defaults when file_restrictions not configured (backwards compatibility)
+            self._file_restrictions = self._get_default_file_restrictions()
 
         self._loaded = True
 
