@@ -108,7 +108,7 @@ jobs:
           set -euo pipefail
 
           ELIGIBLE_PRS=""
-
+          # shellcheck disable=SC2153 # PR_NUMBERS is set from env, not a typo
           for PR_NUMBER in $PR_NUMBERS; do
             # Skip invalid PR numbers
             if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
@@ -166,11 +166,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Workflow name to exclude from check aggregation (avoid self-deadlock)
-          SELF_WORKFLOWS=("egg: SDLC Pipeline" "egg: Finalize PR on Check Success")
+          # Workflow names to exclude from check aggregation (avoid self-deadlock)
+          # Used in jq filter below
+          SELF_WORKFLOW_1="egg: SDLC Pipeline"
+          SELF_WORKFLOW_2="egg: Finalize PR on Check Success"
 
           READY_PRS=""
-
+          # shellcheck disable=SC2153 # ELIGIBLE_PRS is set from env, not a typo
           for PR_NUMBER in $ELIGIBLE_PRS; do
             echo "--- Checking PR #${PR_NUMBER} ---"
 
@@ -183,12 +185,11 @@ jobs:
               --jq '.check_runs | map({name: .name, status: .status, conclusion: .conclusion})')
 
             # Filter out self-workflow checks to avoid self-deadlock
-            external_checks=$(echo "$check_runs" | jq '
-              [.[] | select(
-                (.name | startswith("egg: SDLC Pipeline") | not) and
-                (.name | startswith("egg: Finalize PR on Check Success") | not)
-              )]
-            ')
+            external_checks=$(echo "$check_runs" | jq \
+              --arg w1 "$SELF_WORKFLOW_1" \
+              --arg w2 "$SELF_WORKFLOW_2" \
+              '[.[] | select((.name | startswith($w1) | not) and (.name | startswith($w2) | not))]'
+            )
 
             total=$(echo "$external_checks" | jq 'length')
             completed=$(echo "$external_checks" | jq '[.[] | select(.status == "completed")] | length')
