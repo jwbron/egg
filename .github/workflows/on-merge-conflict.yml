@@ -31,7 +31,9 @@ jobs:
 
     steps:
       # After a push to main, GitHub recomputes mergeable_state asynchronously.
-      # Wait to give it time to settle before we check.
+      # Wait to give it time to settle before we check. In rare cases (large
+      # repos or GitHub load), 60s may not be enough—those conflicts will be
+      # caught by the 2-hour scheduled fallback.
       - name: Wait for mergeable state computation
         if: github.event_name == 'push'
         run: sleep 60
