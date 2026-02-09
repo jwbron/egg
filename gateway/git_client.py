@@ -9,7 +9,6 @@ Provides:
 
 import contextlib
 import os
-import posixpath
 import re
 import sys
 import tempfile

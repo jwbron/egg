@@ -273,9 +273,7 @@ class PhaseFilter:
 
         # Load file restrictions
         file_restrictions_data = data.get("file_restrictions", [])
-        self._file_restrictions = [
-            FileRestriction.from_dict(fr) for fr in file_restrictions_data
-        ]
+        self._file_restrictions = [FileRestriction.from_dict(fr) for fr in file_restrictions_data]
 
         self._loaded = True
 
@@ -374,9 +372,7 @@ class PhaseFilter:
         role_lower = role.lower()
         return [fr for fr in self._file_restrictions if fr.role.lower() == role_lower]
 
-    def check_file_restrictions(
-        self, role: str, files: list[str]
-    ) -> FileRestrictionResult:
+    def check_file_restrictions(self, role: str, files: list[str]) -> FileRestrictionResult:
         """Check if any files are blocked for the given role.
 
         This method checks a list of files against the configured file restrictions

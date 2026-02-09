@@ -66,7 +66,6 @@ try:
         validate_git_args,
         validate_repo_path,
     )
-    from .phase_filter import check_file_restrictions
     from .github_client import (
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
@@ -77,6 +76,7 @@ try:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
+    from .phase_filter import check_file_restrictions
     from .policy import (
         extract_branch_from_refspec,
         extract_repo_from_remote,
@@ -110,7 +110,6 @@ except ImportError:
         validate_git_args,
         validate_repo_path,
     )
-    from phase_filter import check_file_restrictions  # type: ignore[no-redef]
     from github_client import (  # type: ignore[no-redef, import-not-found]
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
@@ -121,6 +120,7 @@ except ImportError:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
+    from phase_filter import check_file_restrictions  # type: ignore[no-redef, import-not-found]
     from policy import (  # type: ignore[no-redef, import-not-found]
         extract_branch_from_refspec,
         extract_repo_from_remote,
@@ -604,8 +604,7 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
             return make_error(
-                f"Push denied: {restriction_result.message}. "
-                f"{restriction_result.blocked_reason}",
+                f"Push denied: {restriction_result.message}. {restriction_result.blocked_reason}",
                 status_code=403,
                 details={
                     "role": session_role,
