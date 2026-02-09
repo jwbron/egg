@@ -75,6 +75,20 @@ class TestGetDefaultPhaseConfig:
                 assert len(check.name) > 0
                 assert len(check.script) > 0
 
+    def test_returns_independent_copy(self):
+        """Test that returned config is independent from global defaults."""
+        config1 = get_default_phase_config(PipelinePhase.IMPLEMENT)
+        config2 = get_default_phase_config(PipelinePhase.IMPLEMENT)
+
+        # Mutate config1
+        config1.checks.append(
+            CheckDefinition(id="check-mutated", name="Mutated", script="mutated.py")
+        )
+
+        # config2 should be unaffected
+        check_ids = [c.id for c in config2.checks]
+        assert "check-mutated" not in check_ids
+
 
 class TestGetEffectivePhaseConfig:
     """Tests for get_effective_phase_config function."""
