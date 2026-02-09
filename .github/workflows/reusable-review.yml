@@ -479,9 +479,11 @@ jobs:
       # Minimize previous status comments to reduce clutter
       # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous status comments
+        id: minimize
         if: always() && !cancelled()
         run: |
           set -euo pipefail
+          HIDDEN_COUNT=0
           # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
@@ -489,28 +491,52 @@ jobs:
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
-              if ! gh api graphql -f query='
+              if gh api graphql -f query='
                 mutation($id: ID!) {
                   minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
                     minimizedComment { isMinimized }
                   }
                 }
               ' -f id="$node_id"; then
+                HIDDEN_COUNT=$((HIDDEN_COUNT + 1))
+              else
                 echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
               fi
+              echo "hidden_count=${HIDDEN_COUNT}" >> "$GITHUB_OUTPUT"
             done
+          # Output 0 if no comments were processed
+          if [[ ! -f "$GITHUB_OUTPUT" ]] || ! grep -q "hidden_count=" "$GITHUB_OUTPUT" 2>/dev/null; then
+            echo "hidden_count=0" >> "$GITHUB_OUTPUT"
+          fi
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
       - name: Post workflow run status to PR
         if: always() && !cancelled()
         run: |
+          HIDDEN_COUNT="${{ steps.minimize.outputs.hidden_count }}"
+          HIDDEN_COUNT="${HIDDEN_COUNT:-0}"
+
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
-            BODY="<!-- egg-status-comment -->
+            if [[ "$HIDDEN_COUNT" -gt 0 ]]; then
+              BODY="<!-- egg-status-comment -->
+          egg ${{ inputs.bot_name }} completed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          *${HIDDEN_COUNT} previous review(s) hidden.*"
+            else
+              BODY="<!-- egg-status-comment -->
           egg ${{ inputs.bot_name }} completed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            fi
           else
-            BODY="<!-- egg-status-comment -->
+            if [[ "$HIDDEN_COUNT" -gt 0 ]]; then
+              BODY="<!-- egg-status-comment -->
+          egg ${{ inputs.bot_name }} failed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          *${HIDDEN_COUNT} previous review(s) hidden.*"
+            else
+              BODY="<!-- egg-status-comment -->
           egg ${{ inputs.bot_name }} failed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            fi
           fi
           gh pr comment "${{ env.PR_NUMBER }}" --repo "${{ github.repository }}" --body "$BODY"
         env:
