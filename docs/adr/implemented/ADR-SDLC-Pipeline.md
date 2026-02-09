@@ -280,7 +280,7 @@ jobs:
     # Unified work/review/respond cycle for all phases
 ```
 
-**Note:** As of PR #285, the pipeline was consolidated from separate phase jobs (implement, wait-for-checks, finalize-pr) into a unified `work-loop` job. Code review now happens through PR comments via `reusable-review.yml` instead of a separate reviewer agent.
+**Note:** As of PR #460, the pipeline was consolidated from separate phase jobs (implement, wait-for-checks, finalize-pr) into a unified `work-loop` job. Code review now happens through PR comments via `reusable-review.yml` (introduced in PR #285) instead of a separate reviewer agent.
 
 ### HITL Workflow
 
