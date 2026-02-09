@@ -556,9 +556,7 @@ def git_push() -> tuple[Response, int] | Response:
         session_role = getattr(g.session, "agent_role", None)
 
     if session_role and session_role.lower() == "implementer":
-        has_protected, protected_files = check_protected_files_in_push(
-            exec_path, remote, branch
-        )
+        has_protected, protected_files = check_protected_files_in_push(exec_path, remote, branch)
         if has_protected:
             audit_log(
                 "push_denied_protected_files",
