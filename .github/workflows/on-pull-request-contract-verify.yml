@@ -63,7 +63,7 @@ jobs:
           fi
 
   verify:
-    name: Contract Verification
+    name: egg-review / Contract Verification
     needs: should-run
     if: needs.should-run.outputs.run == 'true'
     permissions:

@@ -20,7 +20,7 @@ on:
 
 jobs:
   review:
-    name: Agent-Mode Design Review
+    name: egg-review / Agent-Mode Design
     permissions:
       contents: read
       pull-requests: write

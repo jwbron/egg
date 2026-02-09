@@ -29,10 +29,10 @@ and via `workflow_dispatch` with a PR number.
 
 1. **Skip checks** — Skips draft PRs and PRs with `[skip-review]` in the title.
 2. **Wait for CI checks** — Waits for all non-review checks (e.g., lint, tests) to complete
-   before starting the review. Excludes checks matching `egg-reviewer-*` (all reviewer jobs),
-   `SDLC Pipeline`, and `SDLC HITL` to avoid self-deadlock and ensure reviewers don't wait
-   for each other. If checks fail, the review is skipped. Workflow dispatch triggers bypass
-   this wait. Times out after 25 minutes with a warning and proceeds anyway.
+   before starting the review. Skips checks matching `egg-review /` (the standard reviewer
+   job prefix), `egg-reviewer-` (nested reviewer jobs), `SDLC Pipeline`, or `SDLC HITL` to
+   avoid self-deadlock. If checks fail, the review is skipped. Workflow dispatch triggers
+   bypass this wait. Times out after 25 minutes with a warning and proceeds anyway.
 3. **Re-review detection** — Searches for an `<!-- egg-automated-review bot=<name> commit=<sha> -->`
    marker in previous reviews/comments to identify the last reviewed commit. On re-review,
    the agent uses `git diff <last-commit>..HEAD` to focus on new changes only.
@@ -68,11 +68,26 @@ skipping linter-handled style issues.
 This enables multiple specialized reviewers (e.g., security-focused, design-focused)
 by providing different prompt scripts while sharing the review infrastructure.
 
-**Reviewer Naming Convention:** All reviewer jobs use the standardized name pattern
-`egg-reviewer-{bot_name}` (e.g., `egg-reviewer-review`, `egg-reviewer-agent-mode-design`).
-This allows the feedback workflow to identify and wait for all reviewers to complete
-before addressing their feedback, preventing race conditions when multiple reviewers
-trigger concurrently.
+### Reviewer Job Naming Convention
+
+**All reviewer workflows must use the `egg-review /` prefix for their job names.** This
+standardized prefix ensures the wait-for-checks logic correctly filters out all reviewer
+jobs to prevent self-deadlock.
+
+Example job definition:
+```yaml
+jobs:
+  review:
+    name: egg-review / My Custom Review  # Must start with "egg-review /"
+    uses: ./.github/workflows/reusable-review.yml
+    with:
+      bot_name: my-custom-review
+      # ...
+```
+
+The wait-for-checks filter matches `egg-review /` in check run names. If a new reviewer
+workflow doesn't follow this convention, it will cause infinite loops where reviewers
+wait on each other indefinitely.
 
 ## Address Review Feedback
 
