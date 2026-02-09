@@ -239,27 +239,23 @@ jobs:
         run: |
           set -euo pipefail
           HIDDEN_COUNT=0
-          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq '.[] | select(.user.login == "${{ env.BOT_USERNAME }}" or .user.login == "${{ env.BOT_USERNAME }}[bot]") | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
-          | while read -r node_id; do
-              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
-              if gh api graphql -f query='
-                mutation($id: ID!) {
-                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
-                    minimizedComment { isMinimized }
-                  }
+          # Use process substitution to avoid subshell variable scope issues
+          while read -r node_id; do
+            # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+            if gh api graphql -f query='
+              mutation($id: ID!) {
+                minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                  minimizedComment { isMinimized }
                 }
-              ' -f id="$node_id"; then
-                HIDDEN_COUNT=$((HIDDEN_COUNT + 1))
-              else
-                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
-              fi
-              echo "hidden_count=${HIDDEN_COUNT}" >> "$GITHUB_OUTPUT"
-            done
-          # Output 0 if no comments were processed
-          if [[ ! -f "$GITHUB_OUTPUT" ]] || ! grep -q "hidden_count=" "$GITHUB_OUTPUT" 2>/dev/null; then
-            echo "hidden_count=0" >> "$GITHUB_OUTPUT"
-          fi
+              }
+            ' -f id="$node_id"; then
+              HIDDEN_COUNT=$((HIDDEN_COUNT + 1))
+            else
+              echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
+            fi
+          done < <(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            --jq '.[] | select(.user.login == "${{ env.BOT_USERNAME }}" or .user.login == "${{ env.BOT_USERNAME }}[bot]") | select(.body | contains("<!-- egg-status-comment -->")) | .node_id')
+          echo "hidden_count=${HIDDEN_COUNT}" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
@@ -341,6 +337,8 @@ jobs:
           Workflow failed before running egg. [View run logs](${RUN_URL})${HIDDEN_MSG}"
           fi
 
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}

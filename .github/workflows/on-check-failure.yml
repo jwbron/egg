@@ -115,6 +115,8 @@ jobs:
             BODY="<!-- egg-status-comment -->
           egg is investigating check failures for this PR..."
           fi
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -175,6 +177,8 @@ jobs:
           egg autofix encountered an issue. [View run logs](${RUN_URL})"
           fi
 
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}

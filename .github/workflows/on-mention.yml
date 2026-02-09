@@ -197,6 +197,8 @@ jobs:
             if [[ "${EGG_EXIT_CODE:-1}" != "0" ]]; then
               BODY="<!-- egg-status-comment -->
           egg run had errors (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
+              # Strip leading whitespace from each line (caused by YAML indentation)
+              BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
               gh api repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments \
                 -X POST -f body="${BODY}"
             fi
@@ -209,6 +211,8 @@ jobs:
               BODY="<!-- egg-status-comment -->
           egg run failed (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
             fi
+            # Strip leading whitespace from each line (caused by YAML indentation)
+            BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
             gh api repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments \
               -X POST -f body="${BODY}"
           fi
