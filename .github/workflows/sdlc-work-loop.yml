@@ -13,7 +13,7 @@ on:
       issue_number:
         description: 'GitHub issue number being processed'
         required: true
-        type: number
+        type: string
       branch_name:
         description: 'Git branch for this issue (e.g., egg/issue-123)'
         required: true
@@ -485,7 +485,7 @@ jobs:
                   CHECK_STATUS="passed"
                 else
                   CHECK_STATUS="failed"
-                  CHECK_OUTPUT=$(cat /tmp/check_output.txt | tail -100)
+                  CHECK_OUTPUT=$(tail -100 /tmp/check_output.txt)
 
                   # Try auto-fix if available
                   if [[ "$AUTO_FIX" == "true" && "$AUTO_FIX_CMD" != "null" ]]; then
@@ -764,8 +764,6 @@ jobs:
           HUMAN_REVIEW_MECHANISM: ${{ needs.setup.outputs.human_review_mechanism }}
         run: |
           set -euo pipefail
-
-          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
           # Determine final verdict
           if [[ "$PRODUCER_SUCCESS" != "true" ]]; then

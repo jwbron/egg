@@ -75,6 +75,10 @@ jobs:
       # ---- GitHub Actions ----
 
       - name: Actionlint
+        env:
+          # Disable SC2129 (style: Consider using grouped redirects) - this is
+          # a minor style preference that doesn't affect correctness
+          SHELLCHECK_OPTS: --exclude=SC2129
         run: |
           ACTIONLINT_VERSION=1.7.10
           ARCH=$(uname -m)
