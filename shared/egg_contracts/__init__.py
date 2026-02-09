@@ -99,6 +99,9 @@ from .models import (
     AuditAction,
     AuditEntry,
     AuditRole,
+    CheckDefinition,
+    CheckResult,
+    CheckStatus,
     CircuitBreaker,
     CircuitBreakerStatus,
     Contract,
@@ -107,14 +110,20 @@ from .models import (
     DecisionType,
     Feedback,
     FeedbackQuestion,
+    HumanReviewMechanism,
     IssueInfo,
     Phase,
+    PhaseConfig,
     PhaseStatus,
     PipelinePhase,
     PRMetadata,
     ReviewFeedback,
     Task,
     TaskStatus,
+)
+from .phase_defaults import (
+    get_default_phase_config,
+    get_effective_phase_config,
 )
 from .plan_parser import (
     ParsedPhase,
@@ -161,6 +170,9 @@ __all__ = [
     "AuditAction",
     "AuditEntry",
     "AuditRole",
+    "CheckDefinition",
+    "CheckResult",
+    "CheckStatus",
     "CircuitBreaker",
     "CircuitBreakerStatus",
     "Contract",
@@ -169,6 +181,8 @@ __all__ = [
     "Decision",
     "DecisionOption",
     "DecisionType",
+    "HumanReviewMechanism",
+    "PhaseConfig",
     # Roles
     "FIELD_OWNERSHIP",
     "IssueInfo",
@@ -213,6 +227,9 @@ __all__ = [
     "format_warnings_for_comment",
     "parse_plan",
     "parse_plan_file",
+    # Phase Defaults
+    "get_default_phase_config",
+    "get_effective_phase_config",
     # Circuit Breaker
     "CircuitBreakerConfig",
     "CircuitBreakerResult",

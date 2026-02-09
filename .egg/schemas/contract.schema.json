@@ -118,6 +118,23 @@
       ],
       "description": "Active feedback request for collecting open-ended questions from humans",
       "default": null
+    },
+    "phase_configs": {
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Phase-specific configurations",
+          "propertyNames": {
+            "enum": ["refine", "plan", "implement", "pr"]
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/phaseConfig"
+          }
+        },
+        { "type": "null" }
+      ],
+      "description": "Optional phase-specific configurations (overrides defaults)",
+      "default": null
     }
   },
   "additionalProperties": false,
@@ -487,6 +504,105 @@
           "description": "Debounce expiration timestamp",
           "format": "date-time",
           "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkDefinition": {
+      "type": "object",
+      "description": "Definition of a check to run during a phase",
+      "required": ["id", "name", "script"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique check identifier (e.g., check-lint)",
+          "pattern": "^check-[a-z0-9-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable check name",
+          "minLength": 1
+        },
+        "script": {
+          "type": "string",
+          "description": "Script to run for this check",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether this check must pass",
+          "default": true
+        },
+        "retry_on_fail": {
+          "type": "boolean",
+          "description": "Whether to retry on failure",
+          "default": false
+        },
+        "max_retries": {
+          "type": "integer",
+          "description": "Maximum number of retries",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkResult": {
+      "type": "object",
+      "description": "Result of running a check",
+      "required": ["check_id", "status"],
+      "properties": {
+        "check_id": {
+          "type": "string",
+          "description": "ID of the check that was run",
+          "pattern": "^check-[a-z0-9-]+$"
+        },
+        "status": {
+          "type": "string",
+          "description": "Check result status",
+          "enum": ["pass", "fail", "skip"]
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable result message",
+          "default": ""
+        },
+        "details": {
+          "type": "object",
+          "description": "Additional details",
+          "default": {}
+        },
+        "fixable": {
+          "type": "boolean",
+          "description": "Whether this failure can be auto-fixed",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "phaseConfig": {
+      "type": "object",
+      "description": "Configuration for a pipeline phase",
+      "properties": {
+        "checks": {
+          "type": "array",
+          "description": "Checks to run in this phase",
+          "items": {
+            "$ref": "#/$defs/checkDefinition"
+          },
+          "default": []
+        },
+        "max_review_cycles": {
+          "type": "integer",
+          "description": "Max review cycles before escalation",
+          "minimum": 1,
+          "default": 3
+        },
+        "human_review_mechanism": {
+          "type": "string",
+          "description": "Mechanism for human review",
+          "enum": ["ISSUE_CHECKBOX", "PR_REVIEW"],
+          "default": "ISSUE_CHECKBOX"
         }
       },
       "additionalProperties": false
