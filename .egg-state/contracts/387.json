@@ -6,8 +6,458 @@
     "url": "https://github.com/jwbron/egg/issues/387"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Workflow file exists with correct trigger configuration",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Workflow correctly identifies SDLC draft PRs",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Workflow correctly queries check-runs API and filters self-checks",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Workflow correctly detects review blockers",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-1-5] Concurrent triggers for same PR are deduplicated",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-1] Workflow detects conflicts and posts appropriate comment",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-2] PR title is updated from contract if available",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-3] PR body is appended with status section",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-4] Draft PR is converted to ready state",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-2-5] Reviewer assigned and contract phase updated to pr",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-2-6] Old status comments are minimized via GraphQL",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-2-7] Completion comment posted to SDLC issue",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-3-1] Job definition removed, no dangling references",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-3-2] Job definition removed, no dangling references",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-3-3] Job definition removed, no dangling references",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-3-4] Implement job completes pipeline",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-3-5] Comment documents event-driven continuation",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-4-1] Cron job runs every 15 minutes to catch stuck PRs",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-4-2] Workflow proceeds when no checks exist",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-4-3] Failure state communicated to SDLC issue",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-4-4] Autofix triggers on same workflow set",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Create Event-Driven Workflow",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create on-check-success.yml with workflow_run trigger",
+          "status": "pending",
+          "acceptance_criteria": "Workflow file exists with correct trigger configuration",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Implement SDLC PR detection logic",
+          "status": "pending",
+          "acceptance_criteria": "Workflow correctly identifies SDLC draft PRs",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Implement check aggregation logic",
+          "status": "pending",
+          "acceptance_criteria": "Workflow correctly queries check-runs API and filters self-checks",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Implement automated review verification",
+          "status": "pending",
+          "acceptance_criteria": "Workflow correctly detects review blockers",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add concurrency group for deduplication",
+          "status": "pending",
+          "acceptance_criteria": "Concurrent triggers for same PR are deduplicated",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Implement PR Finalization Logic",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Implement merge conflict detection",
+          "status": "pending",
+          "acceptance_criteria": "Workflow detects conflicts and posts appropriate comment",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Implement PR title update from contract file",
+          "status": "pending",
+          "acceptance_criteria": "PR title is updated from contract if available",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Implement PR body update with ready section",
+          "status": "pending",
+          "acceptance_criteria": "PR body is appended with status section",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Implement gh pr ready call",
+          "status": "pending",
+          "acceptance_criteria": "Draft PR is converted to ready state",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "Implement reviewer assignment and contract update",
+          "status": "pending",
+          "acceptance_criteria": "Reviewer assigned and contract phase updated to pr",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml",
+            ".github/scripts/push-contract-update.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-6",
+          "description": "Implement comment minimization",
+          "status": "pending",
+          "acceptance_criteria": "Old status comments are minimized via GraphQL",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-7",
+          "description": "Implement issue comment posting",
+          "status": "pending",
+          "acceptance_criteria": "Completion comment posted to SDLC issue",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Remove Polling from SDLC Pipeline",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Remove wait-for-checks job",
+          "status": "pending",
+          "acceptance_criteria": "Job definition removed, no dangling references",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Remove finalize-pr job",
+          "status": "pending",
+          "acceptance_criteria": "Job definition removed, no dangling references",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Remove checks-failed job",
+          "status": "pending",
+          "acceptance_criteria": "Job definition removed, no dangling references",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Update job dependency chain",
+          "status": "pending",
+          "acceptance_criteria": "Implement job completes pipeline",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-5",
+          "description": "Add comment explaining async handoff",
+          "status": "pending",
+          "acceptance_criteria": "Comment documents event-driven continuation",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Handle Edge Cases and Failure Modes",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add optional timeout fallback cron job",
+          "status": "pending",
+          "acceptance_criteria": "Cron job runs every 15 minutes to catch stuck PRs",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Handle zero checks edge case",
+          "status": "pending",
+          "acceptance_criteria": "Workflow proceeds when no checks exist",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add check-failure handling",
+          "status": "pending",
+          "acceptance_criteria": "Failure state communicated to SDLC issue",
+          "files_affected": [
+            ".github/workflows/on-check-success.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Update on-check-failure.yml trigger list",
+          "status": "pending",
+          "acceptance_criteria": "Autofix triggers on same workflow set",
+          "files_affected": [
+            ".github/workflows/on-check-failure.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 0,
@@ -60,5 +510,9 @@
   "refine_review_cycles": 1,
   "refine_review_feedback": "",
   "plan_review_cycles": 1,
-  "plan_review_feedback": ""
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Replace busy-wait polling with event-driven PR finalization",
+    "description": "Replace the synchronous busy-wait polling in `wait-for-checks` with an\nevent-driven `on-check-success.yml` workflow. When all checks pass and\nno automated reviewers have requested changes, the workflow marks the\ndraft PR as ready-for-review and posts to the SDLC issue.\n\nThis eliminates up to 30 minutes of wasted runner time per PR.\n\nFixes #387"
+  }
 }
