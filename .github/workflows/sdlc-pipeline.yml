@@ -55,6 +55,11 @@ on:
         required: false
         type: string
         default: "egg-sdlc"
+      use_work_loop:
+        description: 'Use unified work loop workflow for refine/plan phases (experimental)'
+        required: false
+        type: boolean
+        default: false
     secrets:
       BOT_APP_ID:
         required: true
@@ -411,6 +416,50 @@ jobs:
           else
             echo "No existing open PRs found on branch ${BRANCH_NAME}"
           fi
+
+  # ============================================================
+  # Work Loop: Unified phase execution (experimental)
+  # When use_work_loop is true, this job handles refine/plan phases
+  # ============================================================
+  work-loop-refine:
+    name: Refine (work loop)
+    needs: [resolve-inputs, init]
+    if: >-
+      inputs.use_work_loop == true &&
+      needs.init.outputs.current_phase == 'refine'
+    uses: ./.github/workflows/sdlc-work-loop.yml
+    with:
+      issue_number: ${{ needs.init.outputs.issue_number }}
+      branch_name: ${{ needs.init.outputs.branch_name }}
+      phase: refine
+      cycle: 1
+      bot_username: ${{ needs.resolve-inputs.outputs.bot_username }}
+      authorized_users: ${{ inputs.authorized_users || 'jwbron' }}
+    secrets:
+      BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+      BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+      BOT_APP_INSTALLATION_ID: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+      ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+
+  work-loop-plan:
+    name: Plan (work loop)
+    needs: [resolve-inputs, init]
+    if: >-
+      inputs.use_work_loop == true &&
+      needs.init.outputs.current_phase == 'plan'
+    uses: ./.github/workflows/sdlc-work-loop.yml
+    with:
+      issue_number: ${{ needs.init.outputs.issue_number }}
+      branch_name: ${{ needs.init.outputs.branch_name }}
+      phase: plan
+      cycle: 1
+      bot_username: ${{ needs.resolve-inputs.outputs.bot_username }}
+      authorized_users: ${{ inputs.authorized_users || 'jwbron' }}
+    secrets:
+      BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+      BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+      BOT_APP_INSTALLATION_ID: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+      ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
 
   # ============================================================
   # Implement: Execute tasks in plan
@@ -1232,9 +1281,12 @@ jobs:
   # Refine: Analyze issue and produce analysis document
   # ============================================================
   refine:
-    name: Refine issue
+    name: Refine issue (legacy)
     needs: [resolve-inputs, init]
-    if: needs.init.outputs.current_phase == 'refine'
+    # Only run legacy refine when work loop is disabled
+    if: >-
+      (inputs.use_work_loop != true) &&
+      needs.init.outputs.current_phase == 'refine'
     runs-on: ubuntu-latest
 
     env:
@@ -1375,10 +1427,12 @@ jobs:
   # Refine Review: Review the analysis before human approval
   # ============================================================
   refine-review:
-    name: Review analysis
+    name: Review analysis (legacy)
     needs: [resolve-inputs, init, refine]
+    # Only run legacy review when work loop is disabled
     if: >-
       always() &&
+      (inputs.use_work_loop != true) &&
       needs.init.outputs.current_phase == 'refine' &&
       needs.refine.result == 'success'
     runs-on: ubuntu-latest
@@ -1741,10 +1795,12 @@ jobs:
   # Refine Re-dispatch: Re-run refine if review failed
   # ============================================================
   refine-redispatch:
-    name: Re-dispatch refine
+    name: Re-dispatch refine (legacy)
     needs: [init, refine, refine-review]
+    # Only run legacy redispatch when work loop is disabled
     if: >-
       always() &&
+      (inputs.use_work_loop != true) &&
       needs.init.outputs.current_phase == 'refine' &&
       needs.refine-review.result == 'success' &&
       needs.refine-review.outputs.review_passed == 'false'
@@ -1869,9 +1925,12 @@ jobs:
   # Plan: Create implementation plan
   # ============================================================
   plan:
-    name: Create plan
+    name: Create plan (legacy)
     needs: [resolve-inputs, init]
-    if: needs.init.outputs.current_phase == 'plan'
+    # Only run legacy plan when work loop is disabled
+    if: >-
+      (inputs.use_work_loop != true) &&
+      needs.init.outputs.current_phase == 'plan'
     runs-on: ubuntu-latest
 
     env:
@@ -2108,10 +2167,12 @@ jobs:
   # Plan Review: Review the plan before human approval
   # ============================================================
   plan-review:
-    name: Review plan
+    name: Review plan (legacy)
     needs: [resolve-inputs, init, plan]
+    # Only run legacy review when work loop is disabled
     if: >-
       always() &&
+      (inputs.use_work_loop != true) &&
       needs.init.outputs.current_phase == 'plan' &&
       needs.plan.result == 'success'
     runs-on: ubuntu-latest
@@ -2473,10 +2534,12 @@ jobs:
   # Plan Re-dispatch: Re-run plan if review failed
   # ============================================================
   plan-redispatch:
-    name: Re-dispatch plan
+    name: Re-dispatch plan (legacy)
     needs: [init, plan, plan-review]
+    # Only run legacy redispatch when work loop is disabled
     if: >-
       always() &&
+      (inputs.use_work_loop != true) &&
       needs.init.outputs.current_phase == 'plan' &&
       needs.plan-review.result == 'success' &&
       needs.plan-review.outputs.review_passed == 'false'

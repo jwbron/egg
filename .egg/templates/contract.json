@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 0,
+    "title": "",
+    "url": ""
+  },
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_config": {
+    "refine": {
+      "producer_prompt_script": "action/build-sdlc-prompt.sh",
+      "producer_timeout_minutes": 30,
+      "reviewer_prompt_script": "action/build-refine-review-prompt.sh",
+      "reviewer_timeout_minutes": 15,
+      "max_cycles": 3,
+      "intermediate_checks": [],
+      "human_review_mechanism": "issue_comment",
+      "output_artifact_path": ".egg-state/drafts/{issue}-analysis.md",
+      "post_producer_script": null
+    },
+    "plan": {
+      "producer_prompt_script": "action/build-sdlc-prompt.sh",
+      "producer_timeout_minutes": 60,
+      "reviewer_prompt_script": "action/build-plan-review-prompt.sh",
+      "reviewer_timeout_minutes": 15,
+      "max_cycles": 3,
+      "intermediate_checks": [],
+      "human_review_mechanism": "issue_comment",
+      "output_artifact_path": ".egg-state/drafts/{issue}-plan.md",
+      "post_producer_script": "action/populate-contract-tasks.py"
+    },
+    "implement": {
+      "producer_prompt_script": "action/build-sdlc-prompt.sh",
+      "producer_timeout_minutes": 360,
+      "reviewer_prompt_script": null,
+      "reviewer_timeout_minutes": 30,
+      "max_cycles": 3,
+      "intermediate_checks": [
+        {
+          "id": "check-lint",
+          "name": "Run Linter",
+          "command": "make lint",
+          "auto_fix": true,
+          "auto_fix_command": "make fix",
+          "depends_on": [],
+          "required": true,
+          "timeout_minutes": 10
+        },
+        {
+          "id": "check-test",
+          "name": "Run Tests",
+          "command": "make test",
+          "auto_fix": false,
+          "auto_fix_command": null,
+          "depends_on": ["check-lint"],
+          "required": true,
+          "timeout_minutes": 30
+        }
+      ],
+      "human_review_mechanism": "pr_review",
+      "output_artifact_path": null,
+      "post_producer_script": null
+    }
+  },
+  "work_loop_state": null
+}
