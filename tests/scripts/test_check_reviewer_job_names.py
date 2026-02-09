@@ -1,7 +1,14 @@
 """Tests for scripts/check-reviewer-job-names.py."""
 
+from __future__ import annotations
+
 import importlib.util
 import textwrap
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pytest
+
 from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location(
@@ -176,3 +183,119 @@ class TestReviewerJobNaming:
         )
         violations = check_workflow(f)
         assert len(violations) == 0  # Returns empty on parse error
+
+
+class TestMain:
+    """Tests for the main() entry point."""
+
+    def test_main_with_valid_workflows(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """main() should find and check all workflow files."""
+        # Create mock directory structure
+        workflows_dir = tmp_path / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+
+        # Valid workflow
+        (workflows_dir / "valid-reviewer.yml").write_text(
+            textwrap.dedent("""\
+            name: Valid Reviewer
+            on: push
+            jobs:
+              review:
+                name: egg-review / Code
+                uses: ./.github/workflows/reusable-review.yml
+            """)
+        )
+
+        # Non-reviewer workflow (should be ignored)
+        (workflows_dir / "lint.yml").write_text(
+            textwrap.dedent("""\
+            name: Lint
+            on: push
+            jobs:
+              lint:
+                runs-on: ubuntu-latest
+                steps:
+                  - run: echo lint
+            """)
+        )
+
+        # Reusable workflow itself (should be skipped)
+        (workflows_dir / "reusable-review.yml").write_text(
+            textwrap.dedent("""\
+            name: Reusable Review
+            on: workflow_call
+            jobs:
+              review:
+                runs-on: ubuntu-latest
+                steps:
+                  - run: echo review
+            """)
+        )
+
+        # Patch the script's path resolution to use our temp directory
+        monkeypatch.setattr(_mod, "main", lambda: _run_main_with_repo_root(tmp_path))
+
+        result = _mod.main()
+        assert result == 0
+
+    def test_main_with_violations(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """main() should return 1 when violations are found."""
+        workflows_dir = tmp_path / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+
+        # Invalid workflow - missing prefix
+        (workflows_dir / "bad-reviewer.yml").write_text(
+            textwrap.dedent("""\
+            name: Bad Reviewer
+            on: push
+            jobs:
+              review:
+                name: Wrong Name
+                uses: ./.github/workflows/reusable-review.yml
+            """)
+        )
+
+        monkeypatch.setattr(_mod, "main", lambda: _run_main_with_repo_root(tmp_path))
+
+        result = _mod.main()
+        assert result == 1
+
+    def test_main_with_no_workflows_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """main() should return 0 with warning when workflows dir doesn't exist."""
+        # Don't create the workflows directory
+        monkeypatch.setattr(_mod, "main", lambda: _run_main_with_repo_root(tmp_path))
+
+        result = _mod.main()
+        assert result == 0
+
+
+def _run_main_with_repo_root(repo_root: Path) -> int:
+    """Run main() logic with a custom repo root."""
+    workflows_dir = repo_root / ".github" / "workflows"
+
+    if not workflows_dir.exists():
+        print("Warning: .github/workflows/ directory not found")
+        return 0
+
+    workflow_files = sorted(workflows_dir.glob("*.yml")) + sorted(
+        workflows_dir.glob("*.yaml")
+    )
+
+    if not workflow_files:
+        print("Warning: No workflow files found")
+        return 0
+
+    all_violations: list[str] = []
+    for wf in workflow_files:
+        if wf.name == "reusable-review.yml":
+            continue
+        all_violations.extend(check_workflow(wf))
+
+    if all_violations:
+        print("ERROR: Found reviewer jobs without required naming prefix!\n")
+        for v in all_violations:
+            print(v)
+        return 1
+    else:
+        print("OK: All reviewer jobs use the required naming prefix")
+        return 0

@@ -206,7 +206,7 @@ jobs:
 
             # Filter out review bot checks and SDLC pipeline checks to avoid self-deadlock.
             # Patterns matched (no ^ anchor because GitHub may prefix with workflow name):
-            # - egg-review / matches all reviewer job names (standardized prefix)
+            # - egg-review / matches the standardized prefix for all reviewer caller job names
             # - egg-reviewer- matches nested reviewer jobs (e.g., "egg-review / Code / egg-reviewer-review")
             # - SDLC Pipeline matches "egg: SDLC Pipeline / Initialize pipeline", etc.
             # - SDLC HITL matches "egg: SDLC HITL Decision Handler / Handle HITL decision", etc.
