@@ -1,0 +1,856 @@
+name: "egg: SDLC Pipeline v2"
+
+# Unified SDLC Pipeline using the new work loop pattern.
+#
+# This is a refactored version of sdlc-pipeline.yml that uses the
+# sdlc-work-loop.yml reusable workflow for the refine and plan phases,
+# reducing code duplication significantly.
+#
+# The implement phase retains its original structure due to its more
+# complex behavior (PR creation, CI checks, autofix cycles).
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'GitHub issue number to process'
+        required: true
+        type: number
+      starting_phase:
+        description: 'Pipeline phase to start from'
+        required: false
+        type: choice
+        options:
+          - refine
+          - plan
+          - implement
+          - pr
+        default: refine
+  issues:
+    types: [labeled]
+  workflow_call:
+    inputs:
+      issue_number:
+        description: 'GitHub issue number to process'
+        required: true
+        type: number
+      starting_phase:
+        description: 'Pipeline phase to start from'
+        required: false
+        type: string
+        default: "refine"
+      bot_username:
+        description: 'GitHub username of the bot'
+        required: false
+        type: string
+        default: "james-in-a-box"
+      branch_prefix:
+        description: 'Prefix for issue branches'
+        required: false
+        type: string
+        default: "egg"
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
+      BOT_APP_INSTALLATION_ID:
+        required: true
+      ANTHROPIC_OAUTH_TOKEN:
+        required: true
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: sdlc-pipeline-${{ github.event.inputs.issue_number || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  # ============================================================
+  # Resolve inputs
+  # ============================================================
+  resolve-inputs:
+    name: Resolve inputs
+    runs-on: ubuntu-latest
+    outputs:
+      bot_username: ${{ steps.resolve.outputs.bot_username }}
+      branch_prefix: ${{ steps.resolve.outputs.branch_prefix }}
+      issue_number: ${{ steps.resolve.outputs.issue_number }}
+      starting_phase: ${{ steps.resolve.outputs.starting_phase }}
+    steps:
+      - name: Resolve inputs
+        id: resolve
+        run: |
+          {
+            echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}"
+            echo "branch_prefix=${{ inputs.branch_prefix || 'egg' }}"
+          } >> "$GITHUB_OUTPUT"
+
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            {
+              echo "issue_number=${{ inputs.issue_number }}"
+              echo "starting_phase=${{ inputs.starting_phase || 'refine' }}"
+            } >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            {
+              echo "issue_number=${{ github.event.inputs.issue_number }}"
+              echo "starting_phase=${{ github.event.inputs.starting_phase || 'refine' }}"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "issue_number=${{ github.event.issue.number }}"
+              echo "starting_phase=refine"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+  # ============================================================
+  # Initialize pipeline
+  # ============================================================
+  init:
+    name: Initialize pipeline
+    needs: resolve-inputs
+    runs-on: ubuntu-latest
+    if: >-
+      always() &&
+      needs.resolve-inputs.result == 'success' &&
+      (
+        (github.event_name == 'workflow_dispatch') ||
+        (github.event_name == 'workflow_call') ||
+        (github.event_name == 'issues' && github.event.label.name == 'sdlc:refine')
+      )
+    outputs:
+      issue_number: ${{ steps.setup.outputs.issue_number }}
+      issue_title: ${{ steps.setup.outputs.issue_title }}
+      branch_name: ${{ steps.setup.outputs.branch_name }}
+      current_phase: ${{ steps.setup.outputs.current_phase }}
+      contract_exists: ${{ steps.setup.outputs.contract_exists }}
+      workflow_owner: ${{ steps.setup.outputs.workflow_owner }}
+      # Phase configuration outputs
+      checks_json: ${{ steps.phase-config.outputs.checks_json }}
+      max_cycles: ${{ steps.phase-config.outputs.max_cycles }}
+      human_gate: ${{ steps.phase-config.outputs.human_gate }}
+      work_prompt_script: ${{ steps.phase-config.outputs.work_prompt_script }}
+      review_prompt_script: ${{ steps.phase-config.outputs.review_prompt_script }}
+      current_cycle: ${{ steps.phase-config.outputs.current_cycle }}
+      prior_feedback: ${{ steps.phase-config.outputs.prior_feedback }}
+
+    env:
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.bot-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pydantic==2.10.* pyyaml==6.0.*
+
+      - name: Configure git identity
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+
+      - name: Setup pipeline
+        id: setup
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          ISSUE_NUMBER_INPUT: ${{ needs.resolve-inputs.outputs.issue_number }}
+          STARTING_PHASE: ${{ needs.resolve-inputs.outputs.starting_phase }}
+          EVENT_SENDER: ${{ github.event.sender.login }}
+        run: |
+          set -euo pipefail
+
+          ISSUE_NUMBER="${ISSUE_NUMBER_INPUT}"
+
+          # Validate issue number
+          if ! [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid issue number: ${ISSUE_NUMBER}"
+            exit 1
+          fi
+
+          echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+
+          # Fetch issue metadata
+          ISSUE_DATA=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}")
+          ISSUE_TITLE=$(echo "$ISSUE_DATA" | jq -r '.title')
+          ISSUE_URL=$(echo "$ISSUE_DATA" | jq -r '.html_url')
+          echo "issue_title=${ISSUE_TITLE}" >> "$GITHUB_OUTPUT"
+
+          # Workflow owner
+          WORKFLOW_OWNER="${EVENT_SENDER:-}"
+          if [[ -n "$WORKFLOW_OWNER" ]] && ! [[ "$WORKFLOW_OWNER" =~ ^[a-zA-Z0-9-]+$ ]]; then
+            WORKFLOW_OWNER=""
+          fi
+          echo "workflow_owner=${WORKFLOW_OWNER}" >> "$GITHUB_OUTPUT"
+
+          # Branch name
+          BRANCH_NAME="${BRANCH_PREFIX}/issue-${ISSUE_NUMBER}"
+          echo "branch_name=${BRANCH_NAME}" >> "$GITHUB_OUTPUT"
+
+          # Checkout or create branch
+          if git ls-remote --heads origin "${BRANCH_NAME}" | grep -q "${BRANCH_NAME}"; then
+            git checkout "${BRANCH_NAME}"
+            git pull origin "${BRANCH_NAME}"
+          else
+            git checkout -b "${BRANCH_NAME}"
+          fi
+
+          # Create state directories
+          mkdir -p .egg-state/contracts .egg-state/drafts .egg-state/reviews
+
+          # Check/create contract
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            echo "contract_exists=true" >> "$GITHUB_OUTPUT"
+            CURRENT_PHASE=$(jq -r '.current_phase' "$CONTRACT_PATH")
+            echo "current_phase=${CURRENT_PHASE}" >> "$GITHUB_OUTPUT"
+          else
+            echo "contract_exists=false" >> "$GITHUB_OUTPUT"
+            echo "current_phase=${STARTING_PHASE}" >> "$GITHUB_OUTPUT"
+
+            # Create initial contract
+            WORKFLOW_OWNER_JSON="null"
+            [[ -n "$WORKFLOW_OWNER" ]] && WORKFLOW_OWNER_JSON="\"${WORKFLOW_OWNER}\""
+
+            cat > "$CONTRACT_PATH" << EOF
+          {
+            "schemaVersion": "1.0",
+            "issue": {
+              "number": ${ISSUE_NUMBER},
+              "title": $(echo "$ISSUE_TITLE" | jq -R),
+              "url": "${ISSUE_URL}"
+            },
+            "current_phase": "${STARTING_PHASE}",
+            "acceptance_criteria": [],
+            "phases": [],
+            "decisions": [],
+            "circuit_breaker": {
+              "total_cycles": 0,
+              "max_total_cycles": 10,
+              "status": "closed"
+            },
+            "workflow_owner": ${WORKFLOW_OWNER_JSON},
+            "audit_log": []
+          }
+          EOF
+
+            git add "$CONTRACT_PATH"
+            git commit -m "Initialize SDLC contract for issue #${ISSUE_NUMBER}"
+          fi
+
+      - name: Load phase configuration
+        id: phase-config
+        env:
+          ISSUE_NUMBER: ${{ steps.setup.outputs.issue_number }}
+          CURRENT_PHASE: ${{ steps.setup.outputs.current_phase }}
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          # Get review cycle from contract
+          case "$CURRENT_PHASE" in
+            refine)
+              CYCLE_FIELD="refine_review_cycles"
+              FEEDBACK_FIELD="refine_review_feedback"
+              WORK_PROMPT="action/build-sdlc-prompt.sh"
+              REVIEW_PROMPT="build-refine-review-prompt.sh"
+              HUMAN_GATE="issue_checkbox"
+              MAX_CYCLES=3
+              # Refine has draft validation check
+              CHECKS_JSON='[{"id":"check-draft-validation","name":"Validate draft analysis","script":".github/scripts/checks/draft-validation-check.sh","enabled":true,"required":true}]'
+              ;;
+            plan)
+              CYCLE_FIELD="plan_review_cycles"
+              FEEDBACK_FIELD="plan_review_feedback"
+              WORK_PROMPT="action/build-sdlc-prompt.sh"
+              REVIEW_PROMPT="build-plan-review-prompt.sh"
+              HUMAN_GATE="issue_checkbox"
+              MAX_CYCLES=3
+              # Plan has draft validation and YAML check
+              CHECKS_JSON='[{"id":"check-draft-validation","name":"Validate draft plan","script":".github/scripts/checks/draft-validation-check.sh","enabled":true,"required":true},{"id":"check-plan-yaml","name":"Validate plan YAML","script":".github/scripts/checks/plan-yaml-check.sh","enabled":true,"required":true,"dependencies":["check-draft-validation"]}]'
+              ;;
+            implement)
+              CYCLE_FIELD=""
+              FEEDBACK_FIELD=""
+              WORK_PROMPT="action/build-sdlc-prompt.sh"
+              REVIEW_PROMPT="build-review-prompt.sh"
+              HUMAN_GATE="pr_review"
+              MAX_CYCLES=5
+              CHECKS_JSON='[]'  # Implement uses CI checks instead
+              ;;
+            *)
+              CYCLE_FIELD=""
+              FEEDBACK_FIELD=""
+              WORK_PROMPT=""
+              REVIEW_PROMPT=""
+              HUMAN_GATE=""
+              MAX_CYCLES=3
+              CHECKS_JSON='[]'
+              ;;
+          esac
+
+          # Read cycle and feedback from contract
+          CURRENT_CYCLE=1
+          PRIOR_FEEDBACK=""
+          if [[ -f "$CONTRACT_PATH" && -n "$CYCLE_FIELD" ]]; then
+            STORED_CYCLE=$(jq -r ".${CYCLE_FIELD} // 0" "$CONTRACT_PATH")
+            CURRENT_CYCLE=$((STORED_CYCLE + 1))
+            if [[ "$CURRENT_CYCLE" -gt 1 && -n "$FEEDBACK_FIELD" ]]; then
+              PRIOR_FEEDBACK=$(jq -r ".${FEEDBACK_FIELD} // \"\"" "$CONTRACT_PATH")
+            fi
+          fi
+
+          {
+            echo "current_cycle=${CURRENT_CYCLE}"
+            echo "max_cycles=${MAX_CYCLES}"
+            echo "human_gate=${HUMAN_GATE}"
+            echo "work_prompt_script=${WORK_PROMPT}"
+            echo "review_prompt_script=${REVIEW_PROMPT}"
+            echo "checks_json=${CHECKS_JSON}"
+            echo "prior_feedback<<EOF"
+            echo "${PRIOR_FEEDBACK}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Push branch
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BRANCH_NAME: ${{ steps.setup.outputs.branch_name }}
+        run: |
+          for i in 1 2 3; do
+            if git push -u origin "${BRANCH_NAME}"; then
+              break
+            fi
+            git pull --rebase origin "${BRANCH_NAME}" || exit 1
+          done
+
+      - name: Apply phase label
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          ISSUE_NUMBER: ${{ steps.setup.outputs.issue_number }}
+          CURRENT_PHASE: ${{ steps.setup.outputs.current_phase }}
+        run: |
+          PHASE_LABEL="sdlc:${CURRENT_PHASE}"
+
+          CURRENT_LABELS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels" --jq '.[].name' 2>/dev/null || echo "")
+
+          for label in "sdlc:refine" "sdlc:plan" "sdlc:implement" "sdlc:pr"; do
+            if [[ "$label" != "$PHASE_LABEL" ]] && echo "$CURRENT_LABELS" | grep -qx "$label"; then
+              .github/scripts/transition-sdlc-label.sh --issue "${ISSUE_NUMBER}" --remove "$label" || true
+            fi
+          done
+
+          if ! echo "$CURRENT_LABELS" | grep -qx "$PHASE_LABEL"; then
+            .github/scripts/transition-sdlc-label.sh --issue "${ISSUE_NUMBER}" --add "$PHASE_LABEL" || true
+          fi
+
+      - name: Post init comment
+        if: steps.setup.outputs.contract_exists == 'false'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          BODY="SDLC Pipeline initialized.
+
+          **Branch:** \`${{ steps.setup.outputs.branch_name }}\`
+          **Starting phase:** \`${{ steps.setup.outputs.current_phase }}\`
+
+          --- Authored by egg"
+
+          gh issue comment "${{ steps.setup.outputs.issue_number }}" --repo "${{ github.repository }}" --body "$BODY"
+
+  # ============================================================
+  # Refine: Use work loop
+  # ============================================================
+  refine:
+    name: Refine (work loop)
+    needs: [resolve-inputs, init]
+    if: needs.init.outputs.current_phase == 'refine'
+    uses: ./.github/workflows/sdlc-work-loop.yml
+    with:
+      issue_number: ${{ fromJson(needs.init.outputs.issue_number) }}
+      branch_name: ${{ needs.init.outputs.branch_name }}
+      phase: refine
+      work_prompt_script: ${{ needs.init.outputs.work_prompt_script }}
+      review_prompt_script: ${{ needs.init.outputs.review_prompt_script }}
+      checks_json: ${{ needs.init.outputs.checks_json }}
+      max_cycles: ${{ fromJson(needs.init.outputs.max_cycles) }}
+      current_cycle: ${{ fromJson(needs.init.outputs.current_cycle) }}
+      prior_feedback: ${{ needs.init.outputs.prior_feedback }}
+      human_gate: ${{ needs.init.outputs.human_gate }}
+      bot_username: ${{ needs.resolve-inputs.outputs.bot_username }}
+    secrets:
+      BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+      BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+      BOT_APP_INSTALLATION_ID: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+      ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+
+  # ============================================================
+  # Plan: Use work loop
+  # ============================================================
+  plan:
+    name: Plan (work loop)
+    needs: [resolve-inputs, init]
+    if: needs.init.outputs.current_phase == 'plan'
+    uses: ./.github/workflows/sdlc-work-loop.yml
+    with:
+      issue_number: ${{ fromJson(needs.init.outputs.issue_number) }}
+      branch_name: ${{ needs.init.outputs.branch_name }}
+      phase: plan
+      work_prompt_script: ${{ needs.init.outputs.work_prompt_script }}
+      review_prompt_script: ${{ needs.init.outputs.review_prompt_script }}
+      checks_json: ${{ needs.init.outputs.checks_json }}
+      max_cycles: ${{ fromJson(needs.init.outputs.max_cycles) }}
+      current_cycle: ${{ fromJson(needs.init.outputs.current_cycle) }}
+      prior_feedback: ${{ needs.init.outputs.prior_feedback }}
+      human_gate: ${{ needs.init.outputs.human_gate }}
+      bot_username: ${{ needs.resolve-inputs.outputs.bot_username }}
+    secrets:
+      BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+      BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+      BOT_APP_INSTALLATION_ID: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+      ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+
+  # ============================================================
+  # Plan contract population (after work loop completes)
+  # ============================================================
+  plan-populate-contract:
+    name: Populate contract from plan
+    needs: [resolve-inputs, init, plan]
+    if: >-
+      always() &&
+      needs.init.outputs.current_phase == 'plan' &&
+      needs.plan.outputs.completed == 'true'
+    runs-on: ubuntu-latest
+
+    env:
+      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout main (trusted)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Save trusted scripts
+        run: |
+          cp -r action "$RUNNER_TEMP/trusted-action"
+          cp -r shared "$RUNNER_TEMP/trusted-shared"
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Configure git
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+
+      - name: Populate contract from plan
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          pip install -q pyyaml pydantic
+          PYTHONPATH="${RUNNER_TEMP}/trusted-shared:${PYTHONPATH:-}" \
+            python3 "${RUNNER_TEMP}/trusted-action/populate-contract-tasks.py"
+
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          if ! git diff --quiet "$CONTRACT_PATH" 2>/dev/null; then
+            git add "$CONTRACT_PATH"
+            git commit -m "Populate contract from plan for issue #${ISSUE_NUMBER}"
+            for i in 1 2 3; do
+              if git push origin "${BRANCH_NAME}"; then break; fi
+              git pull origin "${BRANCH_NAME}" --rebase
+              sleep 2
+            done
+          fi
+
+  # ============================================================
+  # Implement: Keep existing complex logic for now
+  # (PR creation, CI checks, autofix - too complex to refactor inline)
+  # ============================================================
+  implement:
+    name: Implement tasks
+    needs: [resolve-inputs, init]
+    if: needs.init.outputs.current_phase == 'implement'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    outputs:
+      pr_number: ${{ steps.create-pr.outputs.pr_number }}
+      head_sha: ${{ steps.capture-sha.outputs.head_sha }}
+
+    env:
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout main (trusted)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Save trusted scripts
+        run: |
+          cp -r action "$RUNNER_TEMP/trusted-action"
+          cp -r shared "$RUNNER_TEMP/trusted-shared"
+
+      - name: Build implement prompt
+        id: prompt
+        run: bash action/build-sdlc-prompt.sh
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
+          EGG_PIPELINE_PHASE: implement
+          EGG_BRANCH_NAME: ${{ env.BRANCH_NAME }}
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Configure git
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+
+      - name: Run implement agent
+        id: implement
+        uses: jwbron/egg/action@main
+        with:
+          prompt: ${{ steps.prompt.outputs.prompt }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          bot-username: ${{ env.BOT_USERNAME }}
+          timeout: "180"
+        env:
+          EGG_AGENT_ROLE: implementer
+          EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
+
+      - name: Capture head SHA
+        id: capture-sha
+        if: steps.implement.outputs.exit-code == '0'
+        run: |
+          git pull origin "${BRANCH_NAME}" --rebase || true
+          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update PR
+        id: create-pr
+        if: steps.implement.outputs.exit-code == '0'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          ISSUE_TITLE: ${{ needs.init.outputs.issue_title }}
+        run: |
+          set -euo pipefail
+
+          # Check for existing PR
+          EXISTING_PR=$(gh pr list --head "${BRANCH_NAME}" --state open --json number --jq '.[0].number // empty')
+
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "pr_number=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
+            echo "Existing PR #${EXISTING_PR}"
+          else
+            # Create draft PR
+            PR_BODY="Implementation for #${ISSUE_NUMBER}
+
+            This PR was automatically created by the SDLC pipeline.
+
+            --- Authored by egg"
+
+            PR_URL=$(gh pr create \
+              --title "[SDLC] ${ISSUE_TITLE}" \
+              --body "$PR_BODY" \
+              --draft \
+              --base main \
+              --head "${BRANCH_NAME}")
+
+            PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+            echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "Created draft PR #${PR_NUMBER}"
+          fi
+
+      - name: Post failure comment
+        if: steps.implement.outputs.exit-code != '0'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          BODY="Implementation failed (exit code: ${{ steps.implement.outputs.exit-code }}).
+
+          [View run logs](${RUN_URL})
+
+          --- Authored by egg"
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
+
+  # ============================================================
+  # Wait for CI checks on PR
+  # ============================================================
+  wait-for-checks:
+    name: Wait for CI checks
+    needs: [resolve-inputs, init, implement]
+    if: >-
+      always() &&
+      needs.init.outputs.current_phase == 'implement' &&
+      needs.implement.result == 'success' &&
+      needs.implement.outputs.pr_number != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    outputs:
+      all_passed: ${{ steps.wait.outputs.passed }}
+      timed_out: ${{ steps.wait.outputs.timed_out }}
+
+    env:
+      PR_NUMBER: ${{ needs.implement.outputs.pr_number }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Wait for checks
+        id: wait
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.sha')
+          echo "Waiting for checks on ${HEAD_SHA}..."
+
+          MAX_WAIT=1500
+          INTERVAL=30
+          start=$(date +%s)
+
+          while true; do
+            elapsed=$(( $(date +%s) - start ))
+            if [[ $elapsed -ge $MAX_WAIT ]]; then
+              echo "Timed out waiting for checks"
+              echo "timed_out=true" >> "$GITHUB_OUTPUT"
+              echo "passed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            checks=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
+              --jq '.check_runs | [.[] | select(.name | test("SDLC Pipeline|SDLC HITL") | not) | {name, status, conclusion}]')
+
+            total=$(echo "$checks" | jq 'length')
+            [[ "$total" -eq 0 ]] && { sleep "$INTERVAL"; continue; }
+
+            completed=$(echo "$checks" | jq '[.[] | select(.status == "completed")] | length')
+            failed=$(echo "$checks" | jq '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")] | length')
+
+            echo "Checks: ${completed}/${total} completed, ${failed} failed"
+
+            if [[ "$completed" -eq "$total" ]]; then
+              if [[ "$failed" -gt 0 ]]; then
+                echo "passed=false" >> "$GITHUB_OUTPUT"
+              else
+                echo "passed=true" >> "$GITHUB_OUTPUT"
+              fi
+              echo "timed_out=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            sleep "$INTERVAL"
+          done
+
+  # ============================================================
+  # Finalize PR when all checks pass
+  # ============================================================
+  finalize-pr:
+    name: Finalize PR
+    needs: [resolve-inputs, init, implement, wait-for-checks]
+    if: >-
+      always() &&
+      needs.wait-for-checks.result == 'success' &&
+      needs.wait-for-checks.outputs.all_passed == 'true'
+    runs-on: ubuntu-latest
+
+    env:
+      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
+      PR_NUMBER: ${{ needs.implement.outputs.pr_number }}
+      BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
+      WORKFLOW_OWNER: ${{ needs.init.outputs.workflow_owner }}
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Update and ready PR
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          ISSUE_TITLE: ${{ needs.init.outputs.issue_title }}
+        run: |
+          set -euo pipefail
+
+          # Get title from contract if available
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          PR_TITLE="${ISSUE_TITLE}"
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            CONTRACT_TITLE=$(jq -r '.pr.title // empty' "$CONTRACT_PATH")
+            [[ -n "$CONTRACT_TITLE" ]] && PR_TITLE="$CONTRACT_TITLE"
+          fi
+
+          gh pr edit "${PR_NUMBER}" --title "${PR_TITLE}"
+
+          # Add completion note to body
+          EXISTING_BODY=$(gh pr view "${PR_NUMBER}" --json body --jq '.body')
+          {
+            echo "${EXISTING_BODY}"
+            echo ""
+            echo "---"
+            echo ""
+            echo "✅ All automated checks passed. Ready for human review."
+            [[ -n "${WORKFLOW_OWNER}" ]] && echo "Reviewer: @${WORKFLOW_OWNER}"
+            echo ""
+            echo "Authored-by: egg"
+          } > /tmp/pr-body.md
+
+          gh pr edit "${PR_NUMBER}" --body-file /tmp/pr-body.md
+          gh pr ready "${PR_NUMBER}"
+
+          # Add reviewer if specified
+          [[ -n "${WORKFLOW_OWNER}" ]] && gh pr edit "${PR_NUMBER}" --add-reviewer "${WORKFLOW_OWNER}" || true
+
+      - name: Update contract phase
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          set -euo pipefail
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            jq '.current_phase = "pr"' "$CONTRACT_PATH" > /tmp/contract.json
+            mv /tmp/contract.json "$CONTRACT_PATH"
+            git add "$CONTRACT_PATH"
+            git commit -m "Advance to PR phase for issue #${ISSUE_NUMBER}"
+            git push origin "${BRANCH_NAME}" || true
+          fi
+
+      - name: Post completion comment
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
+          BODY="Pull request ready for review: ${PR_URL}
+
+          All automated checks passed.
+
+          --- Authored by egg"
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
+
+  # ============================================================
+  # Handle check failures
+  # ============================================================
+  checks-failed:
+    name: Checks failed
+    needs: [resolve-inputs, init, implement, wait-for-checks]
+    if: >-
+      always() &&
+      needs.wait-for-checks.result == 'success' &&
+      needs.wait-for-checks.outputs.all_passed != 'true' &&
+      needs.implement.outputs.pr_number != ''
+    runs-on: ubuntu-latest
+
+    env:
+      ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
+      PR_NUMBER: ${{ needs.implement.outputs.pr_number }}
+      TIMED_OUT: ${{ needs.wait-for-checks.outputs.timed_out }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Post failure comment
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
+
+          if [[ "$TIMED_OUT" == "true" ]]; then
+            BODY="**Checks timed out** waiting for completion.
+
+            Please check PR status: ${PR_URL}
+
+            --- Authored by egg"
+          else
+            BODY="**Checks failed** on draft PR #${PR_NUMBER}.
+
+            Please review failing checks: ${PR_URL}
+
+            --- Authored by egg"
+          fi
+
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
