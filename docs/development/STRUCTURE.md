@@ -166,7 +166,9 @@ action/
 ```
 .github/
 └── scripts/
-    └── push-contract-update.sh             # Conflict-resistant contract push utility
+    ├── push-contract-update.sh             # Conflict-resistant contract push utility
+    ├── setup-sdlc-labels.sh                # SDLC label setup (idempotent)
+    └── transition-sdlc-label.sh            # Atomic SDLC label transitions
 ```
 
 ## Config Directory

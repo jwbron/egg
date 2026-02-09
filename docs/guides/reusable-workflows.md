@@ -122,12 +122,17 @@ jobs:
       issue_number: ${{ github.event.issue.number }}
       bot_username: my-bot-username
       branch_prefix: "my-bot"  # Creates my-bot/issue-N branches
-      sdlc_label: "my-sdlc"
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
       BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
       BOT_APP_INSTALLATION_ID: ${{ secrets.BOT_APP_INSTALLATION_ID }}
       ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+```
+
+The pipeline is triggered by applying the `sdlc:refine` label to an issue. You can set up the SDLC labels in your repository using the setup script:
+
+```bash
+.github/scripts/setup-sdlc-labels.sh --repo owner/repo
 ```
 
 ## Common Parameters
