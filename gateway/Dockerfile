@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Install git, gh CLI, and Squid proxy for Phase 2 network lockdown
 RUN apt-get update && apt-get install -y \
