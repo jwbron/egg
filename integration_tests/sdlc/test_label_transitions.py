@@ -7,10 +7,7 @@ Tests the label management throughout the SDLC pipeline phases:
 4. Cleanup removes all SDLC labels on issue close
 """
 
-import subprocess
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -81,7 +78,9 @@ class TestLabelTransitionLogic:
         }
 
         for phase, expected_label in phase_label_map.items():
-            assert expected_label in SDLC_LABELS, f"Label {expected_label} for phase {phase} is valid"
+            assert expected_label in SDLC_LABELS, (
+                f"Label {expected_label} for phase {phase} is valid"
+            )
 
     def test_label_transitions_are_mutually_exclusive(self):
         """Verify phase labels are mutually exclusive."""
@@ -173,11 +172,14 @@ class TestLabelColors:
         # Extract color codes from the script
         # Format: "label|color|description"
         import re
-        colors = re.findall(r'\|([0-9A-Fa-f]{6})\|', content)
+
+        colors = re.findall(r"\|([0-9A-Fa-f]{6})\|", content)
 
         # Phase labels should have distinct colors
         phase_colors = colors[:4]  # First 4 are phase labels
-        assert len(phase_colors) == len(set(phase_colors)), "Phase labels should have distinct colors"
+        assert len(phase_colors) == len(set(phase_colors)), (
+            "Phase labels should have distinct colors"
+        )
 
     def test_awaiting_approval_uses_warning_color(self, script_path):
         """Verify awaiting-approval uses a visible warning-like color."""
