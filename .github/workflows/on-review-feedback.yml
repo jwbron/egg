@@ -108,30 +108,29 @@ jobs:
         id: check
         env:
           BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+          EVENT_NAME: ${{ github.event_name }}
+          REVIEW_USER: ${{ github.event.review.user.login }}
+          REVIEW_BODY: ${{ github.event.review.body }}
+          REVIEW_STATE: ${{ github.event.review.state }}
+          COMMENT_USER: ${{ github.event.comment.user.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          IS_PR: ${{ github.event.issue.pull_request }}
         run: |
           # For pull_request_review events
-          if [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
-            review_user="${{ github.event.review.user.login }}"
-            review_body="${{ github.event.review.body }}"
-            review_state="${{ github.event.review.state }}"
-
-            if [[ ("$review_user" == "$BOT_USERNAME" || "$review_user" == "${BOT_USERNAME}[bot]") && \
-                  "$review_body" == *"egg-automated-review"* && \
-                  "$review_state" != "approved" ]]; then
+          if [[ "$EVENT_NAME" == "pull_request_review" ]]; then
+            if [[ ("$REVIEW_USER" == "$BOT_USERNAME" || "$REVIEW_USER" == "${BOT_USERNAME}[bot]") && \
+                  "$REVIEW_BODY" == *"egg-automated-review"* && \
+                  "$REVIEW_STATE" != "approved" ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
             else
               echo "should_run=false" >> "$GITHUB_OUTPUT"
             fi
           # For issue_comment events (self-review as comment)
-          elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
-            comment_user="${{ github.event.comment.user.login }}"
-            comment_body="${{ github.event.comment.body }}"
-            is_pr="${{ github.event.issue.pull_request }}"
-
-            if [[ -n "$is_pr" && \
-                  ("$comment_user" == "$BOT_USERNAME" || "$comment_user" == "${BOT_USERNAME}[bot]") && \
-                  "$comment_body" == *"egg-automated-review"* && \
-                  "$comment_body" != *"verdict=approve"* ]]; then
+          elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
+            if [[ -n "$IS_PR" && \
+                  ("$COMMENT_USER" == "$BOT_USERNAME" || "$COMMENT_USER" == "${BOT_USERNAME}[bot]") && \
+                  "$COMMENT_BODY" == *"egg-automated-review"* && \
+                  "$COMMENT_BODY" != *"verdict=approve"* ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
             else
               echo "should_run=false" >> "$GITHUB_OUTPUT"

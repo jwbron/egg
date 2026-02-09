@@ -94,20 +94,28 @@ jobs:
         id: resolve
         run: |
           # Use inputs if called as reusable workflow, otherwise use defaults
-          echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}" >> "$GITHUB_OUTPUT"
-          echo "branch_prefix=${{ inputs.branch_prefix || 'egg' }}" >> "$GITHUB_OUTPUT"
-          echo "sdlc_label=${{ inputs.sdlc_label || 'egg-sdlc' }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}"
+            echo "branch_prefix=${{ inputs.branch_prefix || 'egg' }}"
+            echo "sdlc_label=${{ inputs.sdlc_label || 'egg-sdlc' }}"
+          } >> "$GITHUB_OUTPUT"
 
           # Determine issue number and starting phase based on trigger type
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
-            echo "issue_number=${{ inputs.issue_number }}" >> "$GITHUB_OUTPUT"
-            echo "starting_phase=${{ inputs.starting_phase || 'refine' }}" >> "$GITHUB_OUTPUT"
+            {
+              echo "issue_number=${{ inputs.issue_number }}"
+              echo "starting_phase=${{ inputs.starting_phase || 'refine' }}"
+            } >> "$GITHUB_OUTPUT"
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "issue_number=${{ github.event.inputs.issue_number }}" >> "$GITHUB_OUTPUT"
-            echo "starting_phase=${{ github.event.inputs.starting_phase || 'refine' }}" >> "$GITHUB_OUTPUT"
+            {
+              echo "issue_number=${{ github.event.inputs.issue_number }}"
+              echo "starting_phase=${{ github.event.inputs.starting_phase || 'refine' }}"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "issue_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
-            echo "starting_phase=refine" >> "$GITHUB_OUTPUT"
+            {
+              echo "issue_number=${{ github.event.issue.number }}"
+              echo "starting_phase=refine"
+            } >> "$GITHUB_OUTPUT"
           fi
 
   # ============================================================
@@ -883,7 +891,7 @@ jobs:
   # ============================================================
   finalize-pr:
     name: Finalize pull request
-    needs: [init, implement, wait-for-checks]
+    needs: [resolve-inputs, init, implement, wait-for-checks]
     # Run if checks passed and we have a PR number
     if: >-
       always() &&

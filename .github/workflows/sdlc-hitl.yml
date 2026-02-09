@@ -62,16 +62,22 @@ jobs:
       - name: Resolve inputs with defaults
         id: resolve
         run: |
-          echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}" >> "$GITHUB_OUTPUT"
-          echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}" >> "$GITHUB_OUTPUT"
-          echo "branch_prefix=${{ inputs.branch_prefix || 'egg' }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}"
+            echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
+            echo "branch_prefix=${{ inputs.branch_prefix || 'egg' }}"
+          } >> "$GITHUB_OUTPUT"
 
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
-            echo "issue_number=${{ inputs.issue_number }}" >> "$GITHUB_OUTPUT"
-            echo "should_check_trigger=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "issue_number=${{ inputs.issue_number }}"
+              echo "should_check_trigger=false"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "issue_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
-            echo "should_check_trigger=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "issue_number=${{ github.event.issue.number }}"
+              echo "should_check_trigger=true"
+            } >> "$GITHUB_OUTPUT"
           fi
 
   # For event-triggered runs, check authorization
@@ -88,19 +94,18 @@ jobs:
         env:
           BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
           AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          sender="${{ github.event.sender.login }}"
-          comment_body="${{ github.event.comment.body }}"
-
           # Must contain HITL decision marker
-          if [[ "$comment_body" != *"<!-- egg-hitl-decision"* ]]; then
+          if [[ "$COMMENT_BODY" != *"<!-- egg-hitl-decision"* ]]; then
             echo "No HITL decision marker found"
             echo "authorized=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Prevent self-triggering
-          if [[ "$sender" == "$BOT_USERNAME" || "$sender" == "${BOT_USERNAME}[bot]" ]]; then
+          if [[ "$SENDER_LOGIN" == "$BOT_USERNAME" || "$SENDER_LOGIN" == "${BOT_USERNAME}[bot]" ]]; then
             echo "Ignoring bot self-trigger"
             echo "authorized=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -111,14 +116,14 @@ jobs:
           IFS=',' read -ra users <<< "$AUTHORIZED_USERS"
           for user in "${users[@]}"; do
             user=$(echo "$user" | xargs)
-            if [[ "$sender" == "$user" ]]; then
+            if [[ "$SENDER_LOGIN" == "$user" ]]; then
               is_authorized=true
               break
             fi
           done
 
           if [[ "$is_authorized" != "true" ]]; then
-            echo "Sender '$sender' not in authorized users: $AUTHORIZED_USERS"
+            echo "Sender '$SENDER_LOGIN' not in authorized users: $AUTHORIZED_USERS"
             echo "authorized=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -542,19 +547,18 @@ jobs:
         env:
           BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
           AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          sender="${{ github.event.sender.login }}"
-          comment_body="${{ github.event.comment.body }}"
-
           # Must contain phase approval marker and checked checkbox
-          if [[ "$comment_body" != *"<!-- egg-phase-approval"* || "$comment_body" != *"[x] Approve"* ]]; then
+          if [[ "$COMMENT_BODY" != *"<!-- egg-phase-approval"* || "$COMMENT_BODY" != *"[x] Approve"* ]]; then
             echo "Not a phase approval with checked checkbox"
             echo "authorized=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Prevent self-triggering
-          if [[ "$sender" == "$BOT_USERNAME" || "$sender" == "${BOT_USERNAME}[bot]" ]]; then
+          if [[ "$SENDER_LOGIN" == "$BOT_USERNAME" || "$SENDER_LOGIN" == "${BOT_USERNAME}[bot]" ]]; then
             echo "Ignoring bot self-trigger"
             echo "authorized=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -565,14 +569,14 @@ jobs:
           IFS=',' read -ra users <<< "$AUTHORIZED_USERS"
           for user in "${users[@]}"; do
             user=$(echo "$user" | xargs)
-            if [[ "$sender" == "$user" ]]; then
+            if [[ "$SENDER_LOGIN" == "$user" ]]; then
               is_authorized=true
               break
             fi
           done
 
           if [[ "$is_authorized" != "true" ]]; then
-            echo "Sender '$sender' not in authorized users: $AUTHORIZED_USERS"
+            echo "Sender '$SENDER_LOGIN' not in authorized users: $AUTHORIZED_USERS"
             echo "authorized=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

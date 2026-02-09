@@ -29,17 +29,21 @@ jobs:
         id: check
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "pr_number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
-            echo "failed_workflow=manual" >> "$GITHUB_OUTPUT"
-            echo "failed_run_id=" >> "$GITHUB_OUTPUT"
+            {
+              echo "run=true"
+              echo "pr_number=${{ github.event.inputs.pr_number }}"
+              echo "failed_workflow=manual"
+              echo "failed_run_id="
+            } >> "$GITHUB_OUTPUT"
           elif [[ "${{ github.event.workflow_run.conclusion }}" == "failure" && \
                   "${{ github.event.workflow_run.event }}" == "pull_request" && \
                   -n "${{ github.event.workflow_run.pull_requests[0].number }}" ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "pr_number=${{ github.event.workflow_run.pull_requests[0].number }}" >> "$GITHUB_OUTPUT"
-            echo "failed_workflow=${{ github.event.workflow_run.name }}" >> "$GITHUB_OUTPUT"
-            echo "failed_run_id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
+            {
+              echo "run=true"
+              echo "pr_number=${{ github.event.workflow_run.pull_requests[0].number }}"
+              echo "failed_workflow=${{ github.event.workflow_run.name }}"
+              echo "failed_run_id=${{ github.event.workflow_run.id }}"
+            } >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi

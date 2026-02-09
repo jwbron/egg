@@ -77,14 +77,18 @@ jobs:
         id: resolve
         run: |
           # Use inputs if called as reusable workflow, otherwise use defaults
-          echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}" >> "$GITHUB_OUTPUT"
-          echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}" >> "$GITHUB_OUTPUT"
-          echo "mention_patterns=${{ inputs.mention_patterns || '@james-in-a-box,@egg' }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}"
+            echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
+            echo "mention_patterns=${{ inputs.mention_patterns || '@james-in-a-box,@egg' }}"
+          } >> "$GITHUB_OUTPUT"
 
           # Determine issue/PR number based on event type
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
-            echo "issue_or_pr_number=${{ inputs.issue_or_pr_number }}" >> "$GITHUB_OUTPUT"
-            echo "should_check_trigger=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "issue_or_pr_number=${{ inputs.issue_or_pr_number }}"
+              echo "should_check_trigger=false"
+            } >> "$GITHUB_OUTPUT"
           else
             # For event-triggered runs, determine the number
             if [[ "${{ github.event_name }}" == "pull_request_review_comment" || "${{ github.event_name }}" == "pull_request_review" ]]; then
@@ -110,28 +114,31 @@ jobs:
           BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
           AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
           MENTION_PATTERNS: ${{ needs.resolve-inputs.outputs.mention_patterns }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          REVIEW_BODY: ${{ github.event.review.body }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
-          sender="${{ github.event.sender.login }}"
-
           # Check if sender is authorized (comma-separated list)
           is_authorized=false
           IFS=',' read -ra users <<< "$AUTHORIZED_USERS"
           for user in "${users[@]}"; do
             user=$(echo "$user" | xargs)  # trim whitespace
-            if [[ "$sender" == "$user" ]]; then
+            if [[ "$SENDER_LOGIN" == "$user" ]]; then
               is_authorized=true
               break
             fi
           done
 
           if [[ "$is_authorized" != "true" ]]; then
-            echo "Sender '$sender' not in authorized users: $AUTHORIZED_USERS"
+            echo "Sender '$SENDER_LOGIN' not in authorized users: $AUTHORIZED_USERS"
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Prevent self-triggering
-          if [[ "$sender" == "$BOT_USERNAME" || "$sender" == "${BOT_USERNAME}[bot]" ]]; then
+          if [[ "$SENDER_LOGIN" == "$BOT_USERNAME" || "$SENDER_LOGIN" == "${BOT_USERNAME}[bot]" ]]; then
             echo "Ignoring self-trigger from bot"
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -139,14 +146,14 @@ jobs:
 
           # Determine the body to check for mentions
           body=""
-          if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
-            body="${{ github.event.comment.body }}"
-          elif [[ "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
-            body="${{ github.event.comment.body }}"
-          elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
-            body="${{ github.event.review.body }}"
-          elif [[ "${{ github.event_name }}" == "issues" ]]; then
-            body="${{ github.event.issue.body }}"
+          if [[ "$EVENT_NAME" == "issue_comment" ]]; then
+            body="$COMMENT_BODY"
+          elif [[ "$EVENT_NAME" == "pull_request_review_comment" ]]; then
+            body="$COMMENT_BODY"
+          elif [[ "$EVENT_NAME" == "pull_request_review" ]]; then
+            body="$REVIEW_BODY"
+          elif [[ "$EVENT_NAME" == "issues" ]]; then
+            body="$ISSUE_BODY"
           fi
 
           # Check if any mention pattern matches
