@@ -695,11 +695,12 @@ jobs:
             exit 0
           fi
 
-          echo "feedback_id=${FEEDBACK_ID}" >> "$GITHUB_OUTPUT"
-          echo "has_feedback=true" >> "$GITHUB_OUTPUT"
-
-          # Store comment ID for reference
-          echo "comment_id=${{ github.event.comment.id }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "feedback_id=${FEEDBACK_ID}"
+            echo "has_feedback=true"
+            # Store comment ID for reference
+            echo "comment_id=${{ github.event.comment.id }}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Check debounce
         if: steps.parse.outputs.has_feedback == 'true'
