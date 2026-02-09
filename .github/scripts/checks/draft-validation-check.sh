@@ -42,7 +42,7 @@ case "$EGG_PHASE" in
             "Analysis"
             "Recommendation"
         )
-        OPTIONAL_SECTIONS=(
+        _OPTIONAL_SECTIONS=(
             "Current State"
             "Options"
             "Open Questions"
@@ -58,7 +58,7 @@ case "$EGG_PHASE" in
             "Implementation"
             "Test Strategy"
         )
-        OPTIONAL_SECTIONS=(
+        _OPTIONAL_SECTIONS=(
             "Phase"
             "Tasks"
             "Risk"
@@ -73,7 +73,7 @@ case "$EGG_PHASE" in
         # Skip validation or check for implementation notes
         DRAFT_PATH="${DRAFT_PATH:-.egg-state/drafts/${EGG_ISSUE_NUMBER}-implementation.md}"
         EXPECTED_SECTIONS=()
-        OPTIONAL_SECTIONS=()
+        _OPTIONAL_SECTIONS=()
         MIN_LENGTH=0
         OPTIONAL_FILE=true
         ;;
