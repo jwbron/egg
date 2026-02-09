@@ -357,7 +357,8 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           set -euo pipefail
-          BODY="SDLC Pipeline initialized for this issue.
+          BODY="<!-- egg-status-comment -->
+          SDLC Pipeline initialized for this issue.
 
           **Branch:** \`${{ steps.setup.outputs.branch_name }}\`
           **Starting phase:** \`${{ steps.setup.outputs.current_phase }}\`
@@ -731,11 +732,13 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
-            BODY="Implementation phase completed. [View run logs](${RUN_URL})
+            BODY="<!-- egg-status-comment -->
+          Implementation phase completed. [View run logs](${RUN_URL})
 
           --- Authored by egg"
           else
-            BODY="Implementation phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}).
+            BODY="<!-- egg-status-comment -->
+          Implementation phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}).
           [View run logs](${RUN_URL})
 
           --- Authored by egg"
@@ -990,7 +993,8 @@ jobs:
           set -euo pipefail
           PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
 
-          BODY="**Merge conflicts detected** on draft PR #${PR_NUMBER}.
+          BODY="<!-- egg-status-comment -->
+          **Merge conflicts detected** on draft PR #${PR_NUMBER}.
 
           The branch has conflicts with \`main\` that must be resolved before the PR can be marked ready for review: ${PR_URL}
 
@@ -1118,7 +1122,8 @@ jobs:
         run: |
           set -euo pipefail
           PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
-          BODY="Pull request ready for review: ${PR_URL}
+          BODY="<!-- egg-status-comment -->
+          Pull request ready for review: ${PR_URL}
 
           All automated checks passed. The PR is ready for human review and merge.
 
@@ -1186,7 +1191,8 @@ jobs:
           PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
 
           if [[ "$TIMED_OUT" == "true" ]]; then
-            BODY="**Checks timed out** while waiting for all check runs to complete.
+            BODY="<!-- egg-status-comment -->
+          **Checks timed out** while waiting for all check runs to complete.
 
           This may indicate workflows are queued or running slowly. Please check the PR for status: ${PR_URL}
 
@@ -1194,7 +1200,8 @@ jobs:
 
           --- Authored by egg"
           else
-            BODY="**Checks failed** on draft PR #${PR_NUMBER}.
+            BODY="<!-- egg-status-comment -->
+          **Checks failed** on draft PR #${PR_NUMBER}.
 
           Please review the failing checks: ${PR_URL}
 
@@ -1311,13 +1318,15 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${ANALYSIS_FOUND:-}" != "true" ]]; then
-            BODY="**Warning:** Refine phase exited successfully but no analysis draft was found. The agent may have failed to write to \`.egg-state/drafts/\`. [View run logs](${RUN_URL})
+            BODY="<!-- egg-status-comment -->
+          **Warning:** Refine phase exited successfully but no analysis draft was found. The agent may have failed to write to \`.egg-state/drafts/\`. [View run logs](${RUN_URL})
 
           Please check the run logs and retry if needed.
 
           --- Authored by egg"
           elif [[ "${EGG_EXIT_CODE:-1}" != "0" ]]; then
-            BODY="Refine phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})
+            BODY="<!-- egg-status-comment -->
+          Refine phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})
 
           --- Authored by egg"
           fi
@@ -2023,13 +2032,15 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${PLAN_FOUND:-}" != "true" ]]; then
-            BODY="**Warning:** Plan phase exited successfully but no plan draft was found. The agent may have failed to write to \`.egg-state/drafts/\`. [View run logs](${RUN_URL})
+            BODY="<!-- egg-status-comment -->
+          **Warning:** Plan phase exited successfully but no plan draft was found. The agent may have failed to write to \`.egg-state/drafts/\`. [View run logs](${RUN_URL})
 
           Please check the run logs and retry if needed.
 
           --- Authored by egg"
           elif [[ "${EGG_EXIT_CODE:-1}" != "0" ]]; then
-            BODY="Plan phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})
+            BODY="<!-- egg-status-comment -->
+          Plan phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})
 
           --- Authored by egg"
           fi

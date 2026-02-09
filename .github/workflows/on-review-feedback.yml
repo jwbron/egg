@@ -364,7 +364,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            -f body="<!-- egg-feedback-addressing -->egg is addressing review feedback..."
+            -f body="<!-- egg-status-comment --><!-- egg-feedback-addressing -->egg is addressing review feedback..."
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
@@ -416,11 +416,14 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
-            BODY="egg feedback addressed. [View run logs](${RUN_URL})"
+            BODY="<!-- egg-status-comment -->
+          egg feedback addressed. [View run logs](${RUN_URL})"
           elif [[ "${{ steps.egg.outcome }}" == "failure" ]]; then
-            BODY="egg failed to address feedback. [View run logs](${RUN_URL})"
+            BODY="<!-- egg-status-comment -->
+          egg failed to address feedback. [View run logs](${RUN_URL})"
           else
-            BODY="Workflow failed before running egg. [View run logs](${RUN_URL})"
+            BODY="<!-- egg-status-comment -->
+          Workflow failed before running egg. [View run logs](${RUN_URL})"
           fi
 
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
