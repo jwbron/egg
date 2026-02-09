@@ -29,10 +29,10 @@ and via `workflow_dispatch` with a PR number.
 
 1. **Skip checks** — Skips draft PRs and PRs with `[skip-review]` in the title.
 2. **Wait for CI checks** — Waits for all non-review checks (e.g., lint, tests) to complete
-   before starting the review. Skips checks that match `Code Review`, `Design Review`,
-   `SDLC Pipeline`, or `SDLC HITL` to avoid self-deadlock. If checks fail, the review is
-   skipped. Workflow dispatch triggers bypass this wait. Times out after 25 minutes with
-   a warning and proceeds anyway.
+   before starting the review. Excludes checks matching `egg-reviewer-*` (all reviewer jobs),
+   `SDLC Pipeline`, and `SDLC HITL` to avoid self-deadlock and ensure reviewers don't wait
+   for each other. If checks fail, the review is skipped. Workflow dispatch triggers bypass
+   this wait. Times out after 25 minutes with a warning and proceeds anyway.
 3. **Re-review detection** — Searches for an `<!-- egg-automated-review bot=<name> commit=<sha> -->`
    marker in previous reviews/comments to identify the last reviewed commit. On re-review,
    the agent uses `git diff <last-commit>..HEAD` to focus on new changes only.
@@ -68,6 +68,12 @@ skipping linter-handled style issues.
 This enables multiple specialized reviewers (e.g., security-focused, design-focused)
 by providing different prompt scripts while sharing the review infrastructure.
 
+**Reviewer Naming Convention:** All reviewer jobs use the standardized name pattern
+`egg-reviewer-{bot_name}` (e.g., `egg-reviewer-review`, `egg-reviewer-agent-mode-design`).
+This allows the feedback workflow to identify and wait for all reviewers to complete
+before addressing their feedback, preventing race conditions when multiple reviewers
+trigger concurrently.
+
 ## Address Review Feedback
 
 **Workflow:** [`.github/workflows/on-review-feedback.yml`](../../.github/workflows/on-review-feedback.yml)
@@ -92,13 +98,21 @@ The workflow runs on:
    - Review is not an approval (filtered at job level to prevent runner allocation)
    - Iteration count is below the limit (default: 3 rounds)
 
-2. **Comment cleanup** — Minimizes previous feedback-addressing comments to reduce clutter.
+2. **Wait for all reviewers** — Polls GitHub check runs for all `egg-reviewer-*` jobs
+   to complete before proceeding. This prevents race conditions when multiple reviewers
+   (e.g., Code Review and Design Review) trigger the feedback workflow concurrently.
+   The workflow waits up to 10 minutes, proceeding with a warning on timeout. If no
+   reviewer checks are found after 2 minutes, the workflow exits with a warning (this
+   indicates a potential configuration issue since the workflow was triggered by
+   reviewer feedback).
 
-3. **Acknowledgment** — Posts a comment indicating feedback is being addressed, with an `<!-- egg-feedback-addressing -->` marker for iteration tracking.
+3. **Comment cleanup** — Minimizes previous feedback-addressing comments to reduce clutter.
 
-4. **Trusted prompt build** — Checks out `main` (not the PR branch) to run `build-feedback-prompt.sh`, preventing prompt injection from malicious PRs.
+4. **Acknowledgment** — Posts a comment indicating feedback is being addressed, with an `<!-- egg-feedback-addressing -->` marker for iteration tracking.
 
-5. **Agent execution** — Checks out the PR branch and runs egg. The agent:
+5. **Trusted prompt build** — Checks out `main` (not the PR branch) to run `build-feedback-prompt.sh`, preventing prompt injection from malicious PRs.
+
+6. **Agent execution** — Checks out the PR branch and runs egg. The agent:
    - Reads review feedback via `gh pr view`, `gh api` for reviews and line-level comments
    - Understands the current code via `gh pr diff`
    - Makes fixes addressing actionable feedback
@@ -106,7 +120,7 @@ The workflow runs on:
    - Commits and pushes all fixes together
    - Replies to feedback it disagrees with or cannot address
 
-6. **Result comment** — Posts success or failure status with link to run logs.
+7. **Result comment** — Posts success or failure status with link to run logs.
 
 ### Iteration Limiting
 
