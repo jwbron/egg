@@ -5,7 +5,7 @@
     "title": "don't re-run PR checks when a draft PR is marked as ready for review",
     "url": "https://github.com/jwbron/egg/issues/391"
   },
-  "current_phase": "implement",
+  "current_phase": "pr",
   "acceptance_criteria": [
     {
       "id": "ac-1",
