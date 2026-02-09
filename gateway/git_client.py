@@ -951,38 +951,8 @@ def cleanup_credential_helper(path: str | None) -> None:
 
 
 # =============================================================================
-# Protected File Validation
+# Changed Files Detection
 # =============================================================================
-
-# Files that cannot be modified via git push by the implementer role
-# Contract files are owned by the SDLC system and should only be modified
-# through the contract API, not by direct git commits
-PROTECTED_FILE_PATTERNS = [
-    ".egg-state/contracts/",  # Contract JSON files
-]
-
-
-def _normalize_file_path(file_path: str) -> str:
-    """
-    Normalize a file path to prevent bypass via path manipulation.
-
-    Handles:
-    - Leading ./ prefix (./egg-state/contracts/ -> .egg-state/contracts/)
-    - Double slashes (.egg-state//contracts/ -> .egg-state/contracts/)
-    - Trailing slashes on file paths
-
-    Args:
-        file_path: Raw file path from git diff
-
-    Returns:
-        Normalized file path
-    """
-    # Normalize the path (handles .., ., double slashes)
-    normalized = posixpath.normpath(file_path)
-    # Remove leading ./ if present
-    if normalized.startswith("./"):
-        normalized = normalized[2:]
-    return normalized
 
 
 def get_changed_files_in_push(
@@ -1088,54 +1058,6 @@ def get_changed_files_in_push(
         return [], "Timeout determining changed files"
     except Exception as e:
         return [], f"Error determining changed files: {e}"
-
-
-def check_protected_files_in_push(
-    repo_path: str, remote: str, branch: str
-) -> tuple[bool, list[str], str | None]:
-    """
-    Check if a push contains modifications to protected files.
-
-    Protected files include:
-    - .egg-state/contracts/*.json (SDLC contract files)
-
-    SECURITY: This function follows fail-closed semantics. If we cannot
-    determine what files are being pushed (git diff fails), we return
-    an error and the caller MUST block the push.
-
-    Args:
-        repo_path: Path to the git repository
-        remote: Remote name (e.g., "origin")
-        branch: Branch name being pushed
-
-    Returns:
-        Tuple of (has_protected_files, protected_file_list, error)
-        - has_protected_files: True if any protected files are modified
-        - protected_file_list: List of protected files that are modified
-        - error: Error string if the check failed (push MUST be blocked), None on success
-    """
-    changed_files, error = get_changed_files_in_push(repo_path, remote, branch)
-
-    if error:
-        # SECURITY: Fail closed - if we can't determine files, block the push.
-        # This prevents bypass via git diff manipulation (timeout, corrupt refs, etc.)
-        logger.error(
-            "Protected files check failed - blocking push for security",
-            error=error,
-            repo_path=repo_path,
-        )
-        return False, [], error
-
-    protected_files = []
-    for file_path in changed_files:
-        # Normalize path to prevent bypass via path manipulation
-        normalized_path = _normalize_file_path(file_path)
-        for pattern in PROTECTED_FILE_PATTERNS:
-            if normalized_path.startswith(pattern):
-                protected_files.append(file_path)
-                break
-
-    return len(protected_files) > 0, protected_files, None
 
 
 def get_token_for_repo(repo: str) -> tuple[str | None, str, str]:

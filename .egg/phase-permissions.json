@@ -143,5 +143,14 @@
       "blocked_operations": [],
       "exit_requires": "human"
     }
-  }
+  },
+  "file_restrictions": [
+    {
+      "role": "implementer",
+      "blocked_patterns": [
+        ".egg-state/contracts/"
+      ],
+      "blocked_reason": "Contract files can only be modified through the contract API"
+    }
+  ]
 }

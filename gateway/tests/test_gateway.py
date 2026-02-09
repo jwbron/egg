@@ -344,7 +344,8 @@ class TestGitPush:
             patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
             patch("subprocess.run") as mock_run,
             patch.object(gateway, "get_policy_engine") as mock_policy,
-            patch.object(gateway, "check_protected_files_in_push") as mock_check_protected,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
+            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
         ):
             # Mock git remote get-url
             mock_run.return_value = MagicMock(
@@ -362,9 +363,21 @@ class TestGitPush:
             )
             mock_policy.return_value = mock_engine
 
-            # Mock protected files check - contract file is being modified
-            # New signature: (has_protected, protected_files, error)
-            mock_check_protected.return_value = (True, [".egg-state/contracts/123.json"], None)
+            # Mock get_changed_files_in_push - returns files being modified
+            mock_get_changed_files.return_value = (
+                ["src/main.py", ".egg-state/contracts/123.json"],
+                None,
+            )
+
+            # Mock check_file_restrictions - contract file is blocked
+            from phase_filter import FileRestrictionResult
+
+            mock_check_restrictions.return_value = FileRestrictionResult.block(
+                message="Role 'implementer' cannot modify: .egg-state/contracts/123.json",
+                role="implementer",
+                blocked_files=[".egg-state/contracts/123.json"],
+                blocked_reason="Contract files can only be modified through the contract API",
+            )
 
             response = client.post(
                 "/api/v1/git/push",
@@ -381,8 +394,8 @@ class TestGitPush:
 
             assert response.status_code == 403
             data = json.loads(response.data)
-            assert "protected files" in data["message"].lower()
-            assert ".egg-state/contracts/123.json" in data["data"]["protected_files"]
+            assert "cannot modify" in data["message"].lower()
+            assert ".egg-state/contracts/123.json" in data["data"]["blocked_files"]
             assert data["data"]["role"] == "implementer"
 
     def test_push_allowed_for_reviewer_modifying_contract_files(self, client):
@@ -427,7 +440,8 @@ class TestGitPush:
             patch("subprocess.run") as mock_run,
             patch.object(gateway, "get_policy_engine") as mock_policy,
             patch.object(gateway, "get_token_for_repo") as mock_get_token,
-            patch.object(gateway, "check_protected_files_in_push") as mock_check_protected,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
+            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
         ):
 
             def run_side_effect(*args, **kwargs):
@@ -460,6 +474,16 @@ class TestGitPush:
             # Mock get_token_for_repo to return valid token
             mock_get_token.return_value = ("test-token", "bot", "")
 
+            # Mock get_changed_files_in_push
+            mock_get_changed_files.return_value = ([".egg-state/contracts/123.json"], None)
+
+            # Mock check_file_restrictions - reviewer is allowed (no restrictions for reviewer)
+            from phase_filter import FileRestrictionResult
+
+            mock_check_restrictions.return_value = FileRestrictionResult.allow(
+                "No file restrictions for role: reviewer"
+            )
+
             response = client.post(
                 "/api/v1/git/push",
                 headers={"Authorization": "Bearer test-session-token"},
@@ -477,9 +501,6 @@ class TestGitPush:
             assert response.status_code == 200
             data = json.loads(response.data)
             assert data["success"] is True
-
-            # Verify that check_protected_files_in_push was NOT called for reviewer role
-            mock_check_protected.assert_not_called()
 
     def test_push_allowed_for_implementer_without_contract_files(self, client):
         """Push allowed when implementer is not modifying contract files."""
@@ -519,7 +540,8 @@ class TestGitPush:
             patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
             patch("subprocess.run") as mock_run,
             patch.object(gateway, "get_policy_engine") as mock_policy,
-            patch.object(gateway, "check_protected_files_in_push") as mock_check_protected,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
+            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
             patch.object(gateway, "get_token_for_repo") as mock_get_token,
         ):
 
@@ -550,9 +572,13 @@ class TestGitPush:
             )
             mock_policy.return_value = mock_engine
 
-            # Mock protected files check - NO contract files being modified
-            # New signature: (has_protected, protected_files, error)
-            mock_check_protected.return_value = (False, [], None)
+            # Mock get_changed_files_in_push - NO contract files being modified
+            mock_get_changed_files.return_value = (["src/main.py", "README.md"], None)
+
+            # Mock check_file_restrictions - all files allowed
+            from phase_filter import FileRestrictionResult
+
+            mock_check_restrictions.return_value = FileRestrictionResult.allow("All files allowed")
 
             # Mock get_token_for_repo to return valid token
             mock_get_token.return_value = ("test-token", "bot", "")
@@ -613,7 +639,7 @@ class TestGitPush:
             patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
             patch("subprocess.run") as mock_run,
             patch.object(gateway, "get_policy_engine") as mock_policy,
-            patch.object(gateway, "check_protected_files_in_push") as mock_check_protected,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
         ):
             # Mock git remote get-url
             mock_run.return_value = MagicMock(
@@ -631,12 +657,8 @@ class TestGitPush:
             )
             mock_policy.return_value = mock_engine
 
-            # Mock protected files check - returns error (fail closed)
-            mock_check_protected.return_value = (
-                False,
-                [],
-                "Timeout determining changed files",
-            )
+            # Mock get_changed_files_in_push - returns error (fail closed)
+            mock_get_changed_files.return_value = ([], "Timeout determining changed files")
 
             response = client.post(
                 "/api/v1/git/push",
@@ -695,7 +717,8 @@ class TestGitPush:
             patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
             patch("subprocess.run") as mock_run,
             patch.object(gateway, "get_policy_engine") as mock_policy,
-            patch.object(gateway, "check_protected_files_in_push") as mock_check_protected,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
+            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
         ):
             # Mock git remote get-url
             mock_run.return_value = MagicMock(
@@ -713,8 +736,18 @@ class TestGitPush:
             )
             mock_policy.return_value = mock_engine
 
-            # Mock protected files check - contract file is being modified
-            mock_check_protected.return_value = (True, [".egg-state/contracts/123.json"], None)
+            # Mock get_changed_files_in_push - contract file is being modified
+            mock_get_changed_files.return_value = ([".egg-state/contracts/123.json"], None)
+
+            # Mock check_file_restrictions - contract file is blocked
+            from phase_filter import FileRestrictionResult
+
+            mock_check_restrictions.return_value = FileRestrictionResult.block(
+                message="Role 'implementer' cannot modify: .egg-state/contracts/123.json",
+                role="implementer",
+                blocked_files=[".egg-state/contracts/123.json"],
+                blocked_reason="Contract files can only be modified through the contract API",
+            )
 
             # Request with force=true
             response = client.post(
@@ -731,10 +764,10 @@ class TestGitPush:
                 content_type="application/json",
             )
 
-            # Force push with protected files should still be blocked
+            # Force push with blocked files should still be blocked
             assert response.status_code == 403
             data = json.loads(response.data)
-            assert "protected files" in data["message"].lower()
+            assert "cannot modify" in data["message"].lower()
 
 
 class TestGhPrCreate:

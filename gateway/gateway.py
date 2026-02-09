@@ -56,16 +56,17 @@ try:
     from .anthropic_credentials import get_credentials_manager
     from .git_client import (
         GIT_ALLOWED_COMMANDS,
-        check_protected_files_in_push,
         cleanup_credential_helper,
         create_credential_helper,
         get_authenticated_remote_target,
+        get_changed_files_in_push,
         get_token_for_repo,
         git_cmd,
         is_repos_parent_directory,
         validate_git_args,
         validate_repo_path,
     )
+    from .phase_filter import check_file_restrictions
     from .github_client import (
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
@@ -99,16 +100,17 @@ except ImportError:
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from git_client import (  # type: ignore[no-redef, import-not-found]
         GIT_ALLOWED_COMMANDS,
-        check_protected_files_in_push,
         cleanup_credential_helper,
         create_credential_helper,
         get_authenticated_remote_target,
+        get_changed_files_in_push,
         get_token_for_repo,
         git_cmd,
         is_repos_parent_directory,
         validate_git_args,
         validate_repo_path,
     )
+    from phase_filter import check_file_restrictions  # type: ignore[no-redef]
     from github_client import (  # type: ignore[no-redef, import-not-found]
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
@@ -546,27 +548,21 @@ def git_push() -> tuple[Response, int] | Response:
             details=policy_result.details,
         )
 
-    # SECURITY: Check for protected file modifications based on agent role
-    # Implementer agents are NOT allowed to modify contract files via git push.
-    # Contract modifications must go through the contract API which enforces
-    # role-based permissions. This prevents implementers from bypassing the
-    # SDLC contract system by directly committing to contract files.
+    # SECURITY: Check for protected file modifications based on agent role.
+    # File restrictions are configured in phase-permissions.json and enforced
+    # by the PhaseFilter module. This prevents certain roles from modifying
+    # specific files via git push (e.g., implementers cannot modify contract files).
     #
-    # Note: Only the "implementer" role is blocked. The SYSTEM role is NOT blocked
-    # because SYSTEM never makes git pushes - it only initializes contracts via the
-    # contract API. The gateway itself runs without a role context. If SYSTEM were
-    # to start making pushes in the future, this check should be revisited.
+    # Note: Only configured roles are checked. The SYSTEM role is typically NOT
+    # blocked because SYSTEM never makes git pushes - it only initializes contracts
+    # via the contract API. The gateway itself runs without a role context.
     session_role = None
     if hasattr(g, "session") and g.session:
         session_role = getattr(g.session, "agent_role", None)
 
-    # Use lowercase comparison for role matching. The Role enum uses lowercase
-    # values ("implementer", "reviewer", etc.) but we normalize to handle any
-    # case variations that may come from the session.
-    if session_role and session_role.lower() == "implementer":
-        has_protected, protected_files, check_error = check_protected_files_in_push(
-            exec_path, remote, branch
-        )
+    if session_role:
+        # Get the list of files being pushed
+        changed_files, check_error = get_changed_files_in_push(exec_path, remote, branch)
 
         # SECURITY: Fail closed - if we can't determine changed files, block the push.
         # This prevents bypass via git diff manipulation (timeout, corrupt refs, etc.)
@@ -592,7 +588,9 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
-        if has_protected:
+        # Check file restrictions using the PhaseFilter configuration
+        restriction_result = check_file_restrictions(session_role, changed_files)
+        if not restriction_result.allowed:
             audit_log(
                 "push_denied_protected_files",
                 "git_push",
@@ -601,17 +599,18 @@ def git_push() -> tuple[Response, int] | Response:
                     "repo": repo,
                     "branch": branch,
                     "role": session_role,
-                    "protected_files": protected_files,
+                    "blocked_files": restriction_result.blocked_files,
+                    "blocked_reason": restriction_result.blocked_reason,
                 },
             )
             return make_error(
-                f"Push denied: Implementer role cannot modify protected files: "
-                f"{', '.join(protected_files)}. Contract modifications must go "
-                "through the contract API.",
+                f"Push denied: {restriction_result.message}. "
+                f"{restriction_result.blocked_reason}",
                 status_code=403,
                 details={
                     "role": session_role,
-                    "protected_files": protected_files,
+                    "blocked_files": restriction_result.blocked_files,
+                    "blocked_reason": restriction_result.blocked_reason,
                     "hint": "Use egg-contract CLI commands to update contract state.",
                 },
             )
