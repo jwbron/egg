@@ -319,9 +319,11 @@ jobs:
             PR_NUMBER=$(jq -r '.pr.number // 0' "$CONTRACT_PATH" 2>/dev/null || echo "0")
             echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
           else
-            echo "contract_exists=false" >> "$GITHUB_OUTPUT"
-            echo "current_phase=${STARTING_PHASE}" >> "$GITHUB_OUTPUT"
-            echo "pr_number=0" >> "$GITHUB_OUTPUT"
+            {
+              echo "contract_exists=false"
+              echo "current_phase=${STARTING_PHASE}"
+              echo "pr_number=0"
+            } >> "$GITHUB_OUTPUT"
 
             # Create initial contract
             # Build workflow_owner value (null if empty, quoted string otherwise)
@@ -497,16 +499,13 @@ jobs:
     uses: ./.github/workflows/sdlc-work-loop.yml
     with:
       phase: ${{ needs.init.outputs.current_phase }}
-      issue_number: ${{ needs.init.outputs.issue_number }}
+      issue_number: ${{ fromJSON(needs.init.outputs.issue_number) }}
       branch_name: ${{ needs.init.outputs.branch_name }}
       bot_username: ${{ needs.resolve-inputs.outputs.bot_username }}
       workflow_owner: ${{ needs.init.outputs.workflow_owner }}
-      pr_number: ${{ needs.init.outputs.pr_number }}
+      pr_number: ${{ fromJSON(needs.init.outputs.pr_number) }}
       # Phase-specific timeouts
       work_timeout: ${{ needs.init.outputs.current_phase == 'implement' && '120' || '30' }}
       review_timeout: ${{ needs.init.outputs.current_phase == 'implement' && '30' || '15' }}
       # Output type and review mechanism are determined by phase in work-loop
     secrets: inherit
-
-
-
