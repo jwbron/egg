@@ -234,23 +234,32 @@ jobs:
       # Minimize previous feedback status comments to reduce clutter
       # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous feedback comments
+        id: minimize
         if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
         run: |
           set -euo pipefail
+          HIDDEN_COUNT=0
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
             --jq '.[] | select(.user.login == "${{ env.BOT_USERNAME }}" or .user.login == "${{ env.BOT_USERNAME }}[bot]") | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
-              if ! gh api graphql -f query='
+              if gh api graphql -f query='
                 mutation($id: ID!) {
                   minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
                     minimizedComment { isMinimized }
                   }
                 }
               ' -f id="$node_id"; then
+                HIDDEN_COUNT=$((HIDDEN_COUNT + 1))
+              else
                 echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
               fi
+              echo "hidden_count=${HIDDEN_COUNT}" >> "$GITHUB_OUTPUT"
             done
+          # Output 0 if no comments were processed
+          if [[ ! -f "$GITHUB_OUTPUT" ]] || ! grep -q "hidden_count=" "$GITHUB_OUTPUT" 2>/dev/null; then
+            echo "hidden_count=0" >> "$GITHUB_OUTPUT"
+          fi
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
@@ -310,16 +319,26 @@ jobs:
         run: |
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          HIDDEN_COUNT="${{ steps.minimize.outputs.hidden_count }}"
+          HIDDEN_COUNT="${HIDDEN_COUNT:-0}"
+
+          # Build hidden count suffix
+          HIDDEN_MSG=""
+          if [[ "$HIDDEN_COUNT" -gt 0 ]]; then
+            HIDDEN_MSG="
+
+          *${HIDDEN_COUNT} previous review(s) hidden.*"
+          fi
 
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
             BODY="<!-- egg-status-comment -->
-          egg feedback addressed. [View run logs](${RUN_URL})"
+          egg feedback addressed. [View run logs](${RUN_URL})${HIDDEN_MSG}"
           elif [[ "${{ steps.egg.outcome }}" == "failure" ]]; then
             BODY="<!-- egg-status-comment -->
-          egg failed to address feedback. [View run logs](${RUN_URL})"
+          egg failed to address feedback. [View run logs](${RUN_URL})${HIDDEN_MSG}"
           else
             BODY="<!-- egg-status-comment -->
-          Workflow failed before running egg. [View run logs](${RUN_URL})"
+          Workflow failed before running egg. [View run logs](${RUN_URL})${HIDDEN_MSG}"
           fi
 
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
