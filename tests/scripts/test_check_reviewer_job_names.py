@@ -188,7 +188,9 @@ class TestReviewerJobNaming:
 class TestMain:
     """Tests for the main() entry point."""
 
-    def test_main_with_valid_workflows(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_main_with_valid_workflows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """main() should find and check all workflow files."""
         # Create mock directory structure
         workflows_dir = tmp_path / ".github" / "workflows"
@@ -260,7 +262,9 @@ class TestMain:
         result = _mod.main()
         assert result == 1
 
-    def test_main_with_no_workflows_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_main_with_no_workflows_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """main() should return 0 with warning when workflows dir doesn't exist."""
         # Don't create the workflows directory
         monkeypatch.setattr(_mod, "main", lambda: _run_main_with_repo_root(tmp_path))
@@ -277,9 +281,7 @@ def _run_main_with_repo_root(repo_root: Path) -> int:
         print("Warning: .github/workflows/ directory not found")
         return 0
 
-    workflow_files = sorted(workflows_dir.glob("*.yml")) + sorted(
-        workflows_dir.glob("*.yaml")
-    )
+    workflow_files = sorted(workflows_dir.glob("*.yml")) + sorted(workflows_dir.glob("*.yaml"))
 
     if not workflow_files:
         print("Warning: No workflow files found")
