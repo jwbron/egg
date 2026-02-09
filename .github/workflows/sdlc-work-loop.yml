@@ -995,9 +995,11 @@ jobs:
           git commit -m "Update ${PHASE} review state (cycle ${REVIEW_CYCLE})" || true
 
           # Push with conflict-resistant retry (re-apply transformation on each retry)
+          push_succeeded=false
           for i in 1 2 3; do
             if git push origin "${BRANCH_NAME}"; then
               echo "Push succeeded"
+              push_succeeded=true
               break
             fi
             echo "::warning::Push failed (attempt $i), resetting and reapplying transformation..."
@@ -1007,6 +1009,11 @@ jobs:
             git add "$CONTRACT_PATH"
             git commit -m "Update ${PHASE} review state (cycle ${REVIEW_CYCLE})" || true
           done
+
+          if [[ "$push_succeeded" != "true" ]]; then
+            echo "::error::Contract update push failed after 3 attempts"
+            exit 1
+          fi
 
       - name: Redispatch for revision
         if: steps.route.outputs.should_redispatch == 'true' && steps.update-contract.outputs.circuit_breaker_triggered != 'true'
@@ -1303,9 +1310,11 @@ jobs:
             git commit -m "Advance to PR phase for issue #${ISSUE_NUMBER}"
 
             # Push with conflict-resistant retry (re-apply transformation on each retry)
+            push_succeeded=false
             for i in 1 2 3; do
               if git push origin "${BRANCH_NAME}"; then
                 echo "Push succeeded"
+                push_succeeded=true
                 break
               fi
               echo "::warning::Push failed (attempt $i), resetting and reapplying transformation..."
@@ -1315,6 +1324,11 @@ jobs:
               git add "$CONTRACT_PATH"
               git commit -m "Advance to PR phase for issue #${ISSUE_NUMBER}"
             done
+
+            if [[ "$push_succeeded" != "true" ]]; then
+              echo "::error::Contract phase update push failed after 3 attempts"
+              exit 1
+            fi
           fi
 
       - name: Post completion comment on issue
