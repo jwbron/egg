@@ -501,4 +501,66 @@ egg-contract add-feedback --question "What is the expected request volume?" --qu
 
 ---
 
+## Unified Work Loop Architecture (v2)
+
+The pipeline uses a unified work loop pattern implemented in `sdlc-work-loop.yml`. This reusable workflow handles all phases with configurable behavior:
+
+### Work Loop Flow
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│                     WORK LOOP (per phase)                     │
+├───────────────────────────────────────────────────────────────┤
+│                                                               │
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐    │
+│  │  WORK   │───▶│ CHECKS  │───▶│ REVIEW  │───▶│ REPORT  │    │
+│  │  step   │    │  (DAG)  │    │  step   │    │  step   │    │
+│  └─────────┘    └─────────┘    └────┬────┘    └─────────┘    │
+│                                      │                        │
+│                                      ▼                        │
+│                              ┌───────────────┐                │
+│                              │   REVISION?   │                │
+│                              │  (feedback)   │                │
+│                              └───────┬───────┘                │
+│                                      │                        │
+│                         ┌────────────┴────────────┐          │
+│                         ▼                         ▼          │
+│                   ┌──────────┐              ┌──────────┐     │
+│                   │ APPROVED │              │ NEEDS    │     │
+│                   │ → human  │              │ REVISION │     │
+│                   │   gate   │              │ → loop   │     │
+│                   └──────────┘              └──────────┘     │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+```
+
+### Phase Configuration
+
+Each phase is configured with:
+
+| Parameter | Refine | Plan | Implement |
+|-----------|--------|------|-----------|
+| Work prompt | `build-sdlc-prompt.sh` | `build-sdlc-prompt.sh` | `build-sdlc-prompt.sh` |
+| Review prompt | `build-refine-review-prompt.sh` | `build-plan-review-prompt.sh` | `build-review-prompt.sh` |
+| Checks | Draft validation | Draft + YAML validation | Merge conflict, lint, test |
+| Max cycles | 3 | 3 | 5 |
+| Human gate | Issue checkbox | Issue checkbox | PR review |
+
+### Check Scripts
+
+Intermediate checks run between work and review steps:
+
+| Check | Description | Phase |
+|-------|-------------|-------|
+| `draft-validation-check.sh` | Validates draft document structure | refine, plan |
+| `plan-yaml-check.sh` | Validates YAML tasks block | plan |
+| `merge-conflict-check.sh` | Detects merge conflicts | implement |
+| `lint-check.sh` | Runs configured linters | implement |
+| `test-check.sh` | Runs test suite | implement |
+| `check-fixer.sh` | Attempts automatic fixes | implement |
+
+Checks are defined in `shared/egg_contracts/phase_defaults.py` and can be customized per-issue via the contract's `phase_config` field.
+
+---
+
 *See also: [ADR: SDLC Pipeline](../adr/implemented/ADR-SDLC-Pipeline.md), [Analysis Template](../templates/analysis.md), [Plan Template](../templates/plan.md), [GitHub Automation](github-automation.md)*
