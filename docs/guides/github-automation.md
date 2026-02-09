@@ -4,6 +4,9 @@ egg includes GitHub Actions workflows that automate development tasks. Each work
 runs inside the sandbox with full security controls — the agent cannot access
 credentials, merge PRs, or push outside its branch namespace.
 
+**Using these workflows in external repositories?** See the [Reusable Workflows guide](reusable-workflows.md)
+for how to call egg's workflows from your own repositories.
+
 ## Workflows Overview
 
 | Workflow | Trigger | What It Does |
