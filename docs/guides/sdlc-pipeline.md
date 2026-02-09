@@ -515,6 +515,7 @@ To add a new check:
 | File | Purpose |
 |------|---------|
 | `.github/workflows/sdlc-pipeline.yml` | Main pipeline orchestration |
+| `.github/workflows/sdlc-work-loop.yml` | Unified work/review/respond cycle for refine, plan, and implement phases |
 | `.github/workflows/reusable-review.yml` | PR-based code review workflow |
 | `.github/workflows/sdlc-hitl.yml` | HITL checkbox detection |
 | `.github/scripts/checks/base.py` | CheckRunner base class for phase checks |
@@ -524,6 +525,7 @@ To add a new check:
 | `action/build-sdlc-prompt.sh` | Phase-specific prompt builder (includes review feedback injection) |
 | `action/build-refine-review-prompt.sh` | Reviewer prompt for refine phase analysis |
 | `action/build-plan-review-prompt.sh` | Reviewer prompt for plan phase output |
+| `action/build-unified-review-prompt.sh` | Unified review prompt builder for all SDLC phases |
 | `action/populate-contract-tasks.py` | Extracts tasks from plan into contract |
 | `action/contract-state.sh` | Contract state management utility |
 | `sandbox/scripts/gh` | gh wrapper with self-review fallback |
