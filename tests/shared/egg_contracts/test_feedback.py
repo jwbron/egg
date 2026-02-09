@@ -256,7 +256,10 @@ class TestParseFeedbackComment:
 
         assert result is not None
         # Multi-line answers are joined with spaces
-        assert result.questions["Q1"] == "Line one of the answer Line two of the answer Line three continues"
+        assert (
+            result.questions["Q1"]
+            == "Line one of the answer Line two of the answer Line three continues"
+        )
 
     def test_expected_question_ids_filters_unknown(self):
         """Test that expected_question_ids filters out unknown question IDs."""
