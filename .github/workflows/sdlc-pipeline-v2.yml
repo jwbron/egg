@@ -338,7 +338,7 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           BRANCH_NAME: ${{ steps.setup.outputs.branch_name }}
         run: |
-          for i in 1 2 3; do
+          for _retry in 1 2 3; do
             if git push -u origin "${BRANCH_NAME}"; then
               break
             fi
@@ -493,7 +493,7 @@ jobs:
           if ! git diff --quiet "$CONTRACT_PATH" 2>/dev/null; then
             git add "$CONTRACT_PATH"
             git commit -m "Populate contract from plan for issue #${ISSUE_NUMBER}"
-            for i in 1 2 3; do
+            for _retry in 1 2 3; do
               if git push origin "${BRANCH_NAME}"; then break; fi
               git pull origin "${BRANCH_NAME}" --rebase
               sleep 2
@@ -775,7 +775,9 @@ jobs:
           gh pr ready "${PR_NUMBER}"
 
           # Add reviewer if specified
-          [[ -n "${WORKFLOW_OWNER}" ]] && gh pr edit "${PR_NUMBER}" --add-reviewer "${WORKFLOW_OWNER}" || true
+          if [[ -n "${WORKFLOW_OWNER}" ]]; then
+            gh pr edit "${PR_NUMBER}" --add-reviewer "${WORKFLOW_OWNER}" || true
+          fi
 
       - name: Update contract phase
         env:

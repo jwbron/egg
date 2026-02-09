@@ -667,25 +667,35 @@ jobs:
 
           # Determine outcome
           if [[ "$WORK_SUCCESS" != "true" ]]; then
-            echo "completed=false" >> "$GITHUB_OUTPUT"
-            echo "escalated=false" >> "$GITHUB_OUTPUT"
-            echo "outcome=work_failed" >> "$GITHUB_OUTPUT"
+            {
+              echo "completed=false"
+              echo "escalated=false"
+              echo "outcome=work_failed"
+            } >> "$GITHUB_OUTPUT"
           elif [[ "$CHECKS_PASSED" != "true" ]]; then
-            echo "completed=false" >> "$GITHUB_OUTPUT"
-            echo "escalated=false" >> "$GITHUB_OUTPUT"
-            echo "outcome=checks_failed" >> "$GITHUB_OUTPUT"
+            {
+              echo "completed=false"
+              echo "escalated=false"
+              echo "outcome=checks_failed"
+            } >> "$GITHUB_OUTPUT"
           elif [[ "$REVIEW_PASSED" == "true" ]]; then
-            echo "completed=true" >> "$GITHUB_OUTPUT"
-            echo "escalated=false" >> "$GITHUB_OUTPUT"
-            echo "outcome=approved" >> "$GITHUB_OUTPUT"
+            {
+              echo "completed=true"
+              echo "escalated=false"
+              echo "outcome=approved"
+            } >> "$GITHUB_OUTPUT"
           elif [[ "$CB_OPEN" == "true" ]]; then
-            echo "completed=false" >> "$GITHUB_OUTPUT"
-            echo "escalated=true" >> "$GITHUB_OUTPUT"
-            echo "outcome=escalated" >> "$GITHUB_OUTPUT"
+            {
+              echo "completed=false"
+              echo "escalated=true"
+              echo "outcome=escalated"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "completed=false" >> "$GITHUB_OUTPUT"
-            echo "escalated=false" >> "$GITHUB_OUTPUT"
-            echo "outcome=needs_revision" >> "$GITHUB_OUTPUT"
+            {
+              echo "completed=false"
+              echo "escalated=false"
+              echo "outcome=needs_revision"
+            } >> "$GITHUB_OUTPUT"
           fi
 
           echo "CB_OPEN=${CB_OPEN}" >> "$GITHUB_OUTPUT"
