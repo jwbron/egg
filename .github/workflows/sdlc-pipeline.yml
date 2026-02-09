@@ -367,6 +367,8 @@ jobs:
 
           --- Authored by egg"
 
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh issue comment "${{ steps.setup.outputs.issue_number }}" --repo "${{ github.repository }}" --body "$BODY"
 
       - name: Close stale PRs
@@ -745,6 +747,8 @@ jobs:
           --- Authored by egg"
           fi
 
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
       - name: Capture final HEAD SHA
@@ -1003,6 +1007,8 @@ jobs:
 
           --- Authored by egg"
 
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
       - name: Update PR title and mark ready
@@ -1131,6 +1137,8 @@ jobs:
 
           --- Authored by egg"
 
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
   # ============================================================
@@ -1213,6 +1221,8 @@ jobs:
           --- Authored by egg"
           fi
 
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
   # ============================================================
@@ -1336,6 +1346,8 @@ jobs:
 
           # Only post if BODY is set (success cases don't post here - they wait for review)
           if [[ -n "${BODY:-}" ]]; then
+            # Strip leading whitespace from each line (caused by YAML indentation)
+            BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
             gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
           fi
 
@@ -2050,6 +2062,8 @@ jobs:
 
           # Only post if BODY is set (success cases don't post here - they wait for review)
           if [[ -n "${BODY:-}" ]]; then
+            # Strip leading whitespace from each line (caused by YAML indentation)
+            BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
             gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
           fi
 
