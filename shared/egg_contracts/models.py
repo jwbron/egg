@@ -182,6 +182,58 @@ class PRMetadata(BaseModel):
     description: str = Field(default="", description="PR description/body")
 
 
+class FeedbackQuestion(BaseModel):
+    """A question for human feedback."""
+
+    id: str = Field(..., pattern=r"^Q[0-9]+$", description="Unique question identifier (e.g., Q1)")
+    question: str = Field(..., min_length=1, description="The question text")
+    answer: str | None = Field(default=None, description="Human-provided answer (free-form text)")
+
+
+class Feedback(BaseModel):
+    """Feedback request for collecting open-ended questions from humans."""
+
+    id: str = Field(
+        ...,
+        pattern=r"^feedback-[0-9]+$",
+        description="Unique feedback identifier (e.g., feedback-1)",
+    )
+    phase: PipelinePhase | None = Field(
+        default=None, description="Pipeline phase this feedback belongs to"
+    )
+    questions: list[FeedbackQuestion] = Field(
+        ..., min_length=1, description="List of questions for the human"
+    )
+    submitted: bool = Field(default=False, description="Whether the feedback has been submitted")
+    submitted_by: str | None = Field(
+        default=None, description="GitHub username who submitted the feedback"
+    )
+    submitted_at: datetime | None = Field(
+        default=None, description="When the feedback was submitted"
+    )
+    comment_id: int | None = Field(
+        default=None, description="GitHub comment ID containing this feedback"
+    )
+    debounce_until: datetime | None = Field(
+        default=None, description="Debounce expiration timestamp"
+    )
+
+    def get_question(self, question_id: str) -> FeedbackQuestion | None:
+        """Get a specific question by ID."""
+        for question in self.questions:
+            if question.id == question_id:
+                return question
+        return None
+
+    def get_unanswered_questions(self) -> list[FeedbackQuestion]:
+        """Get all questions that haven't been answered."""
+        return [q for q in self.questions if q.answer is None]
+
+    def all_questions_answered(self) -> bool:
+        """Check if all questions have been answered."""
+        return all(q.answer is not None for q in self.questions)
+
+
 class AuditEntry(BaseModel):
     """Audit log entry for contract modifications."""
 
@@ -228,6 +280,9 @@ class Contract(BaseModel):
     plan_review_feedback: str = Field(default="", description="Feedback from last plan review")
     pr: PRMetadata | None = Field(
         default=None, description="Planner-generated PR metadata for use during PR creation"
+    )
+    feedback: Feedback | None = Field(
+        default=None, description="Active feedback request for collecting open-ended questions"
     )
 
     def get_task(self, phase_id: str, task_id: str) -> Task | None:

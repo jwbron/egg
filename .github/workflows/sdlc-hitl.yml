@@ -859,3 +859,354 @@ jobs:
             "$PREVIOUS_PHASE" "$SENDER_LOGIN" "$NEXT_PHASE")
 
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
+
+  # ============================================================
+  # Handle feedback comment submissions
+  # ============================================================
+  handle-feedback:
+    name: Handle feedback submission
+    runs-on: ubuntu-latest
+    # Trigger on feedback comments (with egg-feedback marker) where the submit
+    # checkbox has been checked.
+    # Authorization: Only jwbron can submit feedback, and bot cannot trigger itself
+    if: >-
+      contains(github.event.comment.body, '<!-- egg-feedback') &&
+      contains(github.event.comment.body, '[x] Submit feedback') &&
+      github.event.sender.login == 'jwbron' &&
+      github.event.sender.login != 'james-in-a-box' &&
+      github.event.sender.login != 'james-in-a-box[bot]'
+
+    env:
+      BOT_USERNAME: james-in-a-box
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Parse feedback
+        id: parse
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          # Extract feedback ID from marker
+          # Format: <!-- egg-feedback id=feedback-N -->
+          FEEDBACK_ID=$(echo "$COMMENT_BODY" | grep -oP '<!-- egg-feedback id=\K[a-z0-9-]+' | head -1)
+
+          if [[ -z "$FEEDBACK_ID" ]]; then
+            echo "No feedback ID found in comment"
+            echo "has_feedback=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          {
+            echo "feedback_id=${FEEDBACK_ID}"
+            echo "has_feedback=true"
+            # Store comment ID for reference
+            echo "comment_id=${{ github.event.comment.id }}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check debounce
+        if: steps.parse.outputs.has_feedback == 'true'
+        id: debounce
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          DEBOUNCE_SECONDS=30
+
+          # Wait for debounce period FIRST to allow rapid edits to settle
+          echo "Waiting ${DEBOUNCE_SECONDS}s for debounce..."
+          sleep "$DEBOUNCE_SECONDS"
+
+          # After waiting, check if we're the only run still processing
+          JQ_FILTER='[.workflow_runs[] | select(.status == "in_progress" or .status == "queued")'
+          JQ_FILTER+=' | select(.head_branch == "main")] | length'
+          RECENT_RUNS=$(gh api "repos/${{ github.repository }}/actions/workflows/sdlc-hitl.yml/runs" \
+            --jq "$JQ_FILTER")
+
+          RECENT_RUNS=${RECENT_RUNS:-0}
+          if ! [[ "$RECENT_RUNS" =~ ^[0-9]+$ ]]; then
+            echo "Warning: RECENT_RUNS is not numeric, defaulting to 0"
+            RECENT_RUNS=0
+          fi
+
+          if [[ "$RECENT_RUNS" -gt 1 ]]; then
+            echo "Debounce: Another run is in progress, skipping"
+            echo "should_process=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_process=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout repository
+        if: steps.debounce.outputs.should_process == 'true'
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.bot-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Find and checkout issue branch
+        if: steps.debounce.outputs.should_process == 'true'
+        id: branch
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Validate issue number is numeric (path traversal prevention)
+          if ! [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "Invalid issue number: ${ISSUE_NUMBER}"
+            exit 1
+          fi
+
+          BRANCH_NAME="egg/issue-${ISSUE_NUMBER}"
+
+          if git ls-remote --heads origin "${BRANCH_NAME}" | grep -q "${BRANCH_NAME}"; then
+            echo "branch_name=${BRANCH_NAME}" >> "$GITHUB_OUTPUT"
+            echo "branch_exists=true" >> "$GITHUB_OUTPUT"
+            git checkout "${BRANCH_NAME}"
+            git pull origin "${BRANCH_NAME}"
+          else
+            echo "Branch ${BRANCH_NAME} not found"
+            echo "branch_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure git identity
+        if: steps.branch.outputs.branch_exists == 'true'
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "james-in-a-box[bot]"
+          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+
+      - name: Parse and update feedback in contract
+        if: steps.branch.outputs.branch_exists == 'true'
+        id: update
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          FEEDBACK_ID: ${{ steps.parse.outputs.feedback_id }}
+          COMMENT_ID: ${{ steps.parse.outputs.comment_id }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          BRANCH_NAME: ${{ steps.branch.outputs.branch_name }}
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ ! -f "$CONTRACT_PATH" ]]; then
+            echo "Contract not found at ${CONTRACT_PATH}"
+            echo "feedback_updated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check if feedback exists in contract
+          FEEDBACK_EXISTS=$(jq -r '.feedback.id // ""' "$CONTRACT_PATH")
+          if [[ "$FEEDBACK_EXISTS" != "$FEEDBACK_ID" ]]; then
+            echo "Feedback ${FEEDBACK_ID} not found in contract (found: ${FEEDBACK_EXISTS})"
+            echo "feedback_updated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Parse answers from the comment body
+          # Questions are in format: **Q1: Question text?** followed by > Answer
+          # We extract all Q[n] answers
+          ANSWERS_JSON="{}"
+
+          # Use a temporary file to store the comment body for multiline parsing
+          echo "$COMMENT_BODY" > /tmp/comment_body.txt
+
+          # Extract question IDs from the contract
+          QUESTION_IDS=$(jq -r '.feedback.questions[].id' "$CONTRACT_PATH")
+
+          for QID in $QUESTION_IDS; do
+            # Extract the answer for this question ID
+            # Pattern: **Q1: ...** followed by > answer lines until next section
+            QNUM="${QID#Q}"
+
+            # Use awk to extract the answer block after the question header
+            ANSWER=$(awk -v qid="$QID" '
+              BEGIN { found = 0; answer = "" }
+              /^\*\*Q'"$QNUM"':/ { found = 1; next }
+              found && /^>/ {
+                line = substr($0, 2)  # Remove leading >
+                gsub(/^[ \t]+|[ \t]+$/, "", line)  # Trim whitespace
+                if (answer != "") answer = answer " "
+                answer = answer line
+              }
+              found && /^---/ { exit }
+              found && /^###/ { exit }
+              found && /^\*\*Q[0-9]+:/ { exit }
+              END { print answer }
+            ' /tmp/comment_body.txt)
+
+            # Skip placeholder text
+            if [[ "$ANSWER" == "_Your answer here_" ]] || [[ -z "$ANSWER" ]]; then
+              # Use jq to add null value directly
+              ANSWERS_JSON=$(echo "$ANSWERS_JSON" | jq --arg qid "$QID" '. + {($qid): null}')
+            else
+              # Use --arg to safely pass the string (handles encoding issues)
+              ANSWERS_JSON=$(echo "$ANSWERS_JSON" | jq --arg qid "$QID" --arg ans "$ANSWER" '. + {($qid): $ans}')
+            fi
+          done
+
+          echo "Parsed answers: $ANSWERS_JSON"
+
+          # Store actor for reapply script
+          SENDER_LOGIN="${{ github.event.sender.login }}"
+          export SENDER_LOGIN FEEDBACK_ID COMMENT_ID CONTRACT_PATH
+
+          # Write answers to a file for the reapply script to read
+          # (heredocs with 'EOF' don't expand variables, so we use a file)
+          echo "$ANSWERS_JSON" > /tmp/answers.json
+
+          # Create reapply script for retry logic
+          cat > /tmp/reapply-feedback.sh << 'REAPPLY_EOF'
+          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Read answers from file (written before script creation)
+          ANSWERS_JSON=$(cat /tmp/answers.json)
+
+          # Update feedback with answers
+          QUESTIONS=$(jq '.feedback.questions' "$CONTRACT_PATH")
+
+          # Update each question with its answer
+          for QID in $(echo "$QUESTIONS" | jq -r '.[].id'); do
+            ANSWER=$(echo "$ANSWERS_JSON" | jq -r --arg qid "$QID" '.[$qid] // null')
+            if [[ "$ANSWER" != "null" ]]; then
+              jq --arg qid "$QID" --arg answer "$ANSWER" '
+                .feedback.questions = [.feedback.questions[] |
+                  if .id == $qid then .answer = $answer else . end]
+              ' "$CONTRACT_PATH" > /tmp/contract.json
+              mv /tmp/contract.json "$CONTRACT_PATH"
+            fi
+          done
+
+          # Mark feedback as submitted
+          jq --arg timestamp "$TS" \
+             --arg actor "$SENDER_LOGIN" \
+             --arg comment_id "$COMMENT_ID" \
+            '.feedback.submitted = true |
+             .feedback.submitted_by = $actor |
+             .feedback.submitted_at = $timestamp |
+             .feedback.comment_id = ($comment_id | tonumber)' \
+            "$CONTRACT_PATH" > /tmp/contract.json
+          mv /tmp/contract.json "$CONTRACT_PATH"
+
+          # Add audit entry
+          AUDIT_ENTRY=$(jq -n \
+            --arg timestamp "$TS" \
+            --arg actor "$SENDER_LOGIN" \
+            --arg feedback "$FEEDBACK_ID" \
+            '{
+              timestamp: $timestamp,
+              actor: $actor,
+              role: "human",
+              action: "update",
+              field_path: ("feedback." + $feedback),
+              old_value: null,
+              new_value: "submitted",
+              reason: "Feedback submitted by human"
+            }')
+
+          jq --argjson entry "$AUDIT_ENTRY" '.audit_log += [$entry]' \
+            "$CONTRACT_PATH" > /tmp/contract.json
+          mv /tmp/contract.json "$CONTRACT_PATH"
+          REAPPLY_EOF
+
+          # Apply transformation initially
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Update each question with its answer
+          for QID in $(jq -r '.feedback.questions[].id' "$CONTRACT_PATH"); do
+            ANSWER=$(echo "$ANSWERS_JSON" | jq -r --arg qid "$QID" '.[$qid] // null')
+            if [[ "$ANSWER" != "null" ]]; then
+              jq --arg qid "$QID" --arg answer "$ANSWER" '
+                .feedback.questions = [.feedback.questions[] |
+                  if .id == $qid then .answer = $answer else . end]
+              ' "$CONTRACT_PATH" > /tmp/contract.json
+              mv /tmp/contract.json "$CONTRACT_PATH"
+            fi
+          done
+
+          # Mark feedback as submitted
+          jq --arg timestamp "$TIMESTAMP" \
+             --arg actor "$SENDER_LOGIN" \
+             --arg comment_id "$COMMENT_ID" \
+            '.feedback.submitted = true |
+             .feedback.submitted_by = $actor |
+             .feedback.submitted_at = $timestamp |
+             .feedback.comment_id = ($comment_id | tonumber)' \
+            "$CONTRACT_PATH" > /tmp/contract.json
+          mv /tmp/contract.json "$CONTRACT_PATH"
+
+          # Add audit entry
+          AUDIT_ENTRY=$(jq -n \
+            --arg timestamp "$TIMESTAMP" \
+            --arg actor "$SENDER_LOGIN" \
+            --arg feedback "$FEEDBACK_ID" \
+            '{
+              timestamp: $timestamp,
+              actor: $actor,
+              role: "human",
+              action: "update",
+              field_path: ("feedback." + $feedback),
+              old_value: null,
+              new_value: "submitted",
+              reason: "Feedback submitted by human"
+            }')
+
+          jq --argjson entry "$AUDIT_ENTRY" '.audit_log += [$entry]' \
+            "$CONTRACT_PATH" > /tmp/contract.json
+          mv /tmp/contract.json "$CONTRACT_PATH"
+
+          # Commit the update
+          git add "$CONTRACT_PATH"
+          git commit -m "Submit feedback ${FEEDBACK_ID} for issue #${ISSUE_NUMBER}"
+
+          # Push with conflict-resistant retry logic
+          export CONTRACT_PATH
+          export BRANCH_NAME
+          export COMMIT_MESSAGE="Submit feedback ${FEEDBACK_ID} for issue #${ISSUE_NUMBER}"
+          export JQ_SCRIPT_PATH="/tmp/reapply-feedback.sh"
+          if ! .github/scripts/push-contract-update.sh; then
+            echo "feedback_updated=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "feedback_updated=true" >> "$GITHUB_OUTPUT"
+
+      # Trigger pipeline to resume with the feedback
+      - name: Trigger pipeline continuation
+        if: steps.update.outputs.feedback_updated == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          CURRENT_PHASE=$(jq -r '.current_phase' "$CONTRACT_PATH")
+
+          # Resume the current phase with the feedback now available
+          if ! gh workflow run sdlc-pipeline.yml \
+            --field issue_number="${ISSUE_NUMBER}" \
+            --field starting_phase="${CURRENT_PHASE}"; then
+            echo "::error::Failed to trigger sdlc-pipeline.yml workflow"
+            exit 1
+          fi
+
+      - name: Post status comment
+        if: steps.update.outputs.feedback_updated == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          FEEDBACK_ID: ${{ steps.parse.outputs.feedback_id }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
+        run: |
+          set -euo pipefail
+          BODY=$(printf 'Feedback **%s** submitted by @%s.\n\nResuming pipeline with feedback.\n\n--- Authored by egg' \
+            "$FEEDBACK_ID" "$SENDER_LOGIN")
+
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
