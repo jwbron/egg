@@ -77,17 +77,17 @@
     {
       "id": "phase-1",
       "name": "Create Shared Helper Script",
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         {
           "id": "task-1-1",
           "description": "Create .github/scripts/ directory structure",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Directory exists",
           "files_affected": [
             ".github/scripts/"
           ],
-          "commit": null,
+          "commit": "db2e982",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -96,12 +96,12 @@
         {
           "id": "task-1-2",
           "description": "Implement push-contract-update.sh helper script",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Script handles reset-and-reapply pattern, accepts jq filter and commit message as parameters",
           "files_affected": [
             ".github/scripts/push-contract-update.sh"
           ],
-          "commit": null,
+          "commit": "db2e982",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -117,17 +117,17 @@
     {
       "id": "phase-2",
       "name": "Update sdlc-pipeline.yml Push Locations",
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         {
           "id": "task-2-1",
           "description": "Add retry logic to line 363 (populate contract tasks)",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Uses helper script, no longer a bare git push",
           "files_affected": [
             ".github/workflows/sdlc-pipeline.yml"
           ],
-          "commit": null,
+          "commit": "1bdb47b",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -136,12 +136,12 @@
         {
           "id": "task-2-2",
           "description": "Update line 438 (checkpoint push) with soft-failure mode",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Uses helper script with soft-failure mode that warns but continues",
           "files_affected": [
             ".github/workflows/sdlc-pipeline.yml"
           ],
-          "commit": null,
+          "commit": "1bdb47b",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -150,12 +150,12 @@
         {
           "id": "task-2-3",
           "description": "Update line 940 (advance to PR phase)",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Uses helper script, exits on failure",
           "files_affected": [
             ".github/workflows/sdlc-pipeline.yml"
           ],
-          "commit": null,
+          "commit": "1bdb47b",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -164,12 +164,12 @@
         {
           "id": "task-2-4",
           "description": "Update line 1465 (update refine review state)",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Uses helper script, handles complex multi-step jq",
           "files_affected": [
             ".github/workflows/sdlc-pipeline.yml"
           ],
-          "commit": null,
+          "commit": "1bdb47b",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -178,12 +178,12 @@
         {
           "id": "task-2-5",
           "description": "Update line 1784 (populate contract from plan)",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Uses helper script, exits on failure",
           "files_affected": [
             ".github/workflows/sdlc-pipeline.yml"
           ],
-          "commit": null,
+          "commit": "1bdb47b",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -192,12 +192,12 @@
         {
           "id": "task-2-6",
           "description": "Update line 2144 (update plan review state)",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Uses helper script, handles complex multi-step jq",
           "files_affected": [
             ".github/workflows/sdlc-pipeline.yml"
           ],
-          "commit": null,
+          "commit": "1bdb47b",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -213,17 +213,17 @@
     {
       "id": "phase-3",
       "name": "Update sdlc-hitl.yml Push Locations",
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         {
           "id": "task-3-1",
           "description": "Update line 230 (resolve HITL decision)",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Uses helper script, handles multi-step jq transformation",
           "files_affected": [
             ".github/workflows/sdlc-hitl.yml"
           ],
-          "commit": null,
+          "commit": "af90b83",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -232,12 +232,12 @@
         {
           "id": "task-3-2",
           "description": "Update line 331 (advance to next phase)",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Uses helper script, exits on failure",
           "files_affected": [
             ".github/workflows/sdlc-hitl.yml"
           ],
-          "commit": null,
+          "commit": "af90b83",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -246,12 +246,12 @@
         {
           "id": "task-3-3",
           "description": "Update line 552 (approve and advance phase)",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Uses helper script, handles audit log entry",
           "files_affected": [
             ".github/workflows/sdlc-hitl.yml"
           ],
-          "commit": null,
+          "commit": "af90b83",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -267,36 +267,36 @@
     {
       "id": "phase-4",
       "name": "Testing and Verification",
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         {
           "id": "task-4-1",
           "description": "Run workflow linting if available",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "No lint errors in modified workflow files",
           "files_affected": [
             ".github/workflows/sdlc-pipeline.yml",
             ".github/workflows/sdlc-hitl.yml"
           ],
-          "commit": null,
+          "commit": "af90b83",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Shellcheck passes, YAML validated"
         },
         {
           "id": "task-4-2",
           "description": "Add inline comments explaining the reset-and-reapply pattern",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Comments explain why this approach prevents merge conflicts",
           "files_affected": [
             ".github/scripts/push-contract-update.sh"
           ],
-          "commit": null,
+          "commit": "db2e982",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Script header (lines 1-53) documents the reset-and-reapply pattern"
         }
       ],
       "review_cycles": 0,
