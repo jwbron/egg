@@ -9,23 +9,177 @@ on:
     types: [submitted]
   issues:
     types: [opened]
+  workflow_call:
+    inputs:
+      issue_or_pr_number:
+        description: 'Issue or PR number to respond to'
+        required: true
+        type: number
+      comment_id:
+        description: 'Comment ID that triggered the mention (optional)'
+        required: false
+        type: string
+        default: ""
+      bot_username:
+        description: 'GitHub username of the bot (for self-trigger prevention and comment filtering)'
+        required: false
+        type: string
+        default: "james-in-a-box"
+      action_ref:
+        description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
+        required: false
+        type: string
+        default: "jwbron/egg/action@main"
+      authorized_users:
+        description: 'Comma-separated list of authorized GitHub usernames'
+        required: false
+        type: string
+        default: "jwbron"
+      mention_patterns:
+        description: 'Comma-separated list of mention patterns to trigger on (e.g., "@mybot,@egg")'
+        required: false
+        type: string
+        default: "@james-in-a-box,@egg"
+      prompt_script:
+        description: 'Path to prompt builder script (relative to repo root)'
+        required: false
+        type: string
+        default: "action/build-mention-prompt.sh"
+      timeout:
+        description: 'Timeout in minutes'
+        required: false
+        type: string
+        default: "30"
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
+      BOT_APP_INSTALLATION_ID:
+        required: true
+      ANTHROPIC_OAUTH_TOKEN:
+        required: true
 
 jobs:
+  # Workaround: GitHub Actions doesn't allow accessing inputs in job-level 'if' conditions.
+  # This job passes inputs as outputs so subsequent jobs can use them in conditions.
+  resolve-inputs:
+    name: Resolve Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      bot_username: ${{ steps.resolve.outputs.bot_username }}
+      authorized_users: ${{ steps.resolve.outputs.authorized_users }}
+      mention_patterns: ${{ steps.resolve.outputs.mention_patterns }}
+      issue_or_pr_number: ${{ steps.resolve.outputs.issue_or_pr_number }}
+      should_check_trigger: ${{ steps.resolve.outputs.should_check_trigger }}
+    steps:
+      - name: Resolve inputs with defaults
+        id: resolve
+        run: |
+          # Use inputs if called as reusable workflow, otherwise use defaults
+          echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}" >> "$GITHUB_OUTPUT"
+          echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}" >> "$GITHUB_OUTPUT"
+          echo "mention_patterns=${{ inputs.mention_patterns || '@james-in-a-box,@egg' }}" >> "$GITHUB_OUTPUT"
+
+          # Determine issue/PR number based on event type
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            echo "issue_or_pr_number=${{ inputs.issue_or_pr_number }}" >> "$GITHUB_OUTPUT"
+            echo "should_check_trigger=false" >> "$GITHUB_OUTPUT"
+          else
+            # For event-triggered runs, determine the number
+            if [[ "${{ github.event_name }}" == "pull_request_review_comment" || "${{ github.event_name }}" == "pull_request_review" ]]; then
+              echo "issue_or_pr_number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+            else
+              echo "issue_or_pr_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+            fi
+            echo "should_check_trigger=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # For event-triggered runs, check if this is a valid mention from an authorized user
+  check-trigger:
+    name: Check Trigger
+    needs: resolve-inputs
+    if: needs.resolve-inputs.outputs.should_check_trigger == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Check if mention is valid and from authorized user
+        id: check
+        env:
+          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+          AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
+          MENTION_PATTERNS: ${{ needs.resolve-inputs.outputs.mention_patterns }}
+        run: |
+          sender="${{ github.event.sender.login }}"
+
+          # Check if sender is authorized (comma-separated list)
+          is_authorized=false
+          IFS=',' read -ra users <<< "$AUTHORIZED_USERS"
+          for user in "${users[@]}"; do
+            user=$(echo "$user" | xargs)  # trim whitespace
+            if [[ "$sender" == "$user" ]]; then
+              is_authorized=true
+              break
+            fi
+          done
+
+          if [[ "$is_authorized" != "true" ]]; then
+            echo "Sender '$sender' not in authorized users: $AUTHORIZED_USERS"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Prevent self-triggering
+          if [[ "$sender" == "$BOT_USERNAME" || "$sender" == "${BOT_USERNAME}[bot]" ]]; then
+            echo "Ignoring self-trigger from bot"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Determine the body to check for mentions
+          body=""
+          if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+            body="${{ github.event.comment.body }}"
+          elif [[ "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+            body="${{ github.event.comment.body }}"
+          elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+            body="${{ github.event.review.body }}"
+          elif [[ "${{ github.event_name }}" == "issues" ]]; then
+            body="${{ github.event.issue.body }}"
+          fi
+
+          # Check if any mention pattern matches
+          has_mention=false
+          IFS=',' read -ra patterns <<< "$MENTION_PATTERNS"
+          for pattern in "${patterns[@]}"; do
+            pattern=$(echo "$pattern" | xargs)  # trim whitespace
+            if [[ "$body" == *"$pattern"* ]]; then
+              has_mention=true
+              break
+            fi
+          done
+
+          if [[ "$has_mention" != "true" ]]; then
+            echo "No matching mention pattern found in body"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Valid mention from authorized user"
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+
   respond:
     name: Run egg
+    needs: [resolve-inputs, check-trigger]
     runs-on: ubuntu-latest
-    # Bot-self checks (!= james-in-a-box) are defense-in-depth: prevent
-    # self-triggering if authorized users list expands beyond jwbron.
+    # Run when:
+    # - workflow_call (should_check_trigger=false means check-trigger was skipped)
+    # - Event-triggered and check-trigger passed
     if: >-
-      (
-        (github.event_name == 'issue_comment' && (contains(github.event.comment.body, '@james-in-a-box') || contains(github.event.comment.body, '@egg'))) ||
-        (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '@james-in-a-box') || contains(github.event.comment.body, '@egg'))) ||
-        (github.event_name == 'pull_request_review' && github.event.review.body != null && (contains(github.event.review.body, '@james-in-a-box') || contains(github.event.review.body, '@egg'))) ||
-        (github.event_name == 'issues' && (contains(github.event.issue.body, '@james-in-a-box') || contains(github.event.issue.body, '@egg')))
-      ) &&
-      github.event.sender.login == 'jwbron' &&
-      github.event.sender.login != 'james-in-a-box' &&
-      github.event.sender.login != 'james-in-a-box[bot]'
+      always() &&
+      needs.resolve-inputs.result == 'success' &&
+      (needs.check-trigger.result == 'skipped' || needs.check-trigger.outputs.should_run == 'true')
 
     permissions:
       contents: write
@@ -33,11 +187,12 @@ jobs:
       issues: write
 
     concurrency:
-      group: egg-mention-${{ github.event.issue.number || github.event.pull_request.number }}
+      group: egg-mention-${{ needs.resolve-inputs.outputs.issue_or_pr_number }}
       cancel-in-progress: false
 
     env:
-      BOT_USERNAME: james-in-a-box
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      ISSUE_OR_PR_NUMBER: ${{ needs.resolve-inputs.outputs.issue_or_pr_number }}
 
     steps:
       - name: Generate bot token
@@ -48,6 +203,7 @@ jobs:
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
       - name: Acknowledge with reaction
+        if: github.event_name != 'workflow_call'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
@@ -76,7 +232,11 @@ jobs:
       - name: Determine checkout ref
         id: ref
         run: |
-          if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            # For reusable workflow calls, default to main
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+            echo "is_pr=false" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
             # Check if this is a PR comment by looking for pull_request in the issue
             PR_URL="${{ github.event.issue.pull_request.url }}"
             if [[ -n "$PR_URL" && "$PR_URL" != "null" ]]; then
@@ -114,7 +274,7 @@ jobs:
 
       - name: Build prompt
         id: prompt
-        run: bash action/build-mention-prompt.sh
+        run: bash ${{ inputs.prompt_script || 'action/build-mention-prompt.sh' }}
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
@@ -135,6 +295,7 @@ jobs:
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.BOT_USERNAME }}
+          timeout: ${{ inputs.timeout || '30' }}
 
       # Minimize previous status comments to reduce clutter
       - name: Minimize previous status comments
@@ -144,18 +305,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Determine where to look for comments
-          if [[ "${{ github.event_name }}" == "pull_request_review_comment" || "${{ github.event_name }}" == "pull_request_review" ]]; then
-            ISSUE_NUMBER="${{ github.event.pull_request.number }}"
-          else
-            ISSUE_NUMBER="${{ github.event.issue.number }}"
-          fi
-
           # Find previous bot comments that are status updates
           # Match: "egg run", "egg finished", "👀 Working on it"
-          # shellcheck disable=SC2016
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            | jq -r --arg bot "${{ env.BOT_USERNAME }}" \
+          gh api "repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments" \
+            | jq -r --arg bot "$BOT_USERNAME" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("egg run|egg finished|👀 Working on it")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
@@ -178,25 +331,18 @@ jobs:
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          # Determine where to post the comment
-          if [[ "${{ github.event_name }}" == "pull_request_review_comment" || "${{ github.event_name }}" == "pull_request_review" ]]; then
-            ISSUE_NUMBER="${{ github.event.pull_request.number }}"
-          else
-            ISSUE_NUMBER="${{ github.event.issue.number }}"
-          fi
-
           # Check if egg already posted a substantive comment since the triggering event
           # For pull_request_review events, use review.submitted_at; for comments, use comment.created_at; fallback to issue.created_at
           TRIGGER_TIME="${{ github.event.comment.created_at || github.event.review.submitted_at || github.event.issue.created_at }}"
-          # Match both "james-in-a-box" and "james-in-a-box[bot]" since GitHub App comments use the [bot] suffix
-          EXISTING_COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            --jq "[.[] | select((.user.login == \"${{ env.BOT_USERNAME }}\" or .user.login == \"${{ env.BOT_USERNAME }}[bot]\") and .created_at > \"${TRIGGER_TIME}\" and (.body | test(\"finished successfully|run failed|👀 Working on it\") | not))] | length")
+          # Match both bot username and bot[bot] since GitHub App comments use the [bot] suffix
+          EXISTING_COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments" \
+            --jq "[.[] | select((.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") and .created_at > \"${TRIGGER_TIME:-1970-01-01}\" and (.body | test(\"finished successfully|run failed|👀 Working on it\") | not))] | length")
 
           if [[ "${EXISTING_COMMENTS:-0}" -gt 0 ]]; then
             # Agent already posted a substantive comment — only add run link on failure
             if [[ "${EGG_EXIT_CODE:-1}" != "0" ]]; then
               BODY="egg run had errors (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
-              gh api repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments \
+              gh api repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments \
                 -X POST -f body="${BODY}"
             fi
           else
@@ -206,6 +352,6 @@ jobs:
             else
               BODY="egg run failed (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
             fi
-            gh api repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments \
+            gh api repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments \
               -X POST -f body="${BODY}"
           fi

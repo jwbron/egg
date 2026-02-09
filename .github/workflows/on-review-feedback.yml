@@ -18,33 +18,139 @@ on:
         description: 'PR number to address feedback for'
         required: true
         type: number
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to address feedback for'
+        required: true
+        type: number
+      bot_username:
+        description: 'GitHub username of the bot (for comment filtering and authorship checks)'
+        required: false
+        type: string
+        default: "james-in-a-box"
+      action_ref:
+        description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
+        required: false
+        type: string
+        default: "jwbron/egg/action@main"
+      authorized_users:
+        description: 'Comma-separated list of authorized GitHub usernames (for bot-authored PR check bypass)'
+        required: false
+        type: string
+        default: "jwbron"
+      max_feedback_rounds:
+        description: 'Maximum number of feedback-addressing rounds before requiring human intervention'
+        required: false
+        type: number
+        default: 3
+      prompt_script:
+        description: 'Path to prompt builder script (relative to repo root)'
+        required: false
+        type: string
+        default: "action/build-feedback-prompt.sh"
+      timeout:
+        description: 'Timeout in minutes'
+        required: false
+        type: string
+        default: "20"
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
+      BOT_APP_INSTALLATION_ID:
+        required: true
+      ANTHROPIC_OAUTH_TOKEN:
+        required: true
 
 jobs:
+  # Workaround: GitHub Actions doesn't allow accessing inputs in job-level 'if' conditions.
+  # This job passes inputs as outputs so subsequent jobs can use them in conditions.
+  resolve-inputs:
+    name: Resolve Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      bot_username: ${{ steps.resolve.outputs.bot_username }}
+      max_feedback_rounds: ${{ steps.resolve.outputs.max_feedback_rounds }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      should_check_trigger: ${{ steps.resolve.outputs.should_check_trigger }}
+    steps:
+      - name: Resolve inputs with defaults
+        id: resolve
+        run: |
+          # Use inputs if called as reusable workflow, otherwise use defaults
+          echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}" >> "$GITHUB_OUTPUT"
+          echo "max_feedback_rounds=${{ inputs.max_feedback_rounds || '3' }}" >> "$GITHUB_OUTPUT"
+
+          # Determine PR number based on event type
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            echo "pr_number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+            echo "should_check_trigger=false" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "pr_number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+            echo "should_check_trigger=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "pr_number=${{ github.event.pull_request.number || github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+            echo "should_check_trigger=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # For event-triggered runs, check if the trigger matches our bot
+  check-trigger:
+    name: Check Trigger
+    needs: resolve-inputs
+    if: needs.resolve-inputs.outputs.should_check_trigger == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Check if triggered by our bot
+        id: check
+        env:
+          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+        run: |
+          # For pull_request_review events
+          if [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+            review_user="${{ github.event.review.user.login }}"
+            review_body="${{ github.event.review.body }}"
+            review_state="${{ github.event.review.state }}"
+
+            if [[ ("$review_user" == "$BOT_USERNAME" || "$review_user" == "${BOT_USERNAME}[bot]") && \
+                  "$review_body" == *"egg-automated-review"* && \
+                  "$review_state" != "approved" ]]; then
+              echo "should_run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+            fi
+          # For issue_comment events (self-review as comment)
+          elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+            comment_user="${{ github.event.comment.user.login }}"
+            comment_body="${{ github.event.comment.body }}"
+            is_pr="${{ github.event.issue.pull_request }}"
+
+            if [[ -n "$is_pr" && \
+                  ("$comment_user" == "$BOT_USERNAME" || "$comment_user" == "${BOT_USERNAME}[bot]") && \
+                  "$comment_body" == *"egg-automated-review"* && \
+                  "$comment_body" != *"verdict=approve"* ]]; then
+              echo "should_run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   address-feedback:
     name: Address Review Feedback
+    needs: [resolve-inputs, check-trigger]
     runs-on: ubuntu-latest
-    # Only run when:
-    # - workflow_dispatch: manual trigger (bypasses filters for debugging — see step "Check if feedback should be addressed")
-    # - pull_request_review: formal review from the bot with automated review marker
-    # - issue_comment: self-review posted as comment (GitHub blocks bots from reviewing their own PRs)
-    #
-    # NOTE: Bot username is hardcoded in the if condition because env vars are not
-    # available at job level. The BOT_USERNAME env var is used in shell steps.
+    # Run when:
+    # - workflow_call or workflow_dispatch (should_check_trigger=false means check-trigger was skipped)
+    # - Event-triggered and check-trigger passed
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'pull_request_review' &&
-        (github.event.review.user.login == 'james-in-a-box' || github.event.review.user.login == 'james-in-a-box[bot]') &&
-        contains(github.event.review.body, 'egg-automated-review') &&
-        github.event.review.state != 'approved'
-      ) ||
-      (
-        github.event_name == 'issue_comment' &&
-        github.event.issue.pull_request != null &&
-        (github.event.comment.user.login == 'james-in-a-box' || github.event.comment.user.login == 'james-in-a-box[bot]') &&
-        contains(github.event.comment.body, 'egg-automated-review') &&
-        !contains(github.event.comment.body, 'verdict=approve')
-      )
+      always() &&
+      needs.resolve-inputs.result == 'success' &&
+      (needs.check-trigger.result == 'skipped' || needs.check-trigger.outputs.should_run == 'true')
 
     permissions:
       contents: write
@@ -52,13 +158,13 @@ jobs:
       actions: read
 
     concurrency:
-      group: egg-feedback-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
+      group: egg-feedback-${{ needs.resolve-inputs.outputs.pr_number }}
       cancel-in-progress: true
 
     env:
-      PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
-      BOT_USERNAME: james-in-a-box
-      MAX_FEEDBACK_ROUNDS: 3
+      PR_NUMBER: ${{ needs.resolve-inputs.outputs.pr_number }}
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      MAX_FEEDBACK_ROUNDS: ${{ needs.resolve-inputs.outputs.max_feedback_rounds }}
 
     steps:
       - name: Generate bot token
@@ -109,11 +215,11 @@ jobs:
             exit 0
           fi
 
-          # For workflow_dispatch, skip remaining filters.
+          # For workflow_dispatch or workflow_call, skip remaining filters.
           # NOTE: This is intentional for debugging — allows manual trigger on any PR.
           # The bot-author check, skip-review check, and iteration limit are bypassed.
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            echo "Manual trigger via workflow_dispatch — bypassing remaining filters"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$EVENT_NAME" == "workflow_call" ]]; then
+            echo "Manual/reusable trigger — bypassing remaining filters"
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -237,7 +343,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq '.[] | select(.user.login == "${{ env.BOT_USERNAME }}" or .user.login == "${{ env.BOT_USERNAME }}[bot]") | select(.body | test("egg is addressing|egg feedback")) | .node_id' \
+            --jq ".[] | select(.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") | select(.body | test(\"egg is addressing|egg feedback\")) | .node_id" \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -276,7 +382,7 @@ jobs:
       - name: Build feedback prompt
         if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
         id: prompt
-        run: bash action/build-feedback-prompt.sh
+        run: bash ${{ inputs.prompt_script || 'action/build-feedback-prompt.sh' }}
         env:
           PR_NUMBER: ${{ env.PR_NUMBER }}
 
@@ -300,7 +406,7 @@ jobs:
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.BOT_USERNAME }}
-          timeout: "20"
+          timeout: ${{ inputs.timeout || '20' }}
         env:
           EGG_BOT_NAME: feedback
 
