@@ -94,7 +94,7 @@ The action's entrypoint script (`action/entrypoint.sh`) orchestrates:
 3. **Detect mode** — If `mode=auto`, query `gh api repos/{owner}/{repo}` for visibility; set `private` for private/internal repos, `public` for public repos
 4. **Generate ephemeral config** — Write a temporary `repositories.yaml` with the full config format (see Config Generation below), generate a launcher secret
 5. **Start gateway** — Mount `$GITHUB_WORKSPACE/.git/` at a known path (e.g., `/repos/{repo-name}/.git`), inject the GitHub token via `GITHUB_USER_TOKEN` (and `BOT_GITHUB_TOKEN` if provided), inject the Anthropic OAuth token via `CLAUDE_CODE_OAUTH_TOKEN`, mount the launcher secret
-6. **Wait for health** — Poll `http://egg-gateway:9847/api/v1/health`
+6. **Wait for health** — Poll `http://egg-gateway:9848/api/v1/health`
 7. **Allocate container IP + create session** — Pre-allocate a container IP on the `egg-isolated` network, then call `POST /api/v1/sessions/create` with `{container_id, container_ip, mode, repos, uid, gid}`. This single API call atomically: queries repo visibility, filters repos by mode, creates worktrees, and registers the session. Returns `session_token` and `worktrees` dict.
 8. **Start sandbox** — Mount the worktree path returned by the session API, shadow `.git`, inject `EGG_SESSION_TOKEN`, run Claude Code in `--exec` mode with `--print --output-format=stream-json`. The sandbox does **not** receive the Anthropic OAuth token directly — all API calls route through the gateway at `ANTHROPIC_BASE_URL=http://egg-gateway:9848`, where the gateway injects credentials.
 9. **Capture output** — Stream container logs, write to `$GITHUB_STEP_SUMMARY`, extract PR URLs for step outputs

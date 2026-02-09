@@ -1380,7 +1380,7 @@ sleep 3
 
 # Test 1: Fetch from private repo (should succeed)
 echo "Test 1: Fetch from private repo"
-curl -X POST http://localhost:9847/api/v1/git/fetch \
+curl -X POST http://localhost:9848/api/v1/git/fetch \
     -H "Authorization: Bearer $GATEWAY_SECRET" \
     -H "Content-Type: application/json" \
     -d '{"repo_path": "/home/egg/repos/private-repo"}'
@@ -1388,7 +1388,7 @@ echo "✓ Private repo fetch allowed"
 
 # Test 2: Clone public repo (should fail)
 echo "Test 2: Clone public repo"
-RESPONSE=$(curl -s -w "%{http_code}" -X POST http://localhost:9847/api/v1/git/clone \
+RESPONSE=$(curl -s -w "%{http_code}" -X POST http://localhost:9848/api/v1/git/clone \
     -H "Authorization: Bearer $GATEWAY_SECRET" \
     -H "Content-Type: application/json" \
     -d '{"url": "https://github.com/octocat/Hello-World"}')

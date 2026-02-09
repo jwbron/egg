@@ -18,6 +18,7 @@ import json
 import urllib.request
 from enum import Enum
 
+from .config import GATEWAY_PORT
 from .output import info
 
 
@@ -60,7 +61,9 @@ def get_gateway_current_mode() -> PrivateMode | None:
         PrivateMode based on health response, or None if gateway is not reachable.
     """
     try:
-        with urllib.request.urlopen("http://localhost:9848/api/v1/health", timeout=2) as response:
+        with urllib.request.urlopen(
+            f"http://localhost:{GATEWAY_PORT}/api/v1/health", timeout=2
+        ) as response:
             data = json.loads(response.read().decode("utf-8"))
             # Gateway always reports private_mode=true now (locked Squid)
             # But we still parse the response for backward compatibility

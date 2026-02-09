@@ -2,10 +2,50 @@
 
 This module contains the Config class, Colors, gateway constants,
 and platform detection utilities.
+
+Gateway and network constants are imported from the shared egg_config module
+to ensure consistency across the codebase. See shared/egg_config/constants.py
+for the authoritative definitions.
 """
 
 import os
+import sys
 from pathlib import Path
+
+# Import constants from shared module (installed as egg_config)
+# Try installed package first, fall back to relative import for development
+try:
+    from egg_config.constants import (
+        EGG_CONTAINER_IP,
+        EGG_EXTERNAL_NETWORK,
+        EGG_EXTERNAL_SUBNET,
+        EGG_ISOLATED_NETWORK,
+        EGG_ISOLATED_SUBNET,
+        GATEWAY_CONTAINER_NAME,
+        GATEWAY_EXTERNAL_IP,
+        GATEWAY_IMAGE_NAME,
+        GATEWAY_ISOLATED_IP,
+        GATEWAY_PORT,
+        GATEWAY_PROXY_PORT,
+    )
+except ImportError:
+    # Development fallback: add shared/ to path
+    _shared_dir = Path(__file__).parent.parent.parent / "shared"
+    if str(_shared_dir) not in sys.path:
+        sys.path.insert(0, str(_shared_dir))
+    from egg_config.constants import (
+        EGG_CONTAINER_IP,
+        EGG_EXTERNAL_NETWORK,
+        EGG_EXTERNAL_SUBNET,
+        EGG_ISOLATED_NETWORK,
+        EGG_ISOLATED_SUBNET,
+        GATEWAY_CONTAINER_NAME,
+        GATEWAY_EXTERNAL_IP,
+        GATEWAY_IMAGE_NAME,
+        GATEWAY_ISOLATED_IP,
+        GATEWAY_PORT,
+        GATEWAY_PROXY_PORT,
+    )
 
 
 class Colors:
@@ -47,22 +87,26 @@ class Config:
     ]
 
 
-# Gateway container constants (containerized gateway sidecar)
-GATEWAY_CONTAINER_NAME = "egg-gateway"
-GATEWAY_IMAGE_NAME = "egg-gateway"
-GATEWAY_PORT = 9848
-GATEWAY_PROXY_PORT = 3129
-
-# Network lockdown configuration
-# Dual-network architecture: egg-isolated (internal) + egg-external (for gateway)
-# egg container connects only to egg-isolated and routes all traffic through gateway proxy
-EGG_ISOLATED_NETWORK = "egg-isolated"
-EGG_EXTERNAL_NETWORK = "egg-external"
-EGG_ISOLATED_SUBNET = "172.32.0.0/24"  # Subnet for egg-isolated network
-EGG_EXTERNAL_SUBNET = "172.33.0.0/24"  # Subnet for egg-external network
-EGG_CONTAINER_IP = "172.32.0.10"  # Fixed IP for egg container in isolated network
-GATEWAY_ISOLATED_IP = "172.32.0.2"  # Gateway IP in isolated network
-GATEWAY_EXTERNAL_IP = "172.33.0.2"  # Gateway IP in external network
+# Re-export gateway and network constants for backward compatibility.
+# These are imported from egg_config.constants at the top of this file.
+# See shared/egg_config/constants.py for the authoritative definitions.
+__all__ = [
+    "Colors",
+    "Config",
+    "EGG_CONTAINER_IP",
+    "EGG_EXTERNAL_NETWORK",
+    "EGG_EXTERNAL_SUBNET",
+    "EGG_ISOLATED_NETWORK",
+    "EGG_ISOLATED_SUBNET",
+    "GATEWAY_CONTAINER_NAME",
+    "GATEWAY_EXTERNAL_IP",
+    "GATEWAY_IMAGE_NAME",
+    "GATEWAY_ISOLATED_IP",
+    "GATEWAY_PORT",
+    "GATEWAY_PROXY_PORT",
+    "get_local_repos",
+    "get_platform",
+]
 
 
 def get_platform() -> str:

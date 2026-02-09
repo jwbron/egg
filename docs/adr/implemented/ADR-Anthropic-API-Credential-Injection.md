@@ -24,8 +24,8 @@ Both modes use the same credential injection mechanism, simplifying the architec
 │                                                                          │
 │  ┌─────────────────┐    ANTHROPIC_BASE_URL     ┌─────────────────────┐  │
 │  │  sandbox  │ ─────────────────────────▶│    egg-gateway      │  │
-│  │                 │   http://egg-gateway:9847 │                     │  │
-│  │  Claude Code    │   /v1/messages            │  Gateway API :9847  │──┼──▶ api.anthropic.com
+│  │                 │   http://egg-gateway:9848 │                     │  │
+│  │  Claude Code    │   /v1/messages            │  Gateway API :9848  │──┼──▶ api.anthropic.com
 │  │                 │                           │  - Inject creds     │  │
 │  └────────┬────────┘                           │  - Forward request  │  │
 │           │                                    └─────────────────────┘  │
@@ -41,8 +41,8 @@ Both modes use the same credential injection mechanism, simplifying the architec
 │                                                                          │
 │  ┌─────────────────┐    ANTHROPIC_BASE_URL     ┌─────────────────────┐  │
 │  │  sandbox  │ ─────────────────────────▶│    egg-gateway      │  │
-│  │                 │   http://egg-gateway:9847 │                     │  │
-│  │  Claude Code    │   /v1/messages            │  Gateway API :9847  │──┼──▶ api.anthropic.com
+│  │                 │   http://egg-gateway:9848 │                     │  │
+│  │  Claude Code    │   /v1/messages            │  Gateway API :9848  │──┼──▶ api.anthropic.com
 │  │                 │                           │  - Inject creds     │  │
 │  └────────┬────────┘                           │  - Forward request  │  │
 │           │                                    │                     │  │
@@ -216,7 +216,7 @@ def proxy_count_tokens():
 ```python
 def setup_anthropic_api(config: Config, logger: Logger) -> None:
     """Configure Claude Code to use gateway for Anthropic API."""
-    gateway_url = "http://egg-gateway:9847"
+    gateway_url = "http://egg-gateway:9848"
 
     # Set ANTHROPIC_BASE_URL to route API calls through gateway
     os.environ["ANTHROPIC_BASE_URL"] = gateway_url

@@ -669,7 +669,7 @@ ALLOWED_DOMAIN_PATTERNS = [
 │  │    │     egg     │              │  gateway │      │   │
 │  │    │ 172.30.0.10 │◄────────────►│   172.30.0.2    │      │   │
 │  │    │             │   REST API   │                 │      │   │
-│  │    │ NO EXTERNAL │   Port 9847  │                 │      │   │
+│  │    │ NO EXTERNAL │   Port 9848  │                 │      │   │
 │  │    │   ROUTE     │              │                 │      │   │
 │  │    └─────────────┘              └────────┬────────┘      │   │
 │  │                                          │               │   │
@@ -922,7 +922,7 @@ echo "Squid proxy started on port 3128"
 
 # Start gateway API server
 echo "Starting gateway API server..."
-exec python -m waitress --port=9847 --host=0.0.0.0 gateway:app
+exec python -m waitress --port=9848 --host=0.0.0.0 gateway:app
 ```
 
 #### 4. egg Container Changes
@@ -1137,7 +1137,7 @@ wait_for_gateway() {
 
     while [ $elapsed -lt $HEALTH_CHECK_TIMEOUT ]; do
         # Check gateway API health endpoint
-        if docker exec "$GATEWAY_CONTAINER" curl -sf http://localhost:9847/api/v1/health >/dev/null 2>&1; then
+        if docker exec "$GATEWAY_CONTAINER" curl -sf http://localhost:9848/api/v1/health >/dev/null 2>&1; then
             # Also verify Squid proxy is responding
             if docker exec "$GATEWAY_CONTAINER" curl -sf --proxy http://localhost:3128 -o /dev/null https://api.github.com/ 2>&1; then
                 echo "Gateway is ready (API + Proxy healthy)"
@@ -1182,7 +1182,7 @@ def wait_for_gateway(timeout: int = 60, interval: int = 2) -> bool:
     Returns:
         True if gateway is ready, False if timeout
     """
-    gateway_url = "http://egg-gateway:9847/api/v1/health"
+    gateway_url = "http://egg-gateway:9848/api/v1/health"
     proxy_test_url = "https://api.github.com/"
     proxies = {"https": "http://gateway:3128"}
 
@@ -1228,7 +1228,7 @@ services:
 
   gateway:
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:9847/api/v1/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:9848/api/v1/health"]
       interval: 5s
       timeout: 5s
       retries: 3
@@ -1343,7 +1343,7 @@ echo "Test 1: GitHub API unavailability"
 # Mock GitHub API to return 503
 docker exec egg-gateway iptables -A OUTPUT -d api.github.com -j DROP
 # Attempt operation - should fail closed (treat as private, allow)
-curl -X POST http://localhost:9847/api/v1/git/fetch \
+curl -X POST http://localhost:9848/api/v1/git/fetch \
     -H "Authorization: Bearer $GATEWAY_SECRET" \
     -H "Content-Type: application/json" \
     -d '{"repo_path": "/home/egg/repos/test-repo"}' || true
@@ -1354,7 +1354,7 @@ echo "✓ API unavailability handled (fail closed)"
 # Test 2: Concurrent visibility checks
 echo "Test 2: Concurrent visibility checks for same repo"
 for i in {1..10}; do
-    curl -X POST http://localhost:9847/api/v1/git/fetch \
+    curl -X POST http://localhost:9848/api/v1/git/fetch \
         -H "Authorization: Bearer $GATEWAY_SECRET" \
         -H "Content-Type: application/json" \
         -d '{"repo_path": "/home/egg/repos/test-repo"}' &
