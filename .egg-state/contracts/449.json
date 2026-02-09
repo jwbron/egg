@@ -6,8 +6,752 @@
     "url": "https://github.com/jwbron/egg/issues/449"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] YAML is valid, includes all documented inputs",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Permissions match sdlc-pipeline.yml; concurrency prevents parallel runs",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] All 6 jobs defined with needs dependencies and conditional if clauses",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-1] Checks out main branch, runs work_prompt_script input with phase context",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-2] Checks out branch from inputs.branch_name, configures bot identity",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-3] Runs egg action with EGG_PIPELINE_PHASE and EGG_AGENT_ROLE set",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-4] Outputs draft_file for refine/plan phases",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-1] Phase-specific check jobs run in DAG order",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-2] Runs merge conflict check; outputs success/failure status",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-3] Runs after merge-conflict; parallel with check-test",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-4] Runs after merge-conflict; parallel with check-lint",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-5] Runs only if lint or test failed and check is fixable",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-3-6] Collects all check results; outputs overall pass/fail",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-4-1] Accepts EGG_PIPELINE_PHASE; generates phase-appropriate review criteria",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-4-2] Reads and increments review cycles from contract",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-4-3] Skips review if circuit breaker is open",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-4-4] Runs egg action with reviewer role; uses opus model",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-4-5] Reads review JSON; outputs verdict and feedback",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-5-1] Routes to human gate on approval; prepares redispatch on revision",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-5-2] Updates review cycles and feedback in contract with conflict-resistant retry",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-5-3] Opens circuit breaker if review_cycles exceeds max",
+      "verified": false
+    },
+    {
+      "id": "ac-22",
+      "description": "[TASK-5-4] Triggers workflow_dispatch with same phase to restart work loop",
+      "verified": false
+    },
+    {
+      "id": "ac-23",
+      "description": "[TASK-6-1] Reads draft file; posts to issue with approval checkbox",
+      "verified": false
+    },
+    {
+      "id": "ac-24",
+      "description": "[TASK-6-2] Uses egg-phase-approval marker; includes checkbox",
+      "verified": false
+    },
+    {
+      "id": "ac-25",
+      "description": "[TASK-6-3] Adds label after posting",
+      "verified": false
+    },
+    {
+      "id": "ac-26",
+      "description": "[TASK-6-4] Prepares state for human decision; does not advance phase",
+      "verified": false
+    },
+    {
+      "id": "ac-27",
+      "description": "[TASK-7-1] Calls gh pr ready; updates PR title",
+      "verified": false
+    },
+    {
+      "id": "ac-28",
+      "description": "[TASK-7-2] Adds workflow_owner as reviewer if available",
+      "verified": false
+    },
+    {
+      "id": "ac-29",
+      "description": "[TASK-7-3] Updates current_phase with conflict-resistant retry",
+      "verified": false
+    },
+    {
+      "id": "ac-30",
+      "description": "[TASK-7-4] Posts status comment linking to PR",
+      "verified": false
+    },
+    {
+      "id": "ac-31",
+      "description": "[TASK-8-1] Input defaults to 10; read from contract",
+      "verified": false
+    },
+    {
+      "id": "ac-32",
+      "description": "[TASK-8-2] Increments circuit_breaker.total_cycles on each iteration",
+      "verified": false
+    },
+    {
+      "id": "ac-33",
+      "description": "[TASK-8-3] Sets status to open when thresholds exceeded; adds audit log",
+      "verified": false
+    },
+    {
+      "id": "ac-34",
+      "description": "[TASK-8-4] Posts escalation comment; adds awaiting-approval label",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Core Workflow Skeleton",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create sdlc-work-loop.yml with full input schema",
+          "status": "pending",
+          "acceptance_criteria": "YAML is valid, includes all documented inputs",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add workflow-level configuration (permissions, concurrency)",
+          "status": "pending",
+          "acceptance_criteria": "Permissions match sdlc-pipeline.yml; concurrency prevents parallel runs",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add job skeletons for all jobs",
+          "status": "pending",
+          "acceptance_criteria": "All 6 jobs defined with needs dependencies and conditional if clauses",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Implement the work Job",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Implement trusted checkout and prompt building step",
+          "status": "pending",
+          "acceptance_criteria": "Checks out main branch, runs work_prompt_script input with phase context",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Implement issue branch checkout and git identity configuration",
+          "status": "pending",
+          "acceptance_criteria": "Checks out branch from inputs.branch_name, configures bot identity",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Implement egg action invocation with phase-aware environment",
+          "status": "pending",
+          "acceptance_criteria": "Runs egg action with EGG_PIPELINE_PHASE and EGG_AGENT_ROLE set",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Implement output artifact capture",
+          "status": "pending",
+          "acceptance_criteria": "Outputs draft_file for refine/plan phases",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Implement the run-checks Job with DAG Execution",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Create check DAG execution model with parallel jobs",
+          "status": "pending",
+          "acceptance_criteria": "Phase-specific check jobs run in DAG order",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Implement check-merge-conflict job",
+          "status": "pending",
+          "acceptance_criteria": "Runs merge conflict check; outputs success/failure status",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Implement check-lint job with parallelism",
+          "status": "pending",
+          "acceptance_criteria": "Runs after merge-conflict; parallel with check-test",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Implement check-test job with parallelism",
+          "status": "pending",
+          "acceptance_criteria": "Runs after merge-conflict; parallel with check-lint",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-5",
+          "description": "Implement check-fixer job",
+          "status": "pending",
+          "acceptance_criteria": "Runs only if lint or test failed and check is fixable",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-6",
+          "description": "Implement check aggregation logic",
+          "status": "pending",
+          "acceptance_criteria": "Collects all check results; outputs overall pass/fail",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Implement the review Job",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Create build-unified-review-prompt.sh script",
+          "status": "pending",
+          "acceptance_criteria": "Accepts EGG_PIPELINE_PHASE; generates phase-appropriate review criteria",
+          "files_affected": [
+            "action/build-unified-review-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Implement review cycle tracking from contract",
+          "status": "pending",
+          "acceptance_criteria": "Reads and increments review cycles from contract",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Implement circuit breaker check before review",
+          "status": "pending",
+          "acceptance_criteria": "Skips review if circuit breaker is open",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Implement reviewer agent invocation",
+          "status": "pending",
+          "acceptance_criteria": "Runs egg action with reviewer role; uses opus model",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-5",
+          "description": "Implement verdict parsing from review file",
+          "status": "pending",
+          "acceptance_criteria": "Reads review JSON; outputs verdict and feedback",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Implement the respond Job",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Implement verdict routing logic",
+          "status": "pending",
+          "acceptance_criteria": "Routes to human gate on approval; prepares redispatch on revision",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Implement contract update with review feedback",
+          "status": "pending",
+          "acceptance_criteria": "Updates review cycles and feedback in contract with conflict-resistant retry",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Implement circuit breaker trigger logic",
+          "status": "pending",
+          "acceptance_criteria": "Opens circuit breaker if review_cycles exceeds max",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-4",
+          "description": "Implement pipeline redispatch for revisions",
+          "status": "pending",
+          "acceptance_criteria": "Triggers workflow_dispatch with same phase to restart work loop",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "Implement the human-gate Job",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Implement draft-to-issue posting",
+          "status": "pending",
+          "acceptance_criteria": "Reads draft file; posts to issue with approval checkbox",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-2",
+          "description": "Implement phase approval comment format",
+          "status": "pending",
+          "acceptance_criteria": "Uses egg-phase-approval marker; includes checkbox",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-3",
+          "description": "Implement sdlc:awaiting-approval label application",
+          "status": "pending",
+          "acceptance_criteria": "Adds label after posting",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-4",
+          "description": "Implement contract phase advancement setup",
+          "status": "pending",
+          "acceptance_criteria": "Prepares state for human decision; does not advance phase",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-7",
+      "name": "Implement the human-gate-pr Job",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-7-1",
+          "description": "Implement PR ready-for-review transition",
+          "status": "pending",
+          "acceptance_criteria": "Calls gh pr ready; updates PR title",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-2",
+          "description": "Implement reviewer assignment",
+          "status": "pending",
+          "acceptance_criteria": "Adds workflow_owner as reviewer if available",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-3",
+          "description": "Implement contract phase update to pr",
+          "status": "pending",
+          "acceptance_criteria": "Updates current_phase with conflict-resistant retry",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-4",
+          "description": "Implement completion comment on issue",
+          "status": "pending",
+          "acceptance_criteria": "Posts status comment linking to PR",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-8",
+      "name": "Circuit Breaker and Error Handling",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-8-1",
+          "description": "Add max_total_cycles input with default threshold",
+          "status": "pending",
+          "acceptance_criteria": "Input defaults to 10; read from contract",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-8-2",
+          "description": "Implement total cycle tracking across phases",
+          "status": "pending",
+          "acceptance_criteria": "Increments circuit_breaker.total_cycles on each iteration",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-8-3",
+          "description": "Implement circuit breaker open logic",
+          "status": "pending",
+          "acceptance_criteria": "Sets status to open when thresholds exceeded; adds audit log",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-8-4",
+          "description": "Implement escalation comment posting",
+          "status": "pending",
+          "acceptance_criteria": "Posts escalation comment; adds awaiting-approval label",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 0,
@@ -60,5 +804,9 @@
   "refine_review_cycles": 1,
   "refine_review_feedback": "",
   "plan_review_cycles": 1,
-  "plan_review_feedback": ""
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add unified work loop workflow for SDLC phases",
+    "description": "Creates the new `sdlc-work-loop.yml` reusable workflow that consolidates\nthe work/review/respond cycle pattern across refine, plan, and implement\nphases. This is part 2 of 4 for SDLC unification (#436).\n\nThe workflow is added alongside the existing pipeline for parallel testing.\nNo existing code is modified or removed.\n\nFixes #449"
+  }
 }
