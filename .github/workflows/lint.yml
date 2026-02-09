@@ -110,3 +110,6 @@ jobs:
 
       - name: Check hardcoded ports
         run: .venv/bin/python scripts/check-hardcoded-ports.py
+
+      - name: Check reviewer job names
+        run: .venv/bin/python scripts/check-reviewer-job-names.py

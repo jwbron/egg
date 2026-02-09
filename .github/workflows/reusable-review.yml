@@ -205,13 +205,14 @@ jobs:
             fi
 
             # Filter out review bot checks and SDLC pipeline checks to avoid self-deadlock.
-            # - egg-reviewer- pattern matches all reviewer jobs (e.g., "AI Code Review / egg-reviewer-review")
-            #   Note: No ^ anchor because GitHub prefixes job names with "Workflow Name / "
+            # Patterns matched (no ^ anchor because GitHub may prefix with workflow name):
+            # - egg-review / matches all reviewer job names (standardized prefix)
+            # - egg-reviewer- matches nested reviewer jobs (e.g., "egg-review / Code / egg-reviewer-review")
             # - SDLC Pipeline matches "egg: SDLC Pipeline / Initialize pipeline", etc.
             # - SDLC HITL matches "egg: SDLC HITL Decision Handler / Handle HITL decision", etc.
             checks=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
               --jq '.check_runs | [.[] | select(
-                (.name | test("egg-reviewer-|SDLC Pipeline|SDLC HITL") | not)
+                (.name | test("egg-review /|egg-reviewer-|SDLC Pipeline|SDLC HITL") | not)
               ) | {name, status, conclusion}]')
 
             total=$(echo "$checks" | jq 'length')
