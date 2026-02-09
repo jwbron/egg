@@ -118,7 +118,7 @@ egg includes GitHub Actions workflows that run inside the sandbox:
 
 ```bash
 # Via label (recommended)
-gh issue edit 123 --add-label "egg-sdlc"
+gh issue edit 123 --add-label "sdlc:refine"
 
 # Via workflow dispatch
 gh workflow run sdlc-pipeline.yml -f issue_number=123 -f starting_phase=refine
@@ -141,7 +141,7 @@ A 30-second debounce prevents accidental clicks.
 ### Using the SDLC Pipeline (GitHub Actions)
 
 1. Install the egg GitHub App or configure workflows in your repository
-2. Add the `egg-sdlc` label to an issue
+2. Add the `sdlc:refine` label to an issue
 3. The pipeline begins: refine → plan → implement → ready for merge
 4. Review and merge the PR via GitHub UI
 

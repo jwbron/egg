@@ -29,8 +29,13 @@ jobs:
   cleanup:
     name: Cleanup SDLC state
     runs-on: ubuntu-latest
-    # Only run for issues with the egg-sdlc label
-    if: contains(github.event.issue.labels.*.name, 'egg-sdlc')
+    # Only run for issues with any SDLC phase label
+    if: >-
+      contains(github.event.issue.labels.*.name, 'sdlc:refine') ||
+      contains(github.event.issue.labels.*.name, 'sdlc:plan') ||
+      contains(github.event.issue.labels.*.name, 'sdlc:implement') ||
+      contains(github.event.issue.labels.*.name, 'sdlc:pr') ||
+      contains(github.event.issue.labels.*.name, 'sdlc:awaiting-approval')
 
     env:
       ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -169,6 +174,34 @@ jobs:
             echo "error=Failed to delete branch: ${ERROR_OUTPUT}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Remove SDLC labels
+        id: remove-labels
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          REMOVED_LABELS=""
+
+          # Remove all SDLC phase and status labels
+          for label in "sdlc:refine" "sdlc:plan" "sdlc:implement" "sdlc:pr" "sdlc:awaiting-approval"; do
+            encoded_label="${label//:/%3A}"
+            if gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels/${encoded_label}" \
+                -X DELETE --silent 2>/dev/null; then
+              REMOVED_LABELS="${REMOVED_LABELS}${label}, "
+            fi
+          done
+
+          if [[ -n "$REMOVED_LABELS" ]]; then
+            # Remove trailing comma and space
+            REMOVED_LABELS="${REMOVED_LABELS%, }"
+            echo "labels_removed=${REMOVED_LABELS}" >> "$GITHUB_OUTPUT"
+            echo "Removed labels: ${REMOVED_LABELS}"
+          else
+            echo "labels_removed=" >> "$GITHUB_OUTPUT"
+            echo "No SDLC labels to remove"
+          fi
+
       - name: Post cleanup summary comment
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -180,6 +213,7 @@ jobs:
           SKIP_REASON: ${{ steps.delete-branch.outputs.skip_reason }}
           CANCEL_ERRORS: ${{ steps.cancel-workflows.outputs.errors }}
           DELETE_ERROR: ${{ steps.delete-branch.outputs.error }}
+          LABELS_REMOVED: ${{ steps.remove-labels.outputs.labels_removed }}
         run: |
           set -euo pipefail
 
@@ -202,6 +236,11 @@ jobs:
             SUMMARY="${SUMMARY}- Branch \`${BRANCH_NAME}\` already deleted or never existed"$'\n'
           else
             SUMMARY="${SUMMARY}- Branch deletion skipped"$'\n'
+          fi
+
+          # Labels removed status
+          if [[ -n "${LABELS_REMOVED:-}" ]]; then
+            SUMMARY="${SUMMARY}- Removed SDLC labels: ${LABELS_REMOVED}"$'\n'
           fi
 
           # Report any errors

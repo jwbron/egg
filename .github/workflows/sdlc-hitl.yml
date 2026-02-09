@@ -375,6 +375,50 @@ jobs:
           export JQ_FILTER=".current_phase = \"${NEXT_PHASE}\""
           .github/scripts/push-contract-update.sh
 
+      # Transition SDLC labels when all decisions resolved
+      - name: Transition SDLC labels on decision resolution
+        if: steps.advance.outputs.should_advance == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          NEXT_PHASE: ${{ steps.advance.outputs.next_phase }}
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          CURRENT_PHASE=$(jq -r '.current_phase' "$CONTRACT_PATH" 2>/dev/null || echo "")
+
+          # Map current and next phase to labels
+          case "$CURRENT_PHASE" in
+            refine) OLD_LABEL="sdlc:refine" ;;
+            plan) OLD_LABEL="sdlc:plan" ;;
+            implement) OLD_LABEL="sdlc:implement" ;;
+            *) OLD_LABEL="" ;;
+          esac
+
+          case "$NEXT_PHASE" in
+            refine) NEW_LABEL="sdlc:refine" ;;
+            plan) NEW_LABEL="sdlc:plan" ;;
+            implement) NEW_LABEL="sdlc:implement" ;;
+            pr) NEW_LABEL="sdlc:pr" ;;
+            *) NEW_LABEL="" ;;
+          esac
+
+          # Remove old phase label
+          if [[ -n "$OLD_LABEL" ]]; then
+            encoded_label="${OLD_LABEL//:/%3A}"
+            gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels/${encoded_label}" \
+              -X DELETE --silent 2>/dev/null || true
+          fi
+
+          # Add new phase label
+          if [[ -n "$NEW_LABEL" ]]; then
+            gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels" \
+              -X POST -f "labels[]=${NEW_LABEL}" --silent || true
+          fi
+
+          # Remove sdlc:awaiting-approval label
+          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels/sdlc%3Aawaiting-approval" \
+            -X DELETE --silent 2>/dev/null || true
+
       # Minimize previous HITL status comments to reduce clutter
       - name: Minimize previous HITL comments
         if: steps.update.outputs.contract_updated == 'true'
@@ -610,6 +654,51 @@ jobs:
           export COMMIT_MESSAGE="Approve and advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
           export JQ_SCRIPT_PATH="/tmp/reapply-approve-phase.sh"
           .github/scripts/push-contract-update.sh
+
+      # Transition SDLC labels on phase approval
+      - name: Transition SDLC labels
+        if: steps.approve.outputs.approved == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          NEXT_PHASE: ${{ steps.approve.outputs.next_phase }}
+          PREVIOUS_PHASE: ${{ steps.approve.outputs.previous_phase }}
+        run: |
+          set -euo pipefail
+
+          # Map phase to label
+          case "$PREVIOUS_PHASE" in
+            refine) OLD_LABEL="sdlc:refine" ;;
+            plan) OLD_LABEL="sdlc:plan" ;;
+            implement) OLD_LABEL="sdlc:implement" ;;
+            *) OLD_LABEL="" ;;
+          esac
+
+          case "$NEXT_PHASE" in
+            refine) NEW_LABEL="sdlc:refine" ;;
+            plan) NEW_LABEL="sdlc:plan" ;;
+            implement) NEW_LABEL="sdlc:implement" ;;
+            pr) NEW_LABEL="sdlc:pr" ;;
+            *) NEW_LABEL="" ;;
+          esac
+
+          # Remove old phase label
+          if [[ -n "$OLD_LABEL" ]]; then
+            encoded_label="${OLD_LABEL//:/%3A}"
+            gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels/${encoded_label}" \
+              -X DELETE --silent 2>/dev/null || true
+          fi
+
+          # Add new phase label
+          if [[ -n "$NEW_LABEL" ]]; then
+            gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels" \
+              -X POST -f "labels[]=${NEW_LABEL}" --silent || true
+          fi
+
+          # Remove sdlc:awaiting-approval label
+          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels/sdlc%3Aawaiting-approval" \
+            -X DELETE --silent 2>/dev/null || true
+
+          echo "Transitioned labels: ${OLD_LABEL} -> ${NEW_LABEL}"
 
       # Minimize previous HITL status comments to reduce clutter
       - name: Minimize previous HITL comments

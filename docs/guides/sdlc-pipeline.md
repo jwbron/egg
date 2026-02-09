@@ -426,11 +426,48 @@ The PR metadata (title and description) from the plan is stored in the contract'
 | `.egg/schemas/contract.schema.json` | JSON schema definition |
 | `.egg/phase-permissions.json` | Phase operation restrictions |
 
+## SDLC Labels
+
+The pipeline uses GitHub labels to track issue state and enable filtering:
+
+### Phase Labels
+
+| Label | Description | Applied When |
+|-------|-------------|--------------|
+| `sdlc:refine` | Issue is in refine phase | Pipeline initialized or workflow triggered |
+| `sdlc:plan` | Issue is in plan phase | Refine phase approved |
+| `sdlc:implement` | Issue is in implement phase | Plan phase approved |
+| `sdlc:pr` | Issue has a PR in review | Draft PR created |
+
+### Status Labels
+
+| Label | Description | Applied When |
+|-------|-------------|--------------|
+| `sdlc:awaiting-approval` | Human approval required | Phase completion or escalation |
+
+### Label Lifecycle
+
+1. **Pipeline start**: `sdlc:refine` is added (and triggers the pipeline)
+2. **Phase transitions**: Old phase label removed, new phase label added
+3. **Awaiting approval**: `sdlc:awaiting-approval` added when human review needed
+4. **On approval**: `sdlc:awaiting-approval` removed, phase label transitioned
+5. **Issue closed**: All SDLC labels automatically removed by cleanup workflow
+
+### Label Setup
+
+To set up SDLC labels in a repository:
+
+```bash
+.github/scripts/setup-sdlc-labels.sh --repo owner/repo
+```
+
+This script is idempotent and safe to run multiple times.
+
 ### Triggering the Pipeline
 
-**Via label**:
+**Via label** (recommended):
 ```bash
-gh issue edit 123 --add-label "egg-sdlc"
+gh issue edit 123 --add-label "sdlc:refine"
 ```
 
 **Via workflow dispatch**:
