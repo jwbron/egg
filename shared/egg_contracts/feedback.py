@@ -170,12 +170,18 @@ def _generate_feedback_debounce_notice(seconds_remaining: int) -> str:
     )
 
 
-def parse_feedback_comment(comment_body: str) -> ParsedFeedbackResponse | None:
+def parse_feedback_comment(
+    comment_body: str,
+    expected_question_ids: list[str] | None = None,
+) -> ParsedFeedbackResponse | None:
     """
     Parse a feedback comment to extract the feedback ID, answers, and submit state.
 
     Args:
         comment_body: The raw comment body
+        expected_question_ids: Optional list of valid question IDs (e.g., ["Q1", "Q2"]).
+            If provided, only these question IDs will be parsed; unknown IDs are
+            ignored. If None, all Q[n] patterns are parsed.
 
     Returns:
         ParsedFeedbackResponse if the comment contains a valid feedback marker,
@@ -208,7 +214,17 @@ def parse_feedback_comment(comment_body: str) -> ParsedFeedbackResponse | None:
                 answer = _extract_answer(current_answer_lines)
                 questions[current_question_id] = answer
 
-            current_question_id = f"Q{q_match.group(1)}"
+            candidate_id = f"Q{q_match.group(1)}"
+
+            # Validate question ID if expected_question_ids is provided
+            if expected_question_ids is not None and candidate_id not in expected_question_ids:
+                # Skip unknown question IDs - ignore malicious/unexpected entries
+                current_question_id = None
+                current_answer_lines = []
+                in_answer_block = False
+                continue
+
+            current_question_id = candidate_id
             current_answer_lines = []
             in_answer_block = False
             continue

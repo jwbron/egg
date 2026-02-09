@@ -239,6 +239,74 @@ class TestParseFeedbackComment:
         assert result is not None
         assert result.questions["Q1"] is None
 
+    def test_multiline_answer(self):
+        """Test parsing multi-line blockquote answers."""
+        comment = """
+<!-- egg-feedback id=feedback-1 -->
+
+**Q1: Describe the requirements**
+
+> Line one of the answer
+> Line two of the answer
+> Line three continues
+
+---
+"""
+        result = parse_feedback_comment(comment)
+
+        assert result is not None
+        # Multi-line answers are joined with spaces
+        assert result.questions["Q1"] == "Line one of the answer Line two of the answer Line three continues"
+
+    def test_expected_question_ids_filters_unknown(self):
+        """Test that expected_question_ids filters out unknown question IDs."""
+        comment = """
+<!-- egg-feedback id=feedback-1 -->
+
+**Q1: Valid question?**
+
+> Valid answer
+
+**Q999: Malicious question?**
+
+> Injected answer
+
+**Q2: Another valid question?**
+
+> Another valid answer
+
+---
+"""
+        result = parse_feedback_comment(comment, expected_question_ids=["Q1", "Q2"])
+
+        assert result is not None
+        assert "Q1" in result.questions
+        assert "Q2" in result.questions
+        assert "Q999" not in result.questions
+        assert result.questions["Q1"] == "Valid answer"
+        assert result.questions["Q2"] == "Another valid answer"
+
+    def test_expected_question_ids_none_parses_all(self):
+        """Test that None expected_question_ids parses all question IDs."""
+        comment = """
+<!-- egg-feedback id=feedback-1 -->
+
+**Q1: Question one?**
+
+> Answer one
+
+**Q100: Question hundred?**
+
+> Answer hundred
+
+---
+"""
+        result = parse_feedback_comment(comment, expected_question_ids=None)
+
+        assert result is not None
+        assert "Q1" in result.questions
+        assert "Q100" in result.questions
+
 
 class TestParsedFeedbackResponse:
     """Tests for ParsedFeedbackResponse."""

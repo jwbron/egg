@@ -837,13 +837,12 @@ jobs:
 
             # Skip placeholder text
             if [[ "$ANSWER" == "_Your answer here_" ]] || [[ -z "$ANSWER" ]]; then
-              ANSWER="null"
+              # Use jq to add null value directly
+              ANSWERS_JSON=$(echo "$ANSWERS_JSON" | jq --arg qid "$QID" '. + {($qid): null}')
             else
-              # Escape for JSON
-              ANSWER=$(printf '%s' "$ANSWER" | jq -Rs '.')
+              # Use --arg to safely pass the string (handles encoding issues)
+              ANSWERS_JSON=$(echo "$ANSWERS_JSON" | jq --arg qid "$QID" --arg ans "$ANSWER" '. + {($qid): $ans}')
             fi
-
-            ANSWERS_JSON=$(echo "$ANSWERS_JSON" | jq --arg qid "$QID" --argjson ans "$ANSWER" '. + {($qid): $ans}')
           done
 
           echo "Parsed answers: $ANSWERS_JSON"
@@ -852,16 +851,23 @@ jobs:
           SENDER_LOGIN="${{ github.event.sender.login }}"
           export SENDER_LOGIN FEEDBACK_ID COMMENT_ID CONTRACT_PATH
 
+          # Write answers to a file for the reapply script to read
+          # (heredocs with 'EOF' don't expand variables, so we use a file)
+          echo "$ANSWERS_JSON" > /tmp/answers.json
+
           # Create reapply script for retry logic
           cat > /tmp/reapply-feedback.sh << 'REAPPLY_EOF'
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Read answers from file (written before script creation)
+          ANSWERS_JSON=$(cat /tmp/answers.json)
 
           # Update feedback with answers
           QUESTIONS=$(jq '.feedback.questions' "$CONTRACT_PATH")
 
           # Update each question with its answer
           for QID in $(echo "$QUESTIONS" | jq -r '.[].id'); do
-            ANSWER=$(echo "$ANSWERS_JSON_EXPORT" | jq -r --arg qid "$QID" '.[$qid] // null')
+            ANSWER=$(echo "$ANSWERS_JSON" | jq -r --arg qid "$QID" '.[$qid] // null')
             if [[ "$ANSWER" != "null" ]]; then
               jq --arg qid "$QID" --arg answer "$ANSWER" '
                 .feedback.questions = [.feedback.questions[] |
@@ -902,9 +908,6 @@ jobs:
             "$CONTRACT_PATH" > /tmp/contract.json
           mv /tmp/contract.json "$CONTRACT_PATH"
           REAPPLY_EOF
-
-          # Export answers for the reapply script
-          export ANSWERS_JSON_EXPORT="$ANSWERS_JSON"
 
           # Apply transformation initially
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
