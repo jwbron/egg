@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 430,
+    "title": "set up a single reusable workflow for all SDLC workflows",
+    "url": "https://github.com/jwbron/egg/issues/430"
+  },
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": []
+}
