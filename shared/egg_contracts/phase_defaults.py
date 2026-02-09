@@ -108,9 +108,10 @@ def get_default_phase_config(phase: PipelinePhase) -> PhaseConfig:
         phase: The pipeline phase to get configuration for.
 
     Returns:
-        The default PhaseConfig for the given phase.
+        A copy of the default PhaseConfig for the given phase.
+        Returns a deep copy to prevent accidental mutation of global defaults.
     """
-    return _DEFAULT_PHASE_CONFIGS[phase]
+    return _DEFAULT_PHASE_CONFIGS[phase].model_copy(deep=True)
 
 
 def get_effective_phase_config(contract: Contract, phase: PipelinePhase) -> PhaseConfig:

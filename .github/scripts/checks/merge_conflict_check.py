@@ -39,7 +39,9 @@ class MergeConflictCheck(CheckRunner):
             )
 
         # Search for conflict markers
-        conflict_markers = ["<<<<<<<", "=======", ">>>>>>>"]
+        # Only use <<<<<<< as the definitive marker - it's the most distinctive
+        # indicator of an actual merge conflict. The ======= marker can appear
+        # legitimately in markdown horizontal rules, documentation, ASCII art, etc.
         files_with_conflicts: list[str] = []
 
         for file_path in tracked_files:
@@ -52,10 +54,8 @@ class MergeConflictCheck(CheckRunner):
 
             try:
                 content = full_path.read_text(errors="ignore")
-                for marker in conflict_markers:
-                    if marker in content:
-                        files_with_conflicts.append(file_path)
-                        break
+                if "<<<<<<<" in content:
+                    files_with_conflicts.append(file_path)
             except Exception:
                 # Skip files that can't be read (binary files, etc.)
                 continue
