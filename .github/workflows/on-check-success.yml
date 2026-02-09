@@ -25,6 +25,11 @@ on:
         description: 'PR number to finalize (manual trigger)'
         required: true
         type: number
+      bot_username:
+        description: 'Bot username for git operations (without [bot] suffix)'
+        required: false
+        type: string
+        default: 'james-in-a-box'
 
 permissions:
   actions: read
@@ -37,9 +42,15 @@ jobs:
     name: Finalize SDLC PR
     runs-on: ubuntu-latest
     # Only run when:
-    # - workflow_run: triggering workflow succeeded (or concluded) AND was for a PR
+    # - workflow_run: triggering workflow completed (success or failure) AND was for a PR
     # - schedule: always (will filter by label below)
     # - workflow_dispatch: always (manual trigger for specific PR)
+    #
+    # NOTE: We trigger on workflow_run completion for both success AND failure cases.
+    # This is intentional—we need to see completions to aggregate check status across
+    # multiple workflows. The actual success/failure filtering happens in the
+    # "Verify checks and reviews" step, which checks that all checks succeeded.
+    # The "Handle check failures" step only runs when the triggering workflow failed.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
@@ -49,13 +60,14 @@ jobs:
         github.event.workflow_run.pull_requests[0] != null
       )
 
-    # Deduplicate concurrent triggers for the same PR
+    # Deduplicate concurrent triggers for the same PR.
+    # For scheduled runs, use run_id to avoid cancelling in-progress runs mid-push.
     concurrency:
-      group: egg-finalize-pr-${{ github.event.workflow_run.pull_requests[0].number || github.event.inputs.pr_number || 'scheduled' }}
-      cancel-in-progress: true
+      group: egg-finalize-pr-${{ github.event.workflow_run.pull_requests[0].number || github.event.inputs.pr_number || github.run_id }}
+      cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
     env:
-      BOT_USERNAME: james-in-a-box
+      BOT_USERNAME: ${{ github.event.inputs.bot_username || 'james-in-a-box' }}
 
     steps:
       - name: Generate bot token
@@ -274,8 +286,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "james-in-a-box[bot]"
-          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Finalize PRs
         if: steps.verify.outputs.has_ready == 'true'
@@ -288,18 +300,24 @@ jobs:
           for PR_NUMBER in $READY_PRS; do
             echo "=== Finalizing PR #${PR_NUMBER} ==="
 
+            # Reset to clean state before processing each PR to avoid state pollution
+            # from failed prior iterations
+            git checkout main 2>/dev/null || git checkout -b main origin/main 2>/dev/null || true
+            git reset --hard origin/main 2>/dev/null || true
+
             # Fetch PR metadata
             PR_DATA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}")
             BRANCH_NAME=$(echo "$PR_DATA" | jq -r '.head.ref')
 
-            # Extract issue number from branch name (egg/issue-NNN pattern)
-            if [[ "$BRANCH_NAME" =~ ^egg/issue-([0-9]+)$ ]]; then
+            # Extract issue number from branch name (egg/issue-NNN or egg-issue-NNN pattern)
+            if [[ "$BRANCH_NAME" =~ ^egg[/-]issue-([0-9]+) ]]; then
               ISSUE_NUMBER="${BASH_REMATCH[1]}"
             else
               echo "Warning: Could not extract issue number from branch ${BRANCH_NAME}"
-              # Try to get from PR body (look for "Fixes #NNN")
-              ISSUE_NUMBER=$(echo "$PR_DATA" | jq -r '.body' | grep -oP 'Fixes #\K[0-9]+' | head -1 || true)
-              if [[ -z "$ISSUE_NUMBER" ]]; then
+              # Try to get from PR body (look for "Fixes #NNN" or "Closes #NNN")
+              # Use grep -E for portability (avoid Perl regex -P flag)
+              ISSUE_NUMBER=$(echo "$PR_DATA" | jq -r '.body // empty' | grep -oE '(Fixes|Closes) #[0-9]+' | grep -oE '[0-9]+' | head -1 || true)
+              if [[ -z "$ISSUE_NUMBER" || ! "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
                 echo "Could not determine issue number, skipping PR #${PR_NUMBER}"
                 continue
               fi
@@ -372,6 +390,7 @@ jobs:
             # TASK-2-3: Update PR body
             EXISTING_BODY=$(gh pr view "${PR_NUMBER}" --json body --jq '.body')
             FINAL_BODY_FILE=$(mktemp)
+            trap 'rm -f "$FINAL_BODY_FILE"' EXIT
 
             printf '%s\n\n---\n\n' "$EXISTING_BODY" > "$FINAL_BODY_FILE"
             printf '%s\n' "All automated checks passed. Ready for human review." >> "$FINAL_BODY_FILE"
@@ -399,13 +418,9 @@ jobs:
             fi
 
             # Update contract phase to "pr"
+            # Let push-contract-update.sh handle commit creation to avoid duplicate
+            # commits on retry (the script applies the transformation and commits atomically)
             if [[ -f "$CONTRACT_PATH" ]]; then
-              jq '.current_phase = "pr"' "$CONTRACT_PATH" > /tmp/contract.json
-              mv /tmp/contract.json "$CONTRACT_PATH"
-              git add "$CONTRACT_PATH"
-              git commit -m "Advance to PR phase for issue #${ISSUE_NUMBER}"
-
-              # Push with conflict-resistant retry logic
               export CONTRACT_PATH
               export BRANCH_NAME
               export COMMIT_MESSAGE="Advance to PR phase for issue #${ISSUE_NUMBER}"
