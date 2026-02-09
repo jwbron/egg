@@ -18,7 +18,6 @@ import json
 import sys
 from pathlib import Path
 
-
 # Default phase configurations for each work loop phase
 DEFAULT_PHASE_CONFIG = {
     "refine": {
