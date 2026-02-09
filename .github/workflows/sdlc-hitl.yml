@@ -376,17 +376,18 @@ jobs:
           .github/scripts/push-contract-update.sh
 
       # Minimize previous HITL status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous HITL comments
         if: steps.update.outputs.contract_updated == 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           set -euo pipefail
-          # Find previous bot comments that are HITL decision status updates
+          # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
             | jq -r --arg bot "${{ env.BOT_USERNAME }}" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("Decision .* resolved|Phase .* approved|Advancing to")) | .node_id' \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -612,17 +613,18 @@ jobs:
           .github/scripts/push-contract-update.sh
 
       # Minimize previous HITL status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous HITL comments
         if: steps.approve.outputs.approved == 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           set -euo pipefail
-          # Find previous bot comments that are HITL decision/approval status updates
+          # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
             | jq -r --arg bot "${{ env.BOT_USERNAME }}" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("Decision .* resolved|Phase .* approved|Advancing to")) | .node_id' \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='

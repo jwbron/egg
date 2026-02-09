@@ -163,12 +163,13 @@ jobs:
         run: echo "Skipping conflict resolution due to [skip-conflict-fix] marker"
 
       # Minimize previous conflict resolution comments
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous conflict comments
         if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         run: |
           set -euo pipefail
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("egg is resolving|egg conflict resolution")) | .node_id' \
+            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               gh api graphql -f query='
@@ -326,12 +327,13 @@ jobs:
         run: echo "Skipping conflict resolution due to [skip-conflict-fix] marker"
 
       # Minimize previous conflict resolution comments
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous conflict comments
         if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         run: |
           set -euo pipefail
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | test("egg is resolving|egg conflict resolution")) | .node_id' \
+            --jq '.[] | select(.user.login == "james-in-a-box" or .user.login == "james-in-a-box[bot]") | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               gh api graphql -f query='
