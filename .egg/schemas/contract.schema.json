@@ -118,6 +118,22 @@
       ],
       "description": "Active feedback request for collecting open-ended questions from humans",
       "default": null
+    },
+    "phase_config": {
+      "oneOf": [
+        { "$ref": "#/$defs/phaseConfig" },
+        { "type": "null" }
+      ],
+      "description": "Configuration for the current phase (prompts, checks, human gate)",
+      "default": null
+    },
+    "check_results": {
+      "type": "array",
+      "description": "Results of checks run in the current cycle",
+      "items": {
+        "$ref": "#/$defs/checkResult"
+      },
+      "default": []
     }
   },
   "additionalProperties": false,
@@ -487,6 +503,163 @@
           "description": "Debounce expiration timestamp",
           "format": "date-time",
           "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkDefinition": {
+      "type": "object",
+      "description": "Definition of a check to run between work and review steps",
+      "required": ["id", "name", "script"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique check identifier",
+          "pattern": "^check-[a-z0-9-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable check name",
+          "minLength": 1
+        },
+        "script": {
+          "type": "string",
+          "description": "Script path to execute (relative to repo root)",
+          "minLength": 1
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this check is enabled",
+          "default": true
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether this check must pass to proceed",
+          "default": true
+        },
+        "dependencies": {
+          "type": "array",
+          "description": "Check IDs that must complete before this check",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "retry_count": {
+          "type": "integer",
+          "description": "Number of retries on failure",
+          "minimum": 0,
+          "maximum": 3,
+          "default": 0
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "description": "Timeout in seconds",
+          "minimum": 1,
+          "maximum": 3600,
+          "default": 300
+        },
+        "fixer_script": {
+          "type": ["string", "null"],
+          "description": "Script to run to attempt automatic fix on failure",
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkResult": {
+      "type": "object",
+      "description": "Result of a check execution",
+      "required": ["check_id", "status", "timestamp"],
+      "properties": {
+        "check_id": {
+          "type": "string",
+          "description": "ID of the check that was run"
+        },
+        "status": {
+          "type": "string",
+          "description": "Result status",
+          "enum": ["pending", "passed", "failed", "skipped"]
+        },
+        "output": {
+          "type": "string",
+          "description": "Check output (stdout/stderr)",
+          "default": ""
+        },
+        "error_message": {
+          "type": ["string", "null"],
+          "description": "Error message if failed",
+          "default": null
+        },
+        "duration_seconds": {
+          "type": "number",
+          "description": "Execution duration",
+          "minimum": 0,
+          "default": 0
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "When the check was run",
+          "format": "date-time"
+        },
+        "attempt": {
+          "type": "integer",
+          "description": "Which attempt this was (for retries)",
+          "minimum": 1,
+          "default": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "phaseConfig": {
+      "type": "object",
+      "description": "Configuration for a pipeline phase (refine, plan, implement)",
+      "required": ["phase", "work_prompt_script", "review_prompt_script", "human_gate"],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "description": "Which pipeline phase this config applies to",
+          "enum": ["refine", "plan", "implement", "pr"]
+        },
+        "work_prompt_script": {
+          "type": "string",
+          "description": "Path to script that builds the work prompt",
+          "minLength": 1
+        },
+        "review_prompt_script": {
+          "type": "string",
+          "description": "Path to script that builds the review prompt",
+          "minLength": 1
+        },
+        "checks": {
+          "type": "array",
+          "description": "Checks to run between work and review steps",
+          "items": {
+            "$ref": "#/$defs/checkDefinition"
+          },
+          "default": []
+        },
+        "max_cycles": {
+          "type": "integer",
+          "description": "Max work/review cycles before escalation",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3
+        },
+        "human_gate": {
+          "type": "string",
+          "description": "Type of human approval required to exit this phase",
+          "enum": ["issue_checkbox", "pr_review"]
+        },
+        "draft_file_pattern": {
+          "type": "string",
+          "description": "Pattern for draft output file (supports {issue_number} and {phase})",
+          "default": ".egg-state/drafts/{issue_number}-{phase}.md"
+        },
+        "review_file_pattern": {
+          "type": "string",
+          "description": "Pattern for review output file (supports {issue_number} and {phase})",
+          "default": ".egg-state/reviews/{issue_number}-{phase}-review.json"
         }
       },
       "additionalProperties": false
