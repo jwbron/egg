@@ -71,6 +71,7 @@ Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib
 | `egg-contract mark-task --task <id> --status <status>` | Mark task status (deprecated as of PR #285) |
 | `egg-contract mark-phase --phase <id> --passed <bool>` | Mark phase status (deprecated as of PR #285) |
 | `egg-contract add-decision --question <text> [--options ...] [--format {json,markdown}]` | Create HITL decision point with optional predefined choices and markdown output format for GitHub comments |
+| `egg-contract add-feedback --question <text> [--question <text>...] [--format {json,markdown}]` | Create feedback comment for open-ended questions |
 
 ### Plan Parser
 
