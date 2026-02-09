@@ -7,6 +7,8 @@
 #
 # Environment variables:
 #   LINT_COMMAND — Override the lint command (optional)
+#                  SECURITY NOTE: This variable is passed to `bash -c` for execution.
+#                  Only set this from trusted sources (workflow inputs, not PR content).
 #   SKIP_LINT    — Set to "true" to skip linting (optional)
 #
 # Exit codes:

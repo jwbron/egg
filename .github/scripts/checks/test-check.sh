@@ -6,6 +6,8 @@
 #
 # Environment variables:
 #   TEST_COMMAND — Override the test command (optional)
+#                  SECURITY NOTE: This variable is passed to `bash -c` for execution.
+#                  Only set this from trusted sources (workflow inputs, not PR content).
 #   SKIP_TESTS   — Set to "true" to skip tests (optional)
 #   TEST_PATTERN — Pattern to filter tests (optional)
 #
