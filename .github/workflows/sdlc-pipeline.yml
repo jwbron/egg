@@ -288,14 +288,18 @@ jobs:
                  --arg old_phase "$CURRENT_PHASE" \
                  --arg ts "$TIMESTAMP" '
                 .current_phase = $phase |
-                (if $phase == "refine" or $phase == "plan" then
+                # Reset refine review cycles only when stepping back to refine
+                (if $phase == "refine" then
                   .refine_review_cycles = 0 |
                   .refine_review_feedback = ""
                 else . end) |
-                (if $phase == "refine" then
+                # Reset plan review cycles when stepping back to refine or plan
+                (if $phase == "refine" or $phase == "plan" then
                   .plan_review_cycles = 0 |
                   .plan_review_feedback = ""
                 else . end) |
+                # Reset circuit breaker to allow retry
+                .circuit_breaker.status = "closed" |
                 .audit_log += [{
                   "timestamp": $ts,
                   "actor": "system",
@@ -311,12 +315,26 @@ jobs:
               CURRENT_PHASE="$STARTING_PHASE"
               git add .egg-state/
               git commit -m "Reset to ${STARTING_PHASE} phase for issue #${ISSUE_NUMBER}" || true
+
+              # Push step-back changes immediately to ensure they persist
+              # Uses simple retry since concurrency group prevents parallel runs
+              for i in 1 2 3; do
+                if git push origin "${BRANCH_NAME}"; then
+                  echo "Step-back push succeeded"
+                  break
+                elif [[ $i -eq 3 ]]; then
+                  echo "::warning::Step-back push failed after 3 attempts, will retry in Push branch step"
+                else
+                  echo "Step-back push attempt $i failed, retrying..."
+                  git pull --rebase origin "${BRANCH_NAME}" || true
+                fi
+              done
             fi
 
             echo "current_phase=${CURRENT_PHASE}" >> "$GITHUB_OUTPUT"
 
-            # Output PR number if available
-            PR_NUMBER=$(jq -r '.pr.number // 0' "$CONTRACT_PATH" 2>/dev/null || echo "0")
+            # Look up PR number from branch (contract schema doesn't store it)
+            PR_NUMBER=$(gh pr list --head "${BRANCH_NAME}" --state all --json number --jq '.[0].number // 0' 2>/dev/null || echo "0")
             echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
           else
             {
