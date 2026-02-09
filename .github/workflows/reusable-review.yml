@@ -333,12 +333,15 @@ jobs:
           escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[][\^$.*+?{}()|]/\\&/g')
           marker_regex="<!-- egg-automated-review bot=${escaped_bot_name} commit=([a-f0-9]+)( verdict=([a-z-]+))? -->"
 
-          # Check reviews from the Reviews API for the marker
+          # Check reviews from the Reviews API for the marker (paginated to handle PRs with many reviews)
           # The marker is in the review body
           last_review_commit=""
           last_review_time=""
-          reviews=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
-            --jq '[.[] | {body: .body, submitted_at: .submitted_at}]')
+          if ! reviews=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
+            --jq '[.[] | {body: .body, submitted_at: .submitted_at}]'); then
+            echo "::error::Failed to fetch reviews from API"
+            exit 1
+          fi
 
           while IFS= read -r review; do
             body=$(echo "$review" | jq -r '.body // ""')
@@ -357,12 +360,15 @@ jobs:
             echo "Found automated review marker in Reviews API: commit=$last_review_commit at $last_review_time"
           fi
 
-          # Also check issue comments for the marker (for self-reviews where
-          # GitHub blocks bots from using the Reviews API on their own PRs)
+          # Also check issue comments for the marker (paginated to handle PRs with many comments)
+          # (for self-reviews where GitHub blocks bots from using the Reviews API on their own PRs)
           last_comment_commit=""
           last_comment_time=""
-          comments=$(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq '[.[] | {body: .body, created_at: .created_at}]')
+          if ! comments=$(gh api --paginate "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            --jq '[.[] | {body: .body, created_at: .created_at}]'); then
+            echo "::error::Failed to fetch comments from API"
+            exit 1
+          fi
 
           while IFS= read -r comment; do
             body=$(echo "$comment" | jq -r '.body // ""')
