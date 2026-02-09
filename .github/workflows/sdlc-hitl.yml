@@ -435,8 +435,11 @@ jobs:
 
             if [[ -n "$NEXT_PHASE" ]]; then
               echo "Advancing to ${NEXT_PHASE} phase"
-              echo "next_phase=${NEXT_PHASE}" >> "$GITHUB_OUTPUT"
-              echo "should_advance=true" >> "$GITHUB_OUTPUT"
+              {
+                echo "next_phase=${NEXT_PHASE}"
+                echo "previous_phase=${CURRENT_PHASE}"
+                echo "should_advance=true"
+              } >> "$GITHUB_OUTPUT"
             else
               echo "should_advance=false" >> "$GITHUB_OUTPUT"
             fi
@@ -484,6 +487,27 @@ jobs:
           export COMMIT_MESSAGE="Advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
           export JQ_FILTER=".current_phase = \"${NEXT_PHASE}\""
           .github/scripts/push-contract-update.sh
+
+      # Transition SDLC labels when all decisions resolved
+      - name: Transition SDLC labels on decision resolution
+        if: steps.advance.outputs.should_advance == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          NEXT_PHASE: ${{ steps.advance.outputs.next_phase }}
+          PREVIOUS_PHASE: ${{ steps.advance.outputs.previous_phase }}
+        run: |
+          set -euo pipefail
+
+          # Use transition script for label changes
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --from "sdlc:${PREVIOUS_PHASE}" \
+            --to "sdlc:${NEXT_PHASE}"
+
+          # Remove sdlc:awaiting-approval label
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --remove "sdlc:awaiting-approval"
 
       # Minimize previous HITL status comments to reduce clutter
       - name: Minimize previous HITL comments
@@ -772,6 +796,29 @@ jobs:
           export COMMIT_MESSAGE="Approve and advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
           export JQ_SCRIPT_PATH="/tmp/reapply-approve-phase.sh"
           .github/scripts/push-contract-update.sh
+
+      # Transition SDLC labels on phase approval
+      - name: Transition SDLC labels
+        if: steps.approve.outputs.approved == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          NEXT_PHASE: ${{ steps.approve.outputs.next_phase }}
+          PREVIOUS_PHASE: ${{ steps.approve.outputs.previous_phase }}
+        run: |
+          set -euo pipefail
+
+          # Use transition script for label changes
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --from "sdlc:${PREVIOUS_PHASE}" \
+            --to "sdlc:${NEXT_PHASE}"
+
+          # Remove sdlc:awaiting-approval label
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --remove "sdlc:awaiting-approval"
+
+          echo "Transitioned labels: sdlc:${PREVIOUS_PHASE} -> sdlc:${NEXT_PHASE}"
 
       # Minimize previous HITL status comments to reduce clutter
       - name: Minimize previous HITL comments

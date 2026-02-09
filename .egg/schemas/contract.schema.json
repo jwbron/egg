@@ -70,7 +70,7 @@
     },
     "workflow_owner": {
       "type": ["string", "null"],
-      "description": "GitHub username of the user who initiated the SDLC workflow (added the egg-sdlc label)",
+      "description": "GitHub username of the user who initiated the SDLC workflow (added the sdlc:refine label)",
       "default": null
     },
     "audit_log": {

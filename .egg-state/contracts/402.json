@@ -1,0 +1,476 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 402,
+    "title": "leverage issue labels for SDLC workflow",
+    "url": "https://github.com/jwbron/egg/issues/402"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Script creates all 5 labels with correct colors and descriptions; re-running is safe",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Label no longer exists; existing issues have it removed",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-2-1] Pipeline triggers when sdlc:refine label is added",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-2] Correct phase label is applied when workflow starts",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-3] Created PRs get sdlc:pr label",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-3-1] When refine/plan phase posts approval checkbox, label is added",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-3-2] On approval, old phase label removed, new added, awaiting-approval removed",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-3] sdlc:awaiting-approval present when decisions pending, removed when resolved",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-4-1] When PR is created, sdlc:implement removed and sdlc:pr added",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-4-2] Phase completion comments trigger adding sdlc:awaiting-approval",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-4-3] Reusable script handles label transitions with error handling",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-5-1] Cleanup runs for issues with any SDLC phase label",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-5-2] Closed SDLC issues have phase labels removed",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-6-1] Contract verification triggers on PRs with sdlc:pr label",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-7-1] Documentation describes all SDLC labels and their management",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-7-2] No stale references to egg-sdlc remain",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-7-3] Test verifies labels transition correctly through phase changes",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Create Labels and Setup Script",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create label setup script for SDLC labels (idempotent)",
+          "status": "pending",
+          "acceptance_criteria": "Script creates all 5 labels with correct colors and descriptions; re-running is safe",
+          "files_affected": [
+            ".github/scripts/setup-sdlc-labels.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Delete the existing egg-sdlc label from the repository",
+          "status": "pending",
+          "acceptance_criteria": "Label no longer exists; existing issues have it removed",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Update Pipeline Trigger Logic",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Update pipeline trigger condition from egg-sdlc to sdlc:refine",
+          "status": "pending",
+          "acceptance_criteria": "Pipeline triggers when sdlc:refine label is added",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add logic to ensure correct phase label is applied during init",
+          "status": "pending",
+          "acceptance_criteria": "Correct phase label is applied when workflow starts",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Update PR label addition logic to use sdlc:pr instead of egg-sdlc",
+          "status": "pending",
+          "acceptance_criteria": "Created PRs get sdlc:pr label",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Add Label Transitions in HITL Workflow",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add sdlc:awaiting-approval label when posting phase completion comments",
+          "status": "pending",
+          "acceptance_criteria": "When refine/plan phase posts approval checkbox, label is added",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Remove sdlc:awaiting-approval and transition phase label on approval",
+          "status": "pending",
+          "acceptance_criteria": "On approval, old phase label removed, new added, awaiting-approval removed",
+          "files_affected": [
+            ".github/workflows/sdlc-hitl.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Update handle-decision job to manage approval label for HITL decisions",
+          "status": "pending",
+          "acceptance_criteria": "sdlc:awaiting-approval present when decisions pending, removed when resolved",
+          "files_affected": [
+            ".github/workflows/sdlc-hitl.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Add Label Transitions in Main Pipeline",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add label transition logic when advancing from implement to PR phase",
+          "status": "pending",
+          "acceptance_criteria": "When PR is created, sdlc:implement removed and sdlc:pr added",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Add sdlc:awaiting-approval when posting phase completion comments in pipeline",
+          "status": "pending",
+          "acceptance_criteria": "Phase completion comments trigger adding sdlc:awaiting-approval",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add helper script for atomic label transitions",
+          "status": "pending",
+          "acceptance_criteria": "Reusable script handles label transitions with error handling",
+          "files_affected": [
+            ".github/scripts/transition-sdlc-label.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Update Cleanup Workflow",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Update cleanup trigger condition to check for any sdlc:* label",
+          "status": "pending",
+          "acceptance_criteria": "Cleanup runs for issues with any SDLC phase label",
+          "files_affected": [
+            ".github/workflows/on-issue-closed.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Remove all SDLC labels on issue close",
+          "status": "pending",
+          "acceptance_criteria": "Closed SDLC issues have phase labels removed",
+          "files_affected": [
+            ".github/workflows/on-issue-closed.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "Update Contract Verification Workflow",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Update PR contract verification trigger to check for sdlc:pr label",
+          "status": "pending",
+          "acceptance_criteria": "Contract verification triggers on PRs with sdlc:pr label",
+          "files_affected": [
+            ".github/workflows/on-pull-request-contract-verify.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-7",
+      "name": "Documentation and Testing",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-7-1",
+          "description": "Update docs/guides/sdlc-pipeline.md with new label documentation",
+          "status": "pending",
+          "acceptance_criteria": "Documentation describes all SDLC labels and their management",
+          "files_affected": [
+            "docs/guides/sdlc-pipeline.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-2",
+          "description": "Update any references to egg-sdlc in other documentation",
+          "status": "pending",
+          "acceptance_criteria": "No stale references to egg-sdlc remain",
+          "files_affected": [
+            "docs/guides/sdlc-pipeline.md",
+            "CLAUDE.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-3",
+          "description": "Add integration test for label transitions",
+          "status": "pending",
+          "acceptance_criteria": "Test verifies labels transition correctly through phase changes",
+          "files_affected": [
+            "integration_tests/sdlc/test_label_transitions.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-09T03:02:49Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Refine review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-09T03:04:57Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-09T03:10:53Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Plan review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-09T03:17:43Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    }
+  ],
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add phase-based labels for SDLC workflow state tracking",
+    "description": "Implements phase-based labeling for the SDLC pipeline to provide visual status\ntracking and enable filtering issues by pipeline state. Replaces the single\n`egg-sdlc` trigger label with phase labels (`sdlc:refine`, `sdlc:plan`,\n`sdlc:implement`, `sdlc:pr`) plus an approval modifier (`sdlc:awaiting-approval`).\n\nCloses #402."
+  }
+}

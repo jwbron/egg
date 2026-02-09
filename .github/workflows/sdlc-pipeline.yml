@@ -125,14 +125,14 @@ jobs:
     name: Initialize pipeline
     needs: resolve-inputs
     runs-on: ubuntu-latest
-    # Only trigger on sdlc label, workflow_dispatch, or workflow_call
+    # Only trigger on sdlc:refine label, workflow_dispatch, or workflow_call
     if: >-
       always() &&
       needs.resolve-inputs.result == 'success' &&
       (
         (github.event_name == 'workflow_dispatch') ||
         (github.event_name == 'workflow_call') ||
-        (github.event_name == 'issues' && github.event.label.name == needs.resolve-inputs.outputs.sdlc_label)
+        (github.event_name == 'issues' && github.event.label.name == 'sdlc:refine')
       )
     outputs:
       issue_number: ${{ steps.setup.outputs.issue_number }}
@@ -206,7 +206,7 @@ jobs:
           echo "issue_title=${ISSUE_TITLE}" >> "$GITHUB_OUTPUT"
 
           # Capture workflow owner (the user who triggered the workflow)
-          # This is the user who added the egg-sdlc label or dispatched the workflow
+          # This is the user who added the sdlc:refine label or dispatched the workflow
           WORKFLOW_OWNER="${EVENT_SENDER:-}"
 
           # Validate workflow owner format (defense-in-depth)
@@ -305,6 +305,47 @@ jobs:
               }
             fi
           done
+
+      # Apply the appropriate phase label to the issue
+      - name: Apply phase label
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          ISSUE_NUMBER: ${{ steps.setup.outputs.issue_number }}
+          CURRENT_PHASE: ${{ steps.setup.outputs.current_phase }}
+        run: |
+          set -euo pipefail
+
+          # Map phase to label
+          PHASE_LABEL="sdlc:${CURRENT_PHASE}"
+
+          # Get current labels on the issue
+          CURRENT_LABELS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels" \
+            --jq '.[].name' 2>/dev/null || echo "")
+
+          # Check if correct label is already present
+          NEEDS_LABEL=true
+          if echo "$CURRENT_LABELS" | grep -qx "$PHASE_LABEL"; then
+            echo "Correct phase label ${PHASE_LABEL} already present"
+            NEEDS_LABEL=false
+          fi
+
+          # Remove incorrect phase labels using transition script
+          for label in "sdlc:refine" "sdlc:plan" "sdlc:implement" "sdlc:pr"; do
+            if [[ "$label" != "$PHASE_LABEL" ]] && echo "$CURRENT_LABELS" | grep -qx "$label"; then
+              .github/scripts/transition-sdlc-label.sh \
+                --issue "${ISSUE_NUMBER}" \
+                --remove "$label"
+            fi
+          done
+
+          # Add the correct phase label if needed
+          if [[ "$NEEDS_LABEL" == "true" ]]; then
+            .github/scripts/transition-sdlc-label.sh \
+              --issue "${ISSUE_NUMBER}" \
+              --add "$PHASE_LABEL"
+          fi
+
+          echo "Applied phase label: ${PHASE_LABEL}"
 
       # Minimize previous pipeline status comments to reduce clutter
       - name: Minimize previous pipeline comments
@@ -667,10 +708,16 @@ jobs:
           echo "Created draft PR #${PR_NUMBER}"
           echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
 
-          # Add egg-sdlc label to trigger contract verification workflow
-          gh pr edit "${PR_NUMBER}" --add-label "egg-sdlc" || {
-            echo "::warning::Failed to add egg-sdlc label (label may not exist)"
+          # Add sdlc:pr label to trigger contract verification workflow
+          gh pr edit "${PR_NUMBER}" --add-label "sdlc:pr" || {
+            echo "::warning::Failed to add sdlc:pr label (label may not exist)"
           }
+
+          # Transition issue from sdlc:implement to sdlc:pr using transition script
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --from "sdlc:implement" \
+            --to "sdlc:pr"
 
       # Minimize previous pipeline status comments to reduce clutter
       - name: Minimize previous pipeline comments
@@ -1683,6 +1730,13 @@ jobs:
             gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/fallback-analysis.md
           fi
 
+          # Add sdlc:awaiting-approval label to indicate human review is needed
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --add "sdlc:awaiting-approval" || {
+              echo "Warning: Failed to add sdlc:awaiting-approval label"
+            }
+
   # ============================================================
   # Refine Re-dispatch: Re-run refine if review failed
   # ============================================================
@@ -1792,6 +1846,11 @@ jobs:
           } > /tmp/escalation.md
 
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/escalation.md
+
+          # Add sdlc:awaiting-approval label for escalation
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --add "sdlc:awaiting-approval" || true
 
       - name: Re-dispatch refine phase
         if: steps.check-circuit-breaker.outputs.skip != 'true'
@@ -2403,6 +2462,13 @@ jobs:
             gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/fallback-plan.md
           fi
 
+          # Add sdlc:awaiting-approval label to indicate human review is needed
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --add "sdlc:awaiting-approval" || {
+              echo "Warning: Failed to add sdlc:awaiting-approval label"
+            }
+
   # ============================================================
   # Plan Re-dispatch: Re-run plan if review failed
   # ============================================================
@@ -2512,6 +2578,11 @@ jobs:
           } > /tmp/escalation.md
 
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/escalation.md
+
+          # Add sdlc:awaiting-approval label for escalation
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --add "sdlc:awaiting-approval" || true
 
       - name: Re-dispatch plan phase
         if: steps.check-circuit-breaker.outputs.skip != 'true'
