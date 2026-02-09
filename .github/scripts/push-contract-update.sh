@@ -59,6 +59,12 @@ set -uo pipefail
 : "${BRANCH_NAME:?BRANCH_NAME environment variable is required}"
 : "${COMMIT_MESSAGE:?COMMIT_MESSAGE environment variable is required}"
 
+# Fail fast if validation failed (since we don't use set -e)
+if [[ -z "$CONTRACT_PATH" || -z "$BRANCH_NAME" || -z "$COMMIT_MESSAGE" ]]; then
+  echo "::error::Required environment variables not set"
+  exit 1
+fi
+
 # Optional with defaults
 MAX_RETRIES="${MAX_RETRIES:-3}"
 SOFT_FAIL="${SOFT_FAIL:-false}"
@@ -66,6 +72,12 @@ SOFT_FAIL="${SOFT_FAIL:-false}"
 # Must have either JQ_FILTER or JQ_SCRIPT_PATH (or neither for external updates)
 if [[ -n "${JQ_FILTER:-}" && -n "${JQ_SCRIPT_PATH:-}" ]]; then
   echo "::error::Cannot specify both JQ_FILTER and JQ_SCRIPT_PATH"
+  exit 1
+fi
+
+# Verify JQ_SCRIPT_PATH exists if specified
+if [[ -n "${JQ_SCRIPT_PATH:-}" && ! -f "$JQ_SCRIPT_PATH" ]]; then
+  echo "::error::JQ_SCRIPT_PATH file not found: $JQ_SCRIPT_PATH"
   exit 1
 fi
 
@@ -127,11 +139,24 @@ handle_failure() {
 
   # Stage and commit
   git add "$CONTRACT_PATH"
-  if ! git commit -m "$COMMIT_MESSAGE"; then
-    echo "::warning::Nothing to commit after re-applying transformation"
-    # This could happen if our changes are already in the remote
-    # In that case, we're done - no push needed
-    return 0
+
+  # Capture commit output to distinguish "nothing to commit" from other failures
+  local commit_output
+  if commit_output=$(git commit -m "$COMMIT_MESSAGE" 2>&1); then
+    echo "$commit_output"
+  else
+    local commit_exit_code=$?
+    # Check if the failure is due to nothing to commit
+    if echo "$commit_output" | grep -qE "(nothing to commit|no changes added)"; then
+      echo "::warning::Nothing to commit after re-applying transformation"
+      # This could happen if our changes are already in the remote
+      # In that case, we're done - no push needed
+      return 0
+    else
+      # Actual commit failure (pre-commit hook, invalid message, etc.)
+      echo "::error::git commit failed: $commit_output"
+      return $commit_exit_code
+    fi
   fi
 
   return 0

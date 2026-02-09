@@ -188,7 +188,7 @@ jobs:
           # Create reapply script for retry logic (multi-step jq transformation)
           # Store values needed by script (SENDER_LOGIN is from GitHub context)
           SENDER_LOGIN="${{ github.event.sender.login }}"
-          export SENDER_LOGIN DECISION_ID SELECTED_OPTION DECISION_INDEX
+          export SENDER_LOGIN DECISION_ID SELECTED_OPTION DECISION_INDEX CONTRACT_PATH
 
           cat > /tmp/reapply-hitl-decision.sh << 'REAPPLY_EOF'
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -278,11 +278,11 @@ jobs:
           git commit -m "Resolve HITL decision ${DECISION_ID} for issue #${ISSUE_NUMBER}"
 
           # Push with conflict-resistant retry logic
-          if ! CONTRACT_PATH="$CONTRACT_PATH" \
-               BRANCH_NAME="${BRANCH_NAME}" \
-               COMMIT_MESSAGE="Resolve HITL decision ${DECISION_ID} for issue #${ISSUE_NUMBER}" \
-               JQ_SCRIPT_PATH="/tmp/reapply-hitl-decision.sh" \
-               .github/scripts/push-contract-update.sh; then
+          export CONTRACT_PATH
+          export BRANCH_NAME
+          export COMMIT_MESSAGE="Resolve HITL decision ${DECISION_ID} for issue #${ISSUE_NUMBER}"
+          export JQ_SCRIPT_PATH="/tmp/reapply-hitl-decision.sh"
+          if ! .github/scripts/push-contract-update.sh; then
             echo "contract_updated=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
@@ -369,10 +369,10 @@ jobs:
           git commit -m "Advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
 
           # Push with conflict-resistant retry logic
-          CONTRACT_PATH="$CONTRACT_PATH" \
-          BRANCH_NAME="${BRANCH_NAME}" \
-          COMMIT_MESSAGE="Advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}" \
-          JQ_FILTER=".current_phase = \"${NEXT_PHASE}\"" \
+          export CONTRACT_PATH
+          export BRANCH_NAME
+          export COMMIT_MESSAGE="Advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
+          export JQ_FILTER=".current_phase = \"${NEXT_PHASE}\""
           .github/scripts/push-contract-update.sh
 
       # Minimize previous HITL status comments to reduce clutter
@@ -606,10 +606,10 @@ jobs:
           git commit -m "Approve and advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
 
           # Push with conflict-resistant retry logic
-          CONTRACT_PATH="$CONTRACT_PATH" \
-          BRANCH_NAME="${BRANCH_NAME}" \
-          COMMIT_MESSAGE="Approve and advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}" \
-          JQ_SCRIPT_PATH="/tmp/reapply-approve-phase.sh" \
+          export CONTRACT_PATH
+          export BRANCH_NAME
+          export COMMIT_MESSAGE="Approve and advance to ${NEXT_PHASE} phase for issue #${ISSUE_NUMBER}"
+          export JQ_SCRIPT_PATH="/tmp/reapply-approve-phase.sh"
           .github/scripts/push-contract-update.sh
 
       # Minimize previous HITL status comments to reduce clutter

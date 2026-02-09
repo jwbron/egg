@@ -362,6 +362,8 @@ jobs:
             git commit -m "Populate contract tasks from plan for issue #${ISSUE_NUMBER}"
 
             # Create reapply script for retry logic
+            # Export RUNNER_TEMP so it's available in the child script
+            export RUNNER_TEMP
             cat > /tmp/reapply-populate.sh << 'REAPPLY_EOF'
           pip install -q pyyaml pydantic
           PYTHONPATH="${RUNNER_TEMP}/trusted-shared:${PYTHONPATH:-}" \
@@ -369,10 +371,10 @@ jobs:
           REAPPLY_EOF
 
             # Push with conflict-resistant retry logic
-            CONTRACT_PATH="$CONTRACT_PATH" \
-            BRANCH_NAME="${BRANCH_NAME}" \
-            COMMIT_MESSAGE="Populate contract tasks from plan for issue #${ISSUE_NUMBER}" \
-            JQ_SCRIPT_PATH="/tmp/reapply-populate.sh" \
+            export CONTRACT_PATH
+            export BRANCH_NAME
+            export COMMIT_MESSAGE="Populate contract tasks from plan for issue #${ISSUE_NUMBER}"
+            export JQ_SCRIPT_PATH="/tmp/reapply-populate.sh"
             .github/scripts/push-contract-update.sh
           fi
 
@@ -449,6 +451,9 @@ jobs:
               git commit -m "Checkpoint state before timeout (${REMAINING_MINUTES}m remaining)" || true
 
               # Create reapply script for retry logic (uses current timestamp on each retry)
+              # Export variables needed by the reapply script
+              export CHECKPOINT_REASON
+              export CONTRACT_PATH
               cat > /tmp/reapply-checkpoint.sh << 'REAPPLY_EOF'
               TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
               jq --arg ts "$TS" --arg reason "${CHECKPOINT_REASON}" '
@@ -466,12 +471,10 @@ jobs:
           REAPPLY_EOF
 
               # Push with conflict-resistant retry logic (soft-fail for checkpoints)
-              CONTRACT_PATH="$CONTRACT_PATH" \
-              BRANCH_NAME="${BRANCH_NAME}" \
-              COMMIT_MESSAGE="Checkpoint state before timeout (${REMAINING_MINUTES}m remaining)" \
-              JQ_SCRIPT_PATH="/tmp/reapply-checkpoint.sh" \
-              CHECKPOINT_REASON="$CHECKPOINT_REASON" \
-              SOFT_FAIL=true \
+              export BRANCH_NAME
+              export COMMIT_MESSAGE="Checkpoint state before timeout (${REMAINING_MINUTES}m remaining)"
+              export JQ_SCRIPT_PATH="/tmp/reapply-checkpoint.sh"
+              export SOFT_FAIL=true
               .github/scripts/push-contract-update.sh
             fi
           else
@@ -960,10 +963,10 @@ jobs:
             git commit -m "Advance to PR phase for issue #${ISSUE_NUMBER}"
 
             # Push with conflict-resistant retry logic
-            CONTRACT_PATH="$CONTRACT_PATH" \
-            BRANCH_NAME="${BRANCH_NAME}" \
-            COMMIT_MESSAGE="Advance to PR phase for issue #${ISSUE_NUMBER}" \
-            JQ_FILTER='.current_phase = "pr"' \
+            export CONTRACT_PATH
+            export BRANCH_NAME
+            export COMMIT_MESSAGE="Advance to PR phase for issue #${ISSUE_NUMBER}"
+            export JQ_FILTER='.current_phase = "pr"'
             .github/scripts/push-contract-update.sh
           fi
 
@@ -1834,6 +1837,8 @@ jobs:
             git commit -m "Populate contract from plan for issue #${ISSUE_NUMBER}"
 
             # Create reapply script for retry logic
+            # Export RUNNER_TEMP so it's available in the child script
+            export RUNNER_TEMP
             cat > /tmp/reapply-populate-plan.sh << 'REAPPLY_EOF'
             pip install -q pyyaml pydantic
             PYTHONPATH="${RUNNER_TEMP}/trusted-shared:${PYTHONPATH:-}" \
@@ -1841,10 +1846,10 @@ jobs:
           REAPPLY_EOF
 
             # Push with conflict-resistant retry logic
-            CONTRACT_PATH="$CONTRACT_PATH" \
-            BRANCH_NAME="${BRANCH_NAME}" \
-            COMMIT_MESSAGE="Populate contract from plan for issue #${ISSUE_NUMBER}" \
-            JQ_SCRIPT_PATH="/tmp/reapply-populate-plan.sh" \
+            export CONTRACT_PATH
+            export BRANCH_NAME
+            export COMMIT_MESSAGE="Populate contract from plan for issue #${ISSUE_NUMBER}"
+            export JQ_SCRIPT_PATH="/tmp/reapply-populate-plan.sh"
             .github/scripts/push-contract-update.sh
 
             echo "Contract populated and pushed"
