@@ -6,8 +6,457 @@
     "url": "https://github.com/jwbron/egg/issues/363"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Init job no longer calls minimizeComment; workflow file validates",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Refine job no longer calls minimizeComment",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Plan job no longer calls minimizeComment",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-1] All status comments in sdlc-pipeline.yml include the marker",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-2] All status comments in sdlc-hitl.yml include the marker",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-3] Status comments include marker; review content does NOT",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-4] Status comments include marker",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-5] Status comments include marker",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-6] Status comments include marker",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-2-7] Status comments include marker",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-1] Hiding uses contains marker instead of content patterns",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-2] Hiding uses marker-based selection",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-3-3] Hiding uses marker-based selection",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-3-4] Hiding uses marker-based selection",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-3-5] Hiding uses marker-based selection",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-3-6] Hiding uses marker-based selection",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-3-7] Hiding uses marker-based selection",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-3-8] Hiding uses marker-based selection",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-3-9] Hiding uses marker-based selection",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-4-1] Status message includes \"N previous review(s) hidden\" if N > 0",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-4-2] Status message includes hidden count",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Remove Comment Hiding from SDLC Issue Phases",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Remove \"Minimize previous status comments\" step from init job",
+          "status": "pending",
+          "acceptance_criteria": "Init job no longer calls minimizeComment; workflow file validates",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Remove \"Minimize previous pipeline comments\" step from refine job",
+          "status": "pending",
+          "acceptance_criteria": "Refine job no longer calls minimizeComment",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Remove \"Minimize previous pipeline comments\" step from plan job",
+          "status": "pending",
+          "acceptance_criteria": "Plan job no longer calls minimizeComment",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Add Semantic Marker to Status Comments",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add marker to SDLC pipeline status comments",
+          "status": "pending",
+          "acceptance_criteria": "All status comments in sdlc-pipeline.yml include the marker",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add marker to SDLC HITL status comments",
+          "status": "pending",
+          "acceptance_criteria": "All status comments in sdlc-hitl.yml include the marker",
+          "files_affected": [
+            ".github/workflows/sdlc-hitl.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add marker to reusable-review.yml status comments",
+          "status": "pending",
+          "acceptance_criteria": "Status comments include marker; review content does NOT",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Add marker to on-check-failure.yml status comments",
+          "status": "pending",
+          "acceptance_criteria": "Status comments include marker",
+          "files_affected": [
+            ".github/workflows/on-check-failure.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "Add marker to on-merge-conflict.yml status comments",
+          "status": "pending",
+          "acceptance_criteria": "Status comments include marker",
+          "files_affected": [
+            ".github/workflows/on-merge-conflict.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-6",
+          "description": "Add marker to on-mention.yml status comments",
+          "status": "pending",
+          "acceptance_criteria": "Status comments include marker",
+          "files_affected": [
+            ".github/workflows/on-mention.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-7",
+          "description": "Add marker to on-review-feedback.yml status comments",
+          "status": "pending",
+          "acceptance_criteria": "Status comments include marker",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Update PR Workflow Hiding to Use Markers",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Update implement job hiding logic to use marker",
+          "status": "pending",
+          "acceptance_criteria": "Hiding uses contains marker instead of content patterns",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update finalize-pr job hiding logic to use marker",
+          "status": "pending",
+          "acceptance_criteria": "Hiding uses marker-based selection",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Update checks-failed job hiding logic to use marker",
+          "status": "pending",
+          "acceptance_criteria": "Hiding uses marker-based selection",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Update reusable-review.yml hiding logic to use marker",
+          "status": "pending",
+          "acceptance_criteria": "Hiding uses marker-based selection",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-5",
+          "description": "Update on-check-failure.yml hiding logic to use marker",
+          "status": "pending",
+          "acceptance_criteria": "Hiding uses marker-based selection",
+          "files_affected": [
+            ".github/workflows/on-check-failure.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-6",
+          "description": "Update on-merge-conflict.yml hiding logic to use marker",
+          "status": "pending",
+          "acceptance_criteria": "Hiding uses marker-based selection",
+          "files_affected": [
+            ".github/workflows/on-merge-conflict.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-7",
+          "description": "Update on-mention.yml hiding logic to use marker",
+          "status": "pending",
+          "acceptance_criteria": "Hiding uses marker-based selection",
+          "files_affected": [
+            ".github/workflows/on-mention.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-8",
+          "description": "Update on-review-feedback.yml hiding logic to use marker",
+          "status": "pending",
+          "acceptance_criteria": "Hiding uses marker-based selection",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-9",
+          "description": "Update sdlc-hitl.yml hiding logic to use marker",
+          "status": "pending",
+          "acceptance_criteria": "Hiding uses marker-based selection",
+          "files_affected": [
+            ".github/workflows/sdlc-hitl.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Add Hidden-Comments Counter for Reviews",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Update reusable-review.yml to count hidden comments",
+          "status": "pending",
+          "acceptance_criteria": "Status message includes \"N previous review(s) hidden\" if N > 0",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Update on-review-feedback.yml to count hidden comments",
+          "status": "pending",
+          "acceptance_criteria": "Status message includes hidden count",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 0,
@@ -60,5 +509,9 @@
   "refine_review_cycles": 1,
   "refine_review_feedback": "",
   "plan_review_cycles": 1,
-  "plan_review_feedback": ""
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Fix comment hider to only hide status on PRs",
+    "description": "Fixes #363. The comment hider was improperly hiding substantive content\n(like analysis documents) on issues because it used pattern matching that\nwas too broad.\n\nThis PR implements role-based hiding with semantic markers:\n- Removes comment hiding from SDLC issue phases (refine, plan)\n- Adds `<!-- egg-status-comment -->` marker to status-only comments\n- Updates hiding logic to target the marker instead of content patterns\n- Adds a counter showing how many prior reviews were hidden"
+  }
 }
