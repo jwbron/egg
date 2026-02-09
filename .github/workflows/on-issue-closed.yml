@@ -14,6 +14,27 @@ name: "egg: Cleanup SDLC State on Issue Close"
 on:
   issues:
     types: [closed]
+  workflow_call:
+    inputs:
+      issue_number:
+        description: 'Issue number to cleanup'
+        required: true
+        type: number
+      branch_prefix:
+        description: 'Prefix for issue branches (e.g., "egg" creates "egg/issue-N")'
+        required: false
+        type: string
+        default: "egg"
+      sdlc_label:
+        description: 'Label that identifies SDLC issues'
+        required: false
+        type: string
+        default: "egg-sdlc"
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
 
 permissions:
   actions: write
@@ -22,23 +43,54 @@ permissions:
 
 # Prevent concurrent cleanup runs for the same issue
 concurrency:
-  group: sdlc-cleanup-${{ github.event.issue.number }}
+  group: sdlc-cleanup-${{ github.event.issue.number || inputs.issue_number }}
   cancel-in-progress: false
 
 jobs:
+  # Resolve inputs for reusable workflow support
+  resolve-inputs:
+    name: Resolve inputs
+    runs-on: ubuntu-latest
+    outputs:
+      issue_number: ${{ steps.resolve.outputs.issue_number }}
+      branch_prefix: ${{ steps.resolve.outputs.branch_prefix }}
+      sdlc_label: ${{ steps.resolve.outputs.sdlc_label }}
+      should_check_trigger: ${{ steps.resolve.outputs.should_check_trigger }}
+    steps:
+      - name: Resolve inputs with defaults
+        id: resolve
+        run: |
+          echo "branch_prefix=${{ inputs.branch_prefix || 'egg' }}" >> "$GITHUB_OUTPUT"
+          echo "sdlc_label=${{ inputs.sdlc_label || 'egg-sdlc' }}" >> "$GITHUB_OUTPUT"
+
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            echo "issue_number=${{ inputs.issue_number }}" >> "$GITHUB_OUTPUT"
+            echo "should_check_trigger=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "issue_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+            echo "should_check_trigger=true" >> "$GITHUB_OUTPUT"
+          fi
+
   cleanup:
     name: Cleanup SDLC state
+    needs: resolve-inputs
     runs-on: ubuntu-latest
-    # Only run for issues with any SDLC phase label
+    # Only run for issues with any SDLC phase label, or workflow_call
     if: >-
-      contains(github.event.issue.labels.*.name, 'sdlc:refine') ||
-      contains(github.event.issue.labels.*.name, 'sdlc:plan') ||
-      contains(github.event.issue.labels.*.name, 'sdlc:implement') ||
-      contains(github.event.issue.labels.*.name, 'sdlc:pr') ||
-      contains(github.event.issue.labels.*.name, 'sdlc:awaiting-approval')
+      always() &&
+      needs.resolve-inputs.result == 'success' &&
+      (
+        github.event_name == 'workflow_call' ||
+        contains(github.event.issue.labels.*.name, 'sdlc:refine') ||
+        contains(github.event.issue.labels.*.name, 'sdlc:plan') ||
+        contains(github.event.issue.labels.*.name, 'sdlc:implement') ||
+        contains(github.event.issue.labels.*.name, 'sdlc:pr') ||
+        contains(github.event.issue.labels.*.name, 'sdlc:awaiting-approval')
+      )
 
     env:
-      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
+      BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
 
     steps:
       - name: Generate bot token
@@ -59,7 +111,7 @@ jobs:
             exit 1
           fi
 
-          BRANCH_NAME="egg/issue-${ISSUE_NUMBER}"
+          BRANCH_NAME="${BRANCH_PREFIX}/issue-${ISSUE_NUMBER}"
 
           # Initialize cleanup status tracking
           {
@@ -90,7 +142,7 @@ jobs:
             RUN_BRANCH=$(echo "$RUN_DATA" | jq -r '.head_branch // ""')
             RUN_ISSUE=$(echo "$RUN_DATA" | jq -r '.inputs.issue_number // ""')
 
-            if [[ "$RUN_BRANCH" == "egg/issue-${ISSUE_NUMBER}" ]] || [[ "$RUN_ISSUE" == "${ISSUE_NUMBER}" ]]; then
+            if [[ "$RUN_BRANCH" == "${BRANCH_PREFIX}/issue-${ISSUE_NUMBER}" ]] || [[ "$RUN_ISSUE" == "${ISSUE_NUMBER}" ]]; then
               echo "Cancelling sdlc-pipeline run ${RUN_ID}..."
               if ERROR_OUTPUT=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/cancel" -X POST 2>&1); then
                 CANCELLED_COUNT=$((CANCELLED_COUNT + 1))

@@ -28,8 +28,8 @@ egg/
 | `gateway/` | Gateway sidecar: policy enforcement, credential injection, proxying | Gateway container |
 | `integration_tests/` | Integration tests requiring Docker and real containers | CI / local |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
-| `shared/` | Shared libraries: logging, config, git utilities | Both containers |
-| `scripts/` | CI/lint scripts (config validation, import checks) | CI / local |
+| `shared/` | Shared libraries: logging, config, git utilities, centralized constants | Both containers |
+| `scripts/` | CI/lint scripts (config validation, import checks, hardcoded port detection) | CI / local |
 | `tests/` | Test suite | CI / local |
 
 ## Gateway Structure
@@ -88,6 +88,7 @@ sandbox/
 ```
 shared/
 ├── egg_config/             # Configuration utilities
+│   └── constants.py        # Centralized constants (ports, networks, container names)
 ├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, circuit breaker, HITL
 ├── egg_git/                # Git utilities
 └── egg_logging/            # Structured logging

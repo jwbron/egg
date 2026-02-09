@@ -199,7 +199,7 @@ def wait_for_gateway(compose_file: Path, timeout: int = 60) -> bool:
     """
     info("Waiting for gateway to be healthy...")
 
-    # Load port from .env or use default
+    # Load port from .env or use default from constants
     port = str(GATEWAY_PORT)
     env_file = get_env_file(compose_file)
     if env_file:

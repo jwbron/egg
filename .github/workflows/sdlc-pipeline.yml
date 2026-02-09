@@ -19,6 +19,51 @@ on:
         default: refine
   issues:
     types: [labeled]
+  workflow_call:
+    inputs:
+      issue_number:
+        description: 'GitHub issue number to process'
+        required: true
+        type: number
+      starting_phase:
+        description: 'Pipeline phase to start from'
+        required: false
+        type: string
+        default: "refine"
+      bot_username:
+        description: 'GitHub username of the bot (for git identity and comment filtering)'
+        required: false
+        type: string
+        default: "james-in-a-box"
+      action_ref:
+        description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
+        required: false
+        type: string
+        default: "jwbron/egg/action@main"
+      authorized_users:
+        description: 'Comma-separated list of authorized GitHub usernames'
+        required: false
+        type: string
+        default: "jwbron"
+      branch_prefix:
+        description: 'Prefix for issue branches (e.g., "egg" creates "egg/issue-N")'
+        required: false
+        type: string
+        default: "egg"
+      sdlc_label:
+        description: 'Label that triggers the SDLC pipeline'
+        required: false
+        type: string
+        default: "egg-sdlc"
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
+      BOT_APP_INSTALLATION_ID:
+        required: true
+      ANTHROPIC_OAUTH_TOKEN:
+        required: true
 
 permissions:
   actions: write
@@ -33,15 +78,62 @@ concurrency:
 
 jobs:
   # ============================================================
+  # Resolve inputs for reusable workflow support
+  # ============================================================
+  resolve-inputs:
+    name: Resolve inputs
+    runs-on: ubuntu-latest
+    outputs:
+      bot_username: ${{ steps.resolve.outputs.bot_username }}
+      branch_prefix: ${{ steps.resolve.outputs.branch_prefix }}
+      sdlc_label: ${{ steps.resolve.outputs.sdlc_label }}
+      issue_number: ${{ steps.resolve.outputs.issue_number }}
+      starting_phase: ${{ steps.resolve.outputs.starting_phase }}
+    steps:
+      - name: Resolve inputs with defaults
+        id: resolve
+        run: |
+          # Use inputs if called as reusable workflow, otherwise use defaults
+          {
+            echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}"
+            echo "branch_prefix=${{ inputs.branch_prefix || 'egg' }}"
+            echo "sdlc_label=${{ inputs.sdlc_label || 'egg-sdlc' }}"
+          } >> "$GITHUB_OUTPUT"
+
+          # Determine issue number and starting phase based on trigger type
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            {
+              echo "issue_number=${{ inputs.issue_number }}"
+              echo "starting_phase=${{ inputs.starting_phase || 'refine' }}"
+            } >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            {
+              echo "issue_number=${{ github.event.inputs.issue_number }}"
+              echo "starting_phase=${{ github.event.inputs.starting_phase || 'refine' }}"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "issue_number=${{ github.event.issue.number }}"
+              echo "starting_phase=refine"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+  # ============================================================
   # Initialization: Create contract and branch
   # ============================================================
   init:
     name: Initialize pipeline
+    needs: resolve-inputs
     runs-on: ubuntu-latest
-    # Only trigger on sdlc:refine label or workflow_dispatch
+    # Only trigger on sdlc:refine label, workflow_dispatch, or workflow_call
     if: >-
-      (github.event_name == 'workflow_dispatch') ||
-      (github.event_name == 'issues' && github.event.label.name == 'sdlc:refine')
+      always() &&
+      needs.resolve-inputs.result == 'success' &&
+      (
+        (github.event_name == 'workflow_dispatch') ||
+        (github.event_name == 'workflow_call') ||
+        (github.event_name == 'issues' && github.event.label.name == 'sdlc:refine')
+      )
     outputs:
       issue_number: ${{ steps.setup.outputs.issue_number }}
       issue_title: ${{ steps.setup.outputs.issue_title }}
@@ -49,6 +141,10 @@ jobs:
       current_phase: ${{ steps.setup.outputs.current_phase }}
       contract_exists: ${{ steps.setup.outputs.contract_exists }}
       workflow_owner: ${{ steps.setup.outputs.workflow_owner }}
+
+    env:
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
 
     steps:
       - name: Generate bot token
@@ -78,26 +174,21 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "james-in-a-box[bot]"
-          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Setup pipeline
         id: setup
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          DISPATCH_ISSUE: ${{ github.event.inputs.issue_number }}
-          LABELED_ISSUE: ${{ github.event.issue.number }}
-          STARTING_PHASE: ${{ github.event.inputs.starting_phase || 'refine' }}
+          ISSUE_NUMBER_INPUT: ${{ needs.resolve-inputs.outputs.issue_number }}
+          STARTING_PHASE: ${{ needs.resolve-inputs.outputs.starting_phase }}
           EVENT_SENDER: ${{ github.event.sender.login }}
         run: |
           set -euo pipefail
 
-          # Determine issue number based on trigger
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            ISSUE_NUMBER="${DISPATCH_ISSUE}"
-          else
-            ISSUE_NUMBER="${LABELED_ISSUE}"
-          fi
+          # Use resolved issue number
+          ISSUE_NUMBER="${ISSUE_NUMBER_INPUT}"
 
           # Validate issue number is numeric (path traversal prevention)
           if ! [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
@@ -127,8 +218,8 @@ jobs:
 
           echo "workflow_owner=${WORKFLOW_OWNER}" >> "$GITHUB_OUTPUT"
 
-          # Branch name for this issue
-          BRANCH_NAME="egg/issue-${ISSUE_NUMBER}"
+          # Branch name for this issue (using configured prefix)
+          BRANCH_NAME="${BRANCH_PREFIX}/issue-${ISSUE_NUMBER}"
           echo "branch_name=${BRANCH_NAME}" >> "$GITHUB_OUTPUT"
 
           # Check if branch exists
@@ -261,7 +352,7 @@ jobs:
         if: steps.setup.outputs.contract_exists == 'false'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          BOT_USERNAME: james-in-a-box
+          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
         run: |
           set -euo pipefail
           # Find previous bot comments that are pipeline status updates
@@ -326,7 +417,7 @@ jobs:
   # ============================================================
   implement:
     name: Implement tasks
-    needs: init
+    needs: [resolve-inputs, init]
     if: needs.init.outputs.current_phase == 'implement'
     runs-on: ubuntu-latest
     timeout-minutes: 360  # 6 hours max, checkpoint at T-10 minutes
@@ -338,7 +429,7 @@ jobs:
       pr_number: ${{ steps.create-pr.outputs.pr_number }}
 
     env:
-      BOT_USERNAME: james-in-a-box
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
 
@@ -381,8 +472,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "james-in-a-box[bot]"
-          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Populate contract tasks from plan
         env:
@@ -847,7 +938,7 @@ jobs:
   # ============================================================
   finalize-pr:
     name: Finalize pull request
-    needs: [init, implement, wait-for-checks]
+    needs: [resolve-inputs, init, implement, wait-for-checks]
     # Run if checks passed and we have a PR number
     if: >-
       always() &&
@@ -880,8 +971,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "james-in-a-box[bot]"
-          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Check for merge conflicts
         id: merge-check
@@ -1022,7 +1113,7 @@ jobs:
       - name: Minimize previous pipeline comments
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          BOT_USERNAME: james-in-a-box
+          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
         run: |
           set -euo pipefail
           # Find previous bot comments that are pipeline status updates
@@ -1063,7 +1154,7 @@ jobs:
   # ============================================================
   checks-failed:
     name: Checks failed
-    needs: [init, implement, wait-for-checks]
+    needs: [resolve-inputs, init, implement, wait-for-checks]
     # Run if checks failed and we have a PR number
     if: >-
       always() &&
@@ -1089,7 +1180,7 @@ jobs:
       - name: Minimize previous pipeline comments
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          BOT_USERNAME: james-in-a-box
+          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
         run: |
           set -euo pipefail
           # Find previous bot comments that are pipeline status updates
@@ -1142,12 +1233,12 @@ jobs:
   # ============================================================
   refine:
     name: Refine issue
-    needs: init
+    needs: [resolve-inputs, init]
     if: needs.init.outputs.current_phase == 'refine'
     runs-on: ubuntu-latest
 
     env:
-      BOT_USERNAME: james-in-a-box
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
 
@@ -1285,7 +1376,7 @@ jobs:
   # ============================================================
   refine-review:
     name: Review analysis
-    needs: [init, refine]
+    needs: [resolve-inputs, init, refine]
     if: >-
       always() &&
       needs.init.outputs.current_phase == 'refine' &&
@@ -1293,7 +1384,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      BOT_USERNAME: james-in-a-box
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
 
@@ -1469,8 +1560,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          git config user.name "james-in-a-box[bot]"
-          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
 
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
@@ -1779,12 +1870,12 @@ jobs:
   # ============================================================
   plan:
     name: Create plan
-    needs: init
+    needs: [resolve-inputs, init]
     if: needs.init.outputs.current_phase == 'plan'
     runs-on: ubuntu-latest
 
     env:
-      BOT_USERNAME: james-in-a-box
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
 
@@ -1882,8 +1973,8 @@ jobs:
           set -euo pipefail
 
           # Configure git for potential commit
-          git config user.name "james-in-a-box[bot]"
-          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
 
           # Install dependencies and run the populate script from trusted copies
           pip install -q pyyaml pydantic
@@ -2018,7 +2109,7 @@ jobs:
   # ============================================================
   plan-review:
     name: Review plan
-    needs: [init, plan]
+    needs: [resolve-inputs, init, plan]
     if: >-
       always() &&
       needs.init.outputs.current_phase == 'plan' &&
@@ -2026,7 +2117,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      BOT_USERNAME: james-in-a-box
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       ISSUE_NUMBER: ${{ needs.init.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.init.outputs.branch_name }}
 
@@ -2201,8 +2292,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          git config user.name "james-in-a-box[bot]"
-          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
 
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 

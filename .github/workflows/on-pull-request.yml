@@ -12,7 +12,7 @@ on:
 
 jobs:
   review:
-    name: AI Code Review
+    name: egg-review / Code
     permissions:
       contents: read
       pull-requests: write
@@ -20,6 +20,8 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
       bot_name: review
+      bot_username: james-in-a-box
+      # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
       timeout: "10"
       pr_title: ${{ github.event.pull_request.title || '' }}
       event_name: ${{ github.event_name }}
