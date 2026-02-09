@@ -29,7 +29,7 @@ egg/
 | `integration_tests/` | Integration tests requiring Docker and real containers | CI / local |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
 | `shared/` | Shared libraries: logging, config, git utilities, centralized constants | Both containers |
-| `scripts/` | CI/lint scripts (config validation, import checks, hardcoded port detection) | CI / local |
+| `scripts/` | CI/lint scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement) | CI / local |
 | `tests/` | Test suite | CI / local |
 
 ## Gateway Structure
