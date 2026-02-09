@@ -1,0 +1,203 @@
+name: Reusable Conflict Resolution Workflow
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to resolve conflicts for'
+        required: true
+        type: number
+      base_ref:
+        description: 'Base branch to merge from (e.g., main)'
+        required: false
+        type: string
+        default: ""
+      bot_username:
+        description: 'GitHub username of the bot (for comment filtering)'
+        required: false
+        type: string
+        default: "james-in-a-box"
+      action_ref:
+        description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
+        required: false
+        type: string
+        default: "jwbron/egg/action@main"
+      prompt_script:
+        description: 'Path to prompt builder script (relative to repo root)'
+        required: false
+        type: string
+        default: "action/build-conflict-prompt.sh"
+      timeout:
+        description: 'Timeout in minutes'
+        required: false
+        type: string
+        default: "30"
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
+      BOT_APP_INSTALLATION_ID:
+        required: true
+      ANTHROPIC_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  resolve:
+    name: Resolve Conflicts
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+
+    concurrency:
+      group: egg-conflict-${{ inputs.pr_number }}
+      cancel-in-progress: false
+
+    env:
+      PR_NUMBER: ${{ inputs.pr_number }}
+      BOT_USERNAME: ${{ inputs.bot_username }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Fetch PR metadata
+        id: pr-meta
+        run: |
+          set -euo pipefail
+          pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
+          {
+            echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"
+            echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')"
+            echo "title=$(echo "$pr_json" | jq -r '.title')"
+            echo "base-ref=$(echo "$pr_json" | jq -r '.base.ref')"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
+      # Skip fork PRs — bot can't push to forks
+      - name: Check for fork PR
+        id: fork-check
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.pr-meta.outputs.head-repo }}" != "${{ github.repository }}" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR is from a fork (${{ steps.pr-meta.outputs.head-repo }}), skipping — bot cannot push to forks"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Early exit if fork
+        if: steps.fork-check.outputs.skip == 'true'
+        run: echo "Skipping conflict resolution for fork PR"
+
+      # Check for skip marker
+      - name: Check for skip marker
+        if: steps.fork-check.outputs.skip != 'true'
+        id: skip-check
+        env:
+          PR_TITLE: ${{ steps.pr-meta.outputs.title }}
+        run: |
+          set -euo pipefail
+          if [[ "$PR_TITLE" == *"[skip-conflict-fix]"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR has [skip-conflict-fix] marker, skipping"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Early exit if skipped
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip == 'true'
+        run: echo "Skipping conflict resolution due to [skip-conflict-fix] marker"
+
+      # Minimize previous conflict resolution comments
+      - name: Minimize previous conflict comments
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            --jq ".[] | select(.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") | select(.body | test(\"egg is resolving|egg conflict resolution\")) | .node_id" \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id" || echo "Failed to minimize comment $node_id"
+            done
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
+      - name: Post starting comment
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          BODY="egg is resolving merge conflicts for this PR..."
+          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
+      # SECURITY: Build the conflict prompt from a trusted checkout (main).
+      - name: Checkout main (trusted)
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Build conflict prompt
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        id: prompt
+        run: bash ${{ inputs.prompt_script }}
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          BASE_REF: ${{ inputs.base_ref || steps.pr-meta.outputs.base-ref }}
+
+      - name: Checkout PR branch
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.pr-meta.outputs.head-repo }}
+          ref: ${{ steps.pr-meta.outputs.head-ref }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Run egg conflict resolution
+        if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        id: egg
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: ${{ steps.prompt.outputs.prompt-file }}
+          model: ${{ steps.prompt.outputs.model }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          bot-username: ${{ env.BOT_USERNAME }}
+          timeout: ${{ inputs.timeout }}
+
+      - name: Post result comment
+        if: always() && !cancelled() && steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
+            BODY="egg conflict resolution completed. [View run logs](${RUN_URL})"
+          else
+            BODY="egg conflict resolution encountered an issue. [View run logs](${RUN_URL})"
+          fi
+
+          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
