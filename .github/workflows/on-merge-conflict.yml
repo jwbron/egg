@@ -6,7 +6,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 */2 * * *'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -90,7 +90,7 @@ jobs:
           else
             echo "Found conflicting PRs: ${conflicting[*]}"
             # Convert to JSON array
-            json_array=$(printf '%s\n' "${conflicting[@]}" | jq -R . | jq -s .)
+            json_array=$(printf '%s\n' "${conflicting[@]}" | jq -R . | jq -sc .)
             echo "prs=${json_array}" >> "$GITHUB_OUTPUT"
           fi
         env:
