@@ -73,6 +73,8 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
       bot_name: contract-verification
+      bot_username: james-in-a-box
+      # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
       prompt_script: "action/build-contract-verification-prompt.sh"
       timeout: "15"
       pr_title: ${{ github.event.pull_request.title || '' }}
