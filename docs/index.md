@@ -26,6 +26,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Document | Description |
 |----------|-------------|
+| [The Agentic Feedback Loop](agentic-feedback-loop.md) | The foundational work-review-feedback cycle that drives quality in agent-human collaboration |
 | [Why egg Works](collaboration-effectiveness.md) | How the public, sandboxed, async model delivers safety, quality, and collaboration |
 
 ### Architecture
@@ -94,7 +95,7 @@ Each major component has its own README with detailed documentation:
 | **Using workflows in external repos** | [Reusable Workflows](guides/reusable-workflows.md) | [GitHub Automation](guides/github-automation.md), [GitHub Action](../action/README.md) |
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
 | **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
-| **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [ADR: SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), workflows in `.github/workflows/sdlc-*.yml` |
+| **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [The Agentic Feedback Loop](agentic-feedback-loop.md), [ADR: SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), workflows in `.github/workflows/sdlc-*.yml` |
 
 ## Quick Navigation
 
