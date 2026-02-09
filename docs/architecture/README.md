@@ -117,7 +117,7 @@ Contracts can override phase defaults via the `phase_configs` field, allowing pe
 The SDLC pipeline orchestrates agent-based development with structurally enforced checkpoints through GitHub Actions workflows:
 
 **Core workflows:**
-- `.github/workflows/sdlc-pipeline.yml` - Main pipeline orchestration (init, refine, plan, implement, wait-for-checks, finalize-pr phases)
+- `.github/workflows/sdlc-pipeline.yml` - Main pipeline orchestration (init and work-loop jobs)
 - `.github/workflows/sdlc-work-loop.yml` - Unified work/review/respond cycle for refine, plan, and implement phases
 - `.github/workflows/reusable-review.yml` - PR-based code review (invoked for draft PRs during implement phase)
 - `.github/workflows/sdlc-hitl.yml` - Human-in-the-loop decision handling with debounce for rapid checkbox edits

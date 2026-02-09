@@ -77,7 +77,7 @@ by providing different prompt scripts while sharing the review infrastructure.
 ### Reviewer Job Naming Convention
 
 **All reviewer workflows must use the `egg-review /` prefix for their job names.** This
-standardized prefix ensures the wait-for-checks logic correctly filters out all reviewer
+standardized prefix ensures check-waiting logic correctly filters out all reviewer
 jobs to prevent self-deadlock.
 
 Example job definition:
@@ -91,7 +91,7 @@ jobs:
       # ...
 ```
 
-The wait-for-checks filter matches `egg-review /` in check run names. If a new reviewer
+Check-waiting logic filters out `egg-review /` in check run names. If a new reviewer
 workflow doesn't follow this convention, it will cause infinite loops where reviewers
 wait on each other indefinitely.
 
