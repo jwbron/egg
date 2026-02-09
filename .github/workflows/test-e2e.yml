@@ -40,7 +40,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: e2e-deterministic-results
           path: e2e-deterministic-results.xml
@@ -85,7 +85,7 @@ jobs:
 
       - name: Upload fuzz results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: e2e-agent-fuzz-results
           path: |
