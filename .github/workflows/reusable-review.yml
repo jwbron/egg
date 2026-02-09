@@ -477,39 +477,67 @@ jobs:
           EGG_ISSUE_NUMBER: ${{ inputs.issue_number }}
 
       # Minimize previous status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous status comments
+        id: minimize
         if: always() && !cancelled()
         run: |
           set -euo pipefail
-          # Find previous bot comments that are status updates for this bot
-          # Match: "egg <bot_name> completed" or "egg <bot_name> failed"
+          HIDDEN_COUNT=0
+          # Find previous bot comments with status marker
+          # Use process substitution to avoid subshell variable scope issues
           # shellcheck disable=SC2016
-          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("egg ${{ inputs.bot_name }} (completed|failed)")) | .node_id' \
-          | while read -r node_id; do
-              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
-              if ! gh api graphql -f query='
-                mutation($id: ID!) {
-                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
-                    minimizedComment { isMinimized }
-                  }
+          while read -r node_id; do
+            # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+            if gh api graphql -f query='
+              mutation($id: ID!) {
+                minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                  minimizedComment { isMinimized }
                 }
-              ' -f id="$node_id"; then
-                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
-              fi
-            done
+              }
+            ' -f id="$node_id"; then
+              HIDDEN_COUNT=$((HIDDEN_COUNT + 1))
+            else
+              echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
+            fi
+          done < <(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+            | jq -r --arg bot "$BOT_USERNAME" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id')
+          echo "hidden_count=${HIDDEN_COUNT}" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
       - name: Post workflow run status to PR
         if: always() && !cancelled()
         run: |
+          HIDDEN_COUNT="${{ steps.minimize.outputs.hidden_count }}"
+          HIDDEN_COUNT="${HIDDEN_COUNT:-0}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
           if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
-            BODY="egg ${{ inputs.bot_name }} completed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            if [[ "$HIDDEN_COUNT" -gt 0 ]]; then
+              BODY="<!-- egg-status-comment -->
+          egg ${{ inputs.bot_name }} completed. [View run logs](${RUN_URL})
+
+          *${HIDDEN_COUNT} previous review(s) hidden.*"
+            else
+              BODY="<!-- egg-status-comment -->
+          egg ${{ inputs.bot_name }} completed. [View run logs](${RUN_URL})"
+            fi
           else
-            BODY="egg ${{ inputs.bot_name }} failed. [View run logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            if [[ "$HIDDEN_COUNT" -gt 0 ]]; then
+              BODY="<!-- egg-status-comment -->
+          egg ${{ inputs.bot_name }} failed. [View run logs](${RUN_URL})
+
+          *${HIDDEN_COUNT} previous review(s) hidden.*"
+            else
+              BODY="<!-- egg-status-comment -->
+          egg ${{ inputs.bot_name }} failed. [View run logs](${RUN_URL})"
+            fi
           fi
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh pr comment "${{ env.PR_NUMBER }}" --repo "${{ github.repository }}" --body "$BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}

@@ -347,32 +347,9 @@ jobs:
 
           echo "Applied phase label: ${PHASE_LABEL}"
 
-      # Minimize previous pipeline status comments to reduce clutter
-      - name: Minimize previous pipeline comments
-        if: steps.setup.outputs.contract_exists == 'false'
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
-        run: |
-          set -euo pipefail
-          # Find previous bot comments that are pipeline status updates
-          # Match: "SDLC Pipeline", "phase completed", "phase encountered"
-          # shellcheck disable=SC2016
-          gh api "repos/${{ github.repository }}/issues/${{ steps.setup.outputs.issue_number }}/comments" \
-            | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
-          | while read -r node_id; do
-              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
-              if ! gh api graphql -f query='
-                mutation($id: ID!) {
-                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
-                    minimizedComment { isMinimized }
-                  }
-                }
-              ' -f id="$node_id"; then
-                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
-              fi
-            done
+      # NOTE: Comment hiding removed from init job (issue-phase) per #363
+      # Status comments on issues should remain visible for audit trail
+      # Comment hiding is now only done in PR-phase jobs using semantic markers
 
       - name: Post initialization comment
         if: steps.setup.outputs.contract_exists == 'false'
@@ -380,7 +357,8 @@ jobs:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           set -euo pipefail
-          BODY="SDLC Pipeline initialized for this issue.
+          BODY="<!-- egg-status-comment -->
+          SDLC Pipeline initialized for this issue.
 
           **Branch:** \`${{ steps.setup.outputs.branch_name }}\`
           **Starting phase:** \`${{ steps.setup.outputs.current_phase }}\`
@@ -389,6 +367,9 @@ jobs:
 
           --- Authored by egg"
 
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh issue comment "${{ steps.setup.outputs.issue_number }}" --repo "${{ github.repository }}" --body "$BODY"
 
       - name: Close stale PRs
@@ -720,17 +701,18 @@ jobs:
             --to "sdlc:pr"
 
       # Minimize previous pipeline status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous pipeline comments
         if: always()
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           set -euo pipefail
-          # Find previous bot comments that are pipeline status updates
+          # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
             | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready")) | .node_id' \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -754,16 +736,21 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
-            BODY="Implementation phase completed. [View run logs](${RUN_URL})
+            BODY="<!-- egg-status-comment -->
+          Implementation phase completed. [View run logs](${RUN_URL})
 
           --- Authored by egg"
           else
-            BODY="Implementation phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}).
+            BODY="<!-- egg-status-comment -->
+          Implementation phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}).
           [View run logs](${RUN_URL})
 
           --- Authored by egg"
           fi
 
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
       - name: Capture final HEAD SHA
@@ -1013,7 +1000,8 @@ jobs:
           set -euo pipefail
           PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
 
-          BODY="**Merge conflicts detected** on draft PR #${PR_NUMBER}.
+          BODY="<!-- egg-status-comment -->
+          **Merge conflicts detected** on draft PR #${PR_NUMBER}.
 
           The branch has conflicts with \`main\` that must be resolved before the PR can be marked ready for review: ${PR_URL}
 
@@ -1021,6 +1009,9 @@ jobs:
 
           --- Authored by egg"
 
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
       - name: Update PR title and mark ready
@@ -1110,17 +1101,18 @@ jobs:
           fi
 
       # Minimize previous pipeline status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous pipeline comments
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
         run: |
           set -euo pipefail
-          # Find previous bot comments that are pipeline status updates
+          # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
             | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready|Checks timed out|Checks failed")) | .node_id' \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -1141,12 +1133,16 @@ jobs:
         run: |
           set -euo pipefail
           PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
-          BODY="Pull request ready for review: ${PR_URL}
+          BODY="<!-- egg-status-comment -->
+          Pull request ready for review: ${PR_URL}
 
           All automated checks passed. The PR is ready for human review and merge.
 
           --- Authored by egg"
 
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
   # ============================================================
@@ -1177,17 +1173,18 @@ jobs:
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
       # Minimize previous pipeline status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous pipeline comments
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
         run: |
           set -euo pipefail
-          # Find previous bot comments that are pipeline status updates
+          # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
             | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready|Checks timed out|Checks failed")) | .node_id' \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -1209,7 +1206,8 @@ jobs:
           PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
 
           if [[ "$TIMED_OUT" == "true" ]]; then
-            BODY="**Checks timed out** while waiting for all check runs to complete.
+            BODY="<!-- egg-status-comment -->
+          **Checks timed out** while waiting for all check runs to complete.
 
           This may indicate workflows are queued or running slowly. Please check the PR for status: ${PR_URL}
 
@@ -1217,7 +1215,8 @@ jobs:
 
           --- Authored by egg"
           else
-            BODY="**Checks failed** on draft PR #${PR_NUMBER}.
+            BODY="<!-- egg-status-comment -->
+          **Checks failed** on draft PR #${PR_NUMBER}.
 
           Please review the failing checks: ${PR_URL}
 
@@ -1226,6 +1225,9 @@ jobs:
           --- Authored by egg"
           fi
 
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
   # ============================================================
@@ -1319,30 +1321,9 @@ jobs:
             echo "No draft file found at ${DRAFT_FILE}"
           fi
 
-      # Minimize previous pipeline status comments to reduce clutter
-      - name: Minimize previous pipeline comments
-        if: always()
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-        run: |
-          set -euo pipefail
-          # Find previous bot comments that are pipeline status updates
-          # shellcheck disable=SC2016
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
-          | while read -r node_id; do
-              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
-              if ! gh api graphql -f query='
-                mutation($id: ID!) {
-                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
-                    minimizedComment { isMinimized }
-                  }
-                }
-              ' -f id="$node_id"; then
-                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
-              fi
-            done
+      # NOTE: Comment hiding removed from refine job (issue-phase) per #363
+      # Status comments on issues should remain visible for audit trail
+      # Comment hiding is now only done in PR-phase jobs using semantic markers
 
       - name: Post failure comment
         if: always() && (steps.egg.outputs.exit-code != '0' || steps.validate-refine.outputs.found != 'true')
@@ -1355,19 +1336,24 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${ANALYSIS_FOUND:-}" != "true" ]]; then
-            BODY="**Warning:** Refine phase exited successfully but no analysis draft was found. The agent may have failed to write to \`.egg-state/drafts/\`. [View run logs](${RUN_URL})
+            BODY="<!-- egg-status-comment -->
+          **Warning:** Refine phase exited successfully but no analysis draft was found. The agent may have failed to write to \`.egg-state/drafts/\`. [View run logs](${RUN_URL})
 
           Please check the run logs and retry if needed.
 
           --- Authored by egg"
           elif [[ "${EGG_EXIT_CODE:-1}" != "0" ]]; then
-            BODY="Refine phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})
+            BODY="<!-- egg-status-comment -->
+          Refine phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})
 
           --- Authored by egg"
           fi
 
           # Only post if BODY is set (success cases don't post here - they wait for review)
           if [[ -n "${BODY:-}" ]]; then
+            # Strip leading whitespace from each line (caused by YAML indentation)
+            # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
+            BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
             gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
           fi
 
@@ -2052,30 +2038,9 @@ jobs:
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file "$COMMENT_FILE"
           echo "Posted PR metadata comment"
 
-      # Minimize previous pipeline status comments to reduce clutter
-      - name: Minimize previous pipeline comments
-        if: always()
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-        run: |
-          set -euo pipefail
-          # Find previous bot comments that are pipeline status updates
-          # shellcheck disable=SC2016
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
-          | while read -r node_id; do
-              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
-              if ! gh api graphql -f query='
-                mutation($id: ID!) {
-                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
-                    minimizedComment { isMinimized }
-                  }
-                }
-              ' -f id="$node_id"; then
-                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
-              fi
-            done
+      # NOTE: Comment hiding removed from plan job (issue-phase) per #363
+      # Status comments on issues should remain visible for audit trail
+      # Comment hiding is now only done in PR-phase jobs using semantic markers
 
       - name: Post failure comment
         if: always() && (steps.egg.outputs.exit-code != '0' || steps.validate-plan.outputs.found != 'true')
@@ -2088,19 +2053,24 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           if [[ "${EGG_EXIT_CODE:-1}" == "0" ]] && [[ "${PLAN_FOUND:-}" != "true" ]]; then
-            BODY="**Warning:** Plan phase exited successfully but no plan draft was found. The agent may have failed to write to \`.egg-state/drafts/\`. [View run logs](${RUN_URL})
+            BODY="<!-- egg-status-comment -->
+          **Warning:** Plan phase exited successfully but no plan draft was found. The agent may have failed to write to \`.egg-state/drafts/\`. [View run logs](${RUN_URL})
 
           Please check the run logs and retry if needed.
 
           --- Authored by egg"
           elif [[ "${EGG_EXIT_CODE:-1}" != "0" ]]; then
-            BODY="Plan phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})
+            BODY="<!-- egg-status-comment -->
+          Plan phase encountered issues (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})
 
           --- Authored by egg"
           fi
 
           # Only post if BODY is set (success cases don't post here - they wait for review)
           if [[ -n "${BODY:-}" ]]; then
+            # Strip leading whitespace from each line (caused by YAML indentation)
+            # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
+            BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
             gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
           fi
 

@@ -135,6 +135,7 @@ The pipeline is triggered by applying the `sdlc:refine` label to an issue. You c
 .github/scripts/setup-sdlc-labels.sh --repo owner/repo
 ```
 
+
 ## Common Parameters
 
 | Parameter | Description | Default |

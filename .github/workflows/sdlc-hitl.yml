@@ -510,17 +510,18 @@ jobs:
             --remove "sdlc:awaiting-approval"
 
       # Minimize previous HITL status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous HITL comments
         if: steps.update.outputs.contract_updated == 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           set -euo pipefail
-          # Find previous bot comments that are HITL decision status updates
+          # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
             | jq -r --arg bot "${{ env.BOT_USERNAME }}" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("Decision .* resolved|Phase .* approved|Advancing to")) | .node_id' \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -546,10 +547,10 @@ jobs:
           set -euo pipefail
           # Use printf to safely construct comment body (prevents command injection)
           if [[ "$SHOULD_ADVANCE" == "true" ]]; then
-            BODY=$(printf 'Decision **%s** resolved: %s\n\nAll pending decisions resolved. Advancing to **%s** phase.\n\n--- Authored by egg' \
+            BODY=$(printf '<!-- egg-status-comment -->\nDecision **%s** resolved: %s\n\nAll pending decisions resolved. Advancing to **%s** phase.\n\n--- Authored by egg' \
               "$DECISION_ID" "$SELECTED_OPTION" "$NEXT_PHASE")
           else
-            BODY=$(printf 'Decision **%s** resolved: %s\n\n--- Authored by egg' \
+            BODY=$(printf '<!-- egg-status-comment -->\nDecision **%s** resolved: %s\n\n--- Authored by egg' \
               "$DECISION_ID" "$SELECTED_OPTION")
           fi
 
@@ -821,17 +822,18 @@ jobs:
           echo "Transitioned labels: sdlc:${PREVIOUS_PHASE} -> sdlc:${NEXT_PHASE}"
 
       # Minimize previous HITL status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous HITL comments
         if: steps.approve.outputs.approved == 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           set -euo pipefail
-          # Find previous bot comments that are HITL decision/approval status updates
+          # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
             | jq -r --arg bot "${{ env.BOT_USERNAME }}" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("Decision .* resolved|Phase .* approved|Advancing to")) | .node_id' \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -855,7 +857,7 @@ jobs:
         run: |
           set -euo pipefail
           # Use printf to safely construct comment body (prevents command injection)
-          BODY=$(printf 'Phase **%s** approved by @%s.\n\nAdvancing to **%s** phase.\n\n--- Authored by egg' \
+          BODY=$(printf '<!-- egg-status-comment -->\nPhase **%s** approved by @%s.\n\nAdvancing to **%s** phase.\n\n--- Authored by egg' \
             "$PREVIOUS_PHASE" "$SENDER_LOGIN" "$NEXT_PHASE")
 
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
@@ -865,23 +867,52 @@ jobs:
   # ============================================================
   handle-feedback:
     name: Handle feedback submission
+    needs: resolve-inputs
     runs-on: ubuntu-latest
     # Trigger on feedback comments (with egg-feedback marker) where the submit
     # checkbox has been checked.
-    # Authorization: Only jwbron can submit feedback, and bot cannot trigger itself
+    # NOTE: Authorization is checked dynamically in the first step using authorized_users input.
+    # Bot self-trigger prevention is hardcoded here because job-level `if:` conditions cannot
+    # access `needs` outputs (GitHub Actions limitation). This is a safety check; the step-level
+    # auth check handles the full authorization logic including configured bot_username.
     if: >-
       contains(github.event.comment.body, '<!-- egg-feedback') &&
       contains(github.event.comment.body, '[x] Submit feedback') &&
-      github.event.sender.login == 'jwbron' &&
       github.event.sender.login != 'james-in-a-box' &&
       github.event.sender.login != 'james-in-a-box[bot]'
 
     env:
-      BOT_USERNAME: james-in-a-box
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
       ISSUE_NUMBER: ${{ github.event.issue.number }}
 
     steps:
+      - name: Check authorization
+        id: auth
+        env:
+          SENDER_LOGIN: ${{ github.event.sender.login }}
+        run: |
+          # Check if sender is authorized
+          is_authorized=false
+          IFS=',' read -ra users <<< "$AUTHORIZED_USERS"
+          for user in "${users[@]}"; do
+            user=$(echo "$user" | xargs)
+            if [[ "$SENDER_LOGIN" == "$user" ]]; then
+              is_authorized=true
+              break
+            fi
+          done
+
+          if [[ "$is_authorized" == "false" ]]; then
+            echo "User $SENDER_LOGIN is not authorized for feedback submission"
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "User $SENDER_LOGIN is authorized"
+            echo "authorized=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Generate bot token
+        if: steps.auth.outputs.authorized == 'true'
         id: bot-token
         uses: actions/create-github-app-token@v1
         with:
@@ -889,6 +920,7 @@ jobs:
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
       - name: Parse feedback
+        if: steps.auth.outputs.authorized == 'true'
         id: parse
         env:
           COMMENT_BODY: ${{ github.event.comment.body }}
@@ -912,7 +944,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Check debounce
-        if: steps.parse.outputs.has_feedback == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.parse.outputs.has_feedback == 'true'
         id: debounce
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -945,14 +977,14 @@ jobs:
           fi
 
       - name: Checkout repository
-        if: steps.debounce.outputs.should_process == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.debounce.outputs.should_process == 'true'
         uses: actions/checkout@v4
         with:
           token: ${{ steps.bot-token.outputs.token }}
           fetch-depth: 0
 
       - name: Find and checkout issue branch
-        if: steps.debounce.outputs.should_process == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.debounce.outputs.should_process == 'true'
         id: branch
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -978,15 +1010,15 @@ jobs:
           fi
 
       - name: Configure git identity
-        if: steps.branch.outputs.branch_exists == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.branch.outputs.branch_exists == 'true'
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "james-in-a-box[bot]"
-          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Parse and update feedback in contract
-        if: steps.branch.outputs.branch_exists == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.branch.outputs.branch_exists == 'true'
         id: update
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -1117,52 +1149,11 @@ jobs:
             "$CONTRACT_PATH" > /tmp/contract.json
           mv /tmp/contract.json "$CONTRACT_PATH"
           REAPPLY_EOF
+          chmod +x /tmp/reapply-feedback.sh
 
-          # Apply transformation initially
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          # Update each question with its answer
-          for QID in $(jq -r '.feedback.questions[].id' "$CONTRACT_PATH"); do
-            ANSWER=$(echo "$ANSWERS_JSON" | jq -r --arg qid "$QID" '.[$qid] // null')
-            if [[ "$ANSWER" != "null" ]]; then
-              jq --arg qid "$QID" --arg answer "$ANSWER" '
-                .feedback.questions = [.feedback.questions[] |
-                  if .id == $qid then .answer = $answer else . end]
-              ' "$CONTRACT_PATH" > /tmp/contract.json
-              mv /tmp/contract.json "$CONTRACT_PATH"
-            fi
-          done
-
-          # Mark feedback as submitted
-          jq --arg timestamp "$TIMESTAMP" \
-             --arg actor "$SENDER_LOGIN" \
-             --arg comment_id "$COMMENT_ID" \
-            '.feedback.submitted = true |
-             .feedback.submitted_by = $actor |
-             .feedback.submitted_at = $timestamp |
-             .feedback.comment_id = ($comment_id | tonumber)' \
-            "$CONTRACT_PATH" > /tmp/contract.json
-          mv /tmp/contract.json "$CONTRACT_PATH"
-
-          # Add audit entry
-          AUDIT_ENTRY=$(jq -n \
-            --arg timestamp "$TIMESTAMP" \
-            --arg actor "$SENDER_LOGIN" \
-            --arg feedback "$FEEDBACK_ID" \
-            '{
-              timestamp: $timestamp,
-              actor: $actor,
-              role: "human",
-              action: "update",
-              field_path: ("feedback." + $feedback),
-              old_value: null,
-              new_value: "submitted",
-              reason: "Feedback submitted by human"
-            }')
-
-          jq --argjson entry "$AUDIT_ENTRY" '.audit_log += [$entry]' \
-            "$CONTRACT_PATH" > /tmp/contract.json
-          mv /tmp/contract.json "$CONTRACT_PATH"
+          # Apply transformation initially by running the reapply script
+          # (same logic used for retry on push conflicts)
+          bash /tmp/reapply-feedback.sh
 
           # Commit the update
           git add "$CONTRACT_PATH"
@@ -1182,7 +1173,7 @@ jobs:
 
       # Trigger pipeline to resume with the feedback
       - name: Trigger pipeline continuation
-        if: steps.update.outputs.feedback_updated == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.update.outputs.feedback_updated == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1199,14 +1190,14 @@ jobs:
           fi
 
       - name: Post status comment
-        if: steps.update.outputs.feedback_updated == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.update.outputs.feedback_updated == 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           FEEDBACK_ID: ${{ steps.parse.outputs.feedback_id }}
           SENDER_LOGIN: ${{ github.event.sender.login }}
         run: |
           set -euo pipefail
-          BODY=$(printf 'Feedback **%s** submitted by @%s.\n\nResuming pipeline with feedback.\n\n--- Authored by egg' \
+          BODY=$(printf '<!-- egg-status-comment -->\nFeedback **%s** submitted by @%s.\n\nResuming pipeline with feedback.\n\n--- Authored by egg' \
             "$FEEDBACK_ID" "$SENDER_LOGIN")
 
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"

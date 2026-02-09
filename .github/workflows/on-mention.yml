@@ -306,6 +306,7 @@ jobs:
           timeout: ${{ inputs.timeout || '30' }}
 
       # Minimize previous status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous status comments
         if: always()
         env:
@@ -313,11 +314,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Find previous bot comments that are status updates
-          # Match: "egg run", "egg finished", "👀 Working on it"
+          # Find previous bot comments with status marker
+          # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments" \
             | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("egg run|egg finished|👀 Working on it")) | .node_id' \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -353,17 +354,26 @@ jobs:
           if [[ "${EXISTING_COMMENTS:-0}" -gt 0 ]]; then
             # Agent already posted a substantive comment — only add run link on failure
             if [[ "${EGG_EXIT_CODE:-1}" != "0" ]]; then
-              BODY="egg run had errors (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
+              BODY="<!-- egg-status-comment -->
+          egg run had errors (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
+              # Strip leading whitespace from each line (caused by YAML indentation)
+              # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
+              BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
               gh api repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments \
                 -X POST -f body="${BODY}"
             fi
           else
             # No substantive comment posted — post fallback
             if [[ "${EGG_EXIT_CODE:-1}" == "0" ]]; then
-              BODY="egg finished successfully but did not post a response. [View run logs](${RUN_URL})"
+              BODY="<!-- egg-status-comment -->
+          egg finished successfully but did not post a response. [View run logs](${RUN_URL})"
             else
-              BODY="egg run failed (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
+              BODY="<!-- egg-status-comment -->
+          egg run failed (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
             fi
+            # Strip leading whitespace from each line (caused by YAML indentation)
+            # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
+            BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
             gh api repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments \
               -X POST -f body="${BODY}"
           fi
