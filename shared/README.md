@@ -93,9 +93,10 @@ def call_external_api():
 ```
 
 **Key modules:**
-- `models.py` - Pydantic models (Contract, Task, Phase, CircuitBreaker, etc.)
+- `models.py` - Pydantic models (Contract, Task, Phase, CircuitBreaker, Feedback, etc.)
 - `circuit_breaker.py` - Circuit breaker logic for infinite loop prevention
 - `hitl.py` - Human-in-the-loop checkbox UI generation and parsing
+- `feedback.py` - Feedback comment generation and parsing for open-ended questions
 - `resilience.py` - Rate limit handling, retry logic, timeout checkpoints
 - `plan_parser.py` - Markdown plan parsing and task extraction
 - `roles.py` - Role-based field ownership validation

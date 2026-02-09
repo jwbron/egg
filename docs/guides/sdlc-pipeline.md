@@ -492,6 +492,9 @@ egg-contract add-decision --question "Should we proceed with approach X?"
 
 # Create HITL decision point with markdown checkbox format (for GitHub comments)
 egg-contract add-decision --question "Which approach?" --options "A" "B" --format markdown
+
+# Create feedback comment for open-ended questions
+egg-contract add-feedback --question "What is the expected request volume?" --question "Should we support legacy browsers?" --format markdown
 ```
 
 **Note:** `mark-task` and `mark-phase` commands (previously used by the dedicated reviewer agent) are deprecated as of PR #285. Task validation now happens via PR-based code review.

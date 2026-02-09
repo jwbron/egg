@@ -89,7 +89,7 @@ sandbox/
 shared/
 ├── egg_config/             # Configuration utilities
 │   └── constants.py        # Centralized constants (ports, networks, container names)
-├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, circuit breaker, HITL
+├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, circuit breaker, HITL, feedback
 ├── egg_git/                # Git utilities
 └── egg_logging/            # Structured logging
 ```
