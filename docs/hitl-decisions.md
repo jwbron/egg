@@ -8,9 +8,10 @@ The SDLC pipeline includes phases where human input is required before proceedin
 - **Refine phase**: Human approves the analysis before planning
 - **Plan phase**: Human approves the implementation plan before coding
 
-Two mechanisms exist for gathering human input:
+Three mechanisms exist for gathering human input:
 1. **Formal HITL decisions** — Multiple-choice questions with checkboxes
-2. **Phase approval** — Single checkbox to approve and advance to the next phase
+2. **Feedback comments** — Open-ended questions in an editable comment
+3. **Phase approval** — Single checkbox to approve and advance to the next phase
 
 ## Formal HITL Decisions
 
@@ -53,10 +54,76 @@ comment, which the agent will parse.
 
 ### Open-ended Questions
 
-For questions without predefined options, don't use the `--options` flag:
-- Simply list the question as plain text in your comment
-- The human will respond via a new comment
-- No special workflow processing occurs; the agent reads the reply
+For open-ended questions, use a dedicated feedback comment (see next section).
+
+## Feedback Comments
+
+Use feedback comments when you need free-form answers to open-ended questions.
+
+### Creating Feedback
+
+```bash
+egg-contract add-feedback \
+  --question "What is the expected request volume?" \
+  --question "Should we support legacy browsers?" \
+  --format markdown
+```
+
+Output:
+```markdown
+<!-- egg-feedback id=feedback-1 -->
+
+## Questions & Feedback
+
+Please **edit this comment** to answer questions or provide feedback.
+When you're done, check the box below to submit.
+
+---
+
+### Open Questions
+
+**Q1: What is the expected request volume?**
+
+> _Your answer here_
+
+**Q2: Should we support legacy browsers?**
+
+> _Your answer here_
+
+---
+
+### Additional Feedback (optional)
+
+> _Add any other feedback or context here_
+
+---
+
+- [ ] Submit feedback (I'm done editing)
+
+---
+
+*Authored-by: egg*
+```
+
+### How It Works
+
+1. The agent includes this markdown in a GitHub comment
+2. The `<!-- egg-feedback id=... -->` marker identifies the feedback comment
+3. The human edits the comment to fill in answers (replacing placeholder text)
+4. When the human checks `[x] Submit feedback`, GitHub triggers an edit event
+5. The `sdlc-hitl.yml` workflow's `handle-feedback` job detects this
+6. The workflow parses answers, updates the contract, and resumes the pipeline
+7. The agent receives the feedback in its next invocation
+
+### Key Differences from Decisions
+
+| Aspect | Formal Decisions | Feedback Comments |
+|--------|-----------------|-------------------|
+| Marker | `<!-- egg-hitl-decision id=... -->` | `<!-- egg-feedback id=... -->` |
+| Purpose | Choose between options | Collect free-form answers |
+| Input format | Checkboxes | Editable blockquotes |
+| Multiple questions | No (one per decision) | Yes (consolidated comment) |
+| Workflow job | `handle-decision` | `handle-feedback` |
 
 ## Phase Approval
 
@@ -129,9 +196,18 @@ Check that:
 - The decision ID uses only lowercase letters, numbers, and hyphens
 - The checkbox format is standard markdown: `- [ ] Option` or `- [x] Option`
 
+### "Feedback not detected"
+
+Check that:
+- The `<!-- egg-feedback id=... -->` marker is present
+- The feedback ID uses only lowercase letters, numbers, and hyphens
+- The submit checkbox is checked: `- [x] Submit feedback`
+- Answers are in blockquote format: `> Answer text`
+
 ## Related Files
 
-- `.github/workflows/sdlc-hitl.yml` — Workflow handling decisions and approvals
-- `sandbox/egg_lib/contract_cli.py` — CLI for creating decisions
+- `.github/workflows/sdlc-hitl.yml` — Workflow handling decisions, feedback, and approvals
+- `sandbox/egg_lib/contract_cli.py` — CLI for creating decisions and feedback
+- `shared/egg_contracts/feedback.py` — Feedback generation and parsing
 - `docs/templates/analysis.md` — Template showing decision usage
 - `docs/templates/phase-completion.md` — Template for approval format

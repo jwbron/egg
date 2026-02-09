@@ -110,6 +110,14 @@
       ],
       "description": "Planner-generated PR metadata for use during PR creation",
       "default": null
+    },
+    "feedback": {
+      "oneOf": [
+        { "$ref": "#/$defs/feedback" },
+        { "type": "null" }
+      ],
+      "description": "Active feedback request for collecting open-ended questions from humans",
+      "default": null
     }
   },
   "additionalProperties": false,
@@ -402,6 +410,83 @@
           "type": "string",
           "description": "PR description/body explaining the context and changes",
           "default": ""
+        }
+      },
+      "additionalProperties": false
+    },
+    "feedbackQuestion": {
+      "type": "object",
+      "description": "A question for human feedback",
+      "required": ["id", "question"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique question identifier (e.g., Q1)",
+          "pattern": "^Q[0-9]+$"
+        },
+        "question": {
+          "type": "string",
+          "description": "The question text",
+          "minLength": 1
+        },
+        "answer": {
+          "type": ["string", "null"],
+          "description": "Human-provided answer (free-form text)",
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "feedback": {
+      "type": "object",
+      "description": "Feedback request for collecting open-ended questions from humans",
+      "required": ["id", "questions", "submitted"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique feedback identifier (e.g., feedback-1)",
+          "pattern": "^feedback-[0-9]+$"
+        },
+        "phase": {
+          "type": "string",
+          "description": "Pipeline phase this feedback belongs to",
+          "enum": ["refine", "plan", "implement", "pr"]
+        },
+        "questions": {
+          "type": "array",
+          "description": "List of questions for the human",
+          "items": {
+            "$ref": "#/$defs/feedbackQuestion"
+          },
+          "minItems": 1
+        },
+        "submitted": {
+          "type": "boolean",
+          "description": "Whether the feedback has been submitted",
+          "default": false,
+          "x-role-owner": "human"
+        },
+        "submitted_by": {
+          "type": ["string", "null"],
+          "description": "GitHub username who submitted the feedback",
+          "default": null
+        },
+        "submitted_at": {
+          "type": ["string", "null"],
+          "description": "When the feedback was submitted",
+          "format": "date-time",
+          "default": null
+        },
+        "comment_id": {
+          "type": ["integer", "null"],
+          "description": "GitHub comment ID containing this feedback",
+          "default": null
+        },
+        "debounce_until": {
+          "type": ["string", "null"],
+          "description": "Debounce expiration timestamp",
+          "format": "date-time",
+          "default": null
         }
       },
       "additionalProperties": false

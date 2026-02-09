@@ -176,6 +176,75 @@ get_contract_summary() {
   fi
 }
 
+# Get submitted feedback from contract
+get_submitted_feedback() {
+  local issue_number="$1"
+  local repo_path="${EGG_REPO_PATH:-$(find /home/egg/repos -maxdepth 1 -type d ! -name repos | head -1)}"
+
+  if [[ -f "${repo_path}/.egg-state/contracts/${issue_number}.json" ]]; then
+    local contract
+    contract=$(cat "${repo_path}/.egg-state/contracts/${issue_number}.json")
+
+    # Check if feedback exists and is submitted
+    local feedback_submitted
+    feedback_submitted=$(echo "$contract" | jq -r '.feedback.submitted // false')
+
+    if [[ "$feedback_submitted" == "true" ]]; then
+      local feedback_id
+      feedback_id=$(echo "$contract" | jq -r '.feedback.id // ""')
+
+      echo "## Submitted Feedback ($feedback_id)"
+      echo ""
+
+      # Output each question and answer
+      while IFS= read -r question; do
+        local qid qtext answer
+        qid=$(echo "$question" | jq -r '.id')
+        qtext=$(echo "$question" | jq -r '.question')
+        answer=$(echo "$question" | jq -r '.answer // "_No answer provided_"')
+
+        echo "**${qid}: ${qtext}**"
+        echo "> ${answer}"
+        echo ""
+      done < <(echo "$contract" | jq -c '.feedback.questions[]?' 2>/dev/null || true)
+    fi
+  fi
+}
+
+# Check for pending feedback (not yet submitted)
+get_pending_feedback() {
+  local issue_number="$1"
+  local repo_path="${EGG_REPO_PATH:-$(find /home/egg/repos -maxdepth 1 -type d ! -name repos | head -1)}"
+
+  if [[ -f "${repo_path}/.egg-state/contracts/${issue_number}.json" ]]; then
+    local contract
+    contract=$(cat "${repo_path}/.egg-state/contracts/${issue_number}.json")
+
+    # Check if feedback exists but is not submitted
+    local feedback_id
+    feedback_id=$(echo "$contract" | jq -r '.feedback.id // ""')
+    local feedback_submitted
+    feedback_submitted=$(echo "$contract" | jq -r '.feedback.submitted // false')
+
+    if [[ -n "$feedback_id" && "$feedback_submitted" == "false" ]]; then
+      echo "## Pending Feedback ($feedback_id)"
+      echo ""
+      echo "There is pending feedback that has not been submitted yet. Questions:"
+      echo ""
+
+      while IFS= read -r question; do
+        local qid qtext
+        qid=$(echo "$question" | jq -r '.id')
+        qtext=$(echo "$question" | jq -r '.question')
+        echo "- **${qid}:** ${qtext}"
+      done < <(echo "$contract" | jq -c '.feedback.questions[]?' 2>/dev/null || true)
+
+      echo ""
+      echo "Wait for the human to submit their answers."
+    fi
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Build phase-specific prompt
 # ---------------------------------------------------------------------------
@@ -237,6 +306,22 @@ EOF
     fi
   fi
 
+  # Include submitted feedback if available
+  local submitted_feedback
+  submitted_feedback=$(get_submitted_feedback "$issue_number")
+  if [[ -n "$submitted_feedback" ]]; then
+    echo ""
+    echo "$submitted_feedback"
+  fi
+
+  # Check for pending feedback
+  local pending_feedback
+  pending_feedback=$(get_pending_feedback "$issue_number")
+  if [[ -n "$pending_feedback" ]]; then
+    echo ""
+    echo "$pending_feedback"
+  fi
+
   cat <<EOF
 
 ## Issue Description
@@ -283,8 +368,16 @@ egg-contract add-decision --question "Which approach should we use?" \\
 Copy the markdown output into your analysis comment. The human can check a checkbox
 to select an option. An "Other (explain in reply)" option is auto-appended.
 
-**Open-ended questions** (no predefined options):
-List these as plain text in your analysis. The human will respond via comment.
+**Open-ended questions** (use dedicated feedback comment):
+\`\`\`bash
+egg-contract add-feedback \\
+  --question "What is the expected request volume?" \\
+  --question "Should we support legacy browsers?" \\
+  --format markdown
+\`\`\`
+This creates a dedicated comment for the human to fill in answers. They edit the
+comment to add their responses and check "Submit feedback" when done. The pipeline
+will resume with the feedback available in the contract.
 
 ## Phase Completion
 
@@ -363,6 +456,22 @@ EOF
 Your previous plan is in \`.egg-state/drafts/${issue_number}-plan.md\`. Read it, address the feedback above, and update it in place.
 EOF
     fi
+  fi
+
+  # Include submitted feedback if available
+  local submitted_feedback
+  submitted_feedback=$(get_submitted_feedback "$issue_number")
+  if [[ -n "$submitted_feedback" ]]; then
+    echo ""
+    echo "$submitted_feedback"
+  fi
+
+  # Check for pending feedback
+  local pending_feedback
+  pending_feedback=$(get_pending_feedback "$issue_number")
+  if [[ -n "$pending_feedback" ]]; then
+    echo ""
+    echo "$pending_feedback"
   fi
 
   cat <<EOF
@@ -461,8 +570,16 @@ egg-contract add-decision --question "Which architecture pattern?" \\
 Copy the markdown output into your plan comment. The human can check a checkbox
 to select an option. An "Other (explain in reply)" option is auto-appended.
 
-**Open-ended questions** (no predefined options):
-List these as plain text. The human will respond via comment.
+**Open-ended questions** (use dedicated feedback comment):
+\`\`\`bash
+egg-contract add-feedback \\
+  --question "What performance requirements should we target?" \\
+  --question "Are there any security constraints?" \\
+  --format markdown
+\`\`\`
+This creates a dedicated comment for the human to fill in answers. They edit the
+comment to add their responses and check "Submit feedback" when done. The pipeline
+will resume with the feedback available in the contract.
 
 ## Phase Completion
 

@@ -11,7 +11,8 @@ When working in the SDLC pipeline, use the `egg-contract` CLI to track progress.
 | `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes |
 | `egg-contract mark-task --task <id> --status <status>` | Mark task status (deprecated) |
 | `egg-contract mark-phase --phase <id> --passed <bool>` | Mark phase status (deprecated) |
-| `egg-contract add-decision --question <text>` | Create HITL decision |
+| `egg-contract add-decision --question <text>` | Create HITL decision (multiple choice) |
+| `egg-contract add-feedback --question <text>...` | Create feedback comment (open-ended) |
 
 ## Workflow
 
@@ -19,7 +20,8 @@ When working in the SDLC pipeline, use the `egg-contract` CLI to track progress.
 2. Work on assigned tasks
 3. Link commits as you complete work: `egg-contract add-commit --task task-1 --commit abc1234`
 4. Add notes if needed: `egg-contract update-notes --task task-1 --notes "Implemented X"`
-5. If blocked, create a decision point: `egg-contract add-decision --question "How should X be handled?"`
+5. If blocked on a choice, create a decision: `egg-contract add-decision --question "Which approach?" --options "A" "B"`
+6. If you need open-ended input: `egg-contract add-feedback --question "What is expected volume?" --format markdown`
 
 ## Environment
 

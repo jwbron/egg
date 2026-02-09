@@ -18,6 +18,8 @@ Commands:
                                                Mark phase status (reviewer only)
     egg-contract add-decision --question <text>
                                                Create HITL decision point
+    egg-contract add-feedback --question <text> [--question <text>...]
+                                               Create feedback comment for open-ended questions
 """
 
 import argparse
@@ -30,6 +32,12 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+from egg_contracts.feedback import (
+    FeedbackQuestionInput,
+    generate_feedback_comment,
+    generate_feedback_id,
+)
 
 from .config import GATEWAY_PORT
 
@@ -643,6 +651,100 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_add_feedback(args: argparse.Namespace) -> int:
+    """Create a feedback comment for open-ended questions.
+
+    This command creates a consolidated feedback comment containing all open-ended
+    questions. Humans edit the comment to fill in answers and check a submit checkbox
+    to trigger processing.
+    """
+    issue_number = args.issue or get_issue_number()
+    if not issue_number:
+        print("Error: Issue number required", file=sys.stderr)
+        return 1
+
+    if not args.question:
+        print("Error: At least one --question is required", file=sys.stderr)
+        return 1
+
+    # Get the current contract to check for existing feedback
+    endpoint = f"/api/v1/contract/{issue_number}"
+    if args.repo_path:
+        endpoint += "?" + urlencode({"repo_path": args.repo_path})
+
+    contract_result = make_gateway_request(endpoint)
+    if not contract_result.get("success"):
+        print(f"Error: {contract_result.get('message')}", file=sys.stderr)
+        return 1
+
+    contract = contract_result.get("data", {})
+
+    # Check if there's already pending feedback
+    existing_feedback = contract.get("feedback")
+    if existing_feedback and not existing_feedback.get("submitted"):
+        print(
+            f"Warning: There is already pending feedback ({existing_feedback.get('id')}). "
+            "Creating new feedback will replace it.",
+            file=sys.stderr,
+        )
+
+    # Generate feedback ID
+    # Note: Unlike decisions which are an array, feedback is a single optional field
+    # We still generate an ID for tracking and the marker format
+    existing_ids = [existing_feedback.get("id")] if existing_feedback else []
+    feedback_id = generate_feedback_id(existing_ids)
+
+    # Build questions list
+    questions = []
+    for i, q in enumerate(args.question, start=1):
+        questions.append({"id": f"Q{i}", "question": q, "answer": None})
+
+    # Build the feedback object for the contract
+    new_feedback = {
+        "id": feedback_id,
+        "phase": contract.get("current_phase"),
+        "questions": questions,
+        "submitted": False,
+        "submitted_by": None,
+        "submitted_at": None,
+        "comment_id": None,
+        "debounce_until": None,
+    }
+
+    # Update the contract with the new feedback
+    result = make_gateway_request(
+        "/api/v1/contract/mutate",
+        method="POST",
+        data={
+            "issue_number": issue_number,
+            "repo_path": args.repo_path or get_repo_path(),
+            "field_path": "feedback",
+            "new_value": new_feedback,
+            "actor": "egg",
+            "reason": f"Created feedback request with {len(questions)} question(s)",
+        },
+    )
+
+    if result.get("success"):
+        # Output based on format
+        output_format = getattr(args, "format", "json")
+        if output_format == "markdown":
+            # Generate the markdown comment
+            question_inputs = [
+                FeedbackQuestionInput(id=q["id"], question=q["question"]) for q in questions
+            ]
+            markdown = generate_feedback_comment(feedback_id, question_inputs)
+            print(markdown)
+        else:
+            print(f"Created feedback {feedback_id} with {len(questions)} question(s)")
+            for q in questions:
+                print(f"  {q['id']}: {q['question']}")
+        return 0
+    else:
+        print(f"Error: {result.get('message')}", file=sys.stderr)
+        return 1
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
@@ -729,6 +831,24 @@ def create_parser() -> argparse.ArgumentParser:
         help="Output format: json (default) or markdown (for GitHub comments)",
     )
     decision_parser.set_defaults(func=cmd_add_decision)
+
+    # add-feedback command
+    feedback_parser = subparsers.add_parser(
+        "add-feedback", help="Create feedback comment for open-ended questions"
+    )
+    feedback_parser.add_argument(
+        "--question",
+        action="append",
+        required=True,
+        help="Open-ended question (can be specified multiple times)",
+    )
+    feedback_parser.add_argument(
+        "--format",
+        choices=["json", "markdown"],
+        default="json",
+        help="Output format: json (default) or markdown (for GitHub comments)",
+    )
+    feedback_parser.set_defaults(func=cmd_add_feedback)
 
     return parser
 
