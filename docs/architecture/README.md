@@ -29,6 +29,7 @@ See the [main README](../../README.md) for the architecture diagram.
 **Access Control:**
 - Branch ownership (agent can only push to `egg/*` branches)
 - Phase-based operation restrictions (git/gh operations filtered by SDLC phase)
+- File-level access restrictions (role-based blocking of sensitive files like contract files)
 - Role-based contract mutations (implementer, reviewer, human roles with field-level permissions)
 - No merge capability (gateway has no merge endpoint)
 - Force push and destructive operations blocked
@@ -49,7 +50,7 @@ Contracts are JSON documents that track issue progress through SDLC phases, task
 **Schemas**:
 - `.egg/schemas/contract.schema.json` – Contract structure and role-based field ownership
 - `.egg/schemas/yaml-tasks.schema.json` – Structured appendix format for plan documents (used by plan parser)
-- `.egg/schemas/phase-permissions.schema.json` – Allowed git/gh operations per SDLC phase
+- `.egg/schemas/phase-permissions.schema.json` – Allowed git/gh operations and file restrictions per SDLC phase
 
 **Role-based ownership**: Each contract field is owned by a specific role:
 - `implementer`: `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected`

@@ -44,12 +44,21 @@ gateway/
 ├── policy.py               # Branch ownership, push policies
 ├── fork_policy.py          # Fork access policies
 ├── private_repo_policy.py  # Private/public repo access
+├── phase_filter.py         # Phase-based operation filtering, file restrictions
+├── phase_transition.py     # Phase transition validation
+├── phase_api.py            # Phase API endpoints
+├── contract_api.py         # Contract API endpoints
+├── auth.py                 # Session authentication
 ├── token_refresher.py      # GitHub App token management
 ├── anthropic_credentials.py # API key injection for Claude
 ├── worktree_manager.py     # Git worktree lifecycle
 ├── session_manager.py      # Agent session management
+├── repo_parser.py          # Repository config parsing
+├── repo_visibility.py      # Repository visibility logic
 ├── proxy_monitor.py        # Squid proxy monitoring
 ├── rate_limiter.py         # Rate limiting
+├── config_validator.py     # Configuration validation
+├── error_messages.py       # Error message formatting
 ├── Dockerfile              # Gateway container image
 ├── squid.conf              # Proxy config (private mode)
 ├── scripts/                # Gateway helper scripts
