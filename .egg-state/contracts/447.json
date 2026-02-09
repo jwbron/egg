@@ -5,7 +5,7 @@
     "title": "dial in documentation for the SDLC work loop",
     "url": "https://github.com/jwbron/egg/issues/447"
   },
-  "current_phase": "implement",
+  "current_phase": "pr",
   "acceptance_criteria": [
     {
       "id": "ac-1",
