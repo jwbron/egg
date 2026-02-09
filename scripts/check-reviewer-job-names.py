@@ -72,9 +72,7 @@ def main() -> int:
         print("Warning: .github/workflows/ directory not found")
         return 0
 
-    workflow_files = sorted(workflows_dir.glob("*.yml")) + sorted(
-        workflows_dir.glob("*.yaml")
-    )
+    workflow_files = sorted(workflows_dir.glob("*.yml")) + sorted(workflows_dir.glob("*.yaml"))
 
     if not workflow_files:
         print("Warning: No workflow files found")
