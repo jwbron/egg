@@ -145,6 +145,8 @@ jobs:
           PHASE="${{ inputs.phase }}"
           ISSUE_NUMBER="${{ inputs.issue_number }}"
           BRANCH_NAME="${{ inputs.branch_name }}"
+          WORK_PROMPT_SCRIPT="${{ inputs.work_prompt_script || 'action/build-sdlc-prompt.sh' }}"
+          REVIEW_PROMPT_SCRIPT="${{ inputs.review_prompt_script || 'action/build-unified-review-prompt.sh' }}"
 
           # Validate phase
           if [[ ! "$PHASE" =~ ^(refine|plan|implement)$ ]]; then
@@ -158,13 +160,31 @@ jobs:
             exit 1
           fi
 
+          # Validate branch_name format (alphanumeric, hyphens, underscores, slashes)
+          if ! [[ "$BRANCH_NAME" =~ ^[a-zA-Z0-9/_-]+$ ]]; then
+            echo "::error::Invalid branch name format: $BRANCH_NAME"
+            exit 1
+          fi
+
+          # Validate work_prompt_script path (must start with action/ and be a safe filename)
+          if [[ ! "$WORK_PROMPT_SCRIPT" =~ ^action/[a-zA-Z0-9_-]+\.sh$ ]]; then
+            echo "::error::Invalid work_prompt_script path: $WORK_PROMPT_SCRIPT (must match action/*.sh)"
+            exit 1
+          fi
+
+          # Validate review_prompt_script path (must start with action/ and be a safe filename)
+          if [[ ! "$REVIEW_PROMPT_SCRIPT" =~ ^action/[a-zA-Z0-9_-]+\.sh$ ]]; then
+            echo "::error::Invalid review_prompt_script path: $REVIEW_PROMPT_SCRIPT (must match action/*.sh)"
+            exit 1
+          fi
+
           # Write outputs
           {
             echo "phase=${PHASE}"
             echo "issue_number=${ISSUE_NUMBER}"
             echo "branch_name=${BRANCH_NAME}"
-            echo "work_prompt_script=${{ inputs.work_prompt_script || 'action/build-sdlc-prompt.sh' }}"
-            echo "review_prompt_script=${{ inputs.review_prompt_script || 'action/build-unified-review-prompt.sh' }}"
+            echo "work_prompt_script=${WORK_PROMPT_SCRIPT}"
+            echo "review_prompt_script=${REVIEW_PROMPT_SCRIPT}"
             echo "output_type=${{ inputs.output_type || format('{0}', env.DEFAULT_OUTPUT_TYPE) }}"
             echo "human_review_mechanism=${{ inputs.human_review_mechanism || format('{0}', env.DEFAULT_HUMAN_REVIEW) }}"
             echo "max_review_cycles=${{ inputs.max_review_cycles || '3' }}"
@@ -398,7 +418,8 @@ jobs:
       always() &&
       needs.work.result == 'success' &&
       needs.resolve-inputs.outputs.phase == 'implement' &&
-      (needs.check-merge-conflict.result == 'skipped' || needs.check-merge-conflict.outputs.has_conflicts == 'false')
+      (needs.check-merge-conflict.result == 'skipped' ||
+       (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
     runs-on: ubuntu-latest
     outputs:
       passed: ${{ steps.lint.outputs.passed }}
@@ -452,7 +473,8 @@ jobs:
       always() &&
       needs.work.result == 'success' &&
       needs.resolve-inputs.outputs.phase == 'implement' &&
-      (needs.check-merge-conflict.result == 'skipped' || needs.check-merge-conflict.outputs.has_conflicts == 'false')
+      (needs.check-merge-conflict.result == 'skipped' ||
+       (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
     runs-on: ubuntu-latest
     outputs:
       passed: ${{ steps.test.outputs.passed }}
@@ -535,8 +557,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${PR_NUMBER}" != "0" && -n "${PR_NUMBER}" ]]; then
-            echo "Triggering autofix for PR #${PR_NUMBER}"
+          # Detect PR number from branch if not provided
+          ACTUAL_PR_NUMBER="${PR_NUMBER}"
+          if [[ "${ACTUAL_PR_NUMBER}" == "0" || -z "${ACTUAL_PR_NUMBER}" ]]; then
+            ACTUAL_PR_NUMBER=$(gh pr list --head "${BRANCH_NAME}" --json number --jq '.[0].number // 0')
+            echo "Detected PR number from branch: ${ACTUAL_PR_NUMBER}"
+          fi
+
+          if [[ "${ACTUAL_PR_NUMBER}" != "0" && -n "${ACTUAL_PR_NUMBER}" ]]; then
+            echo "Triggering autofix for PR #${ACTUAL_PR_NUMBER}"
 
             # Determine which check failed
             FAILED_CHECK=""
@@ -548,13 +577,13 @@ jobs:
 
             # Trigger the reusable autofix workflow
             gh workflow run reusable-autofix.yml \
-              --field pr_number="${PR_NUMBER}" \
+              --field pr_number="${ACTUAL_PR_NUMBER}" \
               --field failed_workflow="${FAILED_CHECK}" \
               || echo "::warning::Failed to trigger autofix workflow"
 
             echo "fixed=pending" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::No PR number available for autofix"
+            echo "::warning::No PR number available for autofix (branch: ${BRANCH_NAME})"
             echo "fixed=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -870,6 +899,7 @@ jobs:
         id: update-contract
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          MAX_TOTAL_CYCLES: ${{ needs.resolve-inputs.outputs.max_total_cycles }}
         run: |
           set -euo pipefail
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
@@ -880,99 +910,112 @@ jobs:
             exit 0
           fi
 
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          CYCLES_FIELD="${PHASE}_review_cycles"
-          FEEDBACK_FIELD="${PHASE}_review_feedback"
-          OLD_CYCLES=$(jq -r ".${CYCLES_FIELD} // 0" "$CONTRACT_PATH")
+          # Function to apply the jq transformation (idempotent - can be re-run)
+          apply_review_update() {
+            local contract_path="$1"
 
-          # Update contract with review cycle info
-          jq --arg cycle "$REVIEW_CYCLE" \
-             --arg feedback "$REVIEW_FEEDBACK" \
-             --arg ts "$TIMESTAMP" \
-             --arg verdict "$REVIEW_VERDICT" \
-             --arg old_cycles "$OLD_CYCLES" \
-             --arg cycles_field "$CYCLES_FIELD" \
-             --arg feedback_field "$FEEDBACK_FIELD" '
-            .[$cycles_field] = ($cycle | tonumber) |
-            .[$feedback_field] = $feedback |
-            .audit_log += [{
-              "timestamp": $ts,
-              "actor": "system",
-              "role": "reviewer",
-              "action": "update",
-              "field_path": $cycles_field,
-              "old_value": ($old_cycles | tonumber),
-              "new_value": ($cycle | tonumber),
-              "reason": ("Review cycle " + $cycle + ": " + $verdict)
-            }]
-          ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+            # Re-read current state on each call (for idempotent re-application)
+            local timestamp
+            timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            local cycles_field="${PHASE}_review_cycles"
+            local feedback_field="${PHASE}_review_feedback"
+            local old_cycles
+            old_cycles=$(jq -r ".${cycles_field} // 0" "$contract_path")
+            local old_total
+            old_total=$(jq -r '.circuit_breaker.total_cycles // 0' "$contract_path")
+            local new_total=$((old_total + 1))
+            local old_cb_status
+            old_cb_status=$(jq -r '.circuit_breaker.status // "closed"' "$contract_path")
 
-          # Check if we've exceeded max cycles
-          CIRCUIT_BREAKER_TRIGGERED="false"
-          if [[ "$REVIEW_VERDICT" != "approved" && "$REVIEW_CYCLE" -ge "$MAX_REVIEW_CYCLES" ]]; then
-            OLD_CB_STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
-            jq --arg ts "$TIMESTAMP" --arg old_status "$OLD_CB_STATUS" '
-              .circuit_breaker.status = "open" |
+            # Determine if circuit breaker should be opened
+            local open_cb="false"
+            local cb_reason=""
+            if [[ "$REVIEW_VERDICT" != "approved" && "$REVIEW_CYCLE" -ge "$MAX_REVIEW_CYCLES" ]]; then
+              open_cb="true"
+              cb_reason="Max review cycles exceeded"
+            elif [[ "$new_total" -ge "$MAX_TOTAL_CYCLES" ]]; then
+              open_cb="true"
+              cb_reason="Max total cycles exceeded"
+            fi
+
+            # Build and apply the jq transformation
+            jq --arg cycle "$REVIEW_CYCLE" \
+               --arg feedback "$REVIEW_FEEDBACK" \
+               --arg ts "$timestamp" \
+               --arg verdict "$REVIEW_VERDICT" \
+               --arg old_cycles "$old_cycles" \
+               --arg cycles_field "$cycles_field" \
+               --arg feedback_field "$feedback_field" \
+               --arg new_total "$new_total" \
+               --arg open_cb "$open_cb" \
+               --arg cb_reason "$cb_reason" \
+               --arg old_cb_status "$old_cb_status" '
+              .[$cycles_field] = ($cycle | tonumber) |
+              .[$feedback_field] = $feedback |
+              .circuit_breaker.total_cycles = ($new_total | tonumber) |
               .audit_log += [{
                 "timestamp": $ts,
                 "actor": "system",
-                "role": "system",
+                "role": "reviewer",
                 "action": "update",
-                "field_path": "circuit_breaker.status",
-                "old_value": $old_status,
-                "new_value": "open",
-                "reason": "Max review cycles exceeded"
-              }]
-            ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
-            CIRCUIT_BREAKER_TRIGGERED="true"
-            echo "::warning::Max review cycles exceeded — circuit breaker OPEN"
-          fi
+                "field_path": $cycles_field,
+                "old_value": ($old_cycles | tonumber),
+                "new_value": ($cycle | tonumber),
+                "reason": ("Review cycle " + $cycle + ": " + $verdict)
+              }] |
+              if $open_cb == "true" then
+                .circuit_breaker.status = "open" |
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "circuit_breaker.status",
+                  "old_value": $old_cb_status,
+                  "new_value": "open",
+                  "reason": $cb_reason
+                }]
+              else . end
+            ' "$contract_path" > /tmp/contract-update.json && mv /tmp/contract-update.json "$contract_path"
+          }
 
-          echo "circuit_breaker_triggered=${CIRCUIT_BREAKER_TRIGGERED}" >> "$GITHUB_OUTPUT"
+          # Run transformation once to update contract
+          apply_review_update "$CONTRACT_PATH"
 
-          # Increment total cycles
-          OLD_TOTAL=$(jq -r '.circuit_breaker.total_cycles // 0' "$CONTRACT_PATH")
-          NEW_TOTAL=$((OLD_TOTAL + 1))
-          MAX_TOTAL="${{ needs.resolve-inputs.outputs.max_total_cycles }}"
-
-          jq --arg total "$NEW_TOTAL" '.circuit_breaker.total_cycles = ($total | tonumber)' \
-            "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
-
-          # Check total cycle limit
-          if [[ "$NEW_TOTAL" -ge "$MAX_TOTAL" && "$CIRCUIT_BREAKER_TRIGGERED" != "true" ]]; then
-            jq --arg ts "$TIMESTAMP" '
-              .circuit_breaker.status = "open" |
-              .audit_log += [{
-                "timestamp": $ts,
-                "actor": "system",
-                "role": "system",
-                "action": "update",
-                "field_path": "circuit_breaker.status",
-                "old_value": "closed",
-                "new_value": "open",
-                "reason": "Max total cycles exceeded"
-              }]
-            ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
-            CIRCUIT_BREAKER_TRIGGERED="true"
+          # Check if circuit breaker was triggered
+          CB_STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
+          if [[ "$CB_STATUS" == "open" ]]; then
             echo "circuit_breaker_triggered=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Circuit breaker is now OPEN"
+          else
+            echo "circuit_breaker_triggered=false" >> "$GITHUB_OUTPUT"
           fi
 
           git add "$CONTRACT_PATH"
           git commit -m "Update ${PHASE} review state (cycle ${REVIEW_CYCLE})" || true
 
-          # Push with conflict-resistant retry
+          # Push with conflict-resistant retry (re-apply transformation on each retry)
           for i in 1 2 3; do
             if git push origin "${BRANCH_NAME}"; then
+              echo "Push succeeded"
               break
             fi
-            echo "::warning::Push failed (attempt $i), retrying with rebase..."
-            git pull --rebase origin "${BRANCH_NAME}"
+            echo "::warning::Push failed (attempt $i), resetting and reapplying transformation..."
+            git fetch origin "${BRANCH_NAME}"
+            git reset --hard "origin/${BRANCH_NAME}"
+            apply_review_update "$CONTRACT_PATH"
+            git add "$CONTRACT_PATH"
+            git commit -m "Update ${PHASE} review state (cycle ${REVIEW_CYCLE})" || true
           done
 
       - name: Redispatch for revision
         if: steps.route.outputs.should_redispatch == 'true' && steps.update-contract.outputs.circuit_breaker_triggered != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          MAX_REVIEW_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_review_cycles }}
+          MAX_TOTAL_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_total_cycles }}
+          WORKFLOW_OWNER_ENV: ${{ needs.resolve-inputs.outputs.workflow_owner }}
+          PR_NUMBER_ENV: ${{ needs.resolve-inputs.outputs.pr_number }}
         run: |
           set -euo pipefail
 
@@ -981,7 +1024,11 @@ jobs:
           gh workflow run sdlc-work-loop.yml \
             --field phase="${PHASE}" \
             --field issue_number="${ISSUE_NUMBER}" \
-            --field branch_name="${BRANCH_NAME}"
+            --field branch_name="${BRANCH_NAME}" \
+            --field max_review_cycles="${MAX_REVIEW_CYCLES_ENV}" \
+            --field max_total_cycles="${MAX_TOTAL_CYCLES_ENV}" \
+            --field workflow_owner="${WORKFLOW_OWNER_ENV:-}" \
+            --field pr_number="${PR_NUMBER_ENV:-0}"
 
   # ============================================================
   # Human Gate: Post draft and request human approval (refine/plan)

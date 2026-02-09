@@ -19,6 +19,26 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
+# Safe API wrapper
+# ---------------------------------------------------------------------------
+
+# Wrapper around gh api that warns on failure and returns empty JSON object
+gh_api_safe() {
+  local stderr_file
+  stderr_file=$(mktemp)
+  # Ensure temp file is cleaned up on exit (including signals)
+  trap 'rm -f "$stderr_file"' RETURN
+  local output
+  if output=$(gh api "$@" 2>"$stderr_file"); then
+    echo "$output"
+  else
+    local rc=$?
+    echo "ERROR: 'gh api $1' failed (exit $rc): $(cat "$stderr_file")" >&2
+    echo "{}"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Phase-specific review criteria
 # ---------------------------------------------------------------------------
 
@@ -141,7 +161,7 @@ build_prompt() {
 
     # Fetch issue details for context
     local issue_data
-    issue_data=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue_number}" 2>/dev/null || echo "{}")
+    issue_data=$(gh_api_safe "repos/${GITHUB_REPOSITORY}/issues/${issue_number}")
 
     local issue_title issue_body
     issue_title=$(echo "$issue_data" | jq -r '.title // "Unknown"')
@@ -246,24 +266,28 @@ Evaluate the quality of the ${phase} phase output. "
             prompt+="Review the implementation using \`git log --oneline -10\` and \`git diff origin/main..HEAD\`."
         fi
 
+        # Track step number for proper sequencing
+        local step_num=2
+
         if [[ "$phase" == "plan" ]]; then
             prompt+="
 
-2. **Read the prior analysis**: The analysis is in \`.egg-state/drafts/${issue_number}-analysis.md\` to verify alignment."
+${step_num}. **Read the prior analysis**: The analysis is in \`.egg-state/drafts/${issue_number}-analysis.md\` to verify alignment."
+            step_num=$((step_num + 1))
         fi
 
         prompt+="
 
-2. **Review the original issue** for context:
+${step_num}. **Review the original issue** for context:
 
 **Issue Title:** ${issue_title}
 
 **Issue Description:**
 ${issue_body}
 
-3. **Apply the review criteria** below systematically.
+$((step_num + 1)). **Apply the review criteria** below systematically.
 
-4. **Write your verdict** to the review file (format specified below).
+$((step_num + 2)). **Write your verdict** to the review file (format specified below).
 
 "
     fi
