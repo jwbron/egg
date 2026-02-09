@@ -347,32 +347,9 @@ jobs:
 
           echo "Applied phase label: ${PHASE_LABEL}"
 
-      # Minimize previous pipeline status comments to reduce clutter
-      - name: Minimize previous pipeline comments
-        if: steps.setup.outputs.contract_exists == 'false'
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
-        run: |
-          set -euo pipefail
-          # Find previous bot comments that are pipeline status updates
-          # Match: "SDLC Pipeline", "phase completed", "phase encountered"
-          # shellcheck disable=SC2016
-          gh api "repos/${{ github.repository }}/issues/${{ steps.setup.outputs.issue_number }}/comments" \
-            | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
-          | while read -r node_id; do
-              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
-              if ! gh api graphql -f query='
-                mutation($id: ID!) {
-                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
-                    minimizedComment { isMinimized }
-                  }
-                }
-              ' -f id="$node_id"; then
-                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
-              fi
-            done
+      # NOTE: Comment hiding removed from init job (issue-phase) per #363
+      # Status comments on issues should remain visible for audit trail
+      # Comment hiding is now only done in PR-phase jobs using semantic markers
 
       - name: Post initialization comment
         if: steps.setup.outputs.contract_exists == 'false'
@@ -1319,30 +1296,9 @@ jobs:
             echo "No draft file found at ${DRAFT_FILE}"
           fi
 
-      # Minimize previous pipeline status comments to reduce clutter
-      - name: Minimize previous pipeline comments
-        if: always()
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-        run: |
-          set -euo pipefail
-          # Find previous bot comments that are pipeline status updates
-          # shellcheck disable=SC2016
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
-          | while read -r node_id; do
-              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
-              if ! gh api graphql -f query='
-                mutation($id: ID!) {
-                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
-                    minimizedComment { isMinimized }
-                  }
-                }
-              ' -f id="$node_id"; then
-                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
-              fi
-            done
+      # NOTE: Comment hiding removed from refine job (issue-phase) per #363
+      # Status comments on issues should remain visible for audit trail
+      # Comment hiding is now only done in PR-phase jobs using semantic markers
 
       - name: Post failure comment
         if: always() && (steps.egg.outputs.exit-code != '0' || steps.validate-refine.outputs.found != 'true')
@@ -2052,30 +2008,9 @@ jobs:
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file "$COMMENT_FILE"
           echo "Posted PR metadata comment"
 
-      # Minimize previous pipeline status comments to reduce clutter
-      - name: Minimize previous pipeline comments
-        if: always()
-        env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-        run: |
-          set -euo pipefail
-          # Find previous bot comments that are pipeline status updates
-          # shellcheck disable=SC2016
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
-          | while read -r node_id; do
-              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
-              if ! gh api graphql -f query='
-                mutation($id: ID!) {
-                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
-                    minimizedComment { isMinimized }
-                  }
-                }
-              ' -f id="$node_id"; then
-                echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
-              fi
-            done
+      # NOTE: Comment hiding removed from plan job (issue-phase) per #363
+      # Status comments on issues should remain visible for audit trail
+      # Comment hiding is now only done in PR-phase jobs using semantic markers
 
       - name: Post failure comment
         if: always() && (steps.egg.outputs.exit-code != '0' || steps.validate-plan.outputs.found != 'true')
