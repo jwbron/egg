@@ -403,6 +403,111 @@ This happens in the plan phase itself (before human approval) to provide early v
 
 The PR metadata (title and description) from the plan is stored in the contract's `pr` field and used when creating the draft PR during the implement phase.
 
+## Phase Checks
+
+Each SDLC phase can run automated checks before completion. The check system provides a framework for validating phase outputs and code quality.
+
+### Check Framework
+
+Check scripts inherit from `CheckRunner` base class (`.github/scripts/checks/base.py`) and implement a `run()` method that returns a `CheckResult`:
+
+```python
+from checks.base import CheckRunner, CheckResult, CheckStatus
+
+class MyCheck(CheckRunner):
+    @property
+    def check_id(self) -> str:
+        return "check-my-check"
+
+    def run(self) -> CheckResult:
+        # Validation logic here
+        return self.create_result(
+            status=CheckStatus.PASS,
+            message="Check passed",
+        )
+```
+
+Check results have three statuses:
+- `PASS`: Check succeeded
+- `FAIL`: Check failed (may be fixable)
+- `SKIP`: Check skipped (e.g., no test infrastructure found)
+
+### Running Checks
+
+Checks are executed via `run_check.py`:
+
+```bash
+python .github/scripts/checks/run_check.py lint .egg-state/contracts/123.json --repo-root .
+```
+
+The script loads the contract, runs the check, and outputs JSON with the result.
+
+### Built-in Checks
+
+| Check | ID | Purpose | Fixable |
+|-------|-----|---------|---------|
+| **Draft Validation** | `check-draft-validation` | Validates refine phase analysis document | No |
+| **Plan YAML** | `check-plan-yaml` | Validates plan phase YAML appendix | No |
+| **Merge Conflict** | `check-merge-conflict` | Detects conflicts with base branch | No |
+| **Lint** | `check-lint` | Runs `make lint` if available | Yes |
+| **Test** | `check-test` | Runs `make test` or pytest | No |
+| **Auto-Fixer** | `check-fixer` | Attempts to auto-fix failed checks | N/A |
+
+### Phase Default Configurations
+
+Default checks for each phase are defined in `shared/egg_contracts/phase_defaults.py`:
+
+**Refine phase:**
+- Draft validation (required)
+
+**Plan phase:**
+- Plan YAML validation (required)
+
+**Implement phase:**
+- Merge conflict check (required)
+- Lint check (required, 1 retry)
+- Test check (required)
+- Auto-fixer (optional)
+
+**PR phase:**
+- No checks
+
+### Customizing Phase Checks
+
+Contracts can override phase defaults via the `phase_configs` field:
+
+```json
+{
+  "phase_configs": {
+    "implement": {
+      "checks": [
+        {
+          "id": "check-custom",
+          "name": "Custom Check",
+          "script": "custom_check.py",
+          "required": true,
+          "retry_on_fail": false,
+          "max_retries": 0
+        }
+      ],
+      "max_review_cycles": 5,
+      "human_review_mechanism": "PR_REVIEW"
+    }
+  }
+}
+```
+
+When `phase_configs.{phase}.checks` is specified, it completely replaces the default checks for that phase.
+
+### Writing Custom Checks
+
+To add a new check:
+
+1. Create a Python file in `.github/scripts/checks/` that inherits from `CheckRunner`
+2. Implement the `check_id` property and `run()` method
+3. Register the check in `CHECK_REGISTRY` in `run_check.py`
+4. Add the check to phase defaults or contract-specific `phase_configs`
+
 ## Implementation Reference
 
 ### Key Files
@@ -412,6 +517,9 @@ The PR metadata (title and description) from the plan is stored in the contract'
 | `.github/workflows/sdlc-pipeline.yml` | Main pipeline orchestration |
 | `.github/workflows/reusable-review.yml` | PR-based code review workflow |
 | `.github/workflows/sdlc-hitl.yml` | HITL checkbox detection |
+| `.github/scripts/checks/base.py` | CheckRunner base class for phase checks |
+| `.github/scripts/checks/run_check.py` | Check execution entry point |
+| `.github/scripts/checks/*.py` | Built-in check implementations |
 | `.github/scripts/push-contract-update.sh` | Conflict-resistant contract push utility |
 | `action/build-sdlc-prompt.sh` | Phase-specific prompt builder (includes review feedback injection) |
 | `action/build-refine-review-prompt.sh` | Reviewer prompt for refine phase analysis |
@@ -419,7 +527,8 @@ The PR metadata (title and description) from the plan is stored in the contract'
 | `action/populate-contract-tasks.py` | Extracts tasks from plan into contract |
 | `action/contract-state.sh` | Contract state management utility |
 | `sandbox/scripts/gh` | gh wrapper with self-review fallback |
-| `shared/egg_contracts/models.py` | Pydantic models for contract |
+| `shared/egg_contracts/models.py` | Pydantic models for contract (includes CheckDefinition, CheckResult, PhaseConfig) |
+| `shared/egg_contracts/phase_defaults.py` | Default check configurations per phase |
 | `shared/egg_contracts/plan_parser.py` | Parses plan documents for task extraction |
 | `shared/egg_contracts/roles.py` | Role definitions and field ownership |
 | `shared/egg_contracts/validator.py` | Mutation validation |

@@ -89,7 +89,9 @@ sandbox/
 shared/
 ├── egg_config/             # Configuration utilities
 │   └── constants.py        # Centralized constants (ports, networks, container names)
-├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, circuit breaker, HITL, feedback
+├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, circuit breaker, HITL, feedback, phase checks
+│   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig
+│   └── phase_defaults.py   # Default check configurations per SDLC phase
 ├── egg_git/                # Git utilities
 └── egg_logging/            # Structured logging
 ```
@@ -130,6 +132,12 @@ tests/
 ├── sandbox/                       # Sandbox component tests
 │   ├── test_contract_cli.py       # Contract CLI tests
 │   └── ...
+├── scripts/
+│   └── test_checks.py             # Check script framework tests
+├── shared/
+│   └── egg_contracts/
+│       ├── test_models.py         # Contract model tests including check models
+│       └── test_phase_defaults.py # Phase default configuration tests
 └── workflows/                     # Workflow integration tests
     ├── __init__.py
     └── test_hitl_integration.py   # HITL decision format verification
@@ -166,6 +174,16 @@ action/
 ```
 .github/
 └── scripts/
+    ├── checks/                             # SDLC phase check scripts
+    │   ├── __init__.py
+    │   ├── base.py                         # CheckRunner base class
+    │   ├── run_check.py                    # Check execution entry point
+    │   ├── check_fixer.py                  # Auto-fix check runner
+    │   ├── draft_validation_check.py       # Draft document validation
+    │   ├── lint_check.py                   # Lint check runner
+    │   ├── merge_conflict_check.py         # Merge conflict detection
+    │   ├── plan_yaml_check.py              # Plan YAML validation
+    │   └── test_check.py                   # Test execution check
     ├── push-contract-update.sh             # Conflict-resistant contract push utility
     ├── setup-sdlc-labels.sh                # SDLC label setup (idempotent)
     └── transition-sdlc-label.sh            # Atomic SDLC label transitions
