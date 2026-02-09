@@ -4,7 +4,7 @@
 # - When a layer changes, all subsequent layers rebuild
 # - Copying files with COPY checks file contents, not timestamps
 
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
