@@ -4,6 +4,8 @@
 
 This document describes the SDLC (Software Development Lifecycle) pipeline that enables autonomous agents to work on issues while maintaining quality through structural enforcement—not just prompts.
 
+For the conceptual foundation of this pipeline—the feedback loop model that drives quality—see [The Agentic Feedback Loop](../agentic-feedback-loop.md).
+
 For the architectural decision record with threat model and security properties, see [ADR: SDLC Pipeline](../adr/implemented/ADR-SDLC-Pipeline.md).
 
 ## Guiding Principles
@@ -501,4 +503,4 @@ egg-contract add-feedback --question "What is the expected request volume?" --qu
 
 ---
 
-*See also: [ADR: SDLC Pipeline](../adr/implemented/ADR-SDLC-Pipeline.md), [Analysis Template](../templates/analysis.md), [Plan Template](../templates/plan.md), [GitHub Automation](github-automation.md)*
+*See also: [The Agentic Feedback Loop](../agentic-feedback-loop.md), [ADR: SDLC Pipeline](../adr/implemented/ADR-SDLC-Pipeline.md), [Analysis Template](../templates/analysis.md), [Plan Template](../templates/plan.md), [GitHub Automation](github-automation.md)*
