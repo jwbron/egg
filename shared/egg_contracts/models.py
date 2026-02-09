@@ -72,6 +72,86 @@ class AuditRole(StrEnum):
     SYSTEM = "system"
 
 
+class CheckStatus(StrEnum):
+    """Status values for check results."""
+
+    PENDING = "pending"
+    PASSED = "passed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class HumanGateType(StrEnum):
+    """Types of human gates for phase completion."""
+
+    ISSUE_CHECKBOX = "issue_checkbox"
+    PR_REVIEW = "pr_review"
+
+
+class CheckDefinition(BaseModel):
+    """Definition of a check to run between work and review steps.
+
+    Checks are executed in DAG order based on dependencies.
+    """
+
+    id: str = Field(..., pattern=r"^check-[a-z0-9-]+$", description="Unique check identifier")
+    name: str = Field(..., min_length=1, description="Human-readable check name")
+    script: str = Field(..., min_length=1, description="Script path to execute (relative to repo root)")
+    enabled: bool = Field(default=True, description="Whether this check is enabled")
+    required: bool = Field(default=True, description="Whether this check must pass to proceed")
+    dependencies: list[str] = Field(
+        default_factory=list, description="Check IDs that must complete before this check"
+    )
+    retry_count: int = Field(default=0, ge=0, le=3, description="Number of retries on failure")
+    timeout_seconds: int = Field(default=300, ge=1, le=3600, description="Timeout in seconds")
+    fixer_script: str | None = Field(
+        default=None, description="Script to run to attempt automatic fix on failure"
+    )
+
+
+class CheckResult(BaseModel):
+    """Result of a check execution."""
+
+    check_id: str = Field(..., description="ID of the check that was run")
+    status: CheckStatus = Field(..., description="Result status")
+    output: str = Field(default="", description="Check output (stdout/stderr)")
+    error_message: str | None = Field(default=None, description="Error message if failed")
+    duration_seconds: float = Field(default=0.0, ge=0, description="Execution duration")
+    timestamp: datetime = Field(..., description="When the check was run")
+    attempt: int = Field(default=1, ge=1, description="Which attempt this was (for retries)")
+
+
+class PhaseConfig(BaseModel):
+    """Configuration for a pipeline phase (refine, plan, implement).
+
+    This model defines what happens during a phase: which prompts to use,
+    which checks to run, and how to exit the phase (human gate).
+    """
+
+    phase: PipelinePhase = Field(..., description="Which pipeline phase this config applies to")
+    work_prompt_script: str = Field(
+        ..., min_length=1, description="Path to script that builds the work prompt"
+    )
+    review_prompt_script: str = Field(
+        ..., min_length=1, description="Path to script that builds the review prompt"
+    )
+    checks: list[CheckDefinition] = Field(
+        default_factory=list, description="Checks to run between work and review steps"
+    )
+    max_cycles: int = Field(default=3, ge=1, le=10, description="Max work/review cycles before escalation")
+    human_gate: HumanGateType = Field(
+        ..., description="Type of human approval required to exit this phase"
+    )
+    draft_file_pattern: str = Field(
+        default=".egg-state/drafts/{issue_number}-{phase}.md",
+        description="Pattern for draft output file (supports {issue_number} and {phase})",
+    )
+    review_file_pattern: str = Field(
+        default=".egg-state/reviews/{issue_number}-{phase}-review.json",
+        description="Pattern for review output file (supports {issue_number} and {phase})",
+    )
+
+
 class IssueInfo(BaseModel):
     """Issue metadata."""
 
@@ -283,6 +363,12 @@ class Contract(BaseModel):
     )
     feedback: Feedback | None = Field(
         default=None, description="Active feedback request for collecting open-ended questions"
+    )
+    phase_config: PhaseConfig | None = Field(
+        default=None, description="Configuration for the current phase (prompts, checks, human gate)"
+    )
+    check_results: list[CheckResult] = Field(
+        default_factory=list, description="Results of checks run in the current cycle"
     )
 
     def get_task(self, phase_id: str, task_id: str) -> Task | None:

@@ -7,13 +7,18 @@ from egg_contracts.models import (
     AuditAction,
     AuditEntry,
     AuditRole,
+    CheckDefinition,
+    CheckResult,
+    CheckStatus,
     CircuitBreaker,
     CircuitBreakerStatus,
     Contract,
     Decision,
     DecisionType,
+    HumanGateType,
     IssueInfo,
     Phase,
+    PhaseConfig,
     PhaseStatus,
     PipelinePhase,
     Task,
@@ -402,3 +407,252 @@ class TestContractSerialization:
         # Deserialize
         restored = Contract.model_validate(data)
         assert restored.workflow_owner is None
+
+
+class TestCheckDefinition:
+    """Tests for CheckDefinition model."""
+
+    def test_valid_check_definition(self):
+        """Test creating a valid check definition."""
+        check = CheckDefinition(
+            id="check-lint",
+            name="Run linter",
+            script=".github/scripts/checks/lint-check.sh",
+        )
+        assert check.id == "check-lint"
+        assert check.name == "Run linter"
+        assert check.enabled is True
+        assert check.required is True
+        assert check.dependencies == []
+        assert check.retry_count == 0
+        assert check.timeout_seconds == 300
+        assert check.fixer_script is None
+
+    def test_check_definition_with_dependencies(self):
+        """Test check with dependencies."""
+        check = CheckDefinition(
+            id="check-test",
+            name="Run tests",
+            script=".github/scripts/checks/test-check.sh",
+            dependencies=["check-lint", "check-build"],
+            retry_count=2,
+            fixer_script=".github/scripts/checks/check-fixer.sh",
+        )
+        assert check.dependencies == ["check-lint", "check-build"]
+        assert check.retry_count == 2
+        assert check.fixer_script == ".github/scripts/checks/check-fixer.sh"
+
+    def test_invalid_check_id(self):
+        """Test that check ID must match pattern."""
+        with pytest.raises(ValidationError):
+            CheckDefinition(
+                id="invalid_check",  # Underscores not allowed
+                name="Test",
+                script="script.sh",
+            )
+
+    def test_invalid_retry_count(self):
+        """Test that retry count is bounded."""
+        with pytest.raises(ValidationError):
+            CheckDefinition(
+                id="check-test",
+                name="Test",
+                script="script.sh",
+                retry_count=5,  # Max is 3
+            )
+
+
+class TestCheckResult:
+    """Tests for CheckResult model."""
+
+    def test_valid_check_result(self):
+        """Test creating a valid check result."""
+        result = CheckResult(
+            check_id="check-lint",
+            status=CheckStatus.PASSED,
+            timestamp=datetime.now(UTC),
+        )
+        assert result.check_id == "check-lint"
+        assert result.status == CheckStatus.PASSED
+        assert result.output == ""
+        assert result.error_message is None
+
+    def test_failed_check_result(self):
+        """Test failed check result with error message."""
+        result = CheckResult(
+            check_id="check-test",
+            status=CheckStatus.FAILED,
+            output="Test output",
+            error_message="3 tests failed",
+            duration_seconds=45.5,
+            timestamp=datetime.now(UTC),
+            attempt=2,
+        )
+        assert result.status == CheckStatus.FAILED
+        assert result.error_message == "3 tests failed"
+        assert result.duration_seconds == 45.5
+        assert result.attempt == 2
+
+
+class TestPhaseConfig:
+    """Tests for PhaseConfig model."""
+
+    def test_valid_phase_config(self):
+        """Test creating a valid phase config."""
+        config = PhaseConfig(
+            phase=PipelinePhase.REFINE,
+            work_prompt_script="action/build-sdlc-prompt.sh",
+            review_prompt_script="action/build-refine-review-prompt.sh",
+            human_gate=HumanGateType.ISSUE_CHECKBOX,
+        )
+        assert config.phase == PipelinePhase.REFINE
+        assert config.max_cycles == 3
+        assert config.checks == []
+        assert config.human_gate == HumanGateType.ISSUE_CHECKBOX
+
+    def test_phase_config_with_checks(self):
+        """Test phase config with check definitions."""
+        config = PhaseConfig(
+            phase=PipelinePhase.IMPLEMENT,
+            work_prompt_script="action/build-sdlc-prompt.sh",
+            review_prompt_script="action/build-review-prompt.sh",
+            human_gate=HumanGateType.PR_REVIEW,
+            max_cycles=5,
+            checks=[
+                CheckDefinition(
+                    id="check-merge-conflict",
+                    name="Check merge conflicts",
+                    script=".github/scripts/checks/merge-conflict-check.sh",
+                ),
+                CheckDefinition(
+                    id="check-lint",
+                    name="Run linter",
+                    script=".github/scripts/checks/lint-check.sh",
+                    dependencies=["check-merge-conflict"],
+                ),
+            ],
+        )
+        assert config.phase == PipelinePhase.IMPLEMENT
+        assert config.human_gate == HumanGateType.PR_REVIEW
+        assert config.max_cycles == 5
+        assert len(config.checks) == 2
+        assert config.checks[1].dependencies == ["check-merge-conflict"]
+
+    def test_phase_config_file_patterns(self):
+        """Test default file patterns."""
+        config = PhaseConfig(
+            phase=PipelinePhase.PLAN,
+            work_prompt_script="action/build-sdlc-prompt.sh",
+            review_prompt_script="action/build-plan-review-prompt.sh",
+            human_gate=HumanGateType.ISSUE_CHECKBOX,
+        )
+        assert "{issue_number}" in config.draft_file_pattern
+        assert "{phase}" in config.draft_file_pattern
+        assert "{issue_number}" in config.review_file_pattern
+        assert "{phase}" in config.review_file_pattern
+
+
+class TestContractWithPhaseConfig:
+    """Tests for Contract model with phase configuration."""
+
+    def test_contract_with_phase_config(self):
+        """Test creating a contract with phase config."""
+        config = PhaseConfig(
+            phase=PipelinePhase.REFINE,
+            work_prompt_script="action/build-sdlc-prompt.sh",
+            review_prompt_script="action/build-refine-review-prompt.sh",
+            human_gate=HumanGateType.ISSUE_CHECKBOX,
+        )
+        contract = Contract(
+            issue=IssueInfo(
+                number=436,
+                title="Test issue",
+                url="https://github.com/owner/repo/issues/436",
+            ),
+            phase_config=config,
+        )
+        assert contract.phase_config is not None
+        assert contract.phase_config.phase == PipelinePhase.REFINE
+
+    def test_contract_without_phase_config(self):
+        """Test that phase_config is optional (for backwards compatibility)."""
+        contract = Contract(
+            issue=IssueInfo(
+                number=436,
+                title="Test issue",
+                url="https://github.com/owner/repo/issues/436",
+            ),
+        )
+        assert contract.phase_config is None
+        assert contract.check_results == []
+
+    def test_contract_with_check_results(self):
+        """Test contract with check results."""
+        contract = Contract(
+            issue=IssueInfo(
+                number=436,
+                title="Test issue",
+                url="https://github.com/owner/repo/issues/436",
+            ),
+            check_results=[
+                CheckResult(
+                    check_id="check-lint",
+                    status=CheckStatus.PASSED,
+                    timestamp=datetime.now(UTC),
+                ),
+                CheckResult(
+                    check_id="check-test",
+                    status=CheckStatus.FAILED,
+                    error_message="2 tests failed",
+                    timestamp=datetime.now(UTC),
+                ),
+            ],
+        )
+        assert len(contract.check_results) == 2
+        assert contract.check_results[0].status == CheckStatus.PASSED
+        assert contract.check_results[1].status == CheckStatus.FAILED
+
+    def test_json_roundtrip_with_phase_config(self):
+        """Test that phase config serializes and deserializes correctly."""
+        config = PhaseConfig(
+            phase=PipelinePhase.IMPLEMENT,
+            work_prompt_script="action/build-sdlc-prompt.sh",
+            review_prompt_script="action/build-review-prompt.sh",
+            human_gate=HumanGateType.PR_REVIEW,
+            checks=[
+                CheckDefinition(
+                    id="check-lint",
+                    name="Run linter",
+                    script=".github/scripts/checks/lint-check.sh",
+                ),
+            ],
+        )
+        original = Contract(
+            issue=IssueInfo(
+                number=436,
+                title="Test issue",
+                url="https://example.com",
+            ),
+            phase_config=config,
+            check_results=[
+                CheckResult(
+                    check_id="check-lint",
+                    status=CheckStatus.PASSED,
+                    timestamp=datetime.now(UTC),
+                ),
+            ],
+        )
+
+        # Serialize
+        data = original.model_dump(mode="json")
+        assert data["phase_config"]["phase"] == "implement"
+        assert data["phase_config"]["human_gate"] == "pr_review"
+        assert len(data["phase_config"]["checks"]) == 1
+        assert len(data["check_results"]) == 1
+
+        # Deserialize
+        restored = Contract.model_validate(data)
+        assert restored.phase_config is not None
+        assert restored.phase_config.phase == PipelinePhase.IMPLEMENT
+        assert len(restored.phase_config.checks) == 1
+        assert len(restored.check_results) == 1
