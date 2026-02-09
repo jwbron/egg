@@ -729,8 +729,8 @@ jobs:
               fi
 
               # All checks passed - now verify automated reviewers have approved.
-              # Reviewer checks follow the egg-reviewer-* naming pattern.
-              # We identify reviews by the egg-automated-review marker in the body.
+              # (Reviewer jobs use egg-reviewer-* names for coordination, but we identify
+              # their reviews by the egg-automated-review marker in the review body.)
               reviews=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
                 --jq '[.[] | select(.body | contains("egg-automated-review"))]')
 

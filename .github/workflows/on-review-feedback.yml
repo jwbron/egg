@@ -204,7 +204,7 @@ jobs:
             if [[ "$total" -eq 0 ]]; then
               no_reviewers_count=$((no_reviewers_count + 1))
               if [[ $no_reviewers_count -ge $MAX_NO_REVIEWERS_ITERATIONS ]]; then
-                echo "No egg-reviewer-* checks found after ${no_reviewers_count} polls — exiting (no reviewers to wait for)"
+                echo "::warning::No egg-reviewer-* checks found but workflow was triggered by feedback. Check reviewer naming patterns."
                 echo "proceed=false" >> "$GITHUB_OUTPUT"
                 echo "reason=no_reviewers" >> "$GITHUB_OUTPUT"
                 exit 0
