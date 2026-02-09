@@ -306,6 +306,7 @@ jobs:
           timeout: ${{ inputs.timeout || '30' }}
 
       # Minimize previous status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous status comments
         if: always()
         env:
@@ -313,11 +314,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Find previous bot comments that are status updates
-          # Match: "egg run", "egg finished", "👀 Working on it"
+          # Find previous bot comments with status marker
+          # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments" \
             | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("egg run|egg finished|👀 Working on it")) | .node_id' \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='

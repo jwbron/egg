@@ -337,12 +337,13 @@ jobs:
           done
 
       # Minimize previous feedback status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous feedback comments
         if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
         run: |
           set -euo pipefail
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq ".[] | select(.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") | select(.body | test(\"egg is addressing|egg feedback\")) | .node_id" \
+            --jq ".[] | select(.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") | select(.body | contains(\"<!-- egg-status-comment -->\")) | .node_id" \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='

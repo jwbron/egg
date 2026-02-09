@@ -698,17 +698,18 @@ jobs:
             --to "sdlc:pr"
 
       # Minimize previous pipeline status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous pipeline comments
         if: always()
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           set -euo pipefail
-          # Find previous bot comments that are pipeline status updates
+          # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
             | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready")) | .node_id' \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -1091,17 +1092,18 @@ jobs:
           fi
 
       # Minimize previous pipeline status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous pipeline comments
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
         run: |
           set -euo pipefail
-          # Find previous bot comments that are pipeline status updates
+          # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
             | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready|Checks timed out|Checks failed")) | .node_id' \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
@@ -1159,17 +1161,18 @@ jobs:
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
       # Minimize previous pipeline status comments to reduce clutter
+      # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous pipeline comments
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
         run: |
           set -euo pipefail
-          # Find previous bot comments that are pipeline status updates
+          # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
             | jq -r --arg bot "$BOT_USERNAME" \
-            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered|Pull request ready|Checks timed out|Checks failed")) | .node_id' \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               if ! gh api graphql -f query='
