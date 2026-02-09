@@ -16,6 +16,23 @@ pass to avoid triggering multiple workflow runs.
 **Why this matters:** Each push triggers CI. Fixing one issue at a time causes the
 workflow to run repeatedly, wasting CI resources and time.
 
+## Lint Workflow Structure
+
+The Lint workflow runs parallel jobs for faster feedback. When investigating lint
+failures, the job name tells you what type of linting failed:
+
+| Job Name | What It Checks |
+|----------|----------------|
+| **Python** | `ruff check`, `ruff format`, `mypy` |
+| **Shell** | `shellcheck` on shell scripts |
+| **YAML** | `yamllint` on YAML files |
+| **Docker** | `hadolint` on Dockerfiles |
+| **Actions** | `actionlint` on GitHub Actions workflows |
+| **Custom Checks** | Project-specific lint scripts in `scripts/check-*.py` |
+
+When a lint job fails, check the logs to see which specific tool failed within
+that job. For example, a "Python" job failure might be from ruff or mypy.
+
 ## Investigating Failures
 
 Use `gh pr checks <PR_NUMBER>` to list all checks and their status. For failed

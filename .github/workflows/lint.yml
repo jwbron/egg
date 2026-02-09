@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  lint:
-    name: All Linters
+  python:
+    name: Python
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,18 +24,38 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
-      # ---- Python ----
-
       - name: Ruff check
+        id: ruff-check
+        continue-on-error: true
         run: .venv/bin/ruff check .
 
       - name: Ruff format
+        id: ruff-format
+        continue-on-error: true
         run: .venv/bin/ruff format --check .
 
       - name: Mypy
+        id: mypy
+        continue-on-error: true
         run: .venv/bin/mypy gateway shared sandbox --exclude 'gateway/tests/'
 
-      # ---- Shell ----
+      - name: Check results
+        if: always()
+        run: |
+          failed=""
+          [ "${{ steps.ruff-check.outcome }}" = "failure" ] && failed="$failed ruff-check"
+          [ "${{ steps.ruff-format.outcome }}" = "failure" ] && failed="$failed ruff-format"
+          [ "${{ steps.mypy.outcome }}" = "failure" ] && failed="$failed mypy"
+          if [ -n "$failed" ]; then
+            echo "::error::Failed checks:$failed"
+            exit 1
+          fi
+
+  shell:
+    name: Shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Shellcheck
         run: |
@@ -51,12 +71,31 @@ jobs:
             echo "$SHELL_FILES" | sort -u | xargs shellcheck --severity=warning
           fi
 
-      # ---- YAML ----
+  yaml:
+    name: YAML
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
 
       - name: Yamllint
         run: .venv/bin/yamllint -c .yamllint.yaml .
 
-      # ---- Docker ----
+  docker:
+    name: Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Hadolint
         run: |
@@ -72,7 +111,11 @@ jobs:
           hadolint --config .hadolint.yaml gateway/Dockerfile
           hadolint --config .hadolint.yaml sandbox/Dockerfile
 
-      # ---- GitHub Actions ----
+  actions:
+    name: Actions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Actionlint
         run: |
@@ -88,28 +131,76 @@ jobs:
           tar xzf actionlint.tar.gz actionlint
           ./actionlint
 
-      # ---- Custom lint scripts ----
+  custom-checks:
+    name: Custom Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
 
       - name: Check container paths
+        id: container-paths
+        continue-on-error: true
         run: .venv/bin/python scripts/check-container-paths.py
 
       - name: Check container-host boundary
+        id: container-host-boundary
+        continue-on-error: true
         run: .venv/bin/python scripts/check-container-host-boundary.py
 
       - name: Check gh CLI usage
+        id: gh-cli-usage
+        continue-on-error: true
         run: .venv/bin/python scripts/check-gh-cli-usage.py
 
       - name: Check Claude imports
+        id: claude-imports
+        continue-on-error: true
         run: .venv/bin/python scripts/check-claude-imports.py
 
       - name: Check docker and claude invocations
+        id: docker-claude-invocations
+        continue-on-error: true
         run: .venv/bin/python scripts/check-docker-and-claude-invocations.py
 
       - name: Check workflow secret safety
+        id: workflow-secrets
+        continue-on-error: true
         run: .venv/bin/python scripts/check-workflow-secrets.py
 
       - name: Check hardcoded ports
+        id: hardcoded-ports
+        continue-on-error: true
         run: .venv/bin/python scripts/check-hardcoded-ports.py
 
       - name: Check reviewer job names
+        id: reviewer-job-names
+        continue-on-error: true
         run: .venv/bin/python scripts/check-reviewer-job-names.py
+
+      - name: Check results
+        if: always()
+        run: |
+          failed=""
+          [ "${{ steps.container-paths.outcome }}" = "failure" ] && failed="$failed container-paths"
+          [ "${{ steps.container-host-boundary.outcome }}" = "failure" ] && failed="$failed container-host-boundary"
+          [ "${{ steps.gh-cli-usage.outcome }}" = "failure" ] && failed="$failed gh-cli-usage"
+          [ "${{ steps.claude-imports.outcome }}" = "failure" ] && failed="$failed claude-imports"
+          [ "${{ steps.docker-claude-invocations.outcome }}" = "failure" ] && failed="$failed docker-claude-invocations"
+          [ "${{ steps.workflow-secrets.outcome }}" = "failure" ] && failed="$failed workflow-secrets"
+          [ "${{ steps.hardcoded-ports.outcome }}" = "failure" ] && failed="$failed hardcoded-ports"
+          [ "${{ steps.reviewer-job-names.outcome }}" = "failure" ] && failed="$failed reviewer-job-names"
+          if [ -n "$failed" ]; then
+            echo "::error::Failed checks:$failed"
+            exit 1
+          fi
