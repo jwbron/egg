@@ -1520,13 +1520,13 @@ jobs:
             git commit -m "Update refine review state (cycle ${REVIEW_CYCLE})" || true
 
             # Push with conflict-resistant retry logic
-            CONTRACT_PATH="$CONTRACT_PATH" \
-            BRANCH_NAME="${BRANCH_NAME}" \
-            COMMIT_MESSAGE="Update refine review state (cycle ${REVIEW_CYCLE})" \
-            JQ_SCRIPT_PATH="/tmp/reapply-refine-review.sh" \
-            REVIEW_CYCLE="$REVIEW_CYCLE" \
-            REVIEW_FEEDBACK="$REVIEW_FEEDBACK" \
-            REVIEW_PASSED="$REVIEW_PASSED" \
+            export CONTRACT_PATH
+            export BRANCH_NAME
+            export COMMIT_MESSAGE="Update refine review state (cycle ${REVIEW_CYCLE})"
+            export JQ_SCRIPT_PATH="/tmp/reapply-refine-review.sh"
+            export REVIEW_CYCLE
+            export REVIEW_FEEDBACK
+            export REVIEW_PASSED
             .github/scripts/push-contract-update.sh
           fi
 
@@ -2238,13 +2238,13 @@ jobs:
             git commit -m "Update plan review state (cycle ${REVIEW_CYCLE})" || true
 
             # Push with conflict-resistant retry logic
-            CONTRACT_PATH="$CONTRACT_PATH" \
-            BRANCH_NAME="${BRANCH_NAME}" \
-            COMMIT_MESSAGE="Update plan review state (cycle ${REVIEW_CYCLE})" \
-            JQ_SCRIPT_PATH="/tmp/reapply-plan-review.sh" \
-            REVIEW_CYCLE="$REVIEW_CYCLE" \
-            REVIEW_FEEDBACK="$REVIEW_FEEDBACK" \
-            REVIEW_PASSED="$REVIEW_PASSED" \
+            export CONTRACT_PATH
+            export BRANCH_NAME
+            export COMMIT_MESSAGE="Update plan review state (cycle ${REVIEW_CYCLE})"
+            export JQ_SCRIPT_PATH="/tmp/reapply-plan-review.sh"
+            export REVIEW_CYCLE
+            export REVIEW_FEEDBACK
+            export REVIEW_PASSED
             .github/scripts/push-contract-update.sh
           fi
 
