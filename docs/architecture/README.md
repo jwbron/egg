@@ -96,12 +96,12 @@ Each SDLC phase can have configurable automated checks that run before completio
 - JSON-based check results with pass/fail/skip status
 
 **Built-in checks:**
-- `lint-check`: Runs project linter (via `make lint`)
-- `test-check`: Runs project tests (via `make test` or pytest)
-- `merge-conflict-check`: Detects merge conflicts with base branch
-- `draft-validation-check`: Validates refine phase draft documents
-- `plan-yaml-check`: Validates plan phase YAML appendix
-- `check-fixer`: Auto-fixes certain check failures when possible
+- `lint`: Runs project linter (via `make lint`)
+- `test`: Runs project tests (via `make test` or pytest)
+- `merge-conflict`: Detects merge conflicts with base branch
+- `draft-validation`: Validates refine phase draft documents
+- `plan-yaml`: Validates plan phase YAML appendix
+- `fixer`: Auto-fixes certain check failures when possible
 
 **Phase defaults:**
 - Refine: draft validation

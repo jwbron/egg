@@ -412,7 +412,7 @@ Each SDLC phase can run automated checks before completion. The check system pro
 Check scripts inherit from `CheckRunner` base class (`.github/scripts/checks/base.py`) and implement a `run()` method that returns a `CheckResult`:
 
 ```python
-from checks.base import CheckRunner, CheckResult, CheckStatus
+from .base import CheckResult, CheckRunner, CheckStatus
 
 class MyCheck(CheckRunner):
     @property
