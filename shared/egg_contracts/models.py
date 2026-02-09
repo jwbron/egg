@@ -96,7 +96,9 @@ class CheckDefinition(BaseModel):
 
     id: str = Field(..., pattern=r"^check-[a-z0-9-]+$", description="Unique check identifier")
     name: str = Field(..., min_length=1, description="Human-readable check name")
-    script: str = Field(..., min_length=1, description="Script path to execute (relative to repo root)")
+    script: str = Field(
+        ..., min_length=1, description="Script path to execute (relative to repo root)"
+    )
     enabled: bool = Field(default=True, description="Whether this check is enabled")
     required: bool = Field(default=True, description="Whether this check must pass to proceed")
     dependencies: list[str] = Field(
@@ -138,7 +140,9 @@ class PhaseConfig(BaseModel):
     checks: list[CheckDefinition] = Field(
         default_factory=list, description="Checks to run between work and review steps"
     )
-    max_cycles: int = Field(default=3, ge=1, le=10, description="Max work/review cycles before escalation")
+    max_cycles: int = Field(
+        default=3, ge=1, le=10, description="Max work/review cycles before escalation"
+    )
     human_gate: HumanGateType = Field(
         ..., description="Type of human approval required to exit this phase"
     )
@@ -365,7 +369,8 @@ class Contract(BaseModel):
         default=None, description="Active feedback request for collecting open-ended questions"
     )
     phase_config: PhaseConfig | None = Field(
-        default=None, description="Configuration for the current phase (prompts, checks, human gate)"
+        default=None,
+        description="Configuration for the current phase (prompts, checks, human gate)",
     )
     check_results: list[CheckResult] = Field(
         default_factory=list, description="Results of checks run in the current cycle"
