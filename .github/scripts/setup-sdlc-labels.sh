@@ -58,10 +58,13 @@ LABELS=(
 for label_spec in "${LABELS[@]}"; do
     IFS='|' read -r name color description <<< "$label_spec"
 
+    # URL-encode the label name for API paths (: becomes %3A)
+    encoded_name="${name//:/%3A}"
+
     # Check if label exists
-    if gh api "repos/${REPO}/labels/${name}" >/dev/null 2>&1; then
+    if gh api "repos/${REPO}/labels/${encoded_name}" >/dev/null 2>&1; then
         echo "Updating label: ${name}"
-        gh api "repos/${REPO}/labels/${name}" \
+        gh api "repos/${REPO}/labels/${encoded_name}" \
             -X PATCH \
             -f color="${color}" \
             -f description="${description}" \

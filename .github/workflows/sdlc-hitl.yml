@@ -326,6 +326,7 @@ jobs:
             if [[ -n "$NEXT_PHASE" ]]; then
               echo "Advancing to ${NEXT_PHASE} phase"
               echo "next_phase=${NEXT_PHASE}" >> "$GITHUB_OUTPUT"
+              echo "previous_phase=${CURRENT_PHASE}" >> "$GITHUB_OUTPUT"
               echo "should_advance=true" >> "$GITHUB_OUTPUT"
             else
               echo "should_advance=false" >> "$GITHUB_OUTPUT"
@@ -381,43 +382,20 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           NEXT_PHASE: ${{ steps.advance.outputs.next_phase }}
+          PREVIOUS_PHASE: ${{ steps.advance.outputs.previous_phase }}
         run: |
           set -euo pipefail
-          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
-          CURRENT_PHASE=$(jq -r '.current_phase' "$CONTRACT_PATH" 2>/dev/null || echo "")
 
-          # Map current and next phase to labels
-          case "$CURRENT_PHASE" in
-            refine) OLD_LABEL="sdlc:refine" ;;
-            plan) OLD_LABEL="sdlc:plan" ;;
-            implement) OLD_LABEL="sdlc:implement" ;;
-            *) OLD_LABEL="" ;;
-          esac
-
-          case "$NEXT_PHASE" in
-            refine) NEW_LABEL="sdlc:refine" ;;
-            plan) NEW_LABEL="sdlc:plan" ;;
-            implement) NEW_LABEL="sdlc:implement" ;;
-            pr) NEW_LABEL="sdlc:pr" ;;
-            *) NEW_LABEL="" ;;
-          esac
-
-          # Remove old phase label
-          if [[ -n "$OLD_LABEL" ]]; then
-            encoded_label="${OLD_LABEL//:/%3A}"
-            gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels/${encoded_label}" \
-              -X DELETE --silent 2>/dev/null || true
-          fi
-
-          # Add new phase label
-          if [[ -n "$NEW_LABEL" ]]; then
-            gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels" \
-              -X POST -f "labels[]=${NEW_LABEL}" --silent || true
-          fi
+          # Use transition script for label changes
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --from "sdlc:${PREVIOUS_PHASE}" \
+            --to "sdlc:${NEXT_PHASE}"
 
           # Remove sdlc:awaiting-approval label
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels/sdlc%3Aawaiting-approval" \
-            -X DELETE --silent 2>/dev/null || true
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --remove "sdlc:awaiting-approval"
 
       # Minimize previous HITL status comments to reduce clutter
       - name: Minimize previous HITL comments
@@ -665,40 +643,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Map phase to label
-          case "$PREVIOUS_PHASE" in
-            refine) OLD_LABEL="sdlc:refine" ;;
-            plan) OLD_LABEL="sdlc:plan" ;;
-            implement) OLD_LABEL="sdlc:implement" ;;
-            *) OLD_LABEL="" ;;
-          esac
-
-          case "$NEXT_PHASE" in
-            refine) NEW_LABEL="sdlc:refine" ;;
-            plan) NEW_LABEL="sdlc:plan" ;;
-            implement) NEW_LABEL="sdlc:implement" ;;
-            pr) NEW_LABEL="sdlc:pr" ;;
-            *) NEW_LABEL="" ;;
-          esac
-
-          # Remove old phase label
-          if [[ -n "$OLD_LABEL" ]]; then
-            encoded_label="${OLD_LABEL//:/%3A}"
-            gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels/${encoded_label}" \
-              -X DELETE --silent 2>/dev/null || true
-          fi
-
-          # Add new phase label
-          if [[ -n "$NEW_LABEL" ]]; then
-            gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels" \
-              -X POST -f "labels[]=${NEW_LABEL}" --silent || true
-          fi
+          # Use transition script for label changes
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --from "sdlc:${PREVIOUS_PHASE}" \
+            --to "sdlc:${NEXT_PHASE}"
 
           # Remove sdlc:awaiting-approval label
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels/sdlc%3Aawaiting-approval" \
-            -X DELETE --silent 2>/dev/null || true
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --remove "sdlc:awaiting-approval"
 
-          echo "Transitioned labels: ${OLD_LABEL} -> ${NEW_LABEL}"
+          echo "Transitioned labels: sdlc:${PREVIOUS_PHASE} -> sdlc:${NEXT_PHASE}"
 
       # Minimize previous HITL status comments to reduce clutter
       - name: Minimize previous HITL comments

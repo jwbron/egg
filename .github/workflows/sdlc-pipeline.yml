@@ -225,40 +225,34 @@ jobs:
           set -euo pipefail
 
           # Map phase to label
-          case "$CURRENT_PHASE" in
-            refine)
-              PHASE_LABEL="sdlc:refine"
-              ;;
-            plan)
-              PHASE_LABEL="sdlc:plan"
-              ;;
-            implement)
-              PHASE_LABEL="sdlc:implement"
-              ;;
-            pr)
-              PHASE_LABEL="sdlc:pr"
-              ;;
-            *)
-              echo "Unknown phase: ${CURRENT_PHASE}"
-              exit 1
-              ;;
-          esac
+          PHASE_LABEL="sdlc:${CURRENT_PHASE}"
 
-          # Remove any existing phase labels and add the correct one
+          # Get current labels on the issue
+          CURRENT_LABELS=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels" \
+            --jq '.[].name' 2>/dev/null || echo "")
+
+          # Check if correct label is already present
+          NEEDS_LABEL=true
+          if echo "$CURRENT_LABELS" | grep -qx "$PHASE_LABEL"; then
+            echo "Correct phase label ${PHASE_LABEL} already present"
+            NEEDS_LABEL=false
+          fi
+
+          # Remove incorrect phase labels using transition script
           for label in "sdlc:refine" "sdlc:plan" "sdlc:implement" "sdlc:pr"; do
-            if [[ "$label" != "$PHASE_LABEL" ]]; then
-              # URL-encode the label name (: becomes %3A)
-              encoded_label="${label//:/%3A}"
-              gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels/${encoded_label}" \
-                -X DELETE --silent 2>/dev/null || true
+            if [[ "$label" != "$PHASE_LABEL" ]] && echo "$CURRENT_LABELS" | grep -qx "$label"; then
+              .github/scripts/transition-sdlc-label.sh \
+                --issue "${ISSUE_NUMBER}" \
+                --remove "$label"
             fi
           done
 
-          # Add the correct phase label
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels" \
-            -X POST -f "labels[]=${PHASE_LABEL}" --silent || {
-              echo "Warning: Failed to add phase label ${PHASE_LABEL}"
-            }
+          # Add the correct phase label if needed
+          if [[ "$NEEDS_LABEL" == "true" ]]; then
+            .github/scripts/transition-sdlc-label.sh \
+              --issue "${ISSUE_NUMBER}" \
+              --add "$PHASE_LABEL"
+          fi
 
           echo "Applied phase label: ${PHASE_LABEL}"
 
@@ -628,13 +622,11 @@ jobs:
             echo "::warning::Failed to add sdlc:pr label (label may not exist)"
           }
 
-          # Transition issue from sdlc:implement to sdlc:pr
-          # Remove sdlc:implement label from the issue
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels/sdlc%3Aimplement" \
-            -X DELETE --silent 2>/dev/null || true
-          # Add sdlc:pr label to the issue
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels" \
-            -X POST -f "labels[]=sdlc:pr" --silent || true
+          # Transition issue from sdlc:implement to sdlc:pr using transition script
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --from "sdlc:implement" \
+            --to "sdlc:pr"
 
       # Minimize previous pipeline status comments to reduce clutter
       - name: Minimize previous pipeline comments
@@ -1648,8 +1640,9 @@ jobs:
           fi
 
           # Add sdlc:awaiting-approval label to indicate human review is needed
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels" \
-            -X POST -f "labels[]=sdlc:awaiting-approval" --silent || {
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --add "sdlc:awaiting-approval" || {
               echo "Warning: Failed to add sdlc:awaiting-approval label"
             }
 
@@ -1764,8 +1757,9 @@ jobs:
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/escalation.md
 
           # Add sdlc:awaiting-approval label for escalation
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels" \
-            -X POST -f "labels[]=sdlc:awaiting-approval" --silent || true
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --add "sdlc:awaiting-approval" || true
 
       - name: Re-dispatch refine phase
         if: steps.check-circuit-breaker.outputs.skip != 'true'
@@ -2378,8 +2372,9 @@ jobs:
           fi
 
           # Add sdlc:awaiting-approval label to indicate human review is needed
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels" \
-            -X POST -f "labels[]=sdlc:awaiting-approval" --silent || {
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --add "sdlc:awaiting-approval" || {
               echo "Warning: Failed to add sdlc:awaiting-approval label"
             }
 
@@ -2494,8 +2489,9 @@ jobs:
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/escalation.md
 
           # Add sdlc:awaiting-approval label for escalation
-          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/labels" \
-            -X POST -f "labels[]=sdlc:awaiting-approval" --silent || true
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --add "sdlc:awaiting-approval" || true
 
       - name: Re-dispatch plan phase
         if: steps.check-circuit-breaker.outputs.skip != 'true'
