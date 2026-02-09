@@ -150,6 +150,18 @@ This prevents incidents where agents push code during planning or manually creat
 | `.egg-state/drafts/` | Draft analysis and plan documents | Feature branches only |
 | `.egg-state/reviews/` | Internal review verdicts (JSON) | Feature branches only |
 
+### Conflict-Resistant Contract Updates
+
+The SDLC pipeline uses `.github/scripts/push-contract-update.sh` to handle concurrent contract updates without merge conflicts. When multiple workflow jobs modify the same contract file simultaneously, traditional git rebase can fail with conflicts.
+
+The script implements a "reset-and-reapply" pattern:
+1. When a push fails, it aborts any failed rebase
+2. Resets to the remote HEAD (discarding the conflicted local commit)
+3. Re-applies the jq transformation from scratch on the fresh remote state
+4. Creates a new commit and retries the push
+
+This approach is idempotent — the jq transformation is applied to whatever the current remote state is, rather than trying to merge conflicting commits. The script accepts either a simple jq filter or a path to a script that performs complex multi-step transformations.
+
 ### Contract Schema
 
 ```json
@@ -398,6 +410,7 @@ The PR metadata (title and description) from the plan is stored in the contract'
 | `.github/workflows/sdlc-pipeline.yml` | Main pipeline orchestration |
 | `.github/workflows/reusable-review.yml` | PR-based code review workflow |
 | `.github/workflows/sdlc-hitl.yml` | HITL checkbox detection |
+| `.github/scripts/push-contract-update.sh` | Conflict-resistant contract push utility |
 | `action/build-sdlc-prompt.sh` | Phase-specific prompt builder (includes review feedback injection) |
 | `action/build-refine-review-prompt.sh` | Reviewer prompt for refine phase analysis |
 | `action/build-plan-review-prompt.sh` | Reviewer prompt for plan phase output |
