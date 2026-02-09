@@ -262,7 +262,7 @@ main() {
     # Output for GitHub Actions
     {
         echo "prompt-file=${prompt_file}"
-        echo "model=sonnet"  # Use sonnet for reviews (fast, good quality)
+        echo "model=${EGG_REVIEW_MODEL:-sonnet}"  # Use sonnet for reviews by default (fast, good quality)
     } >> "$GITHUB_OUTPUT"
 
     echo "Review prompt written to ${prompt_file}"

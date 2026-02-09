@@ -394,15 +394,12 @@ jobs:
           # Output results
           echo "all_passed=${all_passed}" >> "$GITHUB_OUTPUT"
 
-          # Combine results into JSON array
-          results_json="["
-          for i in "${!results[@]}"; do
-            if [[ $i -gt 0 ]]; then
-              results_json+=","
-            fi
-            results_json+="${results[$i]}"
-          done
-          results_json+="]"
+          # Combine results into JSON array using jq for proper JSON construction
+          if [[ ${#results[@]} -gt 0 ]]; then
+            results_json=$(printf '%s\n' "${results[@]}" | jq -s '.')
+          else
+            results_json="[]"
+          fi
 
           echo "results_json=${results_json}" >> "$GITHUB_OUTPUT"
           echo "Check results: ${results_json}"
@@ -600,14 +597,21 @@ jobs:
             git commit -m "Update ${PHASE} review state (cycle ${CYCLE})" || true
 
             # Push with retry
+            push_succeeded=false
             for i in 1 2 3; do
               if git push origin "${BRANCH_NAME}"; then
+                push_succeeded=true
                 break
               fi
               echo "::warning::git push attempt $i failed, retrying..."
               git pull origin "${BRANCH_NAME}" --rebase
               sleep 2
             done
+
+            if [[ "$push_succeeded" != "true" ]]; then
+              echo "::error::Failed to push contract update after 3 attempts"
+              exit 1
+            fi
           fi
 
   # ============================================================
@@ -840,6 +844,9 @@ jobs:
           echo "Re-dispatching ${PHASE} phase (cycle ${NEXT_CYCLE})"
 
           # Dispatch the main pipeline to continue with the next cycle
-          gh workflow run sdlc-pipeline.yml \
+          if ! gh workflow run sdlc-pipeline.yml \
             --field issue_number="${ISSUE_NUMBER}" \
-            --field starting_phase="${PHASE}"
+            --field starting_phase="${PHASE}"; then
+            echo "::error::Failed to re-dispatch workflow for cycle ${NEXT_CYCLE}"
+            exit 1
+          fi

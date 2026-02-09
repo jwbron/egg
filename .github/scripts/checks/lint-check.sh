@@ -34,16 +34,17 @@ lint_output=""
 
 run_lint() {
     local name="$1"
-    local command="$2"
+    shift
+    local -a command=("$@")
 
     echo "[lint-check] Running: ${name}"
-    echo "[lint-check] Command: ${command}"
+    echo "[lint-check] Command: ${command[*]}"
 
     local output
     local exit_code=0
 
     set +e
-    output=$(eval "$command" 2>&1)
+    output=$("${command[@]}" 2>&1)
     exit_code=$?
     set -e
 
@@ -59,13 +60,14 @@ run_lint() {
 
 # Use override command if provided
 if [[ -n "${LINT_COMMAND:-}" ]]; then
-    run_lint "Custom lint" "$LINT_COMMAND"
+    # For custom commands, we need to use bash -c to handle complex commands
+    run_lint "Custom lint" bash -c "$LINT_COMMAND"
 else
     # Auto-detect linters
 
     # Check for Makefile lint target
     if [[ -f "Makefile" ]] && grep -qE '^lint:' Makefile; then
-        run_lint "make lint" "make lint"
+        run_lint "make lint" make lint
     else
         # Run individual linters based on project files
 
@@ -73,15 +75,15 @@ else
         if [[ -f "pyproject.toml" ]] || [[ -f "setup.py" ]] || find . -maxdepth 2 -name "*.py" -type f | head -1 | grep -q .; then
             # Prefer ruff if available
             if command -v ruff &> /dev/null; then
-                run_lint "ruff check" "ruff check ."
+                run_lint "ruff check" ruff check .
             elif command -v flake8 &> /dev/null; then
-                run_lint "flake8" "flake8 ."
+                run_lint "flake8" flake8 .
             fi
 
             # Run mypy if configured
             if [[ -f "mypy.ini" ]] || [[ -f ".mypy.ini" ]] || grep -q '\[tool.mypy\]' pyproject.toml 2>/dev/null; then
                 if command -v mypy &> /dev/null; then
-                    run_lint "mypy" "mypy ."
+                    run_lint "mypy" mypy .
                 fi
             fi
         fi
@@ -90,18 +92,18 @@ else
         if [[ -f "package.json" ]]; then
             if [[ -f ".eslintrc.js" ]] || [[ -f ".eslintrc.json" ]] || [[ -f ".eslintrc.yml" ]] || [[ -f ".eslintrc" ]] || grep -q '"eslint"' package.json 2>/dev/null; then
                 if [[ -f "node_modules/.bin/eslint" ]]; then
-                    run_lint "eslint" "npx eslint . --ext .js,.jsx,.ts,.tsx"
+                    run_lint "eslint" npx eslint . --ext .js,.jsx,.ts,.tsx
                 elif command -v npx &> /dev/null && npm list eslint &> /dev/null; then
-                    run_lint "eslint" "npx eslint . --ext .js,.jsx,.ts,.tsx"
+                    run_lint "eslint" npx eslint . --ext .js,.jsx,.ts,.tsx
                 fi
             fi
 
             # TypeScript type checking
             if [[ -f "tsconfig.json" ]]; then
                 if [[ -f "node_modules/.bin/tsc" ]]; then
-                    run_lint "tsc" "npx tsc --noEmit"
+                    run_lint "tsc" npx tsc --noEmit
                 elif command -v npx &> /dev/null && npm list typescript &> /dev/null; then
-                    run_lint "tsc" "npx tsc --noEmit"
+                    run_lint "tsc" npx tsc --noEmit
                 fi
             fi
         fi
@@ -109,30 +111,30 @@ else
         # Go (golangci-lint, go vet)
         if [[ -f "go.mod" ]]; then
             if command -v golangci-lint &> /dev/null; then
-                run_lint "golangci-lint" "golangci-lint run"
+                run_lint "golangci-lint" golangci-lint run
             elif command -v go &> /dev/null; then
-                run_lint "go vet" "go vet ./..."
+                run_lint "go vet" go vet ./...
             fi
         fi
 
         # Rust (clippy, cargo check)
         if [[ -f "Cargo.toml" ]]; then
             if command -v cargo &> /dev/null; then
-                run_lint "cargo clippy" "cargo clippy -- -D warnings"
+                run_lint "cargo clippy" cargo clippy -- -D warnings
             fi
         fi
 
         # Shell (shellcheck)
         if find . -maxdepth 3 -name "*.sh" -type f | head -1 | grep -q .; then
             if command -v shellcheck &> /dev/null; then
-                run_lint "shellcheck" "find . -name '*.sh' -type f -not -path '*/node_modules/*' -not -path '*/.git/*' -exec shellcheck {} +"
+                run_lint "shellcheck" bash -c "find . -name '*.sh' -type f -not -path '*/node_modules/*' -not -path '*/.git/*' -exec shellcheck {} +"
             fi
         fi
 
         # YAML (yamllint)
         if [[ -f ".yamllint.yaml" ]] || [[ -f ".yamllint.yml" ]] || [[ -f ".yamllint" ]]; then
             if command -v yamllint &> /dev/null; then
-                run_lint "yamllint" "yamllint ."
+                run_lint "yamllint" yamllint .
             fi
         fi
     fi

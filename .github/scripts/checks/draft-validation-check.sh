@@ -42,13 +42,6 @@ case "$EGG_PHASE" in
             "Analysis"
             "Recommendation"
         )
-        _OPTIONAL_SECTIONS=(
-            "Current State"
-            "Options"
-            "Open Questions"
-            "Constraints"
-            "Dependencies"
-        )
         MIN_LENGTH=500
         ;;
     plan)
@@ -57,12 +50,6 @@ case "$EGG_PHASE" in
             "Summary"
             "Implementation"
             "Test Strategy"
-        )
-        _OPTIONAL_SECTIONS=(
-            "Phase"
-            "Tasks"
-            "Risk"
-            "Rollback"
         )
         MIN_LENGTH=800
         # Plan must have YAML tasks block
@@ -73,7 +60,6 @@ case "$EGG_PHASE" in
         # Skip validation or check for implementation notes
         DRAFT_PATH="${DRAFT_PATH:-.egg-state/drafts/${EGG_ISSUE_NUMBER}-implementation.md}"
         EXPECTED_SECTIONS=()
-        _OPTIONAL_SECTIONS=()
         MIN_LENGTH=0
         OPTIONAL_FILE=true
         ;;

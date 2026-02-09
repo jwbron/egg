@@ -33,15 +33,16 @@ test_exit_code=0
 
 run_tests() {
     local name="$1"
-    local command="$2"
+    shift
+    local -a command=("$@")
 
     echo "[test-check] Running: ${name}"
-    echo "[test-check] Command: ${command}"
+    echo "[test-check] Command: ${command[*]}"
 
     local exit_code=0
 
     set +e
-    eval "$command"
+    "${command[@]}"
     exit_code=$?
     set -e
 
@@ -57,13 +58,14 @@ run_tests() {
 
 # Use override command if provided
 if [[ -n "${TEST_COMMAND:-}" ]]; then
-    run_tests "Custom tests" "$TEST_COMMAND"
+    # For custom commands, we need to use bash -c to handle complex commands
+    run_tests "Custom tests" bash -c "$TEST_COMMAND"
 else
     # Auto-detect test framework
 
     # Check for Makefile test target (most common)
     if [[ -f "Makefile" ]] && grep -qE '^test:' Makefile; then
-        run_tests "make test" "make test"
+        run_tests "make test" make test
     else
         # Detect based on project files
         found_tests=false
@@ -72,20 +74,16 @@ else
         if [[ -f "pytest.ini" ]] || [[ -f "pyproject.toml" ]] || [[ -f "setup.py" ]] || [[ -d "tests" ]]; then
             if command -v pytest &> /dev/null || [[ -f ".venv/bin/pytest" ]]; then
                 found_tests=true
-                cmd="pytest"
 
-                # Add test pattern if specified
+                # Build pytest command with optional pattern
                 if [[ -n "${TEST_PATTERN:-}" ]]; then
-                    cmd+=" -k '$TEST_PATTERN'"
+                    run_tests "pytest" pytest -k "$TEST_PATTERN" --tb=short -q
+                else
+                    run_tests "pytest" pytest --tb=short -q
                 fi
-
-                # Add common pytest options
-                cmd+=" --tb=short -q"
-
-                run_tests "pytest" "$cmd"
             elif command -v python3 &> /dev/null && [[ -d "tests" ]]; then
                 found_tests=true
-                run_tests "python unittest" "python3 -m unittest discover -s tests"
+                run_tests "python unittest" python3 -m unittest discover -s tests
             fi
         fi
 
@@ -94,22 +92,22 @@ else
             # Check for test script in package.json
             if grep -q '"test":' package.json; then
                 found_tests=true
-                run_tests "npm test" "npm test -- --passWithNoTests"
+                run_tests "npm test" npm test -- --passWithNoTests
             else
                 # Check for specific test frameworks
                 if grep -q '"jest"' package.json || [[ -f "jest.config.js" ]] || [[ -f "jest.config.ts" ]]; then
                     found_tests=true
                     if [[ -n "${TEST_PATTERN:-}" ]]; then
-                        run_tests "jest" "npx jest --testNamePattern='$TEST_PATTERN'"
+                        run_tests "jest" npx jest --testNamePattern="$TEST_PATTERN"
                     else
-                        run_tests "jest" "npx jest --passWithNoTests"
+                        run_tests "jest" npx jest --passWithNoTests
                     fi
                 elif grep -q '"vitest"' package.json || [[ -f "vitest.config.ts" ]]; then
                     found_tests=true
-                    run_tests "vitest" "npx vitest run"
+                    run_tests "vitest" npx vitest run
                 elif grep -q '"mocha"' package.json; then
                     found_tests=true
-                    run_tests "mocha" "npx mocha"
+                    run_tests "mocha" npx mocha
                 fi
             fi
         fi
@@ -117,41 +115,41 @@ else
         # Go
         if [[ -f "go.mod" ]]; then
             found_tests=true
-            cmd="go test ./..."
             if [[ -n "${TEST_PATTERN:-}" ]]; then
-                cmd+=" -run '$TEST_PATTERN'"
+                run_tests "go test" go test ./... -run "$TEST_PATTERN"
+            else
+                run_tests "go test" go test ./...
             fi
-            run_tests "go test" "$cmd"
         fi
 
         # Rust
         if [[ -f "Cargo.toml" ]]; then
             found_tests=true
-            cmd="cargo test"
             if [[ -n "${TEST_PATTERN:-}" ]]; then
-                cmd+=" '$TEST_PATTERN'"
+                run_tests "cargo test" cargo test "$TEST_PATTERN"
+            else
+                run_tests "cargo test" cargo test
             fi
-            run_tests "cargo test" "$cmd"
         fi
 
         # Ruby (rspec, minitest)
         if [[ -f "Gemfile" ]]; then
             if grep -q 'rspec' Gemfile || [[ -d "spec" ]]; then
                 found_tests=true
-                run_tests "rspec" "bundle exec rspec"
+                run_tests "rspec" bundle exec rspec
             elif [[ -d "test" ]]; then
                 found_tests=true
-                run_tests "minitest" "bundle exec rake test"
+                run_tests "minitest" bundle exec rake test
             fi
         fi
 
         # Java (maven, gradle)
         if [[ -f "pom.xml" ]]; then
             found_tests=true
-            run_tests "mvn test" "mvn test -B"
+            run_tests "mvn test" mvn test -B
         elif [[ -f "build.gradle" ]] || [[ -f "build.gradle.kts" ]]; then
             found_tests=true
-            run_tests "gradle test" "./gradlew test"
+            run_tests "gradle test" ./gradlew test
         fi
 
         # If no tests found, report success

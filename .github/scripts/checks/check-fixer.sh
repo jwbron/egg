@@ -36,12 +36,13 @@ fixes_applied=false
 
 run_fixer() {
     local name="$1"
-    local command="$2"
+    shift
+    local -a command=("$@")
 
     log_info "Running: ${name}"
 
     set +e
-    eval "$command" 2>&1
+    "${command[@]}" 2>&1
     local exit_code=$?
     set -e
 
@@ -61,7 +62,7 @@ log_info "Starting auto-fix process..."
 
 # Check for Makefile fix target
 if [[ -f "Makefile" ]] && grep -qE '^fix:' Makefile; then
-    run_fixer "make fix" "make fix"
+    run_fixer "make fix" make fix
 else
     # Run individual fixers
 
@@ -71,24 +72,24 @@ else
             # Ruff (preferred - handles both linting and formatting)
             if command -v ruff &> /dev/null; then
                 if [[ "$FIX_LINT" == "true" ]]; then
-                    run_fixer "ruff check --fix" "ruff check . --fix"
+                    run_fixer "ruff check --fix" ruff check . --fix
                 fi
                 if [[ "$FIX_FORMAT" == "true" ]]; then
-                    run_fixer "ruff format" "ruff format ."
+                    run_fixer "ruff format" ruff format .
                 fi
             else
                 # Fallback to individual tools
                 if [[ "$FIX_FORMAT" == "true" ]]; then
                     if command -v black &> /dev/null; then
-                        run_fixer "black" "black ."
+                        run_fixer "black" black .
                     fi
                     if command -v isort &> /dev/null; then
-                        run_fixer "isort" "isort ."
+                        run_fixer "isort" isort .
                     fi
                 fi
                 if [[ "$FIX_LINT" == "true" ]]; then
                     if command -v autopep8 &> /dev/null; then
-                        run_fixer "autopep8" "autopep8 --in-place --recursive ."
+                        run_fixer "autopep8" autopep8 --in-place --recursive .
                     fi
                 fi
             fi
@@ -101,7 +102,7 @@ else
             # ESLint with fix
             if [[ -f ".eslintrc.js" ]] || [[ -f ".eslintrc.json" ]] || grep -q '"eslint"' package.json 2>/dev/null; then
                 if npm list eslint &> /dev/null 2>&1 || [[ -f "node_modules/.bin/eslint" ]]; then
-                    run_fixer "eslint --fix" "npx eslint . --ext .js,.jsx,.ts,.tsx --fix"
+                    run_fixer "eslint --fix" npx eslint . --ext .js,.jsx,.ts,.tsx --fix
                 fi
             fi
         fi
@@ -110,7 +111,7 @@ else
             # Prettier
             if [[ -f ".prettierrc" ]] || [[ -f ".prettierrc.json" ]] || grep -q '"prettier"' package.json 2>/dev/null; then
                 if npm list prettier &> /dev/null 2>&1 || [[ -f "node_modules/.bin/prettier" ]]; then
-                    run_fixer "prettier" "npx prettier --write ."
+                    run_fixer "prettier" npx prettier --write .
                 fi
             fi
         fi
@@ -119,20 +120,20 @@ else
     # Go
     if [[ -f "go.mod" ]] && command -v go &> /dev/null; then
         if [[ "$FIX_FORMAT" == "true" ]]; then
-            run_fixer "gofmt" "gofmt -w ."
+            run_fixer "gofmt" gofmt -w .
         fi
         if [[ "$FIX_LINT" == "true" ]]; then
-            run_fixer "go mod tidy" "go mod tidy"
+            run_fixer "go mod tidy" go mod tidy
         fi
     fi
 
     # Rust
     if [[ -f "Cargo.toml" ]] && command -v cargo &> /dev/null; then
         if [[ "$FIX_FORMAT" == "true" ]]; then
-            run_fixer "cargo fmt" "cargo fmt"
+            run_fixer "cargo fmt" cargo fmt
         fi
         if [[ "$FIX_LINT" == "true" ]]; then
-            run_fixer "cargo clippy --fix" "cargo clippy --fix --allow-dirty --allow-staged"
+            run_fixer "cargo clippy --fix" cargo clippy --fix --allow-dirty --allow-staged
         fi
     fi
 fi

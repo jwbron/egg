@@ -99,14 +99,20 @@ trap 'rm -f "$yaml_file"' EXIT
 
 # Check if Python is available for proper YAML parsing
 if command -v python3 &> /dev/null; then
+    # Export OUTPUT_TASKS for Python to access
+    export OUTPUT_TASKS="${OUTPUT_TASKS:-false}"
+    export YAML_FILE="$yaml_file"
+
     # Use Python for robust YAML validation
-    validation_result=$(python3 << PYTHON_EOF
+    validation_result=$(python3 << 'PYTHON_EOF'
 import sys
 import yaml
 import json
+import os
 
 try:
-    with open("$yaml_file", 'r') as f:
+    yaml_file = os.environ.get('YAML_FILE', '')
+    with open(yaml_file, 'r') as f:
         data = yaml.safe_load(f)
 
     if data is None:
@@ -178,7 +184,7 @@ try:
     print(f"Found {phase_count} phases with {task_count} total tasks")
 
     # Optionally output parsed data
-    if "$OUTPUT_TASKS" == "true":
+    if os.environ.get('OUTPUT_TASKS', 'false') == 'true':
         print("---TASKS_JSON---")
         print(json.dumps(data, indent=2))
 

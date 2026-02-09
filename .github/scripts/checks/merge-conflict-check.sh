@@ -23,7 +23,7 @@ BASE_BRANCH="${BASE_BRANCH:-main}"
 # ---------------------------------------------------------------------------
 
 log_info() {
-    echo "[merge-conflict-check] $*" >&2
+    echo "[merge-conflict-check] $*"
 }
 
 log_error() {
