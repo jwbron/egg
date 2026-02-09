@@ -158,15 +158,6 @@ jobs:
             exit 1
           fi
 
-          # Determine output_type and human_review_mechanism based on phase if not provided
-          if [[ "$PHASE" == "implement" ]]; then
-            DEFAULT_OUTPUT_TYPE="pr"
-            DEFAULT_HUMAN_REVIEW="pr_review"
-          else
-            DEFAULT_OUTPUT_TYPE="draft"
-            DEFAULT_HUMAN_REVIEW="issue_checkbox"
-          fi
-
           # Write outputs
           {
             echo "phase=${PHASE}"
@@ -381,7 +372,7 @@ jobs:
           git fetch origin main
 
           # Try to merge main into current branch (dry-run)
-          if git merge-tree $(git merge-base HEAD origin/main) HEAD origin/main | grep -q "^<<<<<<<"; then
+          if git merge-tree "$(git merge-base HEAD origin/main)" HEAD origin/main | grep -q "^<<<<<<<"; then
             echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
             echo "Merge conflicts detected"
           else
@@ -590,9 +581,11 @@ jobs:
 
           # For non-implement phases, checks always pass (no checks to run)
           if [[ "$PHASE" != "implement" ]]; then
-            echo "all_passed=true" >> "$GITHUB_OUTPUT"
-            echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
-            echo "needs_fixer=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "all_passed=true"
+              echo "has_conflicts=false"
+              echo "needs_fixer=false"
+            } >> "$GITHUB_OUTPUT"
             echo "No checks for ${PHASE} phase"
             exit 0
           fi
@@ -1276,6 +1269,7 @@ jobs:
 
           --- Authored by egg"
 
+          # shellcheck disable=SC2001
           BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
