@@ -206,7 +206,7 @@
           "files_affected": [
             "docs/collaboration-effectiveness.md"
           ],
-          "commit": null,
+          "commit": "4bd7273",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
