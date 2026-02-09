@@ -357,6 +357,7 @@ jobs:
               BODY="<!-- egg-status-comment -->
           egg run had errors (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
               # Strip leading whitespace from each line (caused by YAML indentation)
+              # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
               BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
               gh api repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments \
                 -X POST -f body="${BODY}"
@@ -371,6 +372,7 @@ jobs:
           egg run failed (exit code: ${EGG_EXIT_CODE:-unknown}). [View run logs](${RUN_URL})"
             fi
             # Strip leading whitespace from each line (caused by YAML indentation)
+            # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
             BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
             gh api repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments \
               -X POST -f body="${BODY}"

@@ -443,6 +443,7 @@ jobs:
           fi
 
           # Strip leading whitespace from each line (caused by YAML indentation)
+          # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
           BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
         env:

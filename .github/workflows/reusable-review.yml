@@ -536,6 +536,7 @@ jobs:
             fi
           fi
           # Strip leading whitespace from each line (caused by YAML indentation)
+          # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
           BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
           gh pr comment "${{ env.PR_NUMBER }}" --repo "${{ github.repository }}" --body "$BODY"
         env:
