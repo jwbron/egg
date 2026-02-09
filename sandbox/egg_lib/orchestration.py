@@ -26,6 +26,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from .config import GATEWAY_PORT
 from .context import get_context
 from .docker import ensure_gateway_networks
 from .gateway import cleanup_gateway as gateway_cleanup
@@ -39,7 +40,7 @@ class OrchestrationResult:
 
     success: bool
     gateway_ip: str | None = None
-    gateway_port: int = 9848
+    gateway_port: int = GATEWAY_PORT
     error_message: str | None = None
 
 

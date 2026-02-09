@@ -15,6 +15,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from .config import GATEWAY_PORT
 from .output import error, info, success
 
 
@@ -199,7 +200,7 @@ def wait_for_gateway(compose_file: Path, timeout: int = 60) -> bool:
     info("Waiting for gateway to be healthy...")
 
     # Load port from .env or use default
-    port = "9848"
+    port = str(GATEWAY_PORT)
     env_file = get_env_file(compose_file)
     if env_file:
         with open(env_file) as f:
