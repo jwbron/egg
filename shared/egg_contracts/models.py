@@ -315,9 +315,7 @@ class IntermediateCheck(BaseModel):
         default_factory=list,
         description="IDs of checks that must complete before this one",
     )
-    required: bool = Field(
-        default=True, description="Whether this check must pass to proceed"
-    )
+    required: bool = Field(default=True, description="Whether this check must pass to proceed")
     timeout_minutes: int = Field(
         default=30, ge=1, description="Maximum time for this check to complete"
     )
@@ -333,13 +331,9 @@ class CheckResult(BaseModel):
     )
     status: CheckStatus = Field(..., description="Check result status")
     started_at: datetime | None = Field(default=None, description="When the check started")
-    completed_at: datetime | None = Field(
-        default=None, description="When the check completed"
-    )
+    completed_at: datetime | None = Field(default=None, description="When the check completed")
     output: str = Field(default="", description="Check output or error message")
-    auto_fix_attempted: bool = Field(
-        default=False, description="Whether auto-fix was attempted"
-    )
+    auto_fix_attempted: bool = Field(default=False, description="Whether auto-fix was attempted")
     auto_fix_commit: str | None = Field(
         default=None,
         pattern=r"^[a-f0-9]{7,40}$",
@@ -398,9 +392,7 @@ class PhaseConfigMap(BaseModel):
 
     refine: PhaseConfig | None = Field(default=None, description="Refine phase config")
     plan: PhaseConfig | None = Field(default=None, description="Plan phase config")
-    implement: PhaseConfig | None = Field(
-        default=None, description="Implement phase config"
-    )
+    implement: PhaseConfig | None = Field(default=None, description="Implement phase config")
 
     def get_config(self, phase: WorkLoopPhase) -> PhaseConfig | None:
         """Get configuration for a specific phase."""
@@ -423,9 +415,7 @@ class WorkLoopState(BaseModel):
     last_reviewer_verdict: ReviewerVerdict | None = Field(
         default=None, description="Verdict from last reviewer"
     )
-    last_reviewer_feedback: str = Field(
-        default="", description="Feedback from last reviewer"
-    )
+    last_reviewer_feedback: str = Field(default="", description="Feedback from last reviewer")
     human_feedback_pending: bool = Field(
         default=False, description="Whether waiting for human feedback"
     )
