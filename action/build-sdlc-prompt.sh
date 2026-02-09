@@ -395,7 +395,7 @@ When your analysis is complete:
 
 1. Write the analysis document: \`mkdir -p .egg-state/drafts && cat > .egg-state/drafts/${issue_number}-analysis.md << 'ANALYSIS_EOF'\`
 2. Commit the draft: \`git add .egg-state/drafts/${issue_number}-analysis.md && git commit -m "Draft analysis for issue #${issue_number}"\`
-3. Push the commit: \`git push origin \${EGG_BRANCH_NAME}\`
+3. Push the commit: \`git push origin HEAD:${EGG_BRANCH_NAME}\`
 
 The internal review process will then evaluate your analysis. If approved, it will be posted to the issue for human review.
 EOF
@@ -597,7 +597,7 @@ When your plan is complete:
 
 1. Write the plan document: \`mkdir -p .egg-state/drafts && cat > .egg-state/drafts/${issue_number}-plan.md << 'PLAN_EOF'\`
 2. Commit the draft: \`git add .egg-state/drafts/${issue_number}-plan.md && git commit -m "Draft plan for issue #${issue_number}"\`
-3. Push the commit: \`git push origin \${EGG_BRANCH_NAME}\`
+3. Push the commit: \`git push origin HEAD:${EGG_BRANCH_NAME}\`
 
 The internal review process will then evaluate your plan. If approved, it will be posted to the issue for human review.
 EOF
@@ -693,7 +693,7 @@ Before completing this phase:
 
 When implementation is complete:
 1. Ensure all tasks are linked to commits
-2. Push your changes: \`git push origin ${EGG_BRANCH_NAME}\`
+2. Push your changes: \`git push origin HEAD:${EGG_BRANCH_NAME}\`
 3. The pipeline will automatically trigger a review on the draft PR
 EOF
 }
