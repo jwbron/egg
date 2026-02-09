@@ -10,6 +10,32 @@ name: "egg: SDLC HITL Decision Handler"
 on:
   issue_comment:
     types: [edited]
+  workflow_call:
+    inputs:
+      issue_number:
+        description: 'Issue number containing the HITL decision'
+        required: true
+        type: number
+      bot_username:
+        description: 'GitHub username of the bot (for git identity and comment filtering)'
+        required: false
+        type: string
+        default: "james-in-a-box"
+      authorized_users:
+        description: 'Comma-separated list of authorized GitHub usernames for HITL decisions'
+        required: false
+        type: string
+        default: "jwbron"
+      branch_prefix:
+        description: 'Prefix for issue branches (e.g., "egg" creates "egg/issue-N")'
+        required: false
+        type: string
+        default: "egg"
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
 
 permissions:
   actions: write
@@ -18,24 +44,103 @@ permissions:
 
 # Prevent concurrent HITL runs for the same issue
 concurrency:
-  group: sdlc-hitl-${{ github.event.issue.number }}
+  group: sdlc-hitl-${{ github.event.issue.number || inputs.issue_number }}
   cancel-in-progress: false
 
 jobs:
+  # Workaround: GitHub Actions doesn't allow accessing inputs in job-level 'if' conditions.
+  resolve-inputs:
+    name: Resolve inputs
+    runs-on: ubuntu-latest
+    outputs:
+      bot_username: ${{ steps.resolve.outputs.bot_username }}
+      authorized_users: ${{ steps.resolve.outputs.authorized_users }}
+      branch_prefix: ${{ steps.resolve.outputs.branch_prefix }}
+      issue_number: ${{ steps.resolve.outputs.issue_number }}
+      should_check_trigger: ${{ steps.resolve.outputs.should_check_trigger }}
+    steps:
+      - name: Resolve inputs with defaults
+        id: resolve
+        run: |
+          echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}" >> "$GITHUB_OUTPUT"
+          echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}" >> "$GITHUB_OUTPUT"
+          echo "branch_prefix=${{ inputs.branch_prefix || 'egg' }}" >> "$GITHUB_OUTPUT"
+
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            echo "issue_number=${{ inputs.issue_number }}" >> "$GITHUB_OUTPUT"
+            echo "should_check_trigger=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "issue_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+            echo "should_check_trigger=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # For event-triggered runs, check authorization
+  check-trigger:
+    name: Check authorization
+    needs: resolve-inputs
+    if: needs.resolve-inputs.outputs.should_check_trigger == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      authorized: ${{ steps.check.outputs.authorized }}
+    steps:
+      - name: Check authorization
+        id: check
+        env:
+          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+          AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
+        run: |
+          sender="${{ github.event.sender.login }}"
+          comment_body="${{ github.event.comment.body }}"
+
+          # Must contain HITL decision marker
+          if [[ "$comment_body" != *"<!-- egg-hitl-decision"* ]]; then
+            echo "No HITL decision marker found"
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Prevent self-triggering
+          if [[ "$sender" == "$BOT_USERNAME" || "$sender" == "${BOT_USERNAME}[bot]" ]]; then
+            echo "Ignoring bot self-trigger"
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check if sender is authorized
+          is_authorized=false
+          IFS=',' read -ra users <<< "$AUTHORIZED_USERS"
+          for user in "${users[@]}"; do
+            user=$(echo "$user" | xargs)
+            if [[ "$sender" == "$user" ]]; then
+              is_authorized=true
+              break
+            fi
+          done
+
+          if [[ "$is_authorized" != "true" ]]; then
+            echo "Sender '$sender' not in authorized users: $AUTHORIZED_USERS"
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "authorized=true" >> "$GITHUB_OUTPUT"
+
   handle-decision:
     name: Handle HITL decision
+    needs: [resolve-inputs, check-trigger]
     runs-on: ubuntu-latest
-    # Only trigger on comments that contain HITL decision markers
-    # Authorization: Only jwbron can trigger HITL decisions, and bot cannot trigger itself
+    # Run when:
+    # - workflow_call (check-trigger was skipped)
+    # - Event-triggered and authorization passed
     if: >-
-      contains(github.event.comment.body, '<!-- egg-hitl-decision') &&
-      github.event.sender.login == 'jwbron' &&
-      github.event.sender.login != 'james-in-a-box' &&
-      github.event.sender.login != 'james-in-a-box[bot]'
+      always() &&
+      needs.resolve-inputs.result == 'success' &&
+      (needs.check-trigger.result == 'skipped' || needs.check-trigger.outputs.authorized == 'true')
 
     env:
-      BOT_USERNAME: james-in-a-box
-      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
+      ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
 
     steps:
       - name: Generate bot token
@@ -136,7 +241,7 @@ jobs:
             exit 1
           fi
 
-          BRANCH_NAME="egg/issue-${ISSUE_NUMBER}"
+          BRANCH_NAME="${BRANCH_PREFIX}/issue-${ISSUE_NUMBER}"
 
           if git ls-remote --heads origin "${BRANCH_NAME}" | grep -q "${BRANCH_NAME}"; then
             echo "branch_name=${BRANCH_NAME}" >> "$GITHUB_OUTPUT"
@@ -153,8 +258,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "james-in-a-box[bot]"
-          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Update contract with decision
         if: steps.branch.outputs.branch_exists == 'true'
@@ -422,24 +527,77 @@ jobs:
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
 
   # ============================================================
+  # Check authorization for phase approval (event-triggered)
+  # ============================================================
+  check-approval-trigger:
+    name: Check approval authorization
+    needs: resolve-inputs
+    if: needs.resolve-inputs.outputs.should_check_trigger == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      authorized: ${{ steps.check.outputs.authorized }}
+    steps:
+      - name: Check authorization
+        id: check
+        env:
+          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+          AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
+        run: |
+          sender="${{ github.event.sender.login }}"
+          comment_body="${{ github.event.comment.body }}"
+
+          # Must contain phase approval marker and checked checkbox
+          if [[ "$comment_body" != *"<!-- egg-phase-approval"* || "$comment_body" != *"[x] Approve"* ]]; then
+            echo "Not a phase approval with checked checkbox"
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Prevent self-triggering
+          if [[ "$sender" == "$BOT_USERNAME" || "$sender" == "${BOT_USERNAME}[bot]" ]]; then
+            echo "Ignoring bot self-trigger"
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check if sender is authorized
+          is_authorized=false
+          IFS=',' read -ra users <<< "$AUTHORIZED_USERS"
+          for user in "${users[@]}"; do
+            user=$(echo "$user" | xargs)
+            if [[ "$sender" == "$user" ]]; then
+              is_authorized=true
+              break
+            fi
+          done
+
+          if [[ "$is_authorized" != "true" ]]; then
+            echo "Sender '$sender' not in authorized users: $AUTHORIZED_USERS"
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "authorized=true" >> "$GITHUB_OUTPUT"
+
+  # ============================================================
   # Handle phase approval comments
   # ============================================================
   handle-approval:
     name: Handle phase approval
+    needs: [resolve-inputs, check-approval-trigger]
     runs-on: ubuntu-latest
-    # Trigger only on phase completion comments (with egg-phase-approval marker) where
-    # the approval checkbox has been checked. Both conditions must be true to prevent
-    # spurious approvals from editing unrelated comments.
-    # Authorization: Only jwbron can trigger approvals, and bot cannot trigger itself
+    # Run when:
+    # - workflow_call (check-approval-trigger was skipped)
+    # - Event-triggered and authorization passed
     if: >-
-      contains(github.event.comment.body, '<!-- egg-phase-approval') &&
-      contains(github.event.comment.body, '[x] Approve') &&
-      github.event.sender.login == 'jwbron' &&
-      github.event.sender.login != 'james-in-a-box' &&
-      github.event.sender.login != 'james-in-a-box[bot]'
+      always() &&
+      needs.resolve-inputs.result == 'success' &&
+      (needs.check-approval-trigger.result == 'skipped' || needs.check-approval-trigger.outputs.authorized == 'true')
 
     env:
-      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
+      ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
 
     steps:
       - name: Generate bot token
@@ -468,7 +626,7 @@ jobs:
             exit 1
           fi
 
-          BRANCH_NAME="egg/issue-${ISSUE_NUMBER}"
+          BRANCH_NAME="${BRANCH_PREFIX}/issue-${ISSUE_NUMBER}"
 
           if git ls-remote --heads origin "${BRANCH_NAME}" | grep -q "${BRANCH_NAME}"; then
             echo "branch_name=${BRANCH_NAME}" >> "$GITHUB_OUTPUT"
@@ -485,8 +643,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "james-in-a-box[bot]"
-          git config user.email "${BOT_APP_ID}+james-in-a-box[bot]@users.noreply.github.com"
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
 
       # Determine next phase (read-only) BEFORE any state changes.
       # This ensures retries are idempotent: if dispatch fails, the contract
