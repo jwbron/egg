@@ -91,8 +91,9 @@ jobs:
           # Check if this commit has already been reviewed by this bot
           # Marker format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
           # Escape regex metacharacters in bot_name to prevent pattern breakage
+          # Note: ] must come first in the character class, ^ must not be first
           # shellcheck disable=SC2016
-          escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[][.^$*+?{}|\\()]/\\&/g')
+          escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[][\^$.*+?{}()|]/\\&/g')
           marker_regex="<!-- egg-automated-review bot=${escaped_bot_name} commit=${HEAD_SHA}( verdict=([a-z-]+))? -->"
 
           found="false"
@@ -326,9 +327,10 @@ jobs:
           # Format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
           # The verdict field is optional for backwards compatibility with old markers
           # Escape regex metacharacters in bot_name to prevent pattern breakage
+          # Note: ] must come first in the character class, ^ must not be first
           # NOTE: Keep in sync with "Check if commit already reviewed" step in should-run job
           # shellcheck disable=SC2016
-          escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[][.^$*+?{}|\\()]/\\&/g')
+          escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[][\^$.*+?{}()|]/\\&/g')
           marker_regex="<!-- egg-automated-review bot=${escaped_bot_name} commit=([a-f0-9]+)( verdict=([a-z-]+))? -->"
 
           # Check reviews from the Reviews API for the marker
