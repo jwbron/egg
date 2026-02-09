@@ -81,3 +81,7 @@ These mechanisms compound: by the time a human reviewer sees the PR, the most co
 ## Looking Forward
 
 As AI capabilities expand, organizations face a scaling challenge: more AI-generated code means more code to review, verify, and maintain. egg's constraint-based trust model addresses this by shifting verification earlier (plans before code) and making reasoning visible (logs alongside diffs). The safety model scales without requiring organizations to choose between automation and oversight.
+
+## Related Documentation
+
+- [The Agentic Feedback Loop](agentic-feedback-loop.md) — Conceptual model explaining the nested work-review-feedback cycles that produce quality through structured iteration

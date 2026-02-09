@@ -40,7 +40,7 @@ The existing documentation covers:
 
 ### Option A: New Top-Level Conceptual Document
 
-**Approach**: Create `docs/agentic-work-loop.md` as a standalone conceptual document explaining the feedback loop model, then update `docs/index.md` and `docs/guides/sdlc-pipeline.md` to reference it.
+**Approach**: Create `docs/agentic-feedback-loop.md` as a standalone conceptual document explaining the feedback loop model, then update `docs/index.md` and `docs/guides/sdlc-pipeline.md` to reference it.
 
 **Pros**:
 - Clear separation between conceptual foundations and operational guides
@@ -92,7 +92,7 @@ Rationale:
 ### Proposed Document Structure
 
 ```
-docs/agentic-work-loop.md
+docs/agentic-feedback-loop.md
 ├── Overview (the three-layer model)
 ├── The Agentic Feedback Loop
 │   ├── Work phase
@@ -116,7 +116,7 @@ docs/agentic-work-loop.md
 
 ### Required Changes
 
-1. **Create**: `docs/agentic-work-loop.md` with the structure above
+1. **Create**: `docs/agentic-feedback-loop.md` with the structure above
 2. **Update**: `docs/index.md` to add the new document under "Strategy" section
 3. **Update**: `docs/guides/sdlc-pipeline.md` to reference the conceptual doc in the introduction
 
@@ -124,7 +124,7 @@ docs/agentic-work-loop.md
 
 **Open-ended questions for human input:**
 
-1. **Document naming**: Is `agentic-work-loop.md` the right name? Alternatives could be `work-loop-model.md`, `iteration-model.md`, or `feedback-loop-architecture.md`. The issue uses "SDLC work loop" but that might conflate with the existing SDLC pipeline doc.
+1. **Document naming**: Is `agentic-feedback-loop.md` the right name? Alternatives could be `work-loop-model.md`, `iteration-model.md`, or `feedback-loop-architecture.md`. The issue uses "SDLC work loop" but that might conflate with the existing SDLC pipeline doc.
 
 2. **Future delegation section**: The issue mentions "allowing the LLM to arbitrarily insert more agents in each agentic step to decompose work and delegate." Should the new document include a section on this future capability, or should we keep it focused on the current implemented pattern?
 

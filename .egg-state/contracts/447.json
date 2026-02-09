@@ -10,79 +10,79 @@
     {
       "id": "ac-1",
       "description": "[TASK-1-1] Document exists with clear introduction explaining the conceptual framework",
-      "verified": false
+      "verified": true
     },
     {
       "id": "ac-2",
       "description": "[TASK-1-2] Section explains each phase of the inner loop with concrete examples",
-      "verified": false
+      "verified": true
     },
     {
       "id": "ac-3",
       "description": "[TASK-1-3] Section explains when and how humans enter the loop",
-      "verified": false
+      "verified": true
     },
     {
       "id": "ac-4",
       "description": "[TASK-1-4] ASCII diagram shows full pipeline with both loop types marked",
-      "verified": false
+      "verified": true
     },
     {
       "id": "ac-5",
       "description": "[TASK-1-5] Section provides clear rationale for the workflow model",
-      "verified": false
+      "verified": true
     },
     {
       "id": "ac-6",
       "description": "[TASK-1-6] Section acknowledges future capability without over-specifying",
-      "verified": false
+      "verified": true
     },
     {
       "id": "ac-7",
       "description": "[TASK-2-1] New entry appears in Strategy table with appropriate description",
-      "verified": false
+      "verified": true
     },
     {
       "id": "ac-8",
-      "description": "[TASK-2-2] Opening section includes reference to agentic-work-loop.md",
-      "verified": false
+      "description": "[TASK-2-2] Opening section includes reference to agentic-feedback-loop.md",
+      "verified": true
     },
     {
       "id": "ac-9",
       "description": "[TASK-2-3] Related documentation section connects the two docs",
-      "verified": false
+      "verified": true
     },
     {
       "id": "ac-10",
       "description": "[TASK-3-1] Terminology matches existing docs",
-      "verified": false
+      "verified": true
     },
     {
       "id": "ac-11",
       "description": "[TASK-3-2] All markdown links resolve to existing files",
-      "verified": false
+      "verified": true
     },
     {
       "id": "ac-12",
       "description": "[TASK-3-3] Diagrams display properly when viewed raw on GitHub",
-      "verified": false
+      "verified": true
     }
   ],
   "phases": [
     {
       "id": "phase-1",
       "name": "Create Core Conceptual Document",
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         {
           "id": "task-1-1",
-          "description": "Create docs/agentic-work-loop.md with overview and three-layer model introduction",
-          "status": "pending",
+          "description": "Create docs/agentic-feedback-loop.md with overview and three-layer model introduction",
+          "status": "completed",
           "acceptance_criteria": "Document exists with clear introduction explaining the conceptual framework",
           "files_affected": [
-            "docs/agentic-work-loop.md"
+            "docs/agentic-feedback-loop.md"
           ],
-          "commit": null,
+          "commit": "36cf8a6",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -91,12 +91,12 @@
         {
           "id": "task-1-2",
           "description": "Write the Agentic Feedback Loop section covering work/review/address-feedback cycle",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Section explains each phase of the inner loop with concrete examples",
           "files_affected": [
-            "docs/agentic-work-loop.md"
+            "docs/agentic-feedback-loop.md"
           ],
-          "commit": null,
+          "commit": "36cf8a6",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -105,12 +105,12 @@
         {
           "id": "task-1-3",
           "description": "Write the Human Feedback Loop section covering review gates and approval",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Section explains when and how humans enter the loop",
           "files_affected": [
-            "docs/agentic-work-loop.md"
+            "docs/agentic-feedback-loop.md"
           ],
-          "commit": null,
+          "commit": "36cf8a6",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -119,12 +119,12 @@
         {
           "id": "task-1-4",
           "description": "Write the Complete Pipeline section with phase diagram",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "ASCII diagram shows full pipeline with both loop types marked",
           "files_affected": [
-            "docs/agentic-work-loop.md"
+            "docs/agentic-feedback-loop.md"
           ],
-          "commit": null,
+          "commit": "36cf8a6",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -133,12 +133,12 @@
         {
           "id": "task-1-5",
           "description": "Write the Why This Works section explaining quality rationale",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Section provides clear rationale for the workflow model",
           "files_affected": [
-            "docs/agentic-work-loop.md"
+            "docs/agentic-feedback-loop.md"
           ],
-          "commit": null,
+          "commit": "36cf8a6",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -147,12 +147,12 @@
         {
           "id": "task-1-6",
           "description": "Write the Scaling Through Delegation section as forward-looking placeholder",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Section acknowledges future capability without over-specifying",
           "files_affected": [
-            "docs/agentic-work-loop.md"
+            "docs/agentic-feedback-loop.md"
           ],
-          "commit": null,
+          "commit": "36cf8a6",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -168,17 +168,17 @@
     {
       "id": "phase-2",
       "name": "Update Documentation Index and Cross-References",
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         {
           "id": "task-2-1",
           "description": "Update docs/index.md to add the new document in the Strategy section",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "New entry appears in Strategy table with appropriate description",
           "files_affected": [
             "docs/index.md"
           ],
-          "commit": null,
+          "commit": "36cf8a6",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -187,12 +187,12 @@
         {
           "id": "task-2-2",
           "description": "Update docs/guides/sdlc-pipeline.md introduction to reference the conceptual doc",
-          "status": "pending",
-          "acceptance_criteria": "Opening section includes reference to agentic-work-loop.md",
+          "status": "completed",
+          "acceptance_criteria": "Opening section includes reference to agentic-feedback-loop.md",
           "files_affected": [
             "docs/guides/sdlc-pipeline.md"
           ],
-          "commit": null,
+          "commit": "36cf8a6",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -201,7 +201,7 @@
         {
           "id": "task-2-3",
           "description": "Add cross-reference from docs/collaboration-effectiveness.md",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Related documentation section connects the two docs",
           "files_affected": [
             "docs/collaboration-effectiveness.md"
@@ -210,7 +210,7 @@
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
-          "notes": ""
+          "notes": "Added in response to review feedback"
         }
       ],
       "review_cycles": 0,
@@ -222,20 +222,20 @@
     {
       "id": "phase-3",
       "name": "Final Review and Consistency Check",
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         {
           "id": "task-3-1",
           "description": "Review all modified files for consistent terminology and style",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Terminology matches existing docs",
           "files_affected": [
-            "docs/agentic-work-loop.md",
+            "docs/agentic-feedback-loop.md",
             "docs/index.md",
             "docs/guides/sdlc-pipeline.md",
             "docs/collaboration-effectiveness.md"
           ],
-          "commit": null,
+          "commit": "36cf8a6",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -244,12 +244,12 @@
         {
           "id": "task-3-2",
           "description": "Verify all internal links work correctly",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "All markdown links resolve to existing files",
           "files_affected": [
-            "docs/agentic-work-loop.md"
+            "docs/agentic-feedback-loop.md"
           ],
-          "commit": null,
+          "commit": "36cf8a6",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -258,12 +258,12 @@
         {
           "id": "task-3-3",
           "description": "Ensure ASCII diagrams render correctly in GitHub markdown",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Diagrams display properly when viewed raw on GitHub",
           "files_affected": [
-            "docs/agentic-work-loop.md"
+            "docs/agentic-feedback-loop.md"
           ],
-          "commit": null,
+          "commit": "36cf8a6",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
