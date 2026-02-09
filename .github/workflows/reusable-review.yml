@@ -75,8 +75,14 @@ jobs:
           echo "sha=${head_sha}" >> "$GITHUB_OUTPUT"
           echo "PR HEAD SHA: ${head_sha}"
 
+      # NOTE: This step duplicates marker detection logic from the "Find last bot review
+      # commit for re-review context" step in the review job (lines 306-388). This is
+      # intentional: the should-run job runs first to avoid spinning up unnecessary jobs,
+      # while the review job needs the last review commit for context. If the marker format
+      # changes, both locations must be updated in sync.
       - name: Check if commit already reviewed
         id: already-reviewed
+        if: ${{ inputs.event_name != 'workflow_dispatch' }}
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           PR_NUMBER: ${{ inputs.pr_number }}
@@ -86,16 +92,20 @@ jobs:
           # Marker format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
           # Escape regex metacharacters in bot_name to prevent pattern breakage
           # shellcheck disable=SC2016
-          escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[.[\*^$()+?{|\\]/\\&/g')
+          escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[][.^$*+?{}|\\()]/\\&/g')
           marker_regex="<!-- egg-automated-review bot=${escaped_bot_name} commit=${HEAD_SHA}( verdict=([a-z-]+))? -->"
 
           found="false"
 
-          # Check reviews from the Reviews API
-          reviews=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
-            --jq '[.[] | .body // ""]')
+          # Check reviews from the Reviews API (paginated to handle PRs with many reviews)
+          if ! reviews=$(gh api --paginate "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
+            --jq '[.[] | .body // ""]'); then
+            echo "::error::Failed to fetch reviews from API"
+            exit 1
+          fi
 
           while IFS= read -r body; do
+            [[ -z "$body" ]] && continue
             if [[ "$body" =~ $marker_regex ]]; then
               echo "Found review marker for commit ${HEAD_SHA} in Reviews API"
               found="true"
@@ -103,12 +113,16 @@ jobs:
             fi
           done < <(echo "$reviews" | jq -r '.[]')
 
-          # Also check issue comments if not found
+          # Also check issue comments if not found (paginated)
           if [[ "$found" == "false" ]]; then
-            comments=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-              --jq '[.[] | .body // ""]')
+            if ! comments=$(gh api --paginate "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+              --jq '[.[] | .body // ""]'); then
+              echo "::error::Failed to fetch comments from API"
+              exit 1
+            fi
 
             while IFS= read -r body; do
+              [[ -z "$body" ]] && continue
               if [[ "$body" =~ $marker_regex ]]; then
                 echo "Found review marker for commit ${HEAD_SHA} in issue comments"
                 found="true"
@@ -312,8 +326,9 @@ jobs:
           # Format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
           # The verdict field is optional for backwards compatibility with old markers
           # Escape regex metacharacters in bot_name to prevent pattern breakage
+          # NOTE: Keep in sync with "Check if commit already reviewed" step in should-run job
           # shellcheck disable=SC2016
-          escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[.[\*^$()+?{|\\]/\\&/g')
+          escaped_bot_name=$(printf '%s' '${{ inputs.bot_name }}' | sed 's/[][.^$*+?{}|\\()]/\\&/g')
           marker_regex="<!-- egg-automated-review bot=${escaped_bot_name} commit=([a-f0-9]+)( verdict=([a-z-]+))? -->"
 
           # Check reviews from the Reviews API for the marker
