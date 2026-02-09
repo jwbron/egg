@@ -117,13 +117,13 @@ jobs:
         if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip == 'true'
         run: echo "Skipping conflict resolution due to [skip-conflict-fix] marker"
 
-      # Minimize previous conflict resolution comments
+      # Minimize previous conflict resolution comments (status comments marked with semantic marker)
       - name: Minimize previous conflict comments
         if: steps.fork-check.outputs.skip != 'true' && steps.skip-check.outputs.skip != 'true'
         run: |
           set -euo pipefail
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq ".[] | select(.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") | select(.body | test(\"egg is resolving|egg conflict resolution\")) | .node_id" \
+            --jq ".[] | select(.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") | select(.body | contains(\"<!-- egg-status-comment -->\")) | .node_id" \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               gh api graphql -f query='

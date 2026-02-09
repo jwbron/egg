@@ -867,23 +867,50 @@ jobs:
   # ============================================================
   handle-feedback:
     name: Handle feedback submission
+    needs: resolve-inputs
     runs-on: ubuntu-latest
     # Trigger on feedback comments (with egg-feedback marker) where the submit
     # checkbox has been checked.
-    # Authorization: Only jwbron can submit feedback, and bot cannot trigger itself
+    # NOTE: Authorization is checked in the first step using authorized_users input,
+    # not hardcoded here. Bot self-trigger prevention still hardcoded as safety check.
     if: >-
       contains(github.event.comment.body, '<!-- egg-feedback') &&
       contains(github.event.comment.body, '[x] Submit feedback') &&
-      github.event.sender.login == 'jwbron' &&
       github.event.sender.login != 'james-in-a-box' &&
       github.event.sender.login != 'james-in-a-box[bot]'
 
     env:
-      BOT_USERNAME: james-in-a-box
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
       ISSUE_NUMBER: ${{ github.event.issue.number }}
 
     steps:
+      - name: Check authorization
+        id: auth
+        env:
+          SENDER_LOGIN: ${{ github.event.sender.login }}
+        run: |
+          # Check if sender is authorized
+          is_authorized=false
+          IFS=',' read -ra users <<< "$AUTHORIZED_USERS"
+          for user in "${users[@]}"; do
+            user=$(echo "$user" | xargs)
+            if [[ "$SENDER_LOGIN" == "$user" ]]; then
+              is_authorized=true
+              break
+            fi
+          done
+
+          if [[ "$is_authorized" == "false" ]]; then
+            echo "User $SENDER_LOGIN is not authorized for feedback submission"
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "User $SENDER_LOGIN is authorized"
+            echo "authorized=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Generate bot token
+        if: steps.auth.outputs.authorized == 'true'
         id: bot-token
         uses: actions/create-github-app-token@v1
         with:
@@ -891,6 +918,7 @@ jobs:
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
       - name: Parse feedback
+        if: steps.auth.outputs.authorized == 'true'
         id: parse
         env:
           COMMENT_BODY: ${{ github.event.comment.body }}
@@ -914,7 +942,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Check debounce
-        if: steps.parse.outputs.has_feedback == 'true'
+        if: steps.auth.outputs.authorized == 'true' && steps.parse.outputs.has_feedback == 'true'
         id: debounce
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -1119,52 +1147,11 @@ jobs:
             "$CONTRACT_PATH" > /tmp/contract.json
           mv /tmp/contract.json "$CONTRACT_PATH"
           REAPPLY_EOF
+          chmod +x /tmp/reapply-feedback.sh
 
-          # Apply transformation initially
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          # Update each question with its answer
-          for QID in $(jq -r '.feedback.questions[].id' "$CONTRACT_PATH"); do
-            ANSWER=$(echo "$ANSWERS_JSON" | jq -r --arg qid "$QID" '.[$qid] // null')
-            if [[ "$ANSWER" != "null" ]]; then
-              jq --arg qid "$QID" --arg answer "$ANSWER" '
-                .feedback.questions = [.feedback.questions[] |
-                  if .id == $qid then .answer = $answer else . end]
-              ' "$CONTRACT_PATH" > /tmp/contract.json
-              mv /tmp/contract.json "$CONTRACT_PATH"
-            fi
-          done
-
-          # Mark feedback as submitted
-          jq --arg timestamp "$TIMESTAMP" \
-             --arg actor "$SENDER_LOGIN" \
-             --arg comment_id "$COMMENT_ID" \
-            '.feedback.submitted = true |
-             .feedback.submitted_by = $actor |
-             .feedback.submitted_at = $timestamp |
-             .feedback.comment_id = ($comment_id | tonumber)' \
-            "$CONTRACT_PATH" > /tmp/contract.json
-          mv /tmp/contract.json "$CONTRACT_PATH"
-
-          # Add audit entry
-          AUDIT_ENTRY=$(jq -n \
-            --arg timestamp "$TIMESTAMP" \
-            --arg actor "$SENDER_LOGIN" \
-            --arg feedback "$FEEDBACK_ID" \
-            '{
-              timestamp: $timestamp,
-              actor: $actor,
-              role: "human",
-              action: "update",
-              field_path: ("feedback." + $feedback),
-              old_value: null,
-              new_value: "submitted",
-              reason: "Feedback submitted by human"
-            }')
-
-          jq --argjson entry "$AUDIT_ENTRY" '.audit_log += [$entry]' \
-            "$CONTRACT_PATH" > /tmp/contract.json
-          mv /tmp/contract.json "$CONTRACT_PATH"
+          # Apply transformation initially by running the reapply script
+          # (same logic used for retry on push conflicts)
+          bash /tmp/reapply-feedback.sh
 
           # Commit the update
           git add "$CONTRACT_PATH"
@@ -1208,7 +1195,7 @@ jobs:
           SENDER_LOGIN: ${{ github.event.sender.login }}
         run: |
           set -euo pipefail
-          BODY=$(printf 'Feedback **%s** submitted by @%s.\n\nResuming pipeline with feedback.\n\n--- Authored by egg' \
+          BODY=$(printf '<!-- egg-status-comment -->\nFeedback **%s** submitted by @%s.\n\nResuming pipeline with feedback.\n\n--- Authored by egg' \
             "$FEEDBACK_ID" "$SENDER_LOGIN")
 
           gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body "$BODY"
