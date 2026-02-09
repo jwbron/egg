@@ -169,6 +169,7 @@ action/
 ├── build-sdlc-prompt.sh                    # SDLC pipeline prompt builder
 ├── build-refine-review-prompt.sh           # Refine phase review prompt builder
 ├── build-plan-review-prompt.sh             # Plan phase review prompt builder
+├── build-unified-review-prompt.sh          # Unified review prompt builder for all SDLC phases
 ├── contract-state.sh                       # Contract state management utility
 ├── escalate.sh                             # SDLC pipeline escalation handler
 ├── populate-contract-tasks.py              # Populates contract tasks from plan document

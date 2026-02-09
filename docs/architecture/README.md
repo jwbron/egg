@@ -118,11 +118,13 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 
 **Core workflows:**
 - `.github/workflows/sdlc-pipeline.yml` - Main pipeline orchestration (init, refine, plan, implement, wait-for-checks, finalize-pr phases)
+- `.github/workflows/sdlc-work-loop.yml` - Unified work/review/respond cycle for refine, plan, and implement phases
 - `.github/workflows/reusable-review.yml` - PR-based code review (invoked for draft PRs during implement phase)
 - `.github/workflows/sdlc-hitl.yml` - Human-in-the-loop decision handling with debounce for rapid checkbox edits
 
 **Supporting scripts:**
 - `action/build-sdlc-prompt.sh` - Phase-specific prompt builder with context and document templates
+- `action/build-unified-review-prompt.sh` - Unified review prompt builder for all SDLC phases
 - `action/contract-state.sh` - Contract state management (load, update, increment cycles)
 - `action/escalate.sh` - Circuit breaker escalation handler (deprecated as of PR #285)
 
