@@ -1,0 +1,835 @@
+name: SDLC Work Loop
+
+# Unified reusable workflow for the SDLC work loop.
+#
+# This workflow implements the core work loop pattern that is shared across
+# all SDLC phases (refine, plan, implement):
+#
+# 1. Human gives input (issue description, feedback)
+# 2. Agent does work (analysis, planning, implementation)
+# 3. Run intermediate checks (DAG-based, phase-specific)
+# 4. Agent reviews work (automated quality check)
+# 5. Agent responds to review (revisions if needed)
+# 6. Steps 2-5 cycle until work passes review or max cycles reached
+# 7. Agent presents work to human (posts to issue or creates PR)
+#
+# Different phases pass in different:
+# - Work prompt scripts (what the agent should produce)
+# - Review prompt scripts (how to evaluate the work)
+# - Check configurations (DAG of checks to run)
+# - Human gate types (issue checkbox vs PR review)
+#
+# See shared/egg_contracts/phase_defaults.py for default configurations.
+
+on:
+  workflow_call:
+    inputs:
+      # Issue and branch context
+      issue_number:
+        description: 'GitHub issue number'
+        required: true
+        type: number
+      branch_name:
+        description: 'Branch name for this issue'
+        required: true
+        type: string
+
+      # Phase configuration
+      phase:
+        description: 'Pipeline phase (refine, plan, implement)'
+        required: true
+        type: string
+      work_prompt_script:
+        description: 'Path to work prompt builder script'
+        required: true
+        type: string
+      review_prompt_script:
+        description: 'Path to review prompt builder script'
+        required: true
+        type: string
+
+      # Check configuration (JSON array of check definitions)
+      checks_json:
+        description: 'JSON array of check definitions'
+        required: false
+        type: string
+        default: '[]'
+
+      # Cycle control
+      max_cycles:
+        description: 'Maximum work/review cycles before escalation'
+        required: false
+        type: number
+        default: 3
+      current_cycle:
+        description: 'Current cycle number (1-indexed)'
+        required: false
+        type: number
+        default: 1
+      prior_feedback:
+        description: 'Feedback from prior review cycle'
+        required: false
+        type: string
+        default: ''
+
+      # Human gate configuration
+      human_gate:
+        description: 'Type of human gate (issue_checkbox, pr_review)'
+        required: false
+        type: string
+        default: 'issue_checkbox'
+
+      # Output file patterns
+      draft_file_pattern:
+        description: 'Pattern for draft file (supports {issue_number}, {phase})'
+        required: false
+        type: string
+        default: '.egg-state/drafts/{issue_number}-{phase}.md'
+      review_file_pattern:
+        description: 'Pattern for review file (supports {issue_number}, {phase})'
+        required: false
+        type: string
+        default: '.egg-state/reviews/{issue_number}-{phase}-review.json'
+
+      # Bot configuration
+      bot_username:
+        description: 'Bot username for comments'
+        required: false
+        type: string
+        default: 'james-in-a-box'
+
+      # Timeouts
+      work_timeout:
+        description: 'Timeout for work step in minutes'
+        required: false
+        type: string
+        default: '30'
+      review_timeout:
+        description: 'Timeout for review step in minutes'
+        required: false
+        type: string
+        default: '15'
+
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
+      BOT_APP_INSTALLATION_ID:
+        required: true
+      ANTHROPIC_OAUTH_TOKEN:
+        required: true
+
+    outputs:
+      # Work loop results
+      completed:
+        description: 'Whether the work loop completed successfully'
+        value: ${{ jobs.report.outputs.completed }}
+      review_passed:
+        description: 'Whether the review passed'
+        value: ${{ jobs.review.outputs.passed }}
+      cycle:
+        description: 'Final cycle number'
+        value: ${{ jobs.work.outputs.cycle }}
+      escalated:
+        description: 'Whether work was escalated to human'
+        value: ${{ jobs.report.outputs.escalated }}
+      draft_file:
+        description: 'Path to the draft output file'
+        value: ${{ jobs.work.outputs.draft_file }}
+
+jobs:
+  # ============================================================
+  # Work: Execute the main work step
+  # ============================================================
+  work:
+    name: Work (${{ inputs.phase }}, cycle ${{ inputs.current_cycle }})
+    runs-on: ubuntu-latest
+
+    outputs:
+      success: ${{ steps.work.outputs.exit-code == '0' }}
+      draft_file: ${{ steps.paths.outputs.draft_file }}
+      review_file: ${{ steps.paths.outputs.review_file }}
+      cycle: ${{ inputs.current_cycle }}
+
+    env:
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      BRANCH_NAME: ${{ inputs.branch_name }}
+      PHASE: ${{ inputs.phase }}
+      BOT_USERNAME: ${{ inputs.bot_username }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Compute file paths
+        id: paths
+        run: |
+          # Expand patterns with issue number and phase
+          DRAFT="${{ inputs.draft_file_pattern }}"
+          DRAFT="${DRAFT//\{issue_number\}/${{ inputs.issue_number }}}"
+          DRAFT="${DRAFT//\{phase\}/${{ inputs.phase }}}"
+
+          REVIEW="${{ inputs.review_file_pattern }}"
+          REVIEW="${REVIEW//\{issue_number\}/${{ inputs.issue_number }}}"
+          REVIEW="${REVIEW//\{phase\}/${{ inputs.phase }}}"
+
+          echo "draft_file=${DRAFT}" >> "$GITHUB_OUTPUT"
+          echo "review_file=${REVIEW}" >> "$GITHUB_OUTPUT"
+
+          echo "Draft file: ${DRAFT}"
+          echo "Review file: ${REVIEW}"
+
+      - name: Checkout main (trusted)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Save trusted action scripts
+        run: |
+          cp -r action "$RUNNER_TEMP/trusted-action"
+          cp -r shared "$RUNNER_TEMP/trusted-shared"
+          cp -r .github/scripts "$RUNNER_TEMP/trusted-scripts"
+
+      - name: Build work prompt
+        id: prompt
+        run: bash "${{ inputs.work_prompt_script }}"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          EGG_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          EGG_PIPELINE_PHASE: ${{ inputs.phase }}
+          EGG_BRANCH_NAME: ${{ inputs.branch_name }}
+          CURRENT_CYCLE: ${{ inputs.current_cycle }}
+          PRIOR_FEEDBACK: ${{ inputs.prior_feedback }}
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch_name }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Run work agent
+        id: work
+        uses: jwbron/egg/action@main
+        with:
+          prompt: ${{ steps.prompt.outputs.prompt }}
+          prompt-file: ${{ steps.prompt.outputs.prompt-file }}
+          model: ${{ steps.prompt.outputs.model }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          bot-username: ${{ inputs.bot_username }}
+          timeout: ${{ inputs.work_timeout }}
+        env:
+          EGG_AGENT_ROLE: implementer
+          EGG_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          EGG_PHASE: ${{ inputs.phase }}
+
+      - name: Validate work output
+        id: validate
+        if: steps.work.outputs.exit-code == '0'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          DRAFT_FILE: ${{ steps.paths.outputs.draft_file }}
+        run: |
+          set -euo pipefail
+
+          # Pull latest to ensure we have the agent's commits
+          for i in 1 2 3; do
+            if git pull origin "${BRANCH_NAME}" --rebase; then
+              break
+            fi
+            echo "::warning::git pull attempt $i failed, retrying..."
+            sleep 2
+          done
+
+          # Check if draft file exists
+          if [[ -f "$DRAFT_FILE" ]]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "Draft found at ${DRAFT_FILE}"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No draft file found at ${DRAFT_FILE}"
+          fi
+
+      - name: Post work failure comment
+        if: steps.work.outputs.exit-code != '0'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          EXIT_CODE: ${{ steps.work.outputs.exit-code }}
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          BODY="${{ inputs.phase }} phase work step failed (exit code: ${EXIT_CODE:-unknown}).
+
+          [View run logs](${RUN_URL})
+
+          --- Authored by egg"
+
+          gh issue comment "${{ inputs.issue_number }}" --repo "${{ github.repository }}" --body "$BODY"
+
+  # ============================================================
+  # Checks: Run intermediate checks (DAG execution)
+  # ============================================================
+  checks:
+    name: Run checks
+    needs: work
+    if: needs.work.outputs.success == 'true'
+    runs-on: ubuntu-latest
+
+    outputs:
+      all_passed: ${{ steps.run-checks.outputs.all_passed }}
+      results_json: ${{ steps.run-checks.outputs.results_json }}
+
+    env:
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      BRANCH_NAME: ${{ inputs.branch_name }}
+      PHASE: ${{ inputs.phase }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch_name }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Run checks
+        id: run-checks
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          CHECKS_JSON: ${{ inputs.checks_json }}
+          EGG_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          EGG_PHASE: ${{ inputs.phase }}
+        run: |
+          set -euo pipefail
+
+          # Parse checks from JSON
+          checks_count=$(echo "$CHECKS_JSON" | jq 'length')
+
+          if [[ "$checks_count" -eq 0 ]]; then
+            echo "No checks configured for this phase"
+            echo "all_passed=true" >> "$GITHUB_OUTPUT"
+            echo 'results_json=[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Running ${checks_count} checks..."
+
+          # Track results
+          all_passed=true
+          results=()
+
+          # Simple sequential execution (topological sort for DAG could be added later)
+          # For now, run checks in order with dependency validation
+
+          for i in $(seq 0 $((checks_count - 1))); do
+            check=$(echo "$CHECKS_JSON" | jq -r ".[$i]")
+            check_id=$(echo "$check" | jq -r '.id')
+            check_name=$(echo "$check" | jq -r '.name')
+            check_script=$(echo "$check" | jq -r '.script')
+            check_enabled=$(echo "$check" | jq -r '.enabled // true')
+            check_required=$(echo "$check" | jq -r '.required // true')
+            check_timeout=$(echo "$check" | jq -r '.timeout_seconds // 300')
+            check_retry=$(echo "$check" | jq -r '.retry_count // 0')
+
+            if [[ "$check_enabled" != "true" ]]; then
+              echo "Skipping disabled check: ${check_id}"
+              continue
+            fi
+
+            echo "Running check: ${check_name} (${check_id})"
+
+            # Run check using the framework script
+            result_file=$(mktemp)
+
+            set +e
+            if [[ -f ".github/scripts/run-check.sh" ]]; then
+              .github/scripts/run-check.sh \
+                --check-id "$check_id" \
+                --script "$check_script" \
+                --timeout "$check_timeout" \
+                --retry "$check_retry" \
+                --output-file "$result_file" \
+                --env "EGG_ISSUE_NUMBER=${ISSUE_NUMBER}" \
+                --env "EGG_PHASE=${PHASE}"
+              check_exit=$?
+            else
+              # Fallback: run script directly
+              timeout "$check_timeout" bash "$check_script"
+              check_exit=$?
+              echo "{\"check_id\":\"${check_id}\",\"status\":$([ $check_exit -eq 0 ] && echo '\"passed\"' || echo '\"failed\"')}" > "$result_file"
+            fi
+            set -e
+
+            # Read result
+            if [[ -f "$result_file" ]]; then
+              result=$(cat "$result_file")
+              results+=("$result")
+
+              status=$(echo "$result" | jq -r '.status')
+              if [[ "$status" != "passed" && "$check_required" == "true" ]]; then
+                all_passed=false
+                echo "::error::Required check ${check_id} failed"
+              fi
+            fi
+
+            rm -f "$result_file"
+          done
+
+          # Output results
+          echo "all_passed=${all_passed}" >> "$GITHUB_OUTPUT"
+
+          # Combine results into JSON array
+          results_json="["
+          for i in "${!results[@]}"; do
+            if [[ $i -gt 0 ]]; then
+              results_json+=","
+            fi
+            results_json+="${results[$i]}"
+          done
+          results_json+="]"
+
+          echo "results_json=${results_json}" >> "$GITHUB_OUTPUT"
+          echo "Check results: ${results_json}"
+
+  # ============================================================
+  # Review: Run automated review of the work
+  # ============================================================
+  review:
+    name: Review (${{ inputs.phase }}, cycle ${{ inputs.current_cycle }})
+    needs: [work, checks]
+    if: >-
+      always() &&
+      needs.work.outputs.success == 'true' &&
+      (needs.checks.result == 'success' || needs.checks.result == 'skipped')
+    runs-on: ubuntu-latest
+
+    outputs:
+      passed: ${{ steps.parse-verdict.outputs.passed }}
+      feedback: ${{ steps.parse-verdict.outputs.feedback }}
+
+    env:
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      BRANCH_NAME: ${{ inputs.branch_name }}
+      PHASE: ${{ inputs.phase }}
+      BOT_USERNAME: ${{ inputs.bot_username }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout main (trusted)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Save trusted action scripts
+        run: |
+          cp -r action "$RUNNER_TEMP/trusted-action"
+          cp -r shared "$RUNNER_TEMP/trusted-shared"
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch_name }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Build review prompt
+        id: prompt
+        run: bash "$RUNNER_TEMP/trusted-action/${{ inputs.review_prompt_script }}"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          EGG_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          EGG_PHASE: ${{ inputs.phase }}
+          REVIEW_CYCLE: ${{ inputs.current_cycle }}
+          PRIOR_FEEDBACK: ${{ inputs.prior_feedback }}
+
+      - name: Run review agent
+        id: review
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: ${{ steps.prompt.outputs.prompt-file }}
+          model: ${{ steps.prompt.outputs.model }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          bot-username: ${{ inputs.bot_username }}
+          timeout: ${{ inputs.review_timeout }}
+        env:
+          EGG_AGENT_ROLE: reviewer
+          EGG_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          EGG_PHASE: ${{ inputs.phase }}
+
+      - name: Parse review verdict
+        id: parse-verdict
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          REVIEW_FILE: ${{ needs.work.outputs.review_file }}
+        run: |
+          set -euo pipefail
+
+          # Pull latest to ensure we have the reviewer's commits
+          for i in 1 2 3; do
+            if git pull origin "${BRANCH_NAME}" --rebase; then
+              break
+            fi
+            echo "::warning::git pull attempt $i failed, retrying..."
+            sleep 2
+          done
+
+          # Read verdict from the review JSON file
+          if [[ -f "$REVIEW_FILE" ]]; then
+            VERDICT=$(jq -r '.verdict // ""' "$REVIEW_FILE")
+            FEEDBACK=$(jq -r '.feedback // ""' "$REVIEW_FILE")
+
+            if [[ "$VERDICT" == "approved" ]]; then
+              {
+                echo "passed=true"
+                echo "feedback="
+              } >> "$GITHUB_OUTPUT"
+              echo "Review verdict: APPROVED"
+            elif [[ "$VERDICT" == "needs_revision" ]]; then
+              {
+                echo "passed=false"
+                echo "feedback<<EOF"
+                echo "$FEEDBACK"
+                echo "EOF"
+              } >> "$GITHUB_OUTPUT"
+              echo "Review verdict: NEEDS REVISION"
+            else
+              # Unknown verdict — treat as passed to avoid blocking
+              {
+                echo "passed=true"
+                echo "feedback="
+              } >> "$GITHUB_OUTPUT"
+              echo "::warning::Unknown review verdict '${VERDICT}' — proceeding as if approved"
+            fi
+          else
+            # No review file found — treat as passed to avoid blocking
+            {
+              echo "passed=true"
+              echo "feedback="
+            } >> "$GITHUB_OUTPUT"
+            echo "::warning::No review file found at ${REVIEW_FILE} — proceeding as if approved"
+          fi
+
+      - name: Update contract with review state
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+          REVIEW_PASSED: ${{ steps.parse-verdict.outputs.passed }}
+          REVIEW_FEEDBACK: ${{ steps.parse-verdict.outputs.feedback }}
+          CYCLE: ${{ inputs.current_cycle }}
+          MAX_CYCLES: ${{ inputs.max_cycles }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            CYCLE_FIELD="${PHASE}_review_cycles"
+            FEEDBACK_FIELD="${PHASE}_review_feedback"
+
+            # Update cycle count and feedback
+            jq --arg cycle "$CYCLE" \
+               --arg feedback "$REVIEW_FEEDBACK" \
+               --arg ts "$TIMESTAMP" \
+               --arg passed "$REVIEW_PASSED" \
+               --arg phase "$PHASE" \
+               --arg cycle_field "$CYCLE_FIELD" \
+               --arg feedback_field "$FEEDBACK_FIELD" '
+              .[$cycle_field] = ($cycle | tonumber) |
+              .[$feedback_field] = $feedback |
+              .audit_log += [{
+                "timestamp": $ts,
+                "actor": "system",
+                "role": "reviewer",
+                "action": "update",
+                "field_path": $cycle_field,
+                "old_value": (.[$cycle_field] // 0),
+                "new_value": ($cycle | tonumber),
+                "reason": ($phase + " review cycle " + $cycle + ": " + (if $passed == "true" then "approved" else "needs_revision" end))
+              }]
+            ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+
+            # Check if we've exceeded max cycles
+            if [[ "$REVIEW_PASSED" != "true" && "$CYCLE" -ge "$MAX_CYCLES" ]]; then
+              jq --arg ts "$TIMESTAMP" '
+                .circuit_breaker.status = "open" |
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "circuit_breaker.status",
+                  "old_value": (.circuit_breaker.status // "closed"),
+                  "new_value": "open",
+                  "reason": "Max review cycles exceeded"
+                }]
+              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              echo "::warning::Max review cycles exceeded — circuit breaker OPEN"
+            fi
+
+            git add "$CONTRACT_PATH"
+            git commit -m "Update ${PHASE} review state (cycle ${CYCLE})" || true
+
+            # Push with retry
+            for i in 1 2 3; do
+              if git push origin "${BRANCH_NAME}"; then
+                break
+              fi
+              echo "::warning::git push attempt $i failed, retrying..."
+              git pull origin "${BRANCH_NAME}" --rebase
+              sleep 2
+            done
+          fi
+
+  # ============================================================
+  # Report: Present results to human or re-dispatch
+  # ============================================================
+  report:
+    name: Report results
+    needs: [work, checks, review]
+    if: always()
+    runs-on: ubuntu-latest
+
+    outputs:
+      completed: ${{ steps.determine-outcome.outputs.completed }}
+      escalated: ${{ steps.determine-outcome.outputs.escalated }}
+
+    env:
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      BRANCH_NAME: ${{ inputs.branch_name }}
+      PHASE: ${{ inputs.phase }}
+      BOT_USERNAME: ${{ inputs.bot_username }}
+      CYCLE: ${{ inputs.current_cycle }}
+      MAX_CYCLES: ${{ inputs.max_cycles }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch_name }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Determine outcome
+        id: determine-outcome
+        env:
+          WORK_SUCCESS: ${{ needs.work.outputs.success }}
+          CHECKS_PASSED: ${{ needs.checks.outputs.all_passed }}
+          REVIEW_PASSED: ${{ needs.review.outputs.passed }}
+          REVIEW_FEEDBACK: ${{ needs.review.outputs.feedback }}
+        run: |
+          set -euo pipefail
+
+          # Check circuit breaker
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          CB_OPEN=false
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            CB_STATUS=$(jq -r '.circuit_breaker.status // "closed"' "$CONTRACT_PATH")
+            if [[ "$CB_STATUS" == "open" ]]; then
+              CB_OPEN=true
+            fi
+          fi
+
+          # Determine outcome
+          if [[ "$WORK_SUCCESS" != "true" ]]; then
+            echo "completed=false" >> "$GITHUB_OUTPUT"
+            echo "escalated=false" >> "$GITHUB_OUTPUT"
+            echo "outcome=work_failed" >> "$GITHUB_OUTPUT"
+          elif [[ "$CHECKS_PASSED" != "true" ]]; then
+            echo "completed=false" >> "$GITHUB_OUTPUT"
+            echo "escalated=false" >> "$GITHUB_OUTPUT"
+            echo "outcome=checks_failed" >> "$GITHUB_OUTPUT"
+          elif [[ "$REVIEW_PASSED" == "true" ]]; then
+            echo "completed=true" >> "$GITHUB_OUTPUT"
+            echo "escalated=false" >> "$GITHUB_OUTPUT"
+            echo "outcome=approved" >> "$GITHUB_OUTPUT"
+          elif [[ "$CB_OPEN" == "true" ]]; then
+            echo "completed=false" >> "$GITHUB_OUTPUT"
+            echo "escalated=true" >> "$GITHUB_OUTPUT"
+            echo "outcome=escalated" >> "$GITHUB_OUTPUT"
+          else
+            echo "completed=false" >> "$GITHUB_OUTPUT"
+            echo "escalated=false" >> "$GITHUB_OUTPUT"
+            echo "outcome=needs_revision" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "CB_OPEN=${CB_OPEN}" >> "$GITHUB_OUTPUT"
+
+      # Minimize previous pipeline status comments
+      - name: Minimize previous comments
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Find previous bot comments that are pipeline status updates
+          # shellcheck disable=SC2016
+          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            | jq -r --arg bot "$BOT_USERNAME" \
+            '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | test("SDLC Pipeline|phase completed|phase encountered")) | .node_id' \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016
+              gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id" 2>/dev/null || true
+            done
+
+      # Post approved result to issue
+      - name: Post approved result
+        if: steps.determine-outcome.outputs.outcome == 'approved'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          DRAFT_FILE: ${{ needs.work.outputs.draft_file }}
+          HUMAN_GATE: ${{ inputs.human_gate }}
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          {
+            if [[ -f "$DRAFT_FILE" ]]; then
+              cat "$DRAFT_FILE"
+              echo ""
+            fi
+            echo "---"
+            echo ""
+            echo "## ${PHASE^} Phase Complete"
+            echo ""
+            echo "The ${PHASE} output has passed automated review and is ready for human approval."
+            echo ""
+            echo "[View run logs](${RUN_URL})"
+            echo ""
+
+            if [[ "$HUMAN_GATE" == "issue_checkbox" ]]; then
+              # Determine next phase
+              case "$PHASE" in
+                refine) NEXT_PHASE="plan" ;;
+                plan) NEXT_PHASE="implement" ;;
+                *) NEXT_PHASE="next" ;;
+              esac
+
+              echo "### Ready for Review"
+              echo ""
+              echo "<!-- egg-phase-approval -->"
+              echo "- [ ] Approve and advance to ${NEXT_PHASE} phase"
+            fi
+            echo ""
+            echo "---"
+            echo ""
+            echo "*Authored-by: egg*"
+          } > /tmp/result.md
+
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/result.md
+
+          # Add awaiting-approval label
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --add "sdlc:awaiting-approval" || true
+
+      # Post escalation result
+      - name: Post escalation result
+        if: steps.determine-outcome.outputs.outcome == 'escalated'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          DRAFT_FILE: ${{ needs.work.outputs.draft_file }}
+          REVIEW_FEEDBACK: ${{ needs.review.outputs.feedback }}
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          {
+            echo "**⚠️ ${PHASE^} phase escalated to human review.**"
+            echo ""
+            echo "The ${PHASE} output has gone through ${CYCLE} review cycles without passing automated review."
+            echo ""
+            if [[ -n "${REVIEW_FEEDBACK:-}" ]]; then
+              echo "### Unresolved Issues from Last Review"
+              echo ""
+              echo "$REVIEW_FEEDBACK"
+              echo ""
+            fi
+            echo "---"
+            echo ""
+            if [[ -f "$DRAFT_FILE" ]]; then
+              echo "### Current Draft"
+              echo ""
+              cat "$DRAFT_FILE"
+              echo ""
+            fi
+            echo "---"
+            echo ""
+            echo "Human intervention required. Options:"
+            echo ""
+            echo "1. Provide guidance on the issues"
+            echo "2. Override and approve as-is"
+            echo "3. Cancel and restart"
+            echo ""
+            echo "[View run logs](${RUN_URL})"
+            echo ""
+            echo "<!-- egg-phase-approval -->"
+            echo "- [ ] Override: Approve and advance to next phase"
+            echo ""
+            echo "---"
+            echo ""
+            echo "*Authored-by: egg*"
+          } > /tmp/escalation.md
+
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/escalation.md
+
+          # Add awaiting-approval label
+          .github/scripts/transition-sdlc-label.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --add "sdlc:awaiting-approval" || true
+
+      # Re-dispatch for revision
+      - name: Re-dispatch for revision
+        if: steps.determine-outcome.outputs.outcome == 'needs_revision'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          NEXT_CYCLE=$((CYCLE + 1))
+          echo "Re-dispatching ${PHASE} phase (cycle ${NEXT_CYCLE})"
+
+          # Dispatch the main pipeline to continue with the next cycle
+          gh workflow run sdlc-pipeline.yml \
+            --field issue_number="${ISSUE_NUMBER}" \
+            --field starting_phase="${PHASE}"
