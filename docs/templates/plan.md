@@ -96,21 +96,4 @@ phases:
 
 ---
 
-## Phase Approval
-
-When posting this plan as a GitHub comment, include an approval section at the end.
-Use the phase-completion template format with the `<!-- egg-phase-approval -->` marker:
-
-```markdown
-### Ready for Review
-
-<!-- egg-phase-approval -->
-- [ ] Approve and advance to implement phase
-```
-
-This allows the human to approve by checking the checkbox, which triggers the
-workflow to advance to the next phase.
-
----
-
 *Authored-by: egg*
