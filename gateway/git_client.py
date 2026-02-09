@@ -9,6 +9,7 @@ Provides:
 
 import contextlib
 import os
+import posixpath
 import re
 import sys
 import tempfile
@@ -976,8 +977,6 @@ def _normalize_file_path(file_path: str) -> str:
     Returns:
         Normalized file path
     """
-    import posixpath
-
     # Normalize the path (handles .., ., double slashes)
     normalized = posixpath.normpath(file_path)
     # Remove leading ./ if present

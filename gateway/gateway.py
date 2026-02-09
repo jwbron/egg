@@ -583,7 +583,7 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
             return make_error(
-                f"Push denied: Could not verify file changes for security check. {check_error}",
+                f"Push denied: Could not verify file changes for security check: {check_error}",
                 status_code=500,
                 details={
                     "role": session_role,
