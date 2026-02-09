@@ -325,9 +325,11 @@ jobs:
 
             if [[ -n "$NEXT_PHASE" ]]; then
               echo "Advancing to ${NEXT_PHASE} phase"
-              echo "next_phase=${NEXT_PHASE}" >> "$GITHUB_OUTPUT"
-              echo "previous_phase=${CURRENT_PHASE}" >> "$GITHUB_OUTPUT"
-              echo "should_advance=true" >> "$GITHUB_OUTPUT"
+              {
+                echo "next_phase=${NEXT_PHASE}"
+                echo "previous_phase=${CURRENT_PHASE}"
+                echo "should_advance=true"
+              } >> "$GITHUB_OUTPUT"
             else
               echo "should_advance=false" >> "$GITHUB_OUTPUT"
             fi
