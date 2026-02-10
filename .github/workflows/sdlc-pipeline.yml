@@ -293,8 +293,8 @@ jobs:
                 if [[ -n "${CONFLICT_PR_NUMBER}" ]]; then
                   echo "Found PR #${CONFLICT_PR_NUMBER} for branch ${BRANCH_NAME}, triggering conflict resolution..."
                   # Record timestamp before triggering to avoid race condition with other runs
-                TRIGGER_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-                if gh workflow run on-merge-conflict.yml -f pr_number="${CONFLICT_PR_NUMBER}"; then
+                  TRIGGER_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+                  if gh workflow run on-merge-conflict.yml -f pr_number="${CONFLICT_PR_NUMBER}"; then
                     echo "::notice::Conflict resolution workflow triggered for PR #${CONFLICT_PR_NUMBER}"
 
                     # Wait for conflict resolver to complete
