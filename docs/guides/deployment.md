@@ -58,6 +58,9 @@ egg --public
 
 3. **Create repositories.yaml:**
    ```yaml
+   github_username: your-github-username
+   bot_username: your-bot-name  # Required for bot operations
+
    local_repos:
      paths:
        - /home/user/repos/my-project

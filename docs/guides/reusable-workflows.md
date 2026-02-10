@@ -19,7 +19,8 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number }}
       bot_name: my-bot
-      bot_username: my-bot-username  # GitHub username of your bot
+      bot_username: ${{ vars.EGG_BOT_USERNAME }}  # REQUIRED
+      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}  # REQUIRED
       # action_ref: jwbron/egg/action@main  # Cannot be dynamic; see note below
       prompt_script: path/to/build-review-prompt.sh
       timeout: "10"
@@ -42,7 +43,8 @@ jobs:
       pr_number: ${{ github.event.workflow_run.pull_requests[0].number }}
       failed_workflow: ${{ github.event.workflow_run.name }}
       failed_run_id: ${{ github.event.workflow_run.id }}
-      bot_username: my-bot-username
+      bot_username: ${{ vars.EGG_BOT_USERNAME }}
+      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
       timeout: "20"
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
@@ -61,7 +63,8 @@ jobs:
     uses: jwbron/egg/.github/workflows/reusable-conflict-resolve.yml@main
     with:
       pr_number: ${{ matrix.pr }}
-      bot_username: my-bot-username
+      bot_username: ${{ vars.EGG_BOT_USERNAME }}
+      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
       timeout: "30"
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
@@ -80,7 +83,8 @@ jobs:
     uses: jwbron/egg/.github/workflows/on-review-feedback.yml@main
     with:
       pr_number: ${{ github.event.pull_request.number }}
-      bot_username: my-bot-username
+      bot_username: ${{ vars.EGG_BOT_USERNAME }}
+      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
       authorized_users: "user1,user2"  # Comma-separated list
       max_feedback_rounds: 3
     secrets:
@@ -100,9 +104,9 @@ jobs:
     uses: jwbron/egg/.github/workflows/on-mention.yml@main
     with:
       issue_or_pr_number: ${{ github.event.issue.number }}
-      bot_username: my-bot-username
+      bot_username: ${{ vars.EGG_BOT_USERNAME }}
+      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
       authorized_users: "user1,user2"
-      mention_patterns: "@my-bot,@mybot"
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
       BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
@@ -120,8 +124,8 @@ jobs:
     uses: jwbron/egg/.github/workflows/sdlc-pipeline.yml@main
     with:
       issue_number: ${{ github.event.issue.number }}
-      bot_username: my-bot-username
-      branch_prefix: "my-bot"  # Creates my-bot/issue-N branches
+      bot_username: ${{ vars.EGG_BOT_USERNAME }}
+      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}  # Creates <prefix>/issue-N branches
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
       BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
@@ -138,34 +142,41 @@ The pipeline is triggered by applying the `sdlc:refine` label to an issue. You c
 
 ## Common Parameters
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `bot_username` | GitHub username of your bot | `egg` |
-| `action_ref` | Reference to egg action (documentation only; see note) | `jwbron/egg/action@main` |
-| `authorized_users` | Comma-separated list of authorized users | `jwbron` |
-| `branch_prefix` | Prefix for issue branches | `egg` |
-| `timeout` | Timeout in minutes | varies by workflow |
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| `bot_username` | GitHub username of your bot | Yes |
+| `branch_prefix` | Prefix for bot-owned branches | Yes |
+| `action_ref` | Reference to egg action (documentation only; see note) | No |
+| `authorized_users` | Comma-separated list of authorized users | No (default: `jwbron`) |
+| `timeout` | Timeout in minutes | No (varies by workflow) |
 
 ## Repository Variables
 
-For easier configuration across multiple workflows, you can set `BOT_USERNAME` as a GitHub Actions repository variable instead of hardcoding it in each workflow file.
+**REQUIRED**: Event-triggered workflows require these repository variables to be configured:
 
-### Setting Up `BOT_USERNAME`
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `EGG_BOT_USERNAME` | Bot's GitHub username | `james-in-a-box[bot]` |
+| `EGG_BRANCH_PREFIX` | Branch prefix for bot-owned branches | `egg` |
+
+### Setting Up Repository Variables
 
 1. Go to your repository's **Settings** → **Secrets and variables** → **Actions**
 2. Click the **Variables** tab
 3. Click **New repository variable**
-4. Set **Name** to `BOT_USERNAME` and **Value** to your bot's GitHub username
+4. Add both `EGG_BOT_USERNAME` and `EGG_BRANCH_PREFIX` with appropriate values
+
+**Note**: Workflows will fail with a validation error if these variables are not set.
 
 ### Using in Workflows
 
-There are two types of workflows that use `BOT_USERNAME`:
+There are two types of workflows that use bot identity:
 
-1. **Entry-point workflows** (e.g., `on-pull-request.yml`, `on-check-failure.yml`) — These use `vars.BOT_USERNAME` directly from the repository variable.
+1. **Entry-point workflows** (e.g., `on-pull-request.yml`, `on-check-failure.yml`) — These use `vars.EGG_BOT_USERNAME` and `vars.EGG_BRANCH_PREFIX` directly from repository variables.
 
-2. **Reusable workflows** (e.g., `reusable-review.yml`, `reusable-autofix.yml`) — These receive `bot_username` via the `with:` input block from calling workflows.
+2. **Reusable workflows** (e.g., `reusable-review.yml`, `reusable-autofix.yml`) — These receive `bot_username` and `branch_prefix` via the `with:` input block from calling workflows.
 
-For entry-point workflows, reference the variable directly:
+For entry-point workflows, reference the variables directly:
 
 ```yaml
 # In an entry-point workflow (e.g., on-pull-request.yml)
@@ -175,11 +186,12 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number }}
       bot_name: review
-      bot_username: ${{ vars.BOT_USERNAME || 'egg' }}
+      bot_username: ${{ vars.EGG_BOT_USERNAME }}
+      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
       # ...
 ```
 
-When calling reusable workflows from external repositories, pass `bot_username` via the `with:` block:
+When calling reusable workflows from external repositories, pass these values via the `with:` block:
 
 ```yaml
 # In your repository's caller workflow
@@ -189,11 +201,10 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number }}
       bot_name: review
-      bot_username: ${{ vars.BOT_USERNAME || 'egg' }}
+      bot_username: ${{ vars.EGG_BOT_USERNAME }}
+      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
       # ...
 ```
-
-The `|| 'egg'` fallback ensures the workflow runs even if the variable isn't set.
 
 ## Important Limitations
 
@@ -236,7 +247,8 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number }}
       bot_name: review
-      bot_username: my-review-bot
+      bot_username: ${{ vars.EGG_BOT_USERNAME }}
+      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
       timeout: "10"
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
