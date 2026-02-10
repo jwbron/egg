@@ -125,6 +125,15 @@ from .agent_roles import (
     get_role_definition,
     get_role_dependencies,
 )
+from .orchestration import (
+    AgentHandoff,
+    OrchestrationState,
+    can_agent_run,
+    get_next_wave,
+    get_runnable_agents,
+    initialize_orchestration,
+    update_contract_orchestration,
+)
 from .phase_defaults import (
     get_default_phase_config,
     get_effective_phase_config,
@@ -291,4 +300,12 @@ __all__ = [
     "get_all_roles",
     "get_role_definition",
     "get_role_dependencies",
+    # Orchestration
+    "AgentHandoff",
+    "OrchestrationState",
+    "can_agent_run",
+    "get_next_wave",
+    "get_runnable_agents",
+    "initialize_orchestration",
+    "update_contract_orchestration",
 ]

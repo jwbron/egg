@@ -132,6 +132,22 @@
       ],
       "description": "Optional phase-specific configurations (overrides defaults)",
       "default": null
+    },
+    "agent_executions": {
+      "type": "array",
+      "description": "Execution state for each agent in multi-agent mode",
+      "items": {
+        "$ref": "#/$defs/agentExecution"
+      },
+      "default": []
+    },
+    "multi_agent_config": {
+      "oneOf": [
+        { "$ref": "#/$defs/multiAgentConfig" },
+        { "type": "null" }
+      ],
+      "description": "Configuration for multi-agent orchestration",
+      "default": null
     }
   },
   "additionalProperties": false,
@@ -616,6 +632,91 @@
         "reason": {
           "type": "string",
           "description": "Reason for the change"
+        }
+      },
+      "additionalProperties": false
+    },
+    "agentExecution": {
+      "type": "object",
+      "description": "Execution state for a single agent in multi-agent mode",
+      "required": ["role", "status"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "description": "The agent role",
+          "enum": ["coder", "tester", "documenter", "integrator"]
+        },
+        "status": {
+          "type": "string",
+          "description": "Current execution status",
+          "enum": ["pending", "running", "complete", "failed", "skipped", "blocked"],
+          "default": "pending"
+        },
+        "started_at": {
+          "type": ["string", "null"],
+          "description": "When agent started",
+          "format": "date-time",
+          "default": null
+        },
+        "completed_at": {
+          "type": ["string", "null"],
+          "description": "When agent completed",
+          "format": "date-time",
+          "default": null
+        },
+        "commit": {
+          "type": ["string", "null"],
+          "description": "Git commit SHA if agent made changes",
+          "pattern": "^[a-f0-9]{7,40}$",
+          "default": null
+        },
+        "outputs": {
+          "type": "object",
+          "description": "Handoff data produced by agent",
+          "default": {}
+        },
+        "error": {
+          "type": ["string", "null"],
+          "description": "Error message if failed",
+          "default": null
+        },
+        "retry_count": {
+          "type": "integer",
+          "description": "Number of retry attempts",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "multiAgentConfig": {
+      "type": "object",
+      "description": "Configuration for multi-agent orchestration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether multi-agent mode is enabled",
+          "default": true
+        },
+        "max_retries": {
+          "type": "integer",
+          "description": "Max retries per agent",
+          "minimum": 0,
+          "default": 2
+        },
+        "parallel_execution": {
+          "type": "boolean",
+          "description": "Allow parallel execution of independent agents",
+          "default": true
+        },
+        "roles_enabled": {
+          "type": "array",
+          "description": "Which agent roles are enabled",
+          "items": {
+            "type": "string",
+            "enum": ["coder", "tester", "documenter", "integrator"]
+          },
+          "default": ["coder", "tester", "documenter", "integrator"]
         }
       },
       "additionalProperties": false
