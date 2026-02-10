@@ -391,7 +391,7 @@ jobs:
           fi
 
           # Also check issue comments for the marker (paginated to handle PRs with many comments)
-          # (for self-reviews where GitHub blocks bots from using the Reviews API on their own PRs)
+          # (for legacy self-reviews - deprecated, use separate reviewer bot instead per #287)
           last_comment_commit=""
           last_comment_time=""
           if ! comments=$(gh api --paginate "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
