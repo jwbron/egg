@@ -343,8 +343,44 @@ jobs:
             }
           fi
 
+      - name: Check for multi-agent mode (implement phase)
+        id: check-multi-agent
+        if: env.PHASE == 'implement'
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          # Check if contract has multi-agent configuration enabled
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            MULTI_AGENT=$(jq -r '.multi_agent_config.enabled // false' "$CONTRACT_PATH" 2>/dev/null || echo "false")
+            echo "enabled=${MULTI_AGENT}" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Trigger multi-agent workflow (if enabled)
+        id: multi-agent
+        if: env.PHASE == 'implement' && steps.check-multi-agent.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          echo "Multi-agent mode enabled, triggering orchestration workflow..."
+
+          # Trigger the multi-agent workflow
+          gh workflow run sdlc-multi-agent.yml \
+            --repo "${{ github.repository }}" \
+            --field issue_number="${ISSUE_NUMBER}" \
+            --field branch_name="${BRANCH_NAME}" \
+            --field agent_role="auto"
+
+          echo "triggered=true" >> "$GITHUB_OUTPUT"
+
       - name: Run egg agent
         id: egg
+        # Skip if multi-agent mode was triggered for implement phase
+        if: steps.multi-agent.outputs.triggered != 'true'
         continue-on-error: true
         uses: jwbron/egg/action@main
         with:
