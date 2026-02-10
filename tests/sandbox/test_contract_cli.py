@@ -346,7 +346,6 @@ class TestWithMockGateway:
                     "current_phase": "implement",
                     "phases": [],
                     "decisions": [],
-                    "circuit_breaker": {"status": "closed"},
                 },
             }
         }
