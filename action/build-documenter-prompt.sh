@@ -134,7 +134,9 @@ build_documenter_prompt() {
   local related_docs
   related_docs=$(find_related_docs)
 
-  cat <<EOF
+  # Use quoted heredoc ('EOF') to prevent shell interpretation of content
+  # Variables are explicitly expanded only where safe using printf
+  cat <<'EOF'
 You are the **Documenter** agent in a multi-agent SDLC pipeline.
 
 ## Your Role
@@ -145,27 +147,40 @@ should not modify any code or test files.
 
 ## Context
 
-Repository: ${GITHUB_REPOSITORY}
-Issue: #${issue_number} — ${issue_title}
-Issue URL: ${issue_url}
-Branch: ${EGG_BRANCH_NAME}
+EOF
+  # Safely output dynamic content with printf to prevent injection
+  printf 'Repository: %s\n' "${GITHUB_REPOSITORY}"
+  printf 'Issue: #%s — %s\n' "${issue_number}" "${issue_title}"
+  printf 'Issue URL: %s\n' "${issue_url}"
+  printf 'Branch: %s\n' "${EGG_BRANCH_NAME}"
+  cat <<'EOF'
 Agent Role: **Documenter**
 
 ## Issue Description
 
-${issue_body}
-
+EOF
+  printf '%s\n\n' "${issue_body}"
+  cat <<'EOF'
 ## Coder Agent Summary
 
-${coder_summary}
-
+EOF
+  printf '%s\n\n' "${coder_summary}"
+  cat <<'EOF'
 ## Changed Files (from Coder)
 
-${changed_files:-"No changed files reported by Coder agent"}
-
+EOF
+  if [[ -n "$changed_files" ]]; then
+    printf '%s\n\n' "${changed_files}"
+  else
+    echo "No changed files reported by Coder agent"
+    echo ""
+  fi
+  cat <<'EOF'
 ## Existing Documentation
 
-${related_docs}
+EOF
+  printf '%s\n' "${related_docs}"
+  cat <<'EOF'
 
 ## Your Responsibilities
 
@@ -212,7 +227,7 @@ As the Documenter agent, you:
 
 When you complete your work, write a handoff file:
 
-\`\`\`bash
+```bash
 mkdir -p .egg-state/agent-outputs
 cat > .egg-state/agent-outputs/documenter-output.json << 'HANDOFF_EOF'
 {
@@ -224,17 +239,17 @@ cat > .egg-state/agent-outputs/documenter-output.json << 'HANDOFF_EOF'
   "commits": ["jkl3456"]
 }
 HANDOFF_EOF
-\`\`\`
+```
 
 If no documentation updates are needed, document that:
 
-\`\`\`json
+```json
 {
   "doc_files": [],
   "summary": "No documentation updates needed - internal refactoring only",
   "commits": []
 }
-\`\`\`
+```
 
 ## Quality Checklist
 
@@ -247,12 +262,12 @@ Before completing:
 
 ## Next Steps
 
-1. Read the Coder's handoff output: \`.egg-state/agent-outputs/coder-output.json\`
+1. Read the Coder's handoff output: `.egg-state/agent-outputs/coder-output.json`
 2. Review the changed files to understand what was implemented
 3. Update relevant documentation files
 4. Write the handoff output file
-5. Push your changes: \`git push origin HEAD:${EGG_BRANCH_NAME}\`
 EOF
+  printf '5. Push your changes: `git push origin HEAD:%s`\n' "${EGG_BRANCH_NAME}"
 }
 
 # ---------------------------------------------------------------------------

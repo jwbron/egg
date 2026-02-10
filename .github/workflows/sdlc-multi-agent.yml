@@ -696,13 +696,15 @@ jobs:
   # ============================================================
   run-integrator:
     name: Run integrator agent
-    needs: [orchestrate, run-tester, run-documenter]
+    needs: [orchestrate, run-coder, run-tester, run-documenter]
+    # Integrator requires coder + tester to succeed, but documenter can fail
+    # This allows independent agents to continue even if others fail
     if: >-
       always() &&
       needs.orchestrate.outputs.is_complete != 'true' &&
-      needs.orchestrate.outputs.has_failures != 'true' &&
       (contains(needs.orchestrate.outputs.agents_to_run, 'integrator') ||
-       (needs.run-tester.result == 'success' && needs.run-tester.outputs.success == 'true'))
+       (needs.run-coder.result == 'success' && needs.run-coder.outputs.success == 'true' &&
+        needs.run-tester.result == 'success' && needs.run-tester.outputs.success == 'true'))
     runs-on: ubuntu-latest
     outputs:
       success: ${{ steps.result.outputs.success }}
@@ -818,3 +820,125 @@ jobs:
             git commit -m "Update integrator agent status" || true
             git push origin "${BRANCH_NAME}" || true
           fi
+
+  # ============================================================
+  # Finalize: Report overall status and handle partial failures
+  # ============================================================
+  finalize:
+    name: Finalize orchestration
+    needs: [orchestrate, run-coder, run-tester, run-documenter, run-integrator]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.status.outputs.status }}
+      summary: ${{ steps.status.outputs.summary }}
+
+    env:
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      BRANCH_NAME: ${{ inputs.branch_name }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+          fetch-depth: 1
+
+      - name: Collect agent results
+        id: status
+        run: |
+          set -euo pipefail
+
+          # Collect results from all agents
+          CODER_RESULT="${{ needs.run-coder.result }}"
+          CODER_SUCCESS="${{ needs.run-coder.outputs.success }}"
+          TESTER_RESULT="${{ needs.run-tester.result }}"
+          TESTER_SUCCESS="${{ needs.run-tester.outputs.success }}"
+          DOCUMENTER_RESULT="${{ needs.run-documenter.result }}"
+          DOCUMENTER_SUCCESS="${{ needs.run-documenter.outputs.success }}"
+          INTEGRATOR_RESULT="${{ needs.run-integrator.result }}"
+          INTEGRATOR_SUCCESS="${{ needs.run-integrator.outputs.success }}"
+
+          FAILED_AGENTS=""
+          SUCCESSFUL_AGENTS=""
+          SKIPPED_AGENTS=""
+
+          # Check coder
+          if [[ "$CODER_RESULT" == "success" && "$CODER_SUCCESS" == "true" ]]; then
+            SUCCESSFUL_AGENTS+="coder,"
+          elif [[ "$CODER_RESULT" == "skipped" ]]; then
+            SKIPPED_AGENTS+="coder,"
+          else
+            FAILED_AGENTS+="coder,"
+          fi
+
+          # Check tester
+          if [[ "$TESTER_RESULT" == "success" && "$TESTER_SUCCESS" == "true" ]]; then
+            SUCCESSFUL_AGENTS+="tester,"
+          elif [[ "$TESTER_RESULT" == "skipped" ]]; then
+            SKIPPED_AGENTS+="tester,"
+          else
+            FAILED_AGENTS+="tester,"
+          fi
+
+          # Check documenter
+          if [[ "$DOCUMENTER_RESULT" == "success" && "$DOCUMENTER_SUCCESS" == "true" ]]; then
+            SUCCESSFUL_AGENTS+="documenter,"
+          elif [[ "$DOCUMENTER_RESULT" == "skipped" ]]; then
+            SKIPPED_AGENTS+="documenter,"
+          else
+            FAILED_AGENTS+="documenter,"
+          fi
+
+          # Check integrator
+          if [[ "$INTEGRATOR_RESULT" == "success" && "$INTEGRATOR_SUCCESS" == "true" ]]; then
+            SUCCESSFUL_AGENTS+="integrator,"
+          elif [[ "$INTEGRATOR_RESULT" == "skipped" ]]; then
+            SKIPPED_AGENTS+="integrator,"
+          else
+            FAILED_AGENTS+="integrator,"
+          fi
+
+          # Determine overall status
+          # All agents successful = complete
+          # Some agents failed but others continued = partial
+          # Critical agents failed (coder or integrator) = failed
+          if [[ -z "$FAILED_AGENTS" ]]; then
+            STATUS="complete"
+            SUMMARY="All agents completed successfully"
+          elif [[ "$FAILED_AGENTS" == *"coder"* ]]; then
+            STATUS="failed"
+            SUMMARY="Coder agent failed - blocking subsequent agents"
+          elif [[ "$FAILED_AGENTS" == *"integrator"* && -n "$SUCCESSFUL_AGENTS" ]]; then
+            STATUS="partial"
+            SUMMARY="Integration failed but some agents succeeded: ${SUCCESSFUL_AGENTS%,}"
+          elif [[ -n "$SUCCESSFUL_AGENTS" ]]; then
+            STATUS="partial"
+            SUMMARY="Some agents succeeded (${SUCCESSFUL_AGENTS%,}) but others failed (${FAILED_AGENTS%,})"
+          else
+            STATUS="failed"
+            SUMMARY="All agents failed: ${FAILED_AGENTS%,}"
+          fi
+
+          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
+          echo "summary=${SUMMARY}" >> "$GITHUB_OUTPUT"
+          echo "successful_agents=${SUCCESSFUL_AGENTS%,}" >> "$GITHUB_OUTPUT"
+          echo "failed_agents=${FAILED_AGENTS%,}" >> "$GITHUB_OUTPUT"
+
+          echo "Orchestration status: ${STATUS}"
+          echo "Summary: ${SUMMARY}"
+
+      - name: Report partial success
+        if: steps.status.outputs.status == 'partial'
+        run: |
+          echo "::warning::Partial success - some agents failed but independent agents continued"
+          echo "Failed: ${{ steps.status.outputs.failed_agents }}"
+          echo "Successful: ${{ steps.status.outputs.successful_agents }}"

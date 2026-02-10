@@ -181,6 +181,19 @@ from .resilience import (
     retry_with_backoff,
     should_checkpoint_now,
 )
+from .agent_recovery import (
+    AgentCircuitBreaker,
+    AgentRetryConfig,
+    AgentRetryManager,
+    CircuitBreakerConfig,
+    CircuitState,
+    ConflictDetector,
+    ConflictInfo,
+    RetryDecision,
+    RetryPolicy,
+    create_circuit_breaker,
+    create_retry_manager,
+)
 from .roles import (
     FIELD_OWNERSHIP,
     Role,
@@ -348,4 +361,16 @@ __all__ = [
     "get_dispatch_for_contract",
     "load_agent_output",
     "save_agent_output",
+    # Agent Recovery
+    "AgentCircuitBreaker",
+    "AgentRetryConfig",
+    "AgentRetryManager",
+    "CircuitBreakerConfig",
+    "CircuitState",
+    "ConflictDetector",
+    "ConflictInfo",
+    "RetryDecision",
+    "RetryPolicy",
+    "create_circuit_breaker",
+    "create_retry_manager",
 ]
