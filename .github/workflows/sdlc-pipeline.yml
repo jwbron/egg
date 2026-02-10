@@ -294,8 +294,9 @@ jobs:
                   echo "Found PR #${CONFLICT_PR_NUMBER} for branch ${BRANCH_NAME}, triggering conflict resolution..."
                   if gh workflow run on-merge-conflict.yml -f pr_number="${CONFLICT_PR_NUMBER}"; then
                     echo "::notice::Conflict resolution workflow triggered for PR #${CONFLICT_PR_NUMBER}"
-                    # Exit with success - the conflict resolver will handle it
-                    exit 0
+                    # Exit with failure to prevent downstream jobs from running with stale code
+                    # The conflict resolver will handle it and the next pipeline run will re-attempt
+                    exit 1
                   else
                     echo "::warning::Failed to trigger conflict resolution workflow"
                   fi
