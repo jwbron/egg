@@ -35,7 +35,6 @@ Known Limitations (TOCTOU):
     requirements, consider additional controls at the Git server level.
 """
 
-import os
 import sys
 import threading
 from dataclasses import dataclass
