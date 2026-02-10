@@ -34,10 +34,6 @@ on:
         required: false
         type: string
         default: "jwbron"
-      mention_patterns:
-        description: 'Comma-separated list of mention patterns to trigger on (e.g., "@my-bot")'
-        required: false
-        type: string
       prompt_script:
         description: 'Path to prompt builder script (relative to repo root)'
         required: false
@@ -67,17 +63,9 @@ jobs:
     steps:
       - name: Validate required repository variables
         run: |
-          missing_vars=()
           if [[ -z "${{ vars.EGG_BOT_USERNAME }}" ]]; then
-            missing_vars+=("EGG_BOT_USERNAME")
-          fi
-          if [[ -z "${{ vars.EGG_MENTION_PATTERNS }}" ]]; then
-            missing_vars+=("EGG_MENTION_PATTERNS")
-          fi
-
-          if [[ ${#missing_vars[@]} -gt 0 ]]; then
-            echo "::error::Required repository variable(s) not set: ${missing_vars[*]}"
-            echo "::error::Set these in Settings > Secrets and variables > Actions > Variables"
+            echo "::error::Required repository variable EGG_BOT_USERNAME is not set"
+            echo "::error::Set it in Settings > Secrets and variables > Actions > Variables"
             exit 1
           fi
           echo "All required repository variables are configured"
@@ -92,7 +80,6 @@ jobs:
     outputs:
       bot_username: ${{ steps.resolve.outputs.bot_username }}
       authorized_users: ${{ steps.resolve.outputs.authorized_users }}
-      mention_patterns: ${{ steps.resolve.outputs.mention_patterns }}
       issue_or_pr_number: ${{ steps.resolve.outputs.issue_or_pr_number }}
       should_check_trigger: ${{ steps.resolve.outputs.should_check_trigger }}
     steps:
@@ -101,15 +88,9 @@ jobs:
         run: |
           # Use inputs if called as reusable workflow, otherwise use repository variables
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
-            {
-              echo "bot_username=${{ inputs.bot_username }}"
-              echo "mention_patterns=${{ inputs.mention_patterns }}"
-            } >> "$GITHUB_OUTPUT"
+            echo "bot_username=${{ inputs.bot_username }}" >> "$GITHUB_OUTPUT"
           else
-            {
-              echo "bot_username=${{ vars.EGG_BOT_USERNAME }}"
-              echo "mention_patterns=${{ vars.EGG_MENTION_PATTERNS }}"
-            } >> "$GITHUB_OUTPUT"
+            echo "bot_username=${{ vars.EGG_BOT_USERNAME }}" >> "$GITHUB_OUTPUT"
           fi
           echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}" >> "$GITHUB_OUTPUT"
 
@@ -143,7 +124,6 @@ jobs:
         env:
           BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
           AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
-          MENTION_PATTERNS: ${{ needs.resolve-inputs.outputs.mention_patterns }}
           SENDER_LOGIN: ${{ github.event.sender.login }}
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body }}
@@ -187,19 +167,9 @@ jobs:
             body="$ISSUE_BODY"
           fi
 
-          # Check if any mention pattern matches
-          has_mention=false
-          IFS=',' read -ra patterns <<< "$MENTION_PATTERNS"
-          for pattern in "${patterns[@]}"; do
-            pattern=$(echo "$pattern" | xargs)  # trim whitespace
-            if [[ "$body" == *"$pattern"* ]]; then
-              has_mention=true
-              break
-            fi
-          done
-
-          if [[ "$has_mention" != "true" ]]; then
-            echo "No matching mention pattern found in body"
+          # Check if body contains @bot_username mention
+          if [[ "$body" != *"@${BOT_USERNAME}"* ]]; then
+            echo "No @${BOT_USERNAME} mention found in body"
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
