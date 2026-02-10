@@ -10,8 +10,6 @@ from egg_contracts.models import (
     CheckDefinition,
     CheckResult,
     CheckStatus,
-    CircuitBreaker,
-    CircuitBreakerStatus,
     Contract,
     Decision,
     DecisionType,
@@ -174,25 +172,6 @@ class TestDecision:
         )
         assert decision.resolved is True
         assert decision.resolution == "approved"
-
-
-class TestCircuitBreaker:
-    """Tests for CircuitBreaker model."""
-
-    def test_default_circuit_breaker(self):
-        """Test default circuit breaker state."""
-        cb = CircuitBreaker()
-        assert cb.total_cycles == 0
-        assert cb.max_total_cycles == 10
-        assert cb.status == CircuitBreakerStatus.CLOSED
-
-    def test_open_circuit_breaker(self):
-        """Test open circuit breaker."""
-        cb = CircuitBreaker(
-            total_cycles=5,
-            status=CircuitBreakerStatus.OPEN,
-        )
-        assert cb.status == CircuitBreakerStatus.OPEN
 
 
 class TestAuditEntry:

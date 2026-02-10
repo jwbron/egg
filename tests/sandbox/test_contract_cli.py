@@ -24,7 +24,6 @@ from egg_lib.contract_cli import (
     get_repo_path,
     main,
     parse_criterion_id,
-    parse_phase_id,
     parse_task_id,
     validate_commit_sha,
     validate_decision_id,
@@ -73,34 +72,6 @@ class TestArgumentParsing:
         assert args.command == "update-notes"
         assert args.task == "task-1"
         assert args.notes == "Some notes"
-
-    def test_mark_task_command(self):
-        """Test parsing mark-task command."""
-        parser = create_parser()
-        args = parser.parse_args(["mark-task", "--task", "task-1", "--status", "complete"])
-        assert args.command == "mark-task"
-        assert args.task == "task-1"
-        assert args.status == "complete"
-
-    def test_mark_task_invalid_status(self):
-        """Test that invalid status is rejected."""
-        parser = create_parser()
-        with pytest.raises(SystemExit):
-            parser.parse_args(["mark-task", "--task", "task-1", "--status", "invalid"])
-
-    def test_mark_phase_command(self):
-        """Test parsing mark-phase command."""
-        parser = create_parser()
-        args = parser.parse_args(["mark-phase", "--phase", "phase-1", "--passed", "true"])
-        assert args.command == "mark-phase"
-        assert args.phase == "phase-1"
-        assert args.passed is True
-
-    def test_mark_phase_false(self):
-        """Test parsing mark-phase with false."""
-        parser = create_parser()
-        args = parser.parse_args(["mark-phase", "--phase", "phase-1", "--passed", "false"])
-        assert args.passed is False
 
     def test_add_decision_command(self):
         """Test parsing add-decision command."""
@@ -279,32 +250,6 @@ class TestCriterionIdParsing:
         assert "must be >= 1" in str(exc_info.value)
 
 
-class TestPhaseIdParsing:
-    """Tests for phase ID parsing."""
-
-    def test_valid_phase_id(self):
-        """Test parsing valid phase ID."""
-        phase_idx = parse_phase_id("phase-1")
-        assert phase_idx == 0
-
-    def test_phase_id_case_insensitive(self):
-        """Test that phase ID parsing is case insensitive."""
-        phase_idx = parse_phase_id("PHASE-2")
-        assert phase_idx == 1
-
-    def test_phase_id_non_numeric(self):
-        """Test that non-numeric phase ID raises ValueError."""
-        with pytest.raises(ValueError) as exc_info:
-            parse_phase_id("phase-abc")
-        assert "Invalid phase ID" in str(exc_info.value)
-
-    def test_phase_id_zero(self):
-        """Test that phase number 0 raises ValueError."""
-        with pytest.raises(ValueError) as exc_info:
-            parse_phase_id("phase-0")
-        assert "must be >= 1" in str(exc_info.value)
-
-
 class TestMainNoCommand:
     """Tests for main function without command."""
 
@@ -453,30 +398,6 @@ class TestErrorPaths:
         """Test add-commit with zero task number."""
         with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
             result = main(["add-commit", "--task", "task-0", "--commit", "abc1234"])
-        assert result == 1
-        captured = capsys.readouterr()
-        assert "must be >= 1" in captured.err
-
-    def test_mark_task_invalid_task_id(self, capsys):
-        """Test mark-task with invalid task ID."""
-        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
-            result = main(["mark-task", "--task", "task-not-valid", "--status", "complete"])
-        assert result == 1
-        captured = capsys.readouterr()
-        assert "Invalid task ID" in captured.err
-
-    def test_mark_phase_invalid_phase_id(self, capsys):
-        """Test mark-phase with invalid phase ID."""
-        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
-            result = main(["mark-phase", "--phase", "phase-abc", "--passed", "true"])
-        assert result == 1
-        captured = capsys.readouterr()
-        assert "Invalid phase ID" in captured.err
-
-    def test_mark_phase_zero_phase(self, capsys):
-        """Test mark-phase with zero phase number."""
-        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "123"}):
-            result = main(["mark-phase", "--phase", "phase-0", "--passed", "true"])
         assert result == 1
         captured = capsys.readouterr()
         assert "must be >= 1" in captured.err

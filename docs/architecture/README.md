@@ -70,8 +70,6 @@ Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib
 | `egg-contract show` | Display current contract state |
 | `egg-contract add-commit --task <id> --commit <sha>` | Link commit to task |
 | `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes |
-| `egg-contract mark-task --task <id> --status <status>` | Mark task status (deprecated as of PR #285) |
-| `egg-contract mark-phase --phase <id> --passed <bool>` | Mark phase status (deprecated as of PR #285) |
 | `egg-contract add-decision --question <text> [--options ...] [--format {json,markdown}]` | Create HITL decision point with optional predefined choices and markdown output format for GitHub comments |
 | `egg-contract add-feedback --question <text> [--question <text>...] [--format {json,markdown}]` | Create feedback comment for open-ended questions |
 
@@ -125,11 +123,9 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 **Supporting scripts:**
 - `action/build-sdlc-prompt.sh` - Phase-specific prompt builder with context and document templates
 - `action/build-unified-review-prompt.sh` - Unified review prompt builder for all SDLC phases
-- `action/contract-state.sh` - Contract state management (load, update, increment cycles)
-- `action/escalate.sh` - Circuit breaker escalation handler (deprecated as of PR #285)
+- `action/contract-state.sh` - Contract state management (load, update, phase transitions)
 
 **Resilience features:**
-- Circuit breaker: Prevents infinite loops via per-task and total pipeline cycle limits
 - HITL escalation: Generates checkbox-based decision UI with 30-second debounce
 - Rate limiting: GitHub API rate limit tracking and automatic retry backoff
 - Timeout checkpoints: Monitors job time and saves state before timeout

@@ -11,17 +11,9 @@
 # Commands:
 #   load              Load and display contract state
 #   update-after-implement  Update contract after implementation phase
-#   increment-cycle   Increment the pipeline cycle counter
 #   get-current-phase Get the current pipeline phase
-#
-# DEPRECATED commands (retained for compatibility, no longer used by pipeline):
-#   check-review-status    Check review results (no longer called by pipeline)
-#   check-circuit-breaker   Check circuit breaker status
-#   open-circuit-breaker    Open the circuit breaker
-#   close-circuit-breaker   Close the circuit breaker
-#
-# Note: Circuit breaker commands are deprecated as of PR #285. The pipeline
-# now relies on PR-based auto-reviews instead of the internal review loop.
+#   set-phase         Set the current pipeline phase
+#   summary           Print contract summary
 #
 # Environment variables:
 #   ISSUE_NUMBER    — GitHub issue number (required)
@@ -128,109 +120,6 @@ cmd_update_after_implement() {
   fi
 }
 
-cmd_check_review_status() {
-  local issue="${ISSUE_NUMBER:?ISSUE_NUMBER required}"
-  local contract_path
-  contract_path=$(get_contract_path "$issue")
-
-  ensure_contract_exists "$contract_path"
-
-  # Count tasks by status
-  local complete_tasks incomplete_tasks blocked_tasks total_tasks
-  complete_tasks=$(jq '[.phases[].tasks[] | select(.status == "complete")] | length' "$contract_path")
-  incomplete_tasks=$(jq '[.phases[].tasks[] | select(.status == "incomplete")] | length' "$contract_path")
-  blocked_tasks=$(jq '[.phases[].tasks[] | select(.status == "blocked")] | length' "$contract_path")
-  total_tasks=$(jq '[.phases[].tasks[]] | length' "$contract_path")
-
-  log_info "Review status: ${complete_tasks}/${total_tasks} complete, ${incomplete_tasks} incomplete, ${blocked_tasks} blocked"
-
-  # Check if any tasks are escalated
-  local escalated_tasks
-  escalated_tasks=$(jq '[.phases[].tasks[] | select(.escalated == true)] | length' "$contract_path")
-
-  if [[ "$escalated_tasks" -gt 0 ]]; then
-    log_info "Found ${escalated_tasks} escalated tasks"
-    echo "passed=false" >> "${GITHUB_OUTPUT:-/dev/null}"
-    echo "tasks_incomplete=${incomplete_tasks}" >> "${GITHUB_OUTPUT:-/dev/null}"
-    echo "escalated=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-    return 0
-  fi
-
-  # Check if all tasks are complete
-  if [[ "$complete_tasks" -eq "$total_tasks" && "$total_tasks" -gt 0 ]]; then
-    log_info "All tasks passed review"
-    echo "passed=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-    echo "tasks_incomplete=0" >> "${GITHUB_OUTPUT:-/dev/null}"
-    echo "escalated=false" >> "${GITHUB_OUTPUT:-/dev/null}"
-  else
-    log_info "Review found incomplete tasks"
-    echo "passed=false" >> "${GITHUB_OUTPUT:-/dev/null}"
-    echo "tasks_incomplete=${incomplete_tasks}" >> "${GITHUB_OUTPUT:-/dev/null}"
-    echo "escalated=false" >> "${GITHUB_OUTPUT:-/dev/null}"
-
-    # Check per-task cycle counts and escalate if needed
-    local tasks_needing_escalation
-    tasks_needing_escalation=$(jq '[.phases[].tasks[] | select(.review_cycles >= .max_cycles and .status != "complete")] | length' "$contract_path")
-
-    if [[ "$tasks_needing_escalation" -gt 0 ]]; then
-      log_info "Found ${tasks_needing_escalation} tasks exceeding max cycles - escalating"
-
-      # Mark tasks as escalated
-      local updated_contract
-      updated_contract=$(jq '
-        .phases |= map(
-          .tasks |= map(
-            if .review_cycles >= .max_cycles and .status != "complete" then
-              .escalated = true
-            else
-              .
-            end
-          )
-        )
-      ' "$contract_path")
-
-      echo "$updated_contract" > "$contract_path"
-      echo "escalated=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-    fi
-
-    # Increment review cycles for incomplete tasks
-    local updated_contract
-    updated_contract=$(jq '
-      .phases |= map(
-        .tasks |= map(
-          if .status == "incomplete" then
-            .review_cycles = (.review_cycles + 1) |
-            .status = "pending"
-          else
-            .
-          end
-        )
-      )
-    ' "$contract_path")
-
-    echo "$updated_contract" > "$contract_path"
-  fi
-}
-
-cmd_increment_cycle() {
-  local issue="${ISSUE_NUMBER:?ISSUE_NUMBER required}"
-  local contract_path
-  contract_path=$(get_contract_path "$issue")
-
-  ensure_contract_exists "$contract_path"
-
-  # Increment total cycles
-  local updated_contract
-  updated_contract=$(jq '.circuit_breaker.total_cycles += 1' "$contract_path")
-  echo "$updated_contract" > "$contract_path"
-
-  local new_count
-  new_count=$(jq '.circuit_breaker.total_cycles' "$contract_path")
-  log_info "Pipeline cycle incremented to ${new_count}"
-
-  echo "cycle_count=${new_count}" >> "${GITHUB_OUTPUT:-/dev/null}"
-}
-
 cmd_get_current_phase() {
   local issue="${ISSUE_NUMBER:?ISSUE_NUMBER required}"
   local contract_path
@@ -287,104 +176,6 @@ cmd_set_phase() {
   log_info "Phase changed from ${old_phase} to ${new_phase}"
 }
 
-# DEPRECATED: Circuit breaker commands are no longer used by the pipeline as of PR #285.
-# The pipeline now relies on PR-based auto-reviews. These functions are retained for
-# potential future use or manual invocation.
-cmd_check_circuit_breaker() {
-  local issue="${ISSUE_NUMBER:?ISSUE_NUMBER required}"
-  local contract_path
-  contract_path=$(get_contract_path "$issue")
-
-  ensure_contract_exists "$contract_path"
-
-  local total_cycles max_cycles status
-  total_cycles=$(jq '.circuit_breaker.total_cycles' "$contract_path")
-  max_cycles=$(jq '.circuit_breaker.max_total_cycles' "$contract_path")
-  status=$(jq -r '.circuit_breaker.status' "$contract_path")
-
-  log_info "Circuit breaker: ${status} (${total_cycles}/${max_cycles} cycles)"
-
-  echo "status=${status}" >> "${GITHUB_OUTPUT:-/dev/null}"
-  echo "total_cycles=${total_cycles}" >> "${GITHUB_OUTPUT:-/dev/null}"
-  echo "max_cycles=${max_cycles}" >> "${GITHUB_OUTPUT:-/dev/null}"
-
-  if [[ "$status" == "open" ]]; then
-    echo "tripped=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-    return 1
-  elif [[ "$total_cycles" -ge "$max_cycles" ]]; then
-    log_info "Circuit breaker tripped: max cycles exceeded"
-    echo "tripped=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-
-    # Open the circuit breaker
-    local updated_contract
-    updated_contract=$(jq '.circuit_breaker.status = "open"' "$contract_path")
-    echo "$updated_contract" > "$contract_path"
-    return 1
-  else
-    echo "tripped=false" >> "${GITHUB_OUTPUT:-/dev/null}"
-    return 0
-  fi
-}
-
-cmd_open_circuit_breaker() {
-  local issue="${ISSUE_NUMBER:?ISSUE_NUMBER required}"
-  local reason="${1:-Manual trigger}"
-  local contract_path
-  contract_path=$(get_contract_path "$issue")
-
-  ensure_contract_exists "$contract_path"
-
-  local timestamp
-  timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-  local updated_contract
-  updated_contract=$(jq --arg ts "$timestamp" --arg reason "$reason" '
-    .circuit_breaker.status = "open" |
-    .audit_log += [{
-      timestamp: $ts,
-      actor: "system",
-      role: "system",
-      action: "update",
-      field_path: "circuit_breaker.status",
-      old_value: "closed",
-      new_value: "open",
-      reason: $reason
-    }]
-  ' "$contract_path")
-
-  echo "$updated_contract" > "$contract_path"
-  log_info "Circuit breaker opened: ${reason}"
-}
-
-cmd_close_circuit_breaker() {
-  local issue="${ISSUE_NUMBER:?ISSUE_NUMBER required}"
-  local contract_path
-  contract_path=$(get_contract_path "$issue")
-
-  ensure_contract_exists "$contract_path"
-
-  local timestamp
-  timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-  local updated_contract
-  updated_contract=$(jq --arg ts "$timestamp" '
-    .circuit_breaker.status = "closed" |
-    .audit_log += [{
-      timestamp: $ts,
-      actor: "human",
-      role: "human",
-      action: "update",
-      field_path: "circuit_breaker.status",
-      old_value: "open",
-      new_value: "closed",
-      reason: "Human intervention"
-    }]
-  ' "$contract_path")
-
-  echo "$updated_contract" > "$contract_path"
-  log_info "Circuit breaker closed by human intervention"
-}
-
 cmd_summary() {
   local issue="${ISSUE_NUMBER:?ISSUE_NUMBER required}"
   local contract_path
@@ -413,12 +204,6 @@ cmd_summary() {
   done
 
   echo ""
-  local cb_status cb_cycles cb_max
-  cb_status=$(jq -r '.circuit_breaker.status' "$contract_path")
-  cb_cycles=$(jq '.circuit_breaker.total_cycles' "$contract_path")
-  cb_max=$(jq '.circuit_breaker.max_total_cycles' "$contract_path")
-  echo "Circuit Breaker: ${cb_status} (${cb_cycles}/${cb_max} cycles)"
-
   local pending_decisions
   pending_decisions=$(jq '[.decisions[] | select(.resolved == false)] | length' "$contract_path")
   echo "Pending Decisions: ${pending_decisions}"
@@ -442,26 +227,11 @@ main() {
     update-after-implement)
       cmd_update_after_implement "$@"
       ;;
-    check-review-status)
-      cmd_check_review_status "$@"
-      ;;
-    increment-cycle)
-      cmd_increment_cycle "$@"
-      ;;
     get-current-phase)
       cmd_get_current_phase "$@"
       ;;
     set-phase)
       cmd_set_phase "$@"
-      ;;
-    check-circuit-breaker)
-      cmd_check_circuit_breaker "$@"
-      ;;
-    open-circuit-breaker)
-      cmd_open_circuit_breaker "$@"
-      ;;
-    close-circuit-breaker)
-      cmd_close_circuit_breaker "$@"
       ;;
     summary)
       cmd_summary "$@"
@@ -472,16 +242,9 @@ main() {
       echo "Commands:"
       echo "  load                    Load and display contract state"
       echo "  update-after-implement  Update contract after implementation phase"
-      echo "  increment-cycle         Increment the pipeline cycle counter"
       echo "  get-current-phase       Get the current pipeline phase"
       echo "  set-phase <phase>       Set the current pipeline phase"
       echo "  summary                 Print contract summary"
-      echo ""
-      echo "Deprecated commands (retained for compatibility):"
-      echo "  check-review-status     Check review results (no longer called by pipeline)"
-      echo "  check-circuit-breaker   Check circuit breaker status"
-      echo "  open-circuit-breaker    Open the circuit breaker"
-      echo "  close-circuit-breaker   Close the circuit breaker"
       echo ""
       echo "Environment variables:"
       echo "  ISSUE_NUMBER  — GitHub issue number (required)"

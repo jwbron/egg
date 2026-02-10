@@ -323,8 +323,6 @@ class PhaseFilter:
                     Operation(OperationType.GIT, "push *", "Push code"),
                     Operation(OperationType.EGG_CONTRACT, "add-commit *", "Link commits"),
                     Operation(OperationType.EGG_CONTRACT, "update-notes *", "Add notes"),
-                    Operation(OperationType.EGG_CONTRACT, "mark-task *", "Mark task status"),
-                    Operation(OperationType.EGG_CONTRACT, "mark-phase *", "Mark phase status"),
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
                 ],
                 blocked_operations=[
