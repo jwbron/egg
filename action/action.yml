@@ -30,7 +30,7 @@ inputs:
   bot-username:
     description: Bot GitHub username for filtering self-comments
     required: false
-    default: egg
+    default: james-in-a-box
   bot-branch-prefix:
     description: Branch name prefix for bot-owned branches (gateway allows push to <prefix>- and <prefix>/ branches)
     required: false

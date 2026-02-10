@@ -17,7 +17,7 @@
 #   INPUT_BOT_APP_ID             — GitHub App ID for bot identity
 #   INPUT_BOT_APP_PRIVATE_KEY    — GitHub App private key PEM content
 #   INPUT_BOT_APP_INSTALLATION_ID — GitHub App installation ID
-#   INPUT_BOT_USERNAME           — Bot username (default: "egg")
+#   INPUT_BOT_USERNAME           — Bot username (default: "james-in-a-box")
 #
 # Outputs:
 #   EGG_CONFIG_DIR — path to the generated config directory (written to GITHUB_OUTPUT)
@@ -33,7 +33,7 @@ set -euo pipefail
 : "${INPUT_ANTHROPIC_OAUTH_TOKEN:?anthropic-oauth-token input is required}"
 : "${INPUT_GITHUB_TOKEN:?github-token input is required}"
 
-BOT_USERNAME="${INPUT_BOT_USERNAME:-egg}"
+BOT_USERNAME="${INPUT_BOT_USERNAME:-james-in-a-box}"
 RUN_ID="${GITHUB_RUN_ID:-$$}"
 
 # ---------------------------------------------------------------------------
