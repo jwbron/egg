@@ -102,7 +102,7 @@
           "files_affected": [
             ".egg/schemas/contract.schema.json"
           ],
-          "commit": null,
+          "commit": "b7183d8",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -116,7 +116,7 @@
           "files_affected": [
             ".github/workflows/sdlc-pipeline.yml"
           ],
-          "commit": null,
+          "commit": "b7183d8",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -130,7 +130,7 @@
           "files_affected": [
             ".github/workflows/sdlc-work-loop.yml"
           ],
-          "commit": null,
+          "commit": "b7183d8",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -156,7 +156,7 @@
           "files_affected": [
             ".github/workflows/sdlc-work-loop.yml"
           ],
-          "commit": null,
+          "commit": "b32675d",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -170,7 +170,7 @@
           "files_affected": [
             ".github/workflows/sdlc-work-loop.yml"
           ],
-          "commit": null,
+          "commit": "b32675d",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -184,7 +184,7 @@
           "files_affected": [
             ".github/workflows/sdlc-work-loop.yml"
           ],
-          "commit": null,
+          "commit": "b32675d",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -210,7 +210,7 @@
           "files_affected": [
             ".github/workflows/sdlc-work-loop.yml"
           ],
-          "commit": null,
+          "commit": "ac1ca42",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -224,7 +224,7 @@
           "files_affected": [
             ".github/workflows/sdlc-work-loop.yml"
           ],
-          "commit": null,
+          "commit": "ac1ca42",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -250,7 +250,7 @@
           "files_affected": [
             ".github/workflows/sdlc-work-loop.yml"
           ],
-          "commit": null,
+          "commit": "e27807a",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -264,7 +264,7 @@
           "files_affected": [
             ".github/workflows/sdlc-work-loop.yml"
           ],
-          "commit": null,
+          "commit": "e27807a",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -278,7 +278,7 @@
           "files_affected": [
             ".github/workflows/sdlc-work-loop.yml"
           ],
-          "commit": null,
+          "commit": "e27807a",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -292,7 +292,7 @@
           "files_affected": [
             ".github/workflows/sdlc-work-loop.yml"
           ],
-          "commit": null,
+          "commit": "e27807a",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -318,7 +318,7 @@
           "files_affected": [
             ".github/workflows/sdlc-work-loop.yml"
           ],
-          "commit": null,
+          "commit": "2ba55c7",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -332,7 +332,7 @@
           "files_affected": [
             ".github/workflows/sdlc-work-loop.yml"
           ],
-          "commit": null,
+          "commit": "2ba55c7",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -359,7 +359,7 @@
             ".github/workflows/sdlc-work-loop.yml",
             ".github/workflows/sdlc-pipeline.yml"
           ],
-          "commit": null,
+          "commit": "f19ec11",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -373,7 +373,7 @@
           "files_affected": [
             "docs/guides/sdlc-pipeline.md"
           ],
-          "commit": null,
+          "commit": "f19ec11",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
