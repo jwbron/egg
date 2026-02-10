@@ -906,7 +906,8 @@ jobs:
     outputs:
       all_passed: ${{ steps.aggregate.outputs.all_passed }}
       has_conflicts: ${{ steps.aggregate.outputs.has_conflicts }}
-      needs_fixer: ${{ steps.aggregate.outputs.needs_fixer }}
+      autofix_succeeded: ${{ steps.aggregate.outputs.autofix_succeeded }}
+      autofix_limit_exceeded: ${{ steps.aggregate.outputs.autofix_limit_exceeded }}
 
     steps:
       - name: Aggregate results
@@ -921,7 +922,8 @@ jobs:
             {
               echo "all_passed=true"
               echo "has_conflicts=false"
-              echo "needs_fixer=false"
+              echo "autofix_succeeded=false"
+              echo "autofix_limit_exceeded=false"
             } >> "$GITHUB_OUTPUT"
             echo "No checks for ${PHASE} phase"
             exit 0
@@ -951,35 +953,40 @@ jobs:
             INTEGRATION_PASSED="${{ needs.check-integration.outputs.passed || 'true' }}"
           fi
 
-          # Check if fixer was triggered
-          FIXER_STATUS="${{ needs.check-fixer.outputs.fixed || 'false' }}"
-          NEEDS_FIXER="false"
-          if [[ "$FIXER_STATUS" == "pending" ]]; then
-            NEEDS_FIXER="true"
+          # Check autofix status (now synchronous - true/false, not pending)
+          AUTOFIX_FIXED="${{ needs.check-fixer.outputs.fixed || 'false' }}"
+          AUTOFIX_LIMIT_EXCEEDED="${{ needs.check-fixer.outputs.limit_exceeded || 'false' }}"
+
+          # Determine if autofix ran and succeeded
+          AUTOFIX_SUCCEEDED="false"
+          if [[ "$AUTOFIX_FIXED" == "true" ]]; then
+            AUTOFIX_SUCCEEDED="true"
           fi
 
           # Determine overall pass/fail
+          # Checks pass only if all individual checks passed (no special treatment for fixer)
           ALL_PASSED="true"
           if [[ "$HAS_CONFLICTS" == "true" ]]; then
             ALL_PASSED="false"
           fi
-          if [[ "$LINT_PASSED" == "false" && "$FIXER_STATUS" != "pending" ]]; then
+          if [[ "$LINT_PASSED" == "false" ]]; then
             ALL_PASSED="false"
           fi
-          if [[ "$TEST_PASSED" == "false" && "$FIXER_STATUS" != "pending" ]]; then
+          if [[ "$TEST_PASSED" == "false" ]]; then
             ALL_PASSED="false"
           fi
-          if [[ "$INTEGRATION_PASSED" == "false" && "$FIXER_STATUS" != "pending" ]]; then
+          if [[ "$INTEGRATION_PASSED" == "false" ]]; then
             ALL_PASSED="false"
           fi
 
           {
             echo "all_passed=${ALL_PASSED}"
             echo "has_conflicts=${HAS_CONFLICTS}"
-            echo "needs_fixer=${NEEDS_FIXER}"
+            echo "autofix_succeeded=${AUTOFIX_SUCCEEDED}"
+            echo "autofix_limit_exceeded=${AUTOFIX_LIMIT_EXCEEDED}"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Check aggregation complete: all_passed=${ALL_PASSED}, has_conflicts=${HAS_CONFLICTS}, needs_fixer=${NEEDS_FIXER}"
+          echo "Check aggregation: all_passed=${ALL_PASSED}, has_conflicts=${HAS_CONFLICTS}, autofix_succeeded=${AUTOFIX_SUCCEEDED}, autofix_limit_exceeded=${AUTOFIX_LIMIT_EXCEEDED}"
 
   # ============================================================
   # Review: Check preconditions before running reviewers
