@@ -228,7 +228,7 @@ class TestGitPush:
             mock_engine = MagicMock()
             mock_engine.check_branch_ownership.return_value = PolicyResult(
                 allowed=False,
-                reason="Branch 'main' is not owned by egg",
+                reason="Branch 'main' is not owned by james-in-a-box",
                 details={"branch": "main"},
             )
             mock_policy.return_value = mock_engine
@@ -281,7 +281,7 @@ class TestGitPush:
             mock_engine = MagicMock()
             mock_engine.check_branch_ownership.return_value = PolicyResult(
                 allowed=True,
-                reason="Branch is owned by egg",
+                reason="Branch is owned by james-in-a-box",
                 details={"branch": "egg-feature"},
             )
             mock_policy.return_value = mock_engine
@@ -358,7 +358,7 @@ class TestGitPush:
             mock_engine = MagicMock()
             mock_engine.check_branch_ownership.return_value = PolicyResult(
                 allowed=True,
-                reason="Branch is owned by egg",
+                reason="Branch is owned by james-in-a-box",
                 details={"branch": "egg-feature"},
             )
             mock_policy.return_value = mock_engine
@@ -466,7 +466,7 @@ class TestGitPush:
             mock_engine = MagicMock()
             mock_engine.check_branch_ownership.return_value = PolicyResult(
                 allowed=True,
-                reason="Branch is owned by egg",
+                reason="Branch is owned by james-in-a-box",
                 details={"branch": "egg-feature"},
             )
             mock_policy.return_value = mock_engine
@@ -567,7 +567,7 @@ class TestGitPush:
             mock_engine = MagicMock()
             mock_engine.check_branch_ownership.return_value = PolicyResult(
                 allowed=True,
-                reason="Branch is owned by egg",
+                reason="Branch is owned by james-in-a-box",
                 details={"branch": "egg-feature"},
             )
             mock_policy.return_value = mock_engine
@@ -652,7 +652,7 @@ class TestGitPush:
             mock_engine = MagicMock()
             mock_engine.check_branch_ownership.return_value = PolicyResult(
                 allowed=True,
-                reason="Branch is owned by egg",
+                reason="Branch is owned by james-in-a-box",
                 details={"branch": "egg-feature"},
             )
             mock_policy.return_value = mock_engine
@@ -731,7 +731,7 @@ class TestGitPush:
             mock_engine = MagicMock()
             mock_engine.check_branch_ownership.return_value = PolicyResult(
                 allowed=True,
-                reason="Branch is owned by egg",
+                reason="Branch is owned by james-in-a-box",
                 details={"branch": "egg-feature"},
             )
             mock_policy.return_value = mock_engine
@@ -839,7 +839,7 @@ class TestGitPush:
             mock_engine = MagicMock()
             mock_engine.check_branch_ownership.return_value = PolicyResult(
                 allowed=True,
-                reason="Branch is owned by egg",
+                reason="Branch is owned by james-in-a-box",
                 details={"branch": "egg-feature"},
             )
             mock_policy.return_value = mock_engine
@@ -1042,7 +1042,7 @@ class TestGhPrEdit:
             mock_engine = MagicMock()
             mock_engine.check_pr_ownership.return_value = PolicyResult(
                 allowed=False,
-                reason="PR #123 is not owned by egg",
+                reason="PR #123 is not owned by james-in-a-box",
                 details={"author": "someone-else"},
             )
             mock_policy.return_value = mock_engine
@@ -1079,7 +1079,7 @@ class TestGhPrClose:
             mock_engine = MagicMock()
             mock_engine.check_pr_ownership.return_value = PolicyResult(
                 allowed=False,
-                reason="PR #123 is not owned by egg",
+                reason="PR #123 is not owned by james-in-a-box",
                 details={"author": "someone-else"},
             )
             mock_policy.return_value = mock_engine
@@ -2084,7 +2084,7 @@ class TestGitHookDisabling:
             mock_engine = MagicMock()
             mock_engine.check_branch_ownership.return_value = PolicyResult(
                 allowed=True,
-                reason="Branch is owned by egg",
+                reason="Branch is owned by james-in-a-box",
                 details={"branch": "egg-feature"},
             )
             mock_policy.return_value = mock_engine
