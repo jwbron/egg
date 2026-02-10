@@ -134,6 +134,16 @@ from .orchestration import (
     initialize_orchestration,
     update_contract_orchestration,
 )
+from .dependency_graph import (
+    DependencyGraph,
+    DependencyNode,
+    ExecutionPlan,
+    ExecutionWave,
+    build_dependency_graph,
+    compute_execution_plan,
+    format_execution_plan,
+    get_parallel_groups,
+)
 from .phase_defaults import (
     get_default_phase_config,
     get_effective_phase_config,
@@ -308,4 +318,13 @@ __all__ = [
     "get_runnable_agents",
     "initialize_orchestration",
     "update_contract_orchestration",
+    # Dependency Graph
+    "DependencyGraph",
+    "DependencyNode",
+    "ExecutionPlan",
+    "ExecutionWave",
+    "build_dependency_graph",
+    "compute_execution_plan",
+    "format_execution_plan",
+    "get_parallel_groups",
 ]
