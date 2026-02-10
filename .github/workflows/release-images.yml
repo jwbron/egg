@@ -43,16 +43,77 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set image tag
-        id: tag
+      - name: Validate and parse version tag
+        id: version
         run: |
+          TAG=""
+          IS_RELEASE="false"
+          IS_PRERELEASE="false"
+
           if [[ "${{ github.event_name }}" == "release" ]]; then
-            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+            TAG="${{ github.event.release.tag_name }}"
+            IS_RELEASE="true"
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            TAG="${{ inputs.tag }}"
+            # Treat workflow_dispatch with semver tag as a release
+            if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              IS_RELEASE="true"
+            fi
           else
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            TAG="latest"
           fi
+
+          # Validate semver format for releases
+          if [[ "$IS_RELEASE" == "true" ]]; then
+            if [[ ! "$TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[a-zA-Z0-9.]+)?$ ]]; then
+              echo "::error::Invalid version tag '$TAG'. Must match semver format: vX.Y.Z or vX.Y.Z-prerelease"
+              exit 1
+            fi
+
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PRERELEASE="${BASH_REMATCH[4]}"
+
+            echo "major_tag=v${MAJOR}" >> "$GITHUB_OUTPUT"
+            echo "minor_tag=v${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
+
+            # Check for pre-release suffix (-alpha, -beta, -rc, etc.)
+            if [[ -n "$PRERELEASE" ]]; then
+              IS_PRERELEASE="true"
+            fi
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "is_release=$IS_RELEASE" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+
+      - name: Generate image tags
+        id: tags
+        run: |
+          IMAGE="${{ matrix.image }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          IS_RELEASE="${{ steps.version.outputs.is_release }}"
+          IS_PRERELEASE="${{ steps.version.outputs.is_prerelease }}"
+          MAJOR_TAG="${{ steps.version.outputs.major_tag }}"
+          MINOR_TAG="${{ steps.version.outputs.minor_tag }}"
+
+          TAGS="${IMAGE}:${TAG}"
+
+          if [[ "$IS_RELEASE" == "true" ]]; then
+            # Add floating version tags (vX.Y, vX)
+            TAGS="${TAGS},${IMAGE}:${MINOR_TAG},${IMAGE}:${MAJOR_TAG}"
+
+            # Add latest tag only for stable releases (not pre-releases)
+            if [[ "$IS_PRERELEASE" == "false" ]]; then
+              TAGS="${TAGS},${IMAGE}:latest"
+            fi
+          elif [[ "$TAG" != "latest" ]]; then
+            # Non-release push to main: add latest tag
+            TAGS="${TAGS},${IMAGE}:latest"
+          fi
+
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+          echo "Generated tags: $TAGS"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -64,6 +125,4 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           platforms: linux/amd64
-          tags: |
-            ${{ matrix.image }}:${{ steps.tag.outputs.tag }}
-            ${{ matrix.image }}:latest
+          tags: ${{ steps.tags.outputs.tags }}

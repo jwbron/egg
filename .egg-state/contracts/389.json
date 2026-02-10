@@ -1,0 +1,523 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 389,
+    "title": "support releases",
+    "url": "https://github.com/jwbron/egg/issues/389"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] On release v0.1.0, images are tagged as v0.1.0, v0.1, and v0",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Workflow fails gracefully if tag doesn't match vX.Y.Z pattern",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Tags with -alpha, -beta, -rc suffix don't update latest",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-1] Script validates version format, creates git tag, updates floating tags (vX.Y, vX), and pushes to origin",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-2] Dry-run shows what would happen without making changes",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-3] Script outputs a markdown template suitable for GitHub release body",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-3-1] All 5 uses jwbron/egg/action@main references updated to @v0",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-2] uses line updated, action_ref input default updated",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-3] uses line updated, action_ref input default updated",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-4] uses line updated, action_ref input default updated",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-5] uses line updated, action_ref input default updated",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-6] uses line updated, action_ref input default updated",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-3-7] uses line updated, action_ref input default updated",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-3-8] uses line updated, action_ref input default updated",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-4-1] Documents semver policy, how to pin versions, and what breaking changes mean",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-4-2] Examples updated to use @v0, explanation of version pinning added",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-4-3] Quick start example uses versioned reference",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-4-4] Step-by-step guide for creating releases, including checklist",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-5-1] CI green on main branch",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-5-2] Git tags exist, GitHub release created, images pushed with version tags",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-5-3] docker pull ghcr.io/jwbron/egg-sandbox:v0.1.0 succeeds",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Enhance Docker Image Tagging",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Update release-images.yml to generate all tag variants (vX.Y.Z, vX.Y, vX)",
+          "status": "pending",
+          "acceptance_criteria": "On release v0.1.0, images are tagged as v0.1.0, v0.1, and v0",
+          "files_affected": [
+            ".github/workflows/release-images.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add validation to ensure release tags follow semver format",
+          "status": "pending",
+          "acceptance_criteria": "Workflow fails gracefully if tag doesn't match vX.Y.Z pattern",
+          "files_affected": [
+            ".github/workflows/release-images.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Update workflow to skip latest tag update for pre-release versions",
+          "status": "pending",
+          "acceptance_criteria": "Tags with -alpha, -beta, -rc suffix don't update latest",
+          "files_affected": [
+            ".github/workflows/release-images.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Create Release Automation Script",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create .github/scripts/create-release.sh script",
+          "status": "pending",
+          "acceptance_criteria": "Script validates version format, creates git tag, updates floating tags (vX.Y, vX), and pushes to origin",
+          "files_affected": [
+            ".github/scripts/create-release.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add --dry-run mode to script for testing",
+          "status": "pending",
+          "acceptance_criteria": "Dry-run shows what would happen without making changes",
+          "files_affected": [
+            ".github/scripts/create-release.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Update script to generate release notes template",
+          "status": "pending",
+          "acceptance_criteria": "Script outputs a markdown template suitable for GitHub release body",
+          "files_affected": [
+            ".github/scripts/create-release.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Update Action References",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Update sdlc-pipeline.yml action references from @main to @v0",
+          "status": "pending",
+          "acceptance_criteria": "All 5 uses jwbron/egg/action@main references updated to @v0",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update reusable-review.yml action reference",
+          "status": "pending",
+          "acceptance_criteria": "uses line updated, action_ref input default updated",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Update reusable-autofix.yml action reference",
+          "status": "pending",
+          "acceptance_criteria": "uses line updated, action_ref input default updated",
+          "files_affected": [
+            ".github/workflows/reusable-autofix.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Update reusable-conflict-resolve.yml action reference",
+          "status": "pending",
+          "acceptance_criteria": "uses line updated, action_ref input default updated",
+          "files_affected": [
+            ".github/workflows/reusable-conflict-resolve.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-5",
+          "description": "Update on-review-feedback.yml action reference",
+          "status": "pending",
+          "acceptance_criteria": "uses line updated, action_ref input default updated",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-6",
+          "description": "Update on-mention.yml action reference",
+          "status": "pending",
+          "acceptance_criteria": "uses line updated, action_ref input default updated",
+          "files_affected": [
+            ".github/workflows/on-mention.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-7",
+          "description": "Update on-push-doc-updater.yml action reference",
+          "status": "pending",
+          "acceptance_criteria": "uses line updated, action_ref input default updated",
+          "files_affected": [
+            ".github/workflows/on-push-doc-updater.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-8",
+          "description": "Update self-improvement.yml action reference",
+          "status": "pending",
+          "acceptance_criteria": "uses line updated, action_ref input default updated",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Update Documentation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add versioning policy section to main README.md",
+          "status": "pending",
+          "acceptance_criteria": "Documents semver policy, how to pin versions, and what breaking changes mean",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Update docs/guides/reusable-workflows.md with versioning guidance",
+          "status": "pending",
+          "acceptance_criteria": "Examples updated to use @v0, explanation of version pinning added",
+          "files_affected": [
+            "docs/guides/reusable-workflows.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Update action/README.md with versioning examples",
+          "status": "pending",
+          "acceptance_criteria": "Quick start example uses versioned reference",
+          "files_affected": [
+            "action/README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Create RELEASING.md documenting the release process",
+          "status": "pending",
+          "acceptance_criteria": "Step-by-step guide for creating releases, including checklist",
+          "files_affected": [
+            "RELEASING.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Initial Release",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Verify all tests pass on main",
+          "status": "pending",
+          "acceptance_criteria": "CI green on main branch",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Create v0.1.0 release using the release script",
+          "status": "pending",
+          "acceptance_criteria": "Git tags exist, GitHub release created, images pushed with version tags",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Verify versioned images are accessible",
+          "status": "pending",
+          "acceptance_criteria": "docker pull ghcr.io/jwbron/egg-sandbox:v0.1.0 succeeds",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-09T06:22:41Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Refine review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-09T06:47:12Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-09T06:54:11Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Plan review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-10T04:38:48Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    }
+  ],
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add semantic versioning for releases",
+    "description": "Implements semantic versioning for Docker images and GitHub Action references.\nThis enables version pinning for stability and rollback capability.\n\nKey changes:\n- Release workflow produces vX.Y.Z, vX.Y, and vX tags for images\n- All internal action references pinned to @v0\n- Helper script for creating releases with proper tag management\n- Documentation for versioning policy and release process\n\nCloses #389"
+  }
+}
