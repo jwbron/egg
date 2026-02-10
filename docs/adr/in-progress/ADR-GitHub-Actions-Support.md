@@ -112,7 +112,7 @@ Since there's no `~/.config/egg/repositories.yaml` in GHA, the entrypoint genera
 
 ```yaml
 github_username: <from $GITHUB_ACTOR>
-bot_username: <from bot-username input, default "egg">
+bot_username: <from bot-username input, required for bot mode>
 
 writable_repos:
   - <owner/repo derived from $GITHUB_REPOSITORY>

@@ -18,10 +18,13 @@ on:
         type: string
         default: ""
       bot_username:
-        description: 'GitHub username of the bot (for comment filtering)'
-        required: false
+        description: 'GitHub username of the bot (e.g., my-bot)'
+        required: true
         type: string
-        default: "james-in-a-box"
+      branch_prefix:
+        description: 'Branch prefix for bot branches (e.g., egg)'
+        required: true
+        type: string
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
@@ -63,10 +66,9 @@ on:
         type: string
         default: ""
       bot_username:
-        description: 'GitHub username of the bot (for comment filtering)'
-        required: false
+        description: 'GitHub username of the bot (e.g., my-bot)'
+        required: true
         type: string
-        default: "james-in-a-box"
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
@@ -101,7 +103,8 @@ jobs:
       PR_NUMBER: ${{ inputs.pr_number }}
       FAILED_WORKFLOW: ${{ inputs.failed_workflow }}
       FAILED_RUN_ID: ${{ inputs.failed_run_id }}
-      BOT_USERNAME: ${{ inputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ inputs.bot_username }}
+      BRANCH_PREFIX: ${{ inputs.branch_prefix }}
 
     steps:
       - name: Generate bot token
@@ -148,7 +151,7 @@ jobs:
         run: |
           # Find previous bot comments that are status comments (marked with semantic marker)
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq ".[] | select(.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") | select(.body | contains(\"<!-- egg-status-comment -->\")) | .node_id" \
+            --jq ".[] | select(.user.login == \"$EGG_BOT_USERNAME\" or .user.login == \"${EGG_BOT_USERNAME}[bot]\") | select(.body | contains(\"<!-- egg-status-comment -->\")) | .node_id" \
           | while read -r node_id; do
               # Minimize the comment using GraphQL
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
@@ -222,7 +225,8 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
+          bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ inputs.timeout }}
 
       - name: Post result comment

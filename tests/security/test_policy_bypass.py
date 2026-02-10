@@ -37,8 +37,8 @@ def _load_policy_module():
     shared_dir = PROJECT_ROOT / "shared"
 
     # Set up environment
-    os.environ.setdefault("GATEWAY_BOT_NAME", "egg")
-    os.environ.setdefault("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+    os.environ.setdefault("GATEWAY_BOT_NAME", "james-in-a-box")
+    os.environ.setdefault("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
 
     sys.path.insert(0, str(shared_dir))
     sys.path.insert(0, str(gateway_dir))
@@ -74,8 +74,8 @@ class TestProtectedBranchEnforcement:
     @pytest.fixture
     def policy_engine(self, monkeypatch):
         """Create a policy engine for testing."""
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
 
         policy = _load_policy_module()
         policy._reset_bot_config_caches()
@@ -117,11 +117,11 @@ class TestProtectedBranchEnforcement:
         """
         # Mock a PR that would normally grant access
         policy_engine.github.list_prs_for_branch.return_value = [
-            {"number": 1, "author": {"login": "egg"}, "state": "open", "headRefName": branch}
+            {"number": 1, "author": {"login": "james-in-a-box"}, "state": "open", "headRefName": branch}
         ]
         policy_engine.github.get_pr_info.return_value = {
             "number": 1,
-            "author": {"login": "egg"},
+            "author": {"login": "james-in-a-box"},
             "state": "open",
             "headRefName": branch,
         }
@@ -144,8 +144,8 @@ class TestMergeBlockEnforcement:
     @pytest.fixture
     def policy_engine(self, monkeypatch):
         """Create a policy engine for testing."""
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
 
         policy = _load_policy_module()
         policy._reset_bot_config_caches()
@@ -187,8 +187,8 @@ class TestBranchNameInjection:
     @pytest.fixture
     def policy_engine(self, monkeypatch):
         """Create a policy engine for testing."""
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
 
         policy = _load_policy_module()
         policy._reset_bot_config_caches()
@@ -228,9 +228,9 @@ class TestBranchNameInjection:
     @pytest.mark.parametrize(
         "branch",
         [
-            "egg-$(whoami)",  # Injection attempt with valid prefix
-            "egg/`id`",  # Injection attempt with valid prefix
-            "egg-; rm -rf /",
+            "james-in-a-box-$(whoami)",  # Injection attempt with valid prefix
+            "james-in-a-box/`id`",  # Injection attempt with valid prefix
+            "james-in-a-box-; rm -rf /",
         ],
     )
     def test_injection_with_valid_prefix(self, policy_engine, branch):
@@ -241,7 +241,7 @@ class TestBranchNameInjection:
         """
         result = policy_engine.check_branch_ownership("owner/repo", branch)
 
-        # Branch with egg- prefix should be allowed (prefix match is purely string-based)
+        # Branch with bot prefix should be allowed (prefix match is purely string-based)
         # This is correct behavior - we're testing that the injection doesn't execute
         assert result.allowed  # Prefix is valid
         assert "bot-prefixed" in result.reason
@@ -258,8 +258,8 @@ class TestUnicodeEncodingTricks:
     @pytest.fixture
     def policy_engine(self, monkeypatch):
         """Create a policy engine for testing."""
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
 
         policy = _load_policy_module()
         policy._reset_bot_config_caches()
@@ -296,7 +296,7 @@ class TestUnicodeEncodingTricks:
         "branch",
         [
             "\u202eegg/feature",  # Right-to-left override
-            "feature/\u202eegg",  # RTL override to make "egg" appear first
+            "feature/\u202ejames-in-a-box",  # RTL override to make "egg" appear first
         ],
     )
     def test_rtl_override_rejected(self, policy_engine, branch):
@@ -322,8 +322,8 @@ class TestRefspecExtraction:
     @pytest.fixture
     def policy_module(self, monkeypatch):
         """Load policy module."""
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
         return _load_policy_module()
 
     @pytest.mark.parametrize(
@@ -376,8 +376,8 @@ class TestRemoteURLExtraction:
     @pytest.fixture
     def policy_module(self, monkeypatch):
         """Load policy module."""
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
         return _load_policy_module()
 
     @pytest.mark.parametrize(
@@ -449,8 +449,8 @@ class TestPROwnershipBypass:
     @pytest.fixture
     def policy_engine(self, monkeypatch):
         """Create a policy engine for testing."""
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
 
         policy = _load_policy_module()
         policy._reset_bot_config_caches()
@@ -488,4 +488,4 @@ class TestPROwnershipBypass:
         # which may be legitimately handled)
         if result.allowed:
             # If allowed, verify it's a legitimate case match
-            assert author.strip().lower() == "egg"
+            assert author.strip().lower() == "james-in-a-box"

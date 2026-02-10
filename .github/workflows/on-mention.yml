@@ -24,7 +24,10 @@ on:
         description: 'GitHub username of the bot (for self-trigger prevention and comment filtering)'
         required: false
         type: string
-        default: "james-in-a-box"
+      branch_prefix:
+        description: 'Branch prefix for the bot (e.g., egg)'
+        required: false
+        type: string
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
@@ -35,11 +38,6 @@ on:
         required: false
         type: string
         default: "jwbron"
-      mention_patterns:
-        description: 'Comma-separated list of mention patterns to trigger on (e.g., "@mybot,@egg")'
-        required: false
-        type: string
-        default: "@james-in-a-box,@egg"
       prompt_script:
         description: 'Path to prompt builder script (relative to repo root)'
         required: false
@@ -61,27 +59,47 @@ on:
         required: true
 
 jobs:
+  # Validate required configuration for event-triggered runs
+  validate-config:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_call'
+    steps:
+      - name: Validate required repository variables
+        run: |
+          if [[ -z "${{ vars.EGG_BOT_USERNAME }}" ]]; then
+            echo "::error::Required repository variable EGG_BOT_USERNAME is not set"
+            echo "::error::Set it in Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
+          echo "All required repository variables are configured"
+
   # Workaround: GitHub Actions doesn't allow accessing inputs in job-level 'if' conditions.
   # This job passes inputs as outputs so subsequent jobs can use them in conditions.
   resolve-inputs:
     name: Resolve Inputs
+    needs: [validate-config]
+    if: always() && (needs.validate-config.result == 'success' || needs.validate-config.result == 'skipped')
     runs-on: ubuntu-latest
     outputs:
       bot_username: ${{ steps.resolve.outputs.bot_username }}
+      branch_prefix: ${{ steps.resolve.outputs.branch_prefix }}
       authorized_users: ${{ steps.resolve.outputs.authorized_users }}
-      mention_patterns: ${{ steps.resolve.outputs.mention_patterns }}
       issue_or_pr_number: ${{ steps.resolve.outputs.issue_or_pr_number }}
       should_check_trigger: ${{ steps.resolve.outputs.should_check_trigger }}
     steps:
       - name: Resolve inputs with defaults
         id: resolve
         run: |
-          # Use inputs if called as reusable workflow, otherwise use defaults
-          {
-            echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}"
-            echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
-            echo "mention_patterns=${{ inputs.mention_patterns || '@james-in-a-box,@egg' }}"
-          } >> "$GITHUB_OUTPUT"
+          # Use inputs if called as reusable workflow, otherwise use repository variables
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            echo "bot_username=${{ inputs.bot_username }}" >> "$GITHUB_OUTPUT"
+            echo "branch_prefix=${{ inputs.branch_prefix }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "bot_username=${{ vars.EGG_BOT_USERNAME }}" >> "$GITHUB_OUTPUT"
+            echo "branch_prefix=${{ vars.EGG_BRANCH_PREFIX }}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}" >> "$GITHUB_OUTPUT"
 
           # Determine issue/PR number based on event type
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
@@ -111,9 +129,8 @@ jobs:
       - name: Check if mention is valid and from authorized user
         id: check
         env:
-          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+          EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
           AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
-          MENTION_PATTERNS: ${{ needs.resolve-inputs.outputs.mention_patterns }}
           SENDER_LOGIN: ${{ github.event.sender.login }}
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body }}
@@ -139,7 +156,7 @@ jobs:
           fi
 
           # Prevent self-triggering
-          if [[ "$SENDER_LOGIN" == "$BOT_USERNAME" || "$SENDER_LOGIN" == "${BOT_USERNAME}[bot]" ]]; then
+          if [[ "$SENDER_LOGIN" == "$EGG_BOT_USERNAME" || "$SENDER_LOGIN" == "${EGG_BOT_USERNAME}[bot]" ]]; then
             echo "Ignoring self-trigger from bot"
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -157,19 +174,9 @@ jobs:
             body="$ISSUE_BODY"
           fi
 
-          # Check if any mention pattern matches
-          has_mention=false
-          IFS=',' read -ra patterns <<< "$MENTION_PATTERNS"
-          for pattern in "${patterns[@]}"; do
-            pattern=$(echo "$pattern" | xargs)  # trim whitespace
-            if [[ "$body" == *"$pattern"* ]]; then
-              has_mention=true
-              break
-            fi
-          done
-
-          if [[ "$has_mention" != "true" ]]; then
-            echo "No matching mention pattern found in body"
+          # Check if body contains @bot_username mention
+          if [[ "$body" != *"@${EGG_BOT_USERNAME}"* ]]; then
+            echo "No @${EGG_BOT_USERNAME} mention found in body"
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -199,7 +206,8 @@ jobs:
       cancel-in-progress: false
 
     env:
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       ISSUE_OR_PR_NUMBER: ${{ needs.resolve-inputs.outputs.issue_or_pr_number }}
 
     steps:
@@ -302,7 +310,8 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
+          bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ inputs.timeout || '30' }}
 
       # Minimize previous status comments to reduce clutter
@@ -317,7 +326,7 @@ jobs:
           # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments" \
-            | jq -r --arg bot "$BOT_USERNAME" \
+            | jq -r --arg bot "$EGG_BOT_USERNAME" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
@@ -349,7 +358,7 @@ jobs:
           fi
           # Match both bot username and bot[bot] since GitHub App comments use the [bot] suffix
           EXISTING_COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments" \
-            --jq "[.[] | select((.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") and .created_at > \"${TRIGGER_TIME}\" and (.body | test(\"finished successfully|run failed|👀 Working on it\") | not))] | length")
+            --jq "[.[] | select((.user.login == \"$EGG_BOT_USERNAME\" or .user.login == \"${EGG_BOT_USERNAME}[bot]\") and .created_at > \"${TRIGGER_TIME}\" and (.body | test(\"finished successfully|run failed|👀 Working on it\") | not))] | length")
 
           if [[ "${EXISTING_COMMENTS:-0}" -gt 0 ]]; then
             # Agent already posted a substantive comment — only add run link on failure

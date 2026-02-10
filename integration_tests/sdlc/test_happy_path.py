@@ -198,7 +198,7 @@ class TestHappyPathTaskExecution:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.commit",
             new_value="abc1234",
             reason="Implementation commit",
@@ -217,7 +217,7 @@ class TestHappyPathTaskExecution:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.notes",
             new_value="Created schema with Pydantic models",
             reason="Implementation notes",
@@ -287,7 +287,7 @@ class TestHappyPathFullPipeline:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.commit",
             new_value="abc1234",
         )
@@ -311,7 +311,7 @@ class TestHappyPathFullPipeline:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.1.commit",
             new_value="def2345",
         )
@@ -347,7 +347,7 @@ class TestHappyPathFullPipeline:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.1.tasks.0.commit",
             new_value="fab3456",
         )
@@ -414,7 +414,7 @@ class TestHappyPathFullPipeline:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.commit",
             new_value="abc1234",
         )
@@ -424,7 +424,7 @@ class TestHappyPathFullPipeline:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.notes",
             new_value="Implementation notes",
         )

@@ -56,7 +56,7 @@ def _write_minimal_config(config_dir: str, launcher_secret: str) -> None:
     (config_path / "repositories.yaml").write_text(
         """\
 github_username: test-user
-bot_username: egg
+bot_username: james-in-a-box
 
 writable_repos:
   - test-owner/test-repo
@@ -79,8 +79,8 @@ local_repos:
     # secrets.env -- minimal for functional tests (no real API calls)
     (config_path / "secrets.env").write_text(
         "CLAUDE_CODE_OAUTH_TOKEN=dummy-anthropic-token\n"
-        "GATEWAY_BOT_NAME=egg\n"
-        "GATEWAY_BOT_BRANCH_PREFIX=egg\n"
+        "GATEWAY_BOT_NAME=james-in-a-box\n"
+        "GATEWAY_BOT_BRANCH_PREFIX=james-in-a-box\n"
     )
     os.chmod(config_path / "secrets.env", 0o600)
 

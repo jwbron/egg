@@ -41,8 +41,8 @@ def gateway_env(monkeypatch):
     management. Returns a dict of the configured values.
     """
     config = {
-        "GATEWAY_BOT_NAME": "egg",
-        "GATEWAY_BOT_BRANCH_PREFIX": "egg",
+        "GATEWAY_BOT_NAME": "james-in-a-box",
+        "GATEWAY_BOT_BRANCH_PREFIX": "james-in-a-box",
         "GATEWAY_TRUSTED_USERS": "",
         "EGG_LAUNCHER_SECRET": "test-launcher-secret",
     }

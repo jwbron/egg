@@ -289,6 +289,68 @@ class AuditEntry(BaseModel):
     reason: str | None = Field(default=None, description="Reason for change")
 
 
+class AgentExecutionStatus(StrEnum):
+    """Status values for agent executions."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETE = "complete"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    BLOCKED = "blocked"
+
+
+class AgentRoleType(StrEnum):
+    """Agent role types for multi-agent orchestration."""
+
+    CODER = "coder"
+    TESTER = "tester"
+    DOCUMENTER = "documenter"
+    INTEGRATOR = "integrator"
+
+
+class AgentExecutionModel(BaseModel):
+    """Tracks the execution state of a single agent.
+
+    Used by the orchestrator to track which agents have run,
+    their results, and any handoff data they produced.
+    """
+
+    role: AgentRoleType = Field(..., description="The agent role")
+    status: AgentExecutionStatus = Field(
+        default=AgentExecutionStatus.PENDING, description="Current execution status"
+    )
+    started_at: datetime | None = Field(default=None, description="When agent started")
+    completed_at: datetime | None = Field(default=None, description="When agent completed")
+    commit: str | None = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{7,40}$",
+        description="Git commit SHA if agent made changes",
+    )
+    outputs: dict[str, Any] = Field(
+        default_factory=dict, description="Handoff data produced by agent"
+    )
+    error: str | None = Field(default=None, description="Error message if failed")
+    retry_count: int = Field(default=0, ge=0, description="Number of retry attempts")
+
+
+class MultiAgentConfig(BaseModel):
+    """Configuration for multi-agent orchestration.
+
+    Controls how agents are dispatched during the implement phase.
+    """
+
+    enabled: bool = Field(default=True, description="Whether multi-agent mode is enabled")
+    max_retries: int = Field(default=2, ge=0, description="Max retries per agent")
+    parallel_execution: bool = Field(
+        default=True, description="Allow parallel execution of independent agents"
+    )
+    roles_enabled: list[AgentRoleType] = Field(
+        default_factory=lambda: list(AgentRoleType),
+        description="Which agent roles are enabled",
+    )
+
+
 class Contract(BaseModel):
     """The complete SDLC contract."""
 
@@ -327,6 +389,15 @@ class Contract(BaseModel):
         default=None,
         description="Optional phase-specific configurations (overrides defaults)",
     )
+    # Multi-agent orchestration fields
+    agent_executions: list[AgentExecutionModel] = Field(
+        default_factory=list,
+        description="Execution state for each agent in multi-agent mode",
+    )
+    multi_agent_config: MultiAgentConfig | None = Field(
+        default=None,
+        description="Configuration for multi-agent orchestration",
+    )
 
     def get_task(self, phase_id: str, task_id: str) -> Task | None:
         """Get a specific task by phase and task ID."""
@@ -350,3 +421,86 @@ class Contract(BaseModel):
             if decision.id == decision_id:
                 return decision
         return None
+
+    def get_agent_execution(self, role: AgentRoleType | str) -> AgentExecutionModel | None:
+        """Get the execution state for an agent role.
+
+        Args:
+            role: The agent role (string or AgentRoleType enum)
+
+        Returns:
+            AgentExecutionModel for the role, or None if not found
+        """
+        if isinstance(role, str):
+            role = AgentRoleType(role)
+        for execution in self.agent_executions:
+            if execution.role == role:
+                return execution
+        return None
+
+    def is_multi_agent_enabled(self) -> bool:
+        """Check if multi-agent mode is enabled for this contract.
+
+        Returns:
+            True if multi-agent orchestration is enabled
+        """
+        if self.multi_agent_config is None:
+            return True  # Default to enabled
+        return self.multi_agent_config.enabled
+
+    def get_pending_agents(self) -> list[AgentExecutionModel]:
+        """Get all agents that are pending execution.
+
+        Returns:
+            List of AgentExecutionModel with PENDING status
+        """
+        return [
+            ex for ex in self.agent_executions
+            if ex.status == AgentExecutionStatus.PENDING
+        ]
+
+    def get_running_agents(self) -> list[AgentExecutionModel]:
+        """Get all agents that are currently running.
+
+        Returns:
+            List of AgentExecutionModel with RUNNING status
+        """
+        return [
+            ex for ex in self.agent_executions
+            if ex.status == AgentExecutionStatus.RUNNING
+        ]
+
+    def get_completed_agents(self) -> list[AgentExecutionModel]:
+        """Get all agents that have completed (successfully).
+
+        Returns:
+            List of AgentExecutionModel with COMPLETE status
+        """
+        return [
+            ex for ex in self.agent_executions
+            if ex.status == AgentExecutionStatus.COMPLETE
+        ]
+
+    def get_failed_agents(self) -> list[AgentExecutionModel]:
+        """Get all agents that have failed.
+
+        Returns:
+            List of AgentExecutionModel with FAILED status
+        """
+        return [
+            ex for ex in self.agent_executions
+            if ex.status == AgentExecutionStatus.FAILED
+        ]
+
+    def all_agents_complete(self) -> bool:
+        """Check if all agents have completed (successfully or skipped).
+
+        Returns:
+            True if all agents are in a terminal successful state
+        """
+        if not self.agent_executions:
+            return True  # No agents means nothing to complete
+        return all(
+            ex.status in (AgentExecutionStatus.COMPLETE, AgentExecutionStatus.SKIPPED)
+            for ex in self.agent_executions
+        )

@@ -53,11 +53,30 @@ MAX_BRANCH_PR_CACHE_SIZE = 200
 # Bot identity configuration
 # Loaded from GATEWAY_BOT_NAME environment variable (REQUIRED)
 # This should match your GitHub App name for PR ownership checks
-# Example: GATEWAY_BOT_NAME="james-in-a-box"
+# Example: GATEWAY_BOT_NAME="my-bot" (set to your bot's GitHub username)
 
 # Cached values (loaded lazily on first access)
 _bot_identities_cache: frozenset[str] | None = None
 _bot_branch_prefixes_cache: tuple[str, ...] | None = None
+
+
+def _get_bot_name() -> str:
+    """Get the configured bot name for use in messages.
+
+    Note: This function assumes GATEWAY_BOT_NAME is set, as get_bot_identities()
+    will raise ValueError before any policy checks run if it's not configured.
+    """
+    return os.environ.get("GATEWAY_BOT_NAME", "").strip().lower()
+
+
+def _get_branch_prefix() -> str:
+    """Get the configured branch prefix for use in messages.
+
+    Note: This function assumes GATEWAY_BOT_BRANCH_PREFIX is set, as
+    get_bot_branch_prefixes() will raise ValueError before any policy checks
+    run if it's not configured.
+    """
+    return os.environ.get("GATEWAY_BOT_BRANCH_PREFIX", "").strip().lower()
 
 
 def _reset_bot_config_caches() -> None:
@@ -91,7 +110,7 @@ def get_bot_identities() -> frozenset[str]:
     if not bot_name:
         raise ValueError(
             "GATEWAY_BOT_NAME environment variable is required. "
-            "Set it to your GitHub App name (e.g., GATEWAY_BOT_NAME=james-in-a-box). "
+            "Set it to your GitHub App name (e.g., GATEWAY_BOT_NAME=my-bot). "
             "Run 'egg --setup' to configure."
         )
     _bot_identities_cache = frozenset(
@@ -119,7 +138,7 @@ def get_bot_branch_prefixes() -> tuple[str, ...]:
     if not prefix:
         raise ValueError(
             "GATEWAY_BOT_BRANCH_PREFIX environment variable is required. "
-            "Set it to your branch prefix (e.g., GATEWAY_BOT_BRANCH_PREFIX=egg). "
+            "Set it to your branch prefix (e.g., GATEWAY_BOT_BRANCH_PREFIX=my-bot). "
             "Run 'egg --setup' to configure."
         )
     _bot_branch_prefixes_cache = (f"{prefix}-", f"{prefix}/")
@@ -347,7 +366,7 @@ class PolicyEngine:
             )
             return PolicyResult(
                 allowed=True,
-                reason="PR is owned by egg",
+                reason=f"PR is owned by {_get_bot_name()}",
                 details={"author": pr_info.author, "auth_mode": auth_mode},
             )
 
@@ -372,7 +391,7 @@ class PolicyEngine:
             )
 
         logger.info(
-            "PR ownership denied - not owned by egg or configured user",
+            f"PR ownership denied - not owned by {_get_bot_name()} or configured user",
             repo=repo,
             pr_number=pr_number,
             author=pr_info.author,
@@ -383,7 +402,7 @@ class PolicyEngine:
             expected.append(configured_user)
         return PolicyResult(
             allowed=False,
-            reason=f"PR #{pr_number} is not owned by egg or configured user (author: {pr_info.author})",
+            reason=f"PR #{pr_number} is not owned by {_get_bot_name()} or configured user (author: {pr_info.author})",
             details={"author": pr_info.author, "expected": expected, "auth_mode": auth_mode},
         )
 
@@ -528,7 +547,7 @@ class PolicyEngine:
                     )
                     return PolicyResult(
                         allowed=True,
-                        reason=f"Branch '{branch}' has open PR #{pr_number} owned by egg",
+                        reason=f"Branch '{branch}' has open PR #{pr_number} owned by {_get_bot_name()}",
                         details={
                             "branch": branch,
                             "pr_number": pr_number,
@@ -573,7 +592,7 @@ class PolicyEngine:
             )
             return PolicyResult(
                 allowed=False,
-                reason=f"Branch '{branch}' exists but has no open PR owned by egg or '{configured_user}'",
+                reason=f"Branch '{branch}' exists but has no open PR owned by {_get_bot_name()} or '{configured_user}'",
                 details={
                     "branch": branch,
                     "open_prs": pr_numbers,
@@ -592,7 +611,7 @@ class PolicyEngine:
             )
             return PolicyResult(
                 allowed=True,
-                reason=f"Branch '{branch}' is owned by egg (bot-prefixed branch)",
+                reason=f"Branch '{branch}' is owned by {_get_bot_name()} (bot-prefixed branch)",
                 details={"branch": branch, "reason": "bot_prefix"},
             )
 
@@ -616,7 +635,7 @@ class PolicyEngine:
                 )
                 return PolicyResult(
                     allowed=True,
-                    reason=f"Branch '{branch}' has open PR #{pr_number} owned by egg",
+                    reason=f"Branch '{branch}' has open PR #{pr_number} owned by {_get_bot_name()}",
                     details={
                         "branch": branch,
                         "pr_number": pr_number,
@@ -669,7 +688,7 @@ class PolicyEngine:
 
         # Not allowed
         logger.info(
-            "Branch push denied - not owned by egg, configured user, or trusted user",
+            f"Branch push denied - not owned by {_get_bot_name()}, configured user, or trusted user",
             repo=repo,
             branch=branch,
             open_prs=pr_numbers,
@@ -677,15 +696,16 @@ class PolicyEngine:
             trusted_users=list(TRUSTED_BRANCH_OWNERS) if TRUSTED_BRANCH_OWNERS else [],
             auth_mode=auth_mode,
         )
-        hint = "Use 'egg-' or 'egg/' branch prefix for new work"
+        prefix = _get_branch_prefix()
+        hint = f"Use '{prefix}-' or '{prefix}/' branch prefix for new work"
         if configured_user:
             hint += f". Configured user: {configured_user}"
         if TRUSTED_BRANCH_OWNERS:
             hint += f". Trusted users: {', '.join(sorted(TRUSTED_BRANCH_OWNERS))}"
         return PolicyResult(
             allowed=False,
-            reason=f"Branch '{branch}' is not owned by egg or an authorized user. "
-            "Use a bot-prefixed branch (egg-* or egg/*).",
+            reason=f"Branch '{branch}' is not owned by {_get_bot_name()} or an authorized user. "
+            f"Use a bot-prefixed branch ({_get_branch_prefix()}-* or {_get_branch_prefix()}/*).",
             details={
                 "branch": branch,
                 "open_prs": pr_numbers,
@@ -756,7 +776,7 @@ class PolicyEngine:
             details={
                 "repo": repo,
                 "pr_number": pr_number,
-                "action": "Use GitHub web UI or 'gh pr merge' from a non-egg environment",
+                "action": f"Use GitHub web UI or 'gh pr merge' from a non-{_get_bot_name()} environment",
             },
         )
 

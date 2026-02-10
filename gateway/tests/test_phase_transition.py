@@ -29,13 +29,13 @@ class TestTransitionResult:
         result = TransitionResult.allowed(
             from_phase=PipelinePhase.REFINE,
             to_phase=PipelinePhase.PLAN,
-            transitioned_by="egg",
+            transitioned_by="james-in-a-box",
         )
 
         assert result.success is True
         assert result.from_phase == PipelinePhase.REFINE
         assert result.to_phase == PipelinePhase.PLAN
-        assert result.transitioned_by == "egg"
+        assert result.transitioned_by == "james-in-a-box"
         assert result.transitioned_at is not None
 
     def test_denied_result(self):
@@ -159,7 +159,7 @@ class TestValidateTransition:
             from_phase=PipelinePhase.REFINE,
             to_phase=PipelinePhase.PLAN,
             role=TransitionRole.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
         )
         result = validate_transition(request)
 
@@ -172,7 +172,7 @@ class TestValidateTransition:
             from_phase=PipelinePhase.PLAN,
             to_phase=PipelinePhase.IMPLEMENT,
             role=TransitionRole.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
         )
         result = validate_transition(request)
 
@@ -196,7 +196,7 @@ class TestValidateTransition:
             from_phase=PipelinePhase.IMPLEMENT,
             to_phase=PipelinePhase.PR,
             role=TransitionRole.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
         )
         result = validate_transition(request)
 
@@ -304,7 +304,7 @@ class TestCreateAuditEntry:
         result = TransitionResult.allowed(
             from_phase=PipelinePhase.REFINE,
             to_phase=PipelinePhase.PLAN,
-            transitioned_by="egg",
+            transitioned_by="james-in-a-box",
         )
         entry = create_audit_entry(result, TransitionRole.HUMAN, "Analysis approved")
 
@@ -313,7 +313,7 @@ class TestCreateAuditEntry:
         assert entry["old_value"] == "refine"
         assert entry["new_value"] == "plan"
         assert entry["role"] == "human"
-        assert entry["actor"] == "egg"
+        assert entry["actor"] == "james-in-a-box"
         assert entry["reason"] == "Analysis approved"
         assert "timestamp" in entry
 

@@ -140,11 +140,60 @@ The pipeline is triggered by applying the `sdlc:refine` label to an issue. You c
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `bot_username` | GitHub username of your bot | `james-in-a-box` |
+| `bot_username` | GitHub username of your bot | `egg` |
 | `action_ref` | Reference to egg action (documentation only; see note) | `jwbron/egg/action@main` |
 | `authorized_users` | Comma-separated list of authorized users | `jwbron` |
 | `branch_prefix` | Prefix for issue branches | `egg` |
 | `timeout` | Timeout in minutes | varies by workflow |
+
+## Repository Variables
+
+For easier configuration across multiple workflows, you can set `BOT_USERNAME` as a GitHub Actions repository variable instead of hardcoding it in each workflow file.
+
+### Setting Up `BOT_USERNAME`
+
+1. Go to your repository's **Settings** → **Secrets and variables** → **Actions**
+2. Click the **Variables** tab
+3. Click **New repository variable**
+4. Set **Name** to `BOT_USERNAME` and **Value** to your bot's GitHub username
+
+### Using in Workflows
+
+There are two types of workflows that use `BOT_USERNAME`:
+
+1. **Entry-point workflows** (e.g., `on-pull-request.yml`, `on-check-failure.yml`) — These use `vars.BOT_USERNAME` directly from the repository variable.
+
+2. **Reusable workflows** (e.g., `reusable-review.yml`, `reusable-autofix.yml`) — These receive `bot_username` via the `with:` input block from calling workflows.
+
+For entry-point workflows, reference the variable directly:
+
+```yaml
+# In an entry-point workflow (e.g., on-pull-request.yml)
+jobs:
+  review:
+    uses: ./.github/workflows/reusable-review.yml
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      bot_name: review
+      bot_username: ${{ vars.BOT_USERNAME || 'egg' }}
+      # ...
+```
+
+When calling reusable workflows from external repositories, pass `bot_username` via the `with:` block:
+
+```yaml
+# In your repository's caller workflow
+jobs:
+  review:
+    uses: jwbron/egg/.github/workflows/reusable-review.yml@main
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      bot_name: review
+      bot_username: ${{ vars.BOT_USERNAME || 'egg' }}
+      # ...
+```
+
+The `|| 'egg'` fallback ensures the workflow runs even if the variable isn't set.
 
 ## Important Limitations
 

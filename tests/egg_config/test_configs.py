@@ -133,7 +133,7 @@ class TestGitHubConfigToDict:
         )
         d = config.to_dict()
         assert d["token"] != "ghp_verylongtokenthatshouldbmasked"
-        assert d["username"] == "egg"
+        assert d["username"] == ""
 
     def test_includes_expiry(self):
         """Includes expiry when set."""
@@ -242,10 +242,10 @@ class TestGetGithubUsername:
         with patch("egg_config.configs.github.Path.home", return_value=tmp_path):
             assert _get_github_username() == "myuser"
 
-    def test_returns_default(self, tmp_path):
-        """Returns 'egg' when config not found."""
+    def test_returns_empty_when_config_not_found(self, tmp_path):
+        """Returns empty string when config not found."""
         with patch("egg_config.configs.github.Path.home", return_value=tmp_path):
-            assert _get_github_username() == "egg"
+            assert _get_github_username() == ""
 
 
 # ===========================================================================

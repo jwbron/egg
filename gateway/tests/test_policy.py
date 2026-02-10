@@ -89,19 +89,19 @@ class TestBotIdentities:
 
     def test_bot_identities_include_configured_variants(self):
         """Test that configured bot name variants are included."""
-        # conftest.py sets GATEWAY_BOT_NAME=egg for tests
+        # conftest.py sets GATEWAY_BOT_NAME=james-in-a-box for tests
         identities = get_bot_identities()
-        assert "egg" in identities
-        assert "egg[bot]" in identities
-        assert "app/egg" in identities
-        assert "apps/egg" in identities
+        assert "james-in-a-box" in identities
+        assert "james-in-a-box[bot]" in identities
+        assert "app/james-in-a-box" in identities
+        assert "apps/james-in-a-box" in identities
 
     def test_bot_branch_prefixes_configured(self):
         """Test that configured branch prefixes are supported."""
-        # conftest.py sets GATEWAY_BOT_BRANCH_PREFIX=egg for tests
+        # conftest.py sets GATEWAY_BOT_BRANCH_PREFIX=james-in-a-box for tests
         prefixes = get_bot_branch_prefixes()
-        assert "egg-" in prefixes
-        assert "egg/" in prefixes
+        assert "james-in-a-box-" in prefixes
+        assert "james-in-a-box/" in prefixes
 
     def test_bot_identities_raises_without_config(self, monkeypatch):
         """Test that missing GATEWAY_BOT_NAME raises ValueError."""
@@ -110,7 +110,7 @@ class TestBotIdentities:
         with pytest.raises(ValueError, match="GATEWAY_BOT_NAME.*required"):
             get_bot_identities()
         # Restore for other tests
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
         _reset_bot_config_caches()
 
     def test_bot_branch_prefixes_raises_without_config(self, monkeypatch):
@@ -120,31 +120,31 @@ class TestBotIdentities:
         with pytest.raises(ValueError, match="GATEWAY_BOT_BRANCH_PREFIX.*required"):
             get_bot_branch_prefixes()
         # Restore for other tests
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
         _reset_bot_config_caches()
 
     def test_different_bot_name_configuration(self, monkeypatch):
         """Test that a different bot name generates correct identities."""
         _reset_bot_config_caches()
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "test-bot")
         identities = get_bot_identities()
-        assert "james-in-a-box" in identities
-        assert "james-in-a-box[bot]" in identities
-        assert "app/james-in-a-box" in identities
-        assert "apps/james-in-a-box" in identities
+        assert "test-bot" in identities
+        assert "test-bot[bot]" in identities
+        assert "app/test-bot" in identities
+        assert "apps/test-bot" in identities
         # Restore for other tests
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
         _reset_bot_config_caches()
 
     def test_different_branch_prefix_configuration(self, monkeypatch):
         """Test that a different branch prefix generates correct prefixes."""
         _reset_bot_config_caches()
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "testbot")
         prefixes = get_bot_branch_prefixes()
-        assert "james-" in prefixes
-        assert "james/" in prefixes
+        assert "testbot-" in prefixes
+        assert "testbot/" in prefixes
         # Restore for other tests
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
         _reset_bot_config_caches()
 
 
@@ -154,7 +154,7 @@ class TestCachedPRInfo:
     def test_is_stale_fresh_entry(self):
         info = CachedPRInfo(
             pr_number=1,
-            author="egg",
+            author="james-in-a-box",
             state="open",
             head_branch="feature",
             fetched_at=datetime.now(UTC).timestamp(),
@@ -166,7 +166,7 @@ class TestCachedPRInfo:
         old_time = datetime.now(UTC).timestamp() - 600
         info = CachedPRInfo(
             pr_number=1,
-            author="egg",
+            author="james-in-a-box",
             state="open",
             head_branch="feature",
             fetched_at=old_time,
@@ -190,26 +190,26 @@ class TestPolicyEngine:
     # Branch ownership tests
 
     def test_branch_ownership_egg_prefix_dash(self, policy_engine):
-        """egg- prefixed branches are always owned by egg."""
-        result = policy_engine.check_branch_ownership("owner/repo", "egg-feature")
+        """james-in-a-box- prefixed branches are always owned by james-in-a-box."""
+        result = policy_engine.check_branch_ownership("owner/repo", "james-in-a-box-feature")
         assert result.allowed
         assert "bot-prefixed" in result.reason
 
     def test_branch_ownership_egg_prefix_slash(self, policy_engine):
-        """egg/ prefixed branches are always owned by egg."""
-        result = policy_engine.check_branch_ownership("owner/repo", "egg/feature")
+        """james-in-a-box/ prefixed branches are always owned by james-in-a-box."""
+        result = policy_engine.check_branch_ownership("owner/repo", "james-in-a-box/feature")
         assert result.allowed
         assert "bot-prefixed" in result.reason
 
     def test_branch_ownership_with_egg_pr(self, policy_engine, mock_github_client):
-        """Branch with open egg-authored PR is owned by egg."""
+        """Branch with open james-in-a-box-authored PR is owned by james-in-a-box."""
         # Mock PR list
         mock_github_client.list_prs_for_branch.return_value = [
-            {"number": 123, "author": {"login": "egg"}, "state": "open", "headRefName": "feature"}
+            {"number": 123, "author": {"login": "james-in-a-box"}, "state": "open", "headRefName": "feature"}
         ]
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "egg"},
+            "author": {"login": "james-in-a-box"},
             "state": "open",
             "headRefName": "feature",
         }
@@ -219,15 +219,15 @@ class TestPolicyEngine:
         assert "PR #123" in result.reason
 
     def test_branch_ownership_no_pr(self, policy_engine, mock_github_client):
-        """Branch without PR is not owned by egg."""
+        """Branch without PR is not owned by james-in-a-box."""
         mock_github_client.list_prs_for_branch.return_value = []
 
         result = policy_engine.check_branch_ownership("owner/repo", "feature")
         assert not result.allowed
-        assert "not owned by egg" in result.reason
+        assert "not owned by james-in-a-box" in result.reason
 
     def test_branch_ownership_other_author_pr(self, policy_engine, mock_github_client):
-        """Branch with PR by non-egg author is not owned by egg."""
+        """Branch with PR by non-james-in-a-box author is not owned by james-in-a-box."""
         mock_github_client.list_prs_for_branch.return_value = [
             {"number": 123, "author": {"login": "human"}, "state": "open", "headRefName": "feature"}
         ]
@@ -244,23 +244,23 @@ class TestPolicyEngine:
     # PR ownership tests
 
     def test_pr_ownership_egg_author(self, policy_engine, mock_github_client):
-        """PR authored by egg is owned by egg."""
+        """PR authored by james-in-a-box is owned by james-in-a-box."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "egg"},
+            "author": {"login": "james-in-a-box"},
             "state": "open",
             "headRefName": "feature",
         }
 
         result = policy_engine.check_pr_ownership("owner/repo", 123)
         assert result.allowed
-        assert "owned by egg" in result.reason
+        assert "owned by james-in-a-box" in result.reason
 
     def test_pr_ownership_egg_bot_author(self, policy_engine, mock_github_client):
-        """PR authored by egg[bot] is owned by egg."""
+        """PR authored by james-in-a-box[bot] is owned by james-in-a-box."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "egg[bot]"},
+            "author": {"login": "james-in-a-box[bot]"},
             "state": "open",
             "headRefName": "feature",
         }
@@ -269,7 +269,7 @@ class TestPolicyEngine:
         assert result.allowed
 
     def test_pr_ownership_other_author(self, policy_engine, mock_github_client):
-        """PR authored by non-egg, non-configured user is not owned."""
+        """PR authored by non-james-in-a-box, non-configured user is not owned."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
             "author": {"login": "human"},
@@ -279,7 +279,7 @@ class TestPolicyEngine:
 
         result = policy_engine.check_pr_ownership("owner/repo", 123)
         assert not result.allowed
-        assert "not owned by egg or configured user" in result.reason
+        assert "not owned by james-in-a-box or configured user" in result.reason
 
     def test_pr_ownership_not_found(self, policy_engine, mock_github_client):
         """PR that doesn't exist returns not allowed."""
@@ -301,10 +301,10 @@ class TestPolicyEngine:
     # PR comment tests
 
     def test_pr_comment_allowed_on_egg_pr(self, policy_engine, mock_github_client):
-        """Comments are allowed on PRs owned by egg."""
+        """Comments are allowed on PRs owned by james-in-a-box."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "egg"},
+            "author": {"login": "james-in-a-box"},
             "state": "open",
             "headRefName": "feature",
         }
@@ -432,7 +432,7 @@ class TestTrustedBranchOwners:
     def test_branch_ownership_no_trusted_users_configured(
         self, policy_engine, mock_github_client, monkeypatch
     ):
-        """With no trusted users configured, only egg can push."""
+        """With no trusted users configured, only james-in-a-box can push."""
         # Patch TRUSTED_BRANCH_OWNERS on the module saved at import time
         monkeypatch.setattr(_policy_module, "TRUSTED_BRANCH_OWNERS", frozenset())
 
@@ -552,22 +552,22 @@ class TestConfiguredUser:
         assert result.allowed
         assert "configured user" in result.reason.lower()
 
-    def test_pr_ownership_egg_with_configured_user_set(
+    def test_pr_ownership_james_in_a_box_with_configured_user_set(
         self, policy_engine, mock_github_client, monkeypatch
     ):
-        """Egg PRs are still allowed when configured user is set."""
+        """james-in-a-box PRs are still allowed when configured user is set."""
         monkeypatch.setattr(policy_engine, "_get_configured_user", lambda: "configureduser")
 
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "egg"},
+            "author": {"login": "james-in-a-box"},
             "state": "open",
             "headRefName": "feature",
         }
 
         result = policy_engine.check_pr_ownership("owner/repo", 123, auth_mode="bot")
         assert result.allowed
-        assert "owned by egg" in result.reason.lower()
+        assert "owned by james-in-a-box" in result.reason.lower()
 
     def test_user_mode_denial_does_not_mention_trusted_users(
         self, policy_engine, mock_github_client, monkeypatch
@@ -594,9 +594,9 @@ class TestConfiguredUser:
 
         result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
         assert not result.allowed
-        # User mode should only mention egg and configured user, not trusted users
+        # User mode should only mention james-in-a-box and configured user, not trusted users
         assert "trusted" not in result.reason.lower()
-        assert "egg" in result.reason.lower()
+        assert "james-in-a-box" in result.reason.lower()
         assert "configureduser" in result.reason.lower()
 
 
@@ -701,11 +701,11 @@ class TestUserModeBranchOwnership:
         """User mode allows push to branch with bot's PR."""
         mock_github_client.branch_exists.return_value = True
         mock_github_client.list_prs_for_branch.return_value = [
-            {"number": 123, "author": {"login": "egg"}, "state": "open", "headRefName": "feature"}
+            {"number": 123, "author": {"login": "james-in-a-box"}, "state": "open", "headRefName": "feature"}
         ]
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "egg"},
+            "author": {"login": "james-in-a-box"},
             "state": "open",
             "headRefName": "feature",
         }
@@ -790,7 +790,7 @@ class TestBotAuthorFormats:
         """Author provided as dict with login key is handled correctly."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "egg"},
+            "author": {"login": "james-in-a-box"},
             "state": "open",
             "headRefName": "feature",
         }
@@ -802,7 +802,7 @@ class TestBotAuthorFormats:
         """Author provided as string is handled correctly."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": "egg",  # String format
+            "author": "james-in-a-box",  # String format
             "state": "open",
             "headRefName": "feature",
         }
@@ -828,7 +828,7 @@ class TestBotAuthorFormats:
         """Author matching is case insensitive."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "EGG"},  # Uppercase
+            "author": {"login": "JAMES-IN-A-BOX"},  # Uppercase
             "state": "open",
             "headRefName": "feature",
         }
@@ -838,7 +838,7 @@ class TestBotAuthorFormats:
 
     def test_bot_suffix_variants(self, policy_engine, mock_github_client):
         """All bot suffix variants are recognized."""
-        variants = ["egg", "egg[bot]", "app/egg", "apps/egg"]
+        variants = ["james-in-a-box", "james-in-a-box[bot]", "app/james-in-a-box", "apps/james-in-a-box"]
 
         for variant in variants:
             mock_github_client.get_pr_info.return_value = {
@@ -903,7 +903,7 @@ class TestCachedPRInfoStaleness:
         """Recently fetched entry is not stale."""
         info = CachedPRInfo(
             pr_number=1,
-            author="egg",
+            author="james-in-a-box",
             state="open",
             head_branch="feature",
             fetched_at=datetime.now(UTC).timestamp(),
@@ -916,7 +916,7 @@ class TestCachedPRInfoStaleness:
         old_time = datetime.now(UTC).timestamp() - 301
         info = CachedPRInfo(
             pr_number=1,
-            author="egg",
+            author="james-in-a-box",
             state="open",
             head_branch="feature",
             fetched_at=old_time,
@@ -929,7 +929,7 @@ class TestCachedPRInfoStaleness:
         boundary_time = datetime.now(UTC).timestamp() - 299
         info = CachedPRInfo(
             pr_number=1,
-            author="egg",
+            author="james-in-a-box",
             state="open",
             head_branch="feature",
             fetched_at=boundary_time,
@@ -954,7 +954,7 @@ class TestPRCacheBehavior:
         """PR info is cached after fetching from GitHub."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "egg"},
+            "author": {"login": "james-in-a-box"},
             "state": "open",
             "headRefName": "feature",
         }
@@ -971,7 +971,7 @@ class TestPRCacheBehavior:
         """Stale cache entries trigger refetch."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "egg"},
+            "author": {"login": "james-in-a-box"},
             "state": "open",
             "headRefName": "feature",
         }
@@ -1001,7 +1001,7 @@ class TestPRCacheBehavior:
         mock_github_client.list_prs_for_branch.return_value = [
             {
                 "number": 123,
-                "author": {"login": "egg"},
+                "author": {"login": "james-in-a-box"},
                 "state": "open",
                 "headRefName": "feature",
             },

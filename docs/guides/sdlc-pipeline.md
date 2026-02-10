@@ -78,14 +78,81 @@ The pipeline pauses for human approval at phase transitions. Decisions use check
 | **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
 | **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
 
+### Multi-Reviewer Architecture
+
+The work loop runs multiple specialized reviewers in parallel, with phase-specific defaults:
+
+| Phase | Reviewers | Focus |
+|-------|-----------|-------|
+| **Refine** | Unified, Agent-Design | Analysis quality, agent-mode alignment |
+| **Plan** | Unified, Agent-Design | Plan quality, agent-mode alignment |
+| **Implement** | Unified, Agent-Design, Contract, Code | Full coverage: quality, design, contract, security |
+
+**Specialized Reviewers:**
+
+| Reviewer | Script | Focus |
+|----------|--------|-------|
+| **Unified** | `build-unified-review-prompt.sh` | Phase-specific quality criteria |
+| **Agent-Design** | `build-agent-mode-design-review-prompt-workloop.sh` | Agent-mode design alignment (anti-patterns) |
+| **Contract** | `build-contract-verification-prompt-workloop.sh` | Task completion, acceptance criteria |
+| **Code** | `build-code-review-prompt-workloop.sh` | Security, correctness, robustness |
+
+**Verdict Aggregation:**
+- All reviewers run in parallel (matrix job)
+- Any `needs_revision` from any reviewer → aggregate `needs_revision`
+- Feedback is combined with per-reviewer section headers
+- Failed reviewers are tracked separately and trigger escalation
+
+**Per-Reviewer State Tracking:**
+
+The contract tracks per-reviewer verdicts for debugging:
+```json
+{
+  "implement_reviewer_verdicts": {
+    "unified": "approved",
+    "agent-design": "approved",
+    "contract": "needs_revision",
+    "code": "approved"
+  }
+}
+```
+
+### Multi-Agent Orchestration (Experimental)
+
+The implement phase supports multi-agent orchestration, where specialized agents (Coder, Tester, Documenter, Integrator) execute in parallel waves based on dependencies. This is an experimental alternative to the standard single-agent work loop.
+
+**Agent Roles:**
+
+| Role | Responsibilities | Depends On | Can Write |
+|------|-----------------|------------|-----------|
+| **Coder** | Implement code changes based on plan tasks | — | Source code files (`**/*.py`, `**/*.ts`, etc.) |
+| **Tester** | Write or update tests for the changes | Coder | Test files (`tests/`, `**/*_test.py`, `**/*.test.ts`, etc.) |
+| **Documenter** | Update documentation for the changes | Coder | Documentation files (`docs/`, `**/*.md`) |
+| **Integrator** | Run full test suite and validate integration | Coder, Tester | Handoff output only (read-only otherwise) |
+
+**Execution Waves:**
+- Wave 1: Coder runs first (no dependencies)
+- Wave 2: Tester and Documenter run in parallel (both depend on Coder)
+- Wave 3: Integrator runs last (depends on Coder + Tester)
+
+**File Access Enforcement:**
+The gateway enforces file access patterns for each agent role via `gateway/agent_restrictions.py`. For example, the Coder agent cannot modify documentation files, and the Tester agent cannot modify source code. This prevents agents from overstepping their responsibilities.
+
+**Handoff Data:**
+Agents communicate via handoff data stored in `.egg-state/agent-outputs/{role}-output.json`. For example, the Coder agent outputs a list of changed files, which the Tester and Documenter agents read to focus their work.
+
+**Workflow:**
+Multi-agent orchestration is triggered via `.github/workflows/sdlc-multi-agent.yml`. The workflow reads the contract state, determines which agents can run based on dependencies, and dispatches them in parallel where possible.
+
 ### Refine and Plan Phase Review Cycles
 
 The refine and plan phases include an automated internal review step before human approval. All reviews happen internally without posting to the issue until approval:
 
 1. **Producer agent runs** — The refine/plan agent writes its output to `.egg-state/drafts/{issue}-{analysis|plan}.md`
-2. **Reviewer agent runs** — Reads the draft and writes verdict to `.egg-state/reviews/{issue}-{refine|plan}-review.json`
-3. **If approved** — The final draft is posted to the issue with an approval checkbox for human review
-4. **If needs revision** — Producer agent is re-dispatched with feedback; cycle repeats without posting to issue
+2. **Reviewer agents run in parallel** — Each reviewer reads the draft and writes verdict to its own file
+3. **Verdicts aggregated** — If any reviewer needs revision, the aggregate verdict is `needs_revision`
+4. **If approved** — The final draft is posted to the issue with an approval checkbox for human review
+5. **If needs revision** — Producer agent is re-dispatched with combined feedback; cycle repeats without posting to issue
 
 **Key Benefit:** Internal review cycles don't create noise on the GitHub issue. Only the final approved analysis/plan is posted for human review.
 
@@ -97,13 +164,20 @@ The refine and plan phases include an automated internal review step before huma
 │   ├── {issue}-analysis.md     # Refine phase draft
 │   └── {issue}-plan.md         # Plan phase draft
 └── reviews/
-    ├── {issue}-refine-review.json  # Refine review verdict
-    └── {issue}-plan-review.json    # Plan review verdict
+    ├── {issue}-refine-review.json       # Unified review verdict
+    ├── {issue}-refine-agent-design.json # Agent-design review verdict
+    ├── {issue}-plan-review.json         # Unified review verdict
+    ├── {issue}-plan-agent-design.json   # Agent-design review verdict
+    ├── {issue}-implement-review.json    # Unified review verdict
+    ├── {issue}-implement-agent-design.json
+    ├── {issue}-implement-contract.json
+    └── {issue}-implement-code.json
 ```
 
 **Review Verdict JSON Schema:**
 ```json
 {
+  "reviewer": "unified" | "agent-design" | "contract" | "code",
   "verdict": "approved" | "needs_revision",
   "summary": "Brief summary of findings",
   "feedback": "Detailed feedback (empty if approved)",
@@ -252,6 +326,103 @@ Each agent invocation runs in a fresh container with no memory of previous runs.
 3. GitHub issue/PR comments and reviews
 
 This prevents context pollution and ensures reproducible behavior. When the implementer is re-invoked after review feedback, it receives the PR review comments as part of its prompt context.
+
+## Multi-Agent Orchestration
+
+The implement phase can use multi-agent orchestration to parallelize work across specialized agents. This reduces context window pollution and improves first-pass implementation quality.
+
+### Agent Roles
+
+| Role | Purpose | Dependencies | File Access |
+|------|---------|--------------|-------------|
+| **Coder** | Implements code changes | None | `src/`, `lib/`, `shared/` |
+| **Tester** | Creates and runs tests | Coder | `tests/`, `test_*.py`, `*.test.ts` |
+| **Documenter** | Updates documentation | Coder | `docs/`, `*.md`, `README*` |
+| **Integrator** | Final validation and integration | Coder, Tester | Read-only except `.egg-state/` |
+
+### Execution Waves
+
+Agents execute in waves based on dependencies:
+
+```
+Wave 1:  [Coder]           ─── Must complete first
+Wave 2:  [Tester, Documenter] ─── Run in parallel
+Wave 3:  [Integrator]      ─── Final validation
+```
+
+### Enabling Multi-Agent Mode
+
+Multi-agent mode is enabled via the contract's `multi_agent_config`:
+
+```json
+{
+  "multi_agent_config": {
+    "enabled": true,
+    "roles_enabled": ["coder", "tester", "documenter", "integrator"],
+    "parallel_execution": true
+  }
+}
+```
+
+### Agent Handoffs
+
+Each agent produces handoff data stored in `.egg-state/agent-outputs/{role}-output.json`:
+
+```json
+{
+  "changed_files": ["src/api.py", "src/models.py"],
+  "test_results": {"passed": 42, "failed": 0},
+  "summary": "Implemented user authentication endpoints"
+}
+```
+
+Subsequent agents receive handoff data from their dependencies via the orchestrator.
+
+### Contract CLI Commands
+
+```bash
+# View agent execution status
+egg-contract agent-status
+
+# Get next agents to dispatch
+egg-contract agent-next
+
+# Mark agent as started (pipeline use)
+egg-contract agent-start --role coder
+
+# Mark agent as complete with commit
+egg-contract agent-complete --role coder --commit abc1234
+
+# Mark agent as failed
+egg-contract agent-fail --role tester --error "Tests failed"
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `.github/workflows/sdlc-multi-agent.yml` | Multi-agent orchestration workflow |
+| `shared/egg_contracts/agent_roles.py` | Agent role definitions and file access |
+| `shared/egg_contracts/orchestration.py` | Orchestration state management |
+| `shared/egg_contracts/dependency_graph.py` | Dependency graph and wave computation |
+| `shared/egg_contracts/orchestrator.py` | Dispatch logic and handoff management |
+| `action/build-{role}-prompt.sh` | Role-specific prompt builders |
+| `gateway/agent_restrictions.py` | File access validation per role |
+
+## Circuit Breaker and Escalation
+
+**Note:** Circuit breaker functionality is deprecated as of PR #285. The pipeline now relies on PR-based reviews with human-visible feedback at every cycle, reducing the need for automated escalation thresholds.
+
+### Legacy Circuit Breaker (Deprecated)
+
+The circuit breaker tracked implementation cycles and escalated to humans when thresholds were exceeded:
+
+| Metric | Threshold | Action |
+|--------|-----------|--------|
+| Per-task review cycles | 3 | Escalate task to human |
+| Total pipeline cycles | 10 | Open circuit breaker, pause pipeline |
+
+This functionality has been replaced by the PR-based review workflow, which provides continuous human visibility without requiring explicit escalation triggers.
 
 ## Human-in-the-Loop Decisions
 
@@ -507,6 +678,7 @@ This parallel execution reduces cycle time by running independent checks concurr
 | File | Purpose |
 |------|---------|
 | `.github/workflows/sdlc-pipeline.yml` | Main pipeline orchestration |
+| `.github/workflows/sdlc-multi-agent.yml` | Multi-agent orchestration workflow |
 | `.github/workflows/sdlc-work-loop.yml` | Unified work/review/respond cycle for refine, plan, and implement phases |
 | `.github/workflows/reusable-review.yml` | PR-based code review workflow |
 | `.github/workflows/sdlc-hitl.yml` | HITL checkbox detection |
@@ -515,11 +687,24 @@ This parallel execution reduces cycle time by running independent checks concurr
 | `.github/scripts/checks/*.py` | Built-in check implementations |
 | `.github/scripts/push-contract-update.sh` | Conflict-resistant contract push utility |
 | `action/build-sdlc-prompt.sh` | Phase-specific prompt builder (includes review feedback injection) |
+| `action/build-coder-prompt.sh` | Coder agent prompt builder |
+| `action/build-tester-prompt.sh` | Tester agent prompt builder |
+| `action/build-documenter-prompt.sh` | Documenter agent prompt builder |
+| `action/build-integrator-prompt.sh` | Integrator agent prompt builder |
+| `action/build-refine-review-prompt.sh` | Reviewer prompt for refine phase analysis |
+| `action/build-plan-review-prompt.sh` | Reviewer prompt for plan phase output |
 | `action/build-unified-review-prompt.sh` | Unified review prompt builder for all SDLC phases |
+| `action/build-agent-mode-design-review-prompt-workloop.sh` | Agent-mode design review for work loop |
+| `action/build-contract-verification-prompt-workloop.sh` | Contract verification review for work loop |
+| `action/build-code-review-prompt-workloop.sh` | Code review for work loop |
 | `action/populate-contract-tasks.py` | Extracts tasks from plan into contract |
 | `action/contract-state.sh` | Contract state management utility |
 | `sandbox/scripts/gh` | gh wrapper with self-review fallback |
 | `shared/egg_contracts/models.py` | Pydantic models for contract (includes CheckDefinition, CheckResult, PhaseConfig) |
+| `shared/egg_contracts/agent_roles.py` | Agent role definitions and file access patterns |
+| `shared/egg_contracts/orchestration.py` | Orchestration state management |
+| `shared/egg_contracts/dependency_graph.py` | Dependency graph and wave computation |
+| `shared/egg_contracts/orchestrator.py` | Dispatch logic and handoff management |
 | `shared/egg_contracts/phase_defaults.py` | Default check configurations per phase |
 | `shared/egg_contracts/plan_parser.py` | Parses plan documents for task extraction |
 | `shared/egg_contracts/roles.py` | Role definitions and field ownership |
