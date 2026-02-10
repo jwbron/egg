@@ -23,7 +23,3 @@ class AgentResult:
     returncode: int
     error: str | None = None
     metadata: dict[str, Any] | None = None
-
-
-# Backward compatibility alias
-ClaudeResult = AgentResult

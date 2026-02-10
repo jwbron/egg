@@ -27,7 +27,3 @@ class ClaudeConfig:
     # Tools: empty list = all tools allowed (with dangerouslySkipPermissions)
     # Available: Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch, Task
     allowed_tools: list[str] = field(default_factory=list)
-
-
-# Backward compatibility alias
-AgentConfig = ClaudeConfig

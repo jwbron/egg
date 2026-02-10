@@ -30,18 +30,13 @@ Authentication:
 
 from llm.claude.config import ClaudeConfig
 from llm.claude.runner import run_agent, run_agent_async
-from llm.result import AgentResult, ClaudeResult
+from llm.result import AgentResult
 from llm.runner import run_interactive
 
 __all__ = [
     "AgentResult",
     "ClaudeConfig",
-    "ClaudeResult",
     "run_agent",
     "run_agent_async",
     "run_interactive",
 ]
-
-# Backward compatibility aliases
-LLMConfig = ClaudeConfig
-BaseConfig = ClaudeConfig

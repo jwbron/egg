@@ -26,12 +26,11 @@ from llm.claude.config import ClaudeConfig
 from llm.claude.runner import run_agent, run_agent_async
 
 # Re-export AgentResult from llm.result
-from llm.result import AgentResult, ClaudeResult
+from llm.result import AgentResult
 
 __all__ = [
     "AgentResult",
     "ClaudeConfig",
-    "ClaudeResult",
     "run_agent",
     "run_agent_async",
 ]
