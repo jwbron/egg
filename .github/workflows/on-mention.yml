@@ -36,10 +36,10 @@ on:
         type: string
         default: "jwbron"
       mention_patterns:
-        description: 'Comma-separated list of mention patterns to trigger on (e.g., "@mybot,@egg")'
+        description: 'Comma-separated list of mention patterns to trigger on (e.g., "@mybot")'
         required: false
         type: string
-        default: "@james-in-a-box,@egg"
+        default: "@james-in-a-box"
       prompt_script:
         description: 'Path to prompt builder script (relative to repo root)'
         required: false
@@ -80,7 +80,7 @@ jobs:
           {
             echo "bot_username=${{ inputs.bot_username || 'egg' }}"
             echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
-            echo "mention_patterns=${{ inputs.mention_patterns || '@james-in-a-box,@egg' }}"
+            echo "mention_patterns=${{ inputs.mention_patterns || '@james-in-a-box' }}"
           } >> "$GITHUB_OUTPUT"
 
           # Determine issue/PR number based on event type
