@@ -43,10 +43,15 @@ on:
         type: string
         default: "action/build-sdlc-prompt.sh"
       review_prompt_script:
-        description: 'Path to prompt builder script for review phase'
+        description: 'Path to prompt builder script for review phase (deprecated, use reviewers)'
         required: false
         type: string
         default: "action/build-unified-review-prompt.sh"
+      reviewers:
+        description: 'JSON array of reviewer configs [{name, script}]. Defaults by phase.'
+        required: false
+        type: string
+        default: ""
       output_type:
         description: 'Output type: draft (refine/plan) or pr (implement)'
         required: false
@@ -73,10 +78,10 @@ on:
         type: string
         default: "30"
       review_timeout:
-        description: 'Timeout in minutes for the review step'
+        description: 'Timeout in minutes for each reviewer (default: 30)'
         required: false
         type: string
-        default: "15"
+        default: "30"
       bot_username:
         description: 'GitHub username of the bot'
         required: false
@@ -126,6 +131,7 @@ jobs:
       branch_name: ${{ steps.resolve.outputs.branch_name }}
       work_prompt_script: ${{ steps.resolve.outputs.work_prompt_script }}
       review_prompt_script: ${{ steps.resolve.outputs.review_prompt_script }}
+      reviewers: ${{ steps.resolve.outputs.reviewers }}
       output_type: ${{ steps.resolve.outputs.output_type }}
       human_review_mechanism: ${{ steps.resolve.outputs.human_review_mechanism }}
       max_review_cycles: ${{ steps.resolve.outputs.max_review_cycles }}
@@ -185,12 +191,53 @@ jobs:
             echo "branch_name=${BRANCH_NAME}"
             echo "work_prompt_script=${WORK_PROMPT_SCRIPT}"
             echo "review_prompt_script=${REVIEW_PROMPT_SCRIPT}"
+          } >> "$GITHUB_OUTPUT"
+
+          # Compute reviewers based on phase (or use explicit input)
+          REVIEWERS_INPUT='${{ inputs.reviewers }}'
+          if [[ -n "$REVIEWERS_INPUT" && "$REVIEWERS_INPUT" != "null" ]]; then
+            # Use explicit reviewers input
+            REVIEWERS="$REVIEWERS_INPUT"
+          else
+            # Phase-based defaults
+            case "$PHASE" in
+              refine|plan)
+                # For refine/plan: unified reviewer + agent-mode design reviewer
+                REVIEWERS='[{"name":"unified","script":"action/build-unified-review-prompt.sh"},{"name":"agent-design","script":"action/build-agent-mode-design-review-prompt-workloop.sh"}]'
+                ;;
+              implement)
+                # For implement: unified + agent-design + contract + code reviewers
+                REVIEWERS='[{"name":"unified","script":"action/build-unified-review-prompt.sh"},{"name":"agent-design","script":"action/build-agent-mode-design-review-prompt-workloop.sh"},{"name":"contract","script":"action/build-contract-verification-prompt-workloop.sh"},{"name":"code","script":"action/build-code-review-prompt-workloop.sh"}]'
+                ;;
+              *)
+                # Fallback to single unified reviewer
+                REVIEWERS='[{"name":"unified","script":"action/build-unified-review-prompt.sh"}]'
+                ;;
+            esac
+          fi
+
+          # Validate reviewers JSON
+          if ! echo "$REVIEWERS" | jq -e '.' > /dev/null 2>&1; then
+            echo "::error::Invalid reviewers JSON: $REVIEWERS"
+            exit 1
+          fi
+
+          # Validate each reviewer script path
+          for script in $(echo "$REVIEWERS" | jq -r '.[].script'); do
+            if [[ ! "$script" =~ ^action/[a-zA-Z0-9_-]+\.sh$ ]]; then
+              echo "::error::Invalid reviewer script path: $script (must match action/*.sh)"
+              exit 1
+            fi
+          done
+
+          {
+            echo "reviewers=${REVIEWERS}"
             echo "output_type=${{ inputs.output_type || format('{0}', env.DEFAULT_OUTPUT_TYPE) }}"
             echo "human_review_mechanism=${{ inputs.human_review_mechanism || format('{0}', env.DEFAULT_HUMAN_REVIEW) }}"
             echo "max_review_cycles=${{ inputs.max_review_cycles || '3' }}"
             echo "max_total_cycles=${{ inputs.max_total_cycles || '10' }}"
             echo "work_timeout=${{ inputs.work_timeout || '30' }}"
-            echo "review_timeout=${{ inputs.review_timeout || '15' }}"
+            echo "review_timeout=${{ inputs.review_timeout || '30' }}"
             echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}"
             echo "workflow_owner=${{ inputs.workflow_owner || '' }}"
             echo "pr_number=${{ inputs.pr_number || '0' }}"
@@ -630,10 +677,10 @@ jobs:
           echo "Check aggregation complete: all_passed=${ALL_PASSED}, has_conflicts=${HAS_CONFLICTS}, needs_fixer=${NEEDS_FIXER}"
 
   # ============================================================
-  # Review: Automated review of work output
+  # Review: Check preconditions before running reviewers
   # ============================================================
-  review:
-    name: Review work (${{ needs.resolve-inputs.outputs.phase }})
+  review-setup:
+    name: Review setup
     needs: [resolve-inputs, work, aggregate-checks]
     if: >-
       always() &&
@@ -641,18 +688,16 @@ jobs:
       needs.aggregate-checks.outputs.all_passed == 'true'
     runs-on: ubuntu-latest
     outputs:
-      verdict: ${{ steps.parse-verdict.outputs.verdict }}
-      feedback: ${{ steps.parse-verdict.outputs.feedback }}
       review_cycle: ${{ steps.get-cycle.outputs.cycle }}
+      prior_feedback: ${{ steps.get-cycle.outputs.prior_feedback }}
       circuit_breaker_open: ${{ steps.check-circuit-breaker.outputs.open }}
+      reviewers_matrix: ${{ steps.build-matrix.outputs.matrix }}
 
     env:
       PHASE: ${{ needs.resolve-inputs.outputs.phase }}
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
-      REVIEW_TIMEOUT: ${{ needs.resolve-inputs.outputs.review_timeout }}
-      MAX_REVIEW_CYCLES: ${{ needs.resolve-inputs.outputs.max_review_cycles }}
+      REVIEWERS: ${{ needs.resolve-inputs.outputs.reviewers }}
 
     steps:
       - name: Generate bot token
@@ -661,17 +706,6 @@ jobs:
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-
-      - name: Checkout main (trusted)
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          persist-credentials: false
-
-      - name: Save trusted action scripts
-        run: |
-          cp -r action "$RUNNER_TEMP/trusted-action"
-          cp -r shared "$RUNNER_TEMP/trusted-shared"
 
       - name: Checkout issue branch
         uses: actions/checkout@v4
@@ -723,21 +757,85 @@ jobs:
             echo "open=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Build reviewers matrix
+        id: build-matrix
+        run: |
+          set -euo pipefail
+          # Parse reviewers JSON and build matrix for parallel execution
+          MATRIX=$(echo "$REVIEWERS" | jq -c '{include: .}')
+          echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
+          echo "Reviewers matrix: ${MATRIX}"
+
+  # ============================================================
+  # Review: Run specialized reviewers in parallel (matrix job)
+  # ============================================================
+  review:
+    name: Review (${{ matrix.name }})
+    needs: [resolve-inputs, work, aggregate-checks, review-setup]
+    if: >-
+      always() &&
+      needs.review-setup.result == 'success' &&
+      needs.review-setup.outputs.circuit_breaker_open != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.review-setup.outputs.reviewers_matrix) }}
+
+    env:
+      PHASE: ${{ needs.resolve-inputs.outputs.phase }}
+      ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      REVIEW_TIMEOUT: ${{ needs.resolve-inputs.outputs.review_timeout }}
+      REVIEWER_NAME: ${{ matrix.name }}
+      REVIEWER_SCRIPT: ${{ matrix.script }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout main (trusted)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Save trusted action scripts
+        run: |
+          cp -r action "$RUNNER_TEMP/trusted-action"
+          cp -r shared "$RUNNER_TEMP/trusted-shared"
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+
       - name: Build review prompt
         id: prompt
-        if: steps.check-circuit-breaker.outputs.open != 'true'
-        run: bash "$RUNNER_TEMP/trusted-action/build-unified-review-prompt.sh"
+        run: |
+          set -euo pipefail
+          SCRIPT_PATH="$RUNNER_TEMP/trusted-action/$(basename "$REVIEWER_SCRIPT")"
+          if [[ -f "$SCRIPT_PATH" ]]; then
+            bash "$SCRIPT_PATH"
+          else
+            echo "::error::Reviewer script not found: $SCRIPT_PATH"
+            exit 1
+          fi
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
           EGG_PIPELINE_PHASE: ${{ env.PHASE }}
-          REVIEW_CYCLE: ${{ steps.get-cycle.outputs.cycle }}
-          PRIOR_FEEDBACK: ${{ steps.get-cycle.outputs.prior_feedback }}
+          REVIEW_CYCLE: ${{ needs.review-setup.outputs.review_cycle }}
+          PRIOR_FEEDBACK: ${{ needs.review-setup.outputs.prior_feedback }}
 
       - name: Run reviewer agent
         id: egg
-        if: steps.check-circuit-breaker.outputs.open != 'true'
         uses: jwbron/egg/action@main
         with:
           prompt-file: ${{ steps.prompt.outputs.prompt-file }}
@@ -752,72 +850,213 @@ jobs:
           EGG_AGENT_ROLE: reviewer
           EGG_ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
           EGG_PIPELINE_PHASE: ${{ env.PHASE }}
+          EGG_REVIEWER_NAME: ${{ matrix.name }}
 
-      - name: Parse review verdict
-        id: parse-verdict
-        if: steps.check-circuit-breaker.outputs.open != 'true'
+  # ============================================================
+  # Aggregate Reviews: Combine verdicts from all reviewers
+  # ============================================================
+  aggregate-reviews:
+    name: Aggregate review verdicts
+    needs: [resolve-inputs, review-setup, review]
+    if: >-
+      always() &&
+      needs.review-setup.result == 'success' &&
+      needs.review-setup.outputs.circuit_breaker_open != 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.aggregate.outputs.verdict }}
+      feedback: ${{ steps.aggregate.outputs.feedback }}
+      review_cycle: ${{ needs.review-setup.outputs.review_cycle }}
+      circuit_breaker_open: ${{ needs.review-setup.outputs.circuit_breaker_open }}
+      any_failed: ${{ steps.aggregate.outputs.any_failed }}
+      failed_reviewers: ${{ steps.aggregate.outputs.failed_reviewers }}
+
+    env:
+      PHASE: ${{ needs.resolve-inputs.outputs.phase }}
+      ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      REVIEWERS: ${{ needs.resolve-inputs.outputs.reviewers }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Configure git identity
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "${BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+
+      - name: Pull latest from all reviewers
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            if git pull origin "${BRANCH_NAME}" --rebase; then
+              echo "Pull succeeded on attempt $i"
+              break
+            fi
+            echo "::warning::git pull attempt $i failed, retrying..."
+            sleep $((i * 2))
+          done
+
+      - name: Aggregate review verdicts
+        id: aggregate
+        run: |
+          set -euo pipefail
+
+          # Parse reviewer names from the reviewers JSON
+          REVIEWER_NAMES=$(echo "$REVIEWERS" | jq -r '.[].name')
+
+          # Track aggregated state
+          OVERALL_VERDICT="approved"
+          COMBINED_FEEDBACK=""
+          ANY_FAILED="false"
+          FAILED_REVIEWERS=""
+
+          # Check if the matrix jobs failed
+          MATRIX_RESULT="${{ needs.review.result }}"
+          if [[ "$MATRIX_RESULT" == "failure" ]]; then
+            ANY_FAILED="true"
+            echo "::warning::Some reviewer jobs failed"
+          fi
+
+          # Process each reviewer's verdict
+          for REVIEWER in $REVIEWER_NAMES; do
+            # Handle different review file naming patterns
+            if [[ "$REVIEWER" == "unified" ]]; then
+              REVIEW_FILE=".egg-state/reviews/${ISSUE_NUMBER}-${PHASE}-review.json"
+            else
+              REVIEW_FILE=".egg-state/reviews/${ISSUE_NUMBER}-${PHASE}-${REVIEWER}.json"
+            fi
+
+            if [[ -f "$REVIEW_FILE" ]]; then
+              VERDICT=$(jq -r '.verdict // "unknown"' "$REVIEW_FILE")
+              FEEDBACK=$(jq -r '.feedback // ""' "$REVIEW_FILE")
+              SUMMARY=$(jq -r '.summary // ""' "$REVIEW_FILE")
+
+              echo "Reviewer '$REVIEWER': verdict=$VERDICT"
+
+              if [[ "$VERDICT" == "needs_revision" ]]; then
+                OVERALL_VERDICT="needs_revision"
+                # Add feedback with header
+                if [[ -n "$FEEDBACK" ]]; then
+                  COMBINED_FEEDBACK+="## Feedback from ${REVIEWER} reviewer\n\n"
+                  COMBINED_FEEDBACK+="${FEEDBACK}\n\n"
+                fi
+              elif [[ "$VERDICT" != "approved" ]]; then
+                echo "::warning::Unknown verdict '$VERDICT' from reviewer '$REVIEWER'"
+              fi
+            else
+              echo "::warning::No review file found for reviewer '$REVIEWER' at ${REVIEW_FILE}"
+              # Check if the reviewer job failed vs just didn't produce output
+              if [[ "$MATRIX_RESULT" == "failure" ]]; then
+                ANY_FAILED="true"
+                FAILED_REVIEWERS="${FAILED_REVIEWERS}${REVIEWER},"
+              fi
+            fi
+          done
+
+          # Write outputs
+          {
+            echo "verdict=${OVERALL_VERDICT}"
+            echo "any_failed=${ANY_FAILED}"
+            echo "failed_reviewers=${FAILED_REVIEWERS%,}"
+          } >> "$GITHUB_OUTPUT"
+
+          # Handle multiline feedback
+          if [[ -n "$COMBINED_FEEDBACK" ]]; then
+            {
+              echo "feedback<<EOF"
+              echo -e "$COMBINED_FEEDBACK"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "feedback=" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "Aggregate verdict: $OVERALL_VERDICT"
+          if [[ "$ANY_FAILED" == "true" ]]; then
+            echo "::warning::Some reviewers failed: ${FAILED_REVIEWERS%,}"
+          fi
+
+  # ============================================================
+  # Escalate Reviewer Failures: Handle failed reviewer jobs
+  # ============================================================
+  escalate-reviewer-failure:
+    name: Escalate reviewer failures
+    needs: [resolve-inputs, review-setup, aggregate-reviews]
+    if: >-
+      always() &&
+      needs.aggregate-reviews.result == 'success' &&
+      needs.aggregate-reviews.outputs.any_failed == 'true'
+    runs-on: ubuntu-latest
+
+    env:
+      PHASE: ${{ needs.resolve-inputs.outputs.phase }}
+      ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
+      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      FAILED_REVIEWERS: ${{ needs.aggregate-reviews.outputs.failed_reviewers }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Post escalation comment
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
           set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          # Pull latest to ensure we have the reviewer's commits
-          for i in 1 2 3; do
-            if git pull origin "${BRANCH_NAME}" --rebase; then
-              break
-            fi
-            echo "::warning::git pull attempt $i failed, retrying..."
-            sleep 2
-          done
+          {
+            echo "**⚠️ Reviewer job failure during ${PHASE} phase review.**"
+            echo ""
+            echo "The following reviewer(s) failed to complete: \`${FAILED_REVIEWERS}\`"
+            echo ""
+            echo "This may be due to:"
+            echo "- Agent timeout"
+            echo "- Infrastructure issues"
+            echo "- Errors in the reviewer script"
+            echo ""
+            echo "[View run logs](${RUN_URL})"
+            echo ""
+            echo "The pipeline will continue with verdicts from successful reviewers."
+            echo ""
+            echo "---"
+            echo ""
+            echo "*Authored-by: egg*"
+          } > /tmp/escalation.md
 
-          # Read verdict from the review JSON file
-          REVIEW_FILE=".egg-state/reviews/${ISSUE_NUMBER}-${PHASE}-review.json"
-
-          if [[ -f "$REVIEW_FILE" ]]; then
-            VERDICT=$(jq -r '.verdict // ""' "$REVIEW_FILE")
-            FEEDBACK=$(jq -r '.feedback // ""' "$REVIEW_FILE")
-
-            if [[ "$VERDICT" == "approved" ]]; then
-              {
-                echo "verdict=approved"
-                echo "feedback="
-              } >> "$GITHUB_OUTPUT"
-              echo "Review verdict: APPROVED"
-            elif [[ "$VERDICT" == "needs_revision" ]]; then
-              {
-                echo "verdict=needs_revision"
-                echo "feedback<<EOF"
-                echo "$FEEDBACK"
-                echo "EOF"
-              } >> "$GITHUB_OUTPUT"
-              echo "Review verdict: NEEDS REVISION"
-            else
-              # Unknown verdict — treat as approved to avoid blocking
-              {
-                echo "verdict=approved"
-                echo "feedback="
-              } >> "$GITHUB_OUTPUT"
-              echo "::warning::Unknown review verdict '${VERDICT}' — proceeding as if approved"
-            fi
-          else
-            # No review file found — treat as approved to avoid blocking
-            {
-              echo "verdict=approved"
-              echo "feedback="
-            } >> "$GITHUB_OUTPUT"
-            echo "::warning::No review file found at ${REVIEW_FILE} — proceeding as if approved"
-          fi
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/escalation.md
 
   # ============================================================
   # Respond: Handle review verdict and update contract
   # ============================================================
   respond:
     name: Respond to review
-    needs: [resolve-inputs, work, aggregate-checks, review]
+    needs: [resolve-inputs, work, aggregate-checks, review-setup, aggregate-reviews]
     if: >-
       always() &&
-      needs.review.result == 'success' &&
-      needs.review.outputs.circuit_breaker_open != 'true'
+      needs.aggregate-reviews.result == 'success' &&
+      needs.aggregate-reviews.outputs.circuit_breaker_open != 'true'
     runs-on: ubuntu-latest
     outputs:
       next_action: ${{ steps.route.outputs.next_action }}
@@ -830,9 +1069,9 @@ jobs:
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
       BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       MAX_REVIEW_CYCLES: ${{ needs.resolve-inputs.outputs.max_review_cycles }}
-      REVIEW_VERDICT: ${{ needs.review.outputs.verdict }}
-      REVIEW_FEEDBACK: ${{ needs.review.outputs.feedback }}
-      REVIEW_CYCLE: ${{ needs.review.outputs.review_cycle }}
+      REVIEW_VERDICT: ${{ needs.aggregate-reviews.outputs.verdict }}
+      REVIEW_FEEDBACK: ${{ needs.aggregate-reviews.outputs.feedback }}
+      REVIEW_CYCLE: ${{ needs.aggregate-reviews.outputs.review_cycle }}
 
     steps:
       - name: Generate bot token
@@ -1019,7 +1258,7 @@ jobs:
   # ============================================================
   human-gate:
     name: Request human approval (issue)
-    needs: [resolve-inputs, work, review, respond]
+    needs: [resolve-inputs, work, aggregate-reviews, respond]
     if: >-
       always() &&
       needs.respond.result == 'success' &&
@@ -1135,7 +1374,7 @@ jobs:
   # ============================================================
   human-gate-pr:
     name: Request human approval (PR)
-    needs: [resolve-inputs, work, aggregate-checks, review, respond]
+    needs: [resolve-inputs, work, aggregate-checks, aggregate-reviews, respond]
     if: >-
       always() &&
       needs.respond.result == 'success' &&
@@ -1351,11 +1590,11 @@ jobs:
   # ============================================================
   escalate:
     name: Escalate to human
-    needs: [resolve-inputs, review, respond]
+    needs: [resolve-inputs, aggregate-reviews, respond]
     if: >-
       always() &&
       (
-        needs.review.outputs.circuit_breaker_open == 'true' ||
+        needs.aggregate-reviews.outputs.circuit_breaker_open == 'true' ||
         needs.respond.outputs.circuit_breaker_triggered == 'true'
       )
     runs-on: ubuntu-latest
@@ -1365,7 +1604,7 @@ jobs:
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
       BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
-      REVIEW_CYCLE: ${{ needs.review.outputs.review_cycle }}
+      REVIEW_CYCLE: ${{ needs.aggregate-reviews.outputs.review_cycle }}
 
     steps:
       - name: Generate bot token
