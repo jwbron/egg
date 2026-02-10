@@ -211,8 +211,12 @@ echo ""
 # Get commits since last tag (or all if no tags)
 PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
 
-# Sanitize PREV_TAG for use in output (strip control characters)
-PREV_TAG_DISPLAY="${PREV_TAG//[^a-zA-Z0-9._-]/}"
+# Validate PREV_TAG only contains safe git ref characters
+# Valid: alphanumeric, dots, underscores, hyphens, and forward slashes (for hierarchical refs)
+if [[ -n "$PREV_TAG" && ! "$PREV_TAG" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+    log_warn "Previous tag '$PREV_TAG' contains unexpected characters, skipping commit list"
+    PREV_TAG=""
+fi
 
 cat << EOF
 ## $VERSION
@@ -226,9 +230,9 @@ cat << EOF
 EOF
 
 if [[ -n "$PREV_TAG" ]]; then
-    echo "<!-- Commits since $PREV_TAG_DISPLAY -->"
+    echo "<!-- Commits since $PREV_TAG -->"
     if [[ "$DRY_RUN" != "true" ]]; then
-        git log --oneline "$PREV_TAG"..HEAD | sed 's/^/- /'
+        git log --oneline "${PREV_TAG}..HEAD" | sed 's/^/- /'
     else
         echo "<!-- (dry-run: commit list would appear here) -->"
     fi
