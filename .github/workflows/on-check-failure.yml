@@ -13,6 +13,27 @@ on:
         description: 'PR number to fix checks for'
         required: true
         type: number
+      authorized_users:
+        description: 'Comma-separated list of authorized GitHub usernames'
+        required: false
+        type: string
+        default: "jwbron"
+  workflow_call:
+    inputs:
+      authorized_users:
+        description: 'Comma-separated list of authorized GitHub usernames'
+        required: false
+        type: string
+        default: "jwbron"
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
+      BOT_APP_INSTALLATION_ID:
+        required: true
+      ANTHROPIC_OAUTH_TOKEN:
+        required: true
 
 jobs:
   # Validate required configuration for event-triggered runs
@@ -37,7 +58,7 @@ jobs:
     if: always() && (needs.validate-config.result == 'success' || needs.validate-config.result == 'skipped')
     runs-on: ubuntu-latest
     outputs:
-      run: ${{ steps.check.outputs.run }}
+      run: ${{ steps.final.outputs.run }}
       pr_number: ${{ steps.check.outputs.pr_number }}
       failed_workflow: ${{ steps.check.outputs.failed_workflow }}
       failed_run_id: ${{ steps.check.outputs.failed_run_id }}
@@ -58,6 +79,7 @@ jobs:
               echo "pr_number=${{ github.event.inputs.pr_number }}"
               echo "failed_workflow=manual"
               echo "failed_run_id="
+              echo "skip_auth=true"
             } >> "$GITHUB_OUTPUT"
           elif [[ "$WORKFLOW_CONCLUSION" == "failure" && \
                   "$WORKFLOW_EVENT" == "pull_request" && \
@@ -67,7 +89,67 @@ jobs:
               echo "pr_number=${PR_NUMBER}"
               echo "failed_workflow=${WORKFLOW_NAME}"
               echo "failed_run_id=${WORKFLOW_RUN_ID}"
+              echo "skip_auth=false"
             } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "run=false"
+              echo "skip_auth=true"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate bot token for API calls
+        if: steps.check.outputs.run == 'true' && steps.check.outputs.skip_auth != 'true'
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        if: steps.check.outputs.run == 'true' && steps.check.outputs.skip_auth != 'true'
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Fetch PR author and check authorization
+        if: steps.check.outputs.run == 'true' && steps.check.outputs.skip_auth != 'true'
+        id: auth
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ steps.check.outputs.pr_number }}
+          AUTHORIZED_USERS: ${{ inputs.authorized_users || 'jwbron' }}
+          BOT_USERNAME: ${{ vars.BOT_USERNAME || 'egg' }}
+        run: |
+          set -euo pipefail
+
+          # Fetch PR author via API
+          PR_AUTHOR=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.user.login')
+          echo "PR author: $PR_AUTHOR"
+
+          # Use the authorization script
+          export SENDER_LOGIN="$PR_AUTHOR"
+          bash .github/scripts/check-authorization.sh
+
+      - name: Log authorization result
+        if: steps.check.outputs.run == 'true' && steps.check.outputs.skip_auth != 'true' && steps.auth.outputs.authorized != 'true'
+        run: |
+          echo "::warning::PR author is not authorized to trigger automated autofix"
+          echo "Authorized users: ${{ inputs.authorized_users || 'jwbron' }}"
+
+      - name: Final run decision
+        id: final
+        run: |
+          # Run if:
+          # - Initial check said run=true AND
+          # - Either auth was skipped (workflow_dispatch) OR auth passed
+          if [[ "${{ steps.check.outputs.run }}" == "true" ]]; then
+            if [[ "${{ steps.check.outputs.skip_auth }}" == "true" ]] || [[ "${{ steps.auth.outputs.authorized }}" == "true" ]]; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
