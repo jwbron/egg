@@ -201,7 +201,7 @@ class DependencyGraph:
 
         # Calculate in-degree for each node
         for node in self.nodes.values():
-            for dep in node.dependencies:
+            for _dep in node.dependencies:
                 in_degree[node.role] += 1
 
         # Start with nodes that have no dependencies

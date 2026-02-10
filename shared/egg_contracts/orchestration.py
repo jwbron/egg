@@ -285,10 +285,7 @@ def initialize_orchestration(contract: Contract) -> OrchestrationState:
     # Check which roles are enabled
     enabled_roles = list(AgentRole)  # Default: all roles
     if contract.multi_agent_config is not None:
-        enabled_roles = [
-            AgentRole(r.value)
-            for r in contract.multi_agent_config.roles_enabled
-        ]
+        enabled_roles = [AgentRole(r.value) for r in contract.multi_agent_config.roles_enabled]
 
     # Create pending execution for each enabled role
     for role in enabled_roles:

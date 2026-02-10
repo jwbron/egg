@@ -444,6 +444,7 @@ class TestHitlContractIntegration:
         assert loaded.decisions[0].resolved is True
         assert "examples" in loaded.decisions[0].resolution
 
+
 class TestHitlEndToEnd:
     """End-to-end tests for HITL workflow."""
 

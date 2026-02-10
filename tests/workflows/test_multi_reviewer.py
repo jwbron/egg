@@ -248,9 +248,7 @@ class TestPerReviewerStateTracking:
         }
 
         assert contract["plan_reviewer_verdicts"]["agent-design"] == "needs_revision"
-        assert (
-            contract["implement_reviewer_verdicts"]["agent-design"] == "approved"
-        )
+        assert contract["implement_reviewer_verdicts"]["agent-design"] == "approved"
 
 
 # Helper functions that mirror the workflow logic
@@ -314,9 +312,7 @@ def get_default_reviewers(phase: str) -> list:
             {"name": "code", "script": "action/build-code-review-prompt-workloop.sh"},
         ]
     else:
-        return [
-            {"name": "unified", "script": "action/build-unified-review-prompt.sh"}
-        ]
+        return [{"name": "unified", "script": "action/build-unified-review-prompt.sh"}]
 
 
 class TestReviewScriptExistence:
@@ -334,16 +330,12 @@ class TestReviewScriptExistence:
 
     def test_agent_design_review_script_exists(self, repo_root):
         """The agent-design review script (workloop version) should exist."""
-        script = (
-            repo_root / "action" / "build-agent-mode-design-review-prompt-workloop.sh"
-        )
+        script = repo_root / "action" / "build-agent-mode-design-review-prompt-workloop.sh"
         assert script.exists(), f"Missing: {script}"
 
     def test_contract_verification_script_exists(self, repo_root):
         """The contract verification script (workloop version) should exist."""
-        script = (
-            repo_root / "action" / "build-contract-verification-prompt-workloop.sh"
-        )
+        script = repo_root / "action" / "build-contract-verification-prompt-workloop.sh"
         assert script.exists(), f"Missing: {script}"
 
     def test_code_review_script_exists(self, repo_root):

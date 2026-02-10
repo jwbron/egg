@@ -19,7 +19,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from .agent_roles import AgentRole, AgentStatus
+from .agent_roles import AgentRole
 
 
 class RetryPolicy(StrEnum):
@@ -55,9 +55,7 @@ class RetryDecision:
         )
 
     @classmethod
-    def retry_with_backoff(
-        cls, delay: int, retry_count: int, max_retries: int
-    ) -> RetryDecision:
+    def retry_with_backoff(cls, delay: int, retry_count: int, max_retries: int) -> RetryDecision:
         """Create decision to retry after delay."""
         return cls(
             should_retry=True,
@@ -89,12 +87,14 @@ class AgentRetryConfig:
     initial_delay_seconds: int = 30
     max_delay_seconds: int = 300
     backoff_multiplier: float = 2.0
-    retryable_errors: list[str] = field(default_factory=lambda: [
-        "timeout",
-        "rate_limit",
-        "transient",
-        "network",
-    ])
+    retryable_errors: list[str] = field(
+        default_factory=lambda: [
+            "timeout",
+            "rate_limit",
+            "transient",
+            "network",
+        ]
+    )
 
 
 class AgentRetryManager:
@@ -181,10 +181,7 @@ class AgentRetryManager:
 
         # Check if error is retryable
         error_lower = error.lower()
-        is_retryable = any(
-            err_type in error_lower
-            for err_type in self.config.retryable_errors
-        )
+        is_retryable = any(err_type in error_lower for err_type in self.config.retryable_errors)
 
         if not is_retryable:
             return RetryDecision.no_retry(
@@ -195,13 +192,11 @@ class AgentRetryManager:
 
         # Calculate backoff delay
         delay = min(
-            int(self.config.initial_delay_seconds * (self.config.backoff_multiplier ** retry_count)),
+            int(self.config.initial_delay_seconds * (self.config.backoff_multiplier**retry_count)),
             self.config.max_delay_seconds,
         )
 
-        return RetryDecision.retry_with_backoff(
-            delay, retry_count + 1, self.config.max_retries
-        )
+        return RetryDecision.retry_with_backoff(delay, retry_count + 1, self.config.max_retries)
 
     def reset(self, role: AgentRole | None = None) -> None:
         """Reset retry tracking.
@@ -366,10 +361,12 @@ class ConflictDetector:
         # Check for overlaps between all pairs
         roles = list(agent_files.keys())
         for i, role1 in enumerate(roles):
-            for role2 in roles[i + 1:]:
+            for role2 in roles[i + 1 :]:
                 pair_conflicts = self.check_file_overlap(
-                    agent_files[role1], role1,
-                    agent_files[role2], role2,
+                    agent_files[role1],
+                    role1,
+                    agent_files[role2],
+                    role2,
                 )
                 conflicts.extend(pair_conflicts)
 
@@ -531,13 +528,9 @@ class AgentCircuitBreaker:
             "failure_threshold": self.config.failure_threshold,
             "success_count": self._success_count,
             "last_failure": (
-                self._last_failure_time.isoformat()
-                if self._last_failure_time else None
+                self._last_failure_time.isoformat() if self._last_failure_time else None
             ),
-            "opened_at": (
-                self._opened_at.isoformat()
-                if self._opened_at else None
-            ),
+            "opened_at": (self._opened_at.isoformat() if self._opened_at else None),
             "failed_agents": [a.value for a in self._failed_agents],
             "can_execute": self.can_execute(),
         }
@@ -553,8 +546,7 @@ class AgentCircuitBreaker:
 
         agents = ", ".join(a.value for a in self._failed_agents)
         return (
-            f"Circuit is {self.state.value}. "
-            f"{self._failure_count} failures from agents: {agents}"
+            f"Circuit is {self.state.value}. {self._failure_count} failures from agents: {agents}"
         )
 
 
