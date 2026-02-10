@@ -103,7 +103,7 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
-      BOT_USERNAME: ${{ inputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ inputs.bot_username }}
       AGENT_ROLE: ${{ inputs.agent_role || 'auto' }}
 
     steps:
@@ -302,7 +302,7 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
-      BOT_USERNAME: ${{ inputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ inputs.bot_username }}
       BRANCH_PREFIX: ${{ inputs.branch_prefix }}
       TIMEOUT: ${{ inputs.timeout || '30' }}
 
@@ -346,8 +346,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "${BOT_USERNAME}[bot]"
-          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Mark agent as running
         run: |
@@ -375,7 +375,7 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ env.TIMEOUT }}
         env:
@@ -455,7 +455,7 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
-      BOT_USERNAME: ${{ inputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ inputs.bot_username }}
       BRANCH_PREFIX: ${{ inputs.branch_prefix }}
       TIMEOUT: ${{ inputs.timeout || '30' }}
 
@@ -497,8 +497,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "${BOT_USERNAME}[bot]"
-          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Mark agent as running
         run: |
@@ -525,7 +525,7 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ env.TIMEOUT }}
         env:
@@ -589,7 +589,7 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
-      BOT_USERNAME: ${{ inputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ inputs.bot_username }}
       BRANCH_PREFIX: ${{ inputs.branch_prefix }}
       TIMEOUT: ${{ inputs.timeout || '30' }}
 
@@ -627,8 +627,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "${BOT_USERNAME}[bot]"
-          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Mark agent as running
         run: |
@@ -655,7 +655,7 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ env.TIMEOUT }}
         env:
@@ -721,7 +721,7 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
-      BOT_USERNAME: ${{ inputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ inputs.bot_username }}
       BRANCH_PREFIX: ${{ inputs.branch_prefix }}
       TIMEOUT: ${{ inputs.timeout || '30' }}
 
@@ -759,8 +759,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "${BOT_USERNAME}[bot]"
-          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Mark agent as running
         run: |
@@ -787,7 +787,7 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ env.TIMEOUT }}
         env:

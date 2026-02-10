@@ -275,7 +275,7 @@ jobs:
       PHASE: ${{ needs.resolve-inputs.outputs.phase }}
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       WORK_TIMEOUT: ${{ needs.resolve-inputs.outputs.work_timeout }}
 
@@ -321,8 +321,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "${BOT_USERNAME}[bot]"
-          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Populate contract tasks (implement phase only)
         if: env.PHASE == 'implement'
@@ -395,7 +395,7 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ env.WORK_TIMEOUT }}
         env:
@@ -464,7 +464,7 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
 
     steps:
       - name: Generate bot token
@@ -576,7 +576,7 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       PR_NUMBER: ${{ needs.resolve-inputs.outputs.pr_number }}
 
     steps:
@@ -836,7 +836,7 @@ jobs:
       PHASE: ${{ needs.resolve-inputs.outputs.phase }}
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       REVIEW_TIMEOUT: ${{ needs.resolve-inputs.outputs.review_timeout }}
       REVIEWER_NAME: ${{ matrix.name }}
@@ -896,7 +896,7 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ env.REVIEW_TIMEOUT }}
         env:
@@ -928,7 +928,7 @@ jobs:
       PHASE: ${{ needs.resolve-inputs.outputs.phase }}
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       REVIEWERS: ${{ needs.resolve-inputs.outputs.reviewers }}
 
     steps:
@@ -950,8 +950,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "${BOT_USERNAME}[bot]"
-          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Pull latest from all reviewers
         run: |
@@ -1065,7 +1065,7 @@ jobs:
       PHASE: ${{ needs.resolve-inputs.outputs.phase }}
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       FAILED_REVIEWERS: ${{ needs.aggregate-reviews.outputs.failed_reviewers }}
 
     steps:
@@ -1124,7 +1124,7 @@ jobs:
       PHASE: ${{ needs.resolve-inputs.outputs.phase }}
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       MAX_REVIEW_CYCLES: ${{ needs.resolve-inputs.outputs.max_review_cycles }}
       REVIEW_VERDICT: ${{ needs.aggregate-reviews.outputs.verdict }}
       REVIEW_FEEDBACK: ${{ needs.aggregate-reviews.outputs.feedback }}
@@ -1166,8 +1166,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "${BOT_USERNAME}[bot]"
-          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Route based on verdict
         id: route
@@ -1377,7 +1377,7 @@ jobs:
       PHASE: ${{ needs.resolve-inputs.outputs.phase }}
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
 
     steps:
       - name: Generate bot token
@@ -1493,7 +1493,7 @@ jobs:
       PHASE: ${{ needs.resolve-inputs.outputs.phase }}
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       WORKFLOW_OWNER: ${{ needs.resolve-inputs.outputs.workflow_owner }}
       PR_NUMBER: ${{ needs.resolve-inputs.outputs.pr_number }}
 
@@ -1515,8 +1515,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "${BOT_USERNAME}[bot]"
-          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Get or create PR
         id: pr
@@ -1710,7 +1710,7 @@ jobs:
       PHASE: ${{ needs.resolve-inputs.outputs.phase }}
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       REVIEW_CYCLE: ${{ needs.aggregate-reviews.outputs.review_cycle }}
 
     steps:

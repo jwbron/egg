@@ -122,7 +122,7 @@ jobs:
       - name: Check authorization
         id: check
         env:
-          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+          EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
           AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
           SENDER_LOGIN: ${{ github.event.sender.login }}
           COMMENT_BODY: ${{ github.event.comment.body }}
@@ -135,7 +135,7 @@ jobs:
           fi
 
           # Prevent self-triggering
-          if [[ "$SENDER_LOGIN" == "$BOT_USERNAME" || "$SENDER_LOGIN" == "${BOT_USERNAME}[bot]" ]]; then
+          if [[ "$SENDER_LOGIN" == "$EGG_BOT_USERNAME" || "$SENDER_LOGIN" == "${EGG_BOT_USERNAME}[bot]" ]]; then
             echo "Ignoring bot self-trigger"
             echo "authorized=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -173,7 +173,7 @@ jobs:
       (needs.check-trigger.result == 'skipped' || needs.check-trigger.outputs.authorized == 'true')
 
     env:
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
 
@@ -293,8 +293,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "${BOT_USERNAME}[bot]"
-          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Update contract with decision
         if: steps.branch.outputs.branch_exists == 'true'
@@ -550,7 +550,7 @@ jobs:
           # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            | jq -r --arg bot "${{ env.BOT_USERNAME }}" \
+            | jq -r --arg bot "${{ env.EGG_BOT_USERNAME }}" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
@@ -600,7 +600,7 @@ jobs:
       - name: Check authorization
         id: check
         env:
-          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+          EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
           AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
           SENDER_LOGIN: ${{ github.event.sender.login }}
           COMMENT_BODY: ${{ github.event.comment.body }}
@@ -613,7 +613,7 @@ jobs:
           fi
 
           # Prevent self-triggering
-          if [[ "$SENDER_LOGIN" == "$BOT_USERNAME" || "$SENDER_LOGIN" == "${BOT_USERNAME}[bot]" ]]; then
+          if [[ "$SENDER_LOGIN" == "$EGG_BOT_USERNAME" || "$SENDER_LOGIN" == "${EGG_BOT_USERNAME}[bot]" ]]; then
             echo "Ignoring bot self-trigger"
             echo "authorized=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -654,7 +654,7 @@ jobs:
       (needs.check-approval-trigger.result == 'skipped' || needs.check-approval-trigger.outputs.authorized == 'true')
 
     env:
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
 
@@ -702,8 +702,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "${BOT_USERNAME}[bot]"
-          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
 
       # Determine next phase (read-only) BEFORE any state changes.
       # This ensures retries are idempotent: if dispatch fails, the contract
@@ -862,7 +862,7 @@ jobs:
           # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
-            | jq -r --arg bot "${{ env.BOT_USERNAME }}" \
+            | jq -r --arg bot "${{ env.EGG_BOT_USERNAME }}" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
@@ -908,7 +908,7 @@ jobs:
       contains(github.event.comment.body, '[x] Submit feedback')
 
     env:
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
       BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -920,8 +920,8 @@ jobs:
           SENDER_LOGIN: ${{ github.event.sender.login }}
         run: |
           # Prevent self-triggering (check configured bot username)
-          if [[ "$SENDER_LOGIN" == "$BOT_USERNAME" || "$SENDER_LOGIN" == "${BOT_USERNAME}[bot]" ]]; then
-            echo "Ignoring bot self-trigger (sender: $SENDER_LOGIN, bot: $BOT_USERNAME)"
+          if [[ "$SENDER_LOGIN" == "$EGG_BOT_USERNAME" || "$SENDER_LOGIN" == "${EGG_BOT_USERNAME}[bot]" ]]; then
+            echo "Ignoring bot self-trigger (sender: $SENDER_LOGIN, bot: $EGG_BOT_USERNAME)"
             echo "authorized=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -1048,8 +1048,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "${BOT_USERNAME}[bot]"
-          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Parse and update feedback in contract
         if: steps.auth.outputs.authorized == 'true' && steps.branch.outputs.branch_exists == 'true'

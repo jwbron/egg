@@ -179,7 +179,7 @@ jobs:
       pr_number: ${{ steps.setup.outputs.pr_number }}
 
     env:
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
 
     steps:
@@ -210,8 +210,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "${BOT_USERNAME}[bot]"
-          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Setup pipeline
         id: setup

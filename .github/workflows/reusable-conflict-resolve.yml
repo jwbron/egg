@@ -61,7 +61,7 @@ jobs:
 
     env:
       PR_NUMBER: ${{ inputs.pr_number }}
-      BOT_USERNAME: ${{ inputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ inputs.bot_username }}
       BRANCH_PREFIX: ${{ inputs.branch_prefix }}
 
     steps:
@@ -127,7 +127,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq ".[] | select(.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") | select(.body | contains(\"<!-- egg-status-comment -->\")) | .node_id" \
+            --jq ".[] | select(.user.login == \"$EGG_BOT_USERNAME\" or .user.login == \"${EGG_BOT_USERNAME}[bot]\") | select(.body | contains(\"<!-- egg-status-comment -->\")) | .node_id" \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
               gh api graphql -f query='
@@ -191,7 +191,7 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ inputs.timeout }}
 

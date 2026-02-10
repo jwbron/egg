@@ -290,7 +290,7 @@ jobs:
 
     env:
       PR_NUMBER: ${{ inputs.pr_number }}
-      BOT_USERNAME: ${{ inputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ inputs.bot_username }}
       BRANCH_PREFIX: ${{ inputs.branch_prefix }}
 
     steps:
@@ -430,7 +430,7 @@ jobs:
         run: |
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
-            | jq -r --arg bot "$BOT_USERNAME" \
+            | jq -r --arg bot "$EGG_BOT_USERNAME" \
             '[.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.state | test("PENDING|COMMENTED|CHANGES_REQUESTED"))] | .[].id' \
           | while read -r id; do
               gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews/$id/dismissals" \
@@ -473,7 +473,7 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ inputs.timeout }}
         env:
@@ -506,7 +506,7 @@ jobs:
               echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
             fi
           done < <(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            | jq -r --arg bot "$BOT_USERNAME" \
+            | jq -r --arg bot "$EGG_BOT_USERNAME" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id')
           echo "hidden_count=${HIDDEN_COUNT}" >> "$GITHUB_OUTPUT"
         env:

@@ -129,7 +129,7 @@ jobs:
       - name: Check if mention is valid and from authorized user
         id: check
         env:
-          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+          EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
           AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
           SENDER_LOGIN: ${{ github.event.sender.login }}
           EVENT_NAME: ${{ github.event_name }}
@@ -156,7 +156,7 @@ jobs:
           fi
 
           # Prevent self-triggering
-          if [[ "$SENDER_LOGIN" == "$BOT_USERNAME" || "$SENDER_LOGIN" == "${BOT_USERNAME}[bot]" ]]; then
+          if [[ "$SENDER_LOGIN" == "$EGG_BOT_USERNAME" || "$SENDER_LOGIN" == "${EGG_BOT_USERNAME}[bot]" ]]; then
             echo "Ignoring self-trigger from bot"
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -175,8 +175,8 @@ jobs:
           fi
 
           # Check if body contains @bot_username mention
-          if [[ "$body" != *"@${BOT_USERNAME}"* ]]; then
-            echo "No @${BOT_USERNAME} mention found in body"
+          if [[ "$body" != *"@${EGG_BOT_USERNAME}"* ]]; then
+            echo "No @${EGG_BOT_USERNAME} mention found in body"
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -206,7 +206,7 @@ jobs:
       cancel-in-progress: false
 
     env:
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       ISSUE_OR_PR_NUMBER: ${{ needs.resolve-inputs.outputs.issue_or_pr_number }}
 
@@ -310,7 +310,7 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ inputs.timeout || '30' }}
 
@@ -326,7 +326,7 @@ jobs:
           # Find previous bot comments with status marker
           # shellcheck disable=SC2016
           gh api "repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments" \
-            | jq -r --arg bot "$BOT_USERNAME" \
+            | jq -r --arg bot "$EGG_BOT_USERNAME" \
             '.[] | select(.user.login == $bot or .user.login == ($bot + "[bot]")) | select(.body | contains("<!-- egg-status-comment -->")) | .node_id' \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
@@ -358,7 +358,7 @@ jobs:
           fi
           # Match both bot username and bot[bot] since GitHub App comments use the [bot] suffix
           EXISTING_COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${{ env.ISSUE_OR_PR_NUMBER }}/comments" \
-            --jq "[.[] | select((.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") and .created_at > \"${TRIGGER_TIME}\" and (.body | test(\"finished successfully|run failed|👀 Working on it\") | not))] | length")
+            --jq "[.[] | select((.user.login == \"$EGG_BOT_USERNAME\" or .user.login == \"${EGG_BOT_USERNAME}[bot]\") and .created_at > \"${TRIGGER_TIME}\" and (.body | test(\"finished successfully|run failed|👀 Working on it\") | not))] | length")
 
           if [[ "${EXISTING_COMMENTS:-0}" -gt 0 ]]; then
             # Agent already posted a substantive comment — only add run link on failure

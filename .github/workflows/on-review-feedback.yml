@@ -134,7 +134,7 @@ jobs:
       - name: Check if triggered by our bot
         id: check
         env:
-          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+          EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
           EVENT_NAME: ${{ github.event_name }}
           REVIEW_USER: ${{ github.event.review.user.login }}
           REVIEW_BODY: ${{ github.event.review.body }}
@@ -145,7 +145,7 @@ jobs:
         run: |
           # For pull_request_review events
           if [[ "$EVENT_NAME" == "pull_request_review" ]]; then
-            if [[ ("$REVIEW_USER" == "$BOT_USERNAME" || "$REVIEW_USER" == "${BOT_USERNAME}[bot]") && \
+            if [[ ("$REVIEW_USER" == "$EGG_BOT_USERNAME" || "$REVIEW_USER" == "${EGG_BOT_USERNAME}[bot]") && \
                   "$REVIEW_BODY" == *"egg-automated-review"* && \
                   "$REVIEW_STATE" != "approved" ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
@@ -155,7 +155,7 @@ jobs:
           # For issue_comment events (self-review as comment)
           elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
             if [[ "$IS_PR" == "true" && \
-                  ("$COMMENT_USER" == "$BOT_USERNAME" || "$COMMENT_USER" == "${BOT_USERNAME}[bot]") && \
+                  ("$COMMENT_USER" == "$EGG_BOT_USERNAME" || "$COMMENT_USER" == "${EGG_BOT_USERNAME}[bot]") && \
                   "$COMMENT_BODY" == *"egg-automated-review"* && \
                   "$COMMENT_BODY" != *"verdict=approve"* ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
@@ -189,7 +189,7 @@ jobs:
 
     env:
       PR_NUMBER: ${{ needs.resolve-inputs.outputs.pr_number }}
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       MAX_FEEDBACK_ROUNDS: ${{ needs.resolve-inputs.outputs.max_feedback_rounds }}
 
@@ -252,7 +252,7 @@ jobs:
           fi
 
           # Only address feedback on bot-authored PRs
-          if [[ "$PR_AUTHOR" != "$BOT_USERNAME" && "$PR_AUTHOR" != "${BOT_USERNAME}[bot]" ]]; then
+          if [[ "$PR_AUTHOR" != "$EGG_BOT_USERNAME" && "$PR_AUTHOR" != "${EGG_BOT_USERNAME}[bot]" ]]; then
             echo "PR author '$PR_AUTHOR' is not the bot, skipping"
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -387,7 +387,7 @@ jobs:
               echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
             fi
           done < <(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq ".[] | select(.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") | select(.body | contains(\"<!-- egg-status-comment -->\")) | .node_id")
+            --jq ".[] | select(.user.login == \"$EGG_BOT_USERNAME\" or .user.login == \"${EGG_BOT_USERNAME}[bot]\") | select(.body | contains(\"<!-- egg-status-comment -->\")) | .node_id")
           echo "hidden_count=${HIDDEN_COUNT}" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -438,7 +438,7 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ inputs.timeout || '20' }}
         env:
