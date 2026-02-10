@@ -256,11 +256,12 @@ jobs:
             # Check if this is a PR comment by looking for pull_request in the issue
             PR_URL="${{ github.event.issue.pull_request.url }}"
             if [[ -n "$PR_URL" && "$PR_URL" != "null" ]]; then
-              # It's a PR comment — check state and fetch the head ref
+              # It's a PR comment — check state and fetch the head ref in one call
               PR_NUMBER="${{ github.event.issue.number }}"
-              PR_STATE=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER} --jq '.state')
+              PR_DATA=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER} --jq '{state: .state, ref: .head.ref}')
+              PR_STATE=$(echo "$PR_DATA" | jq -r '.state')
               if [[ "$PR_STATE" == "open" ]]; then
-                PR_REF=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER} --jq '.head.ref')
+                PR_REF=$(echo "$PR_DATA" | jq -r '.ref')
                 echo "ref=${PR_REF}" >> "$GITHUB_OUTPUT"
                 echo "is_pr=true" >> "$GITHUB_OUTPUT"
               else
