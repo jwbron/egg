@@ -4,10 +4,9 @@ Tests the review cycle mechanism for refine and plan phases:
 1. Refine phase review cycle tracking
 2. Plan phase review cycle tracking
 3. Feedback injection into producer prompts
-4. Circuit breaker escalation after max cycles
-5. Re-dispatch logic on review failure
-6. File-based draft storage
-7. File-based review verdicts
+4. Re-dispatch logic on review failure
+5. File-based draft storage
+6. File-based review verdicts
 """
 
 import json
@@ -43,11 +42,6 @@ def base_contract():
         "acceptance_criteria": [],
         "phases": [],
         "decisions": [],
-        "circuit_breaker": {
-            "total_cycles": 0,
-            "max_total_cycles": 10,
-            "status": "closed",
-        },
         "workflow_owner": "test-user",
         "audit_log": [],
     }
@@ -86,20 +80,6 @@ class TestRefineReviewCycle:
 
         contract = json.loads(contract_path.read_text())
         assert contract["refine_review_cycles"] == 2
-
-    def test_refine_review_triggers_circuit_breaker_after_max_cycles(
-        self, temp_repo, base_contract
-    ):
-        """Circuit breaker opens after max refine review cycles."""
-        contract_path = temp_repo / ".egg-state" / "contracts" / "400.json"
-
-        # Set cycle count at max (3)
-        base_contract["refine_review_cycles"] = 3
-        base_contract["circuit_breaker"]["status"] = "open"
-        contract_path.write_text(json.dumps(base_contract))
-
-        contract = json.loads(contract_path.read_text())
-        assert contract["circuit_breaker"]["status"] == "open"
 
     def test_refine_review_feedback_stored_in_contract(self, temp_repo, base_contract):
         """Review feedback is stored in contract for re-run."""
@@ -158,19 +138,6 @@ class TestPlanReviewCycle:
 
         contract = json.loads(contract_path.read_text())
         assert contract["plan_review_cycles"] == 2
-
-    def test_plan_review_triggers_circuit_breaker_after_max_cycles(self, temp_repo, base_contract):
-        """Circuit breaker opens after max plan review cycles."""
-        base_contract["current_phase"] = "plan"
-        contract_path = temp_repo / ".egg-state" / "contracts" / "400.json"
-
-        # Set cycle count at max (3)
-        base_contract["plan_review_cycles"] = 3
-        base_contract["circuit_breaker"]["status"] = "open"
-        contract_path.write_text(json.dumps(base_contract))
-
-        contract = json.loads(contract_path.read_text())
-        assert contract["circuit_breaker"]["status"] == "open"
 
     def test_plan_review_feedback_stored_in_contract(self, temp_repo, base_contract):
         """Review feedback is stored in contract for re-run."""
@@ -234,64 +201,6 @@ class TestFeedbackInjection:
         contract = json.loads(contract_path.read_text())
         assert contract.get("refine_review_cycles", 0) == 0
         assert contract.get("refine_review_feedback", "") == ""
-
-
-class TestCircuitBreakerIntegration:
-    """Tests for circuit breaker integration with review cycles."""
-
-    def test_circuit_breaker_blocks_review_when_open(self, temp_repo, base_contract):
-        """When circuit breaker is open, review should be skipped."""
-        contract_path = temp_repo / ".egg-state" / "contracts" / "400.json"
-        base_contract["circuit_breaker"]["status"] = "open"
-        base_contract["refine_review_cycles"] = 3
-        contract_path.write_text(json.dumps(base_contract))
-
-        contract = json.loads(contract_path.read_text())
-        assert contract["circuit_breaker"]["status"] == "open"
-        # When open, the workflow job condition should skip review
-
-    def test_circuit_breaker_blocks_redispatch_when_open(self, temp_repo, base_contract):
-        """When circuit breaker is open, re-dispatch should escalate instead."""
-        contract_path = temp_repo / ".egg-state" / "contracts" / "400.json"
-        base_contract["circuit_breaker"]["status"] = "open"
-        base_contract["refine_review_cycles"] = 3
-        contract_path.write_text(json.dumps(base_contract))
-
-        contract = json.loads(contract_path.read_text())
-        assert contract["circuit_breaker"]["status"] == "open"
-        # When open, re-dispatch job should post escalation comment instead
-
-    def test_escalation_provides_context(self, temp_repo, base_contract):
-        """Escalation includes cycle count, feedback, and draft content."""
-        contract_path = temp_repo / ".egg-state" / "contracts" / "400.json"
-        base_contract["circuit_breaker"]["status"] = "open"
-        base_contract["refine_review_cycles"] = 3
-        base_contract["refine_review_feedback"] = "Repeated issues with problem statement"
-        contract_path.write_text(json.dumps(base_contract))
-
-        # Create the draft file that would be included in escalation
-        draft_file = temp_repo / ".egg-state" / "drafts" / "400-analysis.md"
-        draft_file.write_text("## Problem Statement\n\nDraft content for escalation.")
-
-        # Create the review file with last feedback
-        review_file = temp_repo / ".egg-state" / "reviews" / "400-refine-review.json"
-        review_data = {
-            "verdict": "needs_revision",
-            "summary": "Still has issues.",
-            "feedback": "Problem statement needs more detail.",
-            "timestamp": "2026-02-08T12:00:00Z",
-        }
-        review_file.write_text(json.dumps(review_data))
-
-        contract = json.loads(contract_path.read_text())
-        assert contract["refine_review_cycles"] == 3
-        assert contract["circuit_breaker"]["status"] == "open"
-
-        # Verify draft and review files exist for escalation
-        assert draft_file.exists()
-        assert review_file.exists()
-        review = json.loads(review_file.read_text())
-        assert review["feedback"] == "Problem statement needs more detail."
 
 
 class TestReviewVerdictFileParsing:
@@ -447,30 +356,3 @@ class TestAuditLogIntegration:
         assert contract["audit_log"][0]["field_path"] == "refine_review_cycles"
         assert contract["audit_log"][0]["role"] == "reviewer"
 
-    def test_circuit_breaker_open_creates_audit_entry(self, temp_repo, base_contract):
-        """Circuit breaker opening creates audit log entry."""
-        contract_path = temp_repo / ".egg-state" / "contracts" / "400.json"
-
-        # Add audit entry for circuit breaker opening
-        base_contract["circuit_breaker"]["status"] = "open"
-        base_contract["refine_review_cycles"] = 3
-        base_contract["audit_log"].append(
-            {
-                "timestamp": "2026-02-08T10:30:00Z",
-                "actor": "system",
-                "role": "system",
-                "action": "transition",
-                "field_path": "circuit_breaker.status",
-                "old_value": "closed",
-                "new_value": "open",
-                "reason": "Refine review cycle threshold exceeded (3/3)",
-            }
-        )
-        contract_path.write_text(json.dumps(base_contract))
-
-        contract = json.loads(contract_path.read_text())
-        circuit_breaker_entries = [
-            e for e in contract["audit_log"] if e["field_path"] == "circuit_breaker.status"
-        ]
-        assert len(circuit_breaker_entries) == 1
-        assert circuit_breaker_entries[0]["new_value"] == "open"

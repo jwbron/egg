@@ -68,20 +68,16 @@ SDLC contract models, role-based validation, plan parsing, and resilience utilit
 - Pydantic models for contract schema validation
 - Role-based mutation validation (implementer, reviewer, human, system)
 - Plan parser for extracting tasks from markdown documents
-- Circuit breaker logic for pipeline escalation
 - HITL (Human-in-the-Loop) checkbox generation and parsing
 - Resilience utilities (rate limiting, retry with backoff, timeout checkpoints)
 
 ```python
-from egg_contracts import Contract, check_all_thresholds, parse_plan
+from egg_contracts import Contract, parse_plan
 from egg_contracts import generate_full_hitl_block, parse_checkbox_state
 from egg_contracts import retry_with_backoff, parse_rate_limit_headers
 
 # Load and validate contract
 contract = Contract.model_validate_json(contract_json)
-
-# Check circuit breaker thresholds
-result = check_all_thresholds(contract)
 
 # Generate HITL decision UI
 block = generate_full_hitl_block(issue_number=123, stuck_task_id="task-1")
@@ -93,8 +89,7 @@ def call_external_api():
 ```
 
 **Key modules:**
-- `models.py` - Pydantic models (Contract, Task, Phase, CircuitBreaker, Feedback, etc.)
-- `circuit_breaker.py` - Circuit breaker logic for infinite loop prevention
+- `models.py` - Pydantic models (Contract, Task, Phase, Feedback, etc.)
 - `hitl.py` - Human-in-the-loop checkbox UI generation and parsing
 - `feedback.py` - Feedback comment generation and parsing for open-ended questions
 - `resilience.py` - Rate limit handling, retry logic, timeout checkpoints

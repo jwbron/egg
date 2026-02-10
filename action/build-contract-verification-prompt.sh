@@ -106,7 +106,7 @@ Perform **incremental contract verification**. Focus on changes since your last 
 
 ### CLI Commands (REVIEWER role)
 
-You are running with REVIEWER role, which allows you to mark task and criterion status:
+You are running with REVIEWER role, which allows you to mark criterion status:
 
 \`\`\`bash
 # View contract state
@@ -114,12 +114,6 @@ egg-contract show
 
 # Mark acceptance criterion as verified
 egg-contract verify-criterion --criterion ac-1
-
-# Mark task status (complete, incomplete, blocked)
-egg-contract mark-task --task task-1-1 --status complete
-
-# Mark phase status
-egg-contract mark-phase --phase phase-1 --passed true
 \`\`\`
 
 For full PR context if needed: \`gh pr diff ${PR_NUMBER}\`
@@ -162,7 +156,7 @@ Perform **comprehensive contract verification**. Verify that the implementation 
 
 ### CLI Commands (REVIEWER role)
 
-You are running with REVIEWER role, which allows you to mark task and criterion status:
+You are running with REVIEWER role, which allows you to mark criterion status:
 
 \`\`\`bash
 # View contract state
@@ -170,12 +164,6 @@ egg-contract show
 
 # Mark acceptance criterion as verified
 egg-contract verify-criterion --criterion ac-1
-
-# Mark task status (complete, incomplete, blocked)
-egg-contract mark-task --task task-1-1 --status complete
-
-# Mark phase status
-egg-contract mark-phase --phase phase-1 --passed true
 \`\`\`
 
 ### Be Thorough
