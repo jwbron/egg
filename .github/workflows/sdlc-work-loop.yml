@@ -369,6 +369,24 @@ jobs:
             fi
           fi
 
+      - name: Merge latest main into issue branch
+        run: |
+          set -euo pipefail
+          echo "Merging latest main into ${BRANCH_NAME}..."
+          git fetch origin main
+          if git merge origin/main --no-edit; then
+            echo "Successfully merged main into ${BRANCH_NAME}"
+            # Push the merge commit so reviewers and subsequent steps see it
+            git push origin "${BRANCH_NAME}" || {
+              git pull --rebase origin "${BRANCH_NAME}"
+              git push origin "${BRANCH_NAME}"
+            }
+          else
+            echo "::error::Merge conflict merging main into ${BRANCH_NAME}. Manual resolution required."
+            git merge --abort
+            exit 1
+          fi
+
       - name: Populate contract tasks (implement phase only)
         if: env.PHASE == 'implement'
         env:
