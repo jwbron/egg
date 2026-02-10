@@ -2010,13 +2010,119 @@ jobs:
           fi
 
   # ============================================================
+  # Escalate Autofix Failure: Handle max autofix attempts exceeded
+  # ============================================================
+  escalate-autofix-failure:
+    name: Escalate autofix failure
+    needs: [resolve-inputs, aggregate-checks]
+    if: >-
+      always() &&
+      needs.aggregate-checks.result == 'success' &&
+      needs.aggregate-checks.outputs.autofix_limit_exceeded == 'true' &&
+      needs.aggregate-checks.outputs.all_passed != 'true'
+    runs-on: ubuntu-latest
+
+    env:
+      PHASE: ${{ needs.resolve-inputs.outputs.phase }}
+      ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Get autofix attempt count
+        id: get-attempts
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            ATTEMPTS=$(jq -r '.autofix_attempts // 0' "$CONTRACT_PATH")
+            MAX_ATTEMPTS=$(jq -r '.max_autofix_attempts // 3' "$CONTRACT_PATH")
+            echo "attempts=${ATTEMPTS}" >> "$GITHUB_OUTPUT"
+            echo "max_attempts=${MAX_ATTEMPTS}" >> "$GITHUB_OUTPUT"
+          else
+            echo "attempts=0" >> "$GITHUB_OUTPUT"
+            echo "max_attempts=3" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post escalation comment
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          AUTOFIX_ATTEMPTS: ${{ steps.get-attempts.outputs.attempts }}
+          MAX_AUTOFIX_ATTEMPTS: ${{ steps.get-attempts.outputs.max_attempts }}
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Determine which checks are still failing
+          FAILING_CHECKS=""
+          LINT_PASSED="${{ needs.aggregate-checks.outputs.lint_passed || 'true' }}"
+          TEST_PASSED="${{ needs.aggregate-checks.outputs.test_passed || 'true' }}"
+          INTEGRATION_PASSED="${{ needs.aggregate-checks.outputs.integration_passed || 'true' }}"
+
+          # Note: We don't have direct access to these outputs since they're not propagated
+          # Just indicate that checks are failing
+
+          {
+            echo "**⚠️ Autofix circuit breaker triggered.**"
+            echo ""
+            echo "The autofix agent has attempted to fix check failures **${AUTOFIX_ATTEMPTS} times** (max: ${MAX_AUTOFIX_ATTEMPTS})."
+            echo "Checks are still failing and require human intervention."
+            echo ""
+            echo "### What to do"
+            echo ""
+            echo "1. Review the failing checks in the [workflow run](${RUN_URL})"
+            echo "2. Fix the issues manually and push to the branch"
+            echo "3. Re-trigger the workflow by adding or removing the \`sdlc:implement\` label"
+            echo ""
+            echo "Alternatively, if the failures are expected or can be ignored:"
+            echo ""
+            echo "<!-- egg-phase-approval -->"
+            echo "- [ ] Override: Skip failing checks and proceed to review"
+            echo ""
+            echo "---"
+            echo ""
+            echo "*Authored-by: egg*"
+          } > /tmp/escalation.md
+
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/escalation.md
+
+      - name: Add awaiting-approval label
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          if [[ -f ".github/scripts/transition-sdlc-label.sh" ]]; then
+            .github/scripts/transition-sdlc-label.sh \
+              --issue "${ISSUE_NUMBER}" \
+              --add "sdlc:awaiting-approval" || true
+          else
+            gh issue edit "${ISSUE_NUMBER}" --add-label "sdlc:awaiting-approval" || true
+          fi
+
+  # ============================================================
   # Escalate: Handle circuit breaker escalation
   # ============================================================
   escalate:
     name: Escalate to human
-    needs: [resolve-inputs, aggregate-reviews, respond]
+    needs: [resolve-inputs, aggregate-checks, aggregate-reviews, respond, escalate-autofix-failure]
     if: >-
       always() &&
+      needs.escalate-autofix-failure.result != 'success' &&
       (
         needs.aggregate-reviews.outputs.circuit_breaker_open == 'true' ||
         needs.respond.outputs.circuit_breaker_triggered == 'true'
