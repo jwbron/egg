@@ -266,18 +266,7 @@ jobs:
           DEFAULT_OUTPUT_TYPE: ${{ inputs.phase == 'implement' && 'pr' || 'draft' }}
           DEFAULT_HUMAN_REVIEW: ${{ inputs.phase == 'implement' && 'pr_review' || 'issue_checkbox' }}
 
-      - name: Reset autofix attempts on manual trigger
-        if: github.event_name == 'workflow_dispatch' && inputs.phase == 'implement'
-        env:
-          ISSUE_NUMBER: ${{ inputs.issue_number }}
-          BRANCH_NAME: ${{ inputs.branch_name }}
-        run: |
-          set -euo pipefail
-
-          # For workflow_dispatch, reset autofix_attempts to allow fresh retry
-          # This only applies to implement phase (autofix doesn't run in refine/plan)
-          echo "Manual workflow dispatch detected for implement phase"
-          echo "Autofix attempts will be reset in the work job after checkout"
+      # Note: autofix_attempts is reset in the work job after checkout for manual triggers
 
   # ============================================================
   # Work: Execute the primary work for this phase
@@ -766,29 +755,40 @@ jobs:
           echo "Failed checks: ${FAILED_CHECKS}"
 
           # Trigger the reusable autofix workflow
+          # Note: branch_prefix is only available for workflow_call, not workflow_dispatch
           if ! gh workflow run reusable-autofix.yml \
             --repo "${{ github.repository }}" \
             --field pr_number="${ACTUAL_PR_NUMBER}" \
             --field failed_workflow="${FAILED_CHECKS}" \
-            --field bot_username="${EGG_BOT_USERNAME}" \
-            --field branch_prefix="${BRANCH_PREFIX}"; then
+            --field bot_username="${EGG_BOT_USERNAME}"; then
             echo "::warning::Failed to trigger autofix workflow"
             echo "fixed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          # Capture timestamp before dispatch to filter runs created after this point
+          DISPATCH_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          echo "Dispatch time: ${DISPATCH_TIME}"
+
           echo "Waiting for autofix workflow to appear..."
           sleep 5
 
           # Find the triggered workflow run
+          # Filter by: branch name only (not main), status queued/in_progress, created after dispatch
           RUN_ID=""
           for attempt in 1 2 3 4 5 6; do
             RUN_ID=$(gh run list \
               --repo "${{ github.repository }}" \
               --workflow reusable-autofix.yml \
-              --limit 5 \
+              --limit 10 \
               --json databaseId,status,createdAt,headBranch \
-              --jq "[.[] | select(.headBranch == \"${BRANCH_NAME}\" or .headBranch == \"main\")] | sort_by(.createdAt) | reverse | .[0].databaseId // empty" 2>/dev/null || echo "")
+              --jq --arg branch "${BRANCH_NAME}" --arg dispatch_time "${DISPATCH_TIME}" '
+                [.[] | select(
+                  .headBranch == $branch and
+                  (.status == "queued" or .status == "in_progress" or .status == "completed") and
+                  .createdAt >= $dispatch_time
+                )] | sort_by(.createdAt) | reverse | .[0].databaseId // empty
+              ' 2>/dev/null || echo "")
             if [[ -n "$RUN_ID" ]]; then
               echo "Found autofix workflow run: ${RUN_ID}"
               break
@@ -865,18 +865,21 @@ jobs:
             git commit -m "Update autofix attempts for issue #${ISSUE_NUMBER}" || true
 
             # Push with retry
+            PUSH_SUCCEEDED="false"
             for i in 1 2 3; do
               if git push origin "${BRANCH_NAME}"; then
                 echo "Push succeeded"
+                PUSH_SUCCEEDED="true"
                 break
               fi
               echo "::warning::Push failed (attempt $i), retrying..."
               git fetch origin "${BRANCH_NAME}"
               git reset --hard "origin/${BRANCH_NAME}"
-              # Re-apply the update
+              # Re-apply the update with fresh timestamp
               CURRENT_ATTEMPTS=$(jq -r '.autofix_attempts // 0' "$CONTRACT_PATH")
               NEW_ATTEMPTS=$((CURRENT_ATTEMPTS + 1))
-              jq --arg ts "$TIMESTAMP" \
+              RETRY_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+              jq --arg ts "$RETRY_TIMESTAMP" \
                  --arg old "$CURRENT_ATTEMPTS" \
                  --arg new "$NEW_ATTEMPTS" \
                  --arg fixed "$FIXED_STATUS" '
@@ -895,6 +898,12 @@ jobs:
               git add "$CONTRACT_PATH"
               git commit -m "Update autofix attempts for issue #${ISSUE_NUMBER}" || true
             done
+
+            # Fail the step if push never succeeded
+            if [[ "$PUSH_SUCCEEDED" != "true" ]]; then
+              echo "::error::Failed to push contract update after 3 attempts"
+              exit 1
+            fi
           fi
 
   # ============================================================
@@ -910,6 +919,9 @@ jobs:
       has_conflicts: ${{ steps.aggregate.outputs.has_conflicts }}
       autofix_succeeded: ${{ steps.aggregate.outputs.autofix_succeeded }}
       autofix_limit_exceeded: ${{ steps.aggregate.outputs.autofix_limit_exceeded }}
+      lint_passed: ${{ steps.aggregate.outputs.lint_passed }}
+      test_passed: ${{ steps.aggregate.outputs.test_passed }}
+      integration_passed: ${{ steps.aggregate.outputs.integration_passed }}
 
     steps:
       - name: Aggregate results
@@ -986,9 +998,12 @@ jobs:
             echo "has_conflicts=${HAS_CONFLICTS}"
             echo "autofix_succeeded=${AUTOFIX_SUCCEEDED}"
             echo "autofix_limit_exceeded=${AUTOFIX_LIMIT_EXCEEDED}"
+            echo "lint_passed=${LINT_PASSED}"
+            echo "test_passed=${TEST_PASSED}"
+            echo "integration_passed=${INTEGRATION_PASSED}"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Check aggregation: all_passed=${ALL_PASSED}, has_conflicts=${HAS_CONFLICTS}, autofix_succeeded=${AUTOFIX_SUCCEEDED}, autofix_limit_exceeded=${AUTOFIX_LIMIT_EXCEEDED}"
+          echo "Check aggregation: all_passed=${ALL_PASSED}, has_conflicts=${HAS_CONFLICTS}, autofix_succeeded=${AUTOFIX_SUCCEEDED}, autofix_limit_exceeded=${AUTOFIX_LIMIT_EXCEEDED}, lint=${LINT_PASSED}, test=${TEST_PASSED}, integration=${INTEGRATION_PASSED}"
 
   # ============================================================
   # Re-dispatch Checks: Re-run checks after autofix succeeded
@@ -2073,14 +2088,24 @@ jobs:
           TEST_PASSED="${{ needs.aggregate-checks.outputs.test_passed || 'true' }}"
           INTEGRATION_PASSED="${{ needs.aggregate-checks.outputs.integration_passed || 'true' }}"
 
-          # Note: We don't have direct access to these outputs since they're not propagated
-          # Just indicate that checks are failing
+          if [[ "$LINT_PASSED" == "false" ]]; then
+            FAILING_CHECKS="${FAILING_CHECKS:+$FAILING_CHECKS, }lint"
+          fi
+          if [[ "$TEST_PASSED" == "false" ]]; then
+            FAILING_CHECKS="${FAILING_CHECKS:+$FAILING_CHECKS, }test"
+          fi
+          if [[ "$INTEGRATION_PASSED" == "false" ]]; then
+            FAILING_CHECKS="${FAILING_CHECKS:+$FAILING_CHECKS, }integration"
+          fi
+          FAILING_CHECKS="${FAILING_CHECKS:-unknown checks}"
 
           {
             echo "**⚠️ Autofix circuit breaker triggered.**"
             echo ""
             echo "The autofix agent has attempted to fix check failures **${AUTOFIX_ATTEMPTS} times** (max: ${MAX_AUTOFIX_ATTEMPTS})."
-            echo "Checks are still failing and require human intervention."
+            echo "The following checks are still failing: **${FAILING_CHECKS}**."
+            echo ""
+            echo "Human intervention is required."
             echo ""
             echo "### What to do"
             echo ""
