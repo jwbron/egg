@@ -12,7 +12,6 @@ Usage:
     egg-sdlc --issue 123 --phase plan       # Start from a specific phase
     egg-sdlc --repo owner/repo --issue 123  # Specify repository
     egg-sdlc --local                        # Run without GitHub (fully local mode)
-    egg-sdlc --resume                       # Resume a paused workflow
 
 The workflow phases are:
     1. refine  - Analyze the issue and produce analysis document
@@ -86,25 +85,30 @@ def header(msg: str) -> None:
     print(f"\n{Colors.BOLD}{Colors.HEADER}=== {msg} ==={Colors.ENDC}\n")
 
 
-def check_dependencies() -> bool:
-    """Check if required dependencies are installed."""
+def check_dependencies(use_act: bool = False, local_mode: bool = False) -> bool:
+    """Check if required dependencies are installed.
+
+    Args:
+        use_act: If True, check for act and docker (needed for act mode)
+        local_mode: If True, skip gh check (not needed for fully local mode)
+    """
     missing = []
 
-    # Check for act (nektos/act)
-    if not shutil.which("act"):
-        missing.append("act (https://github.com/nektos/act)")
-
-    # Check for gh CLI
-    if not shutil.which("gh"):
-        missing.append("gh (GitHub CLI)")
-
-    # Check for git
+    # git is always required
     if not shutil.which("git"):
         missing.append("git")
 
-    # Check for docker
-    if not shutil.which("docker"):
-        missing.append("docker")
+    # act and docker only needed with --use-act
+    if use_act:
+        if not shutil.which("act"):
+            missing.append("act (https://github.com/nektos/act)")
+        if not shutil.which("docker"):
+            missing.append("docker")
+
+    # gh CLI needed unless running fully local
+    if not local_mode:
+        if not shutil.which("gh"):
+            missing.append("gh (GitHub CLI)")
 
     if missing:
         error("Missing required dependencies:")
@@ -161,7 +165,7 @@ def get_issue_details(repo: str, issue_number: int) -> dict:
         raise RuntimeError(f"Failed to fetch issue #{issue_number}: {e.stderr}") from e
 
 
-def setup_local_state(repo_path: Path, issue_number: int) -> Path:
+def setup_local_state(repo_path: Path) -> Path:
     """Set up local state directory for SDLC workflow."""
     state_dir = repo_path / ".egg-state"
     local_dir = state_dir / "local"
@@ -331,76 +335,82 @@ def wait_for_human_decision(
     """
     file_path = local_dir / filename
 
-    if not file_path.exists():
+    try:
+        mtime = file_path.stat().st_mtime
+    except FileNotFoundError:
         return "cancelled", None
 
     info(f"Waiting for human input in: {file_path}")
-    print(f"  {Colors.DIM}(Edit the file and save to continue){Colors.ENDC}")
+    print(f"  {Colors.DIM}(Edit the file and save to continue, Ctrl+C to cancel){Colors.ENDC}")
 
-    # Get initial modification time
-    initial_mtime = file_path.stat().st_mtime
+    initial_mtime = mtime
 
-    while True:
-        time.sleep(check_interval)
+    try:
+        while True:
+            time.sleep(check_interval)
 
-        if not file_path.exists():
-            return "cancelled", None
+            try:
+                current_mtime = file_path.stat().st_mtime
+            except FileNotFoundError:
+                return "cancelled", None
 
-        current_mtime = file_path.stat().st_mtime
-        if current_mtime <= initial_mtime:
-            continue
+            if current_mtime <= initial_mtime:
+                continue
 
-        # File was modified, check for decisions
-        content = file_path.read_text()
+            # File was modified, check for decisions
+            content = file_path.read_text()
 
-        # Check for approval
-        if "[x] APPROVED" in content or "[ x ] APPROVED" in content.replace(" ", ""):
-            return "approved", None
+            # Check for approval
+            if "[x] APPROVED" in content or "[ x ] APPROVED" in content.replace(" ", ""):
+                return "approved", None
 
-        # Check for changes requested
-        if "[x] CHANGES REQUESTED" in content:
-            # Extract feedback
-            lines = content.split("\n")
-            feedback_lines = []
-            in_feedback = False
-            for line in lines:
-                if "CHANGES REQUESTED" in line:
-                    in_feedback = True
-                    continue
-                if in_feedback:
-                    if line.startswith("-->"):
-                        break
-                    if line.strip().startswith("-"):
-                        feedback_lines.append(line.strip()[1:].strip())
-            feedback = "\n".join(feedback_lines) if feedback_lines else "No specific feedback provided"
-            return "changes_requested", feedback
+            # Check for changes requested
+            if "[x] CHANGES REQUESTED" in content:
+                # Extract feedback
+                lines = content.split("\n")
+                feedback_lines = []
+                in_feedback = False
+                for line in lines:
+                    if "CHANGES REQUESTED" in line:
+                        in_feedback = True
+                        continue
+                    if in_feedback:
+                        if line.startswith("-->"):
+                            break
+                        if line.strip().startswith("-"):
+                            feedback_lines.append(line.strip()[1:].strip())
+                feedback = "\n".join(feedback_lines) if feedback_lines else "No specific feedback provided"
+                return "changes_requested", feedback
 
-        # Check for feedback submitted
-        if "[x] FEEDBACK SUBMITTED" in content:
-            return "submitted", content
+            # Check for feedback submitted
+            if "[x] FEEDBACK SUBMITTED" in content:
+                return "submitted", content
 
-        # Check for option selected
-        for i in range(1, 10):
-            if f"[x] Option {i}:" in content:
-                # Extract the option text
+            # Check for option selected
+            for i in range(1, 10):
+                if f"[x] Option {i}:" in content:
+                    # Extract the option text
+                    for line in content.split("\n"):
+                        if f"[x] Option {i}:" in line:
+                            option = line.split(f"[x] Option {i}:")[-1].strip()
+                            if option.endswith("-->"):
+                                option = option[:-3].strip()
+                            return "selected", option
+
+            # Check for "Other" selected
+            if "[x] Other:" in content:
                 for line in content.split("\n"):
-                    if f"[x] Option {i}:" in line:
-                        option = line.split(f"[x] Option {i}:")[-1].strip()
+                    if "[x] Other:" in line:
+                        option = line.split("[x] Other:")[-1].strip()
                         if option.endswith("-->"):
                             option = option[:-3].strip()
-                        return "selected", option
+                        return "selected", f"Other: {option}"
 
-        # Check for "Other" selected
-        if "[x] Other:" in content:
-            for line in content.split("\n"):
-                if "[x] Other:" in line:
-                    option = line.split("[x] Other:")[-1].strip()
-                    if option.endswith("-->"):
-                        option = option[:-3].strip()
-                    return "selected", f"Other: {option}"
-
-        # Update mtime for next iteration (in case user is still editing)
-        initial_mtime = current_mtime
+            # Update mtime for next iteration (in case user is still editing)
+            initial_mtime = current_mtime
+    except KeyboardInterrupt:
+        warn("\nCancelled by user")
+        return "cancelled", None
 
 
 def run_phase_with_act(
@@ -437,16 +447,14 @@ def run_phase_with_act(
 
     info(f"Running: {' '.join(cmd[:5])}...")
 
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=repo_path,
-            check=False,  # Don't raise on non-zero exit
-        )
-        return result.returncode == 0
-    except subprocess.CalledProcessError as e:
-        error(f"Phase {phase} failed: {e}")
-        return False
+    # 30 minutes timeout for workflow execution
+    result = subprocess.run(
+        cmd,
+        cwd=repo_path,
+        check=False,  # Don't raise on non-zero exit
+        timeout=1800,  # 30 minutes
+    )
+    return result.returncode == 0
 
 
 def run_phase_with_claude(
@@ -588,7 +596,11 @@ def run_local_sdlc(
 
     # Get repository info
     if repo:
-        owner, name = repo.split("/")
+        parts = repo.split("/")
+        if len(parts) != 2:
+            error("--repo must be in owner/repo format (e.g., 'myorg/myrepo')")
+            return 1
+        owner, name = parts
     else:
         try:
             owner, name = get_repo_info(repo_path)
@@ -624,7 +636,7 @@ def run_local_sdlc(
     info(f"Branch: {branch_name}")
 
     # Set up local state
-    local_dir = setup_local_state(repo_path, issue_number)
+    local_dir = setup_local_state(repo_path)
     info(f"Local state: {local_dir}")
 
     # Define phase order
@@ -743,16 +755,19 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    # Determine local_mode from args
+    local_mode = getattr(args, 'local', False)
+
     # Check dependencies if requested or if using act
     if args.check_deps:
-        if not check_dependencies():
+        if not check_dependencies(use_act=args.use_act, local_mode=local_mode):
             return 1
         success("All dependencies are installed")
         return 0
 
-    if args.use_act:
-        if not check_dependencies():
-            return 1
+    # Always check dependencies for the mode we're running in
+    if not check_dependencies(use_act=args.use_act, local_mode=local_mode):
+        return 1
 
     # Require issue number for running the workflow
     if args.issue is None:

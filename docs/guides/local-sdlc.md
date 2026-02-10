@@ -133,16 +133,21 @@ After each draft phase (refine, plan), a review file is created:
 
 ## Your Decision
 
-- [ ] APPROVED - Advance to plan phase
+To approve and advance to the plan phase, uncomment the line below:
 
-- [ ] CHANGES REQUESTED
-**Feedback:**
+<!-- [x] APPROVED - Advance to plan phase -->
+
+If changes are needed, uncomment and fill in below:
+
+<!-- [x] CHANGES REQUESTED
+Feedback:
 - [Your feedback here]
+-->
 ```
 
 Edit the file to:
-- Check `[x] APPROVED` to approve
-- Check `[x] CHANGES REQUESTED` and add feedback to request revisions
+- Uncomment `[x] APPROVED` to approve and advance
+- Uncomment `[x] CHANGES REQUESTED` and add your feedback to request revisions
 
 ### Feedback Files
 
@@ -154,7 +159,7 @@ For open-ended questions:
 ## Q1: What is the expected request volume?
 > [Your answer here]
 
-- [ ] FEEDBACK SUBMITTED
+<!-- [x] FEEDBACK SUBMITTED -->
 ```
 
 Answer each question and check `FEEDBACK SUBMITTED` when done.

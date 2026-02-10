@@ -45,3 +45,6 @@ Thumbs.db
 
 # uv lockfile (commit this for reproducibility)
 # uv.lock
+
+# SDLC workflow state (local artifacts, issue-specific)
+.egg-state/
