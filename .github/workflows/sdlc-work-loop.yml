@@ -464,9 +464,12 @@ jobs:
       needs.work.result == 'success' &&
       needs.resolve-inputs.outputs.phase == 'implement' &&
       (
-        (needs.check-lint.result == 'success' && needs.check-lint.outputs.passed == 'false') ||
-        (needs.check-test.result == 'success' && needs.check-test.outputs.passed == 'false') ||
-        (needs.check-integration.result == 'success' && needs.check-integration.outputs.passed == 'false')
+        needs.check-lint.outputs.passed == 'false' ||
+        (needs.check-lint.result == 'failure' && needs.check-lint.outputs.passed != 'true') ||
+        needs.check-test.outputs.passed == 'false' ||
+        (needs.check-test.result == 'failure' && needs.check-test.outputs.passed != 'true') ||
+        needs.check-integration.outputs.passed == 'false' ||
+        (needs.check-integration.result == 'failure' && needs.check-integration.outputs.passed != 'true')
       )
     runs-on: ubuntu-latest
     outputs:
@@ -503,21 +506,35 @@ jobs:
           if [[ "${ACTUAL_PR_NUMBER}" != "0" && -n "${ACTUAL_PR_NUMBER}" ]]; then
             echo "Triggering autofix for PR #${ACTUAL_PR_NUMBER}"
 
-            # Determine which check failed
-            FAILED_CHECK=""
-            if [[ "${{ needs.check-lint.outputs.passed }}" == "false" ]]; then
-              FAILED_CHECK="lint"
-            elif [[ "${{ needs.check-test.outputs.passed }}" == "false" ]]; then
-              FAILED_CHECK="test"
-            elif [[ "${{ needs.check-integration.outputs.passed }}" == "false" ]]; then
-              FAILED_CHECK="integration"
+            # Determine which checks failed (collect all, not just first)
+            # Use outputs when available, fall back to workflow result
+            FAILED_CHECKS=""
+
+            LINT_PASSED="${{ needs.check-lint.outputs.passed }}"
+            LINT_RESULT="${{ needs.check-lint.result }}"
+            if [[ "$LINT_PASSED" == "false" || ("$LINT_RESULT" == "failure" && "$LINT_PASSED" != "true") ]]; then
+              FAILED_CHECKS="lint"
             fi
+
+            TEST_PASSED="${{ needs.check-test.outputs.passed }}"
+            TEST_RESULT="${{ needs.check-test.result }}"
+            if [[ "$TEST_PASSED" == "false" || ("$TEST_RESULT" == "failure" && "$TEST_PASSED" != "true") ]]; then
+              FAILED_CHECKS="${FAILED_CHECKS:+$FAILED_CHECKS,}test"
+            fi
+
+            INTEGRATION_PASSED="${{ needs.check-integration.outputs.passed }}"
+            INTEGRATION_RESULT="${{ needs.check-integration.result }}"
+            if [[ "$INTEGRATION_PASSED" == "false" || ("$INTEGRATION_RESULT" == "failure" && "$INTEGRATION_PASSED" != "true") ]]; then
+              FAILED_CHECKS="${FAILED_CHECKS:+$FAILED_CHECKS,}integration"
+            fi
+
+            echo "Failed checks: ${FAILED_CHECKS}"
 
             # Trigger the reusable autofix workflow
             gh workflow run reusable-autofix.yml \
               --repo "${{ github.repository }}" \
               --field pr_number="${ACTUAL_PR_NUMBER}" \
-              --field failed_workflow="${FAILED_CHECK}" \
+              --field failed_workflow="${FAILED_CHECKS}" \
               || echo "::warning::Failed to trigger autofix workflow"
 
             echo "fixed=pending" >> "$GITHUB_OUTPUT"
@@ -562,9 +579,25 @@ jobs:
           HAS_CONFLICTS="${{ needs.check-merge-conflict.outputs.has_conflicts || 'false' }}"
 
           # Check lint, test, and integration
-          LINT_PASSED="${{ needs.check-lint.outputs.passed || 'true' }}"
-          TEST_PASSED="${{ needs.check-test.outputs.passed || 'true' }}"
-          INTEGRATION_PASSED="${{ needs.check-integration.outputs.passed || 'true' }}"
+          # When a reusable workflow has failing jobs, its result is 'failure'
+          # and outputs may not propagate. Default to 'false' in that case.
+          if [[ "${{ needs.check-lint.result }}" == "failure" ]]; then
+            LINT_PASSED="${{ needs.check-lint.outputs.passed || 'false' }}"
+          else
+            LINT_PASSED="${{ needs.check-lint.outputs.passed || 'true' }}"
+          fi
+
+          if [[ "${{ needs.check-test.result }}" == "failure" ]]; then
+            TEST_PASSED="${{ needs.check-test.outputs.passed || 'false' }}"
+          else
+            TEST_PASSED="${{ needs.check-test.outputs.passed || 'true' }}"
+          fi
+
+          if [[ "${{ needs.check-integration.result }}" == "failure" ]]; then
+            INTEGRATION_PASSED="${{ needs.check-integration.outputs.passed || 'false' }}"
+          else
+            INTEGRATION_PASSED="${{ needs.check-integration.outputs.passed || 'true' }}"
+          fi
 
           # Check if fixer was triggered
           FIXER_STATUS="${{ needs.check-fixer.outputs.fixed || 'false' }}"
