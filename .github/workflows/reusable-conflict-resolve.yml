@@ -8,7 +8,7 @@ on:
         required: true
         type: number
       base_ref:
-        description: 'Base branch to merge from (e.g., main)'
+        description: 'Base branch to merge into the PR (e.g., main). Uses merge commits (not rebase) to preserve PR history.'
         required: false
         type: string
         default: ""
