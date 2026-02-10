@@ -274,6 +274,10 @@ For production/advanced deployments using Docker Compose:
 - [Shared Libraries](shared/README.md) — Config, logging, and git utilities
 - [Configuration](config/README.md) — Repository and host configuration
 
+### Security
+
+- [Workflow Authorization Model](docs/security/authorization-model.md) — Who can trigger automated agents
+
 ### Other
 
 - [GitHub Automation Guide](docs/guides/github-automation.md) — Review bots, autofixer, @mention
