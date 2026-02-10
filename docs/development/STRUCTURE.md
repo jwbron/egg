@@ -218,6 +218,7 @@ Key workflows for the SDLC pipeline (see `.github/workflows/` for complete list)
     │   ├── merge_conflict_check.py         # Merge conflict detection
     │   ├── plan_yaml_check.py              # Plan YAML validation
     │   └── test_check.py                   # Test execution check
+    ├── create-release.sh                   # Semantic versioning release creation
     ├── push-contract-update.sh             # Conflict-resistant contract push utility
     ├── setup-sdlc-labels.sh                # SDLC label setup (idempotent)
     └── transition-sdlc-label.sh            # Atomic SDLC label transitions

@@ -166,25 +166,52 @@ jobs:
 
 ## Pre-built Images
 
-Pre-built images are available on GHCR:
+Pre-built images are available on GHCR with semantic version tags:
 
 | Image | Description |
 |-------|-------------|
-| `ghcr.io/jwbron/egg-gateway:latest` | Gateway sidecar |
-| `ghcr.io/jwbron/egg-sandbox:latest` | Sandbox container |
+| `ghcr.io/jwbron/egg-gateway` | Gateway sidecar |
+| `ghcr.io/jwbron/egg-sandbox` | Sandbox container |
 
 Images are built on every push to main and on releases.
+
+### Version Tags
+
+Each stable release creates multiple tags following semantic versioning:
+
+```bash
+# Latest stable (updated on every stable release)
+docker pull ghcr.io/jwbron/egg-sandbox:latest
+
+# Major version (e.g., all v0.x.y updates)
+docker pull ghcr.io/jwbron/egg-sandbox:v0
+
+# Minor version (e.g., all v0.1.x updates)
+docker pull ghcr.io/jwbron/egg-sandbox:v0.1
+
+# Exact version (immutable)
+docker pull ghcr.io/jwbron/egg-sandbox:v0.1.0
+```
+
+**Pre-release versions** (e.g., `v1.0.0-beta`) only get the exact version tag and do not update floating tags or `latest`.
 
 ### Using Pre-built Images
 
 In your `.env` file:
 
 ```bash
+# Use latest stable
 EGG_GATEWAY_IMAGE=ghcr.io/jwbron/egg-gateway:latest
 EGG_SANDBOX_IMAGE=ghcr.io/jwbron/egg-sandbox:latest
+
+# Or pin to a major version for stability
+EGG_GATEWAY_IMAGE=ghcr.io/jwbron/egg-gateway:v0
+EGG_SANDBOX_IMAGE=ghcr.io/jwbron/egg-sandbox:v0
 ```
 
 Or specify directly in docker-compose.yml override.
+
+See [RELEASING.md](../../RELEASING.md) for the release process and versioning strategy.
 
 ## Configuration Files
 
