@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import subprocess
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -436,16 +436,20 @@ class AgentCircuitBreaker:
 
     @property
     def state(self) -> CircuitState:
-        """Get current circuit state.
+        """Get current circuit state (read-only)."""
+        return self._state
 
-        May transition from OPEN to HALF_OPEN if timeout has passed.
+    def _maybe_transition_to_half_open(self) -> None:
+        """Transition from OPEN to HALF_OPEN if the reset timeout has elapsed.
+
+        This is called before checking whether operations can execute,
+        keeping the state property side-effect-free.
         """
         if self._state == CircuitState.OPEN and self._opened_at:
             elapsed = (datetime.now(UTC) - self._opened_at).total_seconds()
             if elapsed >= self.config.reset_timeout_seconds:
                 self._state = CircuitState.HALF_OPEN
                 self._success_count = 0
-        return self._state
 
     def is_open(self) -> bool:
         """Check if circuit is open (blocking operations).
@@ -453,7 +457,8 @@ class AgentCircuitBreaker:
         Returns:
             True if operations should be blocked
         """
-        return self.state == CircuitState.OPEN
+        self._maybe_transition_to_half_open()
+        return self._state == CircuitState.OPEN
 
     def can_execute(self) -> bool:
         """Check if an operation can be executed.
@@ -461,7 +466,8 @@ class AgentCircuitBreaker:
         Returns:
             True if operation is allowed
         """
-        return self.state != CircuitState.OPEN
+        self._maybe_transition_to_half_open()
+        return self._state != CircuitState.OPEN
 
     def record_failure(self, role: AgentRole, error: str | None = None) -> None:
         """Record an agent failure.
@@ -470,17 +476,18 @@ class AgentCircuitBreaker:
             role: The agent that failed
             error: Optional error message
         """
+        self._maybe_transition_to_half_open()
         self._failure_count += 1
         self._last_failure_time = datetime.now(UTC)
         if role not in self._failed_agents:
             self._failed_agents.append(role)
 
         # Check if we should open the circuit
-        if self.state == CircuitState.CLOSED:
+        if self._state == CircuitState.CLOSED:
             if self._failure_count >= self.config.failure_threshold:
                 self._state = CircuitState.OPEN
                 self._opened_at = datetime.now(UTC)
-        elif self.state == CircuitState.HALF_OPEN:
+        elif self._state == CircuitState.HALF_OPEN:
             # Failed during test - back to open
             self._state = CircuitState.OPEN
             self._opened_at = datetime.now(UTC)
@@ -491,10 +498,11 @@ class AgentCircuitBreaker:
         Args:
             role: The agent that succeeded
         """
+        self._maybe_transition_to_half_open()
         if role in self._failed_agents:
             self._failed_agents.remove(role)
 
-        if self.state == CircuitState.HALF_OPEN:
+        if self._state == CircuitState.HALF_OPEN:
             self._success_count += 1
             if self._success_count >= self.config.success_threshold:
                 self._state = CircuitState.CLOSED
