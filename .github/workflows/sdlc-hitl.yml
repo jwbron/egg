@@ -20,7 +20,7 @@ on:
         description: 'GitHub username of the bot (for git identity and comment filtering)'
         required: false
         type: string
-        default: "james-in-a-box"
+        default: "egg"
       authorized_users:
         description: 'Comma-separated list of authorized GitHub usernames for HITL decisions'
         required: false
@@ -63,7 +63,7 @@ jobs:
         id: resolve
         run: |
           {
-            echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}"
+            echo "bot_username=${{ inputs.bot_username || 'egg' }}"
             echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
             echo "branch_prefix=${{ inputs.branch_prefix || 'egg' }}"
           } >> "$GITHUB_OUTPUT"
@@ -871,15 +871,11 @@ jobs:
     runs-on: ubuntu-latest
     # Trigger on feedback comments (with egg-feedback marker) where the submit
     # checkbox has been checked.
-    # NOTE: Authorization is checked dynamically in the first step using authorized_users input.
-    # Bot self-trigger prevention is hardcoded here because job-level `if:` conditions cannot
-    # access `needs` outputs (GitHub Actions limitation). This is a safety check; the step-level
-    # auth check handles the full authorization logic including configured bot_username.
+    # NOTE: Self-trigger prevention and authorization are checked in the first step
+    # using the resolved bot_username from needs.resolve-inputs.outputs.
     if: >-
       contains(github.event.comment.body, '<!-- egg-feedback') &&
-      contains(github.event.comment.body, '[x] Submit feedback') &&
-      github.event.sender.login != 'james-in-a-box' &&
-      github.event.sender.login != 'james-in-a-box[bot]'
+      contains(github.event.comment.body, '[x] Submit feedback')
 
     env:
       BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
@@ -892,6 +888,13 @@ jobs:
         env:
           SENDER_LOGIN: ${{ github.event.sender.login }}
         run: |
+          # Prevent self-triggering (check configured bot username)
+          if [[ "$SENDER_LOGIN" == "$BOT_USERNAME" || "$SENDER_LOGIN" == "${BOT_USERNAME}[bot]" ]]; then
+            echo "Ignoring bot self-trigger (sender: $SENDER_LOGIN, bot: $BOT_USERNAME)"
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # Check if sender is authorized
           is_authorized=false
           IFS=',' read -ra users <<< "$AUTHORIZED_USERS"

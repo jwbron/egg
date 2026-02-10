@@ -140,11 +140,39 @@ The pipeline is triggered by applying the `sdlc:refine` label to an issue. You c
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `bot_username` | GitHub username of your bot | `james-in-a-box` |
+| `bot_username` | GitHub username of your bot | `egg` |
 | `action_ref` | Reference to egg action (documentation only; see note) | `jwbron/egg/action@main` |
 | `authorized_users` | Comma-separated list of authorized users | `jwbron` |
 | `branch_prefix` | Prefix for issue branches | `egg` |
 | `timeout` | Timeout in minutes | varies by workflow |
+
+## Repository Variables
+
+For easier configuration across multiple workflows, you can set `BOT_USERNAME` as a GitHub Actions repository variable instead of hardcoding it in each workflow file.
+
+### Setting Up `BOT_USERNAME`
+
+1. Go to your repository's **Settings** → **Secrets and variables** → **Actions**
+2. Click the **Variables** tab
+3. Click **New repository variable**
+4. Set **Name** to `BOT_USERNAME` and **Value** to your bot's GitHub username
+
+### Using in Workflows
+
+Once configured, reference the variable in your workflow files:
+
+```yaml
+jobs:
+  review:
+    uses: jwbron/egg/.github/workflows/reusable-review.yml@main
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      bot_name: review
+      bot_username: ${{ vars.BOT_USERNAME || 'egg' }}
+      # ...
+```
+
+The `|| 'egg'` fallback ensures the workflow runs even if the variable isn't set.
 
 ## Important Limitations
 
