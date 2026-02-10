@@ -73,15 +73,6 @@ class TestGetAnthropicApiKey:
             mock_config.USER_CONFIG_DIR = tmp_path
             assert get_anthropic_api_key() == "sk-ant-api-fromfile"
 
-    def test_from_legacy_file(self, monkeypatch, tmp_path):
-        """Returns API key from legacy dedicated file."""
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        api_key_file = tmp_path / "anthropic-api-key"
-        api_key_file.write_text("sk-ant-api-legacy\n")
-        with patch("egg_lib.auth.Config") as mock_config:
-            mock_config.USER_CONFIG_DIR = tmp_path
-            assert get_anthropic_api_key() == "sk-ant-api-legacy"
-
     def test_returns_none_when_not_found(self, monkeypatch, tmp_path):
         """Returns None when API key not found anywhere."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

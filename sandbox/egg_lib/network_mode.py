@@ -8,13 +8,11 @@ This module manages per-container repository visibility modes:
 Mode is determined solely by CLI flags (--private or --public), with no
 persistent state between invocations. Default is public mode.
 
-The gateway sidecar always runs with locked-down Squid (PRIVATE_MODE=true).
-Only private containers route through the proxy; public containers bypass it.
-This allows private and public containers to run simultaneously without
-gateway restarts.
+The gateway sidecar always runs with locked-down Squid. Only private containers
+route through the proxy; public containers bypass it. This allows private and
+public containers to run simultaneously without gateway restarts.
 """
 
-import json
 import urllib.request
 from enum import Enum
 
@@ -33,46 +31,19 @@ class PrivateMode(Enum):
     PUBLIC = "public"
 
 
-def get_private_mode_env_vars(mode: PrivateMode) -> dict[str, str]:
-    """Get environment variables for the given private mode.
-
-    Note: These are no longer used for gateway configuration (gateway always
-    runs locked). Kept for backward compatibility with any code that calls this.
-
-    Args:
-        mode: The private mode.
+def is_gateway_running() -> bool:
+    """Check if the gateway sidecar is running and healthy.
 
     Returns:
-        Dict of environment variable names to values.
-    """
-    if mode == PrivateMode.PRIVATE:
-        return {"PRIVATE_MODE": "true"}
-    else:
-        return {"PRIVATE_MODE": "false"}
-
-
-def get_gateway_current_mode() -> PrivateMode | None:
-    """Query the gateway's status via health endpoint.
-
-    Note: The gateway now always runs in locked mode (PRIVATE_MODE=true).
-    This function is kept for backward compatibility and health checking.
-
-    Returns:
-        PrivateMode based on health response, or None if gateway is not reachable.
+        True if gateway is running and reachable, False otherwise.
     """
     try:
         with urllib.request.urlopen(
             f"http://localhost:{GATEWAY_PORT}/api/v1/health", timeout=2
         ) as response:
-            data = json.loads(response.read().decode("utf-8"))
-            # Gateway always reports private_mode=true now (locked Squid)
-            # But we still parse the response for backward compatibility
-            if data.get("private_mode"):
-                return PrivateMode.PRIVATE
-            else:
-                return PrivateMode.PUBLIC
+            return response.status == 200
     except Exception:
-        return None
+        return False
 
 
 def ensure_gateway_mode(mode: PrivateMode, quiet: bool = False) -> bool:
@@ -88,11 +59,11 @@ def ensure_gateway_mode(mode: PrivateMode, quiet: bool = False) -> bool:
         quiet: Suppress output messages.
 
     Returns:
-        True if gateway is running, False if not reachable.
+        True (gateway will be started by start_gateway_container() if needed).
     """
-    current_mode = get_gateway_current_mode()
+    gateway_running = is_gateway_running()
 
-    if current_mode is None:
+    if not gateway_running:
         # Gateway not running - will be started by start_gateway_container()
         if not quiet:
             info("Gateway not running - will be started")

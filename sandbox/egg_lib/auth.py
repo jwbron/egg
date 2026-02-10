@@ -41,7 +41,7 @@ def get_claude_oauth_token() -> str | None:
 
 def get_anthropic_api_key() -> str | None:
     """
-    Get Anthropic API key from environment, secrets.env, or legacy config file.
+    Get Anthropic API key from environment or secrets.env.
 
     Returns:
         API key string if found, None otherwise.
@@ -57,11 +57,6 @@ def get_anthropic_api_key() -> str | None:
             line = line.strip()
             if line.startswith("ANTHROPIC_API_KEY="):
                 return line.split("=", 1)[1].strip()
-
-    # Legacy: check dedicated file
-    api_key_file = Config.USER_CONFIG_DIR / "anthropic-api-key"
-    if api_key_file.exists():
-        return api_key_file.read_text().strip()
 
     return None
 
