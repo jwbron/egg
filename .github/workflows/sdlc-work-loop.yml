@@ -465,11 +465,11 @@ jobs:
       needs.resolve-inputs.outputs.phase == 'implement' &&
       (
         needs.check-lint.outputs.passed == 'false' ||
-        needs.check-lint.result == 'failure' ||
+        (needs.check-lint.result == 'failure' && needs.check-lint.outputs.passed != 'true') ||
         needs.check-test.outputs.passed == 'false' ||
-        needs.check-test.result == 'failure' ||
+        (needs.check-test.result == 'failure' && needs.check-test.outputs.passed != 'true') ||
         needs.check-integration.outputs.passed == 'false' ||
-        needs.check-integration.result == 'failure'
+        (needs.check-integration.result == 'failure' && needs.check-integration.outputs.passed != 'true')
       )
     runs-on: ubuntu-latest
     outputs:

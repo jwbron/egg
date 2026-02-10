@@ -51,7 +51,7 @@ on:
       pr_number:
         description: 'PR number to fix checks for'
         required: true
-        type: string
+        type: number
       failed_workflow:
         description: 'Name of the failed workflow (lint, test, integration)'
         required: false
@@ -67,6 +67,11 @@ on:
         required: false
         type: string
         default: "james-in-a-box"
+      action_ref:
+        description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
+        required: false
+        type: string
+        default: "jwbron/egg/action@main"
       prompt_script:
         description: 'Path to prompt builder script (relative to repo root)'
         required: false
