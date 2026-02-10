@@ -170,8 +170,8 @@ Pre-built images are available on GHCR:
 
 | Image | Description |
 |-------|-------------|
-| `ghcr.io/jwbron/egg-gateway:latest` | Gateway sidecar (latest stable) |
-| `ghcr.io/jwbron/egg-sandbox:latest` | Sandbox container (latest stable) |
+| `ghcr.io/jwbron/egg-gateway:latest` | Gateway sidecar (latest build) |
+| `ghcr.io/jwbron/egg-sandbox:latest` | Sandbox container (latest build) |
 
 Images are built on every push to main and on releases.
 
