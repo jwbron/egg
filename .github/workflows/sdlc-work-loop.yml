@@ -754,6 +754,10 @@ jobs:
 
           echo "Failed checks: ${FAILED_CHECKS}"
 
+          # Capture timestamp before dispatch to filter runs created after this point
+          DISPATCH_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          echo "Dispatch time: ${DISPATCH_TIME}"
+
           # Trigger the reusable autofix workflow
           # Note: branch_prefix is only available for workflow_call, not workflow_dispatch
           if ! gh workflow run reusable-autofix.yml \
@@ -765,10 +769,6 @@ jobs:
             echo "fixed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
-          # Capture timestamp before dispatch to filter runs created after this point
-          DISPATCH_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          echo "Dispatch time: ${DISPATCH_TIME}"
 
           echo "Waiting for autofix workflow to appear..."
           sleep 5
