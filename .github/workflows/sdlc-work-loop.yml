@@ -1072,6 +1072,7 @@ jobs:
       REVIEW_VERDICT: ${{ needs.aggregate-reviews.outputs.verdict }}
       REVIEW_FEEDBACK: ${{ needs.aggregate-reviews.outputs.feedback }}
       REVIEW_CYCLE: ${{ needs.aggregate-reviews.outputs.review_cycle }}
+      REVIEWERS: ${{ needs.resolve-inputs.outputs.reviewers }}
 
     steps:
       - name: Generate bot token
@@ -1087,6 +1088,18 @@ jobs:
           ref: ${{ env.BRANCH_NAME }}
           token: ${{ steps.bot-token.outputs.token }}
           fetch-depth: 0
+
+      - name: Pull latest
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            if git pull origin "${BRANCH_NAME}" --rebase; then
+              echo "Pull succeeded on attempt $i"
+              break
+            fi
+            echo "::warning::git pull attempt $i failed, retrying..."
+            sleep $((i * 2))
+          done
 
       - name: Configure git identity
         env:
@@ -1125,6 +1138,37 @@ jobs:
             exit 0
           fi
 
+          # Collect per-reviewer verdicts from review files
+          collect_reviewer_verdicts() {
+            local reviewer_verdicts="{"
+            local first=true
+            local reviewer_names
+            reviewer_names=$(echo "$REVIEWERS" | jq -r '.[].name')
+
+            for reviewer in $reviewer_names; do
+              if [[ "$reviewer" == "unified" ]]; then
+                review_file=".egg-state/reviews/${ISSUE_NUMBER}-${PHASE}-review.json"
+              else
+                review_file=".egg-state/reviews/${ISSUE_NUMBER}-${PHASE}-${reviewer}.json"
+              fi
+
+              if [[ -f "$review_file" ]]; then
+                verdict=$(jq -r '.verdict // "unknown"' "$review_file")
+              else
+                verdict="missing"
+              fi
+
+              if [[ "$first" == "true" ]]; then
+                first=false
+              else
+                reviewer_verdicts+=","
+              fi
+              reviewer_verdicts+="\"${reviewer}\":\"${verdict}\""
+            done
+            reviewer_verdicts+="}"
+            echo "$reviewer_verdicts"
+          }
+
           # Function to apply the jq transformation (idempotent - can be re-run)
           apply_review_update() {
             local contract_path="$1"
@@ -1134,6 +1178,7 @@ jobs:
             timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
             local cycles_field="${PHASE}_review_cycles"
             local feedback_field="${PHASE}_review_feedback"
+            local per_reviewer_field="${PHASE}_reviewer_verdicts"
             local old_cycles
             old_cycles=$(jq -r ".${cycles_field} // 0" "$contract_path")
             local old_total
@@ -1141,6 +1186,10 @@ jobs:
             local new_total=$((old_total + 1))
             local old_cb_status
             old_cb_status=$(jq -r '.circuit_breaker.status // "closed"' "$contract_path")
+
+            # Collect per-reviewer verdicts
+            local reviewer_verdicts
+            reviewer_verdicts=$(collect_reviewer_verdicts)
 
             # Determine if circuit breaker should be opened
             local open_cb="false"
@@ -1161,12 +1210,15 @@ jobs:
                --arg old_cycles "$old_cycles" \
                --arg cycles_field "$cycles_field" \
                --arg feedback_field "$feedback_field" \
+               --arg per_reviewer_field "$per_reviewer_field" \
+               --argjson reviewer_verdicts "$reviewer_verdicts" \
                --arg new_total "$new_total" \
                --arg open_cb "$open_cb" \
                --arg cb_reason "$cb_reason" \
                --arg old_cb_status "$old_cb_status" '
               .[$cycles_field] = ($cycle | tonumber) |
               .[$feedback_field] = $feedback |
+              .[$per_reviewer_field] = $reviewer_verdicts |
               .circuit_breaker.total_cycles = ($new_total | tonumber) |
               .audit_log += [{
                 "timestamp": $ts,
@@ -1176,7 +1228,7 @@ jobs:
                 "field_path": $cycles_field,
                 "old_value": ($old_cycles | tonumber),
                 "new_value": ($cycle | tonumber),
-                "reason": ("Review cycle " + $cycle + ": " + $verdict)
+                "reason": ("Review cycle " + $cycle + ": " + $verdict + " (per-reviewer: " + ($reviewer_verdicts | tostring) + ")")
               }] |
               if $open_cb == "true" then
                 .circuit_breaker.status = "open" |
