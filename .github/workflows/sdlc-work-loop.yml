@@ -346,7 +346,7 @@ jobs:
       - name: Run egg agent
         id: egg
         continue-on-error: true
-        uses: jwbron/egg/action@v0
+        uses: jwbron/egg/action@main
         with:
           prompt: ${{ steps.prompt.outputs.prompt }}
           anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
@@ -844,7 +844,7 @@ jobs:
 
       - name: Run reviewer agent
         id: egg
-        uses: jwbron/egg/action@v0
+        uses: jwbron/egg/action@main
         with:
           prompt-file: ${{ steps.prompt.outputs.prompt-file }}
           model: ${{ steps.prompt.outputs.model }}

@@ -26,7 +26,7 @@ on:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
         type: string
-        default: "jwbron/egg/action@v0"
+        default: "jwbron/egg/action@main"
       prompt_script:
         description: 'Path to prompt builder script (relative to repo root)'
         required: false
@@ -71,7 +71,7 @@ on:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
         type: string
-        default: "jwbron/egg/action@v0"
+        default: "jwbron/egg/action@main"
       prompt_script:
         description: 'Path to prompt builder script (relative to repo root)'
         required: false
@@ -214,7 +214,7 @@ jobs:
       - name: Run egg autofix
         if: steps.skip-check.outputs.skip != 'true'
         id: egg
-        uses: jwbron/egg/action@v0
+        uses: jwbron/egg/action@main
         with:
           prompt-file: ${{ steps.prompt.outputs.prompt-file }}
           model: ${{ steps.prompt.outputs.model }}

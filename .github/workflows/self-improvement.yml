@@ -37,7 +37,7 @@ on:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
         type: string
-        default: "jwbron/egg/action@v0"
+        default: "jwbron/egg/action@main"
     secrets:
       BOT_APP_ID:
         required: true
@@ -289,7 +289,7 @@ jobs:
 
       - name: Run egg
         id: egg
-        uses: jwbron/egg/action@v0
+        uses: jwbron/egg/action@main
         with:
           prompt-file: prompts/task_prompt_${{ matrix.partition }}.md
           anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
