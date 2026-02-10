@@ -16,7 +16,7 @@ on:
         description: 'GitHub username of the bot (for comment filtering)'
         required: false
         type: string
-        default: "james-in-a-box"
+        default: "egg"
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false

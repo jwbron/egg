@@ -81,7 +81,7 @@ on:
         description: 'GitHub username of the bot'
         required: false
         type: string
-        default: "james-in-a-box"
+        default: "egg"
       workflow_owner:
         description: 'GitHub username who initiated the workflow'
         required: false
@@ -191,7 +191,7 @@ jobs:
             echo "max_total_cycles=${{ inputs.max_total_cycles || '10' }}"
             echo "work_timeout=${{ inputs.work_timeout || '30' }}"
             echo "review_timeout=${{ inputs.review_timeout || '15' }}"
-            echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}"
+            echo "bot_username=${{ inputs.bot_username || 'egg' }}"
             echo "workflow_owner=${{ inputs.workflow_owner || '' }}"
             echo "pr_number=${{ inputs.pr_number || '0' }}"
           } >> "$GITHUB_OUTPUT"

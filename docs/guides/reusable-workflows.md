@@ -159,9 +159,30 @@ For easier configuration across multiple workflows, you can set `BOT_USERNAME` a
 
 ### Using in Workflows
 
-Once configured, reference the variable in your workflow files:
+There are two types of workflows that use `BOT_USERNAME`:
+
+1. **Entry-point workflows** (e.g., `on-pull-request.yml`, `on-check-failure.yml`) — These use `vars.BOT_USERNAME` directly from the repository variable.
+
+2. **Reusable workflows** (e.g., `reusable-review.yml`, `reusable-autofix.yml`) — These receive `bot_username` via the `with:` input block from calling workflows.
+
+For entry-point workflows, reference the variable directly:
 
 ```yaml
+# In an entry-point workflow (e.g., on-pull-request.yml)
+jobs:
+  review:
+    uses: ./.github/workflows/reusable-review.yml
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      bot_name: review
+      bot_username: ${{ vars.BOT_USERNAME || 'egg' }}
+      # ...
+```
+
+When calling reusable workflows from external repositories, pass `bot_username` via the `with:` block:
+
+```yaml
+# In your repository's caller workflow
 jobs:
   review:
     uses: jwbron/egg/.github/workflows/reusable-review.yml@main
