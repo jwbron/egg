@@ -123,7 +123,7 @@ cat > ${review_file} << REVIEW_EOF
 REVIEW_EOF
 git add ${review_file}
 git commit -m \"Code review: approved (${phase} phase, issue #${issue_number})\"
-git push origin \${EGG_BRANCH_NAME}
+git push origin \$(git branch --show-current)
 \`\`\`
 "
     elif [[ "$is_rereview" == "true" ]]; then
@@ -220,7 +220,7 @@ cat > ${review_file} << REVIEW_EOF
 REVIEW_EOF
 git add ${review_file}
 git commit -m \"Code review: approved (${phase} phase, issue #${issue_number})\"
-git push origin \${EGG_BRANCH_NAME}
+git push origin \$(git branch --show-current)
 \`\`\`
 
 ### If the implementation NEEDS REVISION:
@@ -239,7 +239,7 @@ cat > ${review_file} << REVIEW_EOF
 REVIEW_EOF
 git add ${review_file}
 git commit -m \"Code review: needs revision (${phase} phase, issue #${issue_number})\"
-git push origin \${EGG_BRANCH_NAME}
+git push origin \$(git branch --show-current)
 \`\`\`
 
 ## Important Notes

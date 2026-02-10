@@ -158,7 +158,7 @@ cat > ${review_file} << REVIEW_EOF
 REVIEW_EOF
 git add ${review_file}
 git commit -m \"Agent-mode design review: approved (${phase} phase, issue #${issue_number})\"
-git push origin \${EGG_BRANCH_NAME}
+git push origin \$(git branch --show-current)
 \`\`\`
 
 ### If the output NEEDS REVISION (clear anti-patterns found):
@@ -177,7 +177,7 @@ cat > ${review_file} << REVIEW_EOF
 REVIEW_EOF
 git add ${review_file}
 git commit -m \"Agent-mode design review: needs revision (${phase} phase, issue #${issue_number})\"
-git push origin \${EGG_BRANCH_NAME}
+git push origin \$(git branch --show-current)
 \`\`\`
 
 ## Important Notes
