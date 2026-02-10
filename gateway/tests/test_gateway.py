@@ -252,7 +252,7 @@ class TestGitPush:
             assert data["success"] is False
 
     def test_push_allowed_for_bot_prefixed_branch(self, client, auth_headers):
-        """Push allowed for bot-prefixed branch (egg-)."""
+        """Push allowed for bot-prefixed branch."""
         with (
             patch("subprocess.run") as mock_run,
             patch.object(gateway, "get_policy_engine") as mock_policy,
@@ -1037,7 +1037,7 @@ class TestGhPrEdit:
         assert "title or body" in data["message"]
 
     def test_pr_edit_denied_when_not_owner(self, client, auth_headers):
-        """PR edit denied when egg doesn't own the PR."""
+        """PR edit denied when bot doesn't own the PR."""
         with patch.object(gateway, "get_policy_engine") as mock_policy:
             mock_engine = MagicMock()
             mock_engine.check_pr_ownership.return_value = PolicyResult(
@@ -1074,7 +1074,7 @@ class TestGhPrClose:
         assert "pr_number" in data["message"]
 
     def test_pr_close_denied_when_not_owner(self, client, auth_headers):
-        """PR close denied when egg doesn't own the PR."""
+        """PR close denied when bot doesn't own the PR."""
         with patch.object(gateway, "get_policy_engine") as mock_policy:
             mock_engine = MagicMock()
             mock_engine.check_pr_ownership.return_value = PolicyResult(

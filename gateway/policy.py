@@ -61,13 +61,22 @@ _bot_branch_prefixes_cache: tuple[str, ...] | None = None
 
 
 def _get_bot_name() -> str:
-    """Get the configured bot name for use in messages."""
-    return os.environ.get("GATEWAY_BOT_NAME", "").strip().lower() or "bot"
+    """Get the configured bot name for use in messages.
+
+    Note: This function assumes GATEWAY_BOT_NAME is set, as get_bot_identities()
+    will raise ValueError before any policy checks run if it's not configured.
+    """
+    return os.environ.get("GATEWAY_BOT_NAME", "").strip().lower()
 
 
 def _get_branch_prefix() -> str:
-    """Get the configured branch prefix for use in messages."""
-    return os.environ.get("GATEWAY_BOT_BRANCH_PREFIX", "").strip().lower() or "bot"
+    """Get the configured branch prefix for use in messages.
+
+    Note: This function assumes GATEWAY_BOT_BRANCH_PREFIX is set, as
+    get_bot_branch_prefixes() will raise ValueError before any policy checks
+    run if it's not configured.
+    """
+    return os.environ.get("GATEWAY_BOT_BRANCH_PREFIX", "").strip().lower()
 
 
 def _reset_bot_config_caches() -> None:
