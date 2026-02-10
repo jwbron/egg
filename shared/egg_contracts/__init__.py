@@ -81,6 +81,9 @@ from .loader import (
 )
 from .models import (
     AcceptanceCriterion,
+    AgentExecutionModel,
+    AgentExecutionStatus,
+    AgentRoleType,
     AuditAction,
     AuditEntry,
     AuditRole,
@@ -95,6 +98,7 @@ from .models import (
     FeedbackQuestion,
     HumanReviewMechanism,
     IssueInfo,
+    MultiAgentConfig,
     Phase,
     PhaseConfig,
     PhaseStatus,
@@ -103,6 +107,23 @@ from .models import (
     ReviewFeedback,
     Task,
     TaskStatus,
+)
+from .agent_roles import (
+    AGENT_ROLES,
+    AgentExecution,
+    AgentRole,
+    AgentRoleDefinition,
+    AgentStatus,
+    CODER_ROLE,
+    DOCUMENTER_ROLE,
+    FileAccessPattern,
+    INTEGRATOR_ROLE,
+    TESTER_ROLE,
+    can_run_in_parallel,
+    create_execution_for_role,
+    get_all_roles,
+    get_role_definition,
+    get_role_dependencies,
 )
 from .phase_defaults import (
     get_default_phase_config,
@@ -150,6 +171,9 @@ from .validator import (
 __all__ = [
     # Models
     "AcceptanceCriterion",
+    "AgentExecutionModel",
+    "AgentExecutionStatus",
+    "AgentRoleType",
     "AuditAction",
     "AuditEntry",
     "AuditRole",
@@ -163,6 +187,7 @@ __all__ = [
     "DecisionOption",
     "DecisionType",
     "HumanReviewMechanism",
+    "MultiAgentConfig",
     "PhaseConfig",
     # Roles
     "FIELD_OWNERSHIP",
@@ -250,4 +275,20 @@ __all__ = [
     "parse_rate_limit_headers",
     "retry_with_backoff",
     "should_checkpoint_now",
+    # Agent Roles
+    "AGENT_ROLES",
+    "AgentExecution",
+    "AgentRole",
+    "AgentRoleDefinition",
+    "AgentStatus",
+    "CODER_ROLE",
+    "DOCUMENTER_ROLE",
+    "FileAccessPattern",
+    "INTEGRATOR_ROLE",
+    "TESTER_ROLE",
+    "can_run_in_parallel",
+    "create_execution_for_role",
+    "get_all_roles",
+    "get_role_definition",
+    "get_role_dependencies",
 ]
