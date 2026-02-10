@@ -33,7 +33,7 @@ on:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
         type: string
-        default: "jwbron/egg/action@main"
+        default: "jwbron/egg/action@v0"
       authorized_users:
         description: 'Comma-separated list of authorized GitHub usernames (for bot-authored PR check bypass)'
         required: false
@@ -402,7 +402,7 @@ jobs:
       - name: Run egg to address feedback
         if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
         id: egg
-        uses: jwbron/egg/action@main
+        uses: jwbron/egg/action@v0
         with:
           prompt-file: ${{ steps.prompt.outputs.prompt-file }}
           model: ${{ steps.prompt.outputs.model }}

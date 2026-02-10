@@ -39,7 +39,7 @@ on:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
         type: string
-        default: "jwbron/egg/action@main"
+        default: "jwbron/egg/action@v0"
       authorized_users:
         description: 'Comma-separated list of authorized GitHub usernames'
         required: false
