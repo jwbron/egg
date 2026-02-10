@@ -10,12 +10,23 @@
   "phases": [],
   "decisions": [],
   "circuit_breaker": {
-    "total_cycles": 0,
+    "total_cycles": 1,
     "max_total_cycles": 10,
     "status": "closed"
   },
   "workflow_owner": "jwbron",
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-02-10T04:22:59Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved"
+    }
+  ],
   "phase_configs": {
     "refine": {
       "max_review_cycles": 3,
@@ -29,5 +40,7 @@
       "max_review_cycles": 3,
       "human_review_mechanism": "PR_REVIEW"
     }
-  }
+  },
+  "refine_review_cycles": 1,
+  "refine_review_feedback": ""
 }
