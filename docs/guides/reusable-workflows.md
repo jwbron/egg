@@ -6,25 +6,6 @@ This guide explains how to use egg's SDLC workflows in your own repositories.
 
 The egg project provides a set of reusable GitHub Actions workflows for AI-powered code review, autofix, conflict resolution, and SDLC pipeline management. These workflows can be called from any repository that has the required secrets configured.
 
-## Version Pinning
-
-All workflow examples use the `@v0` floating tag, which tracks the latest v0.x.y release. This provides a balance between stability and receiving updates.
-
-**For stability** (recommended), pin to a major version:
-```yaml
-uses: jwbron/egg/.github/workflows/reusable-review.yml@v0
-```
-
-**For full reproducibility**, pin to an exact version:
-```yaml
-uses: jwbron/egg/.github/workflows/reusable-review.yml@v0.1.0
-```
-
-**For latest development** (not recommended for production):
-```yaml
-uses: jwbron/egg/.github/workflows/reusable-review.yml@main
-```
-
 ## Available Workflows
 
 ### Core Review Workflow
@@ -34,12 +15,12 @@ uses: jwbron/egg/.github/workflows/reusable-review.yml@main
 ```yaml
 jobs:
   review:
-    uses: jwbron/egg/.github/workflows/reusable-review.yml@v0
+    uses: jwbron/egg/.github/workflows/reusable-review.yml@main
     with:
       pr_number: ${{ github.event.pull_request.number }}
       bot_name: my-bot
       bot_username: my-bot-username  # GitHub username of your bot
-      # action_ref: jwbron/egg/action@v0  # Cannot be dynamic; see note below
+      # action_ref: jwbron/egg/action@main  # Cannot be dynamic; see note below
       prompt_script: path/to/build-review-prompt.sh
       timeout: "10"
     secrets:
@@ -56,7 +37,7 @@ jobs:
 ```yaml
 jobs:
   autofix:
-    uses: jwbron/egg/.github/workflows/reusable-autofix.yml@v0
+    uses: jwbron/egg/.github/workflows/reusable-autofix.yml@main
     with:
       pr_number: ${{ github.event.workflow_run.pull_requests[0].number }}
       failed_workflow: ${{ github.event.workflow_run.name }}
@@ -77,7 +58,7 @@ jobs:
 ```yaml
 jobs:
   resolve:
-    uses: jwbron/egg/.github/workflows/reusable-conflict-resolve.yml@v0
+    uses: jwbron/egg/.github/workflows/reusable-conflict-resolve.yml@main
     with:
       pr_number: ${{ matrix.pr }}
       bot_username: my-bot-username
@@ -96,7 +77,7 @@ jobs:
 ```yaml
 jobs:
   feedback:
-    uses: jwbron/egg/.github/workflows/on-review-feedback.yml@v0
+    uses: jwbron/egg/.github/workflows/on-review-feedback.yml@main
     with:
       pr_number: ${{ github.event.pull_request.number }}
       bot_username: my-bot-username
@@ -116,7 +97,7 @@ jobs:
 ```yaml
 jobs:
   respond:
-    uses: jwbron/egg/.github/workflows/on-mention.yml@v0
+    uses: jwbron/egg/.github/workflows/on-mention.yml@main
     with:
       issue_or_pr_number: ${{ github.event.issue.number }}
       bot_username: my-bot-username
@@ -136,7 +117,7 @@ jobs:
 ```yaml
 jobs:
   pipeline:
-    uses: jwbron/egg/.github/workflows/sdlc-pipeline.yml@v0
+    uses: jwbron/egg/.github/workflows/sdlc-pipeline.yml@main
     with:
       issue_number: ${{ github.event.issue.number }}
       bot_username: my-bot-username
@@ -160,7 +141,7 @@ The pipeline is triggered by applying the `sdlc:refine` label to an issue. You c
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `bot_username` | GitHub username of your bot | `egg` |
-| `action_ref` | Reference to egg action (documentation only; see note) | `jwbron/egg/action@v0` |
+| `action_ref` | Reference to egg action (documentation only; see note) | `jwbron/egg/action@main` |
 | `authorized_users` | Comma-separated list of authorized users | `jwbron` |
 | `branch_prefix` | Prefix for issue branches | `egg` |
 | `timeout` | Timeout in minutes | varies by workflow |
@@ -251,7 +232,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    uses: jwbron/egg/.github/workflows/reusable-review.yml@v0
+    uses: jwbron/egg/.github/workflows/reusable-review.yml@main
     with:
       pr_number: ${{ github.event.pull_request.number }}
       bot_name: review

@@ -26,22 +26,10 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
 ## Quick Start
 
 ```yaml
-- uses: jwbron/egg/action@v0
+- uses: jwbron/egg@main
   with:
     prompt: "Fix the failing tests"
     anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
-```
-
-### Version Pinning
-
-For stability, pin to a major version (receives all patch and minor updates):
-```yaml
-uses: jwbron/egg/action@v0
-```
-
-For full reproducibility, pin to an exact version:
-```yaml
-uses: jwbron/egg/action@v0.1.0
 ```
 
 ## Documentation
