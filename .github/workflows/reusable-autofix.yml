@@ -46,6 +46,37 @@ on:
         required: true
       ANTHROPIC_OAUTH_TOKEN:
         required: true
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to fix checks for'
+        required: true
+        type: string
+      failed_workflow:
+        description: 'Name of the failed workflow (lint, test, integration)'
+        required: false
+        type: string
+        default: "manual"
+      failed_run_id:
+        description: 'Run ID of the failed workflow'
+        required: false
+        type: string
+        default: ""
+      bot_username:
+        description: 'GitHub username of the bot (for comment filtering)'
+        required: false
+        type: string
+        default: "james-in-a-box"
+      prompt_script:
+        description: 'Path to prompt builder script (relative to repo root)'
+        required: false
+        type: string
+        default: "action/build-autofixer-prompt.sh"
+      timeout:
+        description: 'Timeout in minutes'
+        required: false
+        type: string
+        default: "20"
 
 jobs:
   autofix:
