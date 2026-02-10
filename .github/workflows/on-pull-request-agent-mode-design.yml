@@ -28,7 +28,7 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
       bot_name: agent-mode-design
-      bot_username: ${{ vars.BOT_USERNAME }}
+      bot_username: ${{ vars.EGG_BOT_USERNAME }}
       # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
       prompt_script: action/build-agent-mode-design-review-prompt.sh
       timeout: "10"
