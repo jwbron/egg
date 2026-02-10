@@ -45,6 +45,7 @@ gateway/
 ├── fork_policy.py          # Fork access policies
 ├── private_repo_policy.py  # Private/public repo access
 ├── phase_filter.py         # Phase-based operation filtering, file restrictions
+├── agent_restrictions.py   # Agent role-based file access enforcement
 ├── phase_transition.py     # Phase transition validation
 ├── phase_api.py            # Phase API endpoints
 ├── contract_api.py         # Contract API endpoints
@@ -98,9 +99,14 @@ sandbox/
 shared/
 ├── egg_config/             # Configuration utilities
 │   └── constants.py        # Centralized constants (ports, networks, container names)
-├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks
-│   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig
-│   └── phase_defaults.py   # Default check configurations per SDLC phase
+├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration
+│   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig, AgentExecutionModel
+│   ├── phase_defaults.py   # Default check configurations per SDLC phase
+│   ├── agent_roles.py      # Multi-agent role definitions (Coder, Tester, Documenter, Integrator)
+│   ├── orchestrator.py     # Multi-agent orchestration dispatch logic
+│   ├── orchestration.py    # Agent execution state management
+│   ├── dependency_graph.py # Agent dependency resolution for parallel execution
+│   └── agent_recovery.py   # Failed agent recovery logic
 ├── egg_git/                # Git utilities
 └── egg_logging/            # Structured logging
 ```
@@ -130,7 +136,8 @@ integration_tests/
     ├── test_happy_path.py         # Full pipeline success flow
     ├── test_review_rejection.py   # Reviewer rejection and fix cycles
     ├── test_hitl_flow.py          # Human-in-the-loop decision flow
-    └── test_role_enforcement.py   # Role-based mutation enforcement
+    ├── test_role_enforcement.py   # Role-based mutation enforcement
+    └── test_multi_agent_orchestration.py  # Multi-agent workflow tests
 ```
 
 ## Unit Tests Structure
@@ -167,6 +174,10 @@ action/
 ├── build-conflict-prompt.sh                # Conflict resolution workflow prompt builder
 ├── build-sdlc-prompt.sh                    # SDLC pipeline prompt builder
 ├── build-unified-review-prompt.sh          # Unified review prompt builder for all SDLC phases
+├── build-coder-prompt.sh                   # Coder agent prompt builder (multi-agent)
+├── build-tester-prompt.sh                  # Tester agent prompt builder (multi-agent)
+├── build-documenter-prompt.sh              # Documenter agent prompt builder (multi-agent)
+├── build-integrator-prompt.sh              # Integrator agent prompt builder (multi-agent)
 ├── contract-state.sh                       # Contract state management utility
 ├── populate-contract-tasks.py              # Populates contract tasks from plan document
 ├── autofixer-conventions.md                # Guidelines for autofixer behavior
@@ -186,6 +197,7 @@ Key workflows for the SDLC pipeline (see `.github/workflows/` for complete list)
 ├── test-integration.yml                    # Reusable integration test workflow (called by sdlc-work-loop.yml)
 ├── sdlc-pipeline.yml                       # SDLC pipeline orchestration
 ├── sdlc-work-loop.yml                      # Unified work/review cycle for SDLC phases
+├── sdlc-multi-agent.yml                    # Multi-agent orchestration for implement phase
 ├── sdlc-hitl.yml                           # Human-in-the-loop decision handling
 └── reusable-review.yml                     # PR-based code review workflow
 ```

@@ -30,6 +30,7 @@ See the [main README](../../README.md) for the architecture diagram.
 - Branch ownership (agent can only push to `egg/*` branches)
 - Phase-based operation restrictions (git/gh operations filtered by SDLC phase)
 - File-level access restrictions (role-based blocking of sensitive files like contract files)
+- Agent role-based file access (Coder, Tester, Documenter, Integrator have distinct write permissions)
 - Role-based contract mutations (implementer, reviewer, human roles with field-level permissions)
 - No merge capability (gateway has no merge endpoint)
 - Force push and destructive operations blocked
@@ -41,8 +42,9 @@ See the [main README](../../README.md) for the architecture diagram.
 | **Gateway** | Credential injection, policy enforcement, HTTP proxy | [Gateway README](../../gateway/README.md) |
 | **Sandbox** | Agent execution environment, git/gh wrappers | [Sandbox README](../../sandbox/README.md) |
 | **Shared Libraries** | Config, logging, git utilities | [Shared README](../../shared/README.md) |
-| **egg_contracts** | SDLC contract models, role-based mutation validation | `shared/egg_contracts/` |
+| **egg_contracts** | SDLC contract models, role-based mutation validation, multi-agent orchestration | `shared/egg_contracts/` |
 | **Check Scripts** | Phase-specific validation (lint, test, merge conflicts) | `.github/scripts/checks/` |
+| **Multi-Agent Orchestration** | Parallel agent execution (Coder, Tester, Documenter, Integrator) | `.github/workflows/sdlc-multi-agent.yml` |
 
 ## SDLC Contracts
 

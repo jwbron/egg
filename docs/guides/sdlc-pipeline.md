@@ -117,6 +117,33 @@ The contract tracks per-reviewer verdicts for debugging:
 }
 ```
 
+### Multi-Agent Orchestration (Experimental)
+
+The implement phase supports multi-agent orchestration, where specialized agents (Coder, Tester, Documenter, Integrator) execute in parallel waves based on dependencies. This is an experimental alternative to the standard single-agent work loop.
+
+**Agent Roles:**
+
+| Role | Responsibilities | Depends On | Can Write |
+|------|-----------------|------------|-----------|
+| **Coder** | Implement code changes based on plan tasks | — | Source code files (`**/*.py`, `**/*.ts`, etc.) |
+| **Tester** | Write or update tests for the changes | Coder | Test files (`tests/`, `**/*_test.py`, `**/*.test.ts`, etc.) |
+| **Documenter** | Update documentation for the changes | Coder | Documentation files (`docs/`, `**/*.md`) |
+| **Integrator** | Run full test suite and validate integration | Coder, Tester | Handoff output only (read-only otherwise) |
+
+**Execution Waves:**
+- Wave 1: Coder runs first (no dependencies)
+- Wave 2: Tester and Documenter run in parallel (both depend on Coder)
+- Wave 3: Integrator runs last (depends on Coder + Tester)
+
+**File Access Enforcement:**
+The gateway enforces file access patterns for each agent role via `gateway/agent_restrictions.py`. For example, the Coder agent cannot modify documentation files, and the Tester agent cannot modify source code. This prevents agents from overstepping their responsibilities.
+
+**Handoff Data:**
+Agents communicate via handoff data stored in `.egg-state/agent-outputs/{role}-output.json`. For example, the Coder agent outputs a list of changed files, which the Tester and Documenter agents read to focus their work.
+
+**Workflow:**
+Multi-agent orchestration is triggered via `.github/workflows/sdlc-multi-agent.yml`. The workflow reads the contract state, determines which agents can run based on dependencies, and dispatches them in parallel where possible.
+
 ### Refine and Plan Phase Review Cycles
 
 The refine and plan phases include an automated internal review step before human approval. All reviews happen internally without posting to the issue until approval:
