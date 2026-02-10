@@ -215,7 +215,7 @@ than providing general feedback that duplicates the base review.
 
 **Workflow:** [`.github/workflows/on-mention.yml`](../../.github/workflows/on-mention.yml)
 
-Triggers when an authorized user mentions `@egg` or `@james-in-a-box` in:
+Triggers when an authorized user mentions `@egg` in:
 - Issue comments
 - PR comments
 - PR review comments (inline code comments)
