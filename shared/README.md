@@ -73,6 +73,7 @@ SDLC contract models, role-based validation, plan parsing, and resilience utilit
 - Agent recovery (retry management, circuit breaker, conflict detection for multi-agent workflows)
 
 ```python
+from pathlib import Path
 from egg_contracts import Contract, parse_plan
 from egg_contracts import generate_full_hitl_block, parse_checkbox_state
 from egg_contracts import retry_with_backoff, parse_rate_limit_headers
