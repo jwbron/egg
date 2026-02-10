@@ -152,7 +152,8 @@ tests/
 ├── shared/
 │   └── egg_contracts/
 │       ├── test_models.py         # Contract model tests including check models
-│       └── test_phase_defaults.py # Phase default configuration tests
+│       ├── test_phase_defaults.py # Phase default configuration tests
+│       └── test_agent_recovery.py # Agent recovery and circuit breaker tests
 └── workflows/                     # Workflow integration tests
     ├── __init__.py
     └── test_hitl_integration.py   # HITL decision format verification
