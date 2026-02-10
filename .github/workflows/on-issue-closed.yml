@@ -46,9 +46,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Validate required configuration for event-triggered runs
+  validate-config:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_call'
+    steps:
+      - name: Validate required repository variables
+        run: |
+          if [[ -z "${{ vars.EGG_BRANCH_PREFIX }}" ]]; then
+            echo "::error::Required repository variable 'EGG_BRANCH_PREFIX' is not set"
+            echo "::error::Set it in Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
+          echo "All required repository variables are configured"
+
   # Resolve inputs for reusable workflow support
   resolve-inputs:
     name: Resolve inputs
+    needs: [validate-config]
+    if: always() && (needs.validate-config.result == 'success' || needs.validate-config.result == 'skipped')
     runs-on: ubuntu-latest
     outputs:
       issue_number: ${{ steps.resolve.outputs.issue_number }}
@@ -59,7 +76,11 @@ jobs:
       - name: Resolve inputs with defaults
         id: resolve
         run: |
-          echo "branch_prefix=${{ inputs.branch_prefix }}" >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            echo "branch_prefix=${{ inputs.branch_prefix }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch_prefix=${{ vars.EGG_BRANCH_PREFIX }}" >> "$GITHUB_OUTPUT"
+          fi
           echo "sdlc_label=${{ inputs.sdlc_label || 'egg-sdlc' }}" >> "$GITHUB_OUTPUT"
 
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then

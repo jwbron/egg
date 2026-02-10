@@ -19,8 +19,23 @@ on:
         type: number
 
 jobs:
+  # Validate required configuration
+  validate-config:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate required repository variables
+        run: |
+          if [[ -z "${{ vars.EGG_BOT_USERNAME }}" ]]; then
+            echo "::error::Required repository variable 'EGG_BOT_USERNAME' is not set"
+            echo "::error::Set it in Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
+          echo "All required repository variables are configured"
+
   review:
     name: egg-review / Agent-Mode Design
+    needs: [validate-config]
     permissions:
       contents: read
       pull-requests: write

@@ -76,10 +76,39 @@ concurrency:
 
 jobs:
   # ============================================================
+  # Validate required configuration for event-triggered runs
+  # ============================================================
+  validate-config:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    # Only validate for event-triggered runs (not workflow_call where caller provides config)
+    if: github.event_name != 'workflow_call'
+    steps:
+      - name: Validate required repository variables
+        run: |
+          missing_vars=()
+          if [[ -z "${{ vars.EGG_BOT_USERNAME }}" ]]; then
+            missing_vars+=("EGG_BOT_USERNAME")
+          fi
+          if [[ -z "${{ vars.EGG_BRANCH_PREFIX }}" ]]; then
+            missing_vars+=("EGG_BRANCH_PREFIX")
+          fi
+
+          if [[ ${#missing_vars[@]} -gt 0 ]]; then
+            echo "::error::Required repository variable(s) not set: ${missing_vars[*]}"
+            echo "::error::Set these in Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
+          echo "All required repository variables are configured"
+
+  # ============================================================
   # Resolve inputs for reusable workflow support
   # ============================================================
   resolve-inputs:
     name: Resolve inputs
+    needs: [validate-config]
+    # Run if validate-config succeeded OR was skipped (workflow_call)
+    if: always() && (needs.validate-config.result == 'success' || needs.validate-config.result == 'skipped')
     runs-on: ubuntu-latest
     outputs:
       bot_username: ${{ steps.resolve.outputs.bot_username }}
@@ -91,12 +120,20 @@ jobs:
       - name: Resolve inputs with defaults
         id: resolve
         run: |
-          # Use inputs if called as reusable workflow, otherwise use defaults
-          {
-            echo "bot_username=${{ inputs.bot_username }}"
-            echo "branch_prefix=${{ inputs.branch_prefix }}"
-            echo "sdlc_label=${{ inputs.sdlc_label || 'egg-sdlc' }}"
-          } >> "$GITHUB_OUTPUT"
+          # Use inputs if called as reusable workflow, otherwise use repository variables
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            {
+              echo "bot_username=${{ inputs.bot_username }}"
+              echo "branch_prefix=${{ inputs.branch_prefix }}"
+              echo "sdlc_label=${{ inputs.sdlc_label || 'egg-sdlc' }}"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "bot_username=${{ vars.EGG_BOT_USERNAME }}"
+              echo "branch_prefix=${{ vars.EGG_BRANCH_PREFIX }}"
+              echo "sdlc_label=${{ inputs.sdlc_label || 'egg-sdlc' }}"
+            } >> "$GITHUB_OUTPUT"
+          fi
 
           # Determine issue number and starting phase based on trigger type
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then

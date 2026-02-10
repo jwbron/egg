@@ -46,9 +46,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Validate required configuration for event-triggered runs
+  validate-config:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_call'
+    steps:
+      - name: Validate required repository variables
+        run: |
+          missing_vars=()
+          if [[ -z "${{ vars.EGG_BOT_USERNAME }}" ]]; then
+            missing_vars+=("EGG_BOT_USERNAME")
+          fi
+          if [[ -z "${{ vars.EGG_BRANCH_PREFIX }}" ]]; then
+            missing_vars+=("EGG_BRANCH_PREFIX")
+          fi
+
+          if [[ ${#missing_vars[@]} -gt 0 ]]; then
+            echo "::error::Required repository variable(s) not set: ${missing_vars[*]}"
+            echo "::error::Set these in Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
+          echo "All required repository variables are configured"
+
   # Workaround: GitHub Actions doesn't allow accessing inputs in job-level 'if' conditions.
   resolve-inputs:
     name: Resolve inputs
+    needs: [validate-config]
+    if: always() && (needs.validate-config.result == 'success' || needs.validate-config.result == 'skipped')
     runs-on: ubuntu-latest
     outputs:
       bot_username: ${{ steps.resolve.outputs.bot_username }}
@@ -60,11 +85,18 @@ jobs:
       - name: Resolve inputs with defaults
         id: resolve
         run: |
-          {
-            echo "bot_username=${{ inputs.bot_username }}"
-            echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
-            echo "branch_prefix=${{ inputs.branch_prefix }}"
-          } >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            {
+              echo "bot_username=${{ inputs.bot_username }}"
+              echo "branch_prefix=${{ inputs.branch_prefix }}"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "bot_username=${{ vars.EGG_BOT_USERNAME }}"
+              echo "branch_prefix=${{ vars.EGG_BRANCH_PREFIX }}"
+            } >> "$GITHUB_OUTPUT"
+          fi
+          echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}" >> "$GITHUB_OUTPUT"
 
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
             {
@@ -878,6 +910,7 @@ jobs:
     env:
       BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
+      BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       ISSUE_NUMBER: ${{ github.event.issue.number }}
 
     steps:
@@ -998,7 +1031,7 @@ jobs:
             exit 1
           fi
 
-          BRANCH_NAME="egg/issue-${ISSUE_NUMBER}"
+          BRANCH_NAME="${BRANCH_PREFIX}/issue-${ISSUE_NUMBER}"
 
           if git ls-remote --heads origin "${BRANCH_NAME}" | grep -q "${BRANCH_NAME}"; then
             echo "branch_name=${BRANCH_NAME}" >> "$GITHUB_OUTPUT"

@@ -59,10 +59,35 @@ on:
         required: true
 
 jobs:
+  # Validate required configuration for event-triggered runs
+  validate-config:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_call'
+    steps:
+      - name: Validate required repository variables
+        run: |
+          missing_vars=()
+          if [[ -z "${{ vars.EGG_BOT_USERNAME }}" ]]; then
+            missing_vars+=("EGG_BOT_USERNAME")
+          fi
+          if [[ -z "${{ vars.EGG_MENTION_PATTERNS }}" ]]; then
+            missing_vars+=("EGG_MENTION_PATTERNS")
+          fi
+
+          if [[ ${#missing_vars[@]} -gt 0 ]]; then
+            echo "::error::Required repository variable(s) not set: ${missing_vars[*]}"
+            echo "::error::Set these in Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
+          echo "All required repository variables are configured"
+
   # Workaround: GitHub Actions doesn't allow accessing inputs in job-level 'if' conditions.
   # This job passes inputs as outputs so subsequent jobs can use them in conditions.
   resolve-inputs:
     name: Resolve Inputs
+    needs: [validate-config]
+    if: always() && (needs.validate-config.result == 'success' || needs.validate-config.result == 'skipped')
     runs-on: ubuntu-latest
     outputs:
       bot_username: ${{ steps.resolve.outputs.bot_username }}
@@ -74,12 +99,19 @@ jobs:
       - name: Resolve inputs with defaults
         id: resolve
         run: |
-          # Use inputs if called as reusable workflow, otherwise use defaults
-          {
-            echo "bot_username=${{ inputs.bot_username }}"
-            echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
-            echo "mention_patterns=${{ inputs.mention_patterns }}"
-          } >> "$GITHUB_OUTPUT"
+          # Use inputs if called as reusable workflow, otherwise use repository variables
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            {
+              echo "bot_username=${{ inputs.bot_username }}"
+              echo "mention_patterns=${{ inputs.mention_patterns }}"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "bot_username=${{ vars.EGG_BOT_USERNAME }}"
+              echo "mention_patterns=${{ vars.EGG_MENTION_PATTERNS }}"
+            } >> "$GITHUB_OUTPUT"
+          fi
+          echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}" >> "$GITHUB_OUTPUT"
 
           # Determine issue/PR number based on event type
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then

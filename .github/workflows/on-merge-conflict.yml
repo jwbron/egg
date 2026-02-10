@@ -15,9 +15,24 @@ on:
         type: number
 
 jobs:
+  # Validate required configuration for event-triggered runs
+  validate-config:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate required repository variables
+        run: |
+          if [[ -z "${{ vars.EGG_BOT_USERNAME }}" ]]; then
+            echo "::error::Required repository variable 'EGG_BOT_USERNAME' is not set"
+            echo "::error::Set it in Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
+          echo "All required repository variables are configured"
+
   # Find all PRs with merge conflicts (runs on push to main and schedule)
   find-conflicts:
     name: Find Conflicting PRs
+    needs: [validate-config]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'schedule'
     outputs:
@@ -126,6 +141,7 @@ jobs:
   # Manual dispatch job: resolve conflicts for a specific PR
   resolve-manual:
     name: Resolve Conflicts (Manual)
+    needs: [validate-config]
     if: github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
