@@ -230,6 +230,14 @@ jobs:
             fi
           done
 
+          # Validate each reviewer name
+          for name in $(echo "$REVIEWERS" | jq -r '.[].name'); do
+            if [[ ! "$name" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]]; then
+              echo "::error::Invalid reviewer name: $name (must start with letter, contain only alphanumerics, underscores, and hyphens)"
+              exit 1
+            fi
+          done
+
           {
             echo "reviewers=${REVIEWERS}"
             echo "output_type=${{ inputs.output_type || format('{0}', env.DEFAULT_OUTPUT_TYPE) }}"
@@ -908,6 +916,10 @@ jobs:
               echo "Pull succeeded on attempt $i"
               break
             fi
+            if [[ "$i" -eq 5 ]]; then
+              echo "::error::git pull failed after 5 attempts"
+              exit 1
+            fi
             echo "::warning::git pull attempt $i failed, retrying..."
             sleep $((i * 2))
           done
@@ -980,7 +992,7 @@ jobs:
           if [[ -n "$COMBINED_FEEDBACK" ]]; then
             {
               echo "feedback<<EOF"
-              echo -e "$COMBINED_FEEDBACK"
+              printf '%b\n' "$COMBINED_FEEDBACK"
               echo "EOF"
             } >> "$GITHUB_OUTPUT"
           else
@@ -1096,6 +1108,10 @@ jobs:
             if git pull origin "${BRANCH_NAME}" --rebase; then
               echo "Pull succeeded on attempt $i"
               break
+            fi
+            if [[ "$i" -eq 5 ]]; then
+              echo "::error::git pull failed after 5 attempts"
+              exit 1
             fi
             echo "::warning::git pull attempt $i failed, retrying..."
             sleep $((i * 2))
