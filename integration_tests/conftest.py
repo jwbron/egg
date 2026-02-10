@@ -101,7 +101,7 @@ def _write_test_config(config_dir: str, launcher_secret: str) -> None:
     (config_path / "repositories.yaml").write_text(
         """\
 github_username: test-user
-bot_username: egg
+bot_username: james-in-a-box
 
 writable_repos:
   - test-owner/test-repo
