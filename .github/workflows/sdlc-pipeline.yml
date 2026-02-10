@@ -267,12 +267,47 @@ jobs:
             # Merge latest main into the issue branch to avoid working on stale code
             echo "Merging latest main into ${BRANCH_NAME}..."
             git fetch origin main
-            if git merge origin/main --no-edit; then
-              echo "Successfully merged main into ${BRANCH_NAME}"
+            if ! git merge-base --is-ancestor origin/main HEAD; then
+              echo "Main has commits not in ${BRANCH_NAME}, merging..."
+              if git merge origin/main --no-edit; then
+                echo "Successfully merged main into ${BRANCH_NAME}"
+                # Push the merge commit so reviewers and subsequent steps see it
+                git push origin "${BRANCH_NAME}" || {
+                  echo "::warning::Initial push failed, attempting pull --rebase and retry..."
+                  if ! git pull --rebase origin "${BRANCH_NAME}"; then
+                    echo "::error::Failed to rebase during push retry"
+                    exit 1
+                  fi
+                  if ! git push origin "${BRANCH_NAME}"; then
+                    echo "::error::Failed to push after rebase"
+                    exit 1
+                  fi
+                }
+              else
+                echo "::warning::Merge conflict detected, triggering conflict resolution workflow..."
+                git merge --abort
+
+                # Find PR number for this branch
+                CONFLICT_PR_NUMBER=$(gh pr list --head "${BRANCH_NAME}" --json number --jq '.[0].number // empty' || echo "")
+
+                if [[ -n "${CONFLICT_PR_NUMBER}" ]]; then
+                  echo "Found PR #${CONFLICT_PR_NUMBER} for branch ${BRANCH_NAME}, triggering conflict resolution..."
+                  if gh workflow run on-merge-conflict.yml -f pr_number="${CONFLICT_PR_NUMBER}"; then
+                    echo "::notice::Conflict resolution workflow triggered for PR #${CONFLICT_PR_NUMBER}"
+                    # Exit with success - the conflict resolver will handle it
+                    exit 0
+                  else
+                    echo "::warning::Failed to trigger conflict resolution workflow"
+                  fi
+                else
+                  echo "::warning::No PR found for branch ${BRANCH_NAME}, cannot trigger automatic conflict resolution"
+                fi
+
+                echo "::error::Merge conflict merging main into ${BRANCH_NAME}. Manual resolution or conflict resolution workflow required."
+                exit 1
+              fi
             else
-              echo "::error::Merge conflict merging main into ${BRANCH_NAME}. Manual resolution required."
-              git merge --abort
-              exit 1
+              echo "Branch already contains latest main, skipping merge"
             fi
           else
             echo "Creating new branch ${BRANCH_NAME}"
