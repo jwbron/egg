@@ -211,6 +211,40 @@ git push
 The `-m 1` option tells git to keep the first parent (the PR branch) and undo
 the merge. This restores the branch to its pre-merge state.
 
+## Common Failure Patterns
+
+Learn from these common mistakes to avoid them:
+
+### 1. Missing Import After Resolution
+**Symptom:** `NameError`, `ImportError`, or `ModuleNotFoundError` after merge.
+**Cause:** Kept one side's code that uses an import from the other side.
+**Fix:** When resolving, always check that all imports needed by the final code are present.
+
+### 2. Duplicate Function/Class Definitions
+**Symptom:** `SyntaxError` or runtime shadowing issues.
+**Cause:** Both sides added similar code and both were included without renaming.
+**Fix:** If functions are truly duplicates, keep one. If slightly different, rename one.
+
+### 3. Broken Lock File
+**Symptom:** `npm install` or `pip install` fails.
+**Cause:** Lock file was manually merged instead of regenerated.
+**Fix:** Always regenerate lock files—never try to merge the JSON/YAML manually.
+
+### 4. Incompatible Type Changes
+**Symptom:** Type errors in TypeScript/mypy after merge.
+**Cause:** One side changed a function signature, other side added code using old signature.
+**Fix:** This is usually a semantic conflict—escalate rather than guessing.
+
+### 5. Test Conflicts That Pass But Are Wrong
+**Symptom:** Tests pass but behavior is incorrect.
+**Cause:** Merged test expectations from both sides, hiding that one change broke the other.
+**Fix:** Read test assertions carefully. If tests seem contradictory, escalate.
+
+### 6. Partial Refactor Conflicts
+**Symptom:** Mix of old and new patterns in the same file.
+**Cause:** One side refactored a pattern, other side added code using old pattern.
+**Fix:** Apply the refactor to all code, or escalate if refactor scope is unclear.
+
 ## Post-Resolution Verification
 
 **Always verify after resolving:**
