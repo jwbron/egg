@@ -285,6 +285,8 @@ jobs:
   work:
     name: Execute work (${{ needs.resolve-inputs.outputs.phase }})
     needs: resolve-inputs
+    # Skip work step when mode is checks-only (re-dispatch after autofix)
+    if: needs.resolve-inputs.outputs.mode != 'checks-only'
     runs-on: ubuntu-latest
     outputs:
       exit_code: ${{ steps.egg.outputs.exit-code }}
@@ -544,7 +546,7 @@ jobs:
     needs: [resolve-inputs, work]
     if: >-
       always() &&
-      needs.work.result == 'success' &&
+      (needs.work.result == 'success' || needs.work.result == 'skipped') &&
       needs.resolve-inputs.outputs.phase == 'implement'
     runs-on: ubuntu-latest
     outputs:
@@ -604,7 +606,7 @@ jobs:
     needs: [resolve-inputs, work, check-merge-conflict]
     if: >-
       always() &&
-      needs.work.result == 'success' &&
+      (needs.work.result == 'success' || needs.work.result == 'skipped') &&
       needs.resolve-inputs.outputs.phase == 'implement' &&
       (needs.check-merge-conflict.result == 'skipped' ||
        (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
@@ -619,7 +621,7 @@ jobs:
     needs: [resolve-inputs, work, check-merge-conflict]
     if: >-
       always() &&
-      needs.work.result == 'success' &&
+      (needs.work.result == 'success' || needs.work.result == 'skipped') &&
       needs.resolve-inputs.outputs.phase == 'implement' &&
       (needs.check-merge-conflict.result == 'skipped' ||
        (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
@@ -634,7 +636,7 @@ jobs:
     needs: [resolve-inputs, work, check-merge-conflict]
     if: >-
       always() &&
-      needs.work.result == 'success' &&
+      (needs.work.result == 'success' || needs.work.result == 'skipped') &&
       needs.resolve-inputs.outputs.phase == 'implement' &&
       (needs.check-merge-conflict.result == 'skipped' ||
        (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
@@ -649,7 +651,7 @@ jobs:
     needs: [resolve-inputs, work, check-merge-conflict, check-lint, check-test, check-integration]
     if: >-
       always() &&
-      needs.work.result == 'success' &&
+      (needs.work.result == 'success' || needs.work.result == 'skipped') &&
       needs.resolve-inputs.outputs.phase == 'implement' &&
       (
         needs.check-lint.outputs.passed == 'false' ||
@@ -901,7 +903,7 @@ jobs:
   aggregate-checks:
     name: Aggregate check results
     needs: [resolve-inputs, work, check-merge-conflict, check-lint, check-test, check-integration, check-fixer]
-    if: always() && needs.work.result == 'success'
+    if: always() && (needs.work.result == 'success' || needs.work.result == 'skipped')
     runs-on: ubuntu-latest
     outputs:
       all_passed: ${{ steps.aggregate.outputs.all_passed }}
@@ -989,15 +991,69 @@ jobs:
           echo "Check aggregation: all_passed=${ALL_PASSED}, has_conflicts=${HAS_CONFLICTS}, autofix_succeeded=${AUTOFIX_SUCCEEDED}, autofix_limit_exceeded=${AUTOFIX_LIMIT_EXCEEDED}"
 
   # ============================================================
+  # Re-dispatch Checks: Re-run checks after autofix succeeded
+  # ============================================================
+  re-dispatch-checks:
+    name: Re-dispatch checks after autofix
+    needs: [resolve-inputs, aggregate-checks]
+    if: >-
+      always() &&
+      needs.aggregate-checks.result == 'success' &&
+      needs.aggregate-checks.outputs.autofix_succeeded == 'true' &&
+      needs.aggregate-checks.outputs.autofix_limit_exceeded != 'true' &&
+      needs.aggregate-checks.outputs.all_passed != 'true'
+    runs-on: ubuntu-latest
+
+    env:
+      PHASE: ${{ needs.resolve-inputs.outputs.phase }}
+      ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Re-dispatch work loop in checks-only mode
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          MAX_REVIEW_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_review_cycles }}
+          MAX_TOTAL_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_total_cycles }}
+          WORKFLOW_OWNER_ENV: ${{ needs.resolve-inputs.outputs.workflow_owner }}
+          PR_NUMBER_ENV: ${{ needs.resolve-inputs.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          echo "Autofix succeeded, re-dispatching work loop in checks-only mode"
+          echo "This will re-run lint/test/integration checks to verify the fix"
+
+          gh workflow run sdlc-work-loop.yml \
+            --repo "${{ github.repository }}" \
+            --field phase="${PHASE}" \
+            --field issue_number="${ISSUE_NUMBER}" \
+            --field branch_name="${BRANCH_NAME}" \
+            --field mode="checks-only" \
+            --field max_review_cycles="${MAX_REVIEW_CYCLES_ENV}" \
+            --field max_total_cycles="${MAX_TOTAL_CYCLES_ENV}" \
+            --field workflow_owner="${WORKFLOW_OWNER_ENV:-}" \
+            --field pr_number="${PR_NUMBER_ENV:-0}"
+
+          echo "Work loop re-dispatched in checks-only mode"
+
+  # ============================================================
   # Review: Check preconditions before running reviewers
   # ============================================================
   review-setup:
     name: Review setup
-    needs: [resolve-inputs, work, aggregate-checks]
+    needs: [resolve-inputs, work, aggregate-checks, re-dispatch-checks]
     if: >-
       always() &&
-      needs.work.result == 'success' &&
-      needs.aggregate-checks.outputs.all_passed == 'true'
+      (needs.work.result == 'success' || needs.work.result == 'skipped') &&
+      needs.aggregate-checks.outputs.all_passed == 'true' &&
+      needs.re-dispatch-checks.result != 'success'
     runs-on: ubuntu-latest
     outputs:
       review_cycle: ${{ steps.get-cycle.outputs.cycle }}
