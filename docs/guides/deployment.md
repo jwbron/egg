@@ -181,7 +181,7 @@ egg follows [semantic versioning](https://semver.org/) with floating tags for st
 
 | Tag Pattern | Description | Updates When |
 |-------------|-------------|--------------|
-| `latest` | Latest stable release | Every stable release |
+| `latest` | Latest build from main | Every push to main and every stable release |
 | `vX` | Major version (e.g., `v0`) | Every stable vX.y.z release |
 | `vX.Y` | Minor version (e.g., `v0.1`) | Every stable vX.Y.z release |
 | `vX.Y.Z` | Exact version (e.g., `v0.1.0`) | Never (immutable) |
