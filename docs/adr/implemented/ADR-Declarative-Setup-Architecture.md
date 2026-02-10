@@ -37,11 +37,10 @@ The current egg setup system has several issues:
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `~/.config/egg/secrets.env` | Slack, GitHub, Confluence, JIRA tokens | Template exists, validation in setup.sh |
+| `~/.config/egg/secrets.env` | Anthropic, Slack, GitHub, Confluence, JIRA tokens | Template exists |
 | `~/.config/egg/config.yaml` | Non-secret settings (channels, intervals) | Template exists, rarely used |
 | `~/.config/egg/repositories.yaml` | Repo access configuration | Used by repo_config.py |
-| `~/.config/egg/github-app-*` | GitHub App credentials | Set by setup.sh |
-| `~/.config/egg/anthropic-api-key` | Anthropic API key | Read by egg script |
+| `~/.config/egg/github-app-*` | GitHub App credentials | Set by setup |
 | `~/.cache/egg/` | Docker staging (cache) | Auto-managed by egg |
 
 **Desired State:**

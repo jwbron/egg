@@ -8,6 +8,8 @@ This module provides:
 - ConfigRegistry: Central registry for all configs
 - Validators: Reusable validation functions
 - Constants: Centralized gateway/sandbox constants (ports, networks, etc.)
+- Config: Helper class for user config directory paths
+- get_local_repos: Get configured repository paths
 
 Usage:
     from egg_config import BaseConfig, ValidationResult, get_registry
@@ -22,14 +24,9 @@ Usage:
     result = registry.validate_all()
     if not result.all_valid:
         print("Configuration errors found")
-
-Legacy exports (deprecated):
-    - Config: Use BaseConfig instead
-    - get_local_repos, get_repos_config_file: Moving to dedicated config classes
 """
 
-# Legacy exports for backward compatibility
-# New framework exports
+# Framework exports
 from .base import (
     BaseConfig,
     ConfigStatus,
@@ -72,7 +69,6 @@ __all__ = [
     "AggregateValidationResult",
     # Base classes
     "BaseConfig",
-    # Legacy (deprecated)
     "Config",
     # Registry
     "ConfigRegistry",

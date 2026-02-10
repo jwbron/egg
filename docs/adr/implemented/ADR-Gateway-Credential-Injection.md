@@ -109,7 +109,7 @@ Credentials are stored on the host machine and mounted into the gateway:
 ANTHROPIC_API_KEY="sk-ant-api03-..."
 
 # Option 2: OAuth Token (for Claude Max subscriptions)
-ANTHROPIC_OAUTH_TOKEN="..."
+CLAUDE_CODE_OAUTH_TOKEN="..."
 ```
 
 The gateway reads credentials with mtime-based cache refresh for hot reloading.

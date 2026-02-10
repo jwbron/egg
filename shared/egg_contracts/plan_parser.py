@@ -4,17 +4,14 @@ Plan document parser for extracting tasks into contract format.
 This module parses plan documents (markdown) and extracts structured task
 information that can be written to the contract JSON.
 
-Parsing Strategy (Option C - Two-Pass Approach):
-    The parser supports three extraction modes, in order of preference:
+Parsing Strategy:
+    The parser supports two extraction modes, in order of preference:
 
     1. YAML Code Fence (preferred): A ```yaml block marked with `# yaml-tasks`
        header containing structured task data. This is machine-parseable and
        type-checked, while allowing humans to review the prose plan above it.
 
-    2. YAML Front Matter (legacy): A ---delimited YAML block at the start of
-       the document. Still supported for backwards compatibility.
-
-    3. Markdown Regex (fallback): Extract tasks from markdown list items using
+    2. Markdown Regex (fallback): Extract tasks from markdown list items using
        the [TASK-{phase}-{number}] pattern. This is fragile and may miss tasks
        if the LLM's output format drifts.
 
@@ -224,82 +221,6 @@ def parse_yaml_code_fence(content: str) -> tuple[dict[str, Any] | None, str, lis
         return None, content, warnings
 
 
-def parse_yaml_frontmatter(content: str) -> tuple[dict[str, Any] | None, str]:
-    """
-    Extract YAML front matter from document if present.
-
-    Args:
-        content: The document content
-
-    Returns:
-        Tuple of (yaml_data, remaining_content)
-    """
-    if not content.startswith("---"):
-        return None, content
-
-    # Find the closing ---
-    lines = content.split("\n")
-    end_index = None
-    for i, line in enumerate(lines[1:], start=1):
-        if line.strip() == "---":
-            end_index = i
-            break
-
-    if end_index is None:
-        return None, content
-
-    yaml_block = "\n".join(lines[1:end_index])
-    remaining = "\n".join(lines[end_index + 1 :])
-
-    try:
-        yaml_data = yaml.safe_load(yaml_block)
-        return yaml_data, remaining
-    except yaml.YAMLError:
-        return None, content
-
-
-def parse_tasks_from_yaml(yaml_data: dict[str, Any]) -> list[ParsedTask]:
-    """
-    Parse tasks from YAML front matter (legacy flat task list format).
-
-    Args:
-        yaml_data: Parsed YAML data
-
-    Returns:
-        List of ParsedTask objects
-    """
-    tasks = []
-    task_list = yaml_data.get("tasks", [])
-
-    for task_data in task_list:
-        task_id = task_data.get("id", "")
-        # Parse task ID: TASK-{phase}-{number}
-        match = re.match(r"TASK-(\d+)-(\d+)", task_id, re.IGNORECASE)
-        if match:
-            phase_num = int(match.group(1))
-            task_num = int(match.group(2))
-
-            # Normalize files field to list
-            files = task_data.get("files", [])
-            if isinstance(files, str):
-                files = [files]
-            elif not isinstance(files, list):
-                files = []
-
-            tasks.append(
-                ParsedTask(
-                    id=task_id,
-                    phase_number=phase_num,
-                    task_number=task_num,
-                    description=task_data.get("description", ""),
-                    acceptance_criteria=task_data.get("acceptance", ""),
-                    files_affected=files,
-                )
-            )
-
-    return tasks
-
-
 def parse_phases_from_yaml(
     yaml_data: dict[str, Any],
 ) -> tuple[list[ParsedPhase], list[ParseWarning]]:
@@ -334,9 +255,6 @@ def parse_phases_from_yaml(
     phase_list = yaml_data.get("phases", [])
 
     if not phase_list:
-        # Check for legacy flat task list format
-        if "tasks" in yaml_data:
-            return [], warnings  # Let caller fall back to legacy parsing
         warnings.append(
             ParseWarning(
                 line_number=None,
@@ -676,10 +594,9 @@ def parse_plan(content: str) -> ParseResult:
     """
     Parse a plan document and extract tasks and phases.
 
-    Parsing priority (Option C two-pass approach):
+    Parsing priority:
     1. YAML code fence with `# yaml-tasks` marker (preferred, structured)
-    2. YAML front matter with `tasks:` key (legacy)
-    3. Markdown regex extraction (fallback, fragile)
+    2. Markdown regex extraction (fallback, fragile)
 
     Args:
         content: The plan document content (markdown with optional structured YAML)
@@ -719,40 +636,9 @@ def parse_plan(content: str) -> ParseResult:
                             phase.goal = md_phase.goal
                         break
 
-    # === Priority 2: YAML front matter (legacy) ===
+    # === Priority 2: Markdown regex extraction (fallback) ===
     if not phases:
-        frontmatter_yaml, markdown_content = parse_yaml_frontmatter(content)
-        if frontmatter_yaml and "tasks" in frontmatter_yaml:
-            yaml_data = frontmatter_yaml
-            tasks = parse_tasks_from_yaml(frontmatter_yaml)
-
-            # Parse phases from markdown
-            phases = parse_phases_from_markdown(markdown_content)
-
-            # Assign tasks to phases
-            for task in tasks:
-                for phase in phases:
-                    if phase.number == task.phase_number:
-                        phase.tasks.append(task)
-                        break
-                else:
-                    # Create phase for orphan task
-                    matching = [p for p in phases if p.number == task.phase_number]
-                    if not matching:
-                        phases.append(
-                            ParsedPhase(
-                                number=task.phase_number,
-                                name=f"Phase {task.phase_number}",
-                                goal="",
-                                tasks=[task],
-                            )
-                        )
-        else:
-            markdown_content = content
-
-    # === Priority 3: Markdown regex extraction (fallback) ===
-    if not phases:
-        tasks, md_warnings = parse_tasks_from_markdown(markdown_content)
+        tasks, md_warnings = parse_tasks_from_markdown(content)
         warnings.extend(md_warnings)
 
         # Parse phases from markdown headers

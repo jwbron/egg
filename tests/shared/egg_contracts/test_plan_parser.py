@@ -251,76 +251,6 @@ This is a test plan.
         assert result.phases[1].tasks[0].phase_number == 2
 
 
-class TestYamlFrontMatter:
-    """Tests for YAML front matter parsing."""
-
-    def test_yaml_tasks(self):
-        """Test parsing tasks from YAML front matter."""
-        content = """---
-tasks:
-  - id: TASK-1-1
-    description: Create schema
-    acceptance: Schema validates
-    files:
-      - schema.json
-  - id: TASK-1-2
-    description: Add models
-    acceptance: Models work
----
-
-# Plan
-
-Some content here.
-"""
-        result = parse_plan(content)
-        assert result.success
-        assert result.raw_yaml is not None
-        # When YAML is present, tasks come from YAML
-        total_tasks = sum(len(p.tasks) for p in result.phases)
-        assert total_tasks >= 2
-
-    def test_yaml_takes_precedence(self):
-        """Test that YAML tasks take precedence over markdown."""
-        content = """---
-tasks:
-  - id: TASK-1-1
-    description: From YAML
-    acceptance: YAML wins
----
-
-# Plan
-
-- [TASK-1-1] From markdown — Acceptance: Markdown loses
-"""
-        result = parse_plan(content)
-        assert result.success
-        # Should find the YAML task
-        found_yaml = False
-        for phase in result.phases:
-            for task in phase.tasks:
-                if task.description == "From YAML":
-                    found_yaml = True
-        assert found_yaml
-
-    def test_legacy_files_as_string_converted_to_list(self):
-        """Test that single file string in legacy format is converted to list."""
-        content = """---
-tasks:
-  - id: TASK-1-1
-    description: Single file test
-    acceptance: Done
-    files: single-file.py
----
-
-# Plan
-"""
-        result = parse_plan(content)
-        assert result.success
-        # Find the task and check its files_affected
-        task = result.phases[0].tasks[0]
-        assert task.files_affected == ["single-file.py"]
-
-
 class TestParseResult:
     """Tests for ParseResult methods."""
 
@@ -431,24 +361,6 @@ class TestEdgeCases:
         result = parse_plan("   \n\t\n   ")
         assert not result.success
         assert "empty" in result.error.lower()
-
-    def test_malformed_yaml_frontmatter(self):
-        """Test handling of malformed YAML frontmatter."""
-        content = """---
-tasks:
-  - id: TASK-1-1
-    description: Valid task
-  - invalid yaml here: [
----
-
-# Plan
-
-- [TASK-1-2] Fallback task — Acceptance: Done
-"""
-        # Malformed YAML should fall back to markdown parsing
-        result = parse_plan(content)
-        # Should still succeed by falling back to markdown
-        assert result.success
 
     def test_task_with_special_characters_in_description(self):
         """Test parsing task with special characters in description."""
@@ -1191,20 +1103,6 @@ unrelated: data
         # This should NOT match because the marker is not inside the fence
         has_yaml_tasks = YAML_FENCE_DETECT.search(comment) is not None
         assert not has_yaml_tasks
-
-    def test_frontmatter_detection(self):
-        """Test that YAML frontmatter is detected."""
-        comment = """---
-tasks:
-  - id: TASK-1-1
-    description: Test
-    acceptance: Done
----
-
-# Plan
-"""
-        has_frontmatter = comment.strip().startswith("---") and "tasks:" in comment
-        assert has_frontmatter
 
     def test_markdown_detection(self):
         """Test that legacy markdown format is detected."""
