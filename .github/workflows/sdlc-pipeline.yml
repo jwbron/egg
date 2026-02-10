@@ -17,6 +17,11 @@ on:
           - implement
           - pr
         default: refine
+      authorized_users:
+        description: 'Comma-separated list of authorized GitHub usernames'
+        required: false
+        type: string
+        default: "jwbron"
   issues:
     types: [labeled]
   workflow_call:
@@ -116,6 +121,8 @@ jobs:
       sdlc_label: ${{ steps.resolve.outputs.sdlc_label }}
       issue_number: ${{ steps.resolve.outputs.issue_number }}
       starting_phase: ${{ steps.resolve.outputs.starting_phase }}
+      authorized_users: ${{ steps.resolve.outputs.authorized_users }}
+      should_check_trigger: ${{ steps.resolve.outputs.should_check_trigger }}
     steps:
       - name: Resolve inputs with defaults
         id: resolve
@@ -140,34 +147,73 @@ jobs:
             {
               echo "issue_number=${{ inputs.issue_number }}"
               echo "starting_phase=${{ inputs.starting_phase || 'refine' }}"
+              echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
+              echo "should_check_trigger=false"
             } >> "$GITHUB_OUTPUT"
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             {
               echo "issue_number=${{ github.event.inputs.issue_number }}"
               echo "starting_phase=${{ github.event.inputs.starting_phase || 'refine' }}"
+              echo "authorized_users=${{ github.event.inputs.authorized_users || 'jwbron' }}"
+              echo "should_check_trigger=false"
             } >> "$GITHUB_OUTPUT"
           else
             {
               echo "issue_number=${{ github.event.issue.number }}"
               echo "starting_phase=refine"
+              echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
+              echo "should_check_trigger=true"
             } >> "$GITHUB_OUTPUT"
           fi
+
+  # ============================================================
+  # Authorization check for label-triggered events
+  # ============================================================
+  check-trigger:
+    name: Check authorization
+    needs: resolve-inputs
+    if: needs.resolve-inputs.outputs.should_check_trigger == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      authorized: ${{ steps.check.outputs.authorized }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Check if sender is authorized
+        id: check
+        env:
+          SENDER_LOGIN: ${{ github.event.sender.login }}
+          AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
+          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+        run: bash .github/scripts/check-authorization.sh
+
+      - name: Log authorization result
+        if: steps.check.outputs.authorized != 'true'
+        run: |
+          echo "::warning::User '${{ github.event.sender.login }}' is not authorized to trigger SDLC pipeline"
+          echo "Authorized users: ${{ needs.resolve-inputs.outputs.authorized_users }}"
 
   # ============================================================
   # Initialization: Create contract and branch
   # ============================================================
   init:
     name: Initialize pipeline
-    needs: resolve-inputs
+    needs: [resolve-inputs, check-trigger]
     runs-on: ubuntu-latest
     # Only trigger on sdlc:refine label, workflow_dispatch, or workflow_call
+    # For label triggers, also require authorization check to pass
     if: >-
       always() &&
       needs.resolve-inputs.result == 'success' &&
       (
         (github.event_name == 'workflow_dispatch') ||
         (github.event_name == 'workflow_call') ||
-        (github.event_name == 'issues' && github.event.label.name == 'sdlc:refine')
+        (github.event_name == 'issues' && github.event.label.name == 'sdlc:refine' &&
+         needs.check-trigger.result == 'success' && needs.check-trigger.outputs.authorized == 'true')
       )
     outputs:
       issue_number: ${{ steps.setup.outputs.issue_number }}
