@@ -123,6 +123,42 @@ Configuration conflicts often need human review because they may represent:
 
 **Escalate configuration conflicts unless they're clearly additive.**
 
+### Semantic Conflicts (Advanced)
+
+Semantic conflicts occur when both sides modify the same logic differently. These
+are the hardest to resolve correctly.
+
+**Signs of a semantic conflict:**
+- Same function body modified differently
+- Same variable or constant changed to different values
+- Same conditional logic altered in incompatible ways
+- Same error handling modified differently
+
+**Resolution strategies (when NOT escalating):**
+
+1. **Check if changes are actually complementary:**
+   - One side adds a feature, the other adds validation → include both
+   - One side adds a parameter, the other adds a return type → include both
+
+2. **Check if one side is a superset:**
+   - If one change includes the other's intent plus more, take the larger change
+   - Example: one side adds error handling, other adds same handling plus logging
+
+3. **Check for temporal precedence:**
+   - If commit messages indicate one change supersedes another, take the newer
+   - Example: "Fix bug introduced in previous commit"
+
+4. **When still uncertain, consider:**
+   - What do the tests expect? Run tests to see which resolution they support
+   - What does the PR description say the intent is?
+   - Can you include both with minor adjustment (different variable names, etc.)?
+
+**When to escalate semantic conflicts:**
+- Both changes are valid but mutually exclusive (can't have both)
+- The correct choice depends on product/business context
+- You're not confident about the runtime behavior
+- Tests don't clearly indicate which is correct
+
 ## When to Abort and Escalate
 
 **Abort the merge and post a comment when:**

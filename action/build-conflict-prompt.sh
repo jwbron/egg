@@ -192,14 +192,34 @@ Using merge instead of rebase preserves the PR's commit history. If the resoluti
 
 7. **Push the result**: After all checks pass, run \`git push\` to update the PR. Do NOT use \`--force\` or \`--force-with-lease\`.
 
-8. **If you cannot resolve**: If any conflict requires human judgment (semantic conflicts, breaking API changes, security-sensitive code):
+8. **Post a summary comment**: After successfully pushing, post a comment on the PR with:
+   - A list of files that had conflicts and how each was resolved
+   - The conflict category for each file (additive, lock file, formatting, semantic)
+   - Any concerns or edge cases the reviewer should check
+   - Example format:
+     \`\`\`
+     ## Conflict Resolution Summary
+
+     Resolved merge conflicts with \`${base_ref}\`:
+
+     | File | Category | Resolution |
+     |------|----------|------------|
+     | package-lock.json | Lock file | Regenerated via npm install |
+     | src/utils.ts | Additive | Included both new functions |
+
+     **Please review:** The utils.ts changes—both sides added similar validation logic.
+
+     — Authored by egg
+     \`\`\`
+
+9. **If you cannot resolve**: If any conflict requires human judgment (semantic conflicts, breaking API changes, security-sensitive code):
    - Run \`git merge --abort\` to restore the original state
    - Post a comment on the PR explaining:
      - Which files have conflicts that need human review
      - What each side of the conflict is trying to do
      - Why you couldn't auto-resolve (what decision is needed)
 
-9. **If resolution was wrong** (CI fails after push): If post-merge CI fails due to your resolution:
+10. **If resolution was wrong** (CI fails after push): If post-merge CI fails due to your resolution:
    - Revert the merge commit: \`git revert -m 1 HEAD\`
    - Push the revert: \`git push\`
    - Post a comment explaining what went wrong
