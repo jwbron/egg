@@ -334,7 +334,7 @@ jobs:
             echo "current_phase=${CURRENT_PHASE}" >> "$GITHUB_OUTPUT"
 
             # Look up PR number from branch (contract schema doesn't store it)
-            PR_NUMBER=$(gh pr list --head "${BRANCH_NAME}" --state all --json number --jq '.[0].number // 0' 2>/dev/null || echo "0")
+            PR_NUMBER=$(gh pr list --repo "${{ github.repository }}" --head "${BRANCH_NAME}" --state all --json number --jq '.[0].number // 0' 2>/dev/null || echo "0")
             echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
           else
             {
@@ -492,12 +492,12 @@ jobs:
           set -euo pipefail
 
           # Close any existing open PRs on this branch (stale from previous runs)
-          EXISTING_PRS=$(gh pr list --head "${BRANCH_NAME}" --state open --json number --jq '.[].number')
+          EXISTING_PRS=$(gh pr list --repo "${{ github.repository }}" --head "${BRANCH_NAME}" --state open --json number --jq '.[].number')
 
           if [[ -n "$EXISTING_PRS" ]]; then
             for PR_NUM in $EXISTING_PRS; do
               echo "Closing stale PR #${PR_NUM}"
-              gh pr close "${PR_NUM}" --comment "Closing stale PR. A new PR will be created after implementation succeeds."
+              gh pr close "${PR_NUM}" --repo "${{ github.repository }}" --comment "Closing stale PR. A new PR will be created after implementation succeeds."
             done
           else
             echo "No existing open PRs found on branch ${BRANCH_NAME}"

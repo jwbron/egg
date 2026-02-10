@@ -560,7 +560,7 @@ jobs:
           # Detect PR number from branch if not provided
           ACTUAL_PR_NUMBER="${PR_NUMBER}"
           if [[ "${ACTUAL_PR_NUMBER}" == "0" || -z "${ACTUAL_PR_NUMBER}" ]]; then
-            ACTUAL_PR_NUMBER=$(gh pr list --head "${BRANCH_NAME}" --json number --jq '.[0].number // 0')
+            ACTUAL_PR_NUMBER=$(gh pr list --repo "${{ github.repository }}" --head "${BRANCH_NAME}" --json number --jq '.[0].number // 0')
             echo "Detected PR number from branch: ${ACTUAL_PR_NUMBER}"
           fi
 
@@ -577,6 +577,7 @@ jobs:
 
             # Trigger the reusable autofix workflow
             gh workflow run reusable-autofix.yml \
+              --repo "${{ github.repository }}" \
               --field pr_number="${ACTUAL_PR_NUMBER}" \
               --field failed_workflow="${FAILED_CHECK}" \
               || echo "::warning::Failed to trigger autofix workflow"
@@ -1029,6 +1030,7 @@ jobs:
           echo "Redispatching ${PHASE} phase (cycle $((REVIEW_CYCLE + 1)))"
 
           gh workflow run sdlc-work-loop.yml \
+            --repo "${{ github.repository }}" \
             --field phase="${PHASE}" \
             --field issue_number="${ISSUE_NUMBER}" \
             --field branch_name="${BRANCH_NAME}" \
