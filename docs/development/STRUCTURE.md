@@ -179,6 +179,21 @@ action/
 └── README.md
 ```
 
+## GitHub Workflows (SDLC-Related)
+
+Key workflows for the SDLC pipeline (see `.github/workflows/` for complete list):
+
+```
+.github/workflows/
+├── lint.yml                                # Reusable lint workflow (called by sdlc-work-loop.yml)
+├── test.yml                                # Reusable test workflow (called by sdlc-work-loop.yml)
+├── test-integration.yml                    # Reusable integration test workflow (called by sdlc-work-loop.yml)
+├── sdlc-pipeline.yml                       # SDLC pipeline orchestration
+├── sdlc-work-loop.yml                      # Unified work/review cycle for SDLC phases
+├── sdlc-hitl.yml                           # Human-in-the-loop decision handling
+└── reusable-review.yml                     # PR-based code review workflow
+```
+
 ## GitHub Workflows Scripts
 
 ```
