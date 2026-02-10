@@ -642,7 +642,7 @@ def parse_plan(content: str) -> ParseResult:
         warnings.extend(md_warnings)
 
         # Parse phases from markdown headers
-        phases = parse_phases_from_markdown(markdown_content)
+        phases = parse_phases_from_markdown(content)
 
         # Assign tasks to phases
         for task in tasks:

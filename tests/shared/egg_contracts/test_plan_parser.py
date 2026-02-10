@@ -496,14 +496,20 @@ class TestParserCLIIntegration:
         sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "sandbox"))
         from egg_lib.contract_cli import parse_task_id
 
-        content = """---
-tasks:
-  - id: TASK-3-5
-    description: YAML task
-    acceptance: Works
----
+        content = """# Plan
 
-# Plan
+Some prose description here.
+
+```yaml
+# yaml-tasks
+phases:
+  - id: 3
+    name: Implementation
+    tasks:
+      - id: TASK-3-5
+        description: YAML task
+        acceptance: Works
+```
 """
         result = parse_plan(content)
         assert result.success
