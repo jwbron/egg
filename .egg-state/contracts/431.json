@@ -6,8 +6,262 @@
     "url": "https://github.com/jwbron/egg/issues/431"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Workflow can be called via `uses:` and reports aggregate pass/fail",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Workflow can be called via `uses:` and reports aggregate pass/fail",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Workflow can be called via `uses:` and reports aggregate pass/fail",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-1] Job calls lint workflow and captures pass/fail output",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-2] Job calls test workflow and captures pass/fail output",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-3] Job calls integration test workflow and captures pass/fail output",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-4] Aggregation correctly combines results from all three check workflows",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-1] Workflow only triggers via `workflow_call`",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-2] Workflow only triggers via `workflow_call`",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-3] Workflow only triggers via `workflow_call`",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-4-1] Fixer triggers when lint or test reusable workflow fails",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-4-2] Autofix correctly identifies which check failed (lint, test, or integration)",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Convert check workflows to reusable format",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add `workflow_call` trigger to `lint.yml` with outputs for pass/fail status",
+          "status": "pending",
+          "acceptance_criteria": "Workflow can be called via `uses:` and reports aggregate pass/fail",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add `workflow_call` trigger to `test.yml` with outputs for pass/fail status",
+          "status": "pending",
+          "acceptance_criteria": "Workflow can be called via `uses:` and reports aggregate pass/fail",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add `workflow_call` trigger to `test-integration.yml` with outputs for pass/fail status",
+          "status": "pending",
+          "acceptance_criteria": "Workflow can be called via `uses:` and reports aggregate pass/fail",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Update SDLC work loop to call reusable workflows",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Replace `check-lint` job with `uses: ./.github/workflows/lint.yml`",
+          "status": "pending",
+          "acceptance_criteria": "Job calls lint workflow and captures pass/fail output",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Replace `check-test` job with `uses: ./.github/workflows/test.yml`",
+          "status": "pending",
+          "acceptance_criteria": "Job calls test workflow and captures pass/fail output",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add `check-integration` job with `uses: ./.github/workflows/test-integration.yml`",
+          "status": "pending",
+          "acceptance_criteria": "Job calls integration test workflow and captures pass/fail output",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Update `aggregate-checks` job to read outputs from reusable workflow jobs",
+          "status": "pending",
+          "acceptance_criteria": "Aggregation correctly combines results from all three check workflows",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Remove standalone PR triggers",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Remove `push` and `pull_request` triggers from `lint.yml`",
+          "status": "pending",
+          "acceptance_criteria": "Workflow only triggers via `workflow_call`",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Remove `push` and `pull_request` triggers from `test.yml`",
+          "status": "pending",
+          "acceptance_criteria": "Workflow only triggers via `workflow_call`",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Remove `push` and `pull_request` triggers from `test-integration.yml`",
+          "status": "pending",
+          "acceptance_criteria": "Workflow only triggers via `workflow_call`",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Update check-fixer integration",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Update `check-fixer` job conditionals to use outputs from reusable workflow jobs",
+          "status": "pending",
+          "acceptance_criteria": "Fixer triggers when lint or test reusable workflow fails",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Verify autofix workflow receives correct `failed_workflow` parameter",
+          "status": "pending",
+          "acceptance_criteria": "Autofix correctly identifies which check failed (lint, test, or integration)",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 2,
