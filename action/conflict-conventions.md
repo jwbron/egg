@@ -1,30 +1,36 @@
 # Conflict Resolution Conventions
 
-Guidelines for resolving merge conflicts via git rebase.
+Guidelines for resolving merge conflicts via git merge.
 
-## Rebase Workflow
+## Merge Workflow
 
-**Always use rebase, not merge.** Rebasing maintains a linear history and makes
-conflicts explicit at each commit.
+**Always use merge, not rebase.** Merging preserves the PR's commit history and
+enables easy retry if resolution fails—the merge commit can be reverted without
+losing any of the original work.
 
 ```bash
 # 1. Fetch latest base branch
 git fetch origin main
 
-# 2. Start rebase
-git rebase origin/main
+# 2. Preview the merge (see conflicts without committing)
+git merge --no-commit origin/main
 
-# 3. For each conflict:
-#    - Resolve the files
+# 3. Analyze and categorize each conflict (see below)
+
+# 4. For each conflict:
+#    - Examine the conflict markers
+#    - Resolve based on conflict type
 #    - Stage resolved files: git add <files>
-#    - Continue: git rebase --continue
 
-# 4. After rebase completes, push with lease
-git push --force-with-lease
+# 5. Commit the merge
+git commit -m "Merge origin/main: resolve conflicts in <files>"
+
+# 6. Push (no --force needed)
+git push
 ```
 
-**Never use `--force`** — always use `--force-with-lease` which fails if someone
-else pushed to the branch, preventing accidental overwrites.
+**Never use `--force` or `--force-with-lease`** — merge commits use regular push.
+If the push fails, something unexpected happened—investigate rather than forcing.
 
 ## Understanding Conflict Markers
 
@@ -32,13 +38,14 @@ When git encounters a conflict, it marks the file like this:
 
 ```
 <<<<<<< HEAD
-Content from the base branch (main)
+Content from the current branch (your PR)
 =======
-Content from the PR branch
->>>>>>> commit-message
+Content from the branch being merged in (main)
+>>>>>>> origin/main
 ```
 
-During a rebase, "HEAD" is the base branch and the bottom section is your change.
+During a merge, "HEAD" is your current branch (the PR) and the bottom section is
+what you're merging in (the base branch).
 
 ## Resolution Strategies
 
@@ -48,21 +55,24 @@ During a rebase, "HEAD" is the base branch and the bottom section is your change
 
 ```bash
 # For npm
-git checkout --ours package-lock.json   # Accept base branch version (main during rebase)
-npm install                              # Regenerate with PR's package.json
+git checkout --theirs package-lock.json   # Accept main's version (being merged in)
+npm install                                # Regenerate with PR's package.json
 
 # For yarn
-git checkout --ours yarn.lock
+git checkout --theirs yarn.lock
 yarn install
 
 # For poetry
-git checkout --ours poetry.lock
+git checkout --theirs poetry.lock
 poetry lock
 
 # For uv
-git checkout --ours uv.lock
+git checkout --theirs uv.lock
 uv lock
 ```
+
+Note: During merge, `--ours` is the PR branch and `--theirs` is the base branch.
+We take the base branch version then regenerate to include PR changes.
 
 ### Additive Changes (Both Sides Add Content)
 
@@ -115,7 +125,7 @@ Configuration conflicts often need human review because they may represent:
 
 ## When to Abort and Escalate
 
-**Abort the rebase and post a comment when:**
+**Abort the merge and post a comment when:**
 
 1. **Semantic conflicts** — Both sides modify the same logic differently, and you
    can't determine which behavior is correct without product context.
@@ -138,13 +148,32 @@ Configuration conflicts often need human review because they may represent:
 To abort:
 
 ```bash
-git rebase --abort
+git merge --abort
 ```
 
 Then post a comment explaining:
 - Which files have conflicts
 - What each side is trying to do
 - Why human judgment is needed
+
+## Recovery from Failed Resolution
+
+If you pushed a merge commit that turned out to be incorrect (CI fails, logic error),
+you can revert the merge and try again:
+
+```bash
+# Revert the merge commit (keep second parent's content)
+git revert -m 1 HEAD
+
+# Push the revert
+git push
+
+# Post a comment explaining what went wrong
+# Then you can attempt a new merge with a different resolution
+```
+
+The `-m 1` option tells git to keep the first parent (the PR branch) and undo
+the merge. This restores the branch to its pre-merge state.
 
 ## Post-Resolution Verification
 
