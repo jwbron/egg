@@ -78,14 +78,54 @@ The pipeline pauses for human approval at phase transitions. Decisions use check
 | **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
 | **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
 
+### Multi-Reviewer Architecture
+
+The work loop runs multiple specialized reviewers in parallel, with phase-specific defaults:
+
+| Phase | Reviewers | Focus |
+|-------|-----------|-------|
+| **Refine** | Unified, Agent-Design | Analysis quality, agent-mode alignment |
+| **Plan** | Unified, Agent-Design | Plan quality, agent-mode alignment |
+| **Implement** | Unified, Agent-Design, Contract, Code | Full coverage: quality, design, contract, security |
+
+**Specialized Reviewers:**
+
+| Reviewer | Script | Focus |
+|----------|--------|-------|
+| **Unified** | `build-unified-review-prompt.sh` | Phase-specific quality criteria |
+| **Agent-Design** | `build-agent-mode-design-review-prompt-workloop.sh` | Agent-mode design alignment (anti-patterns) |
+| **Contract** | `build-contract-verification-prompt-workloop.sh` | Task completion, acceptance criteria |
+| **Code** | `build-code-review-prompt-workloop.sh` | Security, correctness, robustness |
+
+**Verdict Aggregation:**
+- All reviewers run in parallel (matrix job)
+- Any `needs_revision` from any reviewer → aggregate `needs_revision`
+- Feedback is combined with per-reviewer section headers
+- Failed reviewers are tracked separately and trigger escalation
+
+**Per-Reviewer State Tracking:**
+
+The contract tracks per-reviewer verdicts for debugging:
+```json
+{
+  "implement_reviewer_verdicts": {
+    "unified": "approved",
+    "agent-design": "approved",
+    "contract": "needs_revision",
+    "code": "approved"
+  }
+}
+```
+
 ### Refine and Plan Phase Review Cycles
 
 The refine and plan phases include an automated internal review step before human approval. All reviews happen internally without posting to the issue until approval:
 
 1. **Producer agent runs** — The refine/plan agent writes its output to `.egg-state/drafts/{issue}-{analysis|plan}.md`
-2. **Reviewer agent runs** — Reads the draft and writes verdict to `.egg-state/reviews/{issue}-{refine|plan}-review.json`
-3. **If approved** — The final draft is posted to the issue with an approval checkbox for human review
-4. **If needs revision** — Producer agent is re-dispatched with feedback; cycle repeats without posting to issue
+2. **Reviewer agents run in parallel** — Each reviewer reads the draft and writes verdict to its own file
+3. **Verdicts aggregated** — If any reviewer needs revision, the aggregate verdict is `needs_revision`
+4. **If approved** — The final draft is posted to the issue with an approval checkbox for human review
+5. **If needs revision** — Producer agent is re-dispatched with combined feedback; cycle repeats without posting to issue
 
 **Key Benefit:** Internal review cycles don't create noise on the GitHub issue. Only the final approved analysis/plan is posted for human review.
 
@@ -97,13 +137,20 @@ The refine and plan phases include an automated internal review step before huma
 │   ├── {issue}-analysis.md     # Refine phase draft
 │   └── {issue}-plan.md         # Plan phase draft
 └── reviews/
-    ├── {issue}-refine-review.json  # Refine review verdict
-    └── {issue}-plan-review.json    # Plan review verdict
+    ├── {issue}-refine-review.json       # Unified review verdict
+    ├── {issue}-refine-agent-design.json # Agent-design review verdict
+    ├── {issue}-plan-review.json         # Unified review verdict
+    ├── {issue}-plan-agent-design.json   # Agent-design review verdict
+    ├── {issue}-implement-review.json    # Unified review verdict
+    ├── {issue}-implement-agent-design.json
+    ├── {issue}-implement-contract.json
+    └── {issue}-implement-code.json
 ```
 
 **Review Verdict JSON Schema:**
 ```json
 {
+  "reviewer": "unified" | "agent-design" | "contract" | "code",
   "verdict": "approved" | "needs_revision",
   "summary": "Brief summary of findings",
   "feedback": "Detailed feedback (empty if approved)",
@@ -516,6 +563,9 @@ This parallel execution reduces cycle time by running independent checks concurr
 | `.github/scripts/push-contract-update.sh` | Conflict-resistant contract push utility |
 | `action/build-sdlc-prompt.sh` | Phase-specific prompt builder (includes review feedback injection) |
 | `action/build-unified-review-prompt.sh` | Unified review prompt builder for all SDLC phases |
+| `action/build-agent-mode-design-review-prompt-workloop.sh` | Agent-mode design review for work loop |
+| `action/build-contract-verification-prompt-workloop.sh` | Contract verification review for work loop |
+| `action/build-code-review-prompt-workloop.sh` | Code review for work loop |
 | `action/populate-contract-tasks.py` | Extracts tasks from plan into contract |
 | `action/contract-state.sh` | Contract state management utility |
 | `sandbox/scripts/gh` | gh wrapper with self-review fallback |
