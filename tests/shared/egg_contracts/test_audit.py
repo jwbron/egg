@@ -17,7 +17,7 @@ class TestCreateAuditEntry:
     def test_all_fields_populated(self):
         """Test creating an entry with all fields set."""
         entry = create_audit_entry(
-            actor="egg",
+            actor="james-in-a-box",
             role=AuditRole.IMPLEMENTER,
             action=AuditAction.UPDATE,
             field_path="phases.0.tasks.0.commit",
@@ -26,7 +26,7 @@ class TestCreateAuditEntry:
             reason="Implementation complete",
         )
 
-        assert entry.actor == "egg"
+        assert entry.actor == "james-in-a-box"
         assert entry.role == AuditRole.IMPLEMENTER
         assert entry.action == AuditAction.UPDATE
         assert entry.field_path == "phases.0.tasks.0.commit"
@@ -39,7 +39,7 @@ class TestCreateAuditEntry:
         """Test that the timestamp uses UTC timezone."""
         before = datetime.now(UTC)
         entry = create_audit_entry(
-            actor="egg",
+            actor="james-in-a-box",
             role=AuditRole.SYSTEM,
             action=AuditAction.CREATE,
             field_path="issue",
@@ -64,7 +64,7 @@ class TestCreateAuditEntry:
     def test_returns_audit_entry_model(self):
         """Test that the return type is AuditEntry."""
         entry = create_audit_entry(
-            actor="egg",
+            actor="james-in-a-box",
             role=AuditRole.IMPLEMENTER,
             action=AuditAction.UPDATE,
             field_path="phases.0.tasks.0.notes",
@@ -100,7 +100,7 @@ class TestCreateUpdateEntry:
     def test_creates_update_action(self):
         """Test that the entry has UPDATE action."""
         entry = create_update_entry(
-            actor="egg",
+            actor="james-in-a-box",
             role=AuditRole.IMPLEMENTER,
             field_path="phases.0.tasks.0.notes",
             old_value="old notes",
@@ -125,7 +125,7 @@ class TestCreateUpdateEntry:
     def test_with_reason(self):
         """Test update entry with a reason."""
         entry = create_update_entry(
-            actor="egg",
+            actor="james-in-a-box",
             role=AuditRole.IMPLEMENTER,
             field_path="phases.0.tasks.0.commit",
             old_value=None,
@@ -138,7 +138,7 @@ class TestCreateUpdateEntry:
     def test_without_reason(self):
         """Test update entry without a reason defaults to None."""
         entry = create_update_entry(
-            actor="egg",
+            actor="james-in-a-box",
             role=AuditRole.IMPLEMENTER,
             field_path="phases.0.tasks.0.notes",
             old_value="",
@@ -150,7 +150,7 @@ class TestCreateUpdateEntry:
     def test_field_path_preserved(self):
         """Test that the field_path is set correctly."""
         entry = create_update_entry(
-            actor="egg",
+            actor="james-in-a-box",
             role=AuditRole.IMPLEMENTER,
             field_path="acceptance_criteria.0.verified",
             old_value=False,
@@ -177,7 +177,7 @@ class TestCreateTransitionEntry:
     def test_field_path_is_current_phase(self):
         """Test that field_path is always 'current_phase'."""
         entry = create_transition_entry(
-            actor="egg",
+            actor="james-in-a-box",
             role=AuditRole.IMPLEMENTER,
             from_phase="implement",
             to_phase="pr",
@@ -233,7 +233,7 @@ class TestFormatAuditLog:
         """Test formatting an update entry with both old and new values."""
         entry = AuditEntry(
             timestamp=datetime(2025, 1, 15, 10, 30, 0, tzinfo=UTC),
-            actor="egg",
+            actor="james-in-a-box",
             role=AuditRole.IMPLEMENTER,
             action=AuditAction.UPDATE,
             field_path="phases.0.tasks.0.notes",
@@ -246,7 +246,7 @@ class TestFormatAuditLog:
 
         assert lines[0] == "Audit Log:"
         assert "[2025-01-15 10:30:00]" in lines[1]
-        assert "implementer:egg" in lines[1]
+        assert "implementer:james-in-a-box" in lines[1]
         assert "update" in lines[1]
         assert "phases.0.tasks.0.notes" in lines[1]
         assert "(old -> new)" in lines[1]
@@ -274,7 +274,7 @@ class TestFormatAuditLog:
         """Test formatting an entry that includes a reason."""
         entry = AuditEntry(
             timestamp=datetime(2025, 1, 15, 10, 30, 0, tzinfo=UTC),
-            actor="egg",
+            actor="james-in-a-box",
             role=AuditRole.IMPLEMENTER,
             action=AuditAction.UPDATE,
             field_path="phases.0.tasks.0.commit",
@@ -290,7 +290,7 @@ class TestFormatAuditLog:
         """Test formatting an entry with no old or new value."""
         entry = AuditEntry(
             timestamp=datetime(2025, 1, 15, 10, 30, 0, tzinfo=UTC),
-            actor="egg",
+            actor="james-in-a-box",
             role=AuditRole.IMPLEMENTER,
             action=AuditAction.DELETE,
             field_path="phases.0.tasks.0",
@@ -319,7 +319,7 @@ class TestFormatAuditLog:
             ),
             AuditEntry(
                 timestamp=datetime(2025, 1, 15, 11, 0, 0, tzinfo=UTC),
-                actor="egg",
+                actor="james-in-a-box",
                 role=AuditRole.IMPLEMENTER,
                 action=AuditAction.UPDATE,
                 field_path="phases.0.tasks.0.commit",
@@ -343,7 +343,7 @@ class TestFormatAuditLog:
         assert len(lines) == 4  # header + 3 entries
         assert lines[0] == "Audit Log:"
         assert "system:system" in lines[1]
-        assert "implementer:egg" in lines[2]
+        assert "implementer:james-in-a-box" in lines[2]
         assert "reviewer:reviewer" in lines[3]
 
     def test_limit_shows_last_n_entries(self):

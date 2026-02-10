@@ -640,7 +640,7 @@ class TestMutateContract:
                         "issue_number": 42,
                         "field_path": "phases.0.tasks.0.commit",
                         "new_value": "abc1234",
-                        "actor": "egg",
+                        "actor": "james-in-a-box",
                         "reason": "Implementation complete",
                         "repo_path": "/home/egg/repos/test",
                     }

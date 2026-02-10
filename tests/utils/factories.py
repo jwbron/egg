@@ -162,7 +162,7 @@ def make_git_command(
 def make_pr_info(
     *,
     number: int = 123,
-    author: str | dict[str, Any] = "egg",
+    author: str | dict[str, Any] = "james-in-a-box",
     state: str = "open",
     head_branch: str = "feature-branch",
     base_branch: str = "main",
@@ -202,7 +202,7 @@ def make_pr_info(
 def make_cached_pr_info(
     *,
     pr_number: int = 123,
-    author: str = "egg",
+    author: str = "james-in-a-box",
     state: str = "open",
     head_branch: str = "feature-branch",
     fetched_at: float | None = None,

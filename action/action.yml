@@ -28,13 +28,11 @@ inputs:
     description: GitHub App installation ID for bot identity (required for bot mode)
     required: false
   bot-username:
-    description: Bot GitHub username for filtering self-comments
+    description: Bot GitHub username for filtering self-comments (REQUIRED for bot mode)
     required: false
-    default: james-in-a-box
   bot-branch-prefix:
-    description: Branch name prefix for bot-owned branches (gateway allows push to <prefix>- and <prefix>/ branches)
+    description: Branch name prefix for bot-owned branches (gateway allows push to <prefix>- and <prefix>/ branches, REQUIRED for bot mode)
     required: false
-    default: egg
   mode:
     description: "Network mode: public, private, or auto (auto-detects from repo visibility)"
     required: false

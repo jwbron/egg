@@ -34,7 +34,6 @@ on:
         description: 'GitHub username of the bot (for git identity and comment filtering)'
         required: false
         type: string
-        default: "egg"
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
@@ -46,10 +45,9 @@ on:
         type: string
         default: "jwbron"
       branch_prefix:
-        description: 'Prefix for issue branches (e.g., "egg" creates "egg/issue-N")'
+        description: 'Prefix for issue branches (e.g., "my-bot" creates "my-bot/issue-N")'
         required: false
         type: string
-        default: "egg"
       sdlc_label:
         description: 'Label that triggers the SDLC pipeline'
         required: false
@@ -78,10 +76,39 @@ concurrency:
 
 jobs:
   # ============================================================
+  # Validate required configuration for event-triggered runs
+  # ============================================================
+  validate-config:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    # Only validate for event-triggered runs (not workflow_call where caller provides config)
+    if: github.event_name != 'workflow_call'
+    steps:
+      - name: Validate required repository variables
+        run: |
+          missing_vars=()
+          if [[ -z "${{ vars.EGG_BOT_USERNAME }}" ]]; then
+            missing_vars+=("EGG_BOT_USERNAME")
+          fi
+          if [[ -z "${{ vars.EGG_BRANCH_PREFIX }}" ]]; then
+            missing_vars+=("EGG_BRANCH_PREFIX")
+          fi
+
+          if [[ ${#missing_vars[@]} -gt 0 ]]; then
+            echo "::error::Required repository variable(s) not set: ${missing_vars[*]}"
+            echo "::error::Set these in Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
+          echo "All required repository variables are configured"
+
+  # ============================================================
   # Resolve inputs for reusable workflow support
   # ============================================================
   resolve-inputs:
     name: Resolve inputs
+    needs: [validate-config]
+    # Run if validate-config succeeded OR was skipped (workflow_call)
+    if: always() && (needs.validate-config.result == 'success' || needs.validate-config.result == 'skipped')
     runs-on: ubuntu-latest
     outputs:
       bot_username: ${{ steps.resolve.outputs.bot_username }}
@@ -93,12 +120,20 @@ jobs:
       - name: Resolve inputs with defaults
         id: resolve
         run: |
-          # Use inputs if called as reusable workflow, otherwise use defaults
-          {
-            echo "bot_username=${{ inputs.bot_username || 'egg' }}"
-            echo "branch_prefix=${{ inputs.branch_prefix || 'egg' }}"
-            echo "sdlc_label=${{ inputs.sdlc_label || 'egg-sdlc' }}"
-          } >> "$GITHUB_OUTPUT"
+          # Use inputs if called as reusable workflow, otherwise use repository variables
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            {
+              echo "bot_username=${{ inputs.bot_username }}"
+              echo "branch_prefix=${{ inputs.branch_prefix }}"
+              echo "sdlc_label=${{ inputs.sdlc_label || 'egg-sdlc' }}"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "bot_username=${{ vars.EGG_BOT_USERNAME }}"
+              echo "branch_prefix=${{ vars.EGG_BRANCH_PREFIX }}"
+              echo "sdlc_label=${{ inputs.sdlc_label || 'egg-sdlc' }}"
+            } >> "$GITHUB_OUTPUT"
+          fi
 
           # Determine issue number and starting phase based on trigger type
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
@@ -144,7 +179,7 @@ jobs:
       pr_number: ${{ steps.setup.outputs.pr_number }}
 
     env:
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
 
     steps:
@@ -175,8 +210,8 @@ jobs:
         env:
           BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
         run: |
-          git config user.name "${BOT_USERNAME}[bot]"
-          git config user.email "${BOT_APP_ID}+${BOT_USERNAME}[bot]@users.noreply.github.com"
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
 
       - name: Setup pipeline
         id: setup
@@ -520,6 +555,7 @@ jobs:
       issue_number: ${{ fromJSON(needs.init.outputs.issue_number) }}
       branch_name: ${{ needs.init.outputs.branch_name }}
       bot_username: ${{ needs.resolve-inputs.outputs.bot_username }}
+      branch_prefix: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       workflow_owner: ${{ needs.init.outputs.workflow_owner }}
       pr_number: ${{ fromJSON(needs.init.outputs.pr_number) }}
       # Phase-specific timeouts

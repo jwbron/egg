@@ -55,7 +55,7 @@ services:
       - EGG_USER_GIT_EMAIL=${EGG_USER_GIT_EMAIL:-egg@localhost}
       # Gateway policy configuration
       - GATEWAY_BOT_NAME=${GATEWAY_BOT_NAME:-}
-      - GATEWAY_BOT_BRANCH_PREFIX=${GATEWAY_BOT_BRANCH_PREFIX:-egg/}
+      - GATEWAY_BOT_BRANCH_PREFIX=${GATEWAY_BOT_BRANCH_PREFIX:-}
       - GATEWAY_TRUSTED_USERS=${GATEWAY_TRUSTED_USERS:-}
     volumes:
       # Repository configuration (required)

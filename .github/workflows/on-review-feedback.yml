@@ -28,7 +28,10 @@ on:
         description: 'GitHub username of the bot (for comment filtering and authorship checks)'
         required: false
         type: string
-        default: "egg"
+      branch_prefix:
+        description: 'Branch prefix for the bot (e.g., egg)'
+        required: false
+        type: string
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
@@ -65,13 +68,31 @@ on:
         required: true
 
 jobs:
+  # Validate required configuration for event-triggered runs
+  validate-config:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_call' && github.event_name != 'workflow_dispatch'
+    steps:
+      - name: Validate required repository variables
+        run: |
+          if [[ -z "${{ vars.EGG_BOT_USERNAME }}" ]]; then
+            echo "::error::Required repository variable 'EGG_BOT_USERNAME' is not set"
+            echo "::error::Set it in Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
+          echo "All required repository variables are configured"
+
   # Workaround: GitHub Actions doesn't allow accessing inputs in job-level 'if' conditions.
   # This job passes inputs as outputs so subsequent jobs can use them in conditions.
   resolve-inputs:
     name: Resolve Inputs
+    needs: [validate-config]
+    if: always() && (needs.validate-config.result == 'success' || needs.validate-config.result == 'skipped')
     runs-on: ubuntu-latest
     outputs:
       bot_username: ${{ steps.resolve.outputs.bot_username }}
+      branch_prefix: ${{ steps.resolve.outputs.branch_prefix }}
       max_feedback_rounds: ${{ steps.resolve.outputs.max_feedback_rounds }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
       should_check_trigger: ${{ steps.resolve.outputs.should_check_trigger }}
@@ -79,8 +100,14 @@ jobs:
       - name: Resolve inputs with defaults
         id: resolve
         run: |
-          # Use inputs if called as reusable workflow, otherwise use defaults
-          echo "bot_username=${{ inputs.bot_username || 'egg' }}" >> "$GITHUB_OUTPUT"
+          # Use inputs if called as reusable workflow, otherwise use repository variables
+          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+            echo "bot_username=${{ inputs.bot_username }}" >> "$GITHUB_OUTPUT"
+            echo "branch_prefix=${{ inputs.branch_prefix }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "bot_username=${{ vars.EGG_BOT_USERNAME }}" >> "$GITHUB_OUTPUT"
+            echo "branch_prefix=${{ vars.EGG_BRANCH_PREFIX }}" >> "$GITHUB_OUTPUT"
+          fi
           echo "max_feedback_rounds=${{ inputs.max_feedback_rounds || '3' }}" >> "$GITHUB_OUTPUT"
 
           # Determine PR number based on event type
@@ -107,7 +134,7 @@ jobs:
       - name: Check if triggered by our bot
         id: check
         env:
-          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+          EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
           EVENT_NAME: ${{ github.event_name }}
           REVIEW_USER: ${{ github.event.review.user.login }}
           REVIEW_BODY: ${{ github.event.review.body }}
@@ -118,7 +145,7 @@ jobs:
         run: |
           # For pull_request_review events
           if [[ "$EVENT_NAME" == "pull_request_review" ]]; then
-            if [[ ("$REVIEW_USER" == "$BOT_USERNAME" || "$REVIEW_USER" == "${BOT_USERNAME}[bot]") && \
+            if [[ ("$REVIEW_USER" == "$EGG_BOT_USERNAME" || "$REVIEW_USER" == "${EGG_BOT_USERNAME}[bot]") && \
                   "$REVIEW_BODY" == *"egg-automated-review"* && \
                   "$REVIEW_STATE" != "approved" ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
@@ -128,7 +155,7 @@ jobs:
           # For issue_comment events (self-review as comment)
           elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
             if [[ "$IS_PR" == "true" && \
-                  ("$COMMENT_USER" == "$BOT_USERNAME" || "$COMMENT_USER" == "${BOT_USERNAME}[bot]") && \
+                  ("$COMMENT_USER" == "$EGG_BOT_USERNAME" || "$COMMENT_USER" == "${EGG_BOT_USERNAME}[bot]") && \
                   "$COMMENT_BODY" == *"egg-automated-review"* && \
                   "$COMMENT_BODY" != *"verdict=approve"* ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
@@ -162,7 +189,8 @@ jobs:
 
     env:
       PR_NUMBER: ${{ needs.resolve-inputs.outputs.pr_number }}
-      BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       MAX_FEEDBACK_ROUNDS: ${{ needs.resolve-inputs.outputs.max_feedback_rounds }}
 
     steps:
@@ -224,7 +252,7 @@ jobs:
           fi
 
           # Only address feedback on bot-authored PRs
-          if [[ "$PR_AUTHOR" != "$BOT_USERNAME" && "$PR_AUTHOR" != "${BOT_USERNAME}[bot]" ]]; then
+          if [[ "$PR_AUTHOR" != "$EGG_BOT_USERNAME" && "$PR_AUTHOR" != "${EGG_BOT_USERNAME}[bot]" ]]; then
             echo "PR author '$PR_AUTHOR' is not the bot, skipping"
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -359,7 +387,7 @@ jobs:
               echo "Warning: Failed to minimize comment $node_id (may lack permissions)"
             fi
           done < <(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
-            --jq ".[] | select(.user.login == \"$BOT_USERNAME\" or .user.login == \"${BOT_USERNAME}[bot]\") | select(.body | contains(\"<!-- egg-status-comment -->\")) | .node_id")
+            --jq ".[] | select(.user.login == \"$EGG_BOT_USERNAME\" or .user.login == \"${EGG_BOT_USERNAME}[bot]\") | select(.body | contains(\"<!-- egg-status-comment -->\")) | .node_id")
           echo "hidden_count=${HIDDEN_COUNT}" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -410,7 +438,8 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-          bot-username: ${{ env.BOT_USERNAME }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
+          bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ inputs.timeout || '20' }}
         env:
           EGG_BOT_NAME: feedback

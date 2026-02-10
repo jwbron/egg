@@ -13,8 +13,23 @@ on:
         type: number
 
 jobs:
+  # Validate required configuration
+  validate-config:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate required repository variables
+        run: |
+          if [[ -z "${{ vars.EGG_BOT_USERNAME }}" ]]; then
+            echo "::error::Required repository variable 'EGG_BOT_USERNAME' is not set"
+            echo "::error::Set it in Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
+          echo "All required repository variables are configured"
+
   should-run:
     name: Check if verification should run
+    needs: [validate-config]
     runs-on: ubuntu-latest
     outputs:
       run: ${{ steps.check.outputs.run }}
@@ -73,7 +88,8 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
       bot_name: contract-verification
-      bot_username: ${{ vars.BOT_USERNAME || 'egg' }}
+      bot_username: ${{ vars.EGG_BOT_USERNAME }}
+      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
       # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
       prompt_script: "action/build-contract-verification-prompt.sh"
       timeout: "15"

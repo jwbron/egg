@@ -40,8 +40,8 @@ def isolated_env(monkeypatch, tmp_path):
         monkeypatch.delenv(var, raising=False)
 
     # Set up required config for policy tests
-    monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
-    monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+    monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+    monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
 
     # Create test directory structure
     (tmp_path / "home").mkdir()

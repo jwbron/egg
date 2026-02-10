@@ -369,10 +369,16 @@ def get_bot_username() -> str:
     - Identifying bot's own PRs for review response handling
 
     Returns:
-        Bot username string (e.g., "james-in-a-box")
+        Bot username string
     """
     config = _load_config()
-    return config.get("bot_username", "james-in-a-box")
+    username = config.get("bot_username")
+    if not username:
+        raise ValueError(
+            "bot_username not configured in repositories.yaml. "
+            "Run ./setup.py to configure, or add 'bot_username: your-bot-name' to ~/.config/egg/repositories.yaml."
+        )
+    return username
 
 
 def get_github_token_for_repo(repo: str) -> str | None:

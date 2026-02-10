@@ -466,7 +466,7 @@ class TestPolicyEngineCacheConcurrency:
             time.sleep(0.01)  # Simulate network latency
             return {
                 "number": pr_number,
-                "author": {"login": "egg"},
+                "author": {"login": "james-in-a-box"},
                 "state": "open",
                 "headRefName": "feature",
             }
@@ -476,7 +476,7 @@ class TestPolicyEngineCacheConcurrency:
                 call_count["list_prs_for_branch"] += 1
             time.sleep(0.01)
             return [
-                {"number": 123, "author": {"login": "egg"}, "state": "open", "headRefName": branch}
+                {"number": 123, "author": {"login": "james-in-a-box"}, "state": "open", "headRefName": branch}
             ]
 
         client.get_pr_info = mock_get_pr_info
@@ -525,7 +525,7 @@ class TestPolicyEngineCacheConcurrency:
         lock = threading.Lock()
 
         def check_branch(i):
-            result = policy_engine.check_branch_ownership("owner/repo", f"egg-feature-{i}")
+            result = policy_engine.check_branch_ownership("owner/repo", f"james-in-a-box-feature-{i}")
             with lock:
                 results.append((i, result.allowed))
 
@@ -536,7 +536,7 @@ class TestPolicyEngineCacheConcurrency:
             t.join()
 
         assert len(results) == 30
-        # All egg- prefixed branches should be allowed
+        # All james-in-a-box- prefixed branches should be allowed
         assert all(allowed for _, allowed in results)
 
     def test_cache_ttl_race_condition(self, policy_engine, mock_github_client):

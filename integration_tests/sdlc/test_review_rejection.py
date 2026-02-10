@@ -171,7 +171,7 @@ class TestReviewCycleWorkflow:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.commit",
             new_value="def2345",
             reason="Added error handling",
@@ -181,7 +181,7 @@ class TestReviewCycleWorkflow:
         result = apply_mutation(
             contract=result.contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.notes",
             new_value="Added try/catch blocks for edge cases",
         )
@@ -229,7 +229,7 @@ class TestReviewCycleWorkflow:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.commit",
             new_value="aaa1111",
         )
@@ -252,7 +252,7 @@ class TestReviewCycleWorkflow:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.commit",
             new_value="bbb2222",
         )

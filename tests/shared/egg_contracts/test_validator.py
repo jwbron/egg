@@ -120,7 +120,7 @@ class TestApplyMutation:
         result = apply_mutation(
             contract=sample_contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.commit",
             new_value="abc1234",
             reason="Implementation complete",
@@ -129,7 +129,7 @@ class TestApplyMutation:
         assert result.contract is not None
         assert result.contract.phases[0].tasks[0].commit == "abc1234"
         assert result.audit_entry is not None
-        assert result.audit_entry.actor == "egg"
+        assert result.audit_entry.actor == "james-in-a-box"
         assert result.audit_entry.reason == "Implementation complete"
 
     def test_apply_invalid_mutation_rejected(self, sample_contract):
@@ -137,7 +137,7 @@ class TestApplyMutation:
         result = apply_mutation(
             contract=sample_contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.status",
             new_value="complete",
         )
@@ -165,7 +165,7 @@ class TestApplyMutation:
         result = apply_mutation(
             contract=sample_contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.notes",
             new_value="Added implementation notes",
         )
@@ -182,7 +182,7 @@ class TestApplyMutation:
         result = apply_mutation(
             contract=sample_contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.notes",
             new_value="Updated notes",
         )
@@ -302,7 +302,7 @@ class TestArrayAppend:
         result = apply_mutation(
             contract=contract_with_decisions,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="decisions.0",
             new_value=decision,
             reason="Created decision",
@@ -322,7 +322,7 @@ class TestArrayAppend:
         result = apply_mutation(
             contract=contract_with_decisions,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="decisions.1",
             new_value=decision2,
             reason="Created second decision",
@@ -342,7 +342,7 @@ class TestArrayAppend:
         result = apply_mutation(
             contract=contract_with_decisions,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="decisions.0",
             new_value=updated,
             reason="Updated decision",
@@ -356,7 +356,7 @@ class TestArrayAppend:
         result = apply_mutation(
             contract=contract_with_decisions,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="decisions.2",  # Gap: no index 0 or 1
             new_value=decision,
             reason="Created decision",

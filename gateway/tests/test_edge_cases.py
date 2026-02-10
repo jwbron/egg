@@ -330,9 +330,9 @@ class TestBranchOwnershipEdgeCases:
 
     def test_very_long_branch_name(self, policy_engine):
         """Branch name with 255+ characters."""
-        long_branch = "egg-" + "a" * 255
+        long_branch = "james-in-a-box-" + "a" * 255
         result = policy_engine.check_branch_ownership("owner/repo", long_branch)
-        assert result.allowed  # egg- prefix should match
+        assert result.allowed  # james-in-a-box- prefix should match
 
     def test_branch_with_trailing_space(self, policy_engine, mock_github_client):
         """Branch name with trailing space (edge case)."""
@@ -403,7 +403,7 @@ class TestPROwnershipEdgeCases:
         """PR response missing state field."""
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
-            "author": {"login": "egg"},
+            "author": {"login": "james-in-a-box"},
             "headRefName": "feature",
         }
         result = policy_engine.check_pr_ownership("owner/repo", 123)
@@ -426,7 +426,7 @@ class TestPROwnershipEdgeCases:
         """Very large PR number."""
         mock_github_client.get_pr_info.return_value = {
             "number": 999999999,
-            "author": {"login": "egg"},
+            "author": {"login": "james-in-a-box"},
             "state": "open",
             "headRefName": "feature",
         }
@@ -493,7 +493,7 @@ class TestCachedPRInfoEdgeCases:
         future_time = datetime.now(UTC).timestamp() + 3600
         info = CachedPRInfo(
             pr_number=1,
-            author="egg",
+            author="james-in-a-box",
             state="open",
             head_branch="feature",
             fetched_at=future_time,
@@ -506,7 +506,7 @@ class TestCachedPRInfoEdgeCases:
         old_time = 0  # Unix epoch
         info = CachedPRInfo(
             pr_number=1,
-            author="egg",
+            author="james-in-a-box",
             state="open",
             head_branch="feature",
             fetched_at=old_time,
@@ -528,7 +528,7 @@ class TestCachedPRInfoEdgeCases:
         """Empty head branch string."""
         info = CachedPRInfo(
             pr_number=1,
-            author="egg",
+            author="james-in-a-box",
             state="open",
             head_branch="",
             fetched_at=datetime.now(UTC).timestamp(),
