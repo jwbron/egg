@@ -175,6 +175,18 @@ Pre-built images are available on GHCR:
 
 Images are built on every push to main and on releases.
 
+### Image Versioning
+
+egg follows [semantic versioning](https://semver.org/). Images are tagged with:
+- **Exact version**: `v0.1.0` - Full reproducibility
+- **Minor version**: `v0.1` - Latest patch in the minor series (updated on stable releases)
+- **Major version**: `v0` - Latest minor/patch in the major series (updated on stable releases)
+- **latest**: Latest stable release
+
+Pre-releases (e.g., `v1.0.0-alpha`) only get the exact version tag and don't update floating tags or `latest`.
+
+For details on creating releases, see [RELEASING.md](../../RELEASING.md).
+
 ### Using Pre-built Images
 
 In your `.env` file:
