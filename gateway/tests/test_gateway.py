@@ -989,7 +989,7 @@ class TestGhPrComment:
             assert "denied" in data["message"].lower()
 
     def test_pr_comment_allowed_when_owner(self, client, auth_headers):
-        """PR comment allowed when egg owns the PR."""
+        """PR comment allowed when james-in-a-box owns the PR."""
         with (
             patch.object(gateway, "get_policy_engine") as mock_policy,
             patch.object(gateway, "get_github_client") as mock_gh,
@@ -997,7 +997,7 @@ class TestGhPrComment:
             mock_engine = MagicMock()
             mock_engine.check_pr_ownership.return_value = PolicyResult(
                 allowed=True,
-                reason="PR is owned by egg",
+                reason="PR is owned by james-in-a-box",
                 details={"author": "james-in-a-box"},
             )
             mock_policy.return_value = mock_engine
