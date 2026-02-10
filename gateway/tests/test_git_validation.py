@@ -417,6 +417,22 @@ class TestGhApiPathValidation:
         assert valid is True
         assert error == ""
 
+    def test_git_ref_singular_allowed(self):
+        """Single git ref endpoint is allowed (e.g., git/ref/heads/main)."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/git/ref/heads/main"
+        )
+        assert valid is True
+        assert error == ""
+
+    def test_git_ref_singular_nested_allowed(self):
+        """Nested git ref paths are allowed (e.g., git/ref/heads/egg/issue-451)."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/git/ref/heads/egg/issue-451"
+        )
+        assert valid is True
+        assert error == ""
+
     def test_user_info_allowed(self):
         """User info endpoint is allowed."""
         valid, error = github_client.validate_gh_api_path("user")

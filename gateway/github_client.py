@@ -112,7 +112,8 @@ GH_API_ALLOWED_PATHS = [
     re.compile(r"^repos/[^/]+/[^/]+/commits/[a-f0-9]+/comments$"),  # Commit comments
     re.compile(r"^repos/[^/]+/[^/]+/comments/\d+$"),  # Specific commit comment
     re.compile(r"^repos/[^/]+/[^/]+/contents/.*$"),  # File contents
-    re.compile(r"^repos/[^/]+/[^/]+/git/refs.*$"),  # Git refs
+    re.compile(r"^repos/[^/]+/[^/]+/git/refs.*$"),  # Git refs (list/matching)
+    re.compile(r"^repos/[^/]+/[^/]+/git/ref/.*$"),  # Get single git ref
     re.compile(r"^repos/[^/]+/[^/]+/compare/.*$"),  # Compare commits
     # Releases
     re.compile(r"^repos/[^/]+/[^/]+/releases$"),  # List releases
