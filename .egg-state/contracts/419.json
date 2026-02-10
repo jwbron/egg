@@ -6,8 +6,317 @@
     "url": "https://github.com/jwbron/egg/issues/419"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Script handles authorized users, bot self-trigger, and outputs authorized flag",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Tests cover authorized, unauthorized, and bot self-trigger scenarios",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-2-1] Input is configurable with default value jwbron",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-2] Job checks sender against authorized_users for label triggers",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-3] Init only runs if authorization passes or was skipped",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-3-1] Input is configurable with default value jwbron",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-3-2] Job checks PR author against authorized_users",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-3] Review workflow respects authorization from caller",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-4-1] Input is configurable with default value jwbron",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-4-2] Job fetches PR author and checks against authorized_users",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-4-3] Autofix workflow respects authorization from caller",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-5-1] Documents workflows, authorized users config, and model rationale",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-5-2] Security documentation is discoverable",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Extract Reusable Authorization Logic",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create check-authorization.sh script",
+          "status": "pending",
+          "acceptance_criteria": "Script handles authorized users, bot self-trigger, and outputs authorized flag",
+          "files_affected": [
+            ".github/scripts/check-authorization.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add unit tests for authorization script",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover authorized, unauthorized, and bot self-trigger scenarios",
+          "files_affected": [
+            ".github/scripts/test-check-authorization.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Add Authorization to SDLC Pipeline",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add authorized_users input to sdlc-pipeline.yml",
+          "status": "pending",
+          "acceptance_criteria": "Input is configurable with default value jwbron",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add check-trigger job for label events",
+          "status": "pending",
+          "acceptance_criteria": "Job checks sender against authorized_users for label triggers",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Update init job to depend on check-trigger",
+          "status": "pending",
+          "acceptance_criteria": "Init only runs if authorization passes or was skipped",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Add Authorization to Code Review Workflow",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add authorized_users input to on-pull-request.yml",
+          "status": "pending",
+          "acceptance_criteria": "Input is configurable with default value jwbron",
+          "files_affected": [
+            ".github/workflows/on-pull-request.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add check-author job for PR events",
+          "status": "pending",
+          "acceptance_criteria": "Job checks PR author against authorized_users",
+          "files_affected": [
+            ".github/workflows/on-pull-request.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Update reusable-review.yml to pass authorization",
+          "status": "pending",
+          "acceptance_criteria": "Review workflow respects authorization from caller",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Add Authorization to Autofix Workflow",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add authorized_users input to on-check-failure.yml",
+          "status": "pending",
+          "acceptance_criteria": "Input is configurable with default value jwbron",
+          "files_affected": [
+            ".github/workflows/on-check-failure.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Add authorization check in should-run job",
+          "status": "pending",
+          "acceptance_criteria": "Job fetches PR author and checks against authorized_users",
+          "files_affected": [
+            ".github/workflows/on-check-failure.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Update reusable-autofix.yml to accept authorization",
+          "status": "pending",
+          "acceptance_criteria": "Autofix workflow respects authorization from caller",
+          "files_affected": [
+            ".github/workflows/reusable-autofix.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Documentation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Create authorization-model.md documentation",
+          "status": "pending",
+          "acceptance_criteria": "Documents workflows, authorized users config, and model rationale",
+          "files_affected": [
+            "docs/security/authorization-model.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Update README with link to security docs",
+          "status": "pending",
+          "acceptance_criteria": "Security documentation is discoverable",
+          "files_affected": [
+            "README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 2,
@@ -82,5 +391,9 @@
   "plan_reviewer_verdicts": {
     "unified": "missing",
     "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Add authorization checks to workflow triggers",
+    "description": "Implements tiered authorization model for GitHub workflow triggers to ensure\nonly authorized users can invoke automated agents. Adds configurable\n`authorized_users` input to sdlc-pipeline, on-pull-request, and on-check-failure\nworkflows. Creates shared authorization script and security documentation.\n\nFixes #419"
   }
 }
