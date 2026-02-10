@@ -420,48 +420,7 @@ jobs:
       needs.resolve-inputs.outputs.phase == 'implement' &&
       (needs.check-merge-conflict.result == 'skipped' ||
        (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
-    runs-on: ubuntu-latest
-    outputs:
-      passed: ${{ steps.lint.outputs.passed }}
-      fixable: ${{ steps.lint.outputs.fixable }}
-
-    env:
-      BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
-
-    steps:
-      - name: Generate bot token
-        id: bot-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-
-      - name: Checkout issue branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.BRANCH_NAME }}
-          token: ${{ steps.bot-token.outputs.token }}
-
-      - name: Run lint checks
-        id: lint
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-
-          # Check if make lint exists
-          if make -n lint >/dev/null 2>&1; then
-            if make lint; then
-              echo "passed=true" >> "$GITHUB_OUTPUT"
-              echo "fixable=false" >> "$GITHUB_OUTPUT"
-            else
-              echo "passed=false" >> "$GITHUB_OUTPUT"
-              echo "fixable=true" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "::notice::No 'make lint' target found, skipping lint check"
-            echo "passed=true" >> "$GITHUB_OUTPUT"
-            echo "fixable=false" >> "$GITHUB_OUTPUT"
-          fi
+    uses: ./.github/workflows/lint.yml
 
   # ============================================================
   # Check: Test (implement phase only)
@@ -475,62 +434,36 @@ jobs:
       needs.resolve-inputs.outputs.phase == 'implement' &&
       (needs.check-merge-conflict.result == 'skipped' ||
        (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
-    runs-on: ubuntu-latest
-    outputs:
-      passed: ${{ steps.test.outputs.passed }}
-      fixable: ${{ steps.test.outputs.fixable }}
-
-    env:
-      BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
-
-    steps:
-      - name: Generate bot token
-        id: bot-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-
-      - name: Checkout issue branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.BRANCH_NAME }}
-          token: ${{ steps.bot-token.outputs.token }}
-
-      - name: Run test checks
-        id: test
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-
-          # Check if make test exists
-          if make -n test >/dev/null 2>&1; then
-            if make test; then
-              echo "passed=true" >> "$GITHUB_OUTPUT"
-              echo "fixable=false" >> "$GITHUB_OUTPUT"
-            else
-              echo "passed=false" >> "$GITHUB_OUTPUT"
-              echo "fixable=true" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "::notice::No 'make test' target found, skipping test check"
-            echo "passed=true" >> "$GITHUB_OUTPUT"
-            echo "fixable=false" >> "$GITHUB_OUTPUT"
-          fi
+    uses: ./.github/workflows/test.yml
 
   # ============================================================
-  # Check: Fixer (runs if lint or test failed)
+  # Check: Integration Tests (implement phase only)
+  # ============================================================
+  check-integration:
+    name: Check integration tests
+    needs: [resolve-inputs, work, check-merge-conflict]
+    if: >-
+      always() &&
+      needs.work.result == 'success' &&
+      needs.resolve-inputs.outputs.phase == 'implement' &&
+      (needs.check-merge-conflict.result == 'skipped' ||
+       (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
+    uses: ./.github/workflows/test-integration.yml
+
+  # ============================================================
+  # Check: Fixer (runs if lint, test, or integration failed)
   # ============================================================
   check-fixer:
     name: Auto-fix failures
-    needs: [resolve-inputs, work, check-merge-conflict, check-lint, check-test]
+    needs: [resolve-inputs, work, check-merge-conflict, check-lint, check-test, check-integration]
     if: >-
       always() &&
       needs.work.result == 'success' &&
       needs.resolve-inputs.outputs.phase == 'implement' &&
       (
-        (needs.check-lint.result == 'success' && needs.check-lint.outputs.passed == 'false' && needs.check-lint.outputs.fixable == 'true') ||
-        (needs.check-test.result == 'success' && needs.check-test.outputs.passed == 'false' && needs.check-test.outputs.fixable == 'true')
+        (needs.check-lint.result == 'success' && needs.check-lint.outputs.passed == 'false') ||
+        (needs.check-test.result == 'success' && needs.check-test.outputs.passed == 'false') ||
+        (needs.check-integration.result == 'success' && needs.check-integration.outputs.passed == 'false')
       )
     runs-on: ubuntu-latest
     outputs:
@@ -573,6 +506,8 @@ jobs:
               FAILED_CHECK="lint"
             elif [[ "${{ needs.check-test.outputs.passed }}" == "false" ]]; then
               FAILED_CHECK="test"
+            elif [[ "${{ needs.check-integration.outputs.passed }}" == "false" ]]; then
+              FAILED_CHECK="integration"
             fi
 
             # Trigger the reusable autofix workflow
@@ -593,7 +528,7 @@ jobs:
   # ============================================================
   aggregate-checks:
     name: Aggregate check results
-    needs: [resolve-inputs, work, check-merge-conflict, check-lint, check-test, check-fixer]
+    needs: [resolve-inputs, work, check-merge-conflict, check-lint, check-test, check-integration, check-fixer]
     if: always() && needs.work.result == 'success'
     runs-on: ubuntu-latest
     outputs:
@@ -623,9 +558,10 @@ jobs:
           # Check merge conflicts
           HAS_CONFLICTS="${{ needs.check-merge-conflict.outputs.has_conflicts || 'false' }}"
 
-          # Check lint and test
+          # Check lint, test, and integration
           LINT_PASSED="${{ needs.check-lint.outputs.passed || 'true' }}"
           TEST_PASSED="${{ needs.check-test.outputs.passed || 'true' }}"
+          INTEGRATION_PASSED="${{ needs.check-integration.outputs.passed || 'true' }}"
 
           # Check if fixer was triggered
           FIXER_STATUS="${{ needs.check-fixer.outputs.fixed || 'false' }}"
@@ -643,6 +579,9 @@ jobs:
             ALL_PASSED="false"
           fi
           if [[ "$TEST_PASSED" == "false" && "$FIXER_STATUS" != "pending" ]]; then
+            ALL_PASSED="false"
+          fi
+          if [[ "$INTEGRATION_PASSED" == "false" && "$FIXER_STATUS" != "pending" ]]; then
             ALL_PASSED="false"
           fi
 

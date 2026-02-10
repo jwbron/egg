@@ -1,10 +1,11 @@
 name: Lint
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_call:
+    outputs:
+      passed:
+        description: 'Whether all lint checks passed'
+        value: ${{ jobs.aggregate.outputs.passed }}
 
 jobs:
   python:
@@ -203,4 +204,34 @@ jobs:
           if [ -n "$failed" ]; then
             echo "::error::Failed checks:$failed"
             exit 1
+          fi
+
+  aggregate:
+    name: Aggregate Lint Results
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [python, shell, yaml, docker, actions, custom-checks]
+    outputs:
+      passed: ${{ steps.check.outputs.passed }}
+    steps:
+      - name: Check all jobs passed
+        id: check
+        run: |
+          if [[ "${{ needs.python.result }}" == "success" && \
+                "${{ needs.shell.result }}" == "success" && \
+                "${{ needs.yaml.result }}" == "success" && \
+                "${{ needs.docker.result }}" == "success" && \
+                "${{ needs.actions.result }}" == "success" && \
+                "${{ needs.custom-checks.result }}" == "success" ]]; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "All lint checks passed"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "Some lint checks failed"
+            echo "  python: ${{ needs.python.result }}"
+            echo "  shell: ${{ needs.shell.result }}"
+            echo "  yaml: ${{ needs.yaml.result }}"
+            echo "  docker: ${{ needs.docker.result }}"
+            echo "  actions: ${{ needs.actions.result }}"
+            echo "  custom-checks: ${{ needs.custom-checks.result }}"
           fi

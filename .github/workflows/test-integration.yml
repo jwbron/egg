@@ -1,10 +1,11 @@
 name: Integration Tests
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_call:
+    outputs:
+      passed:
+        description: 'Whether all integration tests passed'
+        value: ${{ jobs.aggregate.outputs.passed }}
 
 jobs:
   integration:
@@ -38,3 +39,23 @@ jobs:
         run: |
           docker compose -f integration_tests/docker-compose.yml down -v --remove-orphans 2>/dev/null || true
           docker network prune -f 2>/dev/null || true
+
+  aggregate:
+    name: Aggregate Integration Test Results
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [integration]
+    outputs:
+      passed: ${{ steps.check.outputs.passed }}
+    steps:
+      - name: Check all jobs passed
+        id: check
+        run: |
+          if [[ "${{ needs.integration.result }}" == "success" ]]; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "All integration tests passed"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "Integration tests failed"
+            echo "  integration: ${{ needs.integration.result }}"
+          fi
