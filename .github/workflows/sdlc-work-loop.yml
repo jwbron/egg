@@ -421,6 +421,7 @@ jobs:
       (needs.check-merge-conflict.result == 'skipped' ||
        (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
     uses: ./.github/workflows/lint.yml
+    secrets: inherit
 
   # ============================================================
   # Check: Test (implement phase only)
@@ -435,6 +436,7 @@ jobs:
       (needs.check-merge-conflict.result == 'skipped' ||
        (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
     uses: ./.github/workflows/test.yml
+    secrets: inherit
 
   # ============================================================
   # Check: Integration Tests (implement phase only)
@@ -449,6 +451,7 @@ jobs:
       (needs.check-merge-conflict.result == 'skipped' ||
        (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
     uses: ./.github/workflows/test-integration.yml
+    secrets: inherit
 
   # ============================================================
   # Check: Fixer (runs if lint, test, or integration failed)

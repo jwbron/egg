@@ -6,6 +6,7 @@ on:
       passed:
         description: 'Whether all integration tests passed'
         value: ${{ jobs.aggregate.outputs.passed }}
+  workflow_dispatch:  # Allow manual testing
 
 jobs:
   integration:
@@ -51,11 +52,11 @@ jobs:
       - name: Check all jobs passed
         id: check
         run: |
-          if [[ "${{ needs.integration.result }}" == "success" ]]; then
-            echo "passed=true" >> "$GITHUB_OUTPUT"
-            echo "All integration tests passed"
-          else
+          if [[ "${{ needs.integration.result }}" != "success" ]]; then
             echo "passed=false" >> "$GITHUB_OUTPUT"
             echo "Integration tests failed"
             echo "  integration: ${{ needs.integration.result }}"
+          else
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "All integration tests passed"
           fi

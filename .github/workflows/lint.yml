@@ -6,6 +6,7 @@ on:
       passed:
         description: 'Whether all lint checks passed'
         value: ${{ jobs.aggregate.outputs.passed }}
+  workflow_dispatch:  # Allow manual testing
 
 jobs:
   python:
@@ -217,15 +218,12 @@ jobs:
       - name: Check all jobs passed
         id: check
         run: |
-          if [[ "${{ needs.python.result }}" == "success" && \
-                "${{ needs.shell.result }}" == "success" && \
-                "${{ needs.yaml.result }}" == "success" && \
-                "${{ needs.docker.result }}" == "success" && \
-                "${{ needs.actions.result }}" == "success" && \
-                "${{ needs.custom-checks.result }}" == "success" ]]; then
-            echo "passed=true" >> "$GITHUB_OUTPUT"
-            echo "All lint checks passed"
-          else
+          if [[ "${{ needs.python.result }}" != "success" || \
+                "${{ needs.shell.result }}" != "success" || \
+                "${{ needs.yaml.result }}" != "success" || \
+                "${{ needs.docker.result }}" != "success" || \
+                "${{ needs.actions.result }}" != "success" || \
+                "${{ needs.custom-checks.result }}" != "success" ]]; then
             echo "passed=false" >> "$GITHUB_OUTPUT"
             echo "Some lint checks failed"
             echo "  python: ${{ needs.python.result }}"
@@ -234,4 +232,7 @@ jobs:
             echo "  docker: ${{ needs.docker.result }}"
             echo "  actions: ${{ needs.actions.result }}"
             echo "  custom-checks: ${{ needs.custom-checks.result }}"
+          else
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "All lint checks passed"
           fi
