@@ -263,6 +263,44 @@ See [GitHub Action documentation](action/README.md) for details.
 - [Contributing](CONTRIBUTING.md) — Development setup and workflow
 - [Why egg Works](docs/collaboration-effectiveness.md) — Safety, quality, and collaboration
 
+## Versioning
+
+egg uses [semantic versioning](https://semver.org/) for both Docker images and GitHub Action references.
+
+> **Note:** Use `@main` until the first release (v0.1.0) is published, which will create the `@v0` tag.
+
+### Version Pinning
+
+For stability, pin to a major version:
+```yaml
+uses: jwbron/egg/action@v0  # Receives all v0.x.y updates
+```
+
+For full reproducibility:
+```yaml
+uses: jwbron/egg/action@v0.1.0  # Exact version
+```
+
+### Docker Images
+
+```bash
+# Latest stable (updated on every release)
+docker pull ghcr.io/jwbron/egg-sandbox:latest
+
+# Major version (updated on v0.x.y releases)
+docker pull ghcr.io/jwbron/egg-sandbox:v0
+
+# Exact version
+docker pull ghcr.io/jwbron/egg-sandbox:v0.1.0
+```
+
+### Breaking Changes
+
+- **v0.x.y**: Pre-stable releases. Minor versions may contain breaking changes.
+- **v1.x.y and later**: Stable releases. Breaking changes only in major version bumps.
+
+See [RELEASING.md](RELEASING.md) for the release process.
+
 ## Development
 
 ```bash

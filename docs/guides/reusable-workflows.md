@@ -6,6 +6,25 @@ This guide explains how to use egg's SDLC workflows in your own repositories.
 
 The egg project provides a set of reusable GitHub Actions workflows for AI-powered code review, autofix, conflict resolution, and SDLC pipeline management. These workflows can be called from any repository that has the required secrets configured.
 
+## Version Pinning
+
+All workflow examples below use `@main`. After the first release (v0.1.0) creates the `@v0` tag, switch to `@v0` for stability.
+
+**For stability** (recommended after first release), pin to a major version:
+```yaml
+uses: jwbron/egg/.github/workflows/reusable-review.yml@v0
+```
+
+**For full reproducibility**, pin to an exact version:
+```yaml
+uses: jwbron/egg/.github/workflows/reusable-review.yml@v0.1.0
+```
+
+**For latest development** (not recommended for production):
+```yaml
+uses: jwbron/egg/.github/workflows/reusable-review.yml@main
+```
+
 ## Available Workflows
 
 ### Core Review Workflow
