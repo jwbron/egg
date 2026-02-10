@@ -34,7 +34,7 @@ on:
         description: 'GitHub username of the bot (for git identity and comment filtering)'
         required: false
         type: string
-        default: "egg"
+        default: "james-in-a-box"
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
@@ -46,10 +46,10 @@ on:
         type: string
         default: "jwbron"
       branch_prefix:
-        description: 'Prefix for issue branches (e.g., "egg" creates "egg/issue-N")'
+        description: 'Prefix for issue branches (e.g., "james-in-a-box" creates "james-in-a-box/issue-N")'
         required: false
         type: string
-        default: "egg"
+        default: "james-in-a-box"
       sdlc_label:
         description: 'Label that triggers the SDLC pipeline'
         required: false
@@ -95,8 +95,8 @@ jobs:
         run: |
           # Use inputs if called as reusable workflow, otherwise use defaults
           {
-            echo "bot_username=${{ inputs.bot_username || 'egg' }}"
-            echo "branch_prefix=${{ inputs.branch_prefix || 'egg' }}"
+            echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}"
+            echo "branch_prefix=${{ inputs.branch_prefix || 'james-in-a-box' }}"
             echo "sdlc_label=${{ inputs.sdlc_label || 'egg-sdlc' }}"
           } >> "$GITHUB_OUTPUT"
 

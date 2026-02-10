@@ -181,14 +181,14 @@ class TestAuditEntry:
         """Test creating a valid audit entry."""
         entry = AuditEntry(
             timestamp=datetime.now(UTC),
-            actor="egg",
+            actor="james-in-a-box",
             role=AuditRole.IMPLEMENTER,
             action=AuditAction.UPDATE,
             field_path="phases.0.tasks.0.commit",
             old_value=None,
             new_value="abc1234",
         )
-        assert entry.actor == "egg"
+        assert entry.actor == "james-in-a-box"
         assert entry.role == AuditRole.IMPLEMENTER
         assert entry.action == AuditAction.UPDATE
 

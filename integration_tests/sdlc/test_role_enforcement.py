@@ -207,7 +207,7 @@ class TestApplyMutationRoleEnforcement:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.commit",
             new_value="abc1234",
         )
@@ -234,7 +234,7 @@ class TestApplyMutationRoleEnforcement:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.status",
             new_value=TaskStatus.COMPLETE.value,
         )
@@ -310,7 +310,7 @@ class TestPhaseTransitionRoleEnforcement:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="current_phase",
             new_value=PipelinePhase.PR.value,
         )
@@ -371,7 +371,7 @@ class TestDecisionRoleEnforcement:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="decisions.0.resolved",
             new_value=True,
         )
@@ -415,7 +415,7 @@ class TestAuditLogRoleTracking:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.commit",
             new_value="abc1234",
         )
@@ -435,7 +435,7 @@ class TestAuditLogRoleTracking:
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
-            actor="egg",
+            actor="james-in-a-box",
             field_path="phases.0.tasks.0.commit",
             new_value="abc1234",
         )

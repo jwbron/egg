@@ -18,8 +18,8 @@ TEST_LAUNCHER_SECRET = "test-launcher-secret-12345"
 os.environ["EGG_LAUNCHER_SECRET"] = TEST_LAUNCHER_SECRET
 
 # Set required gateway policy configuration for tests
-os.environ["GATEWAY_BOT_NAME"] = "egg"
-os.environ["GATEWAY_BOT_BRANCH_PREFIX"] = "egg"
+os.environ["GATEWAY_BOT_NAME"] = "james-in-a-box"
+os.environ["GATEWAY_BOT_BRANCH_PREFIX"] = "james-in-a-box"
 
 # Create a minimal test repositories.yaml config
 import tempfile

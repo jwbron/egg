@@ -108,8 +108,8 @@ fi
 # Add bot identity config
 # GATEWAY_BOT_NAME = GitHub identity (for PR author checks)
 # GATEWAY_BOT_BRANCH_PREFIX = branch namespace (for push ownership checks)
-# These are independent: bot may be "james-in-a-box" but branches are "egg/*"
-BOT_BRANCH_PREFIX="${INPUT_BOT_BRANCH_PREFIX:-egg}"
+# These are independent: bot may be "james-in-a-box" but branches are "james-in-a-box/*"
+BOT_BRANCH_PREFIX="${INPUT_BOT_BRANCH_PREFIX:-james-in-a-box}"
 echo "GATEWAY_BOT_NAME=${BOT_USERNAME}" >> "$CONFIG_DIR/secrets.env"
 echo "GATEWAY_BOT_BRANCH_PREFIX=${BOT_BRANCH_PREFIX}" >> "$CONFIG_DIR/secrets.env"
 

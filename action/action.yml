@@ -34,7 +34,7 @@ inputs:
   bot-branch-prefix:
     description: Branch name prefix for bot-owned branches (gateway allows push to <prefix>- and <prefix>/ branches)
     required: false
-    default: egg
+    default: james-in-a-box
   mode:
     description: "Network mode: public, private, or auto (auto-detects from repo visibility)"
     required: false

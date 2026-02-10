@@ -53,8 +53,8 @@ def _load_policy_module():
     shared_dir = PROJECT_ROOT / "shared"
 
     # Set up environment
-    os.environ.setdefault("GATEWAY_BOT_NAME", "egg")
-    os.environ.setdefault("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+    os.environ.setdefault("GATEWAY_BOT_NAME", "james-in-a-box")
+    os.environ.setdefault("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
 
     sys.path.insert(0, str(shared_dir))
     sys.path.insert(0, str(gateway_dir))
@@ -115,8 +115,8 @@ class TestBranchNameFuzzing:
     @pytest.fixture
     def policy_module(self, monkeypatch):
         """Load policy module."""
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
         return _load_policy_module()
 
     @given(branch_name=st.text(min_size=0, max_size=500))
@@ -168,8 +168,8 @@ class TestRefspecFuzzing:
     @pytest.fixture
     def policy_module(self, monkeypatch):
         """Load policy module."""
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
         return _load_policy_module()
 
     @given(refspec=st.text(min_size=0, max_size=500))
@@ -209,8 +209,8 @@ class TestRemoteURLFuzzing:
     @pytest.fixture
     def policy_module(self, monkeypatch):
         """Load policy module."""
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
         return _load_policy_module()
 
     @given(url=st.text(min_size=0, max_size=500))
@@ -401,8 +401,8 @@ class TestPRAuthorFuzzing:
     @pytest.fixture
     def policy_module(self, monkeypatch):
         """Load policy module."""
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james-in-a-box")
         return _load_policy_module()
 
     @given(author=st.text(min_size=0, max_size=100))

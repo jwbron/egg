@@ -998,7 +998,7 @@ class TestGhPrComment:
             mock_engine.check_pr_ownership.return_value = PolicyResult(
                 allowed=True,
                 reason="PR is owned by egg",
-                details={"author": "egg"},
+                details={"author": "james-in-a-box"},
             )
             mock_policy.return_value = mock_engine
 

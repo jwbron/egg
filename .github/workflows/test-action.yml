@@ -20,7 +20,7 @@ jobs:
         env:
           INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
           INPUT_GITHUB_TOKEN: test-github-token
-          INPUT_BOT_USERNAME: egg
+          INPUT_BOT_USERNAME: james-in-a-box
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
           bash action/generate-config.sh
@@ -36,7 +36,7 @@ jobs:
           # Use -F for fixed string matching — GITHUB_ACTOR may contain
           # regex-special characters (e.g., "app[bot]")
           grep -qF "github_username: ${GITHUB_ACTOR}" "$CONFIG_DIR/repositories.yaml"
-          grep -qF "bot_username: egg" "$CONFIG_DIR/repositories.yaml"
+          grep -qF "bot_username: james-in-a-box" "$CONFIG_DIR/repositories.yaml"
           grep -qF "${GITHUB_REPOSITORY}" "$CONFIG_DIR/repositories.yaml"
           grep -qF "auth_mode: user" "$CONFIG_DIR/repositories.yaml"
           grep -qF "${GITHUB_WORKSPACE}" "$CONFIG_DIR/repositories.yaml"
@@ -52,6 +52,19 @@ jobs:
           test -s "$CONFIG_DIR/launcher-secret"
 
           echo "All config generation tests passed"
+
+      - name: Test generate-config.sh uses correct default bot_username
+        env:
+          INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
+          INPUT_GITHUB_TOKEN: test-github-token
+          # Intentionally omitting INPUT_BOT_USERNAME to test default
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          rm -rf "${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+          bash action/generate-config.sh
+          CONFIG_DIR="${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+          grep -qF "bot_username: james-in-a-box" "$CONFIG_DIR/repositories.yaml"
+          echo "Default bot_username test passed"
 
       - name: Test generate-config.sh with bot App credentials
         env:

@@ -24,7 +24,7 @@ on:
         description: 'GitHub username of the bot (for self-trigger prevention and comment filtering)'
         required: false
         type: string
-        default: "egg"
+        default: "james-in-a-box"
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
@@ -78,7 +78,7 @@ jobs:
         run: |
           # Use inputs if called as reusable workflow, otherwise use defaults
           {
-            echo "bot_username=${{ inputs.bot_username || 'egg' }}"
+            echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}"
             echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
             echo "mention_patterns=${{ inputs.mention_patterns || '@james-in-a-box' }}"
           } >> "$GITHUB_OUTPUT"

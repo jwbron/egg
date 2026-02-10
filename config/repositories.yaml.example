@@ -21,7 +21,7 @@ github_username: YOUR_USERNAME
 
 # Bot username - the bot's GitHub identity for filtering out its own comments
 # Comments from this user are ignored (so the bot doesn't respond to itself)
-bot_username: egg
+bot_username: james-in-a-box
 
 # Repositories where egg has WRITE access
 # These are repos where egg can:
