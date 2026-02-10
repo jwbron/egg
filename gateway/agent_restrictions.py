@@ -289,28 +289,22 @@ INTEGRATOR_PATTERNS = AgentFilePattern(
         ".egg-state/agent-outputs/",
     ],
     blocked_patterns=[
-        # Block everything else explicitly
-        "**/*.py",
-        "**/*.ts",
-        "**/*.tsx",
-        "**/*.js",
-        "**/*.jsx",
-        "**/*.go",
-        "**/*.java",
-        "**/*.rb",
-        "**/*.rs",
-        "**/*.sh",
-        "**/*.yml",
-        "**/*.yaml",
-        "**/*.json",
-        "**/*.toml",
-        "**/*.md",
+        # Block specific directories as defense-in-depth.
+        # Extension-based blocks (e.g., **/*.json) are intentionally omitted
+        # because they conflict with writing JSON handoff files to the allowed
+        # output directory (.egg-state/agent-outputs/). The allowed_patterns
+        # already restrict writes to the output directory only.
+        "src/",
+        "lib/",
+        "shared/",
+        "gateway/",
+        "sandbox/",
+        "action/",
         "docs/",
         "tests/",
         "test/",
-        "src/",
-        "lib/",
         ".egg-state/contracts/",
+        ".github/",
     ],
 )
 

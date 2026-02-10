@@ -167,25 +167,11 @@ class TestRealAgentPatterns:
         assert not pattern.can_write("lib/utils.js")
 
     def test_integrator_agent_outputs_directory(self):
-        """Test integrator access to agent outputs directory.
-
-        Note: This test documents a known issue with the current pattern
-        configuration. The integrator has `.egg-state/agent-outputs/`
-        in allowed_patterns but `**/*.json` in blocked_patterns. Since
-        blocked patterns take precedence (for security), JSON files
-        are blocked even in the allowed directory.
-
-        This is a configuration issue that should be addressed by either:
-        1. Removing broad file type blocks from integrator (it's read-only anyway)
-        2. Implementing directory-scoped pattern matching
-
-        For now, we document the current behavior.
-        """
+        """Integrator should be able to write JSON handoff files to agent outputs."""
         pattern = get_agent_pattern("integrator")
         assert pattern is not None
-        # Currently blocked due to **/*.json in blocked_patterns
-        # TODO: Fix integrator pattern configuration
-        assert not pattern.can_write(".egg-state/agent-outputs/report.json")
+        assert pattern.can_write(".egg-state/agent-outputs/report.json")
+        assert pattern.can_write(".egg-state/agent-outputs/integrator-output.json")
 
 
 class TestValidateAgentPush:

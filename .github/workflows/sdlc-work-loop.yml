@@ -381,6 +381,41 @@ jobs:
             --field branch_name="${BRANCH_NAME}" \
             --field agent_role="auto"
 
+          # Wait for the workflow run to appear then track its status
+          echo "Waiting for workflow run to start..."
+          sleep 5
+
+          # Find the run ID of the triggered workflow
+          RUN_ID=""
+          for attempt in 1 2 3 4 5; do
+            RUN_ID=$(gh run list \
+              --repo "${{ github.repository }}" \
+              --workflow sdlc-multi-agent.yml \
+              --branch "${BRANCH_NAME}" \
+              --limit 1 \
+              --json databaseId,status \
+              --jq '.[0].databaseId' 2>/dev/null || echo "")
+            if [[ -n "$RUN_ID" ]]; then
+              break
+            fi
+            echo "::warning::Attempt ${attempt}: workflow run not found yet, retrying..."
+            sleep 5
+          done
+
+          if [[ -z "$RUN_ID" ]]; then
+            echo "::error::Could not find triggered multi-agent workflow run"
+            exit 1
+          fi
+
+          echo "Watching workflow run ${RUN_ID}..."
+          if gh run watch "$RUN_ID" --repo "${{ github.repository }}" --exit-status; then
+            echo "Multi-agent workflow completed successfully"
+            echo "result=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Multi-agent workflow failed (run ${RUN_ID})"
+            echo "result=failure" >> "$GITHUB_OUTPUT"
+          fi
+
           echo "triggered=true" >> "$GITHUB_OUTPUT"
 
       - name: Run egg agent
