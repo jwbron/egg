@@ -53,15 +53,15 @@ on:
         type: string
         default: ""
       output_type:
-        description: 'Output type: draft (refine/plan) or pr (implement)'
+        description: 'Output type: draft (refine/plan) or pr (implement). Empty = phase-based default.'
         required: false
         type: string
-        default: "draft"
+        default: ""
       human_review_mechanism:
-        description: 'Human review mechanism: issue_checkbox or pr_review'
+        description: 'Human review mechanism: issue_checkbox or pr_review. Empty = phase-based default.'
         required: false
         type: string
-        default: "issue_checkbox"
+        default: ""
       max_review_cycles:
         description: 'Maximum review cycles before escalation'
         required: false
