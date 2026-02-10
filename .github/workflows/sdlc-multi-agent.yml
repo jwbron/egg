@@ -149,107 +149,107 @@ jobs:
 
           # Use Python to determine next dispatch based on contract state
           python3 << 'PYTHON_SCRIPT'
-import json
-import os
-import sys
+          import json
+          import os
+          import sys
 
-contract_path = os.environ['CONTRACT_PATH']
+          contract_path = os.environ['CONTRACT_PATH']
 
-with open(contract_path) as f:
-    contract = json.load(f)
+          with open(contract_path) as f:
+              contract = json.load(f)
 
-agent_executions = contract.get('agent_executions', [])
+          agent_executions = contract.get('agent_executions', [])
 
-if not agent_executions:
-    # No agent executions - initialize with coder
-    print("agents=coder", file=open(os.environ['GITHUB_OUTPUT'], 'a'))
-    print("wave=1", file=open(os.environ['GITHUB_OUTPUT'], 'a'))
-    print("parallel=false", file=open(os.environ['GITHUB_OUTPUT'], 'a'))
-    print("complete=false", file=open(os.environ['GITHUB_OUTPUT'], 'a'))
-    print("failed=false", file=open(os.environ['GITHUB_OUTPUT'], 'a'))
-    sys.exit(0)
+          if not agent_executions:
+              # No agent executions - initialize with coder
+              print("agents=coder", file=open(os.environ['GITHUB_OUTPUT'], 'a'))
+              print("wave=1", file=open(os.environ['GITHUB_OUTPUT'], 'a'))
+              print("parallel=false", file=open(os.environ['GITHUB_OUTPUT'], 'a'))
+              print("complete=false", file=open(os.environ['GITHUB_OUTPUT'], 'a'))
+              print("failed=false", file=open(os.environ['GITHUB_OUTPUT'], 'a'))
+              sys.exit(0)
 
-# Categorize executions
-pending = []
-running = []
-complete = []
-failed = []
+          # Categorize executions
+          pending = []
+          running = []
+          complete = []
+          failed = []
 
-for ex in agent_executions:
-    role = ex.get('role')
-    status = ex.get('status', 'pending')
-    if status == 'pending':
-        pending.append(role)
-    elif status == 'running':
-        running.append(role)
-    elif status == 'complete':
-        complete.append(role)
-    elif status == 'failed':
-        failed.append(role)
+          for ex in agent_executions:
+              role = ex.get('role')
+              status = ex.get('status', 'pending')
+              if status == 'pending':
+                  pending.append(role)
+              elif status == 'running':
+                  running.append(role)
+              elif status == 'complete':
+                  complete.append(role)
+              elif status == 'failed':
+                  failed.append(role)
 
-output = open(os.environ['GITHUB_OUTPUT'], 'a')
+          output = open(os.environ['GITHUB_OUTPUT'], 'a')
 
-if failed:
-    print(f"agents=", file=output)
-    print(f"wave=0", file=output)
-    print(f"parallel=false", file=output)
-    print(f"complete=false", file=output)
-    print(f"failed=true", file=output)
-    print(f"::error::Agents failed: {', '.join(failed)}")
-    sys.exit(0)
+          if failed:
+              print(f"agents=", file=output)
+              print(f"wave=0", file=output)
+              print(f"parallel=false", file=output)
+              print(f"complete=false", file=output)
+              print(f"failed=true", file=output)
+              print(f"::error::Agents failed: {', '.join(failed)}")
+              sys.exit(0)
 
-if not pending and not running:
-    print(f"agents=", file=output)
-    print(f"wave=0", file=output)
-    print(f"parallel=false", file=output)
-    print(f"complete=true", file=output)
-    print(f"failed=false", file=output)
-    print("All agents complete")
-    sys.exit(0)
+          if not pending and not running:
+              print(f"agents=", file=output)
+              print(f"wave=0", file=output)
+              print(f"parallel=false", file=output)
+              print(f"complete=true", file=output)
+              print(f"failed=false", file=output)
+              print("All agents complete")
+              sys.exit(0)
 
-if running:
-    print(f"agents=", file=output)
-    print(f"wave=0", file=output)
-    print(f"parallel=false", file=output)
-    print(f"complete=false", file=output)
-    print(f"failed=false", file=output)
-    print(f"::warning::Waiting for running agents: {', '.join(running)}")
-    sys.exit(0)
+          if running:
+              print(f"agents=", file=output)
+              print(f"wave=0", file=output)
+              print(f"parallel=false", file=output)
+              print(f"complete=false", file=output)
+              print(f"failed=false", file=output)
+              print(f"::warning::Waiting for running agents: {', '.join(running)}")
+              sys.exit(0)
 
-# Determine which pending agents can run based on dependencies
-# Dependencies: tester/documenter depend on coder, integrator depends on coder+tester
-runnable = []
-for role in pending:
-    if role == 'coder':
-        runnable.append(role)
-    elif role in ('tester', 'documenter'):
-        if 'coder' in complete:
-            runnable.append(role)
-    elif role == 'integrator':
-        if 'coder' in complete and 'tester' in complete:
-            runnable.append(role)
+          # Determine which pending agents can run based on dependencies
+          # Dependencies: tester/documenter depend on coder, integrator depends on coder+tester
+          runnable = []
+          for role in pending:
+              if role == 'coder':
+                  runnable.append(role)
+              elif role in ('tester', 'documenter'):
+                  if 'coder' in complete:
+                      runnable.append(role)
+              elif role == 'integrator':
+                  if 'coder' in complete and 'tester' in complete:
+                      runnable.append(role)
 
-if runnable:
-    # Determine wave number
-    wave = 1
-    if 'coder' in complete:
-        wave = 2
-    if 'tester' in complete and 'documenter' in complete:
-        wave = 3
+          if runnable:
+              # Determine wave number
+              wave = 1
+              if 'coder' in complete:
+                  wave = 2
+              if 'tester' in complete and 'documenter' in complete:
+                  wave = 3
 
-    print(f"agents={','.join(runnable)}", file=output)
-    print(f"wave={wave}", file=output)
-    print(f"parallel={'true' if len(runnable) > 1 else 'false'}", file=output)
-    print(f"complete=false", file=output)
-    print(f"failed=false", file=output)
-else:
-    print(f"agents=", file=output)
-    print(f"wave=0", file=output)
-    print(f"parallel=false", file=output)
-    print(f"complete=false", file=output)
-    print(f"failed=false", file=output)
-    print(f"::warning::Pending agents blocked by dependencies")
-PYTHON_SCRIPT
+              print(f"agents={','.join(runnable)}", file=output)
+              print(f"wave={wave}", file=output)
+              print(f"parallel={'true' if len(runnable) > 1 else 'false'}", file=output)
+              print(f"complete=false", file=output)
+              print(f"failed=false", file=output)
+          else:
+              print(f"agents=", file=output)
+              print(f"wave=0", file=output)
+              print(f"parallel=false", file=output)
+              print(f"complete=false", file=output)
+              print(f"failed=false", file=output)
+              print(f"::warning::Pending agents blocked by dependencies")
+          PYTHON_SCRIPT
 
       - name: Debug dispatch decision
         run: |
