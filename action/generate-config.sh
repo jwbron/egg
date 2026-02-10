@@ -17,7 +17,7 @@
 #   INPUT_BOT_APP_ID             — GitHub App ID for bot identity
 #   INPUT_BOT_APP_PRIVATE_KEY    — GitHub App private key PEM content
 #   INPUT_BOT_APP_INSTALLATION_ID — GitHub App installation ID
-#   INPUT_BOT_USERNAME           — Bot username (default: "james-in-a-box")
+#   INPUT_BOT_USERNAME           — Bot username (REQUIRED for bot mode)
 #
 # Outputs:
 #   EGG_CONFIG_DIR — path to the generated config directory (written to GITHUB_OUTPUT)
@@ -33,7 +33,7 @@ set -euo pipefail
 : "${INPUT_ANTHROPIC_OAUTH_TOKEN:?anthropic-oauth-token input is required}"
 : "${INPUT_GITHUB_TOKEN:?github-token input is required}"
 
-BOT_USERNAME="${INPUT_BOT_USERNAME:-james-in-a-box}"
+BOT_USERNAME="${INPUT_BOT_USERNAME:-}"
 RUN_ID="${GITHUB_RUN_ID:-$$}"
 
 # ---------------------------------------------------------------------------
@@ -108,8 +108,8 @@ fi
 # Add bot identity config
 # GATEWAY_BOT_NAME = GitHub identity (for PR author checks)
 # GATEWAY_BOT_BRANCH_PREFIX = branch namespace (for push ownership checks)
-# These are independent: bot may be "james-in-a-box" but branches are "james-in-a-box/*"
-BOT_BRANCH_PREFIX="${INPUT_BOT_BRANCH_PREFIX:-james-in-a-box}"
+# These are independent: bot name and branch prefix can differ
+BOT_BRANCH_PREFIX="${INPUT_BOT_BRANCH_PREFIX:-}"
 echo "GATEWAY_BOT_NAME=${BOT_USERNAME}" >> "$CONFIG_DIR/secrets.env"
 echo "GATEWAY_BOT_BRANCH_PREFIX=${BOT_BRANCH_PREFIX}" >> "$CONFIG_DIR/secrets.env"
 

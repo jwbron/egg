@@ -68,7 +68,7 @@ jobs:
       pr_number: ${{ fromJson(needs.should-run.outputs.pr_number) }}
       failed_workflow: ${{ needs.should-run.outputs.failed_workflow }}
       failed_run_id: ${{ needs.should-run.outputs.failed_run_id }}
-      bot_username: ${{ vars.BOT_USERNAME || 'james-in-a-box' }}
+      bot_username: ${{ vars.BOT_USERNAME }}
       # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
       timeout: "20"
     secrets:

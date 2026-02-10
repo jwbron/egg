@@ -228,9 +228,9 @@ class TestBranchNameInjection:
     @pytest.mark.parametrize(
         "branch",
         [
-            "egg-$(whoami)",  # Injection attempt with valid prefix
-            "egg/`id`",  # Injection attempt with valid prefix
-            "egg-; rm -rf /",
+            "james-in-a-box-$(whoami)",  # Injection attempt with valid prefix
+            "james-in-a-box/`id`",  # Injection attempt with valid prefix
+            "james-in-a-box-; rm -rf /",
         ],
     )
     def test_injection_with_valid_prefix(self, policy_engine, branch):
@@ -241,7 +241,7 @@ class TestBranchNameInjection:
         """
         result = policy_engine.check_branch_ownership("owner/repo", branch)
 
-        # Branch with egg- prefix should be allowed (prefix match is purely string-based)
+        # Branch with bot prefix should be allowed (prefix match is purely string-based)
         # This is correct behavior - we're testing that the injection doesn't execute
         assert result.allowed  # Prefix is valid
         assert "bot-prefixed" in result.reason

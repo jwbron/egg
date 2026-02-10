@@ -35,7 +35,7 @@ class GitHubConfig(BaseConfig):
     token: str = ""
     readonly_token: str = ""
     user_mode_token: str = ""
-    username: str = "james-in-a-box"
+    username: str = ""
     token_expires_at: datetime | None = None
 
     # Token source tracking (for debugging)
@@ -224,4 +224,4 @@ def _get_github_username() -> str:
     """Get GitHub username from repositories.yaml."""
     config_file = Path.home() / ".config" / "egg" / "repositories.yaml"
     config = load_yaml_file(config_file)
-    return str(config.get("github_username", "james-in-a-box"))
+    return str(config.get("github_username", ""))

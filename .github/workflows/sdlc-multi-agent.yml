@@ -47,7 +47,6 @@ on:
         description: 'GitHub username of the bot'
         required: false
         type: string
-        default: "james-in-a-box"
       timeout:
         description: 'Timeout in minutes for agent execution'
         required: false
@@ -100,7 +99,7 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
-      BOT_USERNAME: ${{ inputs.bot_username || 'james-in-a-box' }}
+      BOT_USERNAME: ${{ inputs.bot_username }}
       AGENT_ROLE: ${{ inputs.agent_role || 'auto' }}
 
     steps:
@@ -299,7 +298,7 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
-      BOT_USERNAME: ${{ inputs.bot_username || 'james-in-a-box' }}
+      BOT_USERNAME: ${{ inputs.bot_username }}
       TIMEOUT: ${{ inputs.timeout || '30' }}
 
     steps:
@@ -450,7 +449,7 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
-      BOT_USERNAME: ${{ inputs.bot_username || 'james-in-a-box' }}
+      BOT_USERNAME: ${{ inputs.bot_username }}
       TIMEOUT: ${{ inputs.timeout || '30' }}
 
     steps:
@@ -582,7 +581,7 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
-      BOT_USERNAME: ${{ inputs.bot_username || 'james-in-a-box' }}
+      BOT_USERNAME: ${{ inputs.bot_username }}
       TIMEOUT: ${{ inputs.timeout || '30' }}
 
     steps:
@@ -712,7 +711,7 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
-      BOT_USERNAME: ${{ inputs.bot_username || 'james-in-a-box' }}
+      BOT_USERNAME: ${{ inputs.bot_username }}
       TIMEOUT: ${{ inputs.timeout || '30' }}
 
     steps:

@@ -28,7 +28,6 @@ on:
         description: 'GitHub username of the bot (for comment filtering and authorship checks)'
         required: false
         type: string
-        default: "james-in-a-box"
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
@@ -80,7 +79,7 @@ jobs:
         id: resolve
         run: |
           # Use inputs if called as reusable workflow, otherwise use defaults
-          echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}" >> "$GITHUB_OUTPUT"
+          echo "bot_username=${{ inputs.bot_username }}" >> "$GITHUB_OUTPUT"
           echo "max_feedback_rounds=${{ inputs.max_feedback_rounds || '3' }}" >> "$GITHUB_OUTPUT"
 
           # Determine PR number based on event type

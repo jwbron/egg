@@ -246,7 +246,7 @@ class TestFormatAuditLog:
 
         assert lines[0] == "Audit Log:"
         assert "[2025-01-15 10:30:00]" in lines[1]
-        assert "implementer:egg" in lines[1]
+        assert "implementer:james-in-a-box" in lines[1]
         assert "update" in lines[1]
         assert "phases.0.tasks.0.notes" in lines[1]
         assert "(old -> new)" in lines[1]
@@ -343,7 +343,7 @@ class TestFormatAuditLog:
         assert len(lines) == 4  # header + 3 entries
         assert lines[0] == "Audit Log:"
         assert "system:system" in lines[1]
-        assert "implementer:egg" in lines[2]
+        assert "implementer:james-in-a-box" in lines[2]
         assert "reviewer:reviewer" in lines[3]
 
     def test_limit_shows_last_n_entries(self):

@@ -24,7 +24,6 @@ on:
         description: 'GitHub username of the bot (for self-trigger prevention and comment filtering)'
         required: false
         type: string
-        default: "james-in-a-box"
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
@@ -36,10 +35,9 @@ on:
         type: string
         default: "jwbron"
       mention_patterns:
-        description: 'Comma-separated list of mention patterns to trigger on (e.g., "@mybot")'
+        description: 'Comma-separated list of mention patterns to trigger on (e.g., "@my-bot")'
         required: false
         type: string
-        default: "@james-in-a-box"
       prompt_script:
         description: 'Path to prompt builder script (relative to repo root)'
         required: false
@@ -78,9 +76,9 @@ jobs:
         run: |
           # Use inputs if called as reusable workflow, otherwise use defaults
           {
-            echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}"
+            echo "bot_username=${{ inputs.bot_username }}"
             echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
-            echo "mention_patterns=${{ inputs.mention_patterns || '@james-in-a-box' }}"
+            echo "mention_patterns=${{ inputs.mention_patterns }}"
           } >> "$GITHUB_OUTPUT"
 
           # Determine issue/PR number based on event type

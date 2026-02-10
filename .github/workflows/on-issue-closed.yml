@@ -21,10 +21,9 @@ on:
         required: true
         type: number
       branch_prefix:
-        description: 'Prefix for issue branches (e.g., "james-in-a-box" creates "james-in-a-box/issue-N")'
+        description: 'Prefix for issue branches (e.g., "my-bot" creates "my-bot/issue-N")'
         required: false
         type: string
-        default: "james-in-a-box"
       sdlc_label:
         description: 'Label that identifies SDLC issues'
         required: false
@@ -60,7 +59,7 @@ jobs:
       - name: Resolve inputs with defaults
         id: resolve
         run: |
-          echo "branch_prefix=${{ inputs.branch_prefix || 'james-in-a-box' }}" >> "$GITHUB_OUTPUT"
+          echo "branch_prefix=${{ inputs.branch_prefix }}" >> "$GITHUB_OUTPUT"
           echo "sdlc_label=${{ inputs.sdlc_label || 'egg-sdlc' }}" >> "$GITHUB_OUTPUT"
 
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then

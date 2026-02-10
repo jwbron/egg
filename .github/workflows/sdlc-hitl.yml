@@ -20,17 +20,15 @@ on:
         description: 'GitHub username of the bot (for git identity and comment filtering)'
         required: false
         type: string
-        default: "james-in-a-box"
       authorized_users:
         description: 'Comma-separated list of authorized GitHub usernames for HITL decisions'
         required: false
         type: string
         default: "jwbron"
       branch_prefix:
-        description: 'Prefix for issue branches (e.g., "james-in-a-box" creates "james-in-a-box/issue-N")'
+        description: 'Prefix for issue branches (e.g., "my-bot" creates "my-bot/issue-N")'
         required: false
         type: string
-        default: "james-in-a-box"
     secrets:
       BOT_APP_ID:
         required: true
@@ -63,9 +61,9 @@ jobs:
         id: resolve
         run: |
           {
-            echo "bot_username=${{ inputs.bot_username || 'james-in-a-box' }}"
+            echo "bot_username=${{ inputs.bot_username }}"
             echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
-            echo "branch_prefix=${{ inputs.branch_prefix || 'james-in-a-box' }}"
+            echo "branch_prefix=${{ inputs.branch_prefix }}"
           } >> "$GITHUB_OUTPUT"
 
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then

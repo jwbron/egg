@@ -187,7 +187,7 @@ egg --setup --full               # Same as ./setup.py --full
 When run with default mode, setup.py prompts for:
 
 1. **GitHub username** (for repo configuration)
-2. **Bot name** (defaults to "james-in-a-box")
+2. **Bot name** (required — must match your GitHub App name)
 3. **Slack tokens** (required for core functionality)
 4. **GitHub App** or PAT configuration
 5. **Writable/readable repositories**

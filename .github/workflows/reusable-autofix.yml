@@ -18,10 +18,9 @@ on:
         type: string
         default: ""
       bot_username:
-        description: 'GitHub username of the bot (for comment filtering)'
-        required: false
+        description: 'GitHub username of the bot (e.g., my-bot)'
+        required: true
         type: string
-        default: "james-in-a-box"
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
@@ -63,10 +62,9 @@ on:
         type: string
         default: ""
       bot_username:
-        description: 'GitHub username of the bot (for comment filtering)'
-        required: false
+        description: 'GitHub username of the bot (e.g., my-bot)'
+        required: true
         type: string
-        default: "james-in-a-box"
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
