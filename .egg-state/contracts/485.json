@@ -10,7 +10,7 @@
   "phases": [],
   "decisions": [],
   "circuit_breaker": {
-    "total_cycles": 1,
+    "total_cycles": 2,
     "max_total_cycles": 10,
     "status": "closed"
   },
@@ -35,6 +35,16 @@
       "old_value": "refine",
       "new_value": "plan",
       "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-10T22:08:56Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
     }
   ],
   "phase_configs": {
@@ -54,6 +64,12 @@
   "refine_review_cycles": 1,
   "refine_review_feedback": "",
   "refine_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "plan_reviewer_verdicts": {
     "unified": "missing",
     "agent-design": "missing"
   }
