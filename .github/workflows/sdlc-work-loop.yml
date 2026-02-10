@@ -661,13 +661,15 @@ jobs:
       )
     runs-on: ubuntu-latest
     outputs:
-      fixed: ${{ steps.fix.outputs.fixed }}
+      fixed: ${{ steps.fix.outputs.fixed || steps.limit-exceeded.outputs.fixed || 'false' }}
+      limit_exceeded: ${{ steps.check-limit.outputs.exceeded }}
 
     env:
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
       EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       PR_NUMBER: ${{ needs.resolve-inputs.outputs.pr_number }}
+      BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
 
     steps:
       - name: Generate bot token
@@ -677,8 +679,47 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-      - name: Trigger autofix workflow
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Configure git identity
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
+
+      - name: Check autofix attempt limit
+        id: check-limit
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            CURRENT_ATTEMPTS=$(jq -r '.autofix_attempts // 0' "$CONTRACT_PATH")
+            MAX_ATTEMPTS=$(jq -r '.max_autofix_attempts // 3' "$CONTRACT_PATH")
+            echo "current_attempts=${CURRENT_ATTEMPTS}" >> "$GITHUB_OUTPUT"
+            echo "max_attempts=${MAX_ATTEMPTS}" >> "$GITHUB_OUTPUT"
+
+            if [[ "$CURRENT_ATTEMPTS" -ge "$MAX_ATTEMPTS" ]]; then
+              echo "exceeded=true" >> "$GITHUB_OUTPUT"
+              echo "::warning::Autofix attempt limit exceeded ($CURRENT_ATTEMPTS >= $MAX_ATTEMPTS)"
+            else
+              echo "exceeded=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "current_attempts=0" >> "$GITHUB_OUTPUT"
+            echo "max_attempts=3" >> "$GITHUB_OUTPUT"
+            echo "exceeded=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Trigger and wait for autofix workflow
         id: fix
+        if: steps.check-limit.outputs.exceeded != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
@@ -691,44 +732,167 @@ jobs:
             echo "Detected PR number from branch: ${ACTUAL_PR_NUMBER}"
           fi
 
-          if [[ "${ACTUAL_PR_NUMBER}" != "0" && -n "${ACTUAL_PR_NUMBER}" ]]; then
-            echo "Triggering autofix for PR #${ACTUAL_PR_NUMBER}"
-
-            # Determine which checks failed (collect all, not just first)
-            # Use outputs when available, fall back to workflow result
-            FAILED_CHECKS=""
-
-            LINT_PASSED="${{ needs.check-lint.outputs.passed }}"
-            LINT_RESULT="${{ needs.check-lint.result }}"
-            if [[ "$LINT_PASSED" == "false" || ("$LINT_RESULT" == "failure" && "$LINT_PASSED" != "true") ]]; then
-              FAILED_CHECKS="lint"
-            fi
-
-            TEST_PASSED="${{ needs.check-test.outputs.passed }}"
-            TEST_RESULT="${{ needs.check-test.result }}"
-            if [[ "$TEST_PASSED" == "false" || ("$TEST_RESULT" == "failure" && "$TEST_PASSED" != "true") ]]; then
-              FAILED_CHECKS="${FAILED_CHECKS:+$FAILED_CHECKS,}test"
-            fi
-
-            INTEGRATION_PASSED="${{ needs.check-integration.outputs.passed }}"
-            INTEGRATION_RESULT="${{ needs.check-integration.result }}"
-            if [[ "$INTEGRATION_PASSED" == "false" || ("$INTEGRATION_RESULT" == "failure" && "$INTEGRATION_PASSED" != "true") ]]; then
-              FAILED_CHECKS="${FAILED_CHECKS:+$FAILED_CHECKS,}integration"
-            fi
-
-            echo "Failed checks: ${FAILED_CHECKS}"
-
-            # Trigger the reusable autofix workflow
-            gh workflow run reusable-autofix.yml \
-              --repo "${{ github.repository }}" \
-              --field pr_number="${ACTUAL_PR_NUMBER}" \
-              --field failed_workflow="${FAILED_CHECKS}" \
-              || echo "::warning::Failed to trigger autofix workflow"
-
-            echo "fixed=pending" >> "$GITHUB_OUTPUT"
-          else
+          if [[ "${ACTUAL_PR_NUMBER}" == "0" || -z "${ACTUAL_PR_NUMBER}" ]]; then
             echo "::warning::No PR number available for autofix (branch: ${BRANCH_NAME})"
             echo "fixed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Triggering autofix for PR #${ACTUAL_PR_NUMBER}"
+
+          # Determine which checks failed (collect all, not just first)
+          FAILED_CHECKS=""
+
+          LINT_PASSED="${{ needs.check-lint.outputs.passed }}"
+          LINT_RESULT="${{ needs.check-lint.result }}"
+          if [[ "$LINT_PASSED" == "false" || ("$LINT_RESULT" == "failure" && "$LINT_PASSED" != "true") ]]; then
+            FAILED_CHECKS="lint"
+          fi
+
+          TEST_PASSED="${{ needs.check-test.outputs.passed }}"
+          TEST_RESULT="${{ needs.check-test.result }}"
+          if [[ "$TEST_PASSED" == "false" || ("$TEST_RESULT" == "failure" && "$TEST_PASSED" != "true") ]]; then
+            FAILED_CHECKS="${FAILED_CHECKS:+$FAILED_CHECKS,}test"
+          fi
+
+          INTEGRATION_PASSED="${{ needs.check-integration.outputs.passed }}"
+          INTEGRATION_RESULT="${{ needs.check-integration.result }}"
+          if [[ "$INTEGRATION_PASSED" == "false" || ("$INTEGRATION_RESULT" == "failure" && "$INTEGRATION_PASSED" != "true") ]]; then
+            FAILED_CHECKS="${FAILED_CHECKS:+$FAILED_CHECKS,}integration"
+          fi
+
+          echo "Failed checks: ${FAILED_CHECKS}"
+
+          # Trigger the reusable autofix workflow
+          if ! gh workflow run reusable-autofix.yml \
+            --repo "${{ github.repository }}" \
+            --field pr_number="${ACTUAL_PR_NUMBER}" \
+            --field failed_workflow="${FAILED_CHECKS}" \
+            --field bot_username="${EGG_BOT_USERNAME}" \
+            --field branch_prefix="${BRANCH_PREFIX}"; then
+            echo "::warning::Failed to trigger autofix workflow"
+            echo "fixed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Waiting for autofix workflow to appear..."
+          sleep 5
+
+          # Find the triggered workflow run
+          RUN_ID=""
+          for attempt in 1 2 3 4 5 6; do
+            RUN_ID=$(gh run list \
+              --repo "${{ github.repository }}" \
+              --workflow reusable-autofix.yml \
+              --limit 5 \
+              --json databaseId,status,createdAt,headBranch \
+              --jq "[.[] | select(.headBranch == \"${BRANCH_NAME}\" or .headBranch == \"main\")] | sort_by(.createdAt) | reverse | .[0].databaseId // empty" 2>/dev/null || echo "")
+            if [[ -n "$RUN_ID" ]]; then
+              echo "Found autofix workflow run: ${RUN_ID}"
+              break
+            fi
+            echo "::warning::Attempt ${attempt}: workflow run not found yet, retrying..."
+            sleep 5
+          done
+
+          if [[ -z "$RUN_ID" ]]; then
+            echo "::warning::Could not find triggered autofix workflow run after 30 seconds"
+            echo "fixed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Wait for the workflow to complete (30 minute timeout)
+          echo "Watching autofix workflow run ${RUN_ID}..."
+          WATCH_RESULT=0
+          timeout 1800 gh run watch "$RUN_ID" --repo "${{ github.repository }}" --exit-status || WATCH_RESULT=$?
+
+          if [[ "$WATCH_RESULT" -eq 0 ]]; then
+            echo "Autofix workflow completed successfully"
+            echo "fixed=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$WATCH_RESULT" -eq 124 ]]; then
+            echo "::warning::Autofix workflow timed out after 30 minutes"
+            echo "fixed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Autofix workflow failed or was cancelled (exit code: ${WATCH_RESULT})"
+            echo "fixed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set fixed=false when limit exceeded
+        id: limit-exceeded
+        if: steps.check-limit.outputs.exceeded == 'true'
+        run: |
+          echo "Autofix limit exceeded, skipping autofix"
+          echo "fixed=false" >> "$GITHUB_OUTPUT"
+
+      - name: Update autofix attempts counter
+        if: steps.check-limit.outputs.exceeded != 'true'
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          # Pull latest to get any concurrent updates
+          git fetch origin "${BRANCH_NAME}"
+          git reset --hard "origin/${BRANCH_NAME}"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            CURRENT_ATTEMPTS=$(jq -r '.autofix_attempts // 0' "$CONTRACT_PATH")
+            NEW_ATTEMPTS=$((CURRENT_ATTEMPTS + 1))
+            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            FIXED_STATUS="${{ steps.fix.outputs.fixed || 'false' }}"
+
+            echo "Incrementing autofix_attempts from $CURRENT_ATTEMPTS to $NEW_ATTEMPTS (fixed=$FIXED_STATUS)"
+
+            jq --arg ts "$TIMESTAMP" \
+               --arg old "$CURRENT_ATTEMPTS" \
+               --arg new "$NEW_ATTEMPTS" \
+               --arg fixed "$FIXED_STATUS" '
+              .autofix_attempts = ($new | tonumber) |
+              .audit_log += [{
+                "timestamp": $ts,
+                "actor": "system",
+                "role": "system",
+                "action": "update",
+                "field_path": "autofix_attempts",
+                "old_value": ($old | tonumber),
+                "new_value": ($new | tonumber),
+                "reason": ("Autofix attempt completed with result: " + $fixed)
+              }]
+            ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+
+            git add "$CONTRACT_PATH"
+            git commit -m "Update autofix attempts for issue #${ISSUE_NUMBER}" || true
+
+            # Push with retry
+            for i in 1 2 3; do
+              if git push origin "${BRANCH_NAME}"; then
+                echo "Push succeeded"
+                break
+              fi
+              echo "::warning::Push failed (attempt $i), retrying..."
+              git fetch origin "${BRANCH_NAME}"
+              git reset --hard "origin/${BRANCH_NAME}"
+              # Re-apply the update
+              CURRENT_ATTEMPTS=$(jq -r '.autofix_attempts // 0' "$CONTRACT_PATH")
+              NEW_ATTEMPTS=$((CURRENT_ATTEMPTS + 1))
+              jq --arg ts "$TIMESTAMP" \
+                 --arg old "$CURRENT_ATTEMPTS" \
+                 --arg new "$NEW_ATTEMPTS" \
+                 --arg fixed "$FIXED_STATUS" '
+                .autofix_attempts = ($new | tonumber) |
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "autofix_attempts",
+                  "old_value": ($old | tonumber),
+                  "new_value": ($new | tonumber),
+                  "reason": ("Autofix attempt completed with result: " + $fixed)
+                }]
+              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              git add "$CONTRACT_PATH"
+              git commit -m "Update autofix attempts for issue #${ISSUE_NUMBER}" || true
+            done
           fi
 
   # ============================================================
