@@ -100,6 +100,11 @@ on:
         required: false
         type: number
         default: 0
+      mode:
+        description: 'Execution mode: full (work+checks+review) or checks-only (skip work, run checks only)'
+        required: false
+        type: string
+        default: "full"
     secrets:
       BOT_APP_ID:
         required: true
@@ -145,6 +150,7 @@ jobs:
       branch_prefix: ${{ steps.resolve.outputs.branch_prefix }}
       workflow_owner: ${{ steps.resolve.outputs.workflow_owner }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
+      mode: ${{ steps.resolve.outputs.mode }}
     steps:
       - name: Resolve inputs with defaults
         id: resolve
@@ -254,10 +260,13 @@ jobs:
             echo "branch_prefix=${{ inputs.branch_prefix }}"
             echo "workflow_owner=${{ inputs.workflow_owner || '' }}"
             echo "pr_number=${{ inputs.pr_number || '0' }}"
+            echo "mode=${{ inputs.mode || 'full' }}"
           } >> "$GITHUB_OUTPUT"
         env:
           DEFAULT_OUTPUT_TYPE: ${{ inputs.phase == 'implement' && 'pr' || 'draft' }}
           DEFAULT_HUMAN_REVIEW: ${{ inputs.phase == 'implement' && 'pr_review' || 'issue_checkbox' }}
+
+      # Note: autofix_attempts is reset in the work job after checkout for manual triggers
 
   # ============================================================
   # Work: Execute the primary work for this phase
@@ -265,6 +274,8 @@ jobs:
   work:
     name: Execute work (${{ needs.resolve-inputs.outputs.phase }})
     needs: resolve-inputs
+    # Skip work step when mode is checks-only (re-dispatch after autofix)
+    if: needs.resolve-inputs.outputs.mode != 'checks-only'
     runs-on: ubuntu-latest
     outputs:
       exit_code: ${{ steps.egg.outputs.exit-code }}
@@ -323,6 +334,40 @@ jobs:
         run: |
           git config user.name "${EGG_BOT_USERNAME}[bot]"
           git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
+
+      - name: Reset autofix attempts on manual trigger
+        if: github.event_name == 'workflow_dispatch' && env.PHASE == 'implement'
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            CURRENT_ATTEMPTS=$(jq -r '.autofix_attempts // 0' "$CONTRACT_PATH")
+            if [[ "$CURRENT_ATTEMPTS" -gt 0 ]]; then
+              echo "Resetting autofix_attempts from $CURRENT_ATTEMPTS to 0 for manual re-trigger"
+              TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+              jq --arg ts "$TIMESTAMP" --arg old "$CURRENT_ATTEMPTS" '
+                .autofix_attempts = 0 |
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "autofix_attempts",
+                  "old_value": ($old | tonumber),
+                  "new_value": 0,
+                  "reason": "Reset on manual workflow dispatch"
+                }]
+              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+
+              git add "$CONTRACT_PATH"
+              git commit -m "Reset autofix attempts for issue #${ISSUE_NUMBER}" || true
+              git push origin "${BRANCH_NAME}" || {
+                git pull --rebase origin "${BRANCH_NAME}"
+                git push origin "${BRANCH_NAME}"
+              }
+            fi
+          fi
 
       - name: Populate contract tasks (implement phase only)
         if: env.PHASE == 'implement'
@@ -490,7 +535,7 @@ jobs:
     needs: [resolve-inputs, work]
     if: >-
       always() &&
-      needs.work.result == 'success' &&
+      (needs.work.result == 'success' || needs.work.result == 'skipped') &&
       needs.resolve-inputs.outputs.phase == 'implement'
     runs-on: ubuntu-latest
     outputs:
@@ -550,7 +595,7 @@ jobs:
     needs: [resolve-inputs, work, check-merge-conflict]
     if: >-
       always() &&
-      needs.work.result == 'success' &&
+      (needs.work.result == 'success' || needs.work.result == 'skipped') &&
       needs.resolve-inputs.outputs.phase == 'implement' &&
       (needs.check-merge-conflict.result == 'skipped' ||
        (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
@@ -565,7 +610,7 @@ jobs:
     needs: [resolve-inputs, work, check-merge-conflict]
     if: >-
       always() &&
-      needs.work.result == 'success' &&
+      (needs.work.result == 'success' || needs.work.result == 'skipped') &&
       needs.resolve-inputs.outputs.phase == 'implement' &&
       (needs.check-merge-conflict.result == 'skipped' ||
        (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
@@ -580,7 +625,7 @@ jobs:
     needs: [resolve-inputs, work, check-merge-conflict]
     if: >-
       always() &&
-      needs.work.result == 'success' &&
+      (needs.work.result == 'success' || needs.work.result == 'skipped') &&
       needs.resolve-inputs.outputs.phase == 'implement' &&
       (needs.check-merge-conflict.result == 'skipped' ||
        (needs.check-merge-conflict.result == 'success' && needs.check-merge-conflict.outputs.has_conflicts == 'false'))
@@ -595,7 +640,7 @@ jobs:
     needs: [resolve-inputs, work, check-merge-conflict, check-lint, check-test, check-integration]
     if: >-
       always() &&
-      needs.work.result == 'success' &&
+      (needs.work.result == 'success' || needs.work.result == 'skipped') &&
       needs.resolve-inputs.outputs.phase == 'implement' &&
       (
         needs.check-lint.outputs.passed == 'false' ||
@@ -607,13 +652,15 @@ jobs:
       )
     runs-on: ubuntu-latest
     outputs:
-      fixed: ${{ steps.fix.outputs.fixed }}
+      fixed: ${{ steps.fix.outputs.fixed || steps.limit-exceeded.outputs.fixed || 'false' }}
+      limit_exceeded: ${{ steps.check-limit.outputs.exceeded }}
 
     env:
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
       EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
       PR_NUMBER: ${{ needs.resolve-inputs.outputs.pr_number }}
+      BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
 
     steps:
       - name: Generate bot token
@@ -623,8 +670,47 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-      - name: Trigger autofix workflow
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Configure git identity
+        env:
+          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+        run: |
+          git config user.name "${EGG_BOT_USERNAME}[bot]"
+          git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
+
+      - name: Check autofix attempt limit
+        id: check-limit
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            CURRENT_ATTEMPTS=$(jq -r '.autofix_attempts // 0' "$CONTRACT_PATH")
+            MAX_ATTEMPTS=$(jq -r '.max_autofix_attempts // 3' "$CONTRACT_PATH")
+            echo "current_attempts=${CURRENT_ATTEMPTS}" >> "$GITHUB_OUTPUT"
+            echo "max_attempts=${MAX_ATTEMPTS}" >> "$GITHUB_OUTPUT"
+
+            if [[ "$CURRENT_ATTEMPTS" -ge "$MAX_ATTEMPTS" ]]; then
+              echo "exceeded=true" >> "$GITHUB_OUTPUT"
+              echo "::warning::Autofix attempt limit exceeded ($CURRENT_ATTEMPTS >= $MAX_ATTEMPTS)"
+            else
+              echo "exceeded=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "current_attempts=0" >> "$GITHUB_OUTPUT"
+            echo "max_attempts=3" >> "$GITHUB_OUTPUT"
+            echo "exceeded=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Trigger and wait for autofix workflow
         id: fix
+        if: steps.check-limit.outputs.exceeded != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
@@ -637,44 +723,187 @@ jobs:
             echo "Detected PR number from branch: ${ACTUAL_PR_NUMBER}"
           fi
 
-          if [[ "${ACTUAL_PR_NUMBER}" != "0" && -n "${ACTUAL_PR_NUMBER}" ]]; then
-            echo "Triggering autofix for PR #${ACTUAL_PR_NUMBER}"
-
-            # Determine which checks failed (collect all, not just first)
-            # Use outputs when available, fall back to workflow result
-            FAILED_CHECKS=""
-
-            LINT_PASSED="${{ needs.check-lint.outputs.passed }}"
-            LINT_RESULT="${{ needs.check-lint.result }}"
-            if [[ "$LINT_PASSED" == "false" || ("$LINT_RESULT" == "failure" && "$LINT_PASSED" != "true") ]]; then
-              FAILED_CHECKS="lint"
-            fi
-
-            TEST_PASSED="${{ needs.check-test.outputs.passed }}"
-            TEST_RESULT="${{ needs.check-test.result }}"
-            if [[ "$TEST_PASSED" == "false" || ("$TEST_RESULT" == "failure" && "$TEST_PASSED" != "true") ]]; then
-              FAILED_CHECKS="${FAILED_CHECKS:+$FAILED_CHECKS,}test"
-            fi
-
-            INTEGRATION_PASSED="${{ needs.check-integration.outputs.passed }}"
-            INTEGRATION_RESULT="${{ needs.check-integration.result }}"
-            if [[ "$INTEGRATION_PASSED" == "false" || ("$INTEGRATION_RESULT" == "failure" && "$INTEGRATION_PASSED" != "true") ]]; then
-              FAILED_CHECKS="${FAILED_CHECKS:+$FAILED_CHECKS,}integration"
-            fi
-
-            echo "Failed checks: ${FAILED_CHECKS}"
-
-            # Trigger the reusable autofix workflow
-            gh workflow run reusable-autofix.yml \
-              --repo "${{ github.repository }}" \
-              --field pr_number="${ACTUAL_PR_NUMBER}" \
-              --field failed_workflow="${FAILED_CHECKS}" \
-              || echo "::warning::Failed to trigger autofix workflow"
-
-            echo "fixed=pending" >> "$GITHUB_OUTPUT"
-          else
+          if [[ "${ACTUAL_PR_NUMBER}" == "0" || -z "${ACTUAL_PR_NUMBER}" ]]; then
             echo "::warning::No PR number available for autofix (branch: ${BRANCH_NAME})"
             echo "fixed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Triggering autofix for PR #${ACTUAL_PR_NUMBER}"
+
+          # Determine which checks failed (collect all, not just first)
+          FAILED_CHECKS=""
+
+          LINT_PASSED="${{ needs.check-lint.outputs.passed }}"
+          LINT_RESULT="${{ needs.check-lint.result }}"
+          if [[ "$LINT_PASSED" == "false" || ("$LINT_RESULT" == "failure" && "$LINT_PASSED" != "true") ]]; then
+            FAILED_CHECKS="lint"
+          fi
+
+          TEST_PASSED="${{ needs.check-test.outputs.passed }}"
+          TEST_RESULT="${{ needs.check-test.result }}"
+          if [[ "$TEST_PASSED" == "false" || ("$TEST_RESULT" == "failure" && "$TEST_PASSED" != "true") ]]; then
+            FAILED_CHECKS="${FAILED_CHECKS:+$FAILED_CHECKS,}test"
+          fi
+
+          INTEGRATION_PASSED="${{ needs.check-integration.outputs.passed }}"
+          INTEGRATION_RESULT="${{ needs.check-integration.result }}"
+          if [[ "$INTEGRATION_PASSED" == "false" || ("$INTEGRATION_RESULT" == "failure" && "$INTEGRATION_PASSED" != "true") ]]; then
+            FAILED_CHECKS="${FAILED_CHECKS:+$FAILED_CHECKS,}integration"
+          fi
+
+          echo "Failed checks: ${FAILED_CHECKS}"
+
+          # Capture timestamp before dispatch to filter runs created after this point
+          DISPATCH_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          echo "Dispatch time: ${DISPATCH_TIME}"
+
+          # Trigger the reusable autofix workflow
+          # Note: branch_prefix is only available for workflow_call, not workflow_dispatch
+          if ! gh workflow run reusable-autofix.yml \
+            --repo "${{ github.repository }}" \
+            --field pr_number="${ACTUAL_PR_NUMBER}" \
+            --field failed_workflow="${FAILED_CHECKS}" \
+            --field bot_username="${EGG_BOT_USERNAME}"; then
+            echo "::warning::Failed to trigger autofix workflow"
+            echo "fixed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Waiting for autofix workflow to appear..."
+          sleep 5
+
+          # Find the triggered workflow run
+          # Filter by: branch name only (not main), status queued/in_progress, created after dispatch
+          RUN_ID=""
+          for attempt in 1 2 3 4 5 6; do
+            RUN_ID=$(gh run list \
+              --repo "${{ github.repository }}" \
+              --workflow reusable-autofix.yml \
+              --limit 10 \
+              --json databaseId,status,createdAt,headBranch \
+              --jq --arg branch "${BRANCH_NAME}" --arg dispatch_time "${DISPATCH_TIME}" '
+                [.[] | select(
+                  .headBranch == $branch and
+                  (.status == "queued" or .status == "in_progress" or .status == "completed") and
+                  .createdAt >= $dispatch_time
+                )] | sort_by(.createdAt) | reverse | .[0].databaseId // empty
+              ' 2>/dev/null || echo "")
+            if [[ -n "$RUN_ID" ]]; then
+              echo "Found autofix workflow run: ${RUN_ID}"
+              break
+            fi
+            echo "::warning::Attempt ${attempt}: workflow run not found yet, retrying..."
+            sleep 5
+          done
+
+          if [[ -z "$RUN_ID" ]]; then
+            echo "::warning::Could not find triggered autofix workflow run after 30 seconds"
+            echo "fixed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Wait for the workflow to complete (30 minute timeout)
+          echo "Watching autofix workflow run ${RUN_ID}..."
+          WATCH_RESULT=0
+          timeout 1800 gh run watch "$RUN_ID" --repo "${{ github.repository }}" --exit-status || WATCH_RESULT=$?
+
+          if [[ "$WATCH_RESULT" -eq 0 ]]; then
+            echo "Autofix workflow completed successfully"
+            echo "fixed=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$WATCH_RESULT" -eq 124 ]]; then
+            echo "::warning::Autofix workflow timed out after 30 minutes"
+            echo "fixed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Autofix workflow failed or was cancelled (exit code: ${WATCH_RESULT})"
+            echo "fixed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set fixed=false when limit exceeded
+        id: limit-exceeded
+        if: steps.check-limit.outputs.exceeded == 'true'
+        run: |
+          echo "Autofix limit exceeded, skipping autofix"
+          echo "fixed=false" >> "$GITHUB_OUTPUT"
+
+      - name: Update autofix attempts counter
+        if: steps.check-limit.outputs.exceeded != 'true'
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          # Pull latest to get any concurrent updates
+          git fetch origin "${BRANCH_NAME}"
+          git reset --hard "origin/${BRANCH_NAME}"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            CURRENT_ATTEMPTS=$(jq -r '.autofix_attempts // 0' "$CONTRACT_PATH")
+            NEW_ATTEMPTS=$((CURRENT_ATTEMPTS + 1))
+            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            FIXED_STATUS="${{ steps.fix.outputs.fixed || 'false' }}"
+
+            echo "Incrementing autofix_attempts from $CURRENT_ATTEMPTS to $NEW_ATTEMPTS (fixed=$FIXED_STATUS)"
+
+            jq --arg ts "$TIMESTAMP" \
+               --arg old "$CURRENT_ATTEMPTS" \
+               --arg new "$NEW_ATTEMPTS" \
+               --arg fixed "$FIXED_STATUS" '
+              .autofix_attempts = ($new | tonumber) |
+              .audit_log += [{
+                "timestamp": $ts,
+                "actor": "system",
+                "role": "system",
+                "action": "update",
+                "field_path": "autofix_attempts",
+                "old_value": ($old | tonumber),
+                "new_value": ($new | tonumber),
+                "reason": ("Autofix attempt completed with result: " + $fixed)
+              }]
+            ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+
+            git add "$CONTRACT_PATH"
+            git commit -m "Update autofix attempts for issue #${ISSUE_NUMBER}" || true
+
+            # Push with retry
+            PUSH_SUCCEEDED="false"
+            for i in 1 2 3; do
+              if git push origin "${BRANCH_NAME}"; then
+                echo "Push succeeded"
+                PUSH_SUCCEEDED="true"
+                break
+              fi
+              echo "::warning::Push failed (attempt $i), retrying..."
+              git fetch origin "${BRANCH_NAME}"
+              git reset --hard "origin/${BRANCH_NAME}"
+              # Re-apply the update with fresh timestamp
+              CURRENT_ATTEMPTS=$(jq -r '.autofix_attempts // 0' "$CONTRACT_PATH")
+              NEW_ATTEMPTS=$((CURRENT_ATTEMPTS + 1))
+              RETRY_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+              jq --arg ts "$RETRY_TIMESTAMP" \
+                 --arg old "$CURRENT_ATTEMPTS" \
+                 --arg new "$NEW_ATTEMPTS" \
+                 --arg fixed "$FIXED_STATUS" '
+                .autofix_attempts = ($new | tonumber) |
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "autofix_attempts",
+                  "old_value": ($old | tonumber),
+                  "new_value": ($new | tonumber),
+                  "reason": ("Autofix attempt completed with result: " + $fixed)
+                }]
+              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              git add "$CONTRACT_PATH"
+              git commit -m "Update autofix attempts for issue #${ISSUE_NUMBER}" || true
+            done
+
+            # Fail the step if push never succeeded
+            if [[ "$PUSH_SUCCEEDED" != "true" ]]; then
+              echo "::error::Failed to push contract update after 3 attempts"
+              exit 1
+            fi
           fi
 
   # ============================================================
@@ -683,12 +912,16 @@ jobs:
   aggregate-checks:
     name: Aggregate check results
     needs: [resolve-inputs, work, check-merge-conflict, check-lint, check-test, check-integration, check-fixer]
-    if: always() && needs.work.result == 'success'
+    if: always() && (needs.work.result == 'success' || needs.work.result == 'skipped')
     runs-on: ubuntu-latest
     outputs:
       all_passed: ${{ steps.aggregate.outputs.all_passed }}
       has_conflicts: ${{ steps.aggregate.outputs.has_conflicts }}
-      needs_fixer: ${{ steps.aggregate.outputs.needs_fixer }}
+      autofix_succeeded: ${{ steps.aggregate.outputs.autofix_succeeded }}
+      autofix_limit_exceeded: ${{ steps.aggregate.outputs.autofix_limit_exceeded }}
+      lint_passed: ${{ steps.aggregate.outputs.lint_passed }}
+      test_passed: ${{ steps.aggregate.outputs.test_passed }}
+      integration_passed: ${{ steps.aggregate.outputs.integration_passed }}
 
     steps:
       - name: Aggregate results
@@ -703,7 +936,8 @@ jobs:
             {
               echo "all_passed=true"
               echo "has_conflicts=false"
-              echo "needs_fixer=false"
+              echo "autofix_succeeded=false"
+              echo "autofix_limit_exceeded=false"
             } >> "$GITHUB_OUTPUT"
             echo "No checks for ${PHASE} phase"
             exit 0
@@ -733,46 +967,108 @@ jobs:
             INTEGRATION_PASSED="${{ needs.check-integration.outputs.passed || 'true' }}"
           fi
 
-          # Check if fixer was triggered
-          FIXER_STATUS="${{ needs.check-fixer.outputs.fixed || 'false' }}"
-          NEEDS_FIXER="false"
-          if [[ "$FIXER_STATUS" == "pending" ]]; then
-            NEEDS_FIXER="true"
+          # Check autofix status (now synchronous - true/false, not pending)
+          AUTOFIX_FIXED="${{ needs.check-fixer.outputs.fixed || 'false' }}"
+          AUTOFIX_LIMIT_EXCEEDED="${{ needs.check-fixer.outputs.limit_exceeded || 'false' }}"
+
+          # Determine if autofix ran and succeeded
+          AUTOFIX_SUCCEEDED="false"
+          if [[ "$AUTOFIX_FIXED" == "true" ]]; then
+            AUTOFIX_SUCCEEDED="true"
           fi
 
           # Determine overall pass/fail
+          # Checks pass only if all individual checks passed (no special treatment for fixer)
           ALL_PASSED="true"
           if [[ "$HAS_CONFLICTS" == "true" ]]; then
             ALL_PASSED="false"
           fi
-          if [[ "$LINT_PASSED" == "false" && "$FIXER_STATUS" != "pending" ]]; then
+          if [[ "$LINT_PASSED" == "false" ]]; then
             ALL_PASSED="false"
           fi
-          if [[ "$TEST_PASSED" == "false" && "$FIXER_STATUS" != "pending" ]]; then
+          if [[ "$TEST_PASSED" == "false" ]]; then
             ALL_PASSED="false"
           fi
-          if [[ "$INTEGRATION_PASSED" == "false" && "$FIXER_STATUS" != "pending" ]]; then
+          if [[ "$INTEGRATION_PASSED" == "false" ]]; then
             ALL_PASSED="false"
           fi
 
           {
             echo "all_passed=${ALL_PASSED}"
             echo "has_conflicts=${HAS_CONFLICTS}"
-            echo "needs_fixer=${NEEDS_FIXER}"
+            echo "autofix_succeeded=${AUTOFIX_SUCCEEDED}"
+            echo "autofix_limit_exceeded=${AUTOFIX_LIMIT_EXCEEDED}"
+            echo "lint_passed=${LINT_PASSED}"
+            echo "test_passed=${TEST_PASSED}"
+            echo "integration_passed=${INTEGRATION_PASSED}"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Check aggregation complete: all_passed=${ALL_PASSED}, has_conflicts=${HAS_CONFLICTS}, needs_fixer=${NEEDS_FIXER}"
+          echo "Check aggregation: all_passed=${ALL_PASSED}, has_conflicts=${HAS_CONFLICTS}, autofix_succeeded=${AUTOFIX_SUCCEEDED}, autofix_limit_exceeded=${AUTOFIX_LIMIT_EXCEEDED}, lint=${LINT_PASSED}, test=${TEST_PASSED}, integration=${INTEGRATION_PASSED}"
+
+  # ============================================================
+  # Re-dispatch Checks: Re-run checks after autofix succeeded
+  # ============================================================
+  re-dispatch-checks:
+    name: Re-dispatch checks after autofix
+    needs: [resolve-inputs, aggregate-checks]
+    if: >-
+      always() &&
+      needs.aggregate-checks.result == 'success' &&
+      needs.aggregate-checks.outputs.autofix_succeeded == 'true' &&
+      needs.aggregate-checks.outputs.autofix_limit_exceeded != 'true' &&
+      needs.aggregate-checks.outputs.all_passed != 'true'
+    runs-on: ubuntu-latest
+
+    env:
+      PHASE: ${{ needs.resolve-inputs.outputs.phase }}
+      ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Re-dispatch work loop in checks-only mode
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          MAX_REVIEW_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_review_cycles }}
+          MAX_TOTAL_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_total_cycles }}
+          WORKFLOW_OWNER_ENV: ${{ needs.resolve-inputs.outputs.workflow_owner }}
+          PR_NUMBER_ENV: ${{ needs.resolve-inputs.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          echo "Autofix succeeded, re-dispatching work loop in checks-only mode"
+          echo "This will re-run lint/test/integration checks to verify the fix"
+
+          gh workflow run sdlc-work-loop.yml \
+            --repo "${{ github.repository }}" \
+            --field phase="${PHASE}" \
+            --field issue_number="${ISSUE_NUMBER}" \
+            --field branch_name="${BRANCH_NAME}" \
+            --field mode="checks-only" \
+            --field max_review_cycles="${MAX_REVIEW_CYCLES_ENV}" \
+            --field max_total_cycles="${MAX_TOTAL_CYCLES_ENV}" \
+            --field workflow_owner="${WORKFLOW_OWNER_ENV:-}" \
+            --field pr_number="${PR_NUMBER_ENV:-0}"
+
+          echo "Work loop re-dispatched in checks-only mode"
 
   # ============================================================
   # Review: Check preconditions before running reviewers
   # ============================================================
   review-setup:
     name: Review setup
-    needs: [resolve-inputs, work, aggregate-checks]
+    needs: [resolve-inputs, work, aggregate-checks, re-dispatch-checks]
     if: >-
       always() &&
-      needs.work.result == 'success' &&
-      needs.aggregate-checks.outputs.all_passed == 'true'
+      (needs.work.result == 'success' || needs.work.result == 'skipped') &&
+      needs.aggregate-checks.outputs.all_passed == 'true' &&
+      needs.re-dispatch-checks.result != 'success'
     runs-on: ubuntu-latest
     outputs:
       review_cycle: ${{ steps.get-cycle.outputs.cycle }}
@@ -1729,13 +2025,129 @@ jobs:
           fi
 
   # ============================================================
+  # Escalate Autofix Failure: Handle max autofix attempts exceeded
+  # ============================================================
+  escalate-autofix-failure:
+    name: Escalate autofix failure
+    needs: [resolve-inputs, aggregate-checks]
+    if: >-
+      always() &&
+      needs.aggregate-checks.result == 'success' &&
+      needs.aggregate-checks.outputs.autofix_limit_exceeded == 'true' &&
+      needs.aggregate-checks.outputs.all_passed != 'true'
+    runs-on: ubuntu-latest
+
+    env:
+      PHASE: ${{ needs.resolve-inputs.outputs.phase }}
+      ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
+      BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
+      EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout issue branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH_NAME }}
+          token: ${{ steps.bot-token.outputs.token }}
+
+      - name: Get autofix attempt count
+        id: get-attempts
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            ATTEMPTS=$(jq -r '.autofix_attempts // 0' "$CONTRACT_PATH")
+            MAX_ATTEMPTS=$(jq -r '.max_autofix_attempts // 3' "$CONTRACT_PATH")
+            echo "attempts=${ATTEMPTS}" >> "$GITHUB_OUTPUT"
+            echo "max_attempts=${MAX_ATTEMPTS}" >> "$GITHUB_OUTPUT"
+          else
+            echo "attempts=0" >> "$GITHUB_OUTPUT"
+            echo "max_attempts=3" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post escalation comment
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          AUTOFIX_ATTEMPTS: ${{ steps.get-attempts.outputs.attempts }}
+          MAX_AUTOFIX_ATTEMPTS: ${{ steps.get-attempts.outputs.max_attempts }}
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Determine which checks are still failing
+          FAILING_CHECKS=""
+          LINT_PASSED="${{ needs.aggregate-checks.outputs.lint_passed || 'true' }}"
+          TEST_PASSED="${{ needs.aggregate-checks.outputs.test_passed || 'true' }}"
+          INTEGRATION_PASSED="${{ needs.aggregate-checks.outputs.integration_passed || 'true' }}"
+
+          if [[ "$LINT_PASSED" == "false" ]]; then
+            FAILING_CHECKS="${FAILING_CHECKS:+$FAILING_CHECKS, }lint"
+          fi
+          if [[ "$TEST_PASSED" == "false" ]]; then
+            FAILING_CHECKS="${FAILING_CHECKS:+$FAILING_CHECKS, }test"
+          fi
+          if [[ "$INTEGRATION_PASSED" == "false" ]]; then
+            FAILING_CHECKS="${FAILING_CHECKS:+$FAILING_CHECKS, }integration"
+          fi
+          FAILING_CHECKS="${FAILING_CHECKS:-unknown checks}"
+
+          {
+            echo "**⚠️ Autofix circuit breaker triggered.**"
+            echo ""
+            echo "The autofix agent has attempted to fix check failures **${AUTOFIX_ATTEMPTS} times** (max: ${MAX_AUTOFIX_ATTEMPTS})."
+            echo "The following checks are still failing: **${FAILING_CHECKS}**."
+            echo ""
+            echo "Human intervention is required."
+            echo ""
+            echo "### What to do"
+            echo ""
+            echo "1. Review the failing checks in the [workflow run](${RUN_URL})"
+            echo "2. Fix the issues manually and push to the branch"
+            echo "3. Re-trigger the workflow by adding or removing the \`sdlc:implement\` label"
+            echo ""
+            echo "Alternatively, if the failures are expected or can be ignored:"
+            echo ""
+            echo "<!-- egg-phase-approval -->"
+            echo "- [ ] Override: Skip failing checks and proceed to review"
+            echo ""
+            echo "---"
+            echo ""
+            echo "*Authored-by: egg*"
+          } > /tmp/escalation.md
+
+          gh issue comment "${ISSUE_NUMBER}" --repo "${{ github.repository }}" --body-file /tmp/escalation.md
+
+      - name: Add awaiting-approval label
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          if [[ -f ".github/scripts/transition-sdlc-label.sh" ]]; then
+            .github/scripts/transition-sdlc-label.sh \
+              --issue "${ISSUE_NUMBER}" \
+              --add "sdlc:awaiting-approval" || true
+          else
+            gh issue edit "${ISSUE_NUMBER}" --add-label "sdlc:awaiting-approval" || true
+          fi
+
+  # ============================================================
   # Escalate: Handle circuit breaker escalation
   # ============================================================
   escalate:
     name: Escalate to human
-    needs: [resolve-inputs, aggregate-reviews, respond]
+    needs: [resolve-inputs, aggregate-checks, aggregate-reviews, respond, escalate-autofix-failure]
     if: >-
       always() &&
+      needs.escalate-autofix-failure.result != 'success' &&
       (
         needs.aggregate-reviews.outputs.circuit_breaker_open == 'true' ||
         needs.respond.outputs.circuit_breaker_triggered == 'true'
