@@ -148,6 +148,18 @@
       ],
       "description": "Configuration for multi-agent orchestration",
       "default": null
+    },
+    "autofix_attempts": {
+      "type": "integer",
+      "description": "Number of autofix attempts in current implement phase cycle",
+      "minimum": 0,
+      "default": 0
+    },
+    "max_autofix_attempts": {
+      "type": "integer",
+      "description": "Maximum autofix attempts before escalation",
+      "minimum": 1,
+      "default": 3
     }
   },
   "additionalProperties": false,

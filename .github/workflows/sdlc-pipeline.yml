@@ -405,6 +405,8 @@ jobs:
             },
             "workflow_owner": ${WORKFLOW_OWNER_JSON},
             "audit_log": [],
+            "autofix_attempts": 0,
+            "max_autofix_attempts": 3,
             "phase_configs": {
               "refine": {
                 "max_review_cycles": 3,

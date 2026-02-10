@@ -100,6 +100,11 @@ on:
         required: false
         type: number
         default: 0
+      mode:
+        description: 'Execution mode: full (work+checks+review) or checks-only (skip work, run checks only)'
+        required: false
+        type: string
+        default: "full"
     secrets:
       BOT_APP_ID:
         required: true
@@ -145,6 +150,7 @@ jobs:
       branch_prefix: ${{ steps.resolve.outputs.branch_prefix }}
       workflow_owner: ${{ steps.resolve.outputs.workflow_owner }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
+      mode: ${{ steps.resolve.outputs.mode }}
     steps:
       - name: Resolve inputs with defaults
         id: resolve
@@ -254,10 +260,24 @@ jobs:
             echo "branch_prefix=${{ inputs.branch_prefix }}"
             echo "workflow_owner=${{ inputs.workflow_owner || '' }}"
             echo "pr_number=${{ inputs.pr_number || '0' }}"
+            echo "mode=${{ inputs.mode || 'full' }}"
           } >> "$GITHUB_OUTPUT"
         env:
           DEFAULT_OUTPUT_TYPE: ${{ inputs.phase == 'implement' && 'pr' || 'draft' }}
           DEFAULT_HUMAN_REVIEW: ${{ inputs.phase == 'implement' && 'pr_review' || 'issue_checkbox' }}
+
+      - name: Reset autofix attempts on manual trigger
+        if: github.event_name == 'workflow_dispatch' && inputs.phase == 'implement'
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          BRANCH_NAME: ${{ inputs.branch_name }}
+        run: |
+          set -euo pipefail
+
+          # For workflow_dispatch, reset autofix_attempts to allow fresh retry
+          # This only applies to implement phase (autofix doesn't run in refine/plan)
+          echo "Manual workflow dispatch detected for implement phase"
+          echo "Autofix attempts will be reset in the work job after checkout"
 
   # ============================================================
   # Work: Execute the primary work for this phase
@@ -323,6 +343,40 @@ jobs:
         run: |
           git config user.name "${EGG_BOT_USERNAME}[bot]"
           git config user.email "${BOT_APP_ID}+${EGG_BOT_USERNAME}[bot]@users.noreply.github.com"
+
+      - name: Reset autofix attempts on manual trigger
+        if: github.event_name == 'workflow_dispatch' && env.PHASE == 'implement'
+        run: |
+          set -euo pipefail
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+
+          if [[ -f "$CONTRACT_PATH" ]]; then
+            CURRENT_ATTEMPTS=$(jq -r '.autofix_attempts // 0' "$CONTRACT_PATH")
+            if [[ "$CURRENT_ATTEMPTS" -gt 0 ]]; then
+              echo "Resetting autofix_attempts from $CURRENT_ATTEMPTS to 0 for manual re-trigger"
+              TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+              jq --arg ts "$TIMESTAMP" --arg old "$CURRENT_ATTEMPTS" '
+                .autofix_attempts = 0 |
+                .audit_log += [{
+                  "timestamp": $ts,
+                  "actor": "system",
+                  "role": "system",
+                  "action": "update",
+                  "field_path": "autofix_attempts",
+                  "old_value": ($old | tonumber),
+                  "new_value": 0,
+                  "reason": "Reset on manual workflow dispatch"
+                }]
+              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+
+              git add "$CONTRACT_PATH"
+              git commit -m "Reset autofix attempts for issue #${ISSUE_NUMBER}" || true
+              git push origin "${BRANCH_NAME}" || {
+                git pull --rebase origin "${BRANCH_NAME}"
+                git push origin "${BRANCH_NAME}"
+              }
+            fi
+          fi
 
       - name: Populate contract tasks (implement phase only)
         if: env.PHASE == 'implement'
