@@ -671,6 +671,42 @@ merge-fix ─┬─> lint ──┬─> fixer ─> review
 
 This parallel execution reduces cycle time by running independent checks concurrently. The fixer step allows the agent to attempt automated corrections before requiring human intervention.
 
+### Autofix Retry and Re-Validation
+
+When lint, test, or integration checks fail, the pipeline triggers the autofixer agent to attempt repairs. The autofix process now includes synchronous waiting and re-validation:
+
+**Flow:**
+```
+work → lint/test (parallel) → fail → autofixer → re-run checks → pass → review
+                                                               → fail → autofixer (retry)
+                                                               → fail (max retries) → escalate
+```
+
+**Key behaviors:**
+
+1. **Synchronous wait**: The check-fixer job waits for the autofix workflow to complete (30-minute timeout) instead of fire-and-forget
+2. **Re-validation**: After autofix completes, the work loop re-dispatches itself in `checks-only` mode to re-run lint/test/integration
+3. **Circuit breaker**: Maximum 3 autofix attempts per implement phase cycle (configurable via `max_autofix_attempts` in contract)
+4. **Escalation**: When max attempts exceeded, pipeline posts an escalation comment and pauses for human intervention
+
+**Contract fields:**
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `autofix_attempts` | 0 | Current autofix attempt count in this phase cycle |
+| `max_autofix_attempts` | 3 | Maximum attempts before circuit breaker triggers |
+
+**Work loop modes:**
+
+| Mode | Description |
+|------|-------------|
+| `full` (default) | Execute work, then run checks and review |
+| `checks-only` | Skip work, only run checks and review (used after autofix) |
+
+The `autofix_attempts` counter resets to 0 when:
+- A new implement phase starts
+- The work loop is manually re-triggered via `workflow_dispatch`
+
 ## Implementation Reference
 
 ### Key Files
