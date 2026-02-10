@@ -42,6 +42,11 @@ on:
         required: false
         type: string
         default: "jwbron"
+      reviewer_username:
+        description: 'GitHub username of the reviewer bot (for review trigger detection)'
+        required: false
+        type: string
+        default: ""
       max_feedback_rounds:
         description: 'Maximum number of feedback-addressing rounds before requiring human intervention'
         required: false
@@ -66,6 +71,12 @@ on:
         required: true
       ANTHROPIC_OAUTH_TOKEN:
         required: true
+      REVIEWER_APP_ID:
+        required: false
+      REVIEWER_APP_PRIVATE_KEY:
+        required: false
+      REVIEWER_APP_INSTALLATION_ID:
+        required: false
 
 jobs:
   # Validate required configuration for event-triggered runs
@@ -93,6 +104,7 @@ jobs:
     outputs:
       bot_username: ${{ steps.resolve.outputs.bot_username }}
       branch_prefix: ${{ steps.resolve.outputs.branch_prefix }}
+      reviewer_username: ${{ steps.resolve.outputs.reviewer_username }}
       max_feedback_rounds: ${{ steps.resolve.outputs.max_feedback_rounds }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
       should_check_trigger: ${{ steps.resolve.outputs.should_check_trigger }}
@@ -104,9 +116,11 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
             echo "bot_username=${{ inputs.bot_username }}" >> "$GITHUB_OUTPUT"
             echo "branch_prefix=${{ inputs.branch_prefix }}" >> "$GITHUB_OUTPUT"
+            echo "reviewer_username=${{ inputs.reviewer_username || '' }}" >> "$GITHUB_OUTPUT"
           else
             echo "bot_username=${{ vars.EGG_BOT_USERNAME }}" >> "$GITHUB_OUTPUT"
             echo "branch_prefix=${{ vars.EGG_BRANCH_PREFIX }}" >> "$GITHUB_OUTPUT"
+            echo "reviewer_username=${{ vars.EGG_REVIEWER_USERNAME || '' }}" >> "$GITHUB_OUTPUT"
           fi
           echo "max_feedback_rounds=${{ inputs.max_feedback_rounds || '3' }}" >> "$GITHUB_OUTPUT"
 
@@ -131,10 +145,11 @@ jobs:
     outputs:
       should_run: ${{ steps.check.outputs.should_run }}
     steps:
-      - name: Check if triggered by our bot
+      - name: Check if triggered by our bot or reviewer
         id: check
         env:
-          EGG_BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+          BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+          REVIEWER_USERNAME: ${{ needs.resolve-inputs.outputs.reviewer_username }}
           EVENT_NAME: ${{ github.event_name }}
           REVIEW_USER: ${{ github.event.review.user.login }}
           REVIEW_BODY: ${{ github.event.review.body }}
@@ -143,19 +158,27 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
           IS_PR: ${{ github.event.issue.pull_request != null }}
         run: |
+          # Helper function to check if user matches bot or reviewer
+          is_review_bot() {
+            local user="$1"
+            [[ "$user" == "$BOT_USERNAME" || "$user" == "${BOT_USERNAME}[bot]" ]] && return 0
+            [[ -n "$REVIEWER_USERNAME" && ("$user" == "$REVIEWER_USERNAME" || "$user" == "${REVIEWER_USERNAME}[bot]") ]] && return 0
+            return 1
+          }
+
           # For pull_request_review events
           if [[ "$EVENT_NAME" == "pull_request_review" ]]; then
-            if [[ ("$REVIEW_USER" == "$EGG_BOT_USERNAME" || "$REVIEW_USER" == "${EGG_BOT_USERNAME}[bot]") && \
-                  "$REVIEW_BODY" == *"egg-automated-review"* && \
+            if is_review_bot "$REVIEW_USER" && \
+               [[ "$REVIEW_BODY" == *"egg-automated-review"* && \
                   "$REVIEW_STATE" != "approved" ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
             else
               echo "should_run=false" >> "$GITHUB_OUTPUT"
             fi
-          # For issue_comment events (self-review as comment)
+          # For issue_comment events (self-review as comment - legacy, less common with reviewer account)
           elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
-            if [[ "$IS_PR" == "true" && \
-                  ("$COMMENT_USER" == "$EGG_BOT_USERNAME" || "$COMMENT_USER" == "${EGG_BOT_USERNAME}[bot]") && \
+            if is_review_bot "$COMMENT_USER" && \
+               [[ "$IS_PR" == "true" && \
                   "$COMMENT_BODY" == *"egg-automated-review"* && \
                   "$COMMENT_BODY" != *"verdict=approve"* ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
