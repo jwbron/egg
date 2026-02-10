@@ -127,7 +127,9 @@ build_coder_prompt() {
   local pending_tasks
   pending_tasks=$(get_pending_tasks "$issue_number")
 
-  cat <<EOF
+  # Use quoted heredoc ('EOF') to prevent shell interpretation of content
+  # Variables are explicitly expanded only where safe
+  cat <<'EOF'
 You are the **Coder** agent in a multi-agent SDLC pipeline.
 
 ## Your Role
@@ -138,26 +140,33 @@ agents (Tester, Documenter).
 
 ## Context
 
-Repository: ${GITHUB_REPOSITORY}
-Issue: #${issue_number} — ${issue_title}
-Issue URL: ${issue_url}
-Branch: ${EGG_BRANCH_NAME}
+EOF
+  # Safely output dynamic content with printf to prevent injection
+  printf 'Repository: %s\n' "${GITHUB_REPOSITORY}"
+  printf 'Issue: #%s — %s\n' "${issue_number}" "${issue_title}"
+  printf 'Issue URL: %s\n' "${issue_url}"
+  printf 'Branch: %s\n' "${EGG_BRANCH_NAME}"
+  cat <<'EOF'
 Agent Role: **Coder**
 
 ## Issue Description
 
-${issue_body}
-
+EOF
+  printf '%s\n\n' "${issue_body}"
+  cat <<'EOF'
 ## Contract Tasks
 
-${contract_tasks}
+EOF
+  printf '%s\n' "${contract_tasks}"
+  cat <<'EOF'
 
 ## Tasks To Complete
 
 Focus on the following pending tasks:
 
-${pending_tasks}
-
+EOF
+  printf '%s\n' "${pending_tasks}"
+  cat <<'EOF'
 ## Your Responsibilities
 
 1. Read and understand the implementation plan
@@ -228,8 +237,8 @@ Before completing:
 1. Implement the pending tasks one by one
 2. Commit and link each task as you complete it
 3. Write the handoff output file
-4. Push your changes: \`git push origin HEAD:${EGG_BRANCH_NAME}\`
 EOF
+  printf '4. Push your changes: `git push origin HEAD:%s`\n' "${EGG_BRANCH_NAME}"
 }
 
 # ---------------------------------------------------------------------------

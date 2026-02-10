@@ -74,7 +74,8 @@ get_test_patterns() {
   local repo_path
   repo_path=$(get_repo_path)
 
-  # Detect existing test patterns in the repository
+  # Detect existing test patterns in the repository using find instead of glob
+  # (glob with ** requires shopt -s globstar which may not be set)
   local patterns=""
 
   if [[ -d "${repo_path}/tests" ]]; then
@@ -83,16 +84,16 @@ get_test_patterns() {
   if [[ -d "${repo_path}/test" ]]; then
     patterns+="- test/ directory found"$'\n'
   fi
-  if ls "${repo_path}"/**/*_test.py 2>/dev/null | head -1 > /dev/null; then
+  if find "${repo_path}" -name '*_test.py' -type f 2>/dev/null | head -1 | grep -q .; then
     patterns+="- Python: *_test.py pattern"$'\n'
   fi
-  if ls "${repo_path}"/**/test_*.py 2>/dev/null | head -1 > /dev/null; then
+  if find "${repo_path}" -name 'test_*.py' -type f 2>/dev/null | head -1 | grep -q .; then
     patterns+="- Python: test_*.py pattern"$'\n'
   fi
-  if ls "${repo_path}"/**/*.test.ts 2>/dev/null | head -1 > /dev/null; then
+  if find "${repo_path}" -name '*.test.ts' -type f 2>/dev/null | head -1 | grep -q .; then
     patterns+="- TypeScript: *.test.ts pattern"$'\n'
   fi
-  if ls "${repo_path}"/**/*.spec.ts 2>/dev/null | head -1 > /dev/null; then
+  if find "${repo_path}" -name '*.spec.ts' -type f 2>/dev/null | head -1 | grep -q .; then
     patterns+="- TypeScript: *.spec.ts pattern"$'\n'
   fi
 
@@ -131,7 +132,9 @@ build_tester_prompt() {
   local test_patterns
   test_patterns=$(get_test_patterns)
 
-  cat <<EOF
+  # Use quoted heredoc ('EOF') to prevent shell interpretation of content
+  # Variables are explicitly expanded only where safe using printf
+  cat <<'EOF'
 You are the **Tester** agent in a multi-agent SDLC pipeline.
 
 ## Your Role
@@ -141,27 +144,35 @@ after the Coder and should not modify any non-test code.
 
 ## Context
 
-Repository: ${GITHUB_REPOSITORY}
-Issue: #${issue_number} — ${issue_title}
-Issue URL: ${issue_url}
-Branch: ${EGG_BRANCH_NAME}
+EOF
+  # Safely output dynamic content with printf to prevent injection
+  printf 'Repository: %s\n' "${GITHUB_REPOSITORY}"
+  printf 'Issue: #%s — %s\n' "${issue_number}" "${issue_title}"
+  printf 'Issue URL: %s\n' "${issue_url}"
+  printf 'Branch: %s\n' "${EGG_BRANCH_NAME}"
+  cat <<'EOF'
 Agent Role: **Tester**
 
 ## Issue Description
 
-${issue_body}
-
+EOF
+  printf '%s\n\n' "${issue_body}"
+  cat <<'EOF'
 ## Coder Agent Summary
 
-${coder_summary}
-
+EOF
+  printf '%s\n\n' "${coder_summary}"
+  cat <<'EOF'
 ## Changed Files (from Coder)
 
-${changed_files:-"No changed files reported by Coder agent"}
-
+EOF
+  printf '%s\n\n' "${changed_files:-"No changed files reported by Coder agent"}"
+  cat <<'EOF'
 ## Existing Test Patterns
 
-${test_patterns}
+EOF
+  printf '%s\n' "${test_patterns}"
+  cat <<'EOF'
 
 ## Your Responsibilities
 
@@ -241,8 +252,8 @@ Before completing:
 2. Write tests for each changed file
 3. Run the test suite to verify all tests pass
 4. Write the handoff output file
-5. Push your changes: \`git push origin HEAD:${EGG_BRANCH_NAME}\`
 EOF
+  printf '5. Push your changes: `git push origin HEAD:%s`\n' "${EGG_BRANCH_NAME}"
 }
 
 # ---------------------------------------------------------------------------

@@ -350,11 +350,15 @@ jobs:
           # Update contract to mark coder as running
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
           if [[ -f "$CONTRACT_PATH" ]]; then
-            jq '(.agent_executions[] | select(.role == "coder")).status = "running"' \
-              "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
-            git add "$CONTRACT_PATH"
-            git commit -m "Mark coder agent as running" || true
-            git push origin "${BRANCH_NAME}" || true
+            if jq '(.agent_executions[] | select(.role == "coder")).status = "running"' \
+              "$CONTRACT_PATH" > /tmp/contract.json; then
+              mv /tmp/contract.json "$CONTRACT_PATH"
+              git add "$CONTRACT_PATH"
+              git commit -m "Mark coder agent as running" || true
+              git push origin "${BRANCH_NAME}" || true
+            else
+              echo "::warning::Failed to update contract - jq error"
+            fi
           fi
 
       - name: Run coder agent
@@ -404,16 +408,23 @@ jobs:
             COMMIT="${{ steps.result.outputs.commit }}"
 
             if [[ "$SUCCESS" == "true" ]]; then
-              jq --arg commit "$COMMIT" '
+              if ! jq --arg commit "$COMMIT" '
                 (.agent_executions[] | select(.role == "coder")).status = "complete" |
                 (.agent_executions[] | select(.role == "coder")).commit = $commit
-              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              ' "$CONTRACT_PATH" > /tmp/contract.json; then
+                echo "::error::Failed to update contract - jq error"
+                exit 1
+              fi
             else
-              jq '
+              if ! jq '
                 (.agent_executions[] | select(.role == "coder")).status = "failed" |
                 (.agent_executions[] | select(.role == "coder")).error = "Agent execution failed"
-              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              ' "$CONTRACT_PATH" > /tmp/contract.json; then
+                echo "::error::Failed to update contract - jq error"
+                exit 1
+              fi
             fi
+            mv /tmp/contract.json "$CONTRACT_PATH"
 
             git add "$CONTRACT_PATH"
             git commit -m "Update coder agent status" || true
@@ -487,11 +498,15 @@ jobs:
         run: |
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
           if [[ -f "$CONTRACT_PATH" ]]; then
-            jq '(.agent_executions[] | select(.role == "tester")).status = "running"' \
-              "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
-            git add "$CONTRACT_PATH"
-            git commit -m "Mark tester agent as running" || true
-            git push origin "${BRANCH_NAME}" || true
+            if jq '(.agent_executions[] | select(.role == "tester")).status = "running"' \
+              "$CONTRACT_PATH" > /tmp/contract.json; then
+              mv /tmp/contract.json "$CONTRACT_PATH"
+              git add "$CONTRACT_PATH"
+              git commit -m "Mark tester agent as running" || true
+              git push origin "${BRANCH_NAME}" || true
+            else
+              echo "::warning::Failed to update contract - jq error"
+            fi
           fi
 
       - name: Run tester agent
@@ -528,14 +543,21 @@ jobs:
           if [[ -f "$CONTRACT_PATH" ]]; then
             SUCCESS="${{ steps.result.outputs.success }}"
             if [[ "$SUCCESS" == "true" ]]; then
-              jq '(.agent_executions[] | select(.role == "tester")).status = "complete"' \
-                "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              if ! jq '(.agent_executions[] | select(.role == "tester")).status = "complete"' \
+                "$CONTRACT_PATH" > /tmp/contract.json; then
+                echo "::error::Failed to update contract - jq error"
+                exit 1
+              fi
             else
-              jq '
+              if ! jq '
                 (.agent_executions[] | select(.role == "tester")).status = "failed" |
                 (.agent_executions[] | select(.role == "tester")).error = "Agent execution failed"
-              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              ' "$CONTRACT_PATH" > /tmp/contract.json; then
+                echo "::error::Failed to update contract - jq error"
+                exit 1
+              fi
             fi
+            mv /tmp/contract.json "$CONTRACT_PATH"
             git add "$CONTRACT_PATH"
             git commit -m "Update tester agent status" || true
             git push origin "${BRANCH_NAME}" || true
@@ -604,11 +626,15 @@ jobs:
         run: |
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
           if [[ -f "$CONTRACT_PATH" ]]; then
-            jq '(.agent_executions[] | select(.role == "documenter")).status = "running"' \
-              "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
-            git add "$CONTRACT_PATH"
-            git commit -m "Mark documenter agent as running" || true
-            git push origin "${BRANCH_NAME}" || true
+            if jq '(.agent_executions[] | select(.role == "documenter")).status = "running"' \
+              "$CONTRACT_PATH" > /tmp/contract.json; then
+              mv /tmp/contract.json "$CONTRACT_PATH"
+              git add "$CONTRACT_PATH"
+              git commit -m "Mark documenter agent as running" || true
+              git push origin "${BRANCH_NAME}" || true
+            else
+              echo "::warning::Failed to update contract - jq error"
+            fi
           fi
 
       - name: Run documenter agent
@@ -645,14 +671,21 @@ jobs:
           if [[ -f "$CONTRACT_PATH" ]]; then
             SUCCESS="${{ steps.result.outputs.success }}"
             if [[ "$SUCCESS" == "true" ]]; then
-              jq '(.agent_executions[] | select(.role == "documenter")).status = "complete"' \
-                "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              if ! jq '(.agent_executions[] | select(.role == "documenter")).status = "complete"' \
+                "$CONTRACT_PATH" > /tmp/contract.json; then
+                echo "::error::Failed to update contract - jq error"
+                exit 1
+              fi
             else
-              jq '
+              if ! jq '
                 (.agent_executions[] | select(.role == "documenter")).status = "failed" |
                 (.agent_executions[] | select(.role == "documenter")).error = "Agent execution failed"
-              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              ' "$CONTRACT_PATH" > /tmp/contract.json; then
+                echo "::error::Failed to update contract - jq error"
+                exit 1
+              fi
             fi
+            mv /tmp/contract.json "$CONTRACT_PATH"
             git add "$CONTRACT_PATH"
             git commit -m "Update documenter agent status" || true
             git push origin "${BRANCH_NAME}" || true
@@ -721,11 +754,15 @@ jobs:
         run: |
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
           if [[ -f "$CONTRACT_PATH" ]]; then
-            jq '(.agent_executions[] | select(.role == "integrator")).status = "running"' \
-              "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
-            git add "$CONTRACT_PATH"
-            git commit -m "Mark integrator agent as running" || true
-            git push origin "${BRANCH_NAME}" || true
+            if jq '(.agent_executions[] | select(.role == "integrator")).status = "running"' \
+              "$CONTRACT_PATH" > /tmp/contract.json; then
+              mv /tmp/contract.json "$CONTRACT_PATH"
+              git add "$CONTRACT_PATH"
+              git commit -m "Mark integrator agent as running" || true
+              git push origin "${BRANCH_NAME}" || true
+            else
+              echo "::warning::Failed to update contract - jq error"
+            fi
           fi
 
       - name: Run integrator agent
@@ -762,14 +799,21 @@ jobs:
           if [[ -f "$CONTRACT_PATH" ]]; then
             SUCCESS="${{ steps.result.outputs.success }}"
             if [[ "$SUCCESS" == "true" ]]; then
-              jq '(.agent_executions[] | select(.role == "integrator")).status = "complete"' \
-                "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              if ! jq '(.agent_executions[] | select(.role == "integrator")).status = "complete"' \
+                "$CONTRACT_PATH" > /tmp/contract.json; then
+                echo "::error::Failed to update contract - jq error"
+                exit 1
+              fi
             else
-              jq '
+              if ! jq '
                 (.agent_executions[] | select(.role == "integrator")).status = "failed" |
                 (.agent_executions[] | select(.role == "integrator")).error = "Agent execution failed"
-              ' "$CONTRACT_PATH" > /tmp/contract.json && mv /tmp/contract.json "$CONTRACT_PATH"
+              ' "$CONTRACT_PATH" > /tmp/contract.json; then
+                echo "::error::Failed to update contract - jq error"
+                exit 1
+              fi
             fi
+            mv /tmp/contract.json "$CONTRACT_PATH"
             git add "$CONTRACT_PATH"
             git commit -m "Update integrator agent status" || true
             git push origin "${BRANCH_NAME}" || true

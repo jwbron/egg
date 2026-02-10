@@ -29,6 +29,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from egg_contracts.agent_roles import AgentRole, get_role_definition
 from egg_contracts.feedback import (
     FeedbackQuestionInput,
     generate_feedback_comment,
@@ -904,17 +905,21 @@ def cmd_agent_next(args: argparse.Namespace) -> int:
         }
     else:
         # Determine which pending agents can run based on dependencies
-        # Dependencies: tester/documenter depend on coder, integrator depends on coder+tester
+        # Use canonical dependency definitions from agent_roles module
         runnable = []
         for role in pending:
-            if role == "coder":
-                runnable.append(role)
-            elif role in ("tester", "documenter"):
-                if "coder" in complete:
+            try:
+                role_enum = AgentRole(role)
+                role_def = get_role_definition(role_enum)
+                # Check if all dependencies are complete
+                deps_satisfied = all(
+                    dep.value in complete for dep in role_def.dependencies
+                )
+                if deps_satisfied:
                     runnable.append(role)
-            elif role == "integrator":
-                if "coder" in complete and "tester" in complete:
-                    runnable.append(role)
+            except (ValueError, KeyError):
+                # Unknown role - skip
+                pass
 
         if runnable:
             output = {

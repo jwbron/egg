@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .phase_filter import FileRestrictionResult
+    pass
 
 
 class AgentRole:
@@ -61,18 +61,21 @@ class AgentFilePattern:
 
         Returns:
             True if the file can be written
+
+        Security note:
+            Blocked patterns are checked FIRST to prevent bypass via
+            directory allow patterns. For example, if allowed patterns
+            include ".egg-state/agent-outputs/" but blocked patterns
+            include ".egg-state/contracts/", we must ensure the blocked
+            pattern takes precedence.
         """
         normalized = self._normalize_path(file_path)
 
-        # Check allowed patterns first for explicit directory allows
-        # This handles cases like .egg-state/agent-outputs/ which should
-        # be allowed even if *.json is in blocked patterns
-        for pattern in self.allowed_patterns:
-            if pattern.endswith("/") and self._matches_pattern(normalized, pattern):
-                # Explicit directory allow takes precedence
-                return True
+        # Reject invalid paths (e.g., path traversal attempts)
+        if normalized == "__INVALID_PATH_TRAVERSAL__":
+            return False
 
-        # Check blocked patterns (blocked takes precedence for non-directory matches)
+        # Check blocked patterns FIRST - security takes precedence
         if any(self._matches_pattern(normalized, p) for p in self.blocked_patterns):
             return False
 
@@ -84,10 +87,24 @@ class AgentFilePattern:
 
     @staticmethod
     def _normalize_path(file_path: str) -> str:
-        """Normalize a file path to prevent bypass via path manipulation."""
+        """Normalize a file path to prevent bypass via path manipulation.
+
+        Rejects paths containing '..' to prevent path traversal attacks.
+        """
+        # First normalize to resolve . and ..
         normalized = posixpath.normpath(file_path)
+
+        # Reject any path that contains .. (traversal attempt)
+        if ".." in normalized.split("/"):
+            # Return a path that won't match any patterns
+            return "__INVALID_PATH_TRAVERSAL__"
+
         if normalized.startswith("./"):
             normalized = normalized[2:]
+
+        # Also strip leading /
+        normalized = normalized.lstrip("/")
+
         return normalized
 
     @staticmethod

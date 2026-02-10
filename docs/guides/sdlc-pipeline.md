@@ -264,7 +264,7 @@ The implement phase can use multi-agent orchestration to parallelize work across
 | **Coder** | Implements code changes | None | `src/`, `lib/`, `shared/` |
 | **Tester** | Creates and runs tests | Coder | `tests/`, `test_*.py`, `*.test.ts` |
 | **Documenter** | Updates documentation | Coder | `docs/`, `*.md`, `README*` |
-| **Integrator** | Final validation and integration | Tester | Read-only except `.egg-state/` |
+| **Integrator** | Final validation and integration | Coder, Tester | Read-only except `.egg-state/` |
 
 ### Execution Waves
 

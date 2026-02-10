@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from .agent_roles import AgentRole, AgentStatus, get_role_definition
+from .agent_roles import AgentRole, get_role_definition
 from .models import AgentExecutionModel, AgentExecutionStatus, AgentRoleType
 
 if TYPE_CHECKING:
@@ -241,11 +241,17 @@ class OrchestrationState:
         return failed
 
     def all_complete(self) -> bool:
-        """Check if all agents have completed (successfully or skipped)."""
-        for role in AgentRole:
-            execution = self.executions.get(role)
-            if execution is None:
-                return False
+        """Check if all enabled agents have completed (successfully or skipped).
+
+        Only checks roles that exist in self.executions, not all possible roles.
+        This allows disabling roles via multi_agent_config.roles_enabled without
+        blocking completion.
+        """
+        # If no executions configured, consider complete
+        if not self.executions:
+            return True
+
+        for execution in self.executions.values():
             if execution.status not in (
                 AgentExecutionStatus.COMPLETE,
                 AgentExecutionStatus.SKIPPED,
