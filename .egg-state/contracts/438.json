@@ -6,8 +6,536 @@
     "url": "https://github.com/jwbron/egg/issues/438"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Roles (coder, tester, documenter, integrator) defined with clear responsibilities, file access constraints, and dependency declarations",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] build-coder-prompt.sh, build-tester-prompt.sh, build-documenter-prompt.sh, build-integrator-prompt.sh generate focused prompts",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Gateway enforces file path patterns per agent role",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-1] Contract model extended with agent_executions tracking",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-2] Produces execution order with parallelizable groups",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-3] Python module that reads contract, determines which agents to run next",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-4] egg-contract agent-status and agent-complete commands work",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-1] Workflow runs orchestrator, dispatches agents, collects results",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-2] Implement phase delegates to orchestrator, refine/plan unchanged",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-3] Uses GitHub Actions matrix or parallel jobs for independent agents",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-4] Agents write structured output to .egg-state/agent-outputs/",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-4-1] Reads plan tasks, implements code, links commits, outputs changed files",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-4-2] Reads changed files, writes tests, reports coverage, cannot modify non-test code",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-4-3] Reads changed files, updates docs, cannot modify code/tests",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-4-4] Runs full test suite, validates changes, produces integration report",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-5-1] Workflow pauses failed branch, allows others to continue, reports clearly",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-5-2] Failed agents can be retried independently",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-5-3] Orchestrator detects and handles merge conflicts",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-5-4] Circuit breaker triggers if multiple agents fail repeatedly",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-6-1] Dependency resolution, execution ordering, state tracking have full coverage",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-6-2] End-to-end tests verify agent coordination, file restrictions, handoffs",
+      "verified": false
+    },
+    {
+      "id": "ac-22",
+      "description": "[TASK-6-3] docs/guides/sdlc-pipeline.md updated with multi-agent architecture",
+      "verified": false
+    },
+    {
+      "id": "ac-23",
+      "description": "[TASK-6-4] docs/guides/agent-development.md explains how to add new agents",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Agent Role Definitions and Prompt Infrastructure",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create agent role definitions in shared library",
+          "status": "pending",
+          "acceptance_criteria": "Roles (coder, tester, documenter, integrator) defined with clear responsibilities, file access constraints, and dependency declarations",
+          "files_affected": [
+            "shared/egg_contracts/agent_roles.py",
+            "shared/egg_contracts/models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Create specialized prompt builders for each agent role",
+          "status": "pending",
+          "acceptance_criteria": "build-coder-prompt.sh, build-tester-prompt.sh, build-documenter-prompt.sh, build-integrator-prompt.sh generate focused prompts",
+          "files_affected": [
+            "action/build-coder-prompt.sh",
+            "action/build-tester-prompt.sh",
+            "action/build-documenter-prompt.sh",
+            "action/build-integrator-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add role-based file restrictions to gateway",
+          "status": "pending",
+          "acceptance_criteria": "Gateway enforces file path patterns per agent role",
+          "files_affected": [
+            "gateway/agent_restrictions.py",
+            "gateway/phase_filter.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Orchestration Engine",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create agent orchestration state model",
+          "status": "pending",
+          "acceptance_criteria": "Contract model extended with agent_executions tracking",
+          "files_affected": [
+            "shared/egg_contracts/models.py",
+            "shared/egg_contracts/orchestration.py",
+            ".egg/schemas/contract.schema.json"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Implement dependency graph resolver",
+          "status": "pending",
+          "acceptance_criteria": "Produces execution order with parallelizable groups",
+          "files_affected": [
+            "shared/egg_contracts/dependency_graph.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Create orchestrator dispatch logic",
+          "status": "pending",
+          "acceptance_criteria": "Python module that reads contract, determines which agents to run next",
+          "files_affected": [
+            "shared/egg_contracts/orchestrator.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Add agent execution tracking to contract CLI",
+          "status": "pending",
+          "acceptance_criteria": "egg-contract agent-status and agent-complete commands work",
+          "files_affected": [
+            "sandbox/egg_lib/contract_cli.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Workflow Integration",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Create sdlc-agent-orchestrator.yml reusable workflow",
+          "status": "pending",
+          "acceptance_criteria": "Workflow runs orchestrator, dispatches agents, collects results",
+          "files_affected": [
+            ".github/workflows/sdlc-agent-orchestrator.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update sdlc-work-loop.yml to use orchestrator for implement phase",
+          "status": "pending",
+          "acceptance_criteria": "Implement phase delegates to orchestrator, refine/plan unchanged",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Implement parallel agent dispatch in workflow",
+          "status": "pending",
+          "acceptance_criteria": "Uses GitHub Actions matrix or parallel jobs for independent agents",
+          "files_affected": [
+            ".github/workflows/sdlc-agent-orchestrator.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Add agent handoff mechanism",
+          "status": "pending",
+          "acceptance_criteria": "Agents write structured output to .egg-state/agent-outputs/",
+          "files_affected": [
+            "action/agent-handoff.sh",
+            "shared/egg_contracts/agent_output.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Specialized Agent Implementations",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Implement Coder agent",
+          "status": "pending",
+          "acceptance_criteria": "Reads plan tasks, implements code, links commits, outputs changed files",
+          "files_affected": [
+            "action/build-coder-prompt.sh",
+            "sandbox/.claude/commands/coder-mode.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Implement Tester agent",
+          "status": "pending",
+          "acceptance_criteria": "Reads changed files, writes tests, reports coverage, cannot modify non-test code",
+          "files_affected": [
+            "action/build-tester-prompt.sh",
+            "sandbox/.claude/commands/tester-mode.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Implement Documenter agent",
+          "status": "pending",
+          "acceptance_criteria": "Reads changed files, updates docs, cannot modify code/tests",
+          "files_affected": [
+            "action/build-documenter-prompt.sh",
+            "sandbox/.claude/commands/documenter-mode.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Implement Integrator agent",
+          "status": "pending",
+          "acceptance_criteria": "Runs full test suite, validates changes, produces integration report",
+          "files_affected": [
+            "action/build-integrator-prompt.sh",
+            "sandbox/.claude/commands/integrator-mode.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Error Handling and Recovery",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Implement agent failure handling",
+          "status": "pending",
+          "acceptance_criteria": "Workflow pauses failed branch, allows others to continue, reports clearly",
+          "files_affected": [
+            ".github/workflows/sdlc-agent-orchestrator.yml",
+            "shared/egg_contracts/orchestrator.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Add agent retry logic",
+          "status": "pending",
+          "acceptance_criteria": "Failed agents can be retried independently",
+          "files_affected": [
+            "shared/egg_contracts/orchestrator.py",
+            ".github/workflows/sdlc-agent-orchestrator.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Create conflict resolution for parallel agents",
+          "status": "pending",
+          "acceptance_criteria": "Orchestrator detects and handles merge conflicts",
+          "files_affected": [
+            "shared/egg_contracts/conflict_resolution.py",
+            "action/agent-handoff.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-4",
+          "description": "Add escalation for multi-agent failures",
+          "status": "pending",
+          "acceptance_criteria": "Circuit breaker triggers if multiple agents fail repeatedly",
+          "files_affected": [
+            "shared/egg_contracts/circuit_breaker.py",
+            ".github/workflows/sdlc-agent-orchestrator.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "Testing and Documentation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Add unit tests for orchestration logic",
+          "status": "pending",
+          "acceptance_criteria": "Dependency resolution, execution ordering, state tracking have full coverage",
+          "files_affected": [
+            "shared/egg_contracts/tests/test_orchestration.py",
+            "shared/egg_contracts/tests/test_dependency_graph.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-2",
+          "description": "Add integration tests for agent workflows",
+          "status": "pending",
+          "acceptance_criteria": "End-to-end tests verify agent coordination, file restrictions, handoffs",
+          "files_affected": [
+            "tests/integration/test_multi_agent.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-3",
+          "description": "Update SDLC pipeline documentation",
+          "status": "pending",
+          "acceptance_criteria": "docs/guides/sdlc-pipeline.md updated with multi-agent architecture",
+          "files_affected": [
+            "docs/guides/sdlc-pipeline.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-4",
+          "description": "Create agent development guide",
+          "status": "pending",
+          "acceptance_criteria": "docs/guides/agent-development.md explains how to add new agents",
+          "files_affected": [
+            "docs/guides/agent-development.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 2,
@@ -74,5 +602,9 @@
   "refine_review_cycles": 1,
   "refine_review_feedback": "",
   "plan_review_cycles": 1,
-  "plan_review_feedback": ""
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add multi-agent orchestration for implement phase",
+    "description": "Introduces specialized agents (Coder, Tester, Documenter, Integrator) for the\nimplement phase, replacing the single-agent model. Agents run in parallel where\ndependencies allow, improving first-pass quality and enabling larger workloads.\n\nCloses #438"
+  }
 }
