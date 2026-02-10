@@ -9,8 +9,6 @@ When working in the SDLC pipeline, use the `egg-contract` CLI to track progress.
 | `egg-contract show` | View current contract state |
 | `egg-contract add-commit --task <id> --commit <sha>` | Link commit to task |
 | `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes |
-| `egg-contract mark-task --task <id> --status <status>` | Mark task status (deprecated) |
-| `egg-contract mark-phase --phase <id> --passed <bool>` | Mark phase status (deprecated) |
 | `egg-contract add-decision --question <text>` | Create HITL decision (multiple choice) |
 | `egg-contract add-feedback --question <text>...` | Create feedback comment (open-ended) |
 

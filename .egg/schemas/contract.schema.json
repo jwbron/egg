@@ -65,9 +65,6 @@
       },
       "default": []
     },
-    "circuit_breaker": {
-      "$ref": "#/$defs/circuitBreaker"
-    },
     "workflow_owner": {
       "type": ["string", "null"],
       "description": "GitHub username of the user who initiated the SDLC workflow (added the sdlc:refine label)",
@@ -385,30 +382,6 @@
           "description": "Debounce expiration timestamp",
           "format": "date-time",
           "default": null
-        }
-      },
-      "additionalProperties": false
-    },
-    "circuitBreaker": {
-      "type": "object",
-      "properties": {
-        "total_cycles": {
-          "type": "integer",
-          "description": "Total pipeline cycles",
-          "minimum": 0,
-          "default": 0
-        },
-        "max_total_cycles": {
-          "type": "integer",
-          "description": "Maximum total cycles before escalation",
-          "minimum": 1,
-          "default": 10
-        },
-        "status": {
-          "type": "string",
-          "description": "Circuit breaker status",
-          "enum": ["closed", "open"],
-          "default": "closed"
         }
       },
       "additionalProperties": false

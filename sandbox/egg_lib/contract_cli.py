@@ -12,10 +12,6 @@ Commands:
                                                Link commit to task
     egg-contract update-notes --task <id> --notes <text>
                                                Add implementation notes
-    egg-contract mark-task --task <id> --status <status>
-                                               Mark task status (reviewer only)
-    egg-contract mark-phase --phase <id> --passed <bool>
-                                               Mark phase status (reviewer only)
     egg-contract add-decision --question <text>
                                                Create HITL decision point
     egg-contract add-feedback --question <text> [--question <text>...]
@@ -136,29 +132,6 @@ def parse_criterion_id(criterion_id: str) -> int:
         if "must be >= 1" in str(e):
             raise
         raise ValueError(f"Invalid criterion ID '{criterion_id}': expected format 'ac-N'") from e
-
-
-def parse_phase_id(phase_id: str) -> int:
-    """Parse phase ID and return phase_idx.
-
-    Args:
-        phase_id: Phase ID in format "phase-N"
-
-    Returns:
-        Phase index as 0-based
-
-    Raises:
-        ValueError: If phase ID format is invalid or number is out of range
-    """
-    try:
-        phase_num = int(phase_id.lower().replace("phase-", ""))
-        if phase_num < 1:
-            raise ValueError(f"Phase number must be >= 1: {phase_id}")
-        return phase_num - 1
-    except ValueError as e:
-        if "must be >= 1" in str(e):
-            raise
-        raise ValueError(f"Invalid phase ID '{phase_id}': expected numeric value") from e
 
 
 def validate_commit_sha(commit: str) -> str:
@@ -300,14 +273,6 @@ def _print_contract_summary(contract: dict[str, Any]) -> None:
         print("Pending Decisions:")
         for decision in decisions:
             print(f"  [{decision.get('id')}] {decision.get('question')}")
-        print()
-
-    # Show circuit breaker status
-    cb = contract.get("circuit_breaker", {})
-    if cb.get("status") == "open":
-        print(
-            f"⚠ Circuit Breaker: OPEN (cycles: {cb.get('total_cycles')}/{cb.get('max_total_cycles')})"
-        )
 
 
 def cmd_add_commit(args: argparse.Namespace) -> int:
@@ -382,89 +347,6 @@ def cmd_update_notes(args: argparse.Namespace) -> int:
 
     if result.get("success"):
         print(f"Updated notes for {args.task}")
-        return 0
-    else:
-        print(f"Error: {result.get('message')}", file=sys.stderr)
-        return 1
-
-
-def cmd_mark_task(args: argparse.Namespace) -> int:
-    """Mark task status.
-
-    Note: This operation requires REVIEWER role. Agents running as IMPLEMENTER
-    will receive a role authorization error from the gateway. This command is
-    included for reviewer agents or human reviewers using the CLI.
-    """
-    issue_number = args.issue or get_issue_number()
-    if not issue_number:
-        print("Error: Issue number required", file=sys.stderr)
-        return 1
-
-    try:
-        phase_idx, task_idx = parse_task_id(args.task)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    field_path = f"phases.{phase_idx}.tasks.{task_idx}.status"
-
-    result = make_gateway_request(
-        "/api/v1/contract/mutate",
-        method="POST",
-        data={
-            "issue_number": issue_number,
-            "repo_path": args.repo_path or get_repo_path(),
-            "field_path": field_path,
-            "new_value": args.status,
-            "actor": "egg",
-            "reason": f"Marked {args.task} as {args.status}",
-        },
-    )
-
-    if result.get("success"):
-        print(f"Marked {args.task} as {args.status}")
-        return 0
-    else:
-        print(f"Error: {result.get('message')}", file=sys.stderr)
-        return 1
-
-
-def cmd_mark_phase(args: argparse.Namespace) -> int:
-    """Mark phase status.
-
-    Note: This operation requires REVIEWER role. Agents running as IMPLEMENTER
-    will receive a role authorization error from the gateway. This command is
-    included for reviewer agents or human reviewers using the CLI.
-    """
-    issue_number = args.issue or get_issue_number()
-    if not issue_number:
-        print("Error: Issue number required", file=sys.stderr)
-        return 1
-
-    try:
-        phase_idx = parse_phase_id(args.phase)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    field_path = f"phases.{phase_idx}.status"
-    new_status = "complete" if args.passed else "incomplete"
-
-    result = make_gateway_request(
-        "/api/v1/contract/mutate",
-        method="POST",
-        data={
-            "issue_number": issue_number,
-            "repo_path": args.repo_path or get_repo_path(),
-            "field_path": field_path,
-            "new_value": new_status,
-            "actor": "egg",
-            "reason": f"Marked {args.phase} as {new_status}",
-        },
-    )
-
-    if result.get("success"):
-        print(f"Marked {args.phase} as {new_status}")
         return 0
     else:
         print(f"Error: {result.get('message')}", file=sys.stderr)
@@ -780,32 +662,6 @@ def create_parser() -> argparse.ArgumentParser:
     notes_parser.add_argument("--task", required=True, help="Task ID")
     notes_parser.add_argument("--notes", required=True, help="Implementation notes")
     notes_parser.set_defaults(func=cmd_update_notes)
-
-    # mark-task command (requires REVIEWER role)
-    mark_task_parser = subparsers.add_parser(
-        "mark-task", help="Mark task status (requires REVIEWER role)"
-    )
-    mark_task_parser.add_argument("--task", required=True, help="Task ID")
-    mark_task_parser.add_argument(
-        "--status",
-        required=True,
-        choices=["pending", "in_progress", "complete", "incomplete", "blocked"],
-        help="Task status",
-    )
-    mark_task_parser.set_defaults(func=cmd_mark_task)
-
-    # mark-phase command (requires REVIEWER role)
-    mark_phase_parser = subparsers.add_parser(
-        "mark-phase", help="Mark phase status (requires REVIEWER role)"
-    )
-    mark_phase_parser.add_argument("--phase", required=True, help="Phase ID (e.g., phase-1)")
-    mark_phase_parser.add_argument(
-        "--passed",
-        required=True,
-        type=lambda x: x.lower() in ("true", "1", "yes"),
-        help="Whether phase passed (true/false)",
-    )
-    mark_phase_parser.set_defaults(func=cmd_mark_phase)
 
     # verify-criterion command (requires REVIEWER role)
     verify_criterion_parser = subparsers.add_parser(

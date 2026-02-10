@@ -94,16 +94,6 @@
         },
         {
           "type": "egg-contract",
-          "pattern": "mark-task *",
-          "description": "Mark task status (reviewer only)"
-        },
-        {
-          "type": "egg-contract",
-          "pattern": "mark-phase *",
-          "description": "Mark phase status (reviewer only)"
-        },
-        {
-          "type": "egg-contract",
           "pattern": "show *",
           "description": "View contract state"
         }

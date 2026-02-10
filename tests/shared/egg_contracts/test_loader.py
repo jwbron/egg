@@ -408,5 +408,4 @@ class TestExportContract:
         assert "current_phase" in data
         assert "phases" in data
         assert "decisions" in data
-        assert "circuit_breaker" in data
         assert "acceptance_criteria" in data

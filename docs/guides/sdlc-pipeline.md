@@ -40,7 +40,7 @@ Code reviews are performed by the existing PR review workflow (`reusable-review.
 
 ### 4. Human-in-the-Loop at Critical Points
 
-The pipeline pauses for human approval at phase transitions and when circuit breakers trigger. Decisions use checkbox-based UI with 30-second debounce to prevent accidental clicks.
+The pipeline pauses for human approval at phase transitions. Decisions use checkbox-based UI with 30-second debounce to prevent accidental clicks.
 
 ## Pipeline Architecture
 
@@ -125,11 +125,6 @@ The refine and plan phases include an automated internal review step before huma
 - Is the test strategy adequate?
 - Is the YAML appendix correct for task extraction?
 
-**Escalation:**
-- Max review cycles: 3 per phase
-- When exceeded, circuit breaker opens and the draft is posted with unresolved issues highlighted
-- Human can provide guidance, override and approve, or cancel
-
 ### Phase-Based Operation Filtering
 
 Each phase has a defined set of permitted operations. The gateway blocks all other operations:
@@ -193,11 +188,6 @@ This approach is idempotent — the jq transformation is applied to whatever the
     }
   ],
   "decisions": [],
-  "circuit_breaker": {
-    "total_cycles": 2,
-    "max_total_cycles": 10,
-    "status": "closed"
-  },
   "workflow_owner": "jwbron",
   "audit_log": []
 }
@@ -262,22 +252,6 @@ Each agent invocation runs in a fresh container with no memory of previous runs.
 3. GitHub issue/PR comments and reviews
 
 This prevents context pollution and ensures reproducible behavior. When the implementer is re-invoked after review feedback, it receives the PR review comments as part of its prompt context.
-
-## Circuit Breaker and Escalation
-
-**Note:** Circuit breaker functionality is deprecated as of PR #285. The pipeline now relies on PR-based reviews with human-visible feedback at every cycle, reducing the need for automated escalation thresholds.
-
-### Legacy Circuit Breaker (Deprecated)
-
-The circuit breaker tracked implementation cycles and escalated to humans when thresholds were exceeded:
-
-| Metric | Threshold | Action |
-|--------|-----------|--------|
-| Per-task review cycles | 3 | Escalate task to human |
-| Total pipeline cycles | 10 | Open circuit breaker, pause pipeline |
-
-This functionality has been replaced by the PR-based review workflow, which provides continuous human visibility without requiring explicit escalation triggers.
-
 
 ## Human-in-the-Loop Decisions
 
@@ -508,6 +482,24 @@ To add a new check:
 3. Register the check in `CHECK_REGISTRY` in `run_check.py`
 4. Add the check to phase defaults or contract-specific `phase_configs`
 
+### Check DAG Configuration
+
+The implement phase runs checks in a directed acyclic graph (DAG) order to optimize execution:
+
+```
+merge-fix ─┬─> lint ──┬─> fixer ─> review
+           └─> test ──┘
+```
+
+**Execution order:**
+
+1. **merge-fix** - Resolves merge conflicts with base branch (blocking)
+2. **lint** and **test** - Run in parallel after merge-fix completes
+3. **fixer** - Attempts auto-fixes for any failed checks
+4. **review** - PR-based code review (only runs if checks pass)
+
+This parallel execution reduces cycle time by running independent checks concurrently. The fixer step allows the agent to attempt automated corrections before requiring human intervention.
+
 ## Implementation Reference
 
 ### Key Files
@@ -523,8 +515,6 @@ To add a new check:
 | `.github/scripts/checks/*.py` | Built-in check implementations |
 | `.github/scripts/push-contract-update.sh` | Conflict-resistant contract push utility |
 | `action/build-sdlc-prompt.sh` | Phase-specific prompt builder (includes review feedback injection) |
-| `action/build-refine-review-prompt.sh` | Reviewer prompt for refine phase analysis |
-| `action/build-plan-review-prompt.sh` | Reviewer prompt for plan phase output |
 | `action/build-unified-review-prompt.sh` | Unified review prompt builder for all SDLC phases |
 | `action/populate-contract-tasks.py` | Extracts tasks from plan into contract |
 | `action/contract-state.sh` | Contract state management utility |
@@ -534,7 +524,6 @@ To add a new check:
 | `shared/egg_contracts/plan_parser.py` | Parses plan documents for task extraction |
 | `shared/egg_contracts/roles.py` | Role definitions and field ownership |
 | `shared/egg_contracts/validator.py` | Mutation validation |
-| `shared/egg_contracts/circuit_breaker.py` | Escalation logic for review cycles |
 | `shared/egg_contracts/hitl.py` | Checkbox parsing and debounce |
 | `.egg/schemas/contract.schema.json` | JSON schema definition |
 | `.egg/phase-permissions.json` | Phase operation restrictions |
@@ -609,8 +598,6 @@ egg-contract add-decision --question "Which approach?" --options "A" "B" --forma
 # Create feedback comment for open-ended questions
 egg-contract add-feedback --question "What is the expected request volume?" --question "Should we support legacy browsers?" --format markdown
 ```
-
-**Note:** `mark-task` and `mark-phase` commands (previously used by the dedicated reviewer agent) are deprecated as of PR #285. Task validation now happens via PR-based code review.
 
 ---
 

@@ -47,13 +47,6 @@ class DecisionType(StrEnum):
     AUTO = "auto"
 
 
-class CircuitBreakerStatus(StrEnum):
-    """Circuit breaker status values."""
-
-    CLOSED = "closed"
-    OPEN = "open"
-
-
 class CheckStatus(StrEnum):
     """Status values for check results."""
 
@@ -178,16 +171,6 @@ class Decision(BaseModel):
     resolved_by: str | None = Field(default=None, description="Who resolved")
     resolved_at: datetime | None = Field(default=None, description="When resolved")
     debounce_until: datetime | None = Field(default=None, description="Debounce expiration")
-
-
-class CircuitBreaker(BaseModel):
-    """Circuit breaker state for pipeline."""
-
-    total_cycles: int = Field(default=0, ge=0, description="Total pipeline cycles")
-    max_total_cycles: int = Field(default=10, ge=1, description="Max cycles before escalation")
-    status: CircuitBreakerStatus = Field(
-        default=CircuitBreakerStatus.CLOSED, description="Circuit breaker status"
-    )
 
 
 class PRMetadata(BaseModel):
@@ -321,9 +304,6 @@ class Contract(BaseModel):
     )
     phases: list[Phase] = Field(default_factory=list, description="Implementation phases")
     decisions: list[Decision] = Field(default_factory=list, description="HITL decisions")
-    circuit_breaker: CircuitBreaker = Field(
-        default_factory=CircuitBreaker, description="Circuit breaker state"
-    )
     workflow_owner: str | None = Field(
         default=None,
         description="GitHub username of the user who initiated the SDLC workflow",

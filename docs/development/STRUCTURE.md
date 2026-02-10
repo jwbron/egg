@@ -98,7 +98,7 @@ sandbox/
 shared/
 ├── egg_config/             # Configuration utilities
 │   └── constants.py        # Centralized constants (ports, networks, container names)
-├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, circuit breaker, HITL, feedback, phase checks
+├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks
 │   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig
 │   └── phase_defaults.py   # Default check configurations per SDLC phase
 ├── egg_git/                # Git utilities
@@ -129,7 +129,6 @@ integration_tests/
     ├── conftest.py                # SDLC test fixtures
     ├── test_happy_path.py         # Full pipeline success flow
     ├── test_review_rejection.py   # Reviewer rejection and fix cycles
-    ├── test_circuit_breaker.py    # Circuit breaker escalation
     ├── test_hitl_flow.py          # Human-in-the-loop decision flow
     └── test_role_enforcement.py   # Role-based mutation enforcement
 ```
@@ -167,11 +166,8 @@ action/
 ├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder
 ├── build-conflict-prompt.sh                # Conflict resolution workflow prompt builder
 ├── build-sdlc-prompt.sh                    # SDLC pipeline prompt builder
-├── build-refine-review-prompt.sh           # Refine phase review prompt builder
-├── build-plan-review-prompt.sh             # Plan phase review prompt builder
 ├── build-unified-review-prompt.sh          # Unified review prompt builder for all SDLC phases
 ├── contract-state.sh                       # Contract state management utility
-├── escalate.sh                             # SDLC pipeline escalation handler
 ├── populate-contract-tasks.py              # Populates contract tasks from plan document
 ├── autofixer-conventions.md                # Guidelines for autofixer behavior
 ├── conflict-conventions.md                 # Guidelines for conflict resolution via rebase

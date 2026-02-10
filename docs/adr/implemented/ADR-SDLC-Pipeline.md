@@ -16,7 +16,7 @@ For operational details, CLI commands, and triggering instructions, see the [SDL
 **Key properties:**
 - **Phased execution**: Work progresses through defined phases (refine → plan → implement → pr)
 - **Role-based control**: Implementer, Reviewer, and Human roles have distinct permissions
-- **Automatic escalation**: Circuit breaker triggers human intervention when thresholds are exceeded
+- **Human-in-the-loop**: Critical transitions pause for human approval
 - **Audit trail**: All mutations are logged for accountability
 
 ---
@@ -27,9 +27,9 @@ Autonomous agents operating on codebases require oversight to ensure quality and
 
 1. **Prompt injection risk**: Agents may be tricked into bypassing instructions
 2. **Model drift**: Agent behavior may vary across runs
-3. **Infinite loops**: Without circuit breakers, agents may cycle indefinitely
+3. **Infinite loops**: Without human oversight, agents may cycle indefinitely
 
-This architecture implements **structural enforcement**: the agent physically cannot perform certain operations without appropriate role authorization, regardless of its instructions.
+This architecture implements **structural enforcement**: the agent physically cannot perform certain operations without appropriate role authorization, regardless of its instructions. PR-based reviews provide human visibility at every cycle, preventing runaway execution.
 
 ---
 
@@ -41,7 +41,7 @@ This architecture implements **structural enforcement**: the agent physically ca
 |--------|------------|
 | Agent self-approves work | Role-based mutations prevent implementer from marking tasks complete |
 | Agent skips review phase | Phase transitions require reviewer or human role |
-| Agent loops indefinitely | Circuit breaker opens after threshold cycles |
+| Agent loops indefinitely | PR-based reviews provide human visibility at every cycle |
 | Agent modifies own permissions | Role comes from workflow context, not agent environment |
 | Changes lack accountability | Audit log tracks all mutations with role and actor |
 
@@ -74,7 +74,6 @@ This architecture does **not** protect against:
 │  │  - Current phase                                                │    │
 │  │  - Phases with tasks                                            │    │
 │  │  - Task status and commits                                      │    │
-│  │  - Circuit breaker state                                        │    │
 │  │  - Audit log                                                    │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                              │                                          │
@@ -122,7 +121,7 @@ This architecture does **not** protect against:
 | Role | Can Modify | Cannot Modify |
 |------|------------|---------------|
 | **Implementer** | Task commit, notes, files_affected | Task status, phase status, current_phase |
-| **Reviewer** | Task status, phase status, current_phase, acceptance_criteria.verified (deprecated as of PR #285) | Task commit, notes, decision resolution |
+| **Reviewer** | Task status, phase status, current_phase | Task commit, notes, decision resolution |
 | **Human** | All fields | — |
 | **System** | Initial contract creation | Owned fields after creation |
 
@@ -157,49 +156,10 @@ The contract is a JSON document that tracks the complete state of an issue throu
       ]
     }
   ],
-  "circuit_breaker": {
-    "status": "closed",
-    "total_cycles": 3
-  },
   "workflow_owner": "jwbron",
   "audit_log": [...]
 }
 ```
-
----
-
-## Circuit Breaker (Deprecated)
-
-**Note:** Circuit breaker functionality is deprecated as of PR #285. The pipeline now relies on PR-based reviews with human-visible feedback at every cycle, reducing the need for automated escalation thresholds.
-
-The circuit breaker was designed to prevent infinite implement→review cycles by triggering human intervention when thresholds were exceeded.
-
-### Legacy Thresholds
-
-| Threshold | Default | Description |
-|-----------|---------|-------------|
-| Per-task cycles | 3 | Max rejections before task escalates |
-| Phase cycles | 3 | Max phase-level review cycles |
-| Pipeline total | 10 | Max total cycles across all tasks |
-
-### Legacy State Transitions
-
-```
-     ┌──────────────────────────────────────────┐
-     │                                          │
-     ▼                                          │
-┌─────────┐  threshold exceeded   ┌─────────┐   │
-│ CLOSED  │ ────────────────────▶ │  OPEN   │   │
-└─────────┘                       └─────────┘   │
-     ▲                                 │        │
-     │                                 │        │
-     │     human provides guidance     │        │
-     └─────────────────────────────────┘        │
-                                                │
-     pipeline resumes ──────────────────────────┘
-```
-
-This functionality has been replaced by the PR-based review workflow, which provides continuous human visibility without requiring explicit escalation triggers.
 
 ---
 
@@ -281,6 +241,15 @@ jobs:
 ```
 
 **Note:** As of PR #460, the pipeline was consolidated from separate phase jobs (implement, wait-for-checks, finalize-pr) into a unified `work-loop` job. Code review now happens through PR comments via `reusable-review.yml` (introduced in PR #285) instead of a separate reviewer agent.
+
+### Unified Work Loop Architecture
+
+The pipeline uses a single reusable workflow (`.github/workflows/sdlc-work-loop.yml`) for all SDLC phases. This design:
+
+- **Reduces duplication**: Single workflow handles refine, plan, and implement phases
+- **Simplifies maintenance**: Changes to the work/review/respond cycle are made in one place
+- **Collocates check scripts**: Phase validation scripts live in `.github/scripts/` alongside workflows
+- **Provides check DAG**: Checks run in dependency order (merge-fix → parallel lint/test → fixer → review)
 
 ### HITL Workflow
 
@@ -366,7 +335,6 @@ All components have been implemented:
 - [x] Agent CLI for contracts
 - [x] SDLC pipeline workflow
 - [x] HITL checkbox handling
-- [x] Circuit breaker logic
 - [x] External failure handling
 - [x] Integration tests
 - [x] Documentation (this ADR + [operational guide](../../guides/sdlc-pipeline.md))

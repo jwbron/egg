@@ -14,8 +14,6 @@ from tempfile import TemporaryDirectory
 
 import pytest
 from egg_contracts import (
-    AuditRole,
-    CircuitBreakerStatus,
     Contract,
     Decision,
     DecisionType,
@@ -27,7 +25,6 @@ from egg_contracts import (
     Task,
     TaskStatus,
     apply_mutation,
-    close_circuit_breaker,
     load_contract,
     save_contract,
 )
@@ -71,7 +68,7 @@ def sample_issue_info():
 @pytest.fixture
 def escalated_contract(sample_issue_info):
     """Create a contract that has escalated and needs HITL."""
-    contract = Contract(
+    return Contract(
         schemaVersion="1.0",
         issue=sample_issue_info,
         current_phase=PipelinePhase.IMPLEMENT,
@@ -94,8 +91,6 @@ def escalated_contract(sample_issue_info):
             ),
         ],
     )
-    contract.circuit_breaker.status = CircuitBreakerStatus.OPEN
-    return contract
 
 
 class TestHitlCheckboxGeneration:
@@ -449,25 +444,6 @@ class TestHitlContractIntegration:
         assert loaded.decisions[0].resolved is True
         assert "examples" in loaded.decisions[0].resolution
 
-    def test_close_circuit_breaker_after_hitl(self, temp_repo, escalated_contract):
-        """Circuit breaker closes after HITL decision."""
-        assert escalated_contract.circuit_breaker.status == CircuitBreakerStatus.OPEN
-        save_contract(escalated_contract, temp_repo)
-
-        # Human provides guidance and closes circuit breaker
-        contract = load_contract(400, temp_repo)
-        contract = close_circuit_breaker(
-            contract,
-            actor="reviewer",
-            role=AuditRole.HUMAN,
-            reason="Provided guidance on stuck task",
-        )
-        save_contract(contract, temp_repo)
-
-        loaded = load_contract(400, temp_repo)
-        assert loaded.circuit_breaker.status == CircuitBreakerStatus.CLOSED
-
-
 class TestHitlEndToEnd:
     """End-to-end tests for HITL workflow."""
 
@@ -500,16 +476,5 @@ class TestHitlEndToEnd:
         state.debounce_until = datetime.now(UTC) - timedelta(seconds=10)
         assert should_process_decision(state) is True
 
-        # Step 6: Process decision and close circuit breaker
-        contract = load_contract(400, temp_repo)
-        contract = close_circuit_breaker(
-            contract,
-            actor="reviewer",
-            role=AuditRole.HUMAN,
-            reason="Human selected: provide additional context",
-        )
-        save_contract(contract, temp_repo)
-
-        # Step 7: Verify pipeline can resume
-        final = load_contract(400, temp_repo)
-        assert final.circuit_breaker.status == CircuitBreakerStatus.CLOSED
+        # Step 6: Decision is ready to be processed - pipeline can resume
+        # The human's decision has been captured and debounce has expired
