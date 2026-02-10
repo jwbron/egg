@@ -86,6 +86,10 @@ on:
         description: 'GitHub username of the bot'
         required: false
         type: string
+      branch_prefix:
+        description: 'Branch prefix for the bot (e.g., "egg")'
+        required: false
+        type: string
       workflow_owner:
         description: 'GitHub username who initiated the workflow'
         required: false
@@ -138,6 +142,7 @@ jobs:
       work_timeout: ${{ steps.resolve.outputs.work_timeout }}
       review_timeout: ${{ steps.resolve.outputs.review_timeout }}
       bot_username: ${{ steps.resolve.outputs.bot_username }}
+      branch_prefix: ${{ steps.resolve.outputs.branch_prefix }}
       workflow_owner: ${{ steps.resolve.outputs.workflow_owner }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
     steps:
@@ -246,6 +251,7 @@ jobs:
             echo "work_timeout=${{ inputs.work_timeout || '30' }}"
             echo "review_timeout=${{ inputs.review_timeout || '30' }}"
             echo "bot_username=${{ inputs.bot_username }}"
+            echo "branch_prefix=${{ inputs.branch_prefix }}"
             echo "workflow_owner=${{ inputs.workflow_owner || '' }}"
             echo "pr_number=${{ inputs.pr_number || '0' }}"
           } >> "$GITHUB_OUTPUT"
@@ -270,6 +276,7 @@ jobs:
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
       BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       WORK_TIMEOUT: ${{ needs.resolve-inputs.outputs.work_timeout }}
 
     steps:
@@ -389,6 +396,7 @@ jobs:
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.BOT_USERNAME }}
+          bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ env.WORK_TIMEOUT }}
         env:
           EGG_AGENT_ROLE: implementer
@@ -829,6 +837,7 @@ jobs:
       ISSUE_NUMBER: ${{ needs.resolve-inputs.outputs.issue_number }}
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
       BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       REVIEW_TIMEOUT: ${{ needs.resolve-inputs.outputs.review_timeout }}
       REVIEWER_NAME: ${{ matrix.name }}
       REVIEWER_SCRIPT: ${{ matrix.script }}
@@ -888,6 +897,7 @@ jobs:
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.BOT_USERNAME }}
+          bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ env.REVIEW_TIMEOUT }}
         env:
           EGG_AGENT_ROLE: reviewer

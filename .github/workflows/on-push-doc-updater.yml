@@ -40,6 +40,10 @@ on:
         required: false
         type: boolean
         default: false
+      branch_prefix:
+        description: 'Branch prefix for the bot (e.g., egg)'
+        required: false
+        type: string
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
@@ -107,6 +111,7 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          bot-branch-prefix: ${{ inputs.branch_prefix || vars.EGG_BRANCH_PREFIX }}
           github-token: ${{ steps.bot-token.outputs.token }}
           timeout: "20"
         env:

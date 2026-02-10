@@ -47,6 +47,10 @@ on:
         description: 'GitHub username of the bot'
         required: false
         type: string
+      branch_prefix:
+        description: 'Branch prefix for the bot (e.g., "egg")'
+        required: false
+        type: string
       timeout:
         description: 'Timeout in minutes for agent execution'
         required: false
@@ -299,6 +303,7 @@ jobs:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
       BOT_USERNAME: ${{ inputs.bot_username }}
+      BRANCH_PREFIX: ${{ inputs.branch_prefix }}
       TIMEOUT: ${{ inputs.timeout || '30' }}
 
     steps:
@@ -371,6 +376,7 @@ jobs:
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.BOT_USERNAME }}
+          bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ env.TIMEOUT }}
         env:
           EGG_AGENT_ROLE: coder
@@ -450,6 +456,7 @@ jobs:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
       BOT_USERNAME: ${{ inputs.bot_username }}
+      BRANCH_PREFIX: ${{ inputs.branch_prefix }}
       TIMEOUT: ${{ inputs.timeout || '30' }}
 
     steps:
@@ -519,6 +526,7 @@ jobs:
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.BOT_USERNAME }}
+          bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ env.TIMEOUT }}
         env:
           EGG_AGENT_ROLE: tester
@@ -582,6 +590,7 @@ jobs:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
       BOT_USERNAME: ${{ inputs.bot_username }}
+      BRANCH_PREFIX: ${{ inputs.branch_prefix }}
       TIMEOUT: ${{ inputs.timeout || '30' }}
 
     steps:
@@ -647,6 +656,7 @@ jobs:
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.BOT_USERNAME }}
+          bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ env.TIMEOUT }}
         env:
           EGG_AGENT_ROLE: documenter
@@ -712,6 +722,7 @@ jobs:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
       BRANCH_NAME: ${{ inputs.branch_name }}
       BOT_USERNAME: ${{ inputs.bot_username }}
+      BRANCH_PREFIX: ${{ inputs.branch_prefix }}
       TIMEOUT: ${{ inputs.timeout || '30' }}
 
     steps:
@@ -777,6 +788,7 @@ jobs:
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.BOT_USERNAME }}
+          bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ env.TIMEOUT }}
         env:
           EGG_AGENT_ROLE: integrator

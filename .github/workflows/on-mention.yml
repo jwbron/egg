@@ -24,6 +24,10 @@ on:
         description: 'GitHub username of the bot (for self-trigger prevention and comment filtering)'
         required: false
         type: string
+      branch_prefix:
+        description: 'Branch prefix for the bot (e.g., egg)'
+        required: false
+        type: string
       action_ref:
         description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
         required: false
@@ -79,6 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       bot_username: ${{ steps.resolve.outputs.bot_username }}
+      branch_prefix: ${{ steps.resolve.outputs.branch_prefix }}
       authorized_users: ${{ steps.resolve.outputs.authorized_users }}
       issue_or_pr_number: ${{ steps.resolve.outputs.issue_or_pr_number }}
       should_check_trigger: ${{ steps.resolve.outputs.should_check_trigger }}
@@ -89,8 +94,10 @@ jobs:
           # Use inputs if called as reusable workflow, otherwise use repository variables
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
             echo "bot_username=${{ inputs.bot_username }}" >> "$GITHUB_OUTPUT"
+            echo "branch_prefix=${{ inputs.branch_prefix }}" >> "$GITHUB_OUTPUT"
           else
             echo "bot_username=${{ vars.EGG_BOT_USERNAME }}" >> "$GITHUB_OUTPUT"
+            echo "branch_prefix=${{ vars.EGG_BRANCH_PREFIX }}" >> "$GITHUB_OUTPUT"
           fi
           echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}" >> "$GITHUB_OUTPUT"
 
@@ -200,6 +207,7 @@ jobs:
 
     env:
       BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
+      BRANCH_PREFIX: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       ISSUE_OR_PR_NUMBER: ${{ needs.resolve-inputs.outputs.issue_or_pr_number }}
 
     steps:
@@ -303,6 +311,7 @@ jobs:
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.BOT_USERNAME }}
+          bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ inputs.timeout || '30' }}
 
       # Minimize previous status comments to reduce clutter

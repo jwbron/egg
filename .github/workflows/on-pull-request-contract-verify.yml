@@ -89,6 +89,7 @@ jobs:
       pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
       bot_name: contract-verification
       bot_username: ${{ vars.EGG_BOT_USERNAME }}
+      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
       # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
       prompt_script: "action/build-contract-verification-prompt.sh"
       timeout: "15"

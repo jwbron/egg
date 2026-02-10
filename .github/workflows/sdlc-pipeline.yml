@@ -555,6 +555,7 @@ jobs:
       issue_number: ${{ fromJSON(needs.init.outputs.issue_number) }}
       branch_name: ${{ needs.init.outputs.branch_name }}
       bot_username: ${{ needs.resolve-inputs.outputs.bot_username }}
+      branch_prefix: ${{ needs.resolve-inputs.outputs.branch_prefix }}
       workflow_owner: ${{ needs.init.outputs.workflow_owner }}
       pr_number: ${{ fromJSON(needs.init.outputs.pr_number) }}
       # Phase-specific timeouts
