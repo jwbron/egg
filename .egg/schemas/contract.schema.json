@@ -266,6 +266,13 @@
           "default": null,
           "x-role-owner": "implementer"
         },
+        "checkpoint_id": {
+          "type": ["string", "null"],
+          "description": "Checkpoint ID associated with this task's commit",
+          "pattern": "^ckpt-[a-f0-9]{8,16}$",
+          "default": null,
+          "x-role-owner": "implementer"
+        },
         "notes": {
           "type": "string",
           "description": "Implementation notes",
@@ -632,6 +639,12 @@
         "reason": {
           "type": "string",
           "description": "Reason for the change"
+        },
+        "checkpoint_id": {
+          "type": ["string", "null"],
+          "description": "Checkpoint ID if this audit entry relates to a commit with a checkpoint",
+          "pattern": "^ckpt-[a-f0-9]{8,16}$",
+          "default": null
         }
       },
       "additionalProperties": false
@@ -668,6 +681,12 @@
           "type": ["string", "null"],
           "description": "Git commit SHA if agent made changes",
           "pattern": "^[a-f0-9]{7,40}$",
+          "default": null
+        },
+        "checkpoint_id": {
+          "type": ["string", "null"],
+          "description": "Checkpoint ID associated with agent's commit",
+          "pattern": "^ckpt-[a-f0-9]{8,16}$",
           "default": null
         },
         "outputs": {
