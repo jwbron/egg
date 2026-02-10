@@ -18,6 +18,89 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
+# Fetch PR context from GitHub API
+# ---------------------------------------------------------------------------
+
+fetch_pr_context() {
+    local pr_json
+    pr_json=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" 2>/dev/null || echo "{}")
+
+    local pr_title pr_body pr_author base_ref head_ref
+    pr_title=$(echo "$pr_json" | jq -r '.title // ""')
+    pr_body=$(echo "$pr_json" | jq -r '.body // ""')
+    pr_author=$(echo "$pr_json" | jq -r '.user.login // ""')
+    base_ref=$(echo "$pr_json" | jq -r '.base.ref // "main"')
+    head_ref=$(echo "$pr_json" | jq -r '.head.ref // ""')
+
+    if [[ -n "$pr_title" ]]; then
+        cat <<EOF
+## PR Context
+
+**Title:** ${pr_title}
+**Author:** ${pr_author}
+**Branch:** ${head_ref} → ${base_ref}
+
+**Description:**
+${pr_body:-"(No description provided)"}
+EOF
+    fi
+}
+
+fetch_commit_messages() {
+    local base_ref="${BASE_REF:-main}"
+
+    # Get commits unique to the PR branch (not in base)
+    local pr_commits
+    pr_commits=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits" 2>/dev/null \
+        | jq -r '.[] | "- \(.sha[0:7]): \(.commit.message | split("\n")[0])"' 2>/dev/null \
+        | head -20 || echo "")
+
+    # Get recent commits on base branch
+    local base_commits
+    base_commits=$(gh api "repos/${GITHUB_REPOSITORY}/commits?sha=${base_ref}&per_page=10" 2>/dev/null \
+        | jq -r '.[] | "- \(.sha[0:7]): \(.commit.message | split("\n")[0])"' 2>/dev/null \
+        | head -10 || echo "")
+
+    if [[ -n "$pr_commits" || -n "$base_commits" ]]; then
+        cat <<EOF
+
+## Commit History
+
+### PR Branch Commits (what this PR adds):
+${pr_commits:-"(Unable to fetch commits)"}
+
+### Recent Base Branch Commits (what's being merged in):
+${base_commits:-"(Unable to fetch commits)"}
+EOF
+    fi
+}
+
+fetch_review_comments() {
+    # Get review comments that might inform conflict resolution
+    local comments
+    comments=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments" 2>/dev/null \
+        | jq -r '.[] | select(.body | test("conflict|merge|rebase|fix"; "i") | not) | "**@\(.user.login)** on \(.path):\n\(.body)\n"' 2>/dev/null \
+        | head -c 2000 || echo "")
+
+    # Get general PR comments
+    local pr_comments
+    pr_comments=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" 2>/dev/null \
+        | jq -r '.[] | select(.user.login | test("\\[bot\\]$") | not) | select(.body | contains("<!-- egg-") | not) | "**@\(.user.login):** \(.body | split("\n")[0])"' 2>/dev/null \
+        | head -20 || echo "")
+
+    if [[ -n "$comments" || -n "$pr_comments" ]]; then
+        cat <<EOF
+
+## Review Feedback
+
+These comments may provide context for how to resolve conflicts:
+
+${comments}${pr_comments:-"(No relevant review comments)"}
+EOF
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Fetch conflict resolution rules (or use defaults)
 # ---------------------------------------------------------------------------
 
@@ -65,8 +148,16 @@ build_prompt() {
 
     local base_ref="${BASE_REF:-main}"
 
+    # Fetch enhanced context from GitHub API
+    local pr_context commit_messages review_comments
+    pr_context=$(fetch_pr_context)
+    commit_messages=$(fetch_commit_messages)
+    review_comments=$(fetch_review_comments)
+
     local prompt
     prompt="Resolve merge conflicts on PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
+
+${pr_context}
 
 The PR has conflicts with the \`${base_ref}\` branch that need to be resolved.
 
@@ -112,9 +203,21 @@ Using merge instead of rebase preserves the PR's commit history. If the resoluti
    - Post a comment explaining what went wrong
    - You may attempt another merge with a different resolution strategy
 
+${commit_messages}
+
+${review_comments}
+
 ## Conflict Resolution Rules
 
 ${conflict_rules}
+
+## Semantic Analysis
+
+When resolving conflicts, consider:
+1. **What is each side trying to accomplish?** Read the commit messages and PR description.
+2. **Are the changes complementary or contradictory?** Additive changes can often be merged; contradictory logic needs human input.
+3. **Does the resolution maintain the intent of both changes?** The goal is to preserve both contributions, not pick a winner.
+4. **What would break if you choose wrong?** Tests, type checking, and runtime behavior—verify all three.
 
 ## Conventions
 
