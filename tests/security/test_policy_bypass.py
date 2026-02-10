@@ -117,7 +117,12 @@ class TestProtectedBranchEnforcement:
         """
         # Mock a PR that would normally grant access
         policy_engine.github.list_prs_for_branch.return_value = [
-            {"number": 1, "author": {"login": "james-in-a-box"}, "state": "open", "headRefName": branch}
+            {
+                "number": 1,
+                "author": {"login": "james-in-a-box"},
+                "state": "open",
+                "headRefName": branch,
+            }
         ]
         policy_engine.github.get_pr_info.return_value = {
             "number": 1,

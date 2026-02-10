@@ -454,10 +454,7 @@ class Contract(BaseModel):
         Returns:
             List of AgentExecutionModel with PENDING status
         """
-        return [
-            ex for ex in self.agent_executions
-            if ex.status == AgentExecutionStatus.PENDING
-        ]
+        return [ex for ex in self.agent_executions if ex.status == AgentExecutionStatus.PENDING]
 
     def get_running_agents(self) -> list[AgentExecutionModel]:
         """Get all agents that are currently running.
@@ -465,10 +462,7 @@ class Contract(BaseModel):
         Returns:
             List of AgentExecutionModel with RUNNING status
         """
-        return [
-            ex for ex in self.agent_executions
-            if ex.status == AgentExecutionStatus.RUNNING
-        ]
+        return [ex for ex in self.agent_executions if ex.status == AgentExecutionStatus.RUNNING]
 
     def get_completed_agents(self) -> list[AgentExecutionModel]:
         """Get all agents that have completed (successfully).
@@ -476,10 +470,7 @@ class Contract(BaseModel):
         Returns:
             List of AgentExecutionModel with COMPLETE status
         """
-        return [
-            ex for ex in self.agent_executions
-            if ex.status == AgentExecutionStatus.COMPLETE
-        ]
+        return [ex for ex in self.agent_executions if ex.status == AgentExecutionStatus.COMPLETE]
 
     def get_failed_agents(self) -> list[AgentExecutionModel]:
         """Get all agents that have failed.
@@ -487,10 +478,7 @@ class Contract(BaseModel):
         Returns:
             List of AgentExecutionModel with FAILED status
         """
-        return [
-            ex for ex in self.agent_executions
-            if ex.status == AgentExecutionStatus.FAILED
-        ]
+        return [ex for ex in self.agent_executions if ex.status == AgentExecutionStatus.FAILED]
 
     def all_agents_complete(self) -> bool:
         """Check if all agents have completed (successfully or skipped).

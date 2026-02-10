@@ -25,7 +25,6 @@ from egg_contracts.agent_recovery import (
 )
 from egg_contracts.agent_roles import AgentRole
 
-
 # ---------------------------------------------------------------------------
 # AgentRetryManager
 # ---------------------------------------------------------------------------
@@ -190,8 +189,10 @@ class TestConflictDetector:
     def test_check_file_overlap_detects_overlap(self):
         detector = ConflictDetector(repo_path=Path("/tmp/test-repo"))
         conflicts = detector.check_file_overlap(
-            ["src/a.py", "src/b.py"], AgentRole.CODER,
-            ["src/b.py", "tests/test_b.py"], AgentRole.TESTER,
+            ["src/a.py", "src/b.py"],
+            AgentRole.CODER,
+            ["src/b.py", "tests/test_b.py"],
+            AgentRole.TESTER,
         )
         assert len(conflicts) == 1
         assert "src/b.py" in conflicts[0].conflicting_files
@@ -202,8 +203,10 @@ class TestConflictDetector:
     def test_check_file_overlap_no_overlap(self):
         detector = ConflictDetector(repo_path=Path("/tmp/test-repo"))
         conflicts = detector.check_file_overlap(
-            ["src/a.py"], AgentRole.CODER,
-            ["tests/test_a.py"], AgentRole.TESTER,
+            ["src/a.py"],
+            AgentRole.CODER,
+            ["tests/test_a.py"],
+            AgentRole.TESTER,
         )
         assert len(conflicts) == 0
 
@@ -230,16 +233,20 @@ class TestConflictDetector:
         detector = ConflictDetector(repo_path=Path("/tmp/test-repo"))
         assert not detector.has_conflicts()
         detector.check_file_overlap(
-            ["src/a.py"], AgentRole.CODER,
-            ["src/a.py"], AgentRole.TESTER,
+            ["src/a.py"],
+            AgentRole.CODER,
+            ["src/a.py"],
+            AgentRole.TESTER,
         )
         assert detector.has_conflicts()
 
     def test_clear_conflicts(self):
         detector = ConflictDetector(repo_path=Path("/tmp/test-repo"))
         detector.check_file_overlap(
-            ["src/a.py"], AgentRole.CODER,
-            ["src/a.py"], AgentRole.TESTER,
+            ["src/a.py"],
+            AgentRole.CODER,
+            ["src/a.py"],
+            AgentRole.TESTER,
         )
         detector.clear_conflicts()
         assert not detector.has_conflicts()
@@ -247,8 +254,10 @@ class TestConflictDetector:
     def test_get_all_conflicts_returns_copy(self):
         detector = ConflictDetector(repo_path=Path("/tmp/test-repo"))
         detector.check_file_overlap(
-            ["src/a.py"], AgentRole.CODER,
-            ["src/a.py"], AgentRole.TESTER,
+            ["src/a.py"],
+            AgentRole.CODER,
+            ["src/a.py"],
+            AgentRole.TESTER,
         )
         conflicts = detector.get_all_conflicts()
         conflicts.clear()
@@ -276,10 +285,14 @@ class TestConflictDetector:
     def test_check_for_merge_conflicts_with_conflicts(self):
         """Mock git to return conflicting files."""
         detector = ConflictDetector(repo_path=Path("/tmp/test-repo"))
-        mock_result = type("Result", (), {
-            "returncode": 0,
-            "stdout": "src/a.py\nsrc/b.py\n",
-        })()
+        mock_result = type(
+            "Result",
+            (),
+            {
+                "returncode": 0,
+                "stdout": "src/a.py\nsrc/b.py\n",
+            },
+        )()
         with patch("subprocess.run", return_value=mock_result):
             conflicts = detector.check_for_merge_conflicts()
         assert len(conflicts) == 1
@@ -290,10 +303,14 @@ class TestConflictDetector:
     def test_check_for_merge_conflicts_clean(self):
         """Mock git to return no conflicts."""
         detector = ConflictDetector(repo_path=Path("/tmp/test-repo"))
-        mock_result = type("Result", (), {
-            "returncode": 0,
-            "stdout": "",
-        })()
+        mock_result = type(
+            "Result",
+            (),
+            {
+                "returncode": 0,
+                "stdout": "",
+            },
+        )()
         with patch("subprocess.run", return_value=mock_result):
             conflicts = detector.check_for_merge_conflicts()
         assert len(conflicts) == 0
@@ -353,10 +370,12 @@ class TestAgentCircuitBreaker:
         assert cb.is_open()
 
     def test_transitions_to_half_open_after_timeout(self):
-        cb = AgentCircuitBreaker(CircuitBreakerConfig(
-            failure_threshold=1,
-            reset_timeout_seconds=60,
-        ))
+        cb = AgentCircuitBreaker(
+            CircuitBreakerConfig(
+                failure_threshold=1,
+                reset_timeout_seconds=60,
+            )
+        )
         cb.record_failure(AgentRole.CODER)
         assert cb.state == CircuitState.OPEN
 
@@ -366,11 +385,13 @@ class TestAgentCircuitBreaker:
         assert cb.state == CircuitState.HALF_OPEN
 
     def test_half_open_closes_on_success_threshold(self):
-        cb = AgentCircuitBreaker(CircuitBreakerConfig(
-            failure_threshold=1,
-            reset_timeout_seconds=0,  # immediate transition
-            success_threshold=2,
-        ))
+        cb = AgentCircuitBreaker(
+            CircuitBreakerConfig(
+                failure_threshold=1,
+                reset_timeout_seconds=0,  # immediate transition
+                success_threshold=2,
+            )
+        )
         cb.record_failure(AgentRole.CODER)
         assert cb.state == CircuitState.OPEN
 
@@ -384,10 +405,12 @@ class TestAgentCircuitBreaker:
         assert cb.state == CircuitState.CLOSED
 
     def test_half_open_reopens_on_failure(self):
-        cb = AgentCircuitBreaker(CircuitBreakerConfig(
-            failure_threshold=1,
-            reset_timeout_seconds=0,
-        ))
+        cb = AgentCircuitBreaker(
+            CircuitBreakerConfig(
+                failure_threshold=1,
+                reset_timeout_seconds=0,
+            )
+        )
         cb.record_failure(AgentRole.CODER)
         cb.can_execute()  # transition to half-open
         assert cb.state == CircuitState.HALF_OPEN
@@ -397,10 +420,12 @@ class TestAgentCircuitBreaker:
 
     def test_state_property_is_side_effect_free(self):
         """Reading .state should not mutate the breaker's state."""
-        cb = AgentCircuitBreaker(CircuitBreakerConfig(
-            failure_threshold=1,
-            reset_timeout_seconds=0,
-        ))
+        cb = AgentCircuitBreaker(
+            CircuitBreakerConfig(
+                failure_threshold=1,
+                reset_timeout_seconds=0,
+            )
+        )
         cb.record_failure(AgentRole.CODER)
         assert cb.state == CircuitState.OPEN
 

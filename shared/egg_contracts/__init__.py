@@ -34,11 +34,51 @@ Usage:
     )
 """
 
+from .agent_recovery import (
+    AgentCircuitBreaker,
+    AgentRetryConfig,
+    AgentRetryManager,
+    CircuitBreakerConfig,
+    CircuitState,
+    ConflictDetector,
+    ConflictInfo,
+    RetryDecision,
+    RetryPolicy,
+    create_circuit_breaker,
+    create_retry_manager,
+)
+from .agent_roles import (
+    AGENT_ROLES,
+    CODER_ROLE,
+    DOCUMENTER_ROLE,
+    INTEGRATOR_ROLE,
+    TESTER_ROLE,
+    AgentExecution,
+    AgentRole,
+    AgentRoleDefinition,
+    AgentStatus,
+    FileAccessPattern,
+    can_run_in_parallel,
+    create_execution_for_role,
+    get_all_roles,
+    get_role_definition,
+    get_role_dependencies,
+)
 from .audit import (
     create_audit_entry,
     create_transition_entry,
     create_update_entry,
     format_audit_log,
+)
+from .dependency_graph import (
+    DependencyGraph,
+    DependencyNode,
+    ExecutionPlan,
+    ExecutionWave,
+    build_dependency_graph,
+    compute_execution_plan,
+    format_execution_plan,
+    get_parallel_groups,
 )
 from .feedback import (
     FeedbackQuestionInput,
@@ -108,23 +148,6 @@ from .models import (
     Task,
     TaskStatus,
 )
-from .agent_roles import (
-    AGENT_ROLES,
-    AgentExecution,
-    AgentRole,
-    AgentRoleDefinition,
-    AgentStatus,
-    CODER_ROLE,
-    DOCUMENTER_ROLE,
-    FileAccessPattern,
-    INTEGRATOR_ROLE,
-    TESTER_ROLE,
-    can_run_in_parallel,
-    create_execution_for_role,
-    get_all_roles,
-    get_role_definition,
-    get_role_dependencies,
-)
 from .orchestration import (
     AgentHandoff,
     OrchestrationState,
@@ -133,16 +156,6 @@ from .orchestration import (
     get_runnable_agents,
     initialize_orchestration,
     update_contract_orchestration,
-)
-from .dependency_graph import (
-    DependencyGraph,
-    DependencyNode,
-    ExecutionPlan,
-    ExecutionWave,
-    build_dependency_graph,
-    compute_execution_plan,
-    format_execution_plan,
-    get_parallel_groups,
 )
 from .orchestrator import (
     AgentResult,
@@ -180,19 +193,6 @@ from .resilience import (
     parse_rate_limit_headers,
     retry_with_backoff,
     should_checkpoint_now,
-)
-from .agent_recovery import (
-    AgentCircuitBreaker,
-    AgentRetryConfig,
-    AgentRetryManager,
-    CircuitBreakerConfig,
-    CircuitState,
-    ConflictDetector,
-    ConflictInfo,
-    RetryDecision,
-    RetryPolicy,
-    create_circuit_breaker,
-    create_retry_manager,
 )
 from .roles import (
     FIELD_OWNERSHIP,

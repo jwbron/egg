@@ -627,7 +627,9 @@ def cmd_agent_status(args: argparse.Namespace) -> int:
         complete = sum(1 for e in agent_executions if e.get("status") == "complete")
         failed = sum(1 for e in agent_executions if e.get("status") == "failed")
 
-        print(f"Summary: {complete} complete, {running} running, {pending} pending, {failed} failed")
+        print(
+            f"Summary: {complete} complete, {running} running, {pending} pending, {failed} failed"
+        )
 
     return 0
 
@@ -641,7 +643,10 @@ def cmd_agent_start(args: argparse.Namespace) -> int:
 
     role = args.role.lower()
     if role not in VALID_AGENT_ROLES:
-        print(f"Error: Invalid agent role '{role}'. Valid roles: {', '.join(VALID_AGENT_ROLES)}", file=sys.stderr)
+        print(
+            f"Error: Invalid agent role '{role}'. Valid roles: {', '.join(VALID_AGENT_ROLES)}",
+            file=sys.stderr,
+        )
         return 1
 
     # Get current contract to find agent execution index
@@ -699,7 +704,10 @@ def cmd_agent_complete(args: argparse.Namespace) -> int:
 
     role = args.role.lower()
     if role not in VALID_AGENT_ROLES:
-        print(f"Error: Invalid agent role '{role}'. Valid roles: {', '.join(VALID_AGENT_ROLES)}", file=sys.stderr)
+        print(
+            f"Error: Invalid agent role '{role}'. Valid roles: {', '.join(VALID_AGENT_ROLES)}",
+            file=sys.stderr,
+        )
         return 1
 
     # Get current contract to find agent execution index
@@ -738,10 +746,12 @@ def cmd_agent_complete(args: argparse.Namespace) -> int:
     if args.commit:
         try:
             validate_commit_sha(args.commit)
-            updates.append({
-                "field_path": f"agent_executions.{exec_idx}.commit",
-                "new_value": args.commit,
-            })
+            updates.append(
+                {
+                    "field_path": f"agent_executions.{exec_idx}.commit",
+                    "new_value": args.commit,
+                }
+            )
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 1
@@ -779,7 +789,10 @@ def cmd_agent_fail(args: argparse.Namespace) -> int:
 
     role = args.role.lower()
     if role not in VALID_AGENT_ROLES:
-        print(f"Error: Invalid agent role '{role}'. Valid roles: {', '.join(VALID_AGENT_ROLES)}", file=sys.stderr)
+        print(
+            f"Error: Invalid agent role '{role}'. Valid roles: {', '.join(VALID_AGENT_ROLES)}",
+            file=sys.stderr,
+        )
         return 1
 
     # Get current contract to find agent execution index
@@ -912,9 +925,7 @@ def cmd_agent_next(args: argparse.Namespace) -> int:
                 role_enum = AgentRole(role)
                 role_def = get_role_definition(role_enum)
                 # Check if all dependencies are complete
-                deps_satisfied = all(
-                    dep.value in complete for dep in role_def.dependencies
-                )
+                deps_satisfied = all(dep.value in complete for dep in role_def.dependencies)
                 if deps_satisfied:
                     runnable.append(role)
             except (ValueError, KeyError):
@@ -1159,9 +1170,7 @@ def create_parser() -> argparse.ArgumentParser:
     agent_complete_parser.set_defaults(func=cmd_agent_complete)
 
     # agent-fail command
-    agent_fail_parser = subparsers.add_parser(
-        "agent-fail", help="Mark an agent as failed"
-    )
+    agent_fail_parser = subparsers.add_parser("agent-fail", help="Mark an agent as failed")
     agent_fail_parser.add_argument(
         "--role",
         required=True,
