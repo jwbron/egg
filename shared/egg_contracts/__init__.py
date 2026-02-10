@@ -144,6 +144,17 @@ from .dependency_graph import (
     format_execution_plan,
     get_parallel_groups,
 )
+from .orchestrator import (
+    AgentResult,
+    DispatchDecision,
+    Orchestrator,
+    collect_handoff_data,
+    create_orchestrator,
+    format_dispatch_for_workflow,
+    get_dispatch_for_contract,
+    load_agent_output,
+    save_agent_output,
+)
 from .phase_defaults import (
     get_default_phase_config,
     get_effective_phase_config,
@@ -327,4 +338,14 @@ __all__ = [
     "compute_execution_plan",
     "format_execution_plan",
     "get_parallel_groups",
+    # Orchestrator
+    "AgentResult",
+    "DispatchDecision",
+    "Orchestrator",
+    "collect_handoff_data",
+    "create_orchestrator",
+    "format_dispatch_for_workflow",
+    "get_dispatch_for_contract",
+    "load_agent_output",
+    "save_agent_output",
 ]
