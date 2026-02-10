@@ -14,7 +14,7 @@ for how to call egg's workflows from your own repositories.
 | [AI Code Review](#ai-code-review) | PR opened/updated | Reviews code changes, posts feedback via `gh pr review` |
 | [Address Review Feedback](#address-review-feedback) | Review posted on bot PR | Automatically addresses review feedback, enabling review loops |
 | [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
-| [@mention Response](#mention-response) | `@egg` in issues/PR comments | Runs arbitrary tasks requested by authorized users |
+| [@mention Response](#mention-response) | Bot mention in issues/PR comments | Runs arbitrary tasks requested by authorized users |
 | [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
 | [Conflict Resolver](#conflict-resolver) | Push to main / every 2 hours / manual | Resolves merge conflicts via rebase |
 | [Self-Improvement](#self-improvement) | Nightly schedule (2 AM UTC) | Analyzes all runs for issues, creates tracking issues |
@@ -215,7 +215,7 @@ than providing general feedback that duplicates the base review.
 
 **Workflow:** [`.github/workflows/on-mention.yml`](../../.github/workflows/on-mention.yml)
 
-Triggers when an authorized user mentions `@egg` or `@james-in-a-box` in:
+Triggers when an authorized user mentions the configured bot in:
 - Issue comments
 - PR comments
 - PR review comments (inline code comments)
