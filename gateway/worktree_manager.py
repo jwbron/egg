@@ -41,7 +41,7 @@ logger = get_logger("gateway.worktree-manager")
 
 # Default paths - hardcoded to /home/egg to match container mounts
 # The gateway container runs as root but mounts are at /home/egg/*
-# (see start-gateway.sh CONTAINER_HOME and git_client.py ALLOWED_REPO_PATHS)
+# (see git_client.py ALLOWED_REPO_PATHS)
 WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 REPOS_BASE_DIR = Path("/home/egg/repos")
 

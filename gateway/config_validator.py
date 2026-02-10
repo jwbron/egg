@@ -46,7 +46,7 @@ def validate_config() -> None:
         if not launcher_secret_file.is_file():
             errors.append(
                 "Launcher secret not found: /secrets/launcher-secret\n"
-                "  Run setup.sh to generate launcher secret"
+                "  Run `egg --setup` to generate launcher secret"
             )
     else:
         errors.append(

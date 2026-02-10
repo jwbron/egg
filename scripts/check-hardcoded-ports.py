@@ -37,8 +37,6 @@ ALLOWLIST_PATHS = [
     "shared/egg_config/constants.py",
     # Shell scripts cannot import Python modules
     "gateway/entrypoint.sh",
-    "gateway/start-gateway.sh",
-    "gateway/setup.sh",
     # Gateway Python module has its own DEFAULT_PORT (source of truth for gateway)
     "gateway/gateway.py",
     # Gateway tests may need hardcoded values

@@ -71,7 +71,7 @@ def main() -> None:
     """CLI entrypoint for setup scripts to get repo paths.
 
     When called from shell, prints one repo path per line.
-    This allows setup.sh to use the same parsing logic as egg.
+    This allows external tools to use the same parsing logic as egg.
 
     Usage:
         python -m egg_config.config  # Print all configured repo paths
