@@ -253,6 +253,103 @@ Each agent invocation runs in a fresh container with no memory of previous runs.
 
 This prevents context pollution and ensures reproducible behavior. When the implementer is re-invoked after review feedback, it receives the PR review comments as part of its prompt context.
 
+## Multi-Agent Orchestration
+
+The implement phase can use multi-agent orchestration to parallelize work across specialized agents. This reduces context window pollution and improves first-pass implementation quality.
+
+### Agent Roles
+
+| Role | Purpose | Dependencies | File Access |
+|------|---------|--------------|-------------|
+| **Coder** | Implements code changes | None | `src/`, `lib/`, `shared/` |
+| **Tester** | Creates and runs tests | Coder | `tests/`, `test_*.py`, `*.test.ts` |
+| **Documenter** | Updates documentation | Coder | `docs/`, `*.md`, `README*` |
+| **Integrator** | Final validation and integration | Tester | Read-only except `.egg-state/` |
+
+### Execution Waves
+
+Agents execute in waves based on dependencies:
+
+```
+Wave 1:  [Coder]           ─── Must complete first
+Wave 2:  [Tester, Documenter] ─── Run in parallel
+Wave 3:  [Integrator]      ─── Final validation
+```
+
+### Enabling Multi-Agent Mode
+
+Multi-agent mode is enabled via the contract's `multi_agent_config`:
+
+```json
+{
+  "multi_agent_config": {
+    "enabled": true,
+    "roles_enabled": ["coder", "tester", "documenter", "integrator"],
+    "parallel_execution": true
+  }
+}
+```
+
+### Agent Handoffs
+
+Each agent produces handoff data stored in `.egg-state/agent-outputs/{role}-output.json`:
+
+```json
+{
+  "changed_files": ["src/api.py", "src/models.py"],
+  "test_results": {"passed": 42, "failed": 0},
+  "summary": "Implemented user authentication endpoints"
+}
+```
+
+Subsequent agents receive handoff data from their dependencies via the orchestrator.
+
+### Contract CLI Commands
+
+```bash
+# View agent execution status
+egg-contract agent-status
+
+# Get next agents to dispatch
+egg-contract agent-next
+
+# Mark agent as started (pipeline use)
+egg-contract agent-start --role coder
+
+# Mark agent as complete with commit
+egg-contract agent-complete --role coder --commit abc1234
+
+# Mark agent as failed
+egg-contract agent-fail --role tester --error "Tests failed"
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `.github/workflows/sdlc-multi-agent.yml` | Multi-agent orchestration workflow |
+| `shared/egg_contracts/agent_roles.py` | Agent role definitions and file access |
+| `shared/egg_contracts/orchestration.py` | Orchestration state management |
+| `shared/egg_contracts/dependency_graph.py` | Dependency graph and wave computation |
+| `shared/egg_contracts/orchestrator.py` | Dispatch logic and handoff management |
+| `action/build-{role}-prompt.sh` | Role-specific prompt builders |
+| `gateway/agent_restrictions.py` | File access validation per role |
+
+## Circuit Breaker and Escalation
+
+**Note:** Circuit breaker functionality is deprecated as of PR #285. The pipeline now relies on PR-based reviews with human-visible feedback at every cycle, reducing the need for automated escalation thresholds.
+
+### Legacy Circuit Breaker (Deprecated)
+
+The circuit breaker tracked implementation cycles and escalated to humans when thresholds were exceeded:
+
+| Metric | Threshold | Action |
+|--------|-----------|--------|
+| Per-task review cycles | 3 | Escalate task to human |
+| Total pipeline cycles | 10 | Open circuit breaker, pause pipeline |
+
+This functionality has been replaced by the PR-based review workflow, which provides continuous human visibility without requiring explicit escalation triggers.
+
 ## Human-in-the-Loop Decisions
 
 For detailed documentation on HITL workflows, see [HITL Decisions](../hitl-decisions.md).
@@ -507,6 +604,7 @@ This parallel execution reduces cycle time by running independent checks concurr
 | File | Purpose |
 |------|---------|
 | `.github/workflows/sdlc-pipeline.yml` | Main pipeline orchestration |
+| `.github/workflows/sdlc-multi-agent.yml` | Multi-agent orchestration workflow |
 | `.github/workflows/sdlc-work-loop.yml` | Unified work/review/respond cycle for refine, plan, and implement phases |
 | `.github/workflows/reusable-review.yml` | PR-based code review workflow |
 | `.github/workflows/sdlc-hitl.yml` | HITL checkbox detection |
@@ -515,11 +613,21 @@ This parallel execution reduces cycle time by running independent checks concurr
 | `.github/scripts/checks/*.py` | Built-in check implementations |
 | `.github/scripts/push-contract-update.sh` | Conflict-resistant contract push utility |
 | `action/build-sdlc-prompt.sh` | Phase-specific prompt builder (includes review feedback injection) |
+| `action/build-coder-prompt.sh` | Coder agent prompt builder |
+| `action/build-tester-prompt.sh` | Tester agent prompt builder |
+| `action/build-documenter-prompt.sh` | Documenter agent prompt builder |
+| `action/build-integrator-prompt.sh` | Integrator agent prompt builder |
+| `action/build-refine-review-prompt.sh` | Reviewer prompt for refine phase analysis |
+| `action/build-plan-review-prompt.sh` | Reviewer prompt for plan phase output |
 | `action/build-unified-review-prompt.sh` | Unified review prompt builder for all SDLC phases |
 | `action/populate-contract-tasks.py` | Extracts tasks from plan into contract |
 | `action/contract-state.sh` | Contract state management utility |
 | `sandbox/scripts/gh` | gh wrapper with self-review fallback |
 | `shared/egg_contracts/models.py` | Pydantic models for contract (includes CheckDefinition, CheckResult, PhaseConfig) |
+| `shared/egg_contracts/agent_roles.py` | Agent role definitions and file access patterns |
+| `shared/egg_contracts/orchestration.py` | Orchestration state management |
+| `shared/egg_contracts/dependency_graph.py` | Dependency graph and wave computation |
+| `shared/egg_contracts/orchestrator.py` | Dispatch logic and handoff management |
 | `shared/egg_contracts/phase_defaults.py` | Default check configurations per phase |
 | `shared/egg_contracts/plan_parser.py` | Parses plan documents for task extraction |
 | `shared/egg_contracts/roles.py` | Role definitions and field ownership |
