@@ -6,8 +6,550 @@
     "url": "https://github.com/jwbron/egg/issues/478"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] File removed, no dangling references in codebase",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] File removed, no dangling references",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] File removed, no dangling references",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Symlink removed or updated",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-1] File deleted, imports updated",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-2] Only ClaudeConfig exported",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-3] Only AgentResult exported",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-4] Only ClaudeConfig exported",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-5] Clean exports list",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-1] Function deleted",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-2] Uses session-based mode only",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-3] Function deleted, callers updated",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-3-4] Only current paths remain",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-3-5] Only CLAUDE_CODE_OAUTH_TOKEN supported",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-3-6] All tests pass",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-4-1] Function deleted",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-4-2] Function deleted",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-4-3] Function simplified, still works",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-4-4] Only secrets.env supported",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-4-5] All tests pass",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-5-1] Clean docstring",
+      "verified": false
+    },
+    {
+      "id": "ac-22",
+      "description": "[TASK-5-2] Only yaml-tasks and markdown regex supported",
+      "verified": false
+    },
+    {
+      "id": "ac-23",
+      "description": "[TASK-5-3] Doc updated",
+      "verified": false
+    },
+    {
+      "id": "ac-24",
+      "description": "[TASK-5-4] Doc updated",
+      "verified": false
+    },
+    {
+      "id": "ac-25",
+      "description": "[TASK-5-5] Template updated",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Remove Deprecated Shell Scripts",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Delete gateway/setup.sh (407 lines)",
+          "status": "pending",
+          "acceptance_criteria": "File removed, no dangling references in codebase",
+          "files_affected": [
+            "gateway/setup.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Delete gateway/start-gateway.sh (348 lines)",
+          "status": "pending",
+          "acceptance_criteria": "File removed, no dangling references",
+          "files_affected": [
+            "gateway/start-gateway.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Delete gateway/create-networks.sh (133 lines)",
+          "status": "pending",
+          "acceptance_criteria": "File removed, no dangling references",
+          "files_affected": [
+            "gateway/create-networks.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Remove bin/setup-gateway symlink if it points to deleted script",
+          "status": "pending",
+          "acceptance_criteria": "Symlink removed or updated",
+          "files_affected": [
+            "bin/setup-gateway"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Consolidate LLM Module Aliases",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Delete sandbox/llm/config.py (pure re-export file)",
+          "status": "pending",
+          "acceptance_criteria": "File deleted, imports updated",
+          "files_affected": [
+            "sandbox/llm/config.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Remove LLMConfig and BaseConfig aliases from sandbox/llm/__init__.py",
+          "status": "pending",
+          "acceptance_criteria": "Only ClaudeConfig exported",
+          "files_affected": [
+            "sandbox/llm/__init__.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Remove ClaudeResult alias from sandbox/llm/result.py",
+          "status": "pending",
+          "acceptance_criteria": "Only AgentResult exported",
+          "files_affected": [
+            "sandbox/llm/result.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Remove AgentConfig alias from sandbox/llm/claude/config.py",
+          "status": "pending",
+          "acceptance_criteria": "Only ClaudeConfig exported",
+          "files_affected": [
+            "sandbox/llm/claude/config.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "Update sandbox/llm/claude/__init__.py to remove ClaudeResult export",
+          "status": "pending",
+          "acceptance_criteria": "Clean exports list",
+          "files_affected": [
+            "sandbox/llm/claude/__init__.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Gateway Legacy Code Cleanup",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Remove is_private_mode_enabled() from gateway/private_repo_policy.py",
+          "status": "pending",
+          "acceptance_criteria": "Function deleted",
+          "files_affected": [
+            "gateway/private_repo_policy.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update gateway/fork_policy.py to remove is_private_mode_enabled usage",
+          "status": "pending",
+          "acceptance_criteria": "Uses session-based mode only",
+          "files_affected": [
+            "gateway/fork_policy.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Remove is_private_mode_enabled() from gateway/config_validator.py",
+          "status": "pending",
+          "acceptance_criteria": "Function deleted, callers updated",
+          "files_affected": [
+            "gateway/config_validator.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Remove legacy /repos/ path from gateway/git_client.py",
+          "status": "pending",
+          "acceptance_criteria": "Only current paths remain",
+          "files_affected": [
+            "gateway/git_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-5",
+          "description": "Remove ANTHROPIC_OAUTH_TOKEN legacy fallback from anthropic_credentials.py",
+          "status": "pending",
+          "acceptance_criteria": "Only CLAUDE_CODE_OAUTH_TOKEN supported",
+          "files_affected": [
+            "gateway/anthropic_credentials.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-6",
+          "description": "Update gateway tests to reflect removed deprecated code",
+          "status": "pending",
+          "acceptance_criteria": "All tests pass",
+          "files_affected": [
+            "gateway/tests/test_private_repo_policy.py",
+            "gateway/tests/test_fork_policy.py",
+            "gateway/tests/test_config_validator.py",
+            "gateway/tests/test_git_validation.py",
+            "gateway/tests/test_anthropic_credentials.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Sandbox Legacy Code Cleanup",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Remove get_private_mode_env_vars() from sandbox/egg_lib/network_mode.py",
+          "status": "pending",
+          "acceptance_criteria": "Function deleted",
+          "files_affected": [
+            "sandbox/egg_lib/network_mode.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Remove get_gateway_current_mode() from sandbox/egg_lib/network_mode.py",
+          "status": "pending",
+          "acceptance_criteria": "Function deleted",
+          "files_affected": [
+            "sandbox/egg_lib/network_mode.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Update ensure_gateway_mode() to not rely on removed functions",
+          "status": "pending",
+          "acceptance_criteria": "Function simplified, still works",
+          "files_affected": [
+            "sandbox/egg_lib/network_mode.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Remove legacy anthropic-api-key file fallback from auth.py",
+          "status": "pending",
+          "acceptance_criteria": "Only secrets.env supported",
+          "files_affected": [
+            "sandbox/egg_lib/auth.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-5",
+          "description": "Update sandbox tests to reflect removed deprecated code",
+          "status": "pending",
+          "acceptance_criteria": "All tests pass",
+          "files_affected": [
+            "tests/sandbox/test_network_mode.py",
+            "tests/sandbox/test_auth.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Shared Library and Documentation Cleanup",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Remove deprecated Config export comment from shared/egg_config/__init__.py",
+          "status": "pending",
+          "acceptance_criteria": "Clean docstring",
+          "files_affected": [
+            "shared/egg_config/__init__.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Remove YAML front matter parsing from plan_parser.py",
+          "status": "pending",
+          "acceptance_criteria": "Only yaml-tasks and markdown regex supported",
+          "files_affected": [
+            "shared/egg_contracts/plan_parser.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Update ADR-Declarative-Setup-Architecture.md to remove anthropic-api-key reference",
+          "status": "pending",
+          "acceptance_criteria": "Doc updated",
+          "files_affected": [
+            "docs/adr/implemented/ADR-Declarative-Setup-Architecture.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-4",
+          "description": "Update ADR-Gateway-Credential-Injection.md to remove ANTHROPIC_OAUTH_TOKEN references",
+          "status": "pending",
+          "acceptance_criteria": "Doc updated",
+          "files_affected": [
+            "docs/adr/implemented/ADR-Gateway-Credential-Injection.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-5",
+          "description": "Update secrets.template.env to remove ANTHROPIC_OAUTH_TOKEN line",
+          "status": "pending",
+          "acceptance_criteria": "Template updated",
+          "files_affected": [
+            "config/secrets.template.env"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 2,
@@ -82,5 +624,9 @@
   "plan_reviewer_verdicts": {
     "unified": "missing",
     "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Remove deprecated code and backward compatibility shims",
+    "description": "Comprehensive cleanup of dead code, deprecated functions, and backward\ncompatibility shims in preparation for v1 release. Removes ~900 lines of\ndeprecated shell scripts, consolidates LLM module aliases, and eliminates\nlegacy fallbacks for API keys and OAuth tokens.\n\nCloses #478"
   }
 }
