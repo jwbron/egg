@@ -1,10 +1,12 @@
 name: Test
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_call:
+    outputs:
+      passed:
+        description: 'Whether all tests passed'
+        value: ${{ jobs.aggregate.outputs.passed }}
+  workflow_dispatch:  # Allow manual testing
 
 jobs:
   unit:
@@ -50,3 +52,25 @@ jobs:
 
       - name: Run bandit
         run: .venv/bin/bandit -r gateway shared sandbox -ll -c pyproject.toml
+
+  aggregate:
+    name: Aggregate Test Results
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [unit, security]
+    outputs:
+      passed: ${{ steps.check.outputs.passed }}
+    steps:
+      - name: Check all jobs passed
+        id: check
+        run: |
+          if [[ "${{ needs.unit.result }}" != "success" || \
+                "${{ needs.security.result }}" != "success" ]]; then
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "Some tests failed"
+            echo "  unit: ${{ needs.unit.result }}"
+            echo "  security: ${{ needs.security.result }}"
+          else
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "All tests passed"
+          fi
