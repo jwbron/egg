@@ -98,7 +98,7 @@ sandbox/
 shared/
 ├── egg_config/             # Configuration utilities
 │   └── constants.py        # Centralized constants (ports, networks, container names)
-├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, circuit breaker, HITL, feedback, phase checks
+├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks
 │   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig
 │   └── phase_defaults.py   # Default check configurations per SDLC phase
 ├── egg_git/                # Git utilities
@@ -129,7 +129,6 @@ integration_tests/
     ├── conftest.py                # SDLC test fixtures
     ├── test_happy_path.py         # Full pipeline success flow
     ├── test_review_rejection.py   # Reviewer rejection and fix cycles
-    ├── test_circuit_breaker.py    # Circuit breaker escalation
     ├── test_hitl_flow.py          # Human-in-the-loop decision flow
     └── test_role_enforcement.py   # Role-based mutation enforcement
 ```

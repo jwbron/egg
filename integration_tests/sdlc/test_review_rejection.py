@@ -4,7 +4,6 @@ Tests the review rejection scenario where:
 1. Reviewer marks tasks as incomplete
 2. Implementer receives feedback and addresses issues
 3. Cycle continues until tasks pass review
-4. Cycle count is tracked for circuit breaker
 """
 
 from datetime import UTC, datetime
@@ -23,7 +22,6 @@ from egg_contracts import (
     Task,
     TaskStatus,
     apply_mutation,
-    increment_task_cycle,
     load_contract,
     save_contract,
 )
@@ -133,14 +131,11 @@ class TestReviewRejection:
         assert initial_cycles == 0
 
         # Increment cycle count when rejected
-        updated_contract, cb_result = increment_task_cycle(
-            contract, "phase-1", "task-1-1", actor="system"
-        )
-        save_contract(updated_contract, temp_repo)
+        contract.phases[0].tasks[0].review_cycles += 1
+        save_contract(contract, temp_repo)
 
         loaded = load_contract(200, temp_repo)
         assert loaded.phases[0].tasks[0].review_cycles == 1
-        assert not cb_result.should_trip  # Not at threshold yet
 
 
 class TestReviewCycleWorkflow:
@@ -168,7 +163,7 @@ class TestReviewCycleWorkflow:
 
         # Increment review cycle
         contract = load_contract(200, temp_repo)
-        contract, _ = increment_task_cycle(contract, "phase-1", "task-1-1")
+        contract.phases[0].tasks[0].review_cycles += 1
         save_contract(contract, temp_repo)
 
         # Step 3: Implementer fixes the issue
@@ -226,8 +221,8 @@ class TestReviewCycleWorkflow:
             field_path="phases.0.tasks.0.status",
             new_value=TaskStatus.INCOMPLETE.value,
         )
-        contract, cb1 = increment_task_cycle(result.contract, "phase-1", "task-1-1")
-        save_contract(contract, temp_repo)
+        result.contract.phases[0].tasks[0].review_cycles += 1
+        save_contract(result.contract, temp_repo)
 
         # Fix 1
         contract = load_contract(200, temp_repo)
@@ -249,8 +244,8 @@ class TestReviewCycleWorkflow:
             field_path="phases.0.tasks.0.status",
             new_value=TaskStatus.INCOMPLETE.value,
         )
-        contract, cb2 = increment_task_cycle(result.contract, "phase-1", "task-1-1")
-        save_contract(contract, temp_repo)
+        result.contract.phases[0].tasks[0].review_cycles += 1
+        save_contract(result.contract, temp_repo)
 
         # Fix 2
         contract = load_contract(200, temp_repo)
@@ -279,8 +274,6 @@ class TestReviewCycleWorkflow:
         task = final.phases[0].tasks[0]
         assert task.status == TaskStatus.COMPLETE
         assert task.review_cycles == 2  # Two rejection cycles before approval
-        assert not cb1.should_trip
-        assert not cb2.should_trip
 
     def test_phase_blocked_when_task_incomplete(self, temp_repo, contract_in_implement_phase):
         """Phase cannot be marked complete while tasks are incomplete."""

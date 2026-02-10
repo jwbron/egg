@@ -27,9 +27,9 @@ Autonomous agents operating on codebases require oversight to ensure quality and
 
 1. **Prompt injection risk**: Agents may be tricked into bypassing instructions
 2. **Model drift**: Agent behavior may vary across runs
-3. **Infinite loops**: Without circuit breakers, agents may cycle indefinitely
+3. **Infinite loops**: Without human oversight, agents may cycle indefinitely
 
-This architecture implements **structural enforcement**: the agent physically cannot perform certain operations without appropriate role authorization, regardless of its instructions.
+This architecture implements **structural enforcement**: the agent physically cannot perform certain operations without appropriate role authorization, regardless of its instructions. PR-based reviews provide human visibility at every cycle, preventing runaway execution.
 
 ---
 
