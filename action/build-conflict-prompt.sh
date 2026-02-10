@@ -179,8 +179,10 @@ Using merge instead of rebase preserves the PR's commit history. If the resoluti
    - **Security-sensitive** — Auth, encryption, access control (always escalate)
 
 4. **Resolve each conflict**:
-   - For each conflicting file, examine the conflict markers (\`<<<<<<<\`, \`=======\`, \`>>>>>>>\`)
-   - Understand what both sides changed and why
+   - For each conflicting file, read the ENTIRE file (not just the conflict markers) to understand context
+   - Examine the conflict markers (\`<<<<<<<\`, \`=======\`, \`>>>>>>>\`) and surrounding code
+   - Understand what both sides changed and why—the full file context is crucial
+   - Check if the conflict affects function signatures, imports, or dependencies used elsewhere
    - Resolve based on the rules and categorization above
    - After resolving a file: \`git add <file>\`
 
