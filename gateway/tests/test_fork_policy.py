@@ -5,8 +5,6 @@ from unittest.mock import patch
 from fork_policy import (
     ForkPolicy,
     ForkPolicyResult,
-    check_fork_allowed,
-    get_fork_policy,
 )
 
 
@@ -160,51 +158,3 @@ class TestForkPolicyEnabled:
             assert "personal" in result.reason
 
 
-class TestGetForkPolicy:
-    """Tests for get_fork_policy singleton."""
-
-    def test_returns_fork_policy(self):
-        """get_fork_policy returns a ForkPolicy instance."""
-        import fork_policy as fp
-
-        fp._fork_policy = None  # Reset global
-        with patch("fork_policy.is_private_mode_enabled", return_value=False):
-            policy = get_fork_policy()
-            assert isinstance(policy, ForkPolicy)
-        fp._fork_policy = None  # Cleanup
-
-    def test_returns_same_instance(self):
-        """get_fork_policy returns the same instance on repeated calls."""
-        import fork_policy as fp
-
-        fp._fork_policy = None
-        with patch("fork_policy.is_private_mode_enabled", return_value=False):
-            p1 = get_fork_policy()
-            p2 = get_fork_policy()
-            assert p1 is p2
-        fp._fork_policy = None
-
-
-class TestCheckForkAllowed:
-    """Tests for check_fork_allowed convenience function."""
-
-    def test_delegates_to_policy(self):
-        """check_fork_allowed delegates to the global policy."""
-        import fork_policy as fp
-
-        fp._fork_policy = None
-        with patch("fork_policy.is_private_mode_enabled", return_value=False):
-            result = check_fork_allowed("owner", "repo")
-            assert result.allowed
-        fp._fork_policy = None
-
-    def test_with_target_org(self):
-        """check_fork_allowed passes target_org."""
-        import fork_policy as fp
-
-        fp._fork_policy = None
-        with patch("fork_policy.is_private_mode_enabled", return_value=True):
-            with patch("fork_policy.get_repo_visibility", return_value="private"):
-                result = check_fork_allowed("owner", "repo", target_org="org", make_private=True)
-                assert result.allowed
-        fp._fork_policy = None

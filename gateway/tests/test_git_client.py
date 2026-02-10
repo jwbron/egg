@@ -67,11 +67,6 @@ class TestIsReposParentDirectory:
         assert is_repos_parent_directory("/home/egg/.egg-worktrees")
         assert is_repos_parent_directory("/home/egg/.egg-worktrees/")
 
-    def test_legacy_repos_parent_detected(self):
-        """The /repos directory should be detected as a parent."""
-        assert is_repos_parent_directory("/repos")
-        assert is_repos_parent_directory("/repos/")
-
     def test_actual_repo_not_detected(self):
         """Paths inside repos should NOT be detected as parent directories."""
         assert not is_repos_parent_directory("/home/egg/repos/myrepo")

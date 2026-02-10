@@ -26,11 +26,9 @@ from egg_logging import get_logger
 # Import using try/except for both module and standalone script mode
 try:
     from .error_messages import get_error_message
-    from .private_repo_policy import is_private_mode_enabled
     from .repo_visibility import get_repo_visibility
 except ImportError:
     from error_messages import get_error_message  # type: ignore[no-redef]
-    from private_repo_policy import is_private_mode_enabled  # type: ignore[no-redef]
     from repo_visibility import get_repo_visibility  # type: ignore[no-redef]
 
 
@@ -73,14 +71,14 @@ class ForkPolicy:
     3. Private/internal repos can only be forked to private/internal
     """
 
-    def __init__(self, enabled: bool | None = None):
+    def __init__(self, enabled: bool):
         """
         Initialize the fork policy.
 
         Args:
-            enabled: Force enable/disable mode (default: read from environment)
+            enabled: Whether fork policy restrictions are enabled (True for private mode)
         """
-        self._enabled = enabled if enabled is not None else is_private_mode_enabled()
+        self._enabled = enabled
 
     @property
     def enabled(self) -> bool:
@@ -303,43 +301,5 @@ class ForkPolicy:
         )
 
 
-# Global policy instance with thread-safe initialization
-_fork_policy: ForkPolicy | None = None
-_fork_policy_lock = threading.Lock()
-
-
-def get_fork_policy() -> ForkPolicy:
-    """Get the global fork policy instance (thread-safe)."""
-    global _fork_policy
-    if _fork_policy is None:
-        with _fork_policy_lock:
-            # Double-checked locking pattern
-            if _fork_policy is None:
-                _fork_policy = ForkPolicy()
-    return _fork_policy
-
-
-def check_fork_allowed(
-    source_owner: str,
-    source_repo: str,
-    target_org: str | None = None,
-    make_private: bool = True,
-) -> ForkPolicyResult:
-    """
-    Check if a fork operation is allowed (convenience function).
-
-    Args:
-        source_owner: Owner of the source repository
-        source_repo: Name of the source repository
-        target_org: Target organization (None for personal)
-        make_private: Whether to make the fork private
-
-    Returns:
-        ForkPolicyResult
-    """
-    return get_fork_policy().check_fork(
-        source_owner=source_owner,
-        source_repo=source_repo,
-        target_org=target_org,
-        make_private=make_private,
-    )
+# Note: No global singleton - ForkPolicy should be instantiated per-request
+# with explicit enabled parameter based on session mode.

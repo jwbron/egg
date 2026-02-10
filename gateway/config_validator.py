@@ -5,15 +5,12 @@ This validates the network lockdown implementation.
 
 Reference: ADR-Internet-Tool-Access-Lockdown.md
 
-Security Model (PRIVATE_MODE):
-- PRIVATE_MODE=true: Network locked down (Anthropic API only) + private repos only
-- PRIVATE_MODE=false: Full internet access + public repos only (default)
-
-This single flag ensures you can't accidentally combine open network with
-private repo access (a security anti-pattern that could lead to data exfiltration).
+Security Model:
+- Gateway always runs with locked-down Squid configuration
+- Per-container mode (private/public) is determined by session, not gateway config
+- Private containers route through proxy, public containers bypass it
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -120,37 +117,15 @@ def validate_network_lockdown_mode() -> bool:
     return squid_conf and domains_file and squid_cert
 
 
-def is_private_mode_enabled() -> bool:
-    """Check if private mode is enabled.
-
-    PRIVATE_MODE controls BOTH network access AND repository visibility:
-    - true: Private repos only + network locked down (Anthropic API only)
-    - false: Public repos only + full internet access (default)
-
-    Returns:
-        True if PRIVATE_MODE is set to true/1/yes
-    """
-    value = os.environ.get("PRIVATE_MODE", "false").lower().strip()
-    return value in ("true", "1", "yes")
-
-
 if __name__ == "__main__":
     try:
         validate_config()
         print("Configuration validation passed")
 
-        if is_private_mode_enabled():
-            print("Mode: PRIVATE (locked network + private repos only)")
-            if validate_network_lockdown_mode():
-                print("  Network lockdown components: READY")
-            else:
-                print("  WARNING: Network lockdown components missing")
+        if validate_network_lockdown_mode():
+            print("  Network lockdown components: READY")
         else:
-            print("Mode: PUBLIC (full internet + public repos only)")
-            if Path("/etc/squid/squid-allow-all.conf").is_file():
-                print("  Allow-all configuration: READY")
-            else:
-                print("  WARNING: squid-allow-all.conf not found")
+            print("  WARNING: Network lockdown components missing")
 
         sys.exit(0)
     except ConfigError:

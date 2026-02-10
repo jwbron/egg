@@ -103,25 +103,6 @@ class PrivateRepoPolicyResult:
         return result
 
 
-def is_private_mode_enabled() -> bool:
-    """
-    Check if Private Mode is enabled via environment variable.
-
-    DEPRECATED: This function is no longer used for the main policy code path.
-    Mode is now determined per-container via session_mode parameter passed to
-    check_repository_access(). This function remains for backwards compatibility
-    with fork_policy.py and config_validator.py.
-
-    When true: private repos only, network locked down (Anthropic API only).
-    When false: public repos only, full internet access.
-
-    Returns:
-        True if PRIVATE_MODE environment variable is set to true/1/yes
-    """
-    value = os.environ.get(PRIVATE_MODE_VAR, "false").lower().strip()
-    return value in ("true", "1", "yes")
-
-
 class PrivateRepoPolicy:
     """
     Policy engine for repository visibility enforcement.

@@ -7,7 +7,6 @@ Credentials are read from ~/.config/egg/secrets.env on the host.
 Supported credential types:
 - ANTHROPIC_API_KEY: Standard Anthropic API key (x-api-key header)
 - CLAUDE_CODE_OAUTH_TOKEN: OAuth token from Claude (Authorization: Bearer header)
-- ANTHROPIC_OAUTH_TOKEN: Legacy OAuth token name (for backward compatibility)
 
 OAuth token takes precedence if both are configured.
 """
@@ -151,12 +150,7 @@ class AnthropicCredentialsManager:
             return
 
         # Check for OAuth token first (takes precedence)
-        # Try CLAUDE_CODE_OAUTH_TOKEN first (preferred), then ANTHROPIC_OAUTH_TOKEN (legacy)
         oauth_token = secrets.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
-        oauth_source = "CLAUDE_CODE_OAUTH_TOKEN"
-        if not oauth_token:
-            oauth_token = secrets.get("ANTHROPIC_OAUTH_TOKEN", "").strip()
-            oauth_source = "ANTHROPIC_OAUTH_TOKEN"
 
         if oauth_token:
             # Validate format
@@ -171,7 +165,6 @@ class AnthropicCredentialsManager:
             )
             logger.info(
                 "Anthropic OAuth token loaded from secrets",
-                source=oauth_source,
                 token_prefix=oauth_token[:16] + "...",
             )
             return

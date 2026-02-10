@@ -5,21 +5,18 @@ The module controls repository visibility per-session:
 - session_mode="private": Private repos only
 - session_mode="public": Public repos only
 
-Network lockdown (PRIVATE_MODE env var) is separate - it controls Squid proxy config
-but not repo visibility. Repo visibility is determined per-session.
+Network lockdown is handled at the gateway level, not per-session.
+Repo visibility is determined per-session via session_mode parameter.
 """
 
-import os
 from unittest.mock import patch
 
 # Import from conftest-loaded module
 from private_repo_policy import (
-    PRIVATE_MODE_VAR,
     PrivateRepoPolicy,
     PrivateRepoPolicyResult,
     check_private_repo_access,
     get_private_repo_policy,
-    is_private_mode_enabled,
 )
 
 
@@ -60,43 +57,6 @@ class TestPrivateRepoPolicyResult:
         )
         d = result.to_dict()
         assert d["session_mode"] == "private"
-
-
-class TestIsPrivateModeEnabled:
-    """Tests for is_private_mode_enabled function.
-
-    Note: This function checks the PRIVATE_MODE env var which controls
-    network lockdown (Squid proxy config), NOT repo visibility.
-    Repo visibility is determined per-session via session_mode.
-    """
-
-    def test_enabled_with_true(self):
-        with patch.dict(os.environ, {PRIVATE_MODE_VAR: "true"}):
-            assert is_private_mode_enabled() is True
-
-    def test_enabled_with_1(self):
-        with patch.dict(os.environ, {PRIVATE_MODE_VAR: "1"}):
-            assert is_private_mode_enabled() is True
-
-    def test_enabled_with_yes(self):
-        with patch.dict(os.environ, {PRIVATE_MODE_VAR: "yes"}):
-            assert is_private_mode_enabled() is True
-
-    def test_enabled_case_insensitive(self):
-        with patch.dict(os.environ, {PRIVATE_MODE_VAR: "TRUE"}):
-            assert is_private_mode_enabled() is True
-
-    def test_disabled_with_false(self):
-        with patch.dict(os.environ, {PRIVATE_MODE_VAR: "false"}):
-            assert is_private_mode_enabled() is False
-
-    def test_disabled_when_not_set(self):
-        with patch.dict(os.environ, {}, clear=True):
-            assert is_private_mode_enabled() is False
-
-    def test_disabled_with_empty_string(self):
-        with patch.dict(os.environ, {PRIVATE_MODE_VAR: ""}):
-            assert is_private_mode_enabled() is False
 
 
 class TestPrivateRepoPolicyPrivateMode:

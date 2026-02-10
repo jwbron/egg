@@ -1,12 +1,10 @@
 """Tests for config_validator.py."""
 
-import os
 from unittest.mock import patch
 
 import pytest
 from config_validator import (
     ConfigError,
-    is_private_mode_enabled,
     validate_config,
     validate_network_lockdown_mode,
 )
@@ -191,41 +189,3 @@ class TestValidateNetworkLockdownMode:
             assert validate_network_lockdown_mode() is False
 
 
-class TestIsPrivateModeEnabled:
-    """Tests for is_private_mode_enabled."""
-
-    @patch.dict(os.environ, {"PRIVATE_MODE": "true"})
-    def test_true(self):
-        """Returns True for 'true'."""
-        assert is_private_mode_enabled() is True
-
-    @patch.dict(os.environ, {"PRIVATE_MODE": "1"})
-    def test_one(self):
-        """Returns True for '1'."""
-        assert is_private_mode_enabled() is True
-
-    @patch.dict(os.environ, {"PRIVATE_MODE": "yes"})
-    def test_yes(self):
-        """Returns True for 'yes'."""
-        assert is_private_mode_enabled() is True
-
-    @patch.dict(os.environ, {"PRIVATE_MODE": "TRUE"})
-    def test_case_insensitive(self):
-        """Returns True for case-insensitive match."""
-        assert is_private_mode_enabled() is True
-
-    @patch.dict(os.environ, {"PRIVATE_MODE": "false"})
-    def test_false(self):
-        """Returns False for 'false'."""
-        assert is_private_mode_enabled() is False
-
-    @patch.dict(os.environ, {}, clear=True)
-    def test_not_set(self):
-        """Returns False when PRIVATE_MODE is not set."""
-        os.environ.pop("PRIVATE_MODE", None)
-        assert is_private_mode_enabled() is False
-
-    @patch.dict(os.environ, {"PRIVATE_MODE": "  true  "})
-    def test_strips_whitespace(self):
-        """Returns True when value has extra whitespace."""
-        assert is_private_mode_enabled() is True
