@@ -51,6 +51,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [GitHub Automation](guides/github-automation.md) | Built-in review bots, autofixer, @mention, and self-improvement workflows |
 | [Reusable Workflows](guides/reusable-workflows.md) | Using egg's SDLC workflows in external repositories |
 | [SDLC Pipeline](guides/sdlc-pipeline.md) | Operational guide for the structurally enforced SDLC pipeline |
+| [Local SDLC](guides/local-sdlc.md) | Running the SDLC pipeline locally with Claude Code |
 
 ### SDLC Pipeline Templates
 
@@ -77,7 +78,7 @@ Each major component has its own README with detailed documentation:
 | [Sandbox Container](../sandbox/README.md) | `sandbox/` | Agent environment, tools, entrypoint |
 | [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, and SDLC contracts |
 | [Configuration](../config/README.md) | `config/` | Repository and host configuration |
-| [CLI Entry Points](../bin/README.md) | `bin/` | `egg` and `setup-gateway` commands |
+| [CLI Entry Points](../bin/README.md) | `bin/` | `egg`, `egg-sdlc`, and `setup-gateway` commands |
 | [GitHub Action](../action/README.md) | `action/` | Composite action for GitHub Actions |
 | [Claude Code Config](../sandbox/.claude/README.md) | `sandbox/.claude/` | Agent rules and slash commands |
 
@@ -96,6 +97,7 @@ Each major component has its own README with detailed documentation:
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
 | **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
 | **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [The Agentic Feedback Loop](agentic-feedback-loop.md), [ADR: SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), workflows in `.github/workflows/sdlc-*.yml` |
+| **Local SDLC development** | [Local SDLC Guide](guides/local-sdlc.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [bin/README.md](../bin/README.md) |
 
 ## Quick Navigation
 
@@ -110,4 +112,4 @@ Each major component has its own README with detailed documentation:
 
 ---
 
-*Last updated: 2026-02-07*
+*Last updated: 2026-02-10*
