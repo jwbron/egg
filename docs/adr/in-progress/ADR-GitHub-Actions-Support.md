@@ -68,7 +68,7 @@ jobs:
 | `anthropic-oauth-token` | Yes | — | Anthropic OAuth token for Claude API |
 | `github-token` | Yes | — | GitHub token for git operations (user PAT or `GITHUB_TOKEN`) |
 | `bot-github-token` | No | — | GitHub App token for bot identity (if using bot mode) |
-| `bot-username` | No | `egg` | Bot GitHub username (for filtering self-comments) |
+| `bot-username` | No | `james-in-a-box` | Bot GitHub username (for filtering self-comments) |
 | `mode` | No | `auto` | Network mode: `public`, `private`, or `auto` (auto-detects from repo visibility) |
 | `timeout` | No | `30` | Timeout in minutes |
 | `model` | No | `opus` | Claude model to use |
@@ -112,7 +112,7 @@ Since there's no `~/.config/egg/repositories.yaml` in GHA, the entrypoint genera
 
 ```yaml
 github_username: <from $GITHUB_ACTOR>
-bot_username: <from bot-username input, default "egg">
+bot_username: <from bot-username input, default "james-in-a-box">
 
 writable_repos:
   - <owner/repo derived from $GITHUB_REPOSITORY>

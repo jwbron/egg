@@ -140,7 +140,7 @@ The pipeline is triggered by applying the `sdlc:refine` label to an issue. You c
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `bot_username` | GitHub username of your bot | `egg` |
+| `bot_username` | GitHub username of your bot | `james-in-a-box` |
 | `action_ref` | Reference to egg action (documentation only; see note) | `jwbron/egg/action@main` |
 | `authorized_users` | Comma-separated list of authorized users | `jwbron` |
 | `branch_prefix` | Prefix for issue branches | `egg` |
@@ -175,7 +175,7 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number }}
       bot_name: review
-      bot_username: ${{ vars.BOT_USERNAME || 'egg' }}
+      bot_username: ${{ vars.BOT_USERNAME || 'james-in-a-box' }}
       # ...
 ```
 
@@ -189,11 +189,11 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number }}
       bot_name: review
-      bot_username: ${{ vars.BOT_USERNAME || 'egg' }}
+      bot_username: ${{ vars.BOT_USERNAME || 'james-in-a-box' }}
       # ...
 ```
 
-The `|| 'egg'` fallback ensures the workflow runs even if the variable isn't set.
+The `|| 'james-in-a-box'` fallback ensures the workflow runs even if the variable isn't set.
 
 ## Important Limitations
 
