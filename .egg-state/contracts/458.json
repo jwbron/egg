@@ -6,8 +6,214 @@
     "url": "https://github.com/jwbron/egg/issues/458"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] README or docs updated with setup instructions for vars.BOT_USERNAME",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] All 6 hardcoded step inputs replaced with vars.BOT_USERNAME || 'egg'",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-2-1] Job if only checks for feedback comment markers, not sender identity",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-2] New step exits gracefully if sender matches configured bot username",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-3-1] Default changed to egg, comment updated",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-3-2] Default changed to egg",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-4-1] Comments show generic example or explain configuration requirement",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-4-2] Tests use test-bot or similar generic name; all tests pass",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Add Repository Variable Support",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Document BOT_USERNAME repository variable requirement",
+          "status": "pending",
+          "acceptance_criteria": "README or docs updated with setup instructions for vars.BOT_USERNAME",
+          "files_affected": [
+            "docs/setup.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Update entry-point workflows to use vars.BOT_USERNAME with fallback",
+          "status": "pending",
+          "acceptance_criteria": "All 6 hardcoded step inputs replaced with vars.BOT_USERNAME || 'egg'",
+          "files_affected": [
+            ".github/workflows/on-check-failure.yml",
+            ".github/workflows/on-pull-request.yml",
+            ".github/workflows/on-merge-conflict.yml",
+            ".github/workflows/on-pull-request-agent-mode-design.yml",
+            ".github/workflows/on-pull-request-contract-verify.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Move Self-Trigger Check to Step Level",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Remove hardcoded sender check from job-level if condition",
+          "status": "pending",
+          "acceptance_criteria": "Job if only checks for feedback comment markers, not sender identity",
+          "files_affected": [
+            ".github/workflows/sdlc-hitl.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add early step to check for self-trigger using configurable bot_username",
+          "status": "pending",
+          "acceptance_criteria": "New step exits gracefully if sender matches configured bot username",
+          "files_affected": [
+            ".github/workflows/sdlc-hitl.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Update Script and Module Defaults",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Update action/build-mention-prompt.sh default",
+          "status": "pending",
+          "acceptance_criteria": "Default changed to egg, comment updated",
+          "files_affected": [
+            "action/build-mention-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update sandbox/egg_lib/self_improvement/config.py default",
+          "status": "pending",
+          "acceptance_criteria": "Default changed to egg",
+          "files_affected": [
+            "sandbox/egg_lib/self_improvement/config.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Update Documentation and Comments",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Update gateway/policy.py comment examples",
+          "status": "pending",
+          "acceptance_criteria": "Comments show generic example or explain configuration requirement",
+          "files_affected": [
+            "gateway/policy.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Update test fixtures to use generic bot name",
+          "status": "pending",
+          "acceptance_criteria": "Tests use test-bot or similar generic name; all tests pass",
+          "files_affected": [
+            "gateway/tests/test_policy.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 2,
@@ -74,5 +280,9 @@
   "refine_review_cycles": 1,
   "refine_review_feedback": "",
   "plan_review_cycles": 1,
-  "plan_review_feedback": ""
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Remove hardcoded bot usernames, use vars.BOT_USERNAME",
+    "description": "Replaces hardcoded `james-in-a-box` bot usernames with configurable\n`vars.BOT_USERNAME` repository variable. Moves self-trigger prevention\nfrom job-level to step-level in sdlc-hitl.yml to access configured value.\n\nFixes #458"
+  }
 }
