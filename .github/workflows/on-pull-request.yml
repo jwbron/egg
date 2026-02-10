@@ -9,6 +9,27 @@ on:
         description: 'PR number to review'
         required: true
         type: number
+      authorized_users:
+        description: 'Comma-separated list of authorized GitHub usernames'
+        required: false
+        type: string
+        default: "jwbron"
+  workflow_call:
+    inputs:
+      authorized_users:
+        description: 'Comma-separated list of authorized GitHub usernames'
+        required: false
+        type: string
+        default: "jwbron"
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
+      BOT_APP_INSTALLATION_ID:
+        required: true
+      ANTHROPIC_OAUTH_TOKEN:
+        required: true
 
 jobs:
   # Validate required configuration
@@ -25,9 +46,45 @@ jobs:
           fi
           echo "All required repository variables are configured"
 
+  # Check if PR author is authorized to trigger reviews
+  check-author:
+    name: Check authorization
+    runs-on: ubuntu-latest
+    # Only check for pull_request events; workflow_dispatch is explicit invocation
+    if: github.event_name == 'pull_request'
+    outputs:
+      authorized: ${{ steps.check.outputs.authorized }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Check if PR author is authorized
+        id: check
+        env:
+          SENDER_LOGIN: ${{ github.event.pull_request.user.login }}
+          AUTHORIZED_USERS: ${{ inputs.authorized_users || 'jwbron' }}
+          BOT_USERNAME: ${{ vars.EGG_BOT_USERNAME }}
+        run: bash .github/scripts/check-authorization.sh
+
+      - name: Log authorization result
+        if: steps.check.outputs.authorized != 'true'
+        run: |
+          echo "::warning::PR author '${{ github.event.pull_request.user.login }}' is not authorized to trigger automated reviews"
+          echo "Authorized users: ${{ inputs.authorized_users || 'jwbron' }}"
+
   review:
     name: egg-review / Code
-    needs: [validate-config]
+    needs: [validate-config, check-author]
+    # Run review if:
+    # - validate-config passed, AND
+    # - check-author was skipped (workflow_dispatch) OR check-author passed and user is authorized
+    if: >-
+      always() &&
+      needs.validate-config.result == 'success' &&
+      (needs.check-author.result == 'skipped' || needs.check-author.outputs.authorized == 'true')
     permissions:
       contents: read
       pull-requests: write
