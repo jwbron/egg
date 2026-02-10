@@ -629,3 +629,38 @@ def check_file_restrictions(role: str, files: list[str]) -> FileRestrictionResul
         FileRestrictionResult indicating whether the files are allowed
     """
     return get_phase_filter().check_file_restrictions(role, files)
+
+
+def check_agent_restrictions(agent_role: str, files: list[str]) -> FileRestrictionResult:
+    """Check if files are allowed for an agent role (convenience function).
+
+    This function checks a list of files against the agent-role-specific
+    file restrictions. Used during multi-agent orchestration to ensure
+    each specialized agent only modifies files within its responsibility.
+
+    SECURITY: Implements agent-role-based file access control:
+    - Coder: source code and config, blocked from docs/tests/contracts
+    - Tester: test files only
+    - Documenter: documentation and markdown only
+    - Integrator: handoff output only (read-only for everything else)
+
+    Args:
+        agent_role: The agent role (e.g., "coder", "tester")
+        files: List of file paths being modified
+
+    Returns:
+        FileRestrictionResult indicating whether the files are allowed
+    """
+    from .agent_restrictions import validate_agent_push
+
+    result = validate_agent_push(agent_role, files)
+
+    if result.allowed:
+        return FileRestrictionResult.allow(result.message)
+    else:
+        return FileRestrictionResult.block(
+            message=result.message,
+            role=result.role,
+            blocked_files=result.blocked_files,
+            blocked_reason=f"Agent role '{result.role}' is not permitted to modify these files",
+        )
