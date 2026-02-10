@@ -369,10 +369,10 @@ def get_bot_username() -> str:
     - Identifying bot's own PRs for review response handling
 
     Returns:
-        Bot username string (e.g., "egg")
+        Bot username string (e.g., "james-in-a-box")
     """
     config = _load_config()
-    return config.get("bot_username", "egg")
+    return config.get("bot_username", "james-in-a-box")
 
 
 def get_github_token_for_repo(repo: str) -> str | None:
