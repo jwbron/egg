@@ -8,14 +8,14 @@
 #   GITHUB_EVENT_NAME  — event type (issue_comment, pull_request_review_comment, pull_request_review, issues)
 #   GITHUB_EVENT_PATH  — path to event JSON payload
 #   GITHUB_REPOSITORY  — owner/repo
-#   BOT_USERNAME       — bot name to strip from mention (default: james-in-a-box)
+#   BOT_USERNAME       — bot name to strip from mention (default: egg)
 #
 # Output:
 #   Sets 'prompt' in $GITHUB_OUTPUT (multiline)
 
 set -euo pipefail
 
-BOT_USERNAME="${BOT_USERNAME:-james-in-a-box}"
+BOT_USERNAME="${BOT_USERNAME:-egg}"
 MAX_BODY_CHARS=10000
 MAX_COMMENT_CHARS=2000
 MAX_PROMPT_CHARS=50000

@@ -53,7 +53,7 @@ MAX_BRANCH_PR_CACHE_SIZE = 200
 # Bot identity configuration
 # Loaded from GATEWAY_BOT_NAME environment variable (REQUIRED)
 # This should match your GitHub App name for PR ownership checks
-# Example: GATEWAY_BOT_NAME="james-in-a-box"
+# Example: GATEWAY_BOT_NAME="my-bot" (set to your bot's GitHub username)
 
 # Cached values (loaded lazily on first access)
 _bot_identities_cache: frozenset[str] | None = None
@@ -91,7 +91,7 @@ def get_bot_identities() -> frozenset[str]:
     if not bot_name:
         raise ValueError(
             "GATEWAY_BOT_NAME environment variable is required. "
-            "Set it to your GitHub App name (e.g., GATEWAY_BOT_NAME=james-in-a-box). "
+            "Set it to your GitHub App name (e.g., GATEWAY_BOT_NAME=my-bot). "
             "Run 'egg --setup' to configure."
         )
     _bot_identities_cache = frozenset(

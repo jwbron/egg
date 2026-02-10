@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 # Bot identity
-BOT_USERNAME = os.getenv("EGG_BOT_USERNAME", "james-in-a-box")
+BOT_USERNAME = os.getenv("EGG_BOT_USERNAME", "egg")
 BOT_EMAIL = os.getenv("EGG_BOT_EMAIL", "egg@localhost")
 
 # Metrics storage (for local development)

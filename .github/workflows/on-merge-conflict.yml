@@ -114,7 +114,7 @@ jobs:
     uses: ./.github/workflows/reusable-conflict-resolve.yml
     with:
       pr_number: ${{ matrix.pr }}
-      bot_username: james-in-a-box
+      bot_username: ${{ vars.BOT_USERNAME || 'egg' }}
       # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
       timeout: "30"
     secrets:
@@ -134,7 +134,7 @@ jobs:
     uses: ./.github/workflows/reusable-conflict-resolve.yml
     with:
       pr_number: ${{ fromJson(github.event.inputs.pr_number) }}
-      bot_username: james-in-a-box
+      bot_username: ${{ vars.BOT_USERNAME || 'egg' }}
       # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
       timeout: "30"
     secrets:

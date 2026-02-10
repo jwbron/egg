@@ -126,12 +126,12 @@ class TestBotIdentities:
     def test_different_bot_name_configuration(self, monkeypatch):
         """Test that a different bot name generates correct identities."""
         _reset_bot_config_caches()
-        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "test-bot")
         identities = get_bot_identities()
-        assert "james-in-a-box" in identities
-        assert "james-in-a-box[bot]" in identities
-        assert "app/james-in-a-box" in identities
-        assert "apps/james-in-a-box" in identities
+        assert "test-bot" in identities
+        assert "test-bot[bot]" in identities
+        assert "app/test-bot" in identities
+        assert "apps/test-bot" in identities
         # Restore for other tests
         monkeypatch.setenv("GATEWAY_BOT_NAME", "egg")
         _reset_bot_config_caches()
@@ -139,10 +139,10 @@ class TestBotIdentities:
     def test_different_branch_prefix_configuration(self, monkeypatch):
         """Test that a different branch prefix generates correct prefixes."""
         _reset_bot_config_caches()
-        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "james")
+        monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "testbot")
         prefixes = get_bot_branch_prefixes()
-        assert "james-" in prefixes
-        assert "james/" in prefixes
+        assert "testbot-" in prefixes
+        assert "testbot/" in prefixes
         # Restore for other tests
         monkeypatch.setenv("GATEWAY_BOT_BRANCH_PREFIX", "egg")
         _reset_bot_config_caches()

@@ -20,7 +20,7 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
       bot_name: review
-      bot_username: james-in-a-box
+      bot_username: ${{ vars.BOT_USERNAME || 'egg' }}
       # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
       timeout: "10"
       pr_title: ${{ github.event.pull_request.title || '' }}
