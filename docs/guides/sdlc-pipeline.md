@@ -449,9 +449,8 @@ The script loads the contract, runs the check, and outputs JSON with the result.
 | **Draft Validation** | `check-draft-validation` | Validates refine phase analysis document | No |
 | **Plan YAML** | `check-plan-yaml` | Validates plan phase YAML appendix | No |
 | **Merge Conflict** | `check-merge-conflict` | Detects conflicts with base branch | No |
-| **Lint** | `check-lint` | Runs linting via reusable workflow (`.github/workflows/lint.yml`) | Yes |
-| **Test** | `check-test` | Runs unit tests via reusable workflow (`.github/workflows/test.yml`) | No |
-| **Integration Tests** | `check-integration` | Runs integration tests via reusable workflow (`.github/workflows/test-integration.yml`) | No |
+| **Lint** | `check-lint` | Runs `make lint` if available | Yes |
+| **Test** | `check-test` | Runs `make test` or pytest | No |
 | **Auto-Fixer** | `check-fixer` | Attempts to auto-fix failed checks | N/A |
 
 ### Phase Default Configurations
@@ -466,9 +465,8 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 
 **Implement phase:**
 - Merge conflict check (required)
-- Lint check via reusable workflow (required)
-- Test check via reusable workflow (required)
-- Integration test check via reusable workflow (required)
+- Lint check (required, 1 retry)
+- Test check (required)
 - Auto-fixer (optional)
 
 **PR phase:**
@@ -519,9 +517,6 @@ To add a new check:
 | `.github/workflows/sdlc-pipeline.yml` | Main pipeline orchestration |
 | `.github/workflows/sdlc-work-loop.yml` | Unified work/review/respond cycle for refine, plan, and implement phases |
 | `.github/workflows/reusable-review.yml` | PR-based code review workflow |
-| `.github/workflows/lint.yml` | Reusable lint workflow called by work loop |
-| `.github/workflows/test.yml` | Reusable test workflow called by work loop |
-| `.github/workflows/test-integration.yml` | Reusable integration test workflow called by work loop |
 | `.github/workflows/sdlc-hitl.yml` | HITL checkbox detection |
 | `.github/scripts/checks/base.py` | CheckRunner base class for phase checks |
 | `.github/scripts/checks/run_check.py` | Check execution entry point |

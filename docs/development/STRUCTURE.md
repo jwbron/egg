@@ -179,7 +179,9 @@ action/
 └── README.md
 ```
 
-## GitHub Workflows
+## GitHub Workflows (SDLC-Related)
+
+Key workflows for the SDLC pipeline (see `.github/workflows/` for complete list):
 
 ```
 .github/workflows/
