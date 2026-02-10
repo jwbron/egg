@@ -1156,8 +1156,7 @@ jobs:
 
           # Collect per-reviewer verdicts from review files
           collect_reviewer_verdicts() {
-            local reviewer_verdicts="{"
-            local first=true
+            local result="{}"
             local reviewer_names
             reviewer_names=$(echo "$REVIEWERS" | jq -r '.[].name')
 
@@ -1174,15 +1173,10 @@ jobs:
                 verdict="missing"
               fi
 
-              if [[ "$first" == "true" ]]; then
-                first=false
-              else
-                reviewer_verdicts+=","
-              fi
-              reviewer_verdicts+="\"${reviewer}\":\"${verdict}\""
+              # Use jq for proper JSON construction to avoid escaping issues
+              result=$(echo "$result" | jq --arg k "$reviewer" --arg v "$verdict" '. + {($k): $v}')
             done
-            reviewer_verdicts+="}"
-            echo "$reviewer_verdicts"
+            echo "$result"
           }
 
           # Function to apply the jq transformation (idempotent - can be re-run)
