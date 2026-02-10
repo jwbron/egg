@@ -8,7 +8,7 @@
 
 ## Options
 
-Select **one** option by changing `[ ]` to `[x]`:
+Select **one** option by uncommenting its line:
 
 {options}
 
@@ -16,9 +16,9 @@ Select **one** option by changing `[ ]` to `[x]`:
 
 ## Other
 
-If none of the above options work, select Other and provide your explanation:
+If none of the above options work, uncomment and provide your explanation:
 
-- [ ] Other:
+<!-- [ ] Other: [Your explanation here] -->
 
 ---
 

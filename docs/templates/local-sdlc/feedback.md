@@ -11,9 +11,9 @@ Please provide your answers in the spaces provided.
 
 ## Submit Feedback
 
-When you're done answering all questions, check the box below:
+When you're done answering all questions, uncomment the line below:
 
-- [ ] FEEDBACK SUBMITTED
+<!-- [x] FEEDBACK SUBMITTED -->
 
 ---
 

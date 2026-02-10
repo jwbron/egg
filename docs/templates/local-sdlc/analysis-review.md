@@ -18,18 +18,18 @@ Edit this section to approve or request changes.
 
 ### Approval
 
-To approve and advance to the plan phase, change the checkbox below to `[x]`:
+To approve and advance to the plan phase, uncomment the line below:
 
-- [ ] APPROVED - Advance to plan phase
+<!-- [x] APPROVED - Advance to plan phase -->
 
 ### Request Changes
 
-If changes are needed, check the box and add your feedback:
+If changes are needed, uncomment and fill in below:
 
-- [ ] CHANGES REQUESTED
-
-**Feedback:**
--
+<!-- [x] CHANGES REQUESTED
+Feedback:
+- [Your feedback here]
+-->
 
 ---
 
