@@ -170,33 +170,51 @@ Pre-built images are available on GHCR:
 
 | Image | Description |
 |-------|-------------|
-| `ghcr.io/jwbron/egg-gateway:latest` | Gateway sidecar |
-| `ghcr.io/jwbron/egg-sandbox:latest` | Sandbox container |
+| `ghcr.io/jwbron/egg-gateway:latest` | Gateway sidecar (latest stable) |
+| `ghcr.io/jwbron/egg-sandbox:latest` | Sandbox container (latest stable) |
 
 Images are built on every push to main and on releases.
 
 ### Image Versioning
 
-egg follows [semantic versioning](https://semver.org/). Images are tagged with:
-- **Exact version**: `v0.1.0` - Full reproducibility
-- **Minor version**: `v0.1` - Latest patch in the minor series (updated on stable releases)
-- **Major version**: `v0` - Latest minor/patch in the major series (updated on stable releases)
-- **latest**: Latest stable release
+egg follows [semantic versioning](https://semver.org/) with floating tags for stable releases:
 
-Pre-releases (e.g., `v1.0.0-alpha`) only get the exact version tag and don't update floating tags or `latest`.
+| Tag Pattern | Description | Updates When |
+|-------------|-------------|--------------|
+| `latest` | Latest stable release | Every stable release |
+| `vX` | Major version (e.g., `v0`) | Every stable vX.y.z release |
+| `vX.Y` | Minor version (e.g., `v0.1`) | Every stable vX.Y.z release |
+| `vX.Y.Z` | Exact version (e.g., `v0.1.0`) | Never (immutable) |
+| `vX.Y.Z-suffix` | Pre-release (e.g., `v1.0.0-alpha`) | Never (immutable, no floating tags) |
+
+Pre-release versions (with suffixes like `-alpha`, `-beta`, `-rc`) do not update floating tags or `latest`.
 
 For details on creating releases, see [RELEASING.md](../../RELEASING.md).
 
 ### Using Pre-built Images
 
-In your `.env` file:
+For stability, pin to a major version in your `.env` file:
+
+```bash
+EGG_GATEWAY_IMAGE=ghcr.io/jwbron/egg-gateway:v0
+EGG_SANDBOX_IMAGE=ghcr.io/jwbron/egg-sandbox:v0
+```
+
+For full reproducibility, pin to an exact version:
+
+```bash
+EGG_GATEWAY_IMAGE=ghcr.io/jwbron/egg-gateway:v0.1.0
+EGG_SANDBOX_IMAGE=ghcr.io/jwbron/egg-sandbox:v0.1.0
+```
+
+Or use `latest` for automatic updates (not recommended for production):
 
 ```bash
 EGG_GATEWAY_IMAGE=ghcr.io/jwbron/egg-gateway:latest
 EGG_SANDBOX_IMAGE=ghcr.io/jwbron/egg-sandbox:latest
 ```
 
-Or specify directly in docker-compose.yml override.
+You can also specify tags directly in a docker-compose.yml override.
 
 ## Configuration Files
 
