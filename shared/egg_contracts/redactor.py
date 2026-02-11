@@ -303,11 +303,12 @@ class Redactor:
         result = env_assign_pattern.sub(redact_env_match, result)
 
         # Redact common secret flags
-        # Note: -p is context-sensitive (password for mysql/psql, but port for docker/rsync)
-        # so we only redact it in database command contexts
+        # Note: -p is context-specific. For MySQL tools (mysql, mysqldump), -p is the
+        # password flag. For PostgreSQL tools (psql, pg_dump), -p is the PORT flag.
+        # Only redact -p for MySQL commands.
         secret_flag_patterns = [
             (r"(--password[=\s]+)(\S+)", r"\1" + self.config.placeholder),
-            (r"((mysql|psql|pg_dump|mysqldump)\s+.*-p\s+)(\S+)", r"\1" + self.config.placeholder),
+            (r"((mysql|mysqldump)\s+.*-p\s+)(\S+)", r"\1" + self.config.placeholder),
             (r"(--token[=\s]+)(\S+)", r"\1" + self.config.placeholder),
             (r"(--secret[=\s]+)(\S+)", r"\1" + self.config.placeholder),
             (r"(--api-key[=\s]+)(\S+)", r"\1" + self.config.placeholder),
