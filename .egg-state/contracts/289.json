@@ -6,8 +6,341 @@
     "url": "https://github.com/jwbron/egg/issues/289"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Workflow triggers on completion of on-mention, on-pull-request, on-check-failure, on-review-feedback, on-merge-conflict, on-push-doc-updater, sdlc-pipeline, sdlc-work-loop, and self-improvement workflows",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Job checks github.event.workflow_run.conclusion == 'failure' and skips analysis for successful runs",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Concurrency group self-improvement-{workflow_name} ensures only one analysis runs per workflow at a time",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] schedule trigger removed from workflow",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-1] Step queries GitHub API for open issues with self-improvement label and workflow name in title/body",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-2] If matching open issue exists, job is skipped with message indicating existing issue",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-3] New --run-id parameter allows analyzing a specific run instead of time window",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-4] Collect step receives run ID, workflow name, and conclusion from triggering run",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-1] workflow_run trigger includes egg Self-Improvement Analysis workflow",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-2] If self-improvement has failed 3+ consecutive times, skip analysis and create a blocking issue requiring human intervention",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-3] Failure count persists across runs, resets on success",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-4-1] List includes all monitored workflows except test/lint",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-4-2] Prompt text updated to reflect analyzing single failed run vs. batch",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-4-3] Issue created describing future heuristic-based filtering (grep for errors, tool failures, etc.)",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-4-4] Workflow includes comments explaining concurrency model and throttling logic",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Core Workflow Trigger Infrastructure",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add workflow_run trigger to self-improvement.yml",
+          "status": "pending",
+          "acceptance_criteria": "Workflow triggers on completion of on-mention, on-pull-request, on-check-failure, on-review-feedback, on-merge-conflict, on-push-doc-updater, sdlc-pipeline, sdlc-work-loop, and self-improvement workflows",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add failure-only gate job",
+          "status": "pending",
+          "acceptance_criteria": "Job checks github.event.workflow_run.conclusion == 'failure' and skips analysis for successful runs",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add per-workflow concurrency group",
+          "status": "pending",
+          "acceptance_criteria": "Concurrency group self-improvement-{workflow_name} ensures only one analysis runs per workflow at a time",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Remove nightly cron schedule",
+          "status": "pending",
+          "acceptance_criteria": "schedule trigger removed from workflow",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Issue-Based Throttling",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add issue search step to check for existing open issues",
+          "status": "pending",
+          "acceptance_criteria": "Step queries GitHub API for open issues with self-improvement label and workflow name in title/body",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add conditional skip logic based on open issue",
+          "status": "pending",
+          "acceptance_criteria": "If matching open issue exists, job is skipped with message indicating existing issue",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Update collect.py to support single-run analysis mode",
+          "status": "pending",
+          "acceptance_criteria": "New --run-id parameter allows analyzing a specific run instead of time window",
+          "files_affected": [
+            "sandbox/egg_lib/self_improvement/collect.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Pass workflow_run metadata to collect step",
+          "status": "pending",
+          "acceptance_criteria": "Collect step receives run ID, workflow name, and conclusion from triggering run",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Self-Improvement Loop Protection",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add self-improvement to monitored workflows list",
+          "status": "pending",
+          "acceptance_criteria": "workflow_run trigger includes egg Self-Improvement Analysis workflow",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add loop detection via consecutive failure count",
+          "status": "pending",
+          "acceptance_criteria": "If self-improvement has failed 3+ consecutive times, skip analysis and create a blocking issue requiring human intervention",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Store/retrieve failure count in run artifacts or issue comments",
+          "status": "pending",
+          "acceptance_criteria": "Failure count persists across runs, resets on success",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Configuration and Cleanup",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Update EGG_WORKFLOWS in config.py",
+          "status": "pending",
+          "acceptance_criteria": "List includes all monitored workflows except test/lint",
+          "files_affected": [
+            "sandbox/egg_lib/self_improvement/config.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Update task prompt to reference single-run context",
+          "status": "pending",
+          "acceptance_criteria": "Prompt text updated to reflect analyzing single failed run vs. batch",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Create GitHub issue for smart log filtering enhancement",
+          "status": "pending",
+          "acceptance_criteria": "Issue created describing future heuristic-based filtering (grep for errors, tool failures, etc.)",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Add documentation comments in workflow",
+          "status": "pending",
+          "acceptance_criteria": "Workflow includes comments explaining concurrency model and throttling logic",
+          "files_affected": [
+            ".github/workflows/self-improvement.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 2,
@@ -84,5 +417,9 @@
   "plan_reviewer_verdicts": {
     "unified": "missing",
     "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Trigger self-improvement on workflow failures",
+    "description": "Run self-improvement analysis when egg workflows fail, replacing the nightly\ncron schedule. Uses per-workflow concurrency and issue-based throttling to\nprevent duplicate analysis of recurring failures.\n\nCloses #289."
   }
 }
