@@ -8,13 +8,29 @@ egg supports multiple deployment methods depending on your use case:
 
 | Method | Best For | Prerequisites |
 |--------|----------|---------------|
-| **Docker Compose** | Production, local development | Docker, Docker Compose |
-| **egg CLI** | Quick local testing | Docker |
+| **egg CLI** | Local development (recommended) | Docker |
+| **Docker Compose** | Production, advanced deployments | Docker, Docker Compose |
 | **GitHub Action** | CI/CD automation | GitHub repository |
 
-## Docker Compose (Recommended)
+## egg CLI (Recommended)
 
-The recommended deployment method uses Docker Compose to manage the gateway stack.
+The simplest way to run egg. The CLI manages the gateway and sandbox lifecycle automatically:
+
+```bash
+# Install
+pip install ./sandbox
+
+# Run — auto-setup on first run, gateway started automatically
+egg
+```
+
+On first run, egg prompts to configure repositories and credentials via `egg --setup`. Subsequent runs start the gateway and sandbox with a single command.
+
+See the [CLI Reference](../../README.md#cli-reference) for all flags and options.
+
+## Docker Compose (Advanced)
+
+For production deployments or managing the gateway stack separately, use Docker Compose.
 
 ### Quick Start
 
@@ -99,9 +115,9 @@ sandbox (172.32.0.x) ──┐
 - **egg-external**: Standard bridge network with internet access
 - **Gateway**: Dual-homed, acts as the only egress point for sandboxes
 
-## CLI-Based Deployment
+## CLI with Docker Compose Gateway
 
-For quick local testing, use the `egg` CLI directly:
+To use the `egg` CLI with a separately-managed Docker Compose gateway:
 
 ### Using --compose Mode
 
