@@ -1501,6 +1501,75 @@ class TestGhExecuteReviewerToken:
             elif "token_refresher" in sys.modules:
                 del sys.modules["token_refresher"]
 
+    def test_pr_review_stays_in_user_mode_when_token_unavailable(self, client, auth_headers):
+        """PR review command stays in user mode when reviewer token unavailable."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_auth_mode", return_value="user"),
+            patch("token_refresher.is_reviewer_token_available", return_value=False),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "Reviewed"
+            mock_result.stderr = ""
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": "Reviewed",
+                "stderr": "",
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["pr", "review", "123", "--approve"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # Verify get_github_client was called with user mode (not reviewer)
+            mock_gh.assert_called_with(mode="user")
+
+    def test_pr_review_with_repo_flag_prepended_uses_reviewer_token(self, client, auth_headers):
+        """PR review command with --repo flag prepended still switches to reviewer mode."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+            patch("token_refresher.is_reviewer_token_available", return_value=True),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "Reviewed"
+            mock_result.stderr = ""
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": "Reviewed",
+                "stderr": "",
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            # Args with --repo flag prepended (as the gateway does for some commands)
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["--repo", "owner/repo", "pr", "review", "123", "--approve"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # Verify get_github_client was called with reviewer mode
+            mock_gh.assert_called_with(mode="reviewer")
+
 
 class TestGitFetch:
     """Tests for /api/v1/git/fetch endpoint."""
