@@ -240,10 +240,18 @@ GitHub Actions' `uses:` field cannot accept dynamic expressions. The `action_ref
 
 The workflows expect specific secret names. You must configure these secrets in your repository:
 
+**Required:**
 - `BOT_APP_ID` - GitHub App ID
 - `BOT_APP_PRIVATE_KEY` - GitHub App private key
 - `BOT_APP_INSTALLATION_ID` - GitHub App installation ID
 - `ANTHROPIC_OAUTH_TOKEN` - Anthropic API token
+
+**Optional (for separate reviewer bot):**
+- `REVIEWER_APP_ID` - Reviewer GitHub App ID (enables approve/request-changes on bot PRs)
+- `REVIEWER_APP_PRIVATE_KEY` - Reviewer GitHub App private key
+- `REVIEWER_APP_INSTALLATION_ID` - Reviewer GitHub App installation ID
+
+When reviewer secrets are provided, code review workflows use the separate reviewer account, enabling full GitHub Reviews API capabilities (approve/request-changes) on bot-authored PRs. Without them, workflows fall back to posting reviews as comments. See [GitHub Automation Guide](github-automation.md#separate-reviewer-bot-recommended) for setup details.
 
 ## Example: Complete Review Bot Setup
 
@@ -274,6 +282,10 @@ jobs:
       BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
       BOT_APP_INSTALLATION_ID: ${{ secrets.BOT_APP_INSTALLATION_ID }}
       ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+      # Optional: separate reviewer bot (enables approve/request-changes on bot PRs)
+      REVIEWER_APP_ID: ${{ secrets.REVIEWER_APP_ID }}
+      REVIEWER_APP_PRIVATE_KEY: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
+      REVIEWER_APP_INSTALLATION_ID: ${{ secrets.REVIEWER_APP_INSTALLATION_ID }}
 ```
 
 ## Custom Prompt Scripts
