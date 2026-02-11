@@ -65,18 +65,19 @@ Based on the codebase audit, here is the current model usage:
 
 ### Cost Model
 
-From `shared/egg_contracts/usage.py`:
+Current Anthropic pricing (USD per million tokens):
 
-| Token Type | Cost per Million |
-|------------|------------------|
-| Input (regular) | $15.00 |
-| Output | $75.00 |
-| Cache read | $1.50 (10% of input) |
-| Cache write | $18.75 (125% of input) |
+| Model | Input | Output | Cache Read (0.1x) | Cache Write (1.25x) |
+|-------|-------|--------|--------------------|---------------------|
+| **Opus 4.5/4.6** | $5.00 | $25.00 | $0.50 | $6.25 |
+| **Sonnet 4.5** | $3.00 | $15.00 | $0.30 | $3.75 |
+| **Haiku 4.5** | $1.00 | $5.00 | $0.10 | $1.25 |
 
-**Note**: These are Opus 4.5 prices. Sonnet and Haiku are significantly cheaper:
-- Sonnet: ~$3/M input, ~$15/M output (80% cheaper than Opus)
-- Haiku: ~$0.25/M input, ~$1.25/M output (98% cheaper than Opus)
+Relative savings vs Opus 4.6:
+- Sonnet 4.5: ~40% cheaper
+- Haiku 4.5: ~80% cheaper
+
+> **Note**: `shared/egg_contracts/usage.py` previously hardcoded legacy Opus 4.1 rates ($15/$75), overstating costs by 3x. Fixed in #539.
 
 ## Constraints
 
@@ -109,7 +110,7 @@ From `shared/egg_contracts/usage.py`:
 | **Doc updater (no changes)** | `haiku` | Early exit path |
 
 **Pros**:
-- Significant cost reduction (est. 40-60% based on task distribution)
+- Meaningful cost reduction (est. 20-30% based on the ~40% Opus-to-Sonnet gap and task distribution)
 - Preserves quality for high-stakes tasks
 - Minimal code changes (model parameter in build scripts)
 - Easy to roll back if quality issues arise
@@ -185,7 +186,7 @@ From `shared/egg_contracts/usage.py`:
 
 **Justification**:
 1. Model selection changes are low-risk and reversible
-2. Estimated 40-60% cost reduction from Phase 1 alone
+2. Estimated 20-30% cost reduction from Phase 1 alone
 3. No architectural changes required for Phase 1
 4. Phase 2 (caching) can be evaluated after Phase 1 results are measured
 
