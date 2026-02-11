@@ -7,6 +7,8 @@ For programmatic mode, use llm.claude.runner directly.
 
 import os
 
+from egg_config.constants import MODEL_DEFAULT
+
 
 def run_interactive() -> None:
     """Launch Claude Code CLI in interactive mode.
@@ -20,7 +22,7 @@ def run_interactive() -> None:
         # Use environment defaults (API key or OAuth)
         run_interactive()
     """
-    cmd = ["claude", "--dangerously-skip-permissions", "--model", "opus"]
+    cmd = ["claude", "--dangerously-skip-permissions", "--model", MODEL_DEFAULT]
 
     # Set up environment for Claude
     env = os.environ.copy()
@@ -28,5 +30,5 @@ def run_interactive() -> None:
     env.setdefault("DISABLE_COST_WARNINGS", "1")
     env.setdefault("NO_PROXY", "127.0.0.1")
 
-    print("[llm] Launching Claude Code with Opus 4.5...")
+    print(f"[llm] Launching Claude Code with model: {MODEL_DEFAULT}...")
     os.execvpe(cmd[0], cmd, env)

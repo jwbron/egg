@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 import requests
-from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT
+from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT, MODEL_INTEGRATION_TESTS
 from egg_container import (
     ContainerNetworkConfig,
     build_sandbox_docker_cmd,
@@ -552,7 +552,7 @@ def run_claude_structured(
     session_token: str,
     prompt: str,
     *,
-    model: str = "sonnet",
+    model: str = MODEL_INTEGRATION_TESTS,
     max_budget_usd: float = 0.50,
     timeout: int = 180,
     extra_system: str = "",

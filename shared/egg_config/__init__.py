@@ -56,6 +56,13 @@ from .constants import (
     GATEWAY_ISOLATED_IP,
     GATEWAY_PORT,
     GATEWAY_PROXY_PORT,
+    # LLM Model constants
+    MODEL_DEFAULT,
+    MODEL_HAIKU,
+    MODEL_HEALTH_CHECK,
+    MODEL_INTEGRATION_TESTS,
+    MODEL_OPUS,
+    MODEL_SONNET,
     TEST_GATEWAY_PORT,
     TEST_GATEWAY_PROXY_PORT,
 )
@@ -89,6 +96,13 @@ __all__ = [
     "GATEWAY_ISOLATED_IP",
     "GATEWAY_PORT",
     "GATEWAY_PROXY_PORT",
+    # LLM Model constants
+    "MODEL_DEFAULT",
+    "MODEL_HAIKU",
+    "MODEL_HEALTH_CHECK",
+    "MODEL_INTEGRATION_TESTS",
+    "MODEL_OPUS",
+    "MODEL_SONNET",
     # Service configurations
     "GatewayConfig",
     "GitHubConfig",

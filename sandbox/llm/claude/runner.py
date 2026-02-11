@@ -17,14 +17,16 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
+from egg_config.constants import MODEL_DEFAULT
+
 from llm.claude.config import ClaudeConfig
 from llm.result import AgentResult
 
 logger = logging.getLogger(__name__)
 
 # Default model for sandbox agents
-# Using the alias 'opus' which maps to the latest Opus model (claude-opus-4-5-*)
-DEFAULT_MODEL = "opus"
+# Using centralized constant which maps to the latest Opus model (claude-opus-4-5-*)
+DEFAULT_MODEL = MODEL_DEFAULT
 
 # Minimum known-good Claude Code version (for version check logging)
 MIN_CLAUDE_VERSION = "1.0.0"

@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
-from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT
+from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT, MODEL_DEFAULT
 
 # =============================================================================
 # Startup Timing (Debug)
@@ -684,7 +684,7 @@ def setup_claude(config: Config, logger: Logger) -> None:
         "editorMode": "normal",
         "autoUpdate": False,
         "outputStyle": "default",
-        "defaultModel": "opus",
+        "defaultModel": MODEL_DEFAULT,
         "showResumeCommand": False,
     }
 

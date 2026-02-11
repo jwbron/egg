@@ -10,11 +10,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..base import BaseConfig, HealthCheckResult, ValidationResult
+from ..constants import MODEL_HEALTH_CHECK
 from ..validators import mask_secret, validate_anthropic_key, validate_non_empty
 
-# Model used for health checks - uses cheapest/fastest model
+# Model used for health checks - imported from centralized constants
+# Uses cheapest/fastest model alias (haiku) to minimize costs
 # Note: Health checks make minimal API calls (max_tokens=1) but are billable
-ANTHROPIC_HEALTH_CHECK_MODEL = "claude-3-haiku-20240307"
+ANTHROPIC_HEALTH_CHECK_MODEL = MODEL_HEALTH_CHECK
 
 
 @dataclass
