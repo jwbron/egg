@@ -76,7 +76,12 @@ EOF
 }
 
 fetch_review_comments() {
-    # Get review comments that might inform conflict resolution
+    # Get review comments that might inform conflict resolution.
+    # We filter OUT comments containing "conflict|merge|rebase|fix" because these
+    # are typically bot-generated status comments about conflicts themselves, not
+    # human feedback about the code changes. Human review comments about actual
+    # code (architecture, logic, style) are more useful for conflict resolution.
+    # Bot comments are also filtered via the user.login check in PR comments below.
     local comments
     comments=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments" 2>/dev/null \
         | jq -r '.[] | select(.body | test("conflict|merge|rebase|fix"; "i") | not) | "**@\(.user.login)** on \(.path):\n\(.body)\n"' 2>/dev/null \
@@ -170,6 +175,7 @@ Using merge instead of rebase preserves the PR's commit history. If the resoluti
 1. **Fetch the base branch**: Run \`git fetch origin ${base_ref}\` to get the latest.
 
 2. **Preview the merge**: Run \`git merge --no-commit origin/${base_ref}\` to see conflicts without committing yet.
+   - If \`git merge --no-commit\` completes without conflicts, simply run \`git commit\` to complete the merge and skip to step 6 (verification).
 
 3. **Analyze each conflict**: Before resolving, categorize each conflict:
    - **Additive** — Both sides add different content (safe to include both)

@@ -35,22 +35,31 @@ def run_build_conflict_prompt(
         runner_temp = tempfile.gettempdir()
     env["RUNNER_TEMP"] = runner_temp
 
+    # Track mock directory for cleanup
+    mock_dir_obj = None
     if mock_gh:
-        # Create a mock gh command that returns empty JSON
-        mock_dir = tempfile.mkdtemp()
+        # Create a mock gh command that returns empty JSON.
+        # Use TemporaryDirectory for automatic cleanup.
+        mock_dir_obj = tempfile.TemporaryDirectory()
+        mock_dir = mock_dir_obj.name
         mock_gh_path = Path(mock_dir) / "gh"
         mock_gh_path.write_text('#!/bin/bash\necho "{}"')
         mock_gh_path.chmod(0o755)
         env["PATH"] = f"{mock_dir}:{env.get('PATH', '')}"
 
-    result = subprocess.run(
-        ["bash", str(BUILD_CONFLICT_PROMPT)],
-        capture_output=True,
-        text=True,
-        env=env,
-        cwd=PROJECT_ROOT,
-    )
-    return result.returncode, result.stdout, result.stderr
+    try:
+        result = subprocess.run(
+            ["bash", str(BUILD_CONFLICT_PROMPT)],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=PROJECT_ROOT,
+        )
+        return result.returncode, result.stdout, result.stderr
+    finally:
+        # Clean up mock directory if created
+        if mock_dir_obj is not None:
+            mock_dir_obj.cleanup()
 
 
 def read_prompt_file(runner_temp: str, pr_number: str) -> str:
@@ -96,8 +105,8 @@ class TestConflictPromptGeneration:
 
             # Should NOT use rebase or instruct force-push as the push method
             assert "git rebase" not in prompt
-            # The prompt says "Do NOT use --force" which is correct behavior
-            assert "Do NOT use `--force`" in prompt or "Never use `--force`" in prompt
+            # The prompt explicitly prohibits force pushing
+            assert "Do NOT use `--force` or `--force-with-lease`" in prompt
 
     def test_includes_conflict_categorization(self) -> None:
         """Prompt includes conflict categorization guidance."""

@@ -109,8 +109,9 @@ jobs:
 
               # Check if there was a recent conflict resolution attempt that failed
               # (bot commented about resolution in last 2 hours)
+              # Use fromdateiso8601 for robust epoch comparison instead of string comparison
               recent_resolution=$(gh api "repos/${{ github.repository }}/issues/${pr_num}/comments" \
-                -q '[.[] | select(.user.login | test("\\[bot\\]$")) | select(.body | contains("conflict resolution")) | select(.created_at > (now - 7200 | todate))] | length' 2>/dev/null || echo "0")
+                -q '[.[] | select(.user.login | test("\\[bot\\]$")) | select(.body | contains("conflict resolution")) | select((.created_at | fromdateiso8601) > (now - 7200))] | length' 2>/dev/null || echo "0")
               if [[ "$recent_resolution" -gt 2 ]]; then
                 echo "PR #${pr_num} has had multiple recent resolution attempts, skipping — may need human review"
                 continue
