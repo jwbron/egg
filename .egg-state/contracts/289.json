@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 289,
+    "title": "Run self-improvement workflow after every workflow completes",
+    "url": "https://github.com/jwbron/egg/issues/289"
+  },
+  "current_phase": "plan",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 1,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-11T03:53:57Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-11T04:00:35Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    }
+  ],
+  "autofix_attempts": 0,
+  "max_autofix_attempts": 3,
+  "phase_configs": {
+    "refine": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "plan": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "implement": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "PR_REVIEW"
+    }
+  },
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "refine_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  }
+}
