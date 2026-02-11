@@ -152,7 +152,7 @@ A 30-second debounce prevents accidental clicks.
 
 ## Quick Start
 
-### Local (Recommended)
+### Local
 
 ```bash
 # Clone and install
