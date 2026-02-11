@@ -561,11 +561,12 @@ class GitHubClient:
         Initialize the GitHub client.
 
         Args:
-            mode: Authentication mode - "bot" (default) or "user"
+            mode: Authentication mode - "bot" (default), "user", or "reviewer"
         """
         self.mode = mode
         self._cached_token: GitHubToken | None = None
         self._cached_user_token: str | None = None
+        self._cached_reviewer_token: GitHubToken | None = None
 
     def get_token(self) -> GitHubToken | None:
         """
@@ -631,6 +632,50 @@ class GitHubClient:
     def is_user_token_valid(self) -> bool:
         """Check if user token is configured."""
         return bool(self.get_user_token())
+
+    def get_reviewer_token(self) -> GitHubToken | None:
+        """
+        Get the current reviewer token from the reviewer token refresher.
+
+        The reviewer token is used for a separate GitHub App that posts code reviews.
+        This allows reviews to use the full GitHub Reviews API (approve/request-changes)
+        since the reviewer is not the same account as the PR author.
+
+        Returns cached token if still valid.
+        """
+        # Return cached token if still valid
+        if self._cached_reviewer_token and not self._cached_reviewer_token.is_expired:
+            return self._cached_reviewer_token
+
+        # Get token from the in-memory refresher
+        try:
+            from token_refresher import get_reviewer_token_refresher
+
+            refresher = get_reviewer_token_refresher()
+            if refresher:
+                token_info = refresher.get_token_info()
+                if token_info:
+                    self._cached_reviewer_token = GitHubToken(
+                        token=token_info.token,
+                        expires_at_unix=token_info.expires_at.timestamp(),
+                        expires_at=token_info.expires_at.isoformat(),
+                        generated_at=token_info.generated_at.isoformat(),
+                    )
+                    logger.debug(
+                        "Reviewer token loaded from refresher",
+                        minutes_until_expiry=f"{self._cached_reviewer_token.minutes_until_expiry:.1f}",
+                    )
+                    return self._cached_reviewer_token
+        except ImportError:
+            logger.error("token_refresher module not available")
+
+        logger.warning("No valid reviewer token available")
+        return None
+
+    def is_reviewer_token_valid(self) -> bool:
+        """Check if we have a valid (non-expired) reviewer token."""
+        token = self.get_reviewer_token()
+        return token is not None and not token.is_expired
 
     def get_authenticated_user(self, mode: str = "bot") -> str | None:
         """
@@ -707,7 +752,7 @@ class GitHubClient:
         Get the appropriate token string for the specified mode.
 
         Args:
-            mode: "bot" or "user" (defaults to self.mode)
+            mode: "bot", "user", or "reviewer" (defaults to self.mode)
 
         Returns:
             Token string or None if not available
@@ -715,6 +760,9 @@ class GitHubClient:
         mode = mode or self.mode
         if mode == "user":
             return self.get_user_token()
+        elif mode == "reviewer":
+            token = self.get_reviewer_token()
+            return token.token if token else None
         else:
             token = self.get_token()
             return token.token if token else None
@@ -733,7 +781,7 @@ class GitHubClient:
             args: Command arguments (without 'gh' prefix)
             timeout: Command timeout in seconds
             cwd: Working directory for the command
-            mode: Auth mode override ("bot" or "user"), defaults to self.mode
+            mode: Auth mode override ("bot", "user", or "reviewer"), defaults to self.mode
 
         Returns:
             GitHubResult with command output
@@ -747,6 +795,13 @@ class GitHubClient:
                     success=False,
                     stdout="",
                     stderr=f"User token not available. Set {USER_TOKEN_VAR} environment variable.",
+                    returncode=1,
+                )
+            elif effective_mode == "reviewer":
+                return GitHubResult(
+                    success=False,
+                    stdout="",
+                    stderr="Reviewer token not available. Reviewer token refresher may not be initialized.",
                     returncode=1,
                 )
             else:
@@ -956,7 +1011,7 @@ def get_github_client(mode: str = "bot") -> GitHubClient:
     Get a GitHub client instance for the specified mode.
 
     Args:
-        mode: Authentication mode - "bot" (default) or "user"
+        mode: Authentication mode - "bot" (default), "user", or "reviewer"
 
     Returns:
         GitHubClient configured for the specified mode
@@ -976,3 +1031,19 @@ def get_user_mode_client() -> GitHubClient:
         GitHubClient configured for user mode
     """
     return get_github_client(mode="user")
+
+
+def get_reviewer_client() -> GitHubClient:
+    """
+    Get a GitHub client configured for reviewer mode.
+
+    The reviewer client uses a separate GitHub App token for posting code reviews.
+    This allows reviews to use the full GitHub Reviews API (approve/request-changes)
+    since the reviewer is not the same account as the PR author.
+
+    Convenience function equivalent to get_github_client(mode="reviewer").
+
+    Returns:
+        GitHubClient configured for reviewer mode
+    """
+    return get_github_client(mode="reviewer")
