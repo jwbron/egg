@@ -1878,6 +1878,24 @@ def gh_execute() -> tuple[Response, int] | Response:
                     details=priv_result.to_dict(),
                 )
 
+    # Use reviewer token for PR reviews when available. This allows the
+    # reviewer bot (a separate GitHub App) to post approve/request-changes
+    # on PRs authored by the main bot — something the bot can't do on its own PRs.
+    if (
+        len(args) >= 2
+        and args[0] == "pr"
+        and args[1] == "review"
+        and auth_mode == "bot"
+    ):
+        try:
+            from token_refresher import is_reviewer_token_available
+
+            if is_reviewer_token_available():
+                auth_mode = "reviewer"
+                logger.info("Using reviewer token for pr review command")
+        except ImportError:
+            pass
+
     # Execute the command
     github = get_github_client(mode=auth_mode)
     result = github.execute(args, timeout=60, cwd=cwd, mode=auth_mode)
@@ -3262,6 +3280,21 @@ def main() -> None:
         logger.error("Token refresher module not available - GitHub operations will fail")
     except Exception as e:
         logger.error("Token refresher initialization failed", error=str(e))
+
+    # Initialize reviewer token refresher (optional — for posting reviews with
+    # approve/request-changes using a separate GitHub App identity)
+    try:
+        from token_refresher import initialize_reviewer_token_refresher
+
+        reviewer_refresher = initialize_reviewer_token_refresher()
+        if reviewer_refresher:
+            logger.info("Reviewer token refresher initialized")
+        else:
+            logger.debug("Reviewer token refresher not configured (optional)")
+    except ImportError:
+        pass  # Already logged above
+    except Exception as e:
+        logger.warning("Reviewer token refresher initialization failed", error=str(e))
 
     # Validate user mode config if configured
     github = get_github_client()
