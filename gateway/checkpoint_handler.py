@@ -2,13 +2,50 @@
 Checkpoint handler for the gateway sidecar.
 
 Captures agent session context on successful git push operations and stores
-checkpoints in a dedicated branch (egg/checkpoints/v1).
+checkpoints in a dedicated branch (egg/checkpoints/v1). Each commit gets
+exactly one checkpoint, enabling precise traceability between code changes
+and agent sessions.
+
+Architecture Overview:
+    ┌──────────────────┐     ┌───────────────────────┐
+    │   gateway.py     │────>│  checkpoint_handler   │
+    │   (push handler) │     │  (this module)        │
+    └──────────────────┘     └───────────────────────┘
+                                        │
+            ┌───────────────────────────┼────────────────────────┐
+            │                           │                        │
+            v                           v                        v
+    ┌───────────────────┐   ┌───────────────────┐   ┌───────────────────┐
+    │ transcript_buffer │   │  transcript_      │   │ checkpoint_loader │
+    │ (API capture)     │   │  extractor        │   │ (storage)         │
+    └───────────────────┘   └───────────────────┘   └───────────────────┘
+
+Checkpoint Flow:
+    1. gateway.py receives git push, forwards to GitHub
+    2. On success, calls capture_and_store_checkpoints_for_push()
+    3. Enumerates commits in push via get_commits_in_push()
+    4. For each commit, captures checkpoint with transcript from proxy buffer
+    5. Stores checkpoint in egg/checkpoints/v1 branch (async)
+
+Transcript Source:
+    Transcripts are extracted from the API proxy buffer at
+    /tmp/egg-transcripts/{container_id}.jsonl. This file is written by
+    transcript_buffer.py when proxying Anthropic API calls. Using the
+    API proxy layer provides a stable format independent of Claude Code
+    internals.
+
+    The buffer captures:
+    - API request/response pairs (messages, tools, content)
+    - Token usage per request
+    - Tool calls and their results
+    - Streaming and non-streaming responses
 
 Integration points:
 - Called from gateway.py after successful push
 - Uses SessionManager for session context
-- Uses transcript_extractor for Claude Code session data
-- Uses checkpoint_loader for atomic writes
+- Uses transcript_extractor for proxy buffer data extraction
+- Uses checkpoint_loader for atomic writes to checkpoint branch
+- Uses transcript_buffer for API traffic capture
 """
 
 import os
@@ -39,8 +76,8 @@ from egg_contracts.checkpoints import (
 from egg_contracts.redactor import Redactor, RedactorConfig
 from egg_contracts.transcript_extractor import (
     TranscriptExtractError,
-    extract_transcript_from_jsonl,
-    find_session_file,
+    extract_transcript_from_proxy_buffer,
+    get_proxy_buffer_path,
 )
 from egg_logging import get_logger
 
@@ -60,11 +97,87 @@ INDEX_FILE = "index.json"
 # Maximum transcript size before truncation (bytes)
 MAX_TRANSCRIPT_SIZE = 1_000_000  # 1MB
 
-# Default Claude projects directory
-CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
-
 # Feature flag for enabling/disabling checkpoints
 CHECKPOINT_ENABLED = os.environ.get("CHECKPOINT_ENABLED", "true").lower() == "true"
+
+
+def get_commits_in_push(
+    repo_path: str,
+    old_sha: str,
+    new_sha: str,
+) -> list[str]:
+    """
+    Get the list of commits in a push, in chronological order (oldest first).
+
+    Uses `git rev-list --reverse` to enumerate all commits between old_sha
+    and new_sha. This enables per-commit checkpoint creation for multi-commit
+    pushes.
+
+    Args:
+        repo_path: Path to the repository
+        old_sha: The SHA before the push (remote ref before update)
+        new_sha: The SHA after the push (new tip of the branch)
+
+    Returns:
+        List of commit SHAs in chronological order (oldest to newest).
+        Returns [new_sha] if old_sha is the null SHA (new branch) or
+        if rev-list fails.
+
+    Note:
+        For force pushes where old_sha is not an ancestor of new_sha, git rev-list
+        returns empty output since there's no path from old to new. In this case,
+        only the tip commit (new_sha) is returned. This is intentional: force pushes
+        represent a history rewrite, so we create a single checkpoint for the new
+        tip rather than attempting to enumerate the rewritten history.
+    """
+    # Handle new branch case - old_sha is null SHA (all zeros)
+    null_sha = "0" * 40
+    if old_sha == null_sha or not old_sha:
+        # New branch - just return the tip commit
+        # Could also use rev-list from root, but that's expensive for large branches
+        return [new_sha]
+
+    try:
+        # Get commits between old and new (exclusive of old, inclusive of new)
+        # --reverse gives us chronological order (oldest first)
+        result = subprocess.run(
+            ["git", "rev-list", "--reverse", f"{old_sha}..{new_sha}"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            commits = result.stdout.strip().split("\n")
+            return [c for c in commits if c]  # Filter empty strings
+
+        # If rev-list fails or returns empty (force push, etc.), fall back to new_sha
+        logger.debug(
+            "git rev-list returned empty or failed, falling back to tip commit",
+            old_sha=old_sha[:7],
+            new_sha=new_sha[:7],
+            returncode=result.returncode,
+            stderr=result.stderr[:200] if result.stderr else "",
+        )
+        return [new_sha]
+
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "git rev-list timed out, falling back to tip commit",
+            old_sha=old_sha[:7],
+            new_sha=new_sha[:7],
+        )
+        return [new_sha]
+    except Exception as e:
+        logger.warning(
+            "git rev-list failed, falling back to tip commit",
+            error=str(e),
+            old_sha=old_sha[:7],
+            new_sha=new_sha[:7],
+        )
+        return [new_sha]
 
 
 class CheckpointError(Exception):
@@ -135,16 +248,12 @@ class CheckpointHandler:
             return None
 
         try:
-            # Find the session file
-            project_path = Path(repo_path)
-            session_file = find_session_file(
-                project_path=project_path,
-                claude_projects_dir=CLAUDE_PROJECTS_DIR,
-            )
+            # Get container ID from session for proxy buffer lookup
+            container_id = session.container_id if session else None
 
-            if not session_file:
+            if not container_id:
                 logger.debug(
-                    "No session file found for checkpoint",
+                    "No container ID available for checkpoint",
                     repo_path=repo_path,
                     commit_sha=commit_sha[:7],
                 )
@@ -158,7 +267,27 @@ class CheckpointHandler:
                     push_sha=push_sha,
                 )
 
-            # Extract transcript data
+            # Get proxy buffer path for this container
+            buffer_path = get_proxy_buffer_path(container_id)
+
+            if not buffer_path.exists():
+                logger.debug(
+                    "No proxy buffer found for checkpoint",
+                    container_id=container_id,
+                    buffer_path=str(buffer_path),
+                    commit_sha=commit_sha[:7],
+                )
+                # Create a minimal checkpoint without transcript
+                return self._create_minimal_checkpoint(
+                    commit_sha=commit_sha,
+                    branch=branch,
+                    session=session,
+                    issue_number=issue_number,
+                    pipeline_phase=pipeline_phase,
+                    push_sha=push_sha,
+                )
+
+            # Extract transcript data from proxy buffer
             try:
                 (
                     session_metadata,
@@ -166,12 +295,12 @@ class CheckpointHandler:
                     tool_calls,
                     file_operations,
                     token_usage,
-                ) = extract_transcript_from_jsonl(session_file)
+                ) = extract_transcript_from_proxy_buffer(buffer_path, container_id)
             except TranscriptExtractError as e:
                 logger.warning(
-                    "Failed to extract transcript",
+                    "Failed to extract transcript from proxy buffer",
                     error=str(e),
-                    session_file=str(session_file),
+                    buffer_path=str(buffer_path),
                 )
                 return self._create_minimal_checkpoint(
                     commit_sha=commit_sha,
@@ -576,3 +705,116 @@ def capture_and_store_checkpoint(
         handler.store_checkpoint(checkpoint, repo_path)
 
     return checkpoint
+
+
+def capture_and_store_checkpoints_for_push(
+    repo_path: str,
+    old_sha: str,
+    new_sha: str,
+    branch: str,
+    session: Session | None = None,
+    issue_number: int | None = None,
+    pipeline_phase: str | None = None,
+    github_token: str | None = None,
+    async_store: bool = True,
+) -> list[Checkpoint]:
+    """
+    Capture and store checkpoints for all commits in a push.
+
+    This function creates one checkpoint per commit in the push, enabling
+    per-commit granularity for traceability. The push_sha field on each
+    checkpoint points to the tip commit of the push (new_sha).
+
+    Args:
+        repo_path: Path to the repository
+        old_sha: SHA before the push (remote ref before update)
+        new_sha: SHA after the push (new tip of the branch)
+        branch: The branch where the commit was made
+        session: Optional Session object with container/role info
+        issue_number: Optional GitHub issue number
+        pipeline_phase: Optional SDLC pipeline phase
+        github_token: Optional GitHub token for pushing
+        async_store: If True, store checkpoints asynchronously
+
+    Returns:
+        List of Checkpoint objects that were successfully captured.
+        May be empty if checkpoints are disabled or capture fails.
+
+    Note:
+        All checkpoints in a multi-commit push share the same transcript buffer,
+        so each checkpoint contains the full session transcript up to that point.
+        This is intentional: the transcript captures the entire agent reasoning
+        session, not just the work for a specific commit. Deduplication of transcript
+        content is left to the storage layer if needed.
+    """
+    if not CHECKPOINT_ENABLED:
+        return []
+
+    # Get all commits in the push (oldest first)
+    commits = get_commits_in_push(repo_path, old_sha, new_sha)
+
+    if not commits:
+        logger.debug("No commits found in push", old_sha=old_sha[:7], new_sha=new_sha[:7])
+        return []
+
+    logger.info(
+        "Creating per-commit checkpoints for push",
+        commit_count=len(commits),
+        push_sha=new_sha[:7],
+        branch=branch,
+    )
+
+    checkpoints = []
+    handler = get_checkpoint_handler(github_token)
+
+    for commit_sha in commits:
+        try:
+            checkpoint = handler.capture_checkpoint(
+                repo_path=repo_path,
+                commit_sha=commit_sha,
+                branch=branch,
+                session=session,
+                issue_number=issue_number,
+                pipeline_phase=pipeline_phase,
+                push_sha=new_sha,  # All checkpoints point to the push tip
+            )
+
+            if checkpoint:
+                checkpoints.append(checkpoint)
+        except Exception as e:
+            logger.warning(
+                "Failed to capture checkpoint for commit",
+                commit_sha=commit_sha[:7],
+                error=str(e),
+            )
+            # Continue with other commits - don't fail the whole push
+
+    if not checkpoints:
+        logger.debug("No checkpoints captured for push", push_sha=new_sha[:7])
+        return []
+
+    # Store all checkpoints (async or sync)
+    if async_store:
+        # Store in background thread to not block push response
+        def _store_all_with_error_handling() -> None:
+            for checkpoint in checkpoints:
+                try:
+                    handler.store_checkpoint(checkpoint, repo_path)
+                except Exception as e:
+                    logger.error(
+                        "Async checkpoint storage failed",
+                        error=str(e),
+                        checkpoint_id=checkpoint.id,
+                        commit_sha=checkpoint.commit_sha[:7],
+                    )
+
+        thread = threading.Thread(
+            target=_store_all_with_error_handling,
+            daemon=True,
+        )
+        thread.start()
+    else:
+        for checkpoint in checkpoints:
+            handler.store_checkpoint(checkpoint, repo_path)
+
+    return checkpoints
