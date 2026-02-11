@@ -6,8 +6,353 @@
     "url": "https://github.com/jwbron/egg/issues/388"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] All four scripts output model= to GITHUB_OUTPUT",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Both scripts output model=opus explicitly",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] build-agent-mode-design-review-prompt.sh outputs model=sonnet",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Both scripts output model=sonnet",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-1-5] build-contract-verification-prompt.sh remains at opus",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-1-6] build-review-prompt.sh and build-unified-review-prompt.sh remain at opus",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-1-7] llm.py uses haiku alias",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-1] Gateway adds cache_control to system prompt content blocks",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-2] EGG_PROMPT_CACHING_ENABLED env var controls caching",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-2-3] System prompts have role/guidelines before dynamic context",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-2-4] Transcript captures cache tokens with meaningful labels",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-2-5] Usage tracking shows cache hit rate per workflow",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-3-1] All integration tests pass",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-3-2] Sampled outputs meet quality bar",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-3-3] CLAUDE.md includes model selection rationale",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-3-4] Report shows before/after token usage",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Model Selection Updates",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add model output to agent prompt builders (coder, tester, documenter, integrator)",
+          "status": "pending",
+          "acceptance_criteria": "All four scripts output model= to GITHUB_OUTPUT",
+          "files_affected": [
+            "action/build-coder-prompt.sh",
+            "action/build-tester-prompt.sh",
+            "action/build-documenter-prompt.sh",
+            "action/build-integrator-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add model output to SDLC and mention prompts",
+          "status": "pending",
+          "acceptance_criteria": "Both scripts output model=opus explicitly",
+          "files_affected": [
+            "action/build-sdlc-prompt.sh",
+            "action/build-mention-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Downgrade specialized reviewers to sonnet",
+          "status": "pending",
+          "acceptance_criteria": "build-agent-mode-design-review-prompt.sh outputs model=sonnet",
+          "files_affected": [
+            "action/build-agent-mode-design-review-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Downgrade autofixer and feedback to sonnet",
+          "status": "pending",
+          "acceptance_criteria": "Both scripts output model=sonnet",
+          "files_affected": [
+            "action/build-autofixer-prompt.sh",
+            "action/build-feedback-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-5",
+          "description": "Keep contract verification at opus (verify, no change needed)",
+          "status": "pending",
+          "acceptance_criteria": "build-contract-verification-prompt.sh remains at opus",
+          "files_affected": [
+            "action/build-contract-verification-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-6",
+          "description": "Keep code review at opus (verify, no change needed)",
+          "status": "pending",
+          "acceptance_criteria": "build-review-prompt.sh and build-unified-review-prompt.sh remain at opus",
+          "files_affected": [
+            "action/build-review-prompt.sh",
+            "action/build-unified-review-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-7",
+          "description": "Update health check to use haiku alias instead of hardcoded version",
+          "status": "pending",
+          "acceptance_criteria": "llm.py uses haiku alias",
+          "files_affected": [
+            "shared/egg_config/configs/llm.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Prompt Caching Implementation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add cache_control injection to gateway proxy for system prompts",
+          "status": "pending",
+          "acceptance_criteria": "Gateway adds cache_control to system prompt content blocks",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Create configuration for cacheable prompts",
+          "status": "pending",
+          "acceptance_criteria": "EGG_PROMPT_CACHING_ENABLED env var controls caching",
+          "files_affected": [
+            "gateway/gateway.py",
+            "shared/egg_config/configs/llm.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Structure prompts for optimal caching (stable content first)",
+          "status": "pending",
+          "acceptance_criteria": "System prompts have role/guidelines before dynamic context",
+          "files_affected": [
+            "action/build-coder-prompt.sh",
+            "action/build-sdlc-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Add cache metrics to transcript logging",
+          "status": "pending",
+          "acceptance_criteria": "Transcript captures cache tokens with meaningful labels",
+          "files_affected": [
+            "gateway/transcript_buffer.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "Add cache hit rate monitoring to usage tracking",
+          "status": "pending",
+          "acceptance_criteria": "Usage tracking shows cache hit rate per workflow",
+          "files_affected": [
+            "shared/egg_contracts/usage.py",
+            "shared/egg_contracts/usage_loader.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Validation and Monitoring",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Run integration test suite with new model assignments",
+          "status": "pending",
+          "acceptance_criteria": "All integration tests pass",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Manual quality spot-check of sonnet outputs",
+          "status": "pending",
+          "acceptance_criteria": "Sampled outputs meet quality bar",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Document model assignments in CLAUDE.md",
+          "status": "pending",
+          "acceptance_criteria": "CLAUDE.md includes model selection rationale",
+          "files_affected": [
+            "CLAUDE.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Create usage comparison report",
+          "status": "pending",
+          "acceptance_criteria": "Report shows before/after token usage",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 2,
@@ -84,5 +429,9 @@
   "plan_reviewer_verdicts": {
     "unified": "missing",
     "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Optimize LLM calls with model selection and prompt caching",
+    "description": "Reduces token usage to address daily rate limit exhaustion. Implements selective\nmodel downgrading (sonnet for simpler tasks) and prompt caching in the gateway.\nQuality-critical workflows (reviews, implementation, planning) remain on opus.\n\nCloses #388"
   }
 }
