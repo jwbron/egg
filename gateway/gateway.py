@@ -1881,18 +1881,25 @@ def gh_execute() -> tuple[Response, int] | Response:
     # Use reviewer token for PR reviews when available. This allows the
     # reviewer bot (a separate GitHub App) to post approve/request-changes
     # on PRs authored by the main bot — something the bot can't do on its own PRs.
-    if (
-        len(args) >= 2
-        and args[0] == "pr"
-        and args[1] == "review"
-        and auth_mode == "bot"
-    ):
+    # This applies to both bot and user modes since the reviewer token is a
+    # separate identity specifically for reviews.
+    # Note: args may have "--repo owner/repo" prepended, so we check if "pr" and "review"
+    # appear in sequence anywhere in the args (not just at positions 0 and 1).
+    def is_pr_review_command(cmd_args: list[str]) -> bool:
+        for i in range(len(cmd_args) - 1):
+            if cmd_args[i] == "pr" and cmd_args[i + 1] == "review":
+                return True
+        return False
+
+    if is_pr_review_command(args) and auth_mode in ("bot", "user"):
         try:
             from token_refresher import is_reviewer_token_available
 
             if is_reviewer_token_available():
                 auth_mode = "reviewer"
                 logger.info("Using reviewer token for pr review command")
+            else:
+                logger.debug("Reviewer token not available, using %s token for pr review", auth_mode)
         except ImportError:
             pass
 
