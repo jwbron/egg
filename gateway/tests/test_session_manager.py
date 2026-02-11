@@ -937,3 +937,171 @@ class TestValidationEdgeCases:
 
         # Expiration should be extended beyond the aged value
         assert result.session.expires_at > aged_expires
+
+
+class TestSessionPhase:
+    """Tests for session phase field and update_phase method."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a session manager with a temporary persistence file."""
+        return SessionManager(persistence_file=tmp_path / "sessions.json")
+
+    def test_register_session_with_phase(self, manager):
+        """Session can be registered with a phase."""
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            phase="implement",
+        )
+        assert session.phase == "implement"
+
+    def test_register_session_without_phase(self, manager):
+        """Session registered without phase defaults to None."""
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        assert session.phase is None
+
+    def test_phase_persistence(self, tmp_path):
+        """Phase survives save/load cycle."""
+        persist_path = tmp_path / "sessions.json"
+
+        # Create session with phase
+        manager1 = SessionManager(persistence_file=persist_path)
+        token, session = manager1.register_session(
+            container_id="container-1",
+            container_ip="172.18.0.5",
+            mode="private",
+            phase="implement",
+        )
+
+        # Simulate restart - create new manager loading from disk
+        manager2 = SessionManager(persistence_file=persist_path)
+
+        # Session should be loaded with phase intact
+        session_loaded = manager2.get_session_by_container("container-1")
+        assert session_loaded is not None
+        assert session_loaded.phase == "implement"
+
+    def test_update_phase_success(self, manager):
+        """update_phase updates the session phase."""
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            phase="implement",
+        )
+
+        # Update phase
+        result = manager.update_phase(token, "pr")
+        assert result is True
+
+        # Verify phase was updated
+        session = manager.get_session(token)
+        assert session is not None
+        assert session.phase == "pr"
+
+    def test_update_phase_invalid_token(self, manager):
+        """update_phase returns False for invalid token."""
+        result = manager.update_phase("invalid-token", "pr")
+        assert result is False
+
+    def test_update_phase_expired_session(self, manager):
+        """update_phase returns False for expired session."""
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            phase="implement",
+        )
+
+        # Manually expire the session
+        session.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+
+        result = manager.update_phase(token, "pr")
+        assert result is False
+
+    def test_update_phase_persists(self, tmp_path):
+        """update_phase persists the change to disk."""
+        persist_path = tmp_path / "sessions.json"
+
+        manager1 = SessionManager(persistence_file=persist_path)
+        token, _ = manager1.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            phase="implement",
+        )
+
+        # Update phase
+        manager1.update_phase(token, "pr")
+
+        # Simulate restart
+        manager2 = SessionManager(persistence_file=persist_path)
+
+        # Validate with original token should work and show updated phase
+        result = manager2.validate_session(token)
+        assert result.valid
+        assert result.session.phase == "pr"
+
+    def test_phase_serialization(self):
+        """Phase is correctly serialized/deserialized."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            phase="implement",
+        )
+
+        # Serialize
+        d = session.to_dict_for_persistence()
+        assert d["phase"] == "implement"
+
+        # Deserialize
+        restored = Session.from_persistence(d)
+        assert restored.phase == "implement"
+
+    def test_phase_not_serialized_when_none(self):
+        """Phase field is not included when None."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            phase=None,
+        )
+
+        d = session.to_dict_for_persistence()
+        assert "phase" not in d
+
+    def test_from_persistence_handles_missing_phase(self):
+        """from_persistence handles sessions without phase field."""
+        now = datetime.now(UTC)
+        data = {
+            "session_token_hash": "abc123",
+            "container_id": "test-container",
+            "container_ip": "172.18.0.5",
+            "mode": "private",
+            "created_at": now.isoformat(),
+            "last_seen": now.isoformat(),
+            "expires_at": (now + timedelta(hours=24)).isoformat(),
+            # No phase field - simulates legacy session
+        }
+
+        session = Session.from_persistence(data)
+        assert session.phase is None

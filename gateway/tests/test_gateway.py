@@ -948,6 +948,226 @@ class TestGhPrCreate:
             assert "pull/42" in data["data"]["stdout"]
 
 
+class TestGhPrCreatePhaseRestrictions:
+    """Tests for phase-based PR creation restrictions."""
+
+    @pytest.fixture
+    def auth_headers_with_phase(self):
+        """Return session headers with specific phase for testing."""
+        import sys
+        import auth
+
+        def _make_headers(phase: str | None):
+            mock_session = MagicMock()
+            mock_session.mode = "public"
+            mock_session.container_id = "test-container"
+            mock_session.expires_at = None
+            mock_session.phase = phase
+
+            mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+            # Mock private repo policy to allow access
+            from private_repo_policy import PrivateRepoPolicyResult
+
+            mock_policy_result = PrivateRepoPolicyResult(
+                allowed=True,
+                reason="Test mode - access allowed",
+                visibility="public",
+            )
+
+            # Clear cached references
+            auth._session_manager = None
+            auth._rate_limiter = None
+
+            if "gateway.auth" in sys.modules:
+                sys.modules["gateway.auth"]._session_manager = None
+                sys.modules["gateway.auth"]._rate_limiter = None
+
+            current_session_manager = sys.modules.get("session_manager", session_manager)
+
+            return (
+                {"Authorization": "Bearer test-session-token"},
+                mock_result,
+                mock_policy_result,
+                current_session_manager,
+            )
+
+        return _make_headers
+
+    def test_pr_create_blocked_during_implement_phase(self, client, auth_headers_with_phase):
+        """PR create is blocked when session phase is 'implement'."""
+        headers, mock_result, mock_policy_result, current_session_manager = auth_headers_with_phase(
+            "implement"
+        )
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_gh_result = MagicMock()
+            mock_gh_result.success = True
+            mock_gh_result.stdout = "https://github.com/test/repo/pull/1"
+            mock_gh_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_gh_result
+
+            response = client.post(
+                "/api/v1/gh/pr/create",
+                headers=headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "title": "Test PR",
+                        "head": "feature-branch",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert data["success"] is False
+            assert "phase" in data["message"].lower() or "blocked" in data["message"].lower()
+
+    def test_pr_create_allowed_during_pr_phase(self, client, auth_headers_with_phase):
+        """PR create is allowed when session phase is 'pr'."""
+        headers, mock_result, mock_policy_result, current_session_manager = auth_headers_with_phase(
+            "pr"
+        )
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_gh_result = MagicMock()
+            mock_gh_result.success = True
+            mock_gh_result.stdout = "https://github.com/test/repo/pull/1"
+            mock_gh_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_gh_result
+
+            response = client.post(
+                "/api/v1/gh/pr/create",
+                headers=headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "title": "Test PR",
+                        "head": "feature-branch",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+    def test_pr_create_allowed_without_phase_backward_compat(self, client, auth_headers_with_phase):
+        """PR create is allowed when session has no phase (backward compatibility)."""
+        headers, mock_result, mock_policy_result, current_session_manager = auth_headers_with_phase(
+            None  # No phase set
+        )
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_gh_result = MagicMock()
+            mock_gh_result.success = True
+            mock_gh_result.stdout = "https://github.com/test/repo/pull/1"
+            mock_gh_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_gh_result
+
+            response = client.post(
+                "/api/v1/gh/pr/create",
+                headers=headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "title": "Test PR",
+                        "head": "feature-branch",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+    def test_pr_create_blocked_during_refine_phase(self, client, auth_headers_with_phase):
+        """PR create is blocked when session phase is 'refine'."""
+        headers, mock_result, mock_policy_result, current_session_manager = auth_headers_with_phase(
+            "refine"
+        )
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_gh_result = MagicMock()
+            mock_gh_result.success = True
+            mock_gh.return_value.execute.return_value = mock_gh_result
+
+            response = client.post(
+                "/api/v1/gh/pr/create",
+                headers=headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "title": "Test PR",
+                        "head": "feature-branch",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+
+    def test_pr_create_blocked_during_plan_phase(self, client, auth_headers_with_phase):
+        """PR create is blocked when session phase is 'plan'."""
+        headers, mock_result, mock_policy_result, current_session_manager = auth_headers_with_phase(
+            "plan"
+        )
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_gh_result = MagicMock()
+            mock_gh_result.success = True
+            mock_gh.return_value.execute.return_value = mock_gh_result
+
+            response = client.post(
+                "/api/v1/gh/pr/create",
+                headers=headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "title": "Test PR",
+                        "head": "feature-branch",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+
+
 class TestGhPrComment:
     """Tests for /api/v1/gh/pr/comment endpoint."""
 
@@ -2231,3 +2451,156 @@ class TestGitEditorEnv:
             call_kwargs = mock_run.call_args[1]
             assert "env" in call_kwargs
             assert call_kwargs["env"].get("GIT_EDITOR") == "true"
+
+
+class TestSessionPhaseUpdate:
+    """Tests for PATCH /api/v1/sessions/<token>/phase endpoint."""
+
+    def test_session_phase_update_requires_launcher_auth(self, client):
+        """Session phase update requires launcher authentication."""
+        response = client.patch(
+            "/api/v1/sessions/test-token/phase",
+            data=json.dumps({"phase": "pr"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 401
+
+    def test_session_phase_update_requires_phase(self, client, launcher_auth_headers):
+        """Session phase update requires phase parameter."""
+        response = client.patch(
+            "/api/v1/sessions/test-token/phase",
+            headers=launcher_auth_headers,
+            data=json.dumps({"foo": "bar"}),  # Non-empty body without phase
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "phase" in data["message"].lower()
+
+    def test_session_phase_update_validates_phase(self, client, launcher_auth_headers):
+        """Session phase update validates phase value."""
+        response = client.patch(
+            "/api/v1/sessions/test-token/phase",
+            headers=launcher_auth_headers,
+            data=json.dumps({"phase": "invalid-phase"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "invalid" in data["message"].lower()
+
+    def test_session_phase_update_success(self, client, launcher_auth_headers, tmp_path):
+        """Session phase update succeeds with valid parameters."""
+        from session_manager import SessionManager
+
+        # Create a real session manager with temp file
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+        token, _ = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            phase="implement",
+        )
+
+        with patch.object(gateway, "get_session_manager", return_value=manager):
+            response = client.patch(
+                f"/api/v1/sessions/{token}/phase",
+                headers=launcher_auth_headers,
+                data=json.dumps({"phase": "pr"}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert data["data"]["phase"] == "pr"
+
+            # Verify session was updated
+            session = manager.get_session(token)
+            assert session.phase == "pr"
+
+    def test_session_phase_update_session_not_found(self, client, launcher_auth_headers):
+        """Session phase update returns 404 for unknown session."""
+        with patch.object(gateway, "get_session_manager") as mock_get_manager:
+            mock_manager = MagicMock()
+            mock_manager.update_phase.return_value = False
+            mock_get_manager.return_value = mock_manager
+
+            response = client.patch(
+                "/api/v1/sessions/unknown-token/phase",
+                headers=launcher_auth_headers,
+                data=json.dumps({"phase": "pr"}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 404
+
+
+class TestSessionCreateWithPhase:
+    """Tests for session creation with phase parameter."""
+
+    def test_session_create_accepts_phase(self, client, launcher_auth_headers, tmp_path):
+        """Session create accepts optional phase parameter."""
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="private"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+        ):
+            # Mock worktree creation
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_worktree.return_value.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "private",
+                        "repos": ["owner/repo"],
+                        "phase": "implement",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert "session_token" in data["data"]
+
+            # Verify session was created with phase
+            token = data["data"]["session_token"]
+            session = manager.get_session(token)
+            assert session is not None
+            assert session.phase == "implement"
+
+    def test_session_create_validates_phase(self, client, launcher_auth_headers):
+        """Session create validates phase parameter."""
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "test-container",
+                    "container_ip": "172.18.0.5",
+                    "mode": "private",
+                    "repos": ["owner/repo"],
+                    "phase": "invalid-phase",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "invalid" in data["message"].lower()
