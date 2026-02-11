@@ -271,31 +271,37 @@ The agent follows these rules (customizable via `.egg/autofixer-rules.md`):
 
 **Workflow:** [`.github/workflows/on-merge-conflict.yml`](../../.github/workflows/on-merge-conflict.yml)
 
-Triggers on push to main (when conflicts are actually introduced) to detect PRs with merge conflicts and resolve them via rebase. A scheduled run every 2 hours provides a safety net for cases where the push-triggered run fails or GitHub's mergeable state computation takes longer than expected. Also supports `workflow_dispatch` for manual triggering on a specific PR.
+Resolves merge conflicts on PRs via rebase. Can be triggered automatically by the SDLC pipeline, on push to main, via schedule, or manually with `workflow_dispatch`.
+
+### Trigger Modes
+
+1. **SDLC pipeline integration** — When the SDLC pipeline merges main into an issue branch and encounters conflicts, it triggers this workflow and waits synchronously for resolution. If successful, the pipeline pulls the resolved changes and continues. If resolution fails, the pipeline exits with an error.
+
+2. **Push-triggered detection** — When code is pushed to main, waits 60 seconds for GitHub to recompute mergeable state, then queries all open PRs to find conflicts. Concurrent pushes are deduplicated via a concurrency group with cancel-in-progress.
+
+3. **Scheduled fallback** — Runs every 2 hours as a safety net for PRs that develop conflicts outside of main branch updates or where the push-triggered run failed.
+
+4. **Manual dispatch** — Supports `workflow_dispatch` for manual triggering on a specific PR.
 
 ### How It Works
 
-1. **Push-triggered detection** — When code is pushed to main, waits 60 seconds for GitHub to
-   recompute mergeable state, then queries all open PRs to find conflicts. Concurrent pushes
-   are deduplicated via a concurrency group with cancel-in-progress.
-2. **Scheduled fallback** — Runs every 2 hours as a safety net for PRs that develop conflicts
-   outside of main branch updates or where the push-triggered run failed.
-3. **Conflict detection** — Queries all open PRs and checks their `mergeable_state`. PRs with
-   a "dirty" state (indicating conflicts) are queued for resolution. Fork PRs are skipped
-   since the bot cannot push to forks.
-4. **Skip check** — Skips PRs with `[skip-conflict-fix]` in the title.
-5. **Comment cleanup** — Minimizes previous conflict resolution comments to reduce clutter.
-6. **Acknowledgment** — Posts a comment indicating conflict resolution has started.
-7. **Trusted prompt build** — Builds the conflict prompt from `main` using
-   `build-conflict-prompt.sh`, which includes the base branch name for rebase.
-8. **Resolution** — The agent:
+1. **Conflict detection** — Queries open PRs and checks their `mergeable_state`. PRs with a "dirty" state (indicating conflicts) are queued for resolution. Fork PRs are skipped since the bot cannot push to forks. When triggered by the SDLC pipeline with a specific PR number, only that PR is processed.
+
+2. **Skip check** — Skips PRs with `[skip-conflict-fix]` in the title.
+
+3. **Comment cleanup** — Minimizes previous conflict resolution comments to reduce clutter.
+
+4. **Acknowledgment** — Posts a comment indicating conflict resolution has started.
+
+5. **Trusted prompt build** — Builds the conflict prompt from `main` using `build-conflict-prompt.sh`, which includes the base branch name for rebase.
+
+6. **Resolution** — The agent:
    - Fetches the base branch and starts a rebase
    - Resolves each conflict based on conflict resolution rules
    - Runs local checks to verify the resolution
    - Pushes with `--force-with-lease` if successful
-9. **Escalation** — If conflicts require human judgment (semantic conflicts, security code,
-   database migrations), the agent aborts the rebase and posts a comment explaining which
-   files need review and why.
+
+7. **Escalation** — If conflicts require human judgment (semantic conflicts, security code, database migrations), the agent aborts the rebase and posts a comment explaining which files need review and why.
 
 ### Resolution Strategy
 
