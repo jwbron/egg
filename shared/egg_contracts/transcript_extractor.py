@@ -11,6 +11,7 @@ Claude Code's internal JSONL files are no longer used.
 """
 
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,8 @@ from .checkpoints import (
     ToolCall,
     Transcript,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class TranscriptExtractError(Exception):
@@ -148,8 +151,7 @@ def extract_messages_from_proxy_buffer(
                 if isinstance(content, list):
                     # Content may be a list of content blocks
                     content = " ".join(
-                        c.get("text", str(c)) if isinstance(c, dict) else str(c)
-                        for c in content
+                        c.get("text", str(c)) if isinstance(c, dict) else str(c) for c in content
                     )
 
                 content_summary = None
@@ -243,6 +245,17 @@ def extract_tool_calls_from_proxy_buffer(
                 tool_name = block.get("name", "")
                 tool_use_id = block.get("id", "")
                 params = block.get("input", {})
+
+                # Log warning if tool input failed to parse during streaming
+                if block.get("input_parse_error"):
+                    raw_input = block.get("raw_partial_input", "")
+                    logger.warning(
+                        "Tool call has incomplete input due to streaming parse failure: "
+                        "tool=%s id=%s raw_input_preview=%s",
+                        tool_name,
+                        tool_use_id,
+                        raw_input[:100] + "..." if len(raw_input) > 100 else raw_input,
+                    )
 
                 # Truncate large parameter values
                 truncated_params = {}
@@ -467,6 +480,8 @@ def get_proxy_buffer_path(container_id: str) -> Path:
     try:
         buffer_path.resolve().relative_to(base_dir.resolve())
     except ValueError as e:
-        raise ValueError(f"Invalid container_id results in path outside buffer directory: {container_id!r}") from e
+        raise ValueError(
+            f"Invalid container_id results in path outside buffer directory: {container_id!r}"
+        ) from e
 
     return buffer_path

@@ -2670,6 +2670,10 @@ def _inject_anthropic_credentials(
 # See PR #686 security findings and PR #702 analysis
 BLOCKED_TOOLS_PRIVATE_MODE = {"web_search", "WebSearch", "web_fetch", "WebFetch"}
 
+# Maximum size (in characters) for preserving raw tool input when JSON parsing fails.
+# Used for debugging incomplete streaming responses without bloating the buffer.
+RAW_INPUT_TRUNCATE_SIZE = 1000
+
 
 def _filter_blocked_tools(request_body: bytes, session_mode: str | None) -> bytes:
     """
@@ -2905,16 +2909,20 @@ def _parse_sse_response(
                 if "cache_read_input_tokens" in message_usage:
                     usage["cache_read_input_tokens"] = message_usage["cache_read_input_tokens"]
                 if "cache_creation_input_tokens" in message_usage:
-                    usage["cache_creation_input_tokens"] = message_usage["cache_creation_input_tokens"]
+                    usage["cache_creation_input_tokens"] = message_usage[
+                        "cache_creation_input_tokens"
+                    ]
 
         # Handle error events from streaming API
         elif event_type == "error":
             error_info = event.get("error", {})
             # Add error as a content block so it's captured in transcript
-            content_blocks.append({
-                "type": "error",
-                "error": error_info,
-            })
+            content_blocks.append(
+                {
+                    "type": "error",
+                    "error": error_info,
+                }
+            )
             stop_reason = "error"
 
         # Track content block starts
@@ -2930,7 +2938,9 @@ def _parse_sse_response(
             delta_type = delta.get("type")
 
             if index not in content_by_index:
-                content_by_index[index] = {"type": delta_type.replace("_delta", "") if delta_type else "unknown"}
+                content_by_index[index] = {
+                    "type": delta_type.replace("_delta", "") if delta_type else "unknown"
+                }
 
             block = content_by_index[index]
 
@@ -2971,7 +2981,11 @@ def _parse_sse_response(
                 block["input"] = {}
                 block["input_parse_error"] = True
                 # Include truncated raw input for debugging incomplete streaming responses
-                block["raw_partial_input"] = partial_input[:1000] if len(partial_input) > 1000 else partial_input
+                block["raw_partial_input"] = (
+                    partial_input[:RAW_INPUT_TRUNCATE_SIZE]
+                    if len(partial_input) > RAW_INPUT_TRUNCATE_SIZE
+                    else partial_input
+                )
         content_blocks.append(block)
 
     return content_blocks or None, usage, model, stop_reason
