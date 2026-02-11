@@ -122,6 +122,13 @@ def get_commits_in_push(
         List of commit SHAs in chronological order (oldest to newest).
         Returns [new_sha] if old_sha is the null SHA (new branch) or
         if rev-list fails.
+
+    Note:
+        For force pushes where old_sha is not an ancestor of new_sha, git rev-list
+        returns empty output since there's no path from old to new. In this case,
+        only the tip commit (new_sha) is returned. This is intentional: force pushes
+        represent a history rewrite, so we create a single checkpoint for the new
+        tip rather than attempting to enumerate the rewritten history.
     """
     # Handle new branch case - old_sha is null SHA (all zeros)
     null_sha = "0" * 40
@@ -732,6 +739,13 @@ def capture_and_store_checkpoints_for_push(
     Returns:
         List of Checkpoint objects that were successfully captured.
         May be empty if checkpoints are disabled or capture fails.
+
+    Note:
+        All checkpoints in a multi-commit push share the same transcript buffer,
+        so each checkpoint contains the full session transcript up to that point.
+        This is intentional: the transcript captures the entire agent reasoning
+        session, not just the work for a specific commit. Deduplication of transcript
+        content is left to the storage layer if needed.
     """
     if not CHECKPOINT_ENABLED:
         return []

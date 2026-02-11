@@ -55,6 +55,10 @@ from egg_logging import get_logger
 # fall back to absolute import (standalone script mode in container)
 try:
     from .anthropic_credentials import get_credentials_manager
+    from .checkpoint_handler import (
+        capture_and_store_checkpoint,
+        capture_and_store_checkpoints_for_push,
+    )
     from .git_client import (
         GIT_ALLOWED_COMMANDS,
         cleanup_credential_helper,
@@ -96,14 +100,14 @@ try:
         get_session_manager,
         validate_session_for_request,
     )
+    from .transcript_buffer import get_transcript_buffer
     from .worktree_manager import WorktreeManager, startup_cleanup
-    from .checkpoint_handler import (
+except ImportError:
+    from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
+    from checkpoint_handler import (  # type: ignore[no-redef, import-not-found]
         capture_and_store_checkpoint,
         capture_and_store_checkpoints_for_push,
     )
-    from .transcript_buffer import get_transcript_buffer
-except ImportError:
-    from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from git_client import (  # type: ignore[no-redef, import-not-found]
         GIT_ALLOWED_COMMANDS,
         cleanup_credential_helper,
@@ -145,15 +149,11 @@ except ImportError:
         get_session_manager,
         validate_session_for_request,
     )
+    from transcript_buffer import get_transcript_buffer  # type: ignore[no-redef, import-not-found]
     from worktree_manager import (  # type: ignore[no-redef, import-not-found]
         WorktreeManager,
         startup_cleanup,
     )
-    from checkpoint_handler import (  # type: ignore[no-redef, import-not-found]
-        capture_and_store_checkpoint,
-        capture_and_store_checkpoints_for_push,
-    )
-    from transcript_buffer import get_transcript_buffer  # type: ignore[no-redef, import-not-found]
 
 # Import repo_config for user mode support
 # Path setup needed because config is in a sibling directory
@@ -2958,16 +2958,20 @@ def _parse_sse_response(
         block = content_by_index[index]
         # For tool_use blocks, parse the accumulated JSON
         if block.get("type") == "tool_use" and "partial_input" in block:
+            partial_input = block.pop("partial_input")
             try:
-                block["input"] = json.loads(block.pop("partial_input"))
+                block["input"] = json.loads(partial_input)
             except json.JSONDecodeError:
-                # Log warning but still include the block with parse failure noted
+                # Log warning but still include the block with parse failure noted.
+                # Preserve the raw partial_input for debugging (truncated to avoid bloat).
                 logger.debug(
                     "Failed to parse tool_use input JSON",
                     tool_id=block.get("id"),
                 )
                 block["input"] = {}
                 block["input_parse_error"] = True
+                # Include truncated raw input for debugging incomplete streaming responses
+                block["raw_partial_input"] = partial_input[:1000] if len(partial_input) > 1000 else partial_input
         content_blocks.append(block)
 
     return content_blocks or None, usage, model, stop_reason

@@ -214,6 +214,13 @@ def extract_tool_calls_from_proxy_buffer(
 
     Returns:
         Tuple of (tool_calls, file_operations)
+
+    Note:
+        Tool result matching is order-dependent: tool_use blocks from responses are
+        processed first, then tool_result blocks from subsequent requests are matched.
+        This works correctly because the proxy buffer is append-only and entries are
+        read sequentially. Tool results always appear in requests that follow the
+        response containing the corresponding tool_use.
     """
     tool_calls = []
     file_operations = []
@@ -369,7 +376,11 @@ def extract_transcript_from_proxy_buffer(
 
     Args:
         buffer_path: Path to the proxy buffer JSONL file
-        container_id: Optional container ID for session metadata
+        container_id: Optional container ID for session metadata. If not provided,
+            it's inferred from the buffer filename stem (e.g., "abc123" from
+            "/tmp/egg-transcripts/abc123.jsonl"). This fallback supports standalone
+            testing and ad-hoc transcript extraction where the container context
+            is not available.
         max_content_length: Maximum length for message content
         max_param_length: Maximum length for tool parameter values
         max_result_length: Maximum length for tool result summaries
