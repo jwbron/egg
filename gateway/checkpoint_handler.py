@@ -39,8 +39,8 @@ from egg_contracts.checkpoints import (
 from egg_contracts.redactor import Redactor, RedactorConfig
 from egg_contracts.transcript_extractor import (
     TranscriptExtractError,
-    extract_transcript_from_jsonl,
-    find_session_file,
+    extract_transcript_from_proxy_buffer,
+    get_proxy_buffer_path,
 )
 from egg_logging import get_logger
 
@@ -59,9 +59,6 @@ INDEX_FILE = "index.json"
 
 # Maximum transcript size before truncation (bytes)
 MAX_TRANSCRIPT_SIZE = 1_000_000  # 1MB
-
-# Default Claude projects directory
-CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
 # Feature flag for enabling/disabling checkpoints
 CHECKPOINT_ENABLED = os.environ.get("CHECKPOINT_ENABLED", "true").lower() == "true"
@@ -207,16 +204,12 @@ class CheckpointHandler:
             return None
 
         try:
-            # Find the session file
-            project_path = Path(repo_path)
-            session_file = find_session_file(
-                project_path=project_path,
-                claude_projects_dir=CLAUDE_PROJECTS_DIR,
-            )
+            # Get container ID from session for proxy buffer lookup
+            container_id = session.container_id if session else None
 
-            if not session_file:
+            if not container_id:
                 logger.debug(
-                    "No session file found for checkpoint",
+                    "No container ID available for checkpoint",
                     repo_path=repo_path,
                     commit_sha=commit_sha[:7],
                 )
@@ -230,7 +223,27 @@ class CheckpointHandler:
                     push_sha=push_sha,
                 )
 
-            # Extract transcript data
+            # Get proxy buffer path for this container
+            buffer_path = get_proxy_buffer_path(container_id)
+
+            if not buffer_path.exists():
+                logger.debug(
+                    "No proxy buffer found for checkpoint",
+                    container_id=container_id,
+                    buffer_path=str(buffer_path),
+                    commit_sha=commit_sha[:7],
+                )
+                # Create a minimal checkpoint without transcript
+                return self._create_minimal_checkpoint(
+                    commit_sha=commit_sha,
+                    branch=branch,
+                    session=session,
+                    issue_number=issue_number,
+                    pipeline_phase=pipeline_phase,
+                    push_sha=push_sha,
+                )
+
+            # Extract transcript data from proxy buffer
             try:
                 (
                     session_metadata,
@@ -238,12 +251,12 @@ class CheckpointHandler:
                     tool_calls,
                     file_operations,
                     token_usage,
-                ) = extract_transcript_from_jsonl(session_file)
+                ) = extract_transcript_from_proxy_buffer(buffer_path, container_id)
             except TranscriptExtractError as e:
                 logger.warning(
-                    "Failed to extract transcript",
+                    "Failed to extract transcript from proxy buffer",
                     error=str(e),
-                    session_file=str(session_file),
+                    buffer_path=str(buffer_path),
                 )
                 return self._create_minimal_checkpoint(
                     commit_sha=commit_sha,
