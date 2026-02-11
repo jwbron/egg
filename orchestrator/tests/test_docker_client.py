@@ -16,6 +16,8 @@ from docker_client import (
     DockerClient,
     DockerClientError,
     ImageNotFoundError,
+    InvalidContainerIdError,
+    _validate_container_id,
     get_docker_client,
 )
 from models import AgentRole, ContainerStatus
@@ -335,3 +337,86 @@ class TestGetDockerClient:
 
         # Reset for other tests
         docker_client._docker_client = None
+
+
+class TestContainerIdValidation:
+    """Tests for container ID validation."""
+
+    def test_valid_full_container_id(self):
+        """Test valid 64-character hex container ID."""
+        valid_id = "abc123def456" * 5 + "abcd"  # 64 hex chars
+        _validate_container_id(valid_id)  # Should not raise
+
+    def test_valid_short_container_id(self):
+        """Test valid 12-character short container ID."""
+        _validate_container_id("abc123def456")  # Should not raise
+
+    def test_valid_container_name(self):
+        """Test valid container name."""
+        _validate_container_id("egg-sandbox-test")  # Should not raise
+        _validate_container_id("my_container.name")  # Should not raise
+        _validate_container_id("container123")  # Should not raise
+
+    def test_invalid_empty_id(self):
+        """Test empty container ID raises error."""
+        with pytest.raises(InvalidContainerIdError) as exc_info:
+            _validate_container_id("")
+        assert "Invalid container ID format" in str(exc_info.value)
+
+    def test_invalid_none_id(self):
+        """Test None container ID raises error."""
+        with pytest.raises(InvalidContainerIdError) as exc_info:
+            _validate_container_id(None)  # type: ignore
+        assert "Invalid container ID format" in str(exc_info.value)
+
+    def test_invalid_special_characters(self):
+        """Test container ID with invalid special characters."""
+        with pytest.raises(InvalidContainerIdError):
+            _validate_container_id("abc;rm -rf /")
+
+    def test_invalid_path_traversal(self):
+        """Test container ID with path traversal attempt."""
+        with pytest.raises(InvalidContainerIdError):
+            _validate_container_id("../../../etc/passwd")
+
+    def test_invalid_command_injection(self):
+        """Test container ID with command injection attempt."""
+        with pytest.raises(InvalidContainerIdError):
+            _validate_container_id("abc$(whoami)")
+
+    def test_invalid_name_starting_with_hyphen(self):
+        """Test container name starting with hyphen is invalid."""
+        with pytest.raises(InvalidContainerIdError):
+            _validate_container_id("-invalid-name")
+
+    def test_invalid_name_starting_with_period(self):
+        """Test container name starting with period is invalid."""
+        with pytest.raises(InvalidContainerIdError):
+            _validate_container_id(".invalid-name")
+
+    def test_invalid_whitespace(self):
+        """Test container ID with whitespace is invalid."""
+        with pytest.raises(InvalidContainerIdError):
+            _validate_container_id("abc 123")
+
+    def test_operations_with_invalid_container_id(self, docker_client, mock_docker):
+        """Test that operations reject invalid container IDs."""
+        invalid_id = "../etc/passwd"
+
+        with pytest.raises(InvalidContainerIdError):
+            docker_client.start_container(invalid_id)
+
+        with pytest.raises(InvalidContainerIdError):
+            docker_client.stop_container(invalid_id)
+
+        with pytest.raises(InvalidContainerIdError):
+            docker_client.remove_container(invalid_id)
+
+        with pytest.raises(InvalidContainerIdError):
+            docker_client.get_container_info(invalid_id)
+
+        with pytest.raises(InvalidContainerIdError):
+            docker_client.get_container_logs(invalid_id)
+
+        with pytest.raises(InvalidContainerIdError):
+            docker_client.wait_for_container(invalid_id)

@@ -12,9 +12,12 @@ import pytest
 
 from models import Pipeline, PipelineConfig, PipelinePhase, PipelineStatus
 from state_store import (
+    InvalidPipelineIdError,
     PipelineNotFoundError,
     StateStore,
     StateValidationError,
+    VersionConflictError,
+    _validate_pipeline_id,
     get_state_store,
 )
 
@@ -284,21 +287,23 @@ class TestStateValidation:
     def test_load_invalid_json_fails(self, state_store, tmp_path):
         """Test loading invalid JSON fails."""
         # Create directory and write invalid JSON
+        # Use a valid pipeline ID format (issue-{number}) but with invalid JSON content
         pipelines_dir = tmp_path / ".egg-state" / "pipelines"
         pipelines_dir.mkdir(parents=True)
-        (pipelines_dir / "issue-bad.json").write_text("not valid json")
+        (pipelines_dir / "issue-9999.json").write_text("not valid json")
 
         with pytest.raises(StateValidationError):
-            state_store.load_pipeline("issue-bad")
+            state_store.load_pipeline("issue-9999")
 
     def test_load_invalid_schema_fails(self, state_store, tmp_path):
         """Test loading invalid schema fails."""
+        # Use a valid pipeline ID format but with missing required fields
         pipelines_dir = tmp_path / ".egg-state" / "pipelines"
         pipelines_dir.mkdir(parents=True)
-        (pipelines_dir / "issue-bad.json").write_text('{"id": "issue-bad"}')
+        (pipelines_dir / "issue-9998.json").write_text('{"id": "issue-9998"}')
 
         with pytest.raises(StateValidationError):
-            state_store.load_pipeline("issue-bad")
+            state_store.load_pipeline("issue-9998")
 
 
 class TestGetStateStore:
@@ -330,3 +335,176 @@ class TestGenerateCommitMessage:
         message = state_store._generate_commit_message(pipeline)
         assert "issue-123" in message
         assert "running" in message
+
+
+class TestPipelineIdValidation:
+    """Tests for pipeline ID validation."""
+
+    def test_valid_pipeline_id(self):
+        """Test valid pipeline ID format."""
+        _validate_pipeline_id("issue-123")  # Should not raise
+        _validate_pipeline_id("issue-1")  # Should not raise
+        _validate_pipeline_id("issue-999999")  # Should not raise
+
+    def test_invalid_empty_id(self):
+        """Test empty pipeline ID raises error."""
+        with pytest.raises(InvalidPipelineIdError) as exc_info:
+            _validate_pipeline_id("")
+        assert "Invalid pipeline ID format" in str(exc_info.value)
+
+    def test_invalid_none_id(self):
+        """Test None pipeline ID raises error."""
+        with pytest.raises(InvalidPipelineIdError) as exc_info:
+            _validate_pipeline_id(None)  # type: ignore
+        assert "Invalid pipeline ID format" in str(exc_info.value)
+
+    def test_invalid_path_traversal_dotdot(self):
+        """Test pipeline ID with path traversal (../) is rejected."""
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("../../../etc/passwd")
+
+    def test_invalid_path_traversal_absolute(self):
+        """Test pipeline ID with absolute path is rejected."""
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("/etc/passwd")
+
+    def test_invalid_missing_prefix(self):
+        """Test pipeline ID without 'issue-' prefix is rejected."""
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("123")
+
+    def test_invalid_wrong_prefix(self):
+        """Test pipeline ID with wrong prefix is rejected."""
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("pr-123")
+
+    def test_invalid_special_characters(self):
+        """Test pipeline ID with special characters is rejected."""
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("issue-123;rm -rf /")
+
+    def test_invalid_command_injection(self):
+        """Test pipeline ID with command injection attempt is rejected."""
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("issue-$(whoami)")
+
+    def test_invalid_negative_number(self):
+        """Test pipeline ID with negative number is rejected."""
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("issue--123")
+
+    def test_invalid_non_numeric_suffix(self):
+        """Test pipeline ID with non-numeric suffix is rejected."""
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("issue-abc")
+
+    def test_operations_with_invalid_pipeline_id(self, state_store):
+        """Test that operations reject invalid pipeline IDs."""
+        invalid_id = "../etc/passwd"
+
+        with pytest.raises(InvalidPipelineIdError):
+            state_store.pipeline_exists(invalid_id)
+
+        with pytest.raises(InvalidPipelineIdError):
+            state_store.load_pipeline(invalid_id)
+
+        with pytest.raises(InvalidPipelineIdError):
+            state_store.delete_pipeline(invalid_id)
+
+
+class TestVersionConflict:
+    """Tests for optimistic locking with version conflicts."""
+
+    def test_save_with_matching_version(self, state_store):
+        """Test save succeeds when expected version matches."""
+        # Create pipeline
+        pipeline = state_store.create_pipeline(
+            issue_number=123,
+            repo="owner/repo",
+            branch="egg/issue-123",
+        )
+        initial_version = pipeline.version
+
+        # Save with matching expected version
+        pipeline.status = PipelineStatus.RUNNING
+        state_store.save_pipeline(pipeline, expected_version=initial_version)
+
+        # Verify save succeeded
+        loaded = state_store.load_pipeline("issue-123")
+        assert loaded.status == PipelineStatus.RUNNING
+        assert loaded.version == initial_version + 1
+
+    def test_save_with_version_conflict(self, state_store):
+        """Test save fails when expected version doesn't match."""
+        # Create pipeline
+        pipeline = state_store.create_pipeline(
+            issue_number=456,
+            repo="owner/repo",
+            branch="egg/issue-456",
+        )
+
+        # Simulate concurrent modification by saving again
+        pipeline.status = PipelineStatus.RUNNING
+        state_store.save_pipeline(pipeline)  # Version is now 2
+
+        # Try to save with outdated expected version
+        pipeline.status = PipelineStatus.COMPLETE
+        with pytest.raises(VersionConflictError) as exc_info:
+            state_store.save_pipeline(pipeline, expected_version=1)
+
+        assert "Version conflict" in str(exc_info.value)
+        assert "expected version 1" in str(exc_info.value)
+
+    def test_save_without_expected_version_always_succeeds(self, state_store):
+        """Test save without expected_version always succeeds."""
+        # Create pipeline
+        pipeline = state_store.create_pipeline(
+            issue_number=789,
+            repo="owner/repo",
+            branch="egg/issue-789",
+        )
+
+        # Multiple saves without version check should all succeed
+        pipeline.status = PipelineStatus.RUNNING
+        state_store.save_pipeline(pipeline)  # No expected_version
+
+        pipeline.status = PipelineStatus.COMPLETE
+        state_store.save_pipeline(pipeline)  # No expected_version
+
+        loaded = state_store.load_pipeline("issue-789")
+        assert loaded.status == PipelineStatus.COMPLETE
+
+    def test_save_new_pipeline_with_expected_version(self, state_store):
+        """Test saving a new pipeline with expected_version works."""
+        # Create a new pipeline object (not persisted yet)
+        pipeline = Pipeline(
+            id="issue-999",
+            issue_number=999,
+            repo="owner/repo",
+            branch="egg/issue-999",
+        )
+
+        # Save with expected_version should work for new pipelines
+        # since there's nothing to conflict with
+        state_store.save_pipeline(pipeline, expected_version=0)
+
+        loaded = state_store.load_pipeline("issue-999")
+        assert loaded.id == "issue-999"
+
+    def test_version_increments_on_save(self, state_store):
+        """Test that version increments with each save."""
+        pipeline = state_store.create_pipeline(
+            issue_number=111,
+            repo="owner/repo",
+            branch="egg/issue-111",
+        )
+        version_after_create = pipeline.version
+
+        # Each save should increment version
+        for i in range(3):
+            loaded = state_store.load_pipeline("issue-111")
+            loaded.status = PipelineStatus.RUNNING
+            state_store.save_pipeline(loaded)
+
+        final = state_store.load_pipeline("issue-111")
+        assert final.version == version_after_create + 3

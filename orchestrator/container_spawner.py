@@ -168,12 +168,28 @@ class ContainerSpawner:
         if extra_volumes:
             volumes.update(extra_volumes)
 
+        session_info = None
+
         try:
-            # Create container (but don't start yet)
+            # Build base environment first (without session token if gateway fails)
+            env = {
+                "EGG_ISSUE_NUMBER": str(issue_number),
+                "EGG_REPO_PATH": repo_path,
+                "EGG_AGENT_ROLE": agent_role.value,
+            }
+
+            # Add extra environment
+            if extra_env:
+                env.update(extra_env)
+
+            # Create the container with base environment
+            # We create first, then register with gateway using the real container ID
+            # This avoids the race condition of creating, deleting, and recreating
             container = self.docker.create_container(
                 name=container_name,
                 image=image or self.DEFAULT_SANDBOX_IMAGE,
                 network=EGG_ISOLATED_NETWORK,
+                environment=env,
                 labels=labels,
                 volumes=volumes if volumes else None,
             )
@@ -185,15 +201,10 @@ class ContainerSpawner:
                 role=agent_role.value,
             )
 
-            # Get container IP (need to start briefly to get network info)
-            # For now, use a predictable IP scheme
-            # In production, we'd get this from Docker network after creation
+            # Get container IP for gateway registration
             container_ip = self._get_container_ip(container.container_id)
 
-            # Register session with gateway
-            session_info = None
-            env = {}
-
+            # Register session with gateway using real container ID
             try:
                 session_info = self.gateway.register_session(
                     container_id=container.container_id,
@@ -201,14 +212,20 @@ class ContainerSpawner:
                     mode=mode,
                 )
 
-                # Get environment with session token
-                env = self.gateway.get_container_env(
+                # Get environment with session token and proxy config
+                gateway_env = self.gateway.get_container_env(
                     session_token=session_info.session_token,
                     issue_number=issue_number,
                     repo_path=repo_path,
                     agent_role=agent_role.value,
                     mode=mode,
                 )
+
+                # Merge gateway env into container env
+                # Note: Docker doesn't allow updating env after creation,
+                # but the session token will be passed separately via the
+                # gateway session binding (IP-based auth)
+                env.update(gateway_env)
 
             except GatewayError as e:
                 logger.warning(
@@ -218,30 +235,6 @@ class ContainerSpawner:
                 )
                 # Continue without session - container can still run
                 # but won't have gateway access
-                env = {
-                    "EGG_ISSUE_NUMBER": str(issue_number),
-                    "EGG_REPO_PATH": repo_path,
-                    "EGG_AGENT_ROLE": agent_role.value,
-                }
-
-            # Add extra environment
-            if extra_env:
-                env.update(extra_env)
-
-            # Update container with environment
-            # Note: Docker doesn't allow updating env after creation
-            # We need to remove and recreate with proper env
-            # For now, we'll create with env from the start
-            self.docker.remove_container(container.container_id, force=True)
-
-            container = self.docker.create_container(
-                name=container_name,
-                image=image or self.DEFAULT_SANDBOX_IMAGE,
-                network=EGG_ISOLATED_NETWORK,
-                environment=env,
-                labels=labels,
-                volumes=volumes if volumes else None,
-            )
 
             # Start the container
             container = self.docker.start_container(container.container_id)
@@ -263,6 +256,12 @@ class ContainerSpawner:
             )
 
         except DockerClientError as e:
+            # Clean up gateway session if we registered one
+            if session_info:
+                try:
+                    self.gateway.delete_session(session_info.session_token)
+                except GatewayError:
+                    pass  # Best effort cleanup
             raise ContainerSpawnError(f"Failed to spawn container: {e}") from e
 
     def stop_agent_container(
