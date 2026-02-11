@@ -47,8 +47,9 @@ services:
       - HOST_UID=${HOST_UID:-1000}
       - HOST_GID=${HOST_GID:-1000}
       - HOST_HOME=${HOST_HOME:-/home/egg}
-      # Anthropic credentials (read from mounted secrets volume)
+      # Credentials (read from mounted secrets volume)
       - EGG_SECRETS_PATH=/secrets/secrets.env
+      - EGG_CONFIG_DIR=/secrets
       # GitHub authentication
       - GITHUB_USER_TOKEN=${GITHUB_USER_TOKEN:-}
       - BOT_GITHUB_TOKEN=${BOT_GITHUB_TOKEN:-}

@@ -31,7 +31,8 @@ logger = get_logger("gateway.token-refresher")
 GITHUB_API_BASE = "https://api.github.com"
 
 # Default paths for GitHub App credentials
-DEFAULT_CONFIG_DIR = Path.home() / ".config" / "egg"
+# Can be overridden via EGG_CONFIG_DIR for containerized deployments
+DEFAULT_CONFIG_DIR = Path(os.environ.get("EGG_CONFIG_DIR", Path.home() / ".config" / "egg"))
 
 
 @dataclass
@@ -442,7 +443,11 @@ def initialize_reviewer_token_refresher(
         return None
 
     try:
-        if resolved_app_id is None or resolved_installation_id is None or resolved_private_key is None:
+        if (
+            resolved_app_id is None
+            or resolved_installation_id is None
+            or resolved_private_key is None
+        ):
             raise ValueError("app_id, installation_id, and private_key are required")
 
         refresher = TokenRefresher(
