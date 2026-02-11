@@ -443,6 +443,16 @@
       "old_value": "plan",
       "new_value": "implement",
       "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-11T00:00:49Z",
+      "actor": "system",
+      "role": "system",
+      "action": "update",
+      "field_path": "autofix_attempts",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Autofix attempt completed with result: false"
     }
   ],
   "phase_configs": {
@@ -474,5 +484,6 @@
   "pr": {
     "title": "Add Checkpoints: capture agent session context in Git",
     "description": "Implements the Checkpoints feature for capturing agent session context as\nversioned data in Git. When agents commit code, a checkpoint captures the\nfull session (transcript, tool calls, token usage) alongside the commit.\n\nThis enables traceability, faster reviews, and better handoffs by preserving\nthe reasoning behind each change. Checkpoints are stored in a dedicated\nbranch (egg/checkpoints/v1) and linked to commits and SDLC contracts.\n\nSee issue #500 for background and design decisions."
-  }
+  },
+  "autofix_attempts": 1
 }
