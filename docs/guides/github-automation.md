@@ -106,8 +106,20 @@ PR opened → review → address feedback → re-review → ... → approval or 
 
 The workflow runs on:
 - `pull_request_review` — Formal reviews posted via `gh pr review`
-- `issue_comment` — Self-reviews posted as comments (GitHub blocks bots from reviewing their own PRs via the Reviews API)
+- `issue_comment` — Legacy self-reviews posted as comments (deprecated — use a separate reviewer bot instead, see below)
 - `workflow_dispatch` — Manual trigger with PR number (bypasses filters for debugging)
+
+### Separate Reviewer Bot (Recommended)
+
+By default, the bot cannot approve or request changes on its own PRs (GitHub blocks this).
+To enable full review capabilities, configure a separate reviewer GitHub App:
+
+1. Create a second GitHub App (e.g., `egg-reviewer`) with `pull_requests: write` permission
+2. Install it on your repositories
+3. Add secrets: `REVIEWER_APP_ID`, `REVIEWER_APP_PRIVATE_KEY`, `REVIEWER_APP_INSTALLATION_ID`
+
+When configured, reviews use the reviewer account, enabling approve/request-changes on bot PRs.
+Without it, the system falls back to posting reviews as comments (self-review mode).
 
 ### How It Works
 

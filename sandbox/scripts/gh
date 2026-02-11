@@ -505,6 +505,14 @@ print(json.dumps({
 # Function to handle PR review - adds automated review marker
 # This allows workflows to identify bot reviews by looking for the marker
 # rather than relying on username heuristics.
+#
+# Self-review handling:
+# When a separate reviewer bot is configured (REVIEWER_APP_* secrets), reviews
+# are posted using that account, enabling approve/request-changes on bot PRs.
+# When no reviewer is configured, this function falls back to self-review mode:
+# - Proactively detects self-authored PRs and downgrades review type to comment
+# - Reactively catches GitHub API errors and falls back to issue comment
+# The verdict is preserved in the marker regardless of how the review is posted.
 handle_pr_review() {
     local repo
     repo=$(get_repo)
@@ -572,6 +580,12 @@ print(json.dumps({'args': ['pr', 'view', sys.argv[2], '--repo', sys.argv[1], '--
         echo "WARNING: Could not determine commit SHA for review marker" >&2
     fi
 
+    # DEPRECATED: Self-review detection (fallback when no separate reviewer bot)
+    # When REVIEWER_APP_* secrets are configured, the gateway uses a separate
+    # reviewer account and this detection is not needed. This code remains as
+    # a fallback for installations that haven't configured a reviewer bot.
+    # See: https://github.com/jwbron/egg/issues/287
+    #
     # Proactively detect self-authored PRs and downgrade review types accordingly.
     # This avoids a wasted round-trip when the GitHub API rejects the request.
     # See: https://github.com/jwbron/egg/issues/298
