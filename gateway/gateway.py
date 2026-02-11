@@ -96,7 +96,10 @@ try:
         validate_session_for_request,
     )
     from .worktree_manager import WorktreeManager, startup_cleanup
-    from .checkpoint_handler import capture_and_store_checkpoint
+    from .checkpoint_handler import (
+        capture_and_store_checkpoint,
+        capture_and_store_checkpoints_for_push,
+    )
 except ImportError:
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from git_client import (  # type: ignore[no-redef, import-not-found]
@@ -146,6 +149,7 @@ except ImportError:
     )
     from checkpoint_handler import (  # type: ignore[no-redef, import-not-found]
         capture_and_store_checkpoint,
+        capture_and_store_checkpoints_for_push,
     )
 
 # Import repo_config for user mode support
@@ -652,6 +656,36 @@ def git_push() -> tuple[Response, int] | Response:
     if auth_mode == "user":
         logger.debug("User mode push", repo=repo)
 
+    # Get the remote ref SHA before push (for per-commit checkpoint creation)
+    # This allows us to enumerate all commits being pushed
+    old_ref_sha: str | None = None
+    try:
+        # Use ls-remote to get the current remote ref
+        ls_remote_result = subprocess.run(
+            git_cmd("ls-remote", push_target, f"refs/heads/{branch}"),
+            cwd=exec_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if ls_remote_result.returncode == 0 and ls_remote_result.stdout.strip():
+            # Output format: "<sha>\trefs/heads/<branch>"
+            old_ref_sha = ls_remote_result.stdout.strip().split()[0]
+            logger.debug(
+                "Got remote ref before push",
+                branch=branch,
+                old_ref_sha=old_ref_sha[:7] if old_ref_sha else None,
+            )
+        else:
+            # Branch doesn't exist on remote (new branch push)
+            old_ref_sha = "0" * 40
+            logger.debug("Branch does not exist on remote (new branch)", branch=branch)
+    except Exception as e:
+        # If we can't get the old ref, we'll fall back to single-commit checkpoint
+        logger.debug("Could not get remote ref before push", error=str(e))
+        old_ref_sha = None
+
     # Create credential helper and execute push
     credential_helper_path = None
     try:
@@ -680,8 +714,8 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
-            # Capture checkpoint after successful push (async, non-blocking)
-            # Get the HEAD commit SHA from the worktree
+            # Capture per-commit checkpoints after successful push (async, non-blocking)
+            # Get the HEAD commit SHA (new_sha) from the worktree
             try:
                 head_result = subprocess.run(
                     git_cmd("rev-parse", "HEAD"),
@@ -691,21 +725,34 @@ def git_push() -> tuple[Response, int] | Response:
                     timeout=10,
                     check=False,
                 )
-                commit_sha = head_result.stdout.strip() if head_result.returncode == 0 else None
+                new_sha = head_result.stdout.strip() if head_result.returncode == 0 else None
 
-                if commit_sha:
+                if new_sha:
                     # Get session from request context
                     session = getattr(g, "session", None)
 
-                    # Capture and store checkpoint asynchronously
-                    capture_and_store_checkpoint(
-                        repo_path=exec_path,
-                        commit_sha=commit_sha,
-                        branch=branch,
-                        session=session,
-                        github_token=token_str,
-                        async_store=True,  # Don't block push response
-                    )
+                    if old_ref_sha:
+                        # Use per-commit checkpoint creation
+                        capture_and_store_checkpoints_for_push(
+                            repo_path=exec_path,
+                            old_sha=old_ref_sha,
+                            new_sha=new_sha,
+                            branch=branch,
+                            session=session,
+                            github_token=token_str,
+                            async_store=True,  # Don't block push response
+                        )
+                    else:
+                        # Fallback: couldn't get old ref, create single checkpoint
+                        capture_and_store_checkpoint(
+                            repo_path=exec_path,
+                            commit_sha=new_sha,
+                            branch=branch,
+                            session=session,
+                            push_sha=new_sha,
+                            github_token=token_str,
+                            async_store=True,
+                        )
             except Exception as checkpoint_err:
                 # Checkpoint failure should never block push success
                 logger.warning(

@@ -67,6 +67,78 @@ CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 CHECKPOINT_ENABLED = os.environ.get("CHECKPOINT_ENABLED", "true").lower() == "true"
 
 
+def get_commits_in_push(
+    repo_path: str,
+    old_sha: str,
+    new_sha: str,
+) -> list[str]:
+    """
+    Get the list of commits in a push, in chronological order (oldest first).
+
+    Uses `git rev-list --reverse` to enumerate all commits between old_sha
+    and new_sha. This enables per-commit checkpoint creation for multi-commit
+    pushes.
+
+    Args:
+        repo_path: Path to the repository
+        old_sha: The SHA before the push (remote ref before update)
+        new_sha: The SHA after the push (new tip of the branch)
+
+    Returns:
+        List of commit SHAs in chronological order (oldest to newest).
+        Returns [new_sha] if old_sha is the null SHA (new branch) or
+        if rev-list fails.
+    """
+    # Handle new branch case - old_sha is null SHA (all zeros)
+    null_sha = "0" * 40
+    if old_sha == null_sha or not old_sha:
+        # New branch - just return the tip commit
+        # Could also use rev-list from root, but that's expensive for large branches
+        return [new_sha]
+
+    try:
+        # Get commits between old and new (exclusive of old, inclusive of new)
+        # --reverse gives us chronological order (oldest first)
+        result = subprocess.run(
+            ["git", "rev-list", "--reverse", f"{old_sha}..{new_sha}"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            commits = result.stdout.strip().split("\n")
+            return [c for c in commits if c]  # Filter empty strings
+
+        # If rev-list fails or returns empty (force push, etc.), fall back to new_sha
+        logger.debug(
+            "git rev-list returned empty or failed, falling back to tip commit",
+            old_sha=old_sha[:7],
+            new_sha=new_sha[:7],
+            returncode=result.returncode,
+            stderr=result.stderr[:200] if result.stderr else "",
+        )
+        return [new_sha]
+
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "git rev-list timed out, falling back to tip commit",
+            old_sha=old_sha[:7],
+            new_sha=new_sha[:7],
+        )
+        return [new_sha]
+    except Exception as e:
+        logger.warning(
+            "git rev-list failed, falling back to tip commit",
+            error=str(e),
+            old_sha=old_sha[:7],
+            new_sha=new_sha[:7],
+        )
+        return [new_sha]
+
+
 class CheckpointError(Exception):
     """Error during checkpoint capture."""
 
@@ -576,3 +648,109 @@ def capture_and_store_checkpoint(
         handler.store_checkpoint(checkpoint, repo_path)
 
     return checkpoint
+
+
+def capture_and_store_checkpoints_for_push(
+    repo_path: str,
+    old_sha: str,
+    new_sha: str,
+    branch: str,
+    session: Session | None = None,
+    issue_number: int | None = None,
+    pipeline_phase: str | None = None,
+    github_token: str | None = None,
+    async_store: bool = True,
+) -> list[Checkpoint]:
+    """
+    Capture and store checkpoints for all commits in a push.
+
+    This function creates one checkpoint per commit in the push, enabling
+    per-commit granularity for traceability. The push_sha field on each
+    checkpoint points to the tip commit of the push (new_sha).
+
+    Args:
+        repo_path: Path to the repository
+        old_sha: SHA before the push (remote ref before update)
+        new_sha: SHA after the push (new tip of the branch)
+        branch: The branch where the commit was made
+        session: Optional Session object with container/role info
+        issue_number: Optional GitHub issue number
+        pipeline_phase: Optional SDLC pipeline phase
+        github_token: Optional GitHub token for pushing
+        async_store: If True, store checkpoints asynchronously
+
+    Returns:
+        List of Checkpoint objects that were successfully captured.
+        May be empty if checkpoints are disabled or capture fails.
+    """
+    if not CHECKPOINT_ENABLED:
+        return []
+
+    # Get all commits in the push (oldest first)
+    commits = get_commits_in_push(repo_path, old_sha, new_sha)
+
+    if not commits:
+        logger.debug("No commits found in push", old_sha=old_sha[:7], new_sha=new_sha[:7])
+        return []
+
+    logger.info(
+        "Creating per-commit checkpoints for push",
+        commit_count=len(commits),
+        push_sha=new_sha[:7],
+        branch=branch,
+    )
+
+    checkpoints = []
+    handler = get_checkpoint_handler(github_token)
+
+    for commit_sha in commits:
+        try:
+            checkpoint = handler.capture_checkpoint(
+                repo_path=repo_path,
+                commit_sha=commit_sha,
+                branch=branch,
+                session=session,
+                issue_number=issue_number,
+                pipeline_phase=pipeline_phase,
+                push_sha=new_sha,  # All checkpoints point to the push tip
+            )
+
+            if checkpoint:
+                checkpoints.append(checkpoint)
+        except Exception as e:
+            logger.warning(
+                "Failed to capture checkpoint for commit",
+                commit_sha=commit_sha[:7],
+                error=str(e),
+            )
+            # Continue with other commits - don't fail the whole push
+
+    if not checkpoints:
+        logger.debug("No checkpoints captured for push", push_sha=new_sha[:7])
+        return []
+
+    # Store all checkpoints (async or sync)
+    if async_store:
+        # Store in background thread to not block push response
+        def _store_all_with_error_handling() -> None:
+            for checkpoint in checkpoints:
+                try:
+                    handler.store_checkpoint(checkpoint, repo_path)
+                except Exception as e:
+                    logger.error(
+                        "Async checkpoint storage failed",
+                        error=str(e),
+                        checkpoint_id=checkpoint.id,
+                        commit_sha=checkpoint.commit_sha[:7],
+                    )
+
+        thread = threading.Thread(
+            target=_store_all_with_error_handling,
+            daemon=True,
+        )
+        thread.start()
+    else:
+        for checkpoint in checkpoints:
+            handler.store_checkpoint(checkpoint, repo_path)
+
+    return checkpoints
