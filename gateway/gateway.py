@@ -30,6 +30,7 @@ import os
 import secrets
 import subprocess
 import sys
+import time
 import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -54,6 +55,10 @@ from egg_logging import get_logger
 # fall back to absolute import (standalone script mode in container)
 try:
     from .anthropic_credentials import get_credentials_manager
+    from .checkpoint_handler import (
+        capture_and_store_checkpoint,
+        capture_and_store_checkpoints_for_push,
+    )
     from .git_client import (
         GIT_ALLOWED_COMMANDS,
         cleanup_credential_helper,
@@ -95,9 +100,14 @@ try:
         get_session_manager,
         validate_session_for_request,
     )
+    from .transcript_buffer import get_transcript_buffer
     from .worktree_manager import WorktreeManager, startup_cleanup
 except ImportError:
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
+    from checkpoint_handler import (  # type: ignore[no-redef, import-not-found]
+        capture_and_store_checkpoint,
+        capture_and_store_checkpoints_for_push,
+    )
     from git_client import (  # type: ignore[no-redef, import-not-found]
         GIT_ALLOWED_COMMANDS,
         cleanup_credential_helper,
@@ -139,6 +149,7 @@ except ImportError:
         get_session_manager,
         validate_session_for_request,
     )
+    from transcript_buffer import get_transcript_buffer  # type: ignore[no-redef, import-not-found]
     from worktree_manager import (  # type: ignore[no-redef, import-not-found]
         WorktreeManager,
         startup_cleanup,
@@ -648,6 +659,36 @@ def git_push() -> tuple[Response, int] | Response:
     if auth_mode == "user":
         logger.debug("User mode push", repo=repo)
 
+    # Get the remote ref SHA before push (for per-commit checkpoint creation)
+    # This allows us to enumerate all commits being pushed
+    old_ref_sha: str | None = None
+    try:
+        # Use ls-remote to get the current remote ref
+        ls_remote_result = subprocess.run(
+            git_cmd("ls-remote", push_target, f"refs/heads/{branch}"),
+            cwd=exec_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if ls_remote_result.returncode == 0 and ls_remote_result.stdout.strip():
+            # Output format: "<sha>\trefs/heads/<branch>"
+            old_ref_sha = ls_remote_result.stdout.strip().split()[0]
+            logger.debug(
+                "Got remote ref before push",
+                branch=branch,
+                old_ref_sha=old_ref_sha[:7] if old_ref_sha else None,
+            )
+        else:
+            # Branch doesn't exist on remote (new branch push)
+            old_ref_sha = "0" * 40
+            logger.debug("Branch does not exist on remote (new branch)", branch=branch)
+    except Exception as e:
+        # If we can't get the old ref, we'll fall back to single-commit checkpoint
+        logger.debug("Could not get remote ref before push", error=str(e))
+        old_ref_sha = None
+
     # Create credential helper and execute push
     credential_helper_path = None
     try:
@@ -675,6 +716,54 @@ def git_push() -> tuple[Response, int] | Response:
                     "auth_mode": auth_mode,
                 },
             )
+
+            # Capture per-commit checkpoints after successful push (async, non-blocking)
+            # Get the HEAD commit SHA (new_sha) from the worktree
+            try:
+                head_result = subprocess.run(
+                    git_cmd("rev-parse", "HEAD"),
+                    cwd=exec_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                new_sha = head_result.stdout.strip() if head_result.returncode == 0 else None
+
+                if new_sha:
+                    # Get session from request context
+                    session = getattr(g, "session", None)
+
+                    if old_ref_sha:
+                        # Use per-commit checkpoint creation
+                        capture_and_store_checkpoints_for_push(
+                            repo_path=exec_path,
+                            old_sha=old_ref_sha,
+                            new_sha=new_sha,
+                            branch=branch,
+                            session=session,
+                            github_token=token_str,
+                            async_store=True,  # Don't block push response
+                        )
+                    else:
+                        # Fallback: couldn't get old ref, create single checkpoint
+                        capture_and_store_checkpoint(
+                            repo_path=exec_path,
+                            commit_sha=new_sha,
+                            branch=branch,
+                            session=session,
+                            push_sha=new_sha,
+                            github_token=token_str,
+                            async_store=True,
+                        )
+            except Exception as checkpoint_err:
+                # Checkpoint failure should never block push success
+                logger.warning(
+                    "Checkpoint capture failed (non-blocking)",
+                    error=str(checkpoint_err),
+                    branch=branch,
+                )
+
             return make_success(
                 "Push successful",
                 {
@@ -2581,6 +2670,10 @@ def _inject_anthropic_credentials(
 # See PR #686 security findings and PR #702 analysis
 BLOCKED_TOOLS_PRIVATE_MODE = {"web_search", "WebSearch", "web_fetch", "WebFetch"}
 
+# Maximum size (in characters) for preserving raw tool input when JSON parsing fails.
+# Used for debugging incomplete streaming responses without bloating the buffer.
+RAW_INPUT_TRUNCATE_SIZE = 1000
+
 
 def _filter_blocked_tools(request_body: bytes, session_mode: str | None) -> bytes:
     """
@@ -2647,16 +2740,270 @@ def _is_streaming_request(request_body: bytes) -> bool:
         return False
 
 
+def _capture_non_streaming_response(
+    container_id: str,
+    request_json: dict[str, Any],
+    response_body: bytes,
+    start_time: float,
+    status_code: int = 200,
+) -> None:
+    """
+    Capture a non-streaming API response to the transcript buffer.
+
+    Args:
+        container_id: Container ID for buffer lookup
+        request_json: Parsed request body
+        response_body: Raw response bytes
+        start_time: Request start time for duration calculation
+        status_code: HTTP status code of the response
+    """
+    duration_ms = (time.time() - start_time) * 1000
+
+    try:
+        response_json = json.loads(response_body)
+    except (json.JSONDecodeError, TypeError):
+        # For non-JSON responses (error pages, malformed responses), capture basic info
+        # This is important for debugging failed API calls
+        if status_code >= 400:
+            response_json = {
+                "error": {
+                    "type": "api_error",
+                    "status_code": status_code,
+                    "message": response_body.decode("utf-8", errors="replace")[:500],
+                }
+            }
+        else:
+            logger.debug("Could not parse response body for transcript capture")
+            return
+
+    try:
+        buffer = get_transcript_buffer(container_id)
+        # Check if this is an error response
+        error_info = response_json.get("error")
+        if error_info:
+            # Capture error as content block for visibility
+            buffer.write_api_turn(
+                request_body=request_json,
+                response_content=[{"type": "error", "error": error_info}],
+                response_usage=response_json.get("usage"),
+                response_model=response_json.get("model"),
+                stop_reason="error",
+                duration_ms=duration_ms,
+                streaming=False,
+            )
+        else:
+            buffer.write_api_turn(
+                request_body=request_json,
+                response_content=response_json.get("content"),
+                response_usage=response_json.get("usage"),
+                response_model=response_json.get("model"),
+                stop_reason=response_json.get("stop_reason"),
+                duration_ms=duration_ms,
+                streaming=False,
+            )
+    except Exception as e:
+        logger.warning(
+            "Failed to capture non-streaming response to transcript buffer",
+            container_id=container_id,
+            error=str(e),
+        )
+
+
+def _capture_streaming_response(
+    container_id: str,
+    request_json: dict[str, Any],
+    chunks: list[bytes],
+    start_time: float,
+) -> None:
+    """
+    Capture a streaming API response to the transcript buffer.
+
+    Reassembles the SSE chunks to extract the final message content and usage.
+
+    Args:
+        container_id: Container ID for buffer lookup
+        request_json: Parsed request body
+        chunks: List of SSE response chunks
+        start_time: Request start time for duration calculation
+    """
+    duration_ms = (time.time() - start_time) * 1000
+
+    # Reassemble SSE response to get content and usage
+    try:
+        response_content, response_usage, response_model, stop_reason = _parse_sse_response(chunks)
+    except Exception as e:
+        logger.debug(
+            "Failed to parse SSE response for transcript capture",
+            container_id=container_id,
+            error=str(e),
+        )
+        return
+
+    try:
+        buffer = get_transcript_buffer(container_id)
+        buffer.write_api_turn(
+            request_body=request_json,
+            response_content=response_content,
+            response_usage=response_usage,
+            response_model=response_model,
+            stop_reason=stop_reason,
+            duration_ms=duration_ms,
+            streaming=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to capture streaming response to transcript buffer",
+            container_id=container_id,
+            error=str(e),
+        )
+
+
+def _parse_sse_response(
+    chunks: list[bytes],
+) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None, str | None, str | None]:
+    """
+    Parse SSE response chunks to extract message content and usage.
+
+    Returns:
+        Tuple of (content, usage, model, stop_reason)
+    """
+    # Combine chunks and parse SSE events
+    full_response = b"".join(chunks).decode("utf-8", errors="replace")
+
+    content_blocks: list[dict[str, Any]] = []
+    usage: dict[str, Any] | None = None
+    model: str | None = None
+    stop_reason: str | None = None
+
+    # Track content blocks being built (keyed by index)
+    content_by_index: dict[int, dict[str, Any]] = {}
+
+    for line in full_response.split("\n"):
+        line = line.strip()
+        if not line.startswith("data: "):
+            continue
+
+        data_str = line[6:]  # Remove "data: " prefix
+        if data_str == "[DONE]":
+            continue
+
+        try:
+            event = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+
+        event_type = event.get("type")
+
+        # Extract model and input_tokens from message_start
+        if event_type == "message_start":
+            message = event.get("message", {})
+            model = message.get("model")
+            # Capture input_tokens from message_start (message_delta only has output_tokens)
+            message_usage = message.get("usage", {})
+            if message_usage:
+                if usage is None:
+                    usage = {}
+                # input_tokens comes from message_start, not message_delta
+                if "input_tokens" in message_usage:
+                    usage["input_tokens"] = message_usage["input_tokens"]
+                if "cache_read_input_tokens" in message_usage:
+                    usage["cache_read_input_tokens"] = message_usage["cache_read_input_tokens"]
+                if "cache_creation_input_tokens" in message_usage:
+                    usage["cache_creation_input_tokens"] = message_usage[
+                        "cache_creation_input_tokens"
+                    ]
+
+        # Handle error events from streaming API
+        elif event_type == "error":
+            error_info = event.get("error", {})
+            # Add error as a content block so it's captured in transcript
+            content_blocks.append(
+                {
+                    "type": "error",
+                    "error": error_info,
+                }
+            )
+            stop_reason = "error"
+
+        # Track content block starts
+        elif event_type == "content_block_start":
+            index = event.get("index", 0)
+            content_block = event.get("content_block", {})
+            content_by_index[index] = content_block.copy()
+
+        # Accumulate content block deltas
+        elif event_type == "content_block_delta":
+            index = event.get("index", 0)
+            delta = event.get("delta", {})
+            delta_type = delta.get("type")
+
+            if index not in content_by_index:
+                content_by_index[index] = {
+                    "type": delta_type.replace("_delta", "") if delta_type else "unknown"
+                }
+
+            block = content_by_index[index]
+
+            if delta_type == "text_delta":
+                text = delta.get("text", "")
+                block["text"] = block.get("text", "") + text
+            elif delta_type == "input_json_delta":
+                # For tool_use blocks
+                partial_json = delta.get("partial_json", "")
+                block["partial_input"] = block.get("partial_input", "") + partial_json
+
+        # Extract output_tokens and stop_reason from message_delta
+        elif event_type == "message_delta":
+            delta = event.get("delta", {})
+            stop_reason = delta.get("stop_reason")
+            event_usage = event.get("usage")
+            if event_usage:
+                if usage is None:
+                    usage = {}
+                # message_delta contains output_tokens
+                usage.update(event_usage)
+
+    # Build final content blocks
+    for index in sorted(content_by_index.keys()):
+        block = content_by_index[index]
+        # For tool_use blocks, parse the accumulated JSON
+        if block.get("type") == "tool_use" and "partial_input" in block:
+            partial_input = block.pop("partial_input")
+            try:
+                block["input"] = json.loads(partial_input)
+            except json.JSONDecodeError:
+                # Log warning but still include the block with parse failure noted.
+                # Preserve the raw partial_input for debugging (truncated to avoid bloat).
+                logger.debug(
+                    "Failed to parse tool_use input JSON",
+                    tool_id=block.get("id"),
+                )
+                block["input"] = {}
+                block["input_parse_error"] = True
+                # Include truncated raw input for debugging incomplete streaming responses
+                block["raw_partial_input"] = (
+                    partial_input[:RAW_INPUT_TRUNCATE_SIZE]
+                    if len(partial_input) > RAW_INPUT_TRUNCATE_SIZE
+                    else partial_input
+                )
+        content_blocks.append(block)
+
+    return content_blocks or None, usage, model, stop_reason
+
+
 @app.route("/v1/messages", methods=["POST"])
 def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     """
-    Proxy messages API with credential injection and streaming support.
+    Proxy messages API with credential injection, streaming support, and transcript capture.
 
     This endpoint allows Claude Code to use ANTHROPIC_BASE_URL to route
     API traffic through the gateway for credential injection.
 
     Uses IP-based session lookup for mode detection (Claude Code doesn't send session tokens).
+    API request/response pairs are captured to a per-session buffer for checkpoint creation.
     """
+    start_time = time.time()
+
     # Build headers with injected auth
     headers = _get_forwarded_headers(request.headers)
     headers, error = _inject_anthropic_credentials(headers)
@@ -2669,10 +3016,17 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     session_manager = get_session_manager()
     session = session_manager.get_session_by_ip(request.remote_addr or "")
     session_mode = session.mode if session else None
+    container_id = session.container_id if session else None
     request_body = _filter_blocked_tools(
         request_body, session_mode
     )  # Remove web tools in private mode
     is_streaming = _is_streaming_request(request_body)
+
+    # Parse request body for transcript capture
+    try:
+        request_json = json.loads(request_body)
+    except (json.JSONDecodeError, TypeError):
+        request_json = {}
 
     client = get_anthropic_client()
 
@@ -2691,11 +3045,40 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
             # Forward actual Content-Type from upstream (usually text/event-stream)
             content_type = upstream.headers.get("content-type", "text/event-stream")
 
+            # For streaming, we need to capture the full response while forwarding chunks
+            # Cap memory usage at 10MB to prevent resource exhaustion
+            MAX_CAPTURE_SIZE = 10 * 1024 * 1024  # 10MB
+            collected_chunks: list[bytes] = []
+            collected_size = 0
+            capture_truncated = False
+
             def generate() -> Any:
+                nonlocal collected_size, capture_truncated
                 try:
-                    yield from upstream.iter_bytes()
+                    for chunk in upstream.iter_bytes():
+                        # Only collect chunks until we hit the size limit
+                        if not capture_truncated:
+                            if collected_size + len(chunk) <= MAX_CAPTURE_SIZE:
+                                collected_chunks.append(chunk)
+                                collected_size += len(chunk)
+                            else:
+                                capture_truncated = True
+                                logger.debug(
+                                    "Streaming capture truncated due to size limit",
+                                    container_id=container_id,
+                                    size_limit=MAX_CAPTURE_SIZE,
+                                )
+                        yield chunk
                 finally:
                     upstream.close()
+                    # Capture to transcript buffer after streaming completes
+                    if container_id:
+                        _capture_streaming_response(
+                            container_id=container_id,
+                            request_json=request_json,
+                            chunks=collected_chunks,
+                            start_time=start_time,
+                        )
 
             return Response(
                 stream_with_context(generate()),
@@ -2710,6 +3093,17 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                 headers=headers,
                 content=request_body,
             )
+
+            # Capture to transcript buffer
+            if container_id:
+                _capture_non_streaming_response(
+                    container_id=container_id,
+                    request_json=request_json,
+                    response_body=response.content,
+                    start_time=start_time,
+                    status_code=response.status_code,
+                )
+
             return Response(
                 response.content,
                 status=response.status_code,

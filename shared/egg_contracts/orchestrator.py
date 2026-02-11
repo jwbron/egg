@@ -15,28 +15,25 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .agent_roles import AgentRole, get_role_definition
-from .dependency_graph import compute_execution_plan, get_parallel_groups
+from .dependency_graph import compute_execution_plan
 from .models import (
     AgentExecutionModel,
     AgentExecutionStatus,
-    AgentRoleType,
     Contract,
 )
 from .orchestration import (
     OrchestrationState,
-    can_agent_run,
     get_runnable_agents,
     initialize_orchestration,
     update_contract_orchestration,
 )
 
 if TYPE_CHECKING:
-    from .loader import ContractNotFoundError
+    pass
 
 
 @dataclass
@@ -139,7 +136,8 @@ class Orchestrator:
             # No agents can run - check why
             pending = self.state.get_pending_roles()
             running = [
-                role for role, ex in self.state.executions.items()
+                role
+                for role, ex in self.state.executions.items()
                 if ex.status == AgentExecutionStatus.RUNNING
             ]
 
@@ -148,14 +146,11 @@ class Orchestrator:
                     f"Waiting for running agents: {', '.join(r.value for r in running)}"
                 )
             elif pending:
-                return DispatchDecision.none(
-                    "Agents are pending but dependencies not met"
-                )
+                return DispatchDecision.none("Agents are pending but dependencies not met")
             else:
                 return DispatchDecision.complete()
 
         # Determine wave number
-        completed_count = len(self.state.get_completed_roles())
         wave_number = self._compute_wave_number(runnable)
 
         return DispatchDecision(
@@ -260,10 +255,13 @@ class Orchestrator:
         return {
             "total_agents": len(self.state.executions),
             "pending": len(self.state.get_pending_roles()),
-            "running": len([
-                r for r, ex in self.state.executions.items()
-                if ex.status == AgentExecutionStatus.RUNNING
-            ]),
+            "running": len(
+                [
+                    r
+                    for r, ex in self.state.executions.items()
+                    if ex.status == AgentExecutionStatus.RUNNING
+                ]
+            ),
             "completed": len(self.state.get_completed_roles()),
             "failed": len(self.state.get_failed_roles()),
             "all_complete": self.state.all_complete(),

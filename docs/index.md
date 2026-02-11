@@ -41,6 +41,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 |----------|-------------|
 | [Project Structure](development/STRUCTURE.md) | Directory conventions and organization |
 | [Contributing](../CONTRIBUTING.md) | Development setup, workflow, and PR process |
+| [Releasing](../RELEASING.md) | Release process and semantic versioning |
 
 ### Guides
 

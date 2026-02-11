@@ -355,4 +355,3 @@ class TestAuditLogIntegration:
         assert len(contract["audit_log"]) == 1
         assert contract["audit_log"][0]["field_path"] == "refine_review_cycles"
         assert contract["audit_log"][0]["role"] == "reviewer"
-

@@ -49,14 +49,16 @@ class TestAgentRoleConsistency:
         """All gateway roles must exist in the shared library."""
         from egg_contracts.agent_roles import AgentRole as SharedAgentRole
 
-        gateway_roles = {AgentRole.CODER, AgentRole.TESTER,
-                        AgentRole.DOCUMENTER, AgentRole.INTEGRATOR}
+        gateway_roles = {
+            AgentRole.CODER,
+            AgentRole.TESTER,
+            AgentRole.DOCUMENTER,
+            AgentRole.INTEGRATOR,
+        }
         shared_values = {r.value for r in SharedAgentRole}
 
         for role in gateway_roles:
-            assert role in shared_values, (
-                f"Gateway role '{role}' not found in shared library"
-            )
+            assert role in shared_values, f"Gateway role '{role}' not found in shared library"
 
 
 class TestPathTraversalPrevention:
@@ -191,8 +193,7 @@ class TestValidateAgentPush:
     def test_mixed_files_reports_blocked(self):
         """Mix of allowed and blocked should report only blocked."""
         result = validate_agent_push(
-            "coder",
-            ["src/app.py", ".egg-state/contracts/123.json", "lib/utils.ts"]
+            "coder", ["src/app.py", ".egg-state/contracts/123.json", "lib/utils.ts"]
         )
         assert not result.allowed
         assert len(result.blocked_files) == 1

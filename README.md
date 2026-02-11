@@ -81,6 +81,7 @@ The gateway enforces both process controls (SDLC phases) and security controls (
 | Agent merges its own PR | Gateway has no merge endpoint — humans must merge via GitHub UI |
 | Agent steals credentials | Credentials never enter sandbox; gateway injects them at request time |
 | Agent pushes to main | Gateway enforces branch policies; agent can only push to `egg/*` branches |
+| Agent tampers with contracts | File-level restrictions block implementers from modifying contract files via `git push` |
 | Agent exfiltrates code | Private mode restricts network to Anthropic API + private GitHub repos only |
 | Agent accesses other workspaces | Each agent gets isolated git worktree; `.git/` is shadowed |
 
@@ -101,13 +102,26 @@ Each pipeline phase has a defined set of permitted operations:
 - **Git isolation**: Each agent gets an isolated worktree. The `.git/` directory is shadowed (tmpfs mount) — the agent cannot access git metadata directly.
 - **Network modes**: Public mode allows full internet + credential-injected API calls. Private mode restricts to Anthropic API + private GitHub repos only.
 
+## Multi-Agent Orchestration
+
+Implementation workflows use specialized agent roles, each with scoped permissions and focused instructions:
+
+| Role | Responsibility |
+|------|----------------|
+| **Coder** | Write code, create commits, push branches |
+| **Tester** | Run tests, validate acceptance criteria |
+| **Documenter** | Update docs, generate changelogs |
+| **Integrator** | Coordinate roles, manage PR lifecycle |
+
+Roles are enforced by the gateway — each agent can only perform operations allowed for its role.
+
 ## GitHub Automation
 
-egg includes GitHub Actions workflows that run inside the sandbox:
+egg includes GitHub Actions workflows that run inside the sandbox via a unified work loop:
 
 | Workflow | Description |
 |----------|-------------|
-| **SDLC Pipeline** | End-to-end issue→PR with structurally enforced review gates |
+| **SDLC Pipeline** | End-to-end issue→PR via unified work loop with structurally enforced review gates |
 | **AI Code Review** | Automatic PR reviews via `reusable-review.yml` |
 | **@mention Response** | Trigger tasks by mentioning egg in issues or PR comments |
 | **Check Autofixer** | Diagnoses and fixes CI failures automatically |
@@ -138,20 +152,32 @@ A 30-second debounce prevents accidental clicks.
 
 ## Quick Start
 
-### Using the SDLC Pipeline (GitHub Actions)
+### Local
+
+```bash
+# Clone and install
+git clone https://github.com/jwbron/egg.git
+cd egg
+pip install ./sandbox
+
+# Run egg — auto-setup prompts on first run
+egg
+```
+
+Running `egg` starts the gateway and sandbox automatically. On first run it will prompt you to configure repositories and credentials via `egg --setup`. By default it launches in public mode (full internet access); use `egg --private` for network-locked private repo mode.
+
+### GitHub Actions (SDLC Pipeline)
 
 1. Install the egg GitHub App or configure workflows in your repository
 2. Add the `sdlc:refine` label to an issue
 3. The pipeline begins: refine → plan → implement → ready for merge
 4. Review and merge the PR via GitHub UI
 
-### Docker Compose (Recommended)
+### Docker Compose (Advanced)
+
+For production deployments or managing the gateway stack separately:
 
 ```bash
-# Clone and set up
-git clone https://github.com/jwbron/egg.git
-cd egg
-
 # Initialize configuration
 bin/egg-deploy init
 
@@ -161,22 +187,11 @@ vim .env
 # Start the gateway
 bin/egg-deploy up
 
-# Start a sandbox session
-egg --public    # Full internet access
-egg --private   # Anthropic API only
-```
-
-### CLI Mode
-
-```bash
-# Start gateway via compose, then sandbox
+# Start a sandbox session against the running gateway
 egg --compose
-
-# Or use the traditional flow
-egg --public
 ```
 
-See the [Deployment Guide](docs/guides/deployment.md) for production deployment options.
+See the [Deployment Guide](docs/guides/deployment.md) for full production deployment options.
 
 ## GitHub Action
 
@@ -197,16 +212,18 @@ See [GitHub Action documentation](action/README.md) for details.
 
 | Command | Description |
 |---------|-------------|
-| `egg` | Start interactive sandbox session (public mode) |
-| `egg --public` | Explicit public mode (full internet access) |
+| `egg` | Start interactive sandbox session (public mode, auto-setup on first run) |
+| `egg --public` | Explicit public mode (full internet access, default) |
 | `egg --private` | Private mode (Anthropic API only, network lockdown) |
-| `egg --compose` | Start gateway via Docker Compose |
-| `egg --compose --down` | Stop the Docker Compose stack |
-| `egg --exec <cmd>` | Execute command in ephemeral container |
 | `egg --setup` | Run interactive setup wizard |
 | `egg --reset` | Reset configuration and start over |
+| `egg --exec <cmd>` | Execute command in ephemeral container |
+| `egg --compose` | Use Docker Compose for gateway management |
+| `egg --compose --down` | Stop the Docker Compose stack |
 
 ### egg-deploy CLI
+
+For production/advanced deployments using Docker Compose:
 
 | Command | Description |
 |---------|-------------|
@@ -226,7 +243,9 @@ See [GitHub Action documentation](action/README.md) for details.
 | `--compose` | Use Docker Compose for gateway management |
 | `--exec <cmd>` | Execute command in new ephemeral container |
 | `--timeout <min>` | Timeout for --exec commands (default: 30) |
+| `--auth <method>` | Anthropic auth method for --exec: `oauth-token` (default) or `api-key` |
 | `--rebuild` | Force rebuild Docker image |
+| `--time` | Show startup timing breakdown for debugging |
 | `-v, --verbose` | Show detailed output instead of progress bar |
 
 ## Documentation
@@ -262,6 +281,44 @@ See [GitHub Action documentation](action/README.md) for details.
 - [GitHub Actions ADR](docs/adr/in-progress/ADR-GitHub-Actions-Support.md) — GitHub Actions support design
 - [Contributing](CONTRIBUTING.md) — Development setup and workflow
 - [Why egg Works](docs/collaboration-effectiveness.md) — Safety, quality, and collaboration
+
+## Versioning
+
+egg uses [semantic versioning](https://semver.org/) for both Docker images and GitHub Action references.
+
+> **Note:** Use `@main` until the first release (v0.1.0) is published, which will create the `@v0` tag.
+
+### Version Pinning
+
+For stability, pin to a major version:
+```yaml
+uses: jwbron/egg/action@v0  # Receives all v0.x.y updates
+```
+
+For full reproducibility:
+```yaml
+uses: jwbron/egg/action@v0.1.0  # Exact version
+```
+
+### Docker Images
+
+```bash
+# Latest stable (updated on every release)
+docker pull ghcr.io/jwbron/egg-sandbox:latest
+
+# Major version (updated on v0.x.y releases)
+docker pull ghcr.io/jwbron/egg-sandbox:v0
+
+# Exact version
+docker pull ghcr.io/jwbron/egg-sandbox:v0.1.0
+```
+
+### Breaking Changes
+
+- **v0.x.y**: Pre-stable releases. Minor versions may contain breaking changes.
+- **v1.x.y and later**: Stable releases. Breaking changes only in major version bumps.
+
+See [RELEASING.md](RELEASING.md) for the release process.
 
 ## Development
 

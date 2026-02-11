@@ -53,15 +53,15 @@ on:
         type: string
         default: ""
       output_type:
-        description: 'Output type: draft (refine/plan) or pr (implement)'
+        description: 'Output type: draft (refine/plan) or pr (implement). Empty = phase-based default.'
         required: false
         type: string
-        default: "draft"
+        default: ""
       human_review_mechanism:
-        description: 'Human review mechanism: issue_checkbox or pr_review'
+        description: 'Human review mechanism: issue_checkbox or pr_review. Empty = phase-based default.'
         required: false
         type: string
-        default: "issue_checkbox"
+        default: ""
       max_review_cycles:
         description: 'Maximum review cycles before escalation'
         required: false
@@ -363,9 +363,116 @@ jobs:
               git add "$CONTRACT_PATH"
               git commit -m "Reset autofix attempts for issue #${ISSUE_NUMBER}" || true
               git push origin "${BRANCH_NAME}" || {
-                git pull --rebase origin "${BRANCH_NAME}"
-                git push origin "${BRANCH_NAME}"
+                echo "::warning::Initial push failed, attempting pull --rebase and retry..."
+                if ! git pull --rebase origin "${BRANCH_NAME}"; then
+                  echo "::error::Failed to rebase during autofix reset push"
+                  exit 1
+                fi
+                if ! git push origin "${BRANCH_NAME}"; then
+                  echo "::error::Failed to push autofix reset after rebase"
+                  exit 1
+                fi
               }
+            fi
+          fi
+
+      - name: Merge latest main into issue branch
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ needs.resolve-inputs.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          echo "Merging latest main into ${BRANCH_NAME}..."
+          git fetch origin main
+
+          # Check if merge is needed
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo "Branch already contains latest main, skipping merge"
+            exit 0
+          fi
+
+          echo "Main has commits not in ${BRANCH_NAME}, merging..."
+          if git merge origin/main --no-edit; then
+            echo "Successfully merged main into ${BRANCH_NAME}"
+            # Push the merge commit so reviewers and subsequent steps see it
+            git push origin "${BRANCH_NAME}" || {
+              echo "::warning::Initial push failed, attempting pull --rebase and retry..."
+              if ! git pull --rebase origin "${BRANCH_NAME}"; then
+                echo "::error::Failed to rebase during push retry"
+                exit 1
+              fi
+              if ! git push origin "${BRANCH_NAME}"; then
+                echo "::error::Failed to push after rebase"
+                exit 1
+              fi
+            }
+          else
+            echo "::warning::Merge conflict detected, triggering conflict resolution workflow..."
+            git merge --abort
+
+            # Find PR number for this branch if not already known
+            CONFLICT_PR_NUMBER="${PR_NUMBER}"
+            if [[ "${CONFLICT_PR_NUMBER}" == "0" || -z "${CONFLICT_PR_NUMBER}" ]]; then
+              CONFLICT_PR_NUMBER=$(gh pr list --head "${BRANCH_NAME}" --json number --jq '.[0].number // empty' || echo "")
+            fi
+
+            if [[ -n "${CONFLICT_PR_NUMBER}" && "${CONFLICT_PR_NUMBER}" != "0" ]]; then
+              echo "Found PR #${CONFLICT_PR_NUMBER} for branch ${BRANCH_NAME}, triggering conflict resolution..."
+              # Record timestamp before triggering to avoid race condition with other runs
+              TRIGGER_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              if gh workflow run on-merge-conflict.yml -f pr_number="${CONFLICT_PR_NUMBER}"; then
+                echo "::notice::Conflict resolution workflow triggered for PR #${CONFLICT_PR_NUMBER}"
+
+                # Wait for conflict resolver to complete
+                echo "Waiting for conflict resolution workflow to start..."
+                sleep 10
+
+                # Find the triggered workflow run (filter by timestamp to avoid race condition)
+                CONFLICT_RUN_ID=""
+                for attempt in 1 2 3 4 5 6; do
+                  CONFLICT_RUN_ID=$(gh run list \
+                    --workflow on-merge-conflict.yml \
+                    --limit 10 \
+                    --json databaseId,status,createdAt \
+                    --jq "[.[] | select(.createdAt > \"${TRIGGER_TIME}\")] | sort_by(.createdAt) | reverse | .[0].databaseId // empty" 2>/dev/null || echo "")
+                  if [[ -n "$CONFLICT_RUN_ID" ]]; then
+                    break
+                  fi
+                  echo "::warning::Attempt ${attempt}: conflict resolution workflow run not found yet, retrying..."
+                  sleep 5
+                done
+
+                if [[ -z "$CONFLICT_RUN_ID" ]]; then
+                  echo "::error::Could not find triggered conflict resolution workflow run (triggered after ${TRIGGER_TIME}). Possible causes: workflow doesn't exist, permissions issue, or GitHub Actions delay."
+                  exit 1
+                fi
+
+                echo "Watching conflict resolution workflow run ${CONFLICT_RUN_ID}..."
+                if gh run watch "$CONFLICT_RUN_ID" --exit-status; then
+                  echo "Conflict resolution completed successfully"
+                  # Pull the resolved changes with explicit error handling
+                  if ! git fetch origin "${BRANCH_NAME}"; then
+                    echo "::error::Failed to fetch resolved branch"
+                    exit 1
+                  fi
+                  if ! git reset --hard "origin/${BRANCH_NAME}"; then
+                    echo "::error::Failed to reset to resolved branch"
+                    exit 1
+                  fi
+                  echo "Pulled resolved changes, continuing..."
+                else
+                  echo "::error::Conflict resolution workflow failed (run ${CONFLICT_RUN_ID})"
+                  exit 1
+                fi
+              else
+                echo "::warning::Failed to trigger conflict resolution workflow"
+                echo "::error::Merge conflict merging main into ${BRANCH_NAME}. Manual resolution required."
+                exit 1
+              fi
+            else
+              echo "::warning::No PR found for branch ${BRANCH_NAME}, cannot trigger automatic conflict resolution"
+              echo "::error::Merge conflict merging main into ${BRANCH_NAME}. Manual resolution required."
+              exit 1
             fi
           fi
 
@@ -388,9 +495,15 @@ jobs:
             git add "$CONTRACT_PATH"
             git commit -m "Populate contract tasks from plan for issue #${ISSUE_NUMBER}"
             git push origin "${BRANCH_NAME}" || {
-              # Handle conflict with retry
-              git pull --rebase origin "${BRANCH_NAME}"
-              git push origin "${BRANCH_NAME}"
+              echo "::warning::Initial push failed, attempting pull --rebase and retry..."
+              if ! git pull --rebase origin "${BRANCH_NAME}"; then
+                echo "::error::Failed to rebase during contract push"
+                exit 1
+              fi
+              if ! git push origin "${BRANCH_NAME}"; then
+                echo "::error::Failed to push contract after rebase"
+                exit 1
+              fi
             }
           fi
 
@@ -652,7 +765,9 @@ jobs:
       )
     runs-on: ubuntu-latest
     outputs:
-      fixed: ${{ steps.fix.outputs.fixed || steps.limit-exceeded.outputs.fixed || 'false' }}
+      # Only report fixed=true if both the autofix succeeded AND the counter was updated.
+      # This prevents re-dispatch if the counter update fails.
+      fixed: ${{ (steps.fix.outputs.fixed == 'true' && steps.update-counter.outputs.counter_updated != 'false') && 'true' || steps.limit-exceeded.outputs.fixed || 'false' }}
       limit_exceeded: ${{ steps.check-limit.outputs.exceeded }}
 
     env:
@@ -688,6 +803,11 @@ jobs:
         id: check-limit
         run: |
           set -euo pipefail
+
+          # Fetch latest to get any concurrent updates to autofix_attempts
+          git fetch origin "${BRANCH_NAME}"
+          git reset --hard "origin/${BRANCH_NAME}"
+
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
           if [[ -f "$CONTRACT_PATH" ]]; then
@@ -726,6 +846,7 @@ jobs:
           if [[ "${ACTUAL_PR_NUMBER}" == "0" || -z "${ACTUAL_PR_NUMBER}" ]]; then
             echo "::warning::No PR number available for autofix (branch: ${BRANCH_NAME})"
             echo "fixed=false" >> "$GITHUB_OUTPUT"
+            echo "no_pr=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -774,20 +895,20 @@ jobs:
           sleep 5
 
           # Find the triggered workflow run
-          # Filter by: branch name only (not main), status queued/in_progress, created after dispatch
+          # Filter by: timestamp only (workflow_dispatch doesn't set headBranch to issue branch)
+          # We use timestamp filtering to identify the run we just triggered
           RUN_ID=""
           for attempt in 1 2 3 4 5 6; do
             RUN_ID=$(gh run list \
               --repo "${{ github.repository }}" \
               --workflow reusable-autofix.yml \
               --limit 10 \
-              --json databaseId,status,createdAt,headBranch \
-              --jq --arg branch "${BRANCH_NAME}" --arg dispatch_time "${DISPATCH_TIME}" '
+              --json databaseId,status,createdAt \
+              --jq --arg dispatch_time "${DISPATCH_TIME}" '
                 [.[] | select(
-                  .headBranch == $branch and
                   (.status == "queued" or .status == "in_progress" or .status == "completed") and
                   .createdAt >= $dispatch_time
-                )] | sort_by(.createdAt) | reverse | .[0].databaseId // empty
+                )] | sort_by(.createdAt) | .[0].databaseId // empty
               ' 2>/dev/null || echo "")
             if [[ -n "$RUN_ID" ]]; then
               echo "Found autofix workflow run: ${RUN_ID}"
@@ -798,7 +919,7 @@ jobs:
           done
 
           if [[ -z "$RUN_ID" ]]; then
-            echo "::warning::Could not find triggered autofix workflow run after 30 seconds"
+            echo "::warning::Could not find triggered autofix workflow run after 30 seconds (triggered at ${DISPATCH_TIME}). Possible causes: workflow doesn't exist, permissions issue, or GitHub Actions delay."
             echo "fixed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -827,6 +948,7 @@ jobs:
           echo "fixed=false" >> "$GITHUB_OUTPUT"
 
       - name: Update autofix attempts counter
+        id: update-counter
         if: steps.check-limit.outputs.exceeded != 'true'
         run: |
           set -euo pipefail
@@ -899,12 +1021,42 @@ jobs:
               git commit -m "Update autofix attempts for issue #${ISSUE_NUMBER}" || true
             done
 
-            # Fail the step if push never succeeded
+            # Fail the step if push never succeeded - this prevents re-dispatch
             if [[ "$PUSH_SUCCEEDED" != "true" ]]; then
               echo "::error::Failed to push contract update after 3 attempts"
+              echo "counter_updated=false" >> "$GITHUB_OUTPUT"
               exit 1
             fi
+            echo "counter_updated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "counter_updated=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Redispatch work-loop for check failures (no PR)
+        if: >-
+          steps.fix.outputs.no_pr == 'true' &&
+          steps.check-limit.outputs.exceeded != 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          MAX_REVIEW_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_review_cycles }}
+          MAX_TOTAL_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_total_cycles }}
+          WORKFLOW_OWNER_ENV: ${{ needs.resolve-inputs.outputs.workflow_owner }}
+        run: |
+          set -euo pipefail
+
+          echo "No PR available for reusable autofix — redispatching work-loop so agent can fix check failures"
+
+          gh workflow run sdlc-work-loop.yml \
+            --repo "${{ github.repository }}" \
+            --field phase="${{ needs.resolve-inputs.outputs.phase }}" \
+            --field issue_number="${ISSUE_NUMBER}" \
+            --field branch_name="${BRANCH_NAME}" \
+            --field max_review_cycles="${MAX_REVIEW_CYCLES_ENV}" \
+            --field max_total_cycles="${MAX_TOTAL_CYCLES_ENV}" \
+            --field workflow_owner="${WORKFLOW_OWNER_ENV:-}" \
+            --field pr_number="0"
+
+          echo "Work-loop redispatched for check failure remediation"
 
   # ============================================================
   # Aggregate Checks: Collect all check results
@@ -1859,16 +2011,39 @@ jobs:
 
           if [[ "${PR_NUMBER}" != "0" && -n "${PR_NUMBER}" ]]; then
             echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
-          else
-            # Check if PR exists for this branch
-            EXISTING_PR=$(gh pr list --repo "${{ github.repository }}" --head "${BRANCH_NAME}" --state open --json number --jq '.[0].number // empty')
-            if [[ -n "$EXISTING_PR" ]]; then
-              echo "pr_number=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
-            else
-              echo "::error::No PR number provided and no existing PR found for branch ${BRANCH_NAME}"
-              exit 1
-            fi
+            echo "Using provided PR #${PR_NUMBER}"
+            exit 0
           fi
+
+          # Check if PR exists for this branch
+          EXISTING_PR=$(gh pr list --repo "${{ github.repository }}" --head "${BRANCH_NAME}" --state open --json number --jq '.[0].number // empty')
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "pr_number=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
+            echo "Found existing PR #${EXISTING_PR}"
+            exit 0
+          fi
+
+          # No PR exists — create one
+          ISSUE_TITLE=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}" --jq '.title // "Issue #'"${ISSUE_NUMBER}"'"')
+
+          if ! PR_URL=$(gh pr create \
+            --repo "${{ github.repository }}" \
+            --head "${BRANCH_NAME}" \
+            --base main \
+            --title "${ISSUE_TITLE}" \
+            --body "Implementation for #${ISSUE_NUMBER}." \
+            --draft); then
+            echo "::error::Failed to create PR for branch ${BRANCH_NAME}"
+            exit 1
+          fi
+
+          CREATED_PR=$(echo "$PR_URL" | grep -oE '[0-9]+$' || true)
+          if [[ -z "$CREATED_PR" ]]; then
+            echo "::error::Failed to extract PR number from: ${PR_URL}"
+            exit 1
+          fi
+          echo "pr_number=${CREATED_PR}" >> "$GITHUB_OUTPUT"
+          echo "Created draft PR #${CREATED_PR}"
 
       - name: Update PR title and mark ready
         env:

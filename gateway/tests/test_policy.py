@@ -205,7 +205,12 @@ class TestPolicyEngine:
         """Branch with open james-in-a-box-authored PR is owned by james-in-a-box."""
         # Mock PR list
         mock_github_client.list_prs_for_branch.return_value = [
-            {"number": 123, "author": {"login": "james-in-a-box"}, "state": "open", "headRefName": "feature"}
+            {
+                "number": 123,
+                "author": {"login": "james-in-a-box"},
+                "state": "open",
+                "headRefName": "feature",
+            }
         ]
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
@@ -701,7 +706,12 @@ class TestUserModeBranchOwnership:
         """User mode allows push to branch with bot's PR."""
         mock_github_client.branch_exists.return_value = True
         mock_github_client.list_prs_for_branch.return_value = [
-            {"number": 123, "author": {"login": "james-in-a-box"}, "state": "open", "headRefName": "feature"}
+            {
+                "number": 123,
+                "author": {"login": "james-in-a-box"},
+                "state": "open",
+                "headRefName": "feature",
+            }
         ]
         mock_github_client.get_pr_info.return_value = {
             "number": 123,
@@ -838,7 +848,12 @@ class TestBotAuthorFormats:
 
     def test_bot_suffix_variants(self, policy_engine, mock_github_client):
         """All bot suffix variants are recognized."""
-        variants = ["james-in-a-box", "james-in-a-box[bot]", "app/james-in-a-box", "apps/james-in-a-box"]
+        variants = [
+            "james-in-a-box",
+            "james-in-a-box[bot]",
+            "app/james-in-a-box",
+            "apps/james-in-a-box",
+        ]
 
         for variant in variants:
             mock_github_client.get_pr_info.return_value = {

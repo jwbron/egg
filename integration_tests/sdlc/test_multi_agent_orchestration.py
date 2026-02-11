@@ -4,10 +4,7 @@ Tests the orchestration logic for coordinating specialized agents
 (coder, tester, documenter, integrator) during the implement phase.
 """
 
-import pytest
-
 from egg_contracts import (
-    AgentExecutionModel,
     AgentExecutionStatus,
     AgentRole,
     AgentRoleType,
@@ -16,19 +13,16 @@ from egg_contracts import (
     MultiAgentConfig,
 )
 from egg_contracts.dependency_graph import (
-    DependencyGraph,
     build_dependency_graph,
     compute_execution_plan,
 )
 from egg_contracts.orchestration import (
-    OrchestrationState,
     can_agent_run,
     get_runnable_agents,
     initialize_orchestration,
 )
 from egg_contracts.orchestrator import (
     DispatchDecision,
-    Orchestrator,
     create_orchestrator,
     get_dispatch_for_contract,
 )
@@ -373,10 +367,7 @@ class TestOrchestrator:
         updated = orch.apply_to_contract()
 
         assert len(updated.agent_executions) == 4
-        coder_ex = next(
-            ex for ex in updated.agent_executions
-            if ex.role == AgentRoleType.CODER
-        )
+        coder_ex = next(ex for ex in updated.agent_executions if ex.role == AgentRoleType.CODER)
         assert coder_ex.status == AgentExecutionStatus.COMPLETE
         assert coder_ex.commit == "abc1234"
 

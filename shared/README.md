@@ -70,11 +70,14 @@ SDLC contract models, role-based validation, plan parsing, and resilience utilit
 - Plan parser for extracting tasks from markdown documents
 - HITL (Human-in-the-Loop) checkbox generation and parsing
 - Resilience utilities (rate limiting, retry with backoff, timeout checkpoints)
+- Agent recovery (retry management, circuit breaker, conflict detection for multi-agent workflows)
 
 ```python
+from pathlib import Path
 from egg_contracts import Contract, parse_plan
 from egg_contracts import generate_full_hitl_block, parse_checkbox_state
 from egg_contracts import retry_with_backoff, parse_rate_limit_headers
+from egg_contracts import AgentRetryManager, AgentCircuitBreaker, ConflictDetector
 
 # Load and validate contract
 contract = Contract.model_validate_json(contract_json)
@@ -86,6 +89,11 @@ block = generate_full_hitl_block(issue_number=123, stuck_task_id="task-1")
 @retry_with_backoff()
 def call_external_api():
     ...
+
+# Agent recovery for multi-agent workflows
+retry_mgr = AgentRetryManager()
+circuit_breaker = AgentCircuitBreaker()
+conflict_detector = ConflictDetector(repo_path=Path("/repo"))
 ```
 
 **Key modules:**
@@ -96,6 +104,7 @@ def call_external_api():
 - `plan_parser.py` - Markdown plan parsing and task extraction
 - `roles.py` - Role-based field ownership validation
 - `audit.py` - Audit log utilities
+- `agent_recovery.py` - Multi-agent recovery (retry manager, circuit breaker, conflict detector)
 
 ## Installation
 

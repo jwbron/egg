@@ -433,6 +433,17 @@ All workflows need these GitHub Actions secrets:
 | `BOT_APP_INSTALLATION_ID` | GitHub App installation ID |
 | `ANTHROPIC_OAUTH_TOKEN` | Anthropic API authentication |
 
+### Required Repository Variables
+
+Event-triggered workflows require these repository variables (Settings → Secrets and variables → Actions → Variables):
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `EGG_BOT_USERNAME` | Bot's GitHub username for self-trigger prevention | `james-in-a-box[bot]` |
+| `EGG_BRANCH_PREFIX` | Branch prefix for bot-owned branches | `egg` |
+
+Reusable workflows called via `workflow_call` receive these values as inputs from the caller instead.
+
 ### Per-Repository Customization
 
 | File | Purpose |

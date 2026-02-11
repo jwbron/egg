@@ -52,6 +52,8 @@ gateway/
 ├── auth.py                 # Session authentication
 ├── token_refresher.py      # GitHub App token management
 ├── anthropic_credentials.py # API key injection for Claude
+├── checkpoint_handler.py   # Per-commit checkpoint capture
+├── transcript_buffer.py    # API proxy transcript capture buffer
 ├── worktree_manager.py     # Git worktree lifecycle
 ├── session_manager.py      # Agent session management
 ├── repo_parser.py          # Repository config parsing
@@ -81,9 +83,11 @@ sandbox/
 │   ├── git
 │   ├── gh
 │   ├── egg-contract        # Symlink to contract_cli.py
+│   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
-│   └── contract_cli.py     # SDLC contract CLI implementation
+│   ├── contract_cli.py     # SDLC contract CLI implementation
+│   └── checkpoint_cli.py   # Checkpoint browsing CLI wrapper
 ├── llm/                    # Claude Code / Agent SDK integration
 ├── tools/                  # Interactive tools
 │   ├── discover-tests.py   # Test framework discovery
@@ -99,14 +103,18 @@ sandbox/
 shared/
 ├── egg_config/             # Configuration utilities
 │   └── constants.py        # Centralized constants (ports, networks, container names)
-├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration
+├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration, checkpoints
 │   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig, AgentExecutionModel
 │   ├── phase_defaults.py   # Default check configurations per SDLC phase
 │   ├── agent_roles.py      # Multi-agent role definitions (Coder, Tester, Documenter, Integrator)
 │   ├── orchestrator.py     # Multi-agent orchestration dispatch logic
 │   ├── orchestration.py    # Agent execution state management
 │   ├── dependency_graph.py # Agent dependency resolution for parallel execution
-│   └── agent_recovery.py   # Failed agent recovery logic
+│   ├── agent_recovery.py   # Failed agent recovery logic
+│   ├── checkpoints.py      # Checkpoint data models
+│   ├── checkpoint_loader.py # Checkpoint storage and retrieval
+│   ├── checkpoint_cli.py   # Checkpoint browsing CLI
+│   └── transcript_extractor.py # API transcript extraction
 ├── egg_git/                # Git utilities
 └── egg_logging/            # Structured logging
 ```
@@ -152,7 +160,8 @@ tests/
 ├── shared/
 │   └── egg_contracts/
 │       ├── test_models.py         # Contract model tests including check models
-│       └── test_phase_defaults.py # Phase default configuration tests
+│       ├── test_phase_defaults.py # Phase default configuration tests
+│       └── test_agent_recovery.py # Agent recovery and circuit breaker tests
 └── workflows/                     # Workflow integration tests
     ├── __init__.py
     └── test_hitl_integration.py   # HITL decision format verification
@@ -217,6 +226,7 @@ Key workflows for the SDLC pipeline (see `.github/workflows/` for complete list)
     │   ├── merge_conflict_check.py         # Merge conflict detection
     │   ├── plan_yaml_check.py              # Plan YAML validation
     │   └── test_check.py                   # Test execution check
+    ├── create-release.sh                   # Semantic versioning release script
     ├── push-contract-update.sh             # Conflict-resistant contract push utility
     ├── setup-sdlc-labels.sh                # SDLC label setup (idempotent)
     └── transition-sdlc-label.sh            # Atomic SDLC label transitions

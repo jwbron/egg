@@ -476,7 +476,12 @@ class TestPolicyEngineCacheConcurrency:
                 call_count["list_prs_for_branch"] += 1
             time.sleep(0.01)
             return [
-                {"number": 123, "author": {"login": "james-in-a-box"}, "state": "open", "headRefName": branch}
+                {
+                    "number": 123,
+                    "author": {"login": "james-in-a-box"},
+                    "state": "open",
+                    "headRefName": branch,
+                }
             ]
 
         client.get_pr_info = mock_get_pr_info
@@ -525,7 +530,9 @@ class TestPolicyEngineCacheConcurrency:
         lock = threading.Lock()
 
         def check_branch(i):
-            result = policy_engine.check_branch_ownership("owner/repo", f"james-in-a-box-feature-{i}")
+            result = policy_engine.check_branch_ownership(
+                "owner/repo", f"james-in-a-box-feature-{i}"
+            )
             with lock:
                 results.append((i, result.allowed))
 
