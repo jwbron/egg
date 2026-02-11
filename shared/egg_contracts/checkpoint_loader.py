@@ -40,22 +40,31 @@ def generate_checkpoint_id() -> str:
     return f"ckpt-{hex_str}"
 
 
-def generate_checkpoint_id_from_commit(commit_sha: str, session_id: str) -> str:
+def generate_checkpoint_id_from_commit(
+    commit_sha: str,
+    session_id: str,
+    timestamp: datetime | None = None,
+) -> str:
     """
-    Generate a deterministic checkpoint ID from commit and session.
+    Generate a deterministic checkpoint ID from commit, session, and timestamp.
 
-    This ensures the same checkpoint ID is generated for the same commit
-    and session combination, which is useful for idempotent operations.
+    This ensures unique checkpoint IDs even for multiple checkpoints from the
+    same session pushing to the same commit (e.g., amended commits).
 
     Args:
         commit_sha: The commit SHA
         session_id: The session ID
+        timestamp: Optional timestamp for uniqueness (defaults to now)
 
     Returns:
-        A checkpoint ID in the format ckpt-{12 hex chars}
+        A checkpoint ID in the format ckpt-{16 hex chars}
     """
-    content = f"{commit_sha}:{session_id}"
-    hash_bytes = hashlib.sha256(content.encode()).digest()[:6]
+    if timestamp is None:
+        timestamp = datetime.now(UTC)
+    # Include timestamp for uniqueness across rapid successive pushes
+    content = f"{commit_sha}:{session_id}:{timestamp.isoformat()}"
+    # Use 8 bytes (64 bits) for better collision resistance
+    hash_bytes = hashlib.sha256(content.encode()).digest()[:8]
     hex_str = hash_bytes.hex()
     return f"ckpt-{hex_str}"
 

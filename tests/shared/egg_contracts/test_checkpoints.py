@@ -440,16 +440,29 @@ class TestCheckpointLoader:
         assert all(c in "0123456789abcdef" for c in hex_part)
 
     def test_generate_checkpoint_id_from_commit(self):
-        """Test deterministic checkpoint ID generation."""
-        id1 = generate_checkpoint_id_from_commit("abc123", "session-1")
-        id2 = generate_checkpoint_id_from_commit("abc123", "session-1")
-        id3 = generate_checkpoint_id_from_commit("abc123", "session-2")
+        """Test deterministic checkpoint ID generation with timestamp."""
+        # With same timestamp, same inputs produce same output
+        fixed_time = datetime(2025, 1, 15, 12, 0, 0, tzinfo=UTC)
+        id1 = generate_checkpoint_id_from_commit("abc123", "session-1", fixed_time)
+        id2 = generate_checkpoint_id_from_commit("abc123", "session-1", fixed_time)
+        id3 = generate_checkpoint_id_from_commit("abc123", "session-2", fixed_time)
 
-        # Same inputs should produce same output
+        # Same inputs (including timestamp) should produce same output
         assert id1 == id2
 
-        # Different inputs should produce different output
+        # Different session should produce different output
         assert id1 != id3
+
+        # Different timestamp should produce different output
+        later_time = datetime(2025, 1, 15, 12, 0, 1, tzinfo=UTC)
+        id4 = generate_checkpoint_id_from_commit("abc123", "session-1", later_time)
+        assert id1 != id4
+
+        # Generated ID should be 16 hex chars (8 bytes)
+        assert id1.startswith("ckpt-")
+        hex_part = id1[5:]
+        assert len(hex_part) == 16
+        assert all(c in "0123456789abcdef" for c in hex_part)
 
     def test_get_checkpoint_path(self):
         """Test checkpoint path generation."""

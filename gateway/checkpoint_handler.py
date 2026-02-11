@@ -18,7 +18,6 @@ import tempfile
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 # Add shared directory to path
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -26,17 +25,14 @@ if _shared_path.exists():
     sys.path.insert(0, str(_shared_path))
 
 from egg_contracts.checkpoint_loader import (
-    CheckpointSaveError,
+    add_checkpoint_to_index,
     generate_checkpoint_id_from_commit,
     get_checkpoint_path,
     save_checkpoint,
 )
 from egg_contracts.checkpoints import (
     Checkpoint,
-    CheckpointSummary,
-    FileOperation,
     SessionMetadata,
-    TokenUsage,
     ToolCall,
     Transcript,
 )
@@ -394,10 +390,14 @@ class CheckpointHandler:
                     # Save checkpoint
                     save_checkpoint(checkpoint, checkpoint_path)
 
-                    # Stage the file
+                    # Update the index for fast lookups by commit SHA
+                    index_path = temp_path / INDEX_FILE
+                    add_checkpoint_to_index(checkpoint, index_path)
+
+                    # Stage both the checkpoint and index files
                     self._run_git(
                         str(temp_path),
-                        ["add", str(checkpoint_path.relative_to(temp_path))],
+                        ["add", str(checkpoint_path.relative_to(temp_path)), INDEX_FILE],
                     )
 
                     # Commit
@@ -409,10 +409,11 @@ class CheckpointHandler:
                         ["commit", "-m", commit_msg],
                     )
 
-                    # Push
+                    # Push (use longer timeout for large transcripts)
                     self._run_git(
                         str(temp_path),
                         ["push", remote, f"HEAD:{CHECKPOINT_BRANCH}"],
+                        timeout=120,
                     )
 
                     logger.info(
@@ -556,9 +557,19 @@ def capture_and_store_checkpoint(
     # Store checkpoint (async or sync)
     if async_store:
         # Store in background thread to not block push response
+        def _store_with_error_handling() -> None:
+            try:
+                handler.store_checkpoint(checkpoint, repo_path)
+            except Exception as e:
+                logger.error(
+                    "Async checkpoint storage failed",
+                    error=str(e),
+                    checkpoint_id=checkpoint.id,
+                    commit_sha=commit_sha[:7],
+                )
+
         thread = threading.Thread(
-            target=handler.store_checkpoint,
-            args=(checkpoint, repo_path),
+            target=_store_with_error_handling,
             daemon=True,
         )
         thread.start()

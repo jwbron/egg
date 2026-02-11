@@ -7,7 +7,7 @@ token usage.
 """
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -98,7 +98,7 @@ def extract_session_metadata(entries: list[dict[str, Any]]) -> SessionMetadata:
 
     # Use current time if no started_at found
     if started_at is None:
-        started_at = datetime.now()
+        started_at = datetime.now(UTC)
 
     return SessionMetadata(
         session_id=session_id or "unknown",
@@ -396,14 +396,14 @@ def extract_transcript_from_jsonl(
     try:
         entries = []
         with open(jsonl_path) as f:
-            for line_num, line in enumerate(f, 1):
+            for _line_num, line in enumerate(f, 1):
                 line = line.strip()
                 if not line:
                     continue
                 try:
                     entry = json.loads(line)
                     entries.append(entry)
-                except json.JSONDecodeError as e:
+                except json.JSONDecodeError:
                     # Skip malformed lines but continue
                     continue
 
@@ -438,6 +438,29 @@ def extract_transcript_from_jsonl(
         raise TranscriptExtractError(msg) from e
 
 
+def _is_safe_path(file_path: Path, base_dir: Path) -> bool:
+    """
+    Check if a file path is safe (not a symlink and within the base directory).
+
+    Args:
+        file_path: The file path to check
+        base_dir: The expected base directory
+
+    Returns:
+        True if the path is safe, False otherwise
+    """
+    # Skip symlinks to prevent symlink attacks
+    if file_path.is_symlink():
+        return False
+    # Resolve the path and verify it's within the expected directory
+    try:
+        resolved = file_path.resolve()
+        base_resolved = base_dir.resolve()
+        return str(resolved).startswith(str(base_resolved) + "/") or resolved == base_resolved
+    except (OSError, ValueError):
+        return False
+
+
 def find_session_file(
     session_id: str | None = None,
     project_path: Path | None = None,
@@ -467,7 +490,7 @@ def find_session_file(
             if not project_dir.is_dir():
                 continue
             session_file = project_dir / f"{session_id}.jsonl"
-            if session_file.exists():
+            if session_file.exists() and _is_safe_path(session_file, claude_projects_dir):
                 return session_file
         return None
 
@@ -481,7 +504,10 @@ def find_session_file(
 
         if project_dir.exists():
             # Find the most recent session file
-            session_files = list(project_dir.glob("*.jsonl"))
+            session_files = [
+                f for f in project_dir.glob("*.jsonl")
+                if _is_safe_path(f, claude_projects_dir)
+            ]
             if session_files:
                 # Sort by modification time, most recent first
                 session_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
@@ -495,6 +521,9 @@ def find_session_file(
         if not project_dir.is_dir():
             continue
         for session_file in project_dir.glob("*.jsonl"):
+            # Skip symlinks and paths outside the expected directory
+            if not _is_safe_path(session_file, claude_projects_dir):
+                continue
             mtime = session_file.stat().st_mtime
             if mtime > most_recent_time:
                 most_recent = session_file
