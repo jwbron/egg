@@ -16,7 +16,7 @@ for how to call egg's workflows from your own repositories.
 | [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
 | [@mention Response](#mention-response) | Bot mention in issues/PR comments | Runs arbitrary tasks requested by authorized users |
 | [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
-| [Conflict Resolver](#conflict-resolver) | Push to main / every 2 hours / manual | Resolves merge conflicts via rebase |
+| [Conflict Resolver](#conflict-resolver) | Push to main / every 2 hours / manual | Resolves merge conflicts via merge commits |
 | [Self-Improvement](#self-improvement) | Nightly schedule (2 AM UTC) | Analyzes all runs for issues, creates tracking issues |
 | [Doc Updater](#doc-updater) | Push to main | Checks if code changes require documentation updates |
 
@@ -283,7 +283,7 @@ The agent follows these rules (customizable via `.egg/autofixer-rules.md`):
 
 **Workflow:** [`.github/workflows/on-merge-conflict.yml`](../../.github/workflows/on-merge-conflict.yml)
 
-Triggers on push to main (when conflicts are actually introduced) to detect PRs with merge conflicts and resolve them via rebase. A scheduled run every 2 hours provides a safety net for cases where the push-triggered run fails or GitHub's mergeable state computation takes longer than expected. Also supports `workflow_dispatch` for manual triggering on a specific PR.
+Triggers on push to main (when conflicts are actually introduced) to detect PRs with merge conflicts and resolve them via merge commits. A scheduled run every 2 hours provides a safety net for cases where the push-triggered run fails or GitHub's mergeable state computation takes longer than expected. Also supports `workflow_dispatch` for manual triggering on a specific PR.
 
 ### How It Works
 
@@ -299,14 +299,14 @@ Triggers on push to main (when conflicts are actually introduced) to detect PRs 
 5. **Comment cleanup** — Minimizes previous conflict resolution comments to reduce clutter.
 6. **Acknowledgment** — Posts a comment indicating conflict resolution has started.
 7. **Trusted prompt build** — Builds the conflict prompt from `main` using
-   `build-conflict-prompt.sh`, which includes the base branch name for rebase.
+   `build-conflict-prompt.sh`, which includes the base branch name for merging.
 8. **Resolution** — The agent:
-   - Fetches the base branch and starts a rebase
+   - Fetches the base branch and starts a merge
    - Resolves each conflict based on conflict resolution rules
    - Runs local checks to verify the resolution
-   - Pushes with `--force-with-lease` if successful
+   - Pushes the merge commit if successful
 9. **Escalation** — If conflicts require human judgment (semantic conflicts, security code,
-   database migrations), the agent aborts the rebase and posts a comment explaining which
+   database migrations), the agent aborts the merge and posts a comment explaining which
    files need review and why.
 
 ### Resolution Strategy
