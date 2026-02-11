@@ -312,6 +312,54 @@ class GatewayClient:
         except GatewayError:
             return False
 
+    def update_session(
+        self,
+        session_token: str,
+        container_id: str,
+        container_ip: str,
+    ) -> bool:
+        """Update a session with new container ID and IP.
+
+        Used after pre-registering a session before container creation,
+        to bind the session to the real container ID once known.
+
+        Requires launcher secret authentication.
+
+        Args:
+            session_token: Token to update
+            container_id: New container ID
+            container_ip: New container IP address
+
+        Returns:
+            True if session was updated
+
+        Raises:
+            GatewayError: On update failure
+        """
+        result = self._make_request(
+            "/api/v1/session/update",
+            method="POST",
+            data={
+                "session_token": session_token,
+                "container_id": container_id,
+                "container_ip": container_ip,
+            },
+            use_launcher_auth=True,
+        )
+
+        if not result.get("success"):
+            raise GatewayError(
+                result.get("message", "Session update failed")
+            )
+
+        logger.info(
+            "Session updated",
+            container_id=container_id[:12],
+            container_ip=container_ip,
+        )
+
+        return True
+
     def delete_session(self, session_token: str) -> bool:
         """Delete a session.
 

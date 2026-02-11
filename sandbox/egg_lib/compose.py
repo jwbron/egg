@@ -148,6 +148,8 @@ def _generate_env_file(compose_file: Path) -> bool:
             lines.append(f"{key}={value}")
 
     env_file.write_text("\n".join(lines) + "\n")
+    # Restrict file permissions to owner only (contains secrets)
+    env_file.chmod(0o600)
     return True
 
 

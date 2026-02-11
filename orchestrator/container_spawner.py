@@ -169,9 +169,10 @@ class ContainerSpawner:
             volumes.update(extra_volumes)
 
         session_info = None
+        container = None
 
         try:
-            # Build base environment first (without session token if gateway fails)
+            # Build base environment first
             env = {
                 "EGG_ISSUE_NUMBER": str(issue_number),
                 "EGG_REPO_PATH": repo_path,
@@ -182,9 +183,46 @@ class ContainerSpawner:
             if extra_env:
                 env.update(extra_env)
 
-            # Create the container with base environment
-            # We create first, then register with gateway using the real container ID
-            # This avoids the race condition of creating, deleting, and recreating
+            # Pre-register session with gateway before creating container
+            # We use the container name as a temporary identifier, then update
+            # with the real container ID after creation
+            try:
+                # Use container name as placeholder for pre-registration
+                # The gateway will update the binding when we call update_session
+                session_info = self.gateway.register_session(
+                    container_id=f"pending:{container_name}",
+                    container_ip=EGG_CONTAINER_IP,  # Placeholder IP
+                    mode=mode,
+                )
+
+                # Get environment with session token and proxy config
+                gateway_env = self.gateway.get_container_env(
+                    session_token=session_info.session_token,
+                    issue_number=issue_number,
+                    repo_path=repo_path,
+                    agent_role=agent_role.value,
+                    mode=mode,
+                )
+
+                # Add gateway environment to container env BEFORE creation
+                env.update(gateway_env)
+
+                logger.info(
+                    "Pre-registered gateway session",
+                    container_name=container_name,
+                    session_token=session_info.session_token[:12] + "...",
+                )
+
+            except GatewayError as e:
+                logger.warning(
+                    "Failed to pre-register gateway session",
+                    container_name=container_name,
+                    error=str(e),
+                )
+                # Continue without session - container can still run
+                # but won't have gateway access
+
+            # Create the container with full environment including gateway config
             container = self.docker.create_container(
                 name=container_name,
                 image=image or self.DEFAULT_SANDBOX_IMAGE,
@@ -201,40 +239,26 @@ class ContainerSpawner:
                 role=agent_role.value,
             )
 
-            # Get container IP for gateway registration
-            container_ip = self._get_container_ip(container.container_id)
-
-            # Register session with gateway using real container ID
-            try:
-                session_info = self.gateway.register_session(
-                    container_id=container.container_id,
-                    container_ip=container_ip,
-                    mode=mode,
-                )
-
-                # Get environment with session token and proxy config
-                gateway_env = self.gateway.get_container_env(
-                    session_token=session_info.session_token,
-                    issue_number=issue_number,
-                    repo_path=repo_path,
-                    agent_role=agent_role.value,
-                    mode=mode,
-                )
-
-                # Merge gateway env into container env
-                # Note: Docker doesn't allow updating env after creation,
-                # but the session token will be passed separately via the
-                # gateway session binding (IP-based auth)
-                env.update(gateway_env)
-
-            except GatewayError as e:
-                logger.warning(
-                    "Failed to register gateway session",
-                    container_id=container.container_id[:12],
-                    error=str(e),
-                )
-                # Continue without session - container can still run
-                # but won't have gateway access
+            # Update gateway session with real container ID and IP
+            if session_info:
+                try:
+                    container_ip = self._get_container_ip(container.container_id)
+                    self.gateway.update_session(
+                        session_token=session_info.session_token,
+                        container_id=container.container_id,
+                        container_ip=container_ip,
+                    )
+                    logger.info(
+                        "Updated gateway session with container ID",
+                        container_id=container.container_id[:12],
+                    )
+                except GatewayError as e:
+                    logger.warning(
+                        "Failed to update gateway session with container ID",
+                        container_id=container.container_id[:12],
+                        error=str(e),
+                    )
+                    # Session is still valid, just bound to placeholder ID
 
             # Start the container
             container = self.docker.start_container(container.container_id)

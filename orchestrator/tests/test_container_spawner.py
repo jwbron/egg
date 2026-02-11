@@ -78,6 +78,9 @@ def mock_gateway_client():
         "HTTPS_PROXY": "http://172.32.0.2:3129",
     }
 
+    # Default session update behavior
+    mock.update_session.return_value = True
+
     return mock
 
 
@@ -446,6 +449,87 @@ class TestGetContainerIp:
 
         # Should return a valid IP in the range
         assert ip.startswith("172.32.0.")
+
+
+class TestContainerEnvironmentAtCreation:
+    """Tests verifying gateway environment is included at container creation time."""
+
+    def test_spawn_includes_session_token_in_container_env(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Test that session token is passed to create_container, not added after."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+            repo_path="/workspace/repo",
+            mode="public",
+        )
+
+        # Verify the environment passed to create_container includes the session token
+        create_call = mock_docker_client.create_container.call_args
+        container_env = create_call.kwargs.get("environment", {})
+
+        assert "EGG_SESSION_TOKEN" in container_env, (
+            "Session token must be included in container environment at creation time"
+        )
+        assert container_env["EGG_SESSION_TOKEN"] == "test-token-12345"
+
+    def test_spawn_includes_gateway_url_in_container_env(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Test that GATEWAY_URL is passed to create_container."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+            repo_path="/workspace/repo",
+        )
+
+        create_call = mock_docker_client.create_container.call_args
+        container_env = create_call.kwargs.get("environment", {})
+
+        assert "GATEWAY_URL" in container_env, (
+            "Gateway URL must be included in container environment at creation time"
+        )
+
+    def test_spawn_includes_proxy_config_in_container_env(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Test that proxy configuration is passed to create_container."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+            repo_path="/workspace/repo",
+        )
+
+        create_call = mock_docker_client.create_container.call_args
+        container_env = create_call.kwargs.get("environment", {})
+
+        assert "HTTP_PROXY" in container_env, (
+            "HTTP_PROXY must be included in container environment at creation time"
+        )
+        assert "HTTPS_PROXY" in container_env, (
+            "HTTPS_PROXY must be included in container environment at creation time"
+        )
+
+    def test_spawn_updates_session_after_container_creation(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Test that session is updated with real container ID after creation."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+            repo_path="/workspace/repo",
+        )
+
+        # Verify update_session was called with the real container ID
+        mock_gateway_client.update_session.assert_called_once()
+        update_call = mock_gateway_client.update_session.call_args
+        assert update_call.kwargs.get("session_token") == "test-token-12345"
+        assert update_call.kwargs.get("container_id") == "abc123def456"
 
 
 class TestSingletonSpawner:
