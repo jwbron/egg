@@ -284,11 +284,15 @@ prompt=$(truncate_text "$prompt" "$MAX_PROMPT_CHARS")
 random_suffix=$(head -c 16 /dev/urandom | xxd -p | head -c 16)
 delimiter="__EGG_PROMPT_BOUNDARY_${random_suffix}__"
 
+# Use sonnet for documentation - structured writing task doesn't need opus
+model="sonnet"
+
 # Write multiline output
 {
   echo "prompt<<${delimiter}"
   echo "$prompt"
   echo "${delimiter}"
+  echo "model=${model}"
 } >> "${GITHUB_OUTPUT:-/dev/null}"
 
-echo "Documenter agent prompt built (${#prompt} chars)"
+echo "Documenter agent prompt built (${#prompt} chars, model=${model})"

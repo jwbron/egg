@@ -814,14 +814,18 @@ build_prompt() {
   random_suffix=$(head -c 16 /dev/urandom | xxd -p | head -c 16)
   local delimiter="__EGG_PROMPT_BOUNDARY_${random_suffix}__"
 
+  # Use opus for SDLC phases - refine/plan/implement/pr all need full reasoning
+  local model="opus"
+
   # Write multiline output using heredoc delimiter
   {
     echo "prompt<<${delimiter}"
     echo "$prompt"
     echo "${delimiter}"
+    echo "model=${model}"
   } >> "${GITHUB_OUTPUT:-/dev/null}"
 
-  echo "SDLC prompt built for phase: $phase (${#prompt} chars)"
+  echo "SDLC prompt built for phase: $phase (${#prompt} chars, model=${model})"
 }
 
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"

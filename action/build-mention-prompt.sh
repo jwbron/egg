@@ -397,14 +397,18 @@ IMPORTANT: Do not use EnterPlanMode — ExitPlanMode requires user approval whic
   # Truncate overall prompt if needed
   prompt=$(truncate_text "$prompt" "$MAX_PROMPT_CHARS")
 
+  # Use opus for mention responses - needs to understand and respond to requests
+  local model="opus"
+
   # Write multiline output using heredoc delimiter
   {
     echo "prompt<<__EGG_PROMPT_BOUNDARY_7f3a9c__"
     echo "$prompt"
     echo "__EGG_PROMPT_BOUNDARY_7f3a9c__"
+    echo "model=${model}"
   } >> "${GITHUB_OUTPUT:-/dev/null}"
 
-  echo "Prompt built for event: $GITHUB_EVENT_NAME (${#prompt} chars)"
+  echo "Prompt built for event: $GITHUB_EVENT_NAME (${#prompt} chars, model=${model})"
 }
 
 # ---------------------------------------------------------------------------

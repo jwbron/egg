@@ -109,8 +109,9 @@ ${conventions:-Use git commit and git push to push fixes. Use gh pr comment to r
     local prompt_file="${prompt_dir}/autofixer-prompt-${PR_NUMBER}.txt"
     echo "$prompt" > "$prompt_file"
 
-    # Use opus for autofixing (needs reasoning capability)
-    local model="opus"
+    # Use sonnet for autofixing - handles lint/format/type fixes well
+    # Opus would be overkill for these deterministic corrections
+    local model="sonnet"
 
     # Write outputs
     {

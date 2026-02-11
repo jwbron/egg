@@ -63,7 +63,10 @@ use \`gh pr comment\` or reply inline. Sign any comments with: — Authored by e
     local prompt_file="${prompt_dir}/feedback-prompt-${PR_NUMBER}.txt"
     echo "$prompt" > "$prompt_file"
 
-    # Use opus for feedback addressing (needs reasoning capability)
+    # Use opus for feedback addressing - requires reasoning about code correctness,
+    # security implications, and architectural feedback. Unlike autofixing (which
+    # handles deterministic lint/type fixes), feedback may require understanding
+    # nuanced reviewer concerns and making judgment calls.
     local model="opus"
 
     # Write outputs

@@ -153,8 +153,9 @@ Do NOT use \`--body\` with inline content — use \`--body-file\` to avoid shell
     local prompt_file="${RUNNER_TEMP:-/tmp}/review-prompt-${PR_NUMBER}.txt"
     echo "$prompt" > "$prompt_file"
 
-    # Always use opus for reviews
-    local model="opus"
+    # Use sonnet for specialized design reviews - applies well-defined guidelines
+    # from docs/guides/agent-mode-design.md. General code review uses opus.
+    local model="sonnet"
 
     # Write outputs
     {
