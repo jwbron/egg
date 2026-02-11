@@ -1,0 +1,449 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 518,
+    "title": "sdlc pipeline is opening PRs early",
+    "url": "https://github.com/jwbron/egg/issues/518"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Field added with type str | None, persisted to disk",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Phase field is serialized/deserialized correctly",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Method updates phase and persists, returns success/failure",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-1] Endpoint validates phase, updates session",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-2] Only launcher_secret can update phase",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-3-1] Phase available from session via g.session_phase",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-3-2] Returns FilterResult indicating allowed/blocked",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-3] Error matches phase_filter format, audit logged",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-4] Legacy sessions work, warning logged",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-4-1] Phase passed in request body",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-4-2] Phase from request saved to session",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-4-3] Phase from environment passed through",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-5-1] Phase survives save/load cycle",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-5-2] 403 during implement, 200 during pr phase",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-5-3] Legacy sessions without phase can create PRs",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Add Phase Field to Session Manager",
+      "status": "completed",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add phase field to Session dataclass",
+          "status": "completed",
+          "acceptance_criteria": "Field added with type str | None, persisted to disk",
+          "files_affected": [
+            "gateway/session_manager.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Update persistence methods for phase field",
+          "status": "completed",
+          "acceptance_criteria": "Phase field is serialized/deserialized correctly",
+          "files_affected": [
+            "gateway/session_manager.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add update_phase method to SessionManager",
+          "status": "completed",
+          "acceptance_criteria": "Method updates phase and persists, returns success/failure",
+          "files_affected": [
+            "gateway/session_manager.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Create Session Phase Update API Endpoint",
+      "status": "completed",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add PATCH /api/v1/sessions/{token}/phase endpoint",
+          "status": "completed",
+          "acceptance_criteria": "Endpoint validates phase, updates session",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add launcher auth requirement to endpoint",
+          "status": "completed",
+          "acceptance_criteria": "Only launcher_secret can update phase",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Enforce Phase Restrictions in PR Create Endpoint",
+      "status": "completed",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Retrieve session phase in gh_pr_create after auth",
+          "status": "completed",
+          "acceptance_criteria": "Phase available from session via g.session_phase",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Call filter_operation with phase and pr create pattern",
+          "status": "completed",
+          "acceptance_criteria": "Returns FilterResult indicating allowed/blocked",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Return 403 with clear error message when blocked",
+          "status": "completed",
+          "acceptance_criteria": "Error matches phase_filter format, audit logged",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Allow by default when phase is None for backward compat",
+          "status": "completed",
+          "acceptance_criteria": "Legacy sessions work, warning logged",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Pass Phase to Session on Creation",
+      "status": "completed",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add phase parameter to create_session in launcher",
+          "status": "completed",
+          "acceptance_criteria": "Phase passed in request body",
+          "files_affected": [
+            "sandbox/egg_lib/gateway.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Update session_create endpoint to accept phase",
+          "status": "completed",
+          "acceptance_criteria": "Phase from request saved to session",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Pass EGG_PIPELINE_PHASE to session creation",
+          "status": "completed",
+          "acceptance_criteria": "Phase from environment passed through",
+          "files_affected": [
+            "sandbox/egg_lib/runtime.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Add Unit Tests",
+      "status": "completed",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Add test for session phase persistence",
+          "status": "completed",
+          "acceptance_criteria": "Phase survives save/load cycle",
+          "files_affected": [
+            "gateway/tests/test_session_manager.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Add test for phase restriction on PR create",
+          "status": "completed",
+          "acceptance_criteria": "403 during implement, 200 during pr phase",
+          "files_affected": [
+            "gateway/tests/test_gateway.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Add test for backward compatibility",
+          "status": "completed",
+          "acceptance_criteria": "Legacy sessions without phase can create PRs",
+          "files_affected": [
+            "gateway/tests/test_gateway.py"
+          ],
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 2,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-11T03:19:46Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-11T03:27:53Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-11T03:34:16Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-11T03:41:28Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-11T03:56:05Z",
+      "actor": "system",
+      "role": "system",
+      "action": "update",
+      "field_path": "autofix_attempts",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Autofix attempt completed with result: false"
+    }
+  ],
+  "autofix_attempts": 1,
+  "max_autofix_attempts": 3,
+  "phase_configs": {
+    "refine": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "plan": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "implement": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "PR_REVIEW"
+    }
+  },
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "refine_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "plan_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Enforce phase restrictions on PR creation in gateway",
+    "description": "Prevents agents from creating PRs during refine, plan, and implement phases\nby adding phase filtering to the gateway's gh_pr_create endpoint. Sessions\nnow track pipeline phase, and the existing phase-permissions.json rules are\nenforced at the gateway level. Fixes #518."
+  }
+}

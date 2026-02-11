@@ -383,6 +383,7 @@ def _setup_session_repos(
     mode: str,
     mount_args: list[str],
     quiet: bool = False,
+    phase: str | None = None,
 ) -> tuple[str | None, dict[str, Path], list[str]]:
     """Configure repository mounts using session-based visibility filtering.
 
@@ -398,6 +399,7 @@ def _setup_session_repos(
         mode: Repository visibility mode ("private" or "public")
         mount_args: List to append mount arguments to
         quiet: Suppress output
+        phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
 
     Returns:
         Tuple of (session_token, repos_dict, filtered_repos)
@@ -440,6 +442,7 @@ def _setup_session_repos(
         repos=repo_list,
         uid=os.getuid(),
         gid=os.getgid(),
+        phase=phase,
     )
 
     if errors and not quiet:
@@ -585,12 +588,15 @@ def run_claude(repo_mode: str | None = None) -> bool:
             info(f"Pre-allocated IP: {container_ip}")
 
         # Use session-based repo setup with visibility filtering
+        # Pass pipeline phase from environment for phase-based operation filtering
+        pipeline_phase = os.environ.get("EGG_PIPELINE_PHASE")
         session_token, repos, _filtered_repos = _setup_session_repos(
             container_id=container_id,
             container_ip=container_ip,
             mode=repo_mode,
             mount_args=mount_args,
             quiet=quiet,
+            phase=pipeline_phase,
         )
 
         if not session_token:
@@ -846,12 +852,15 @@ def exec_in_new_container(
         info(f"Pre-allocated IP: {container_ip}")
 
         # Use session-based repo setup with visibility filtering
+        # Pass pipeline phase from environment for phase-based operation filtering
+        pipeline_phase = os.environ.get("EGG_PIPELINE_PHASE")
         session_token, repos, _filtered_repos = _setup_session_repos(
             container_id=container_id,
             container_ip=container_ip,
             mode=repo_mode,
             mount_args=mount_args,
             quiet=False,
+            phase=pipeline_phase,
         )
 
         if not session_token:

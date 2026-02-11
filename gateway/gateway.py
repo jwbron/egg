@@ -81,7 +81,11 @@ try:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
-    from .phase_filter import check_file_restrictions
+    from .phase_filter import (
+        OperationType,
+        check_file_restrictions,
+        filter_operation,
+    )
     from .policy import (
         extract_branch_from_refspec,
         extract_repo_from_remote,
@@ -130,7 +134,11 @@ except ImportError:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
-    from phase_filter import check_file_restrictions  # type: ignore[no-redef, import-not-found]
+    from phase_filter import (  # type: ignore[no-redef, import-not-found]
+        OperationType,
+        check_file_restrictions,
+        filter_operation,
+    )
     from policy import (  # type: ignore[no-redef, import-not-found]
         extract_branch_from_refspec,
         extract_repo_from_remote,
@@ -1270,6 +1278,51 @@ def gh_pr_create() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
+    # Get session phase from request context (set by @require_session_auth decorator)
+    session_phase = getattr(g, "session_phase", None)
+
+    # Check phase restrictions (if session has a phase set)
+    if session_phase:
+        try:
+            phase_result = filter_operation(
+                phase=session_phase,
+                operation_type=OperationType.GH,
+                command="pr create",
+            )
+            if not phase_result.allowed:
+                audit_log(
+                    "pr_create_blocked_phase",
+                    "gh_pr_create",
+                    success=False,
+                    details={
+                        "repo": repo,
+                        "phase": session_phase,
+                        "reason": phase_result.blocked_reason,
+                    },
+                )
+                return make_error(
+                    phase_result.message,
+                    status_code=403,
+                    details={
+                        "phase": session_phase,
+                        "blocked_reason": phase_result.blocked_reason,
+                    },
+                )
+        except ValueError as e:
+            # Invalid phase value - log warning and allow (backward compat)
+            logger.warning(
+                "Invalid session phase value",
+                phase=session_phase,
+                error=str(e),
+            )
+    else:
+        # No phase set - allow by default for backward compatibility
+        # Log a warning to track sessions without phase
+        logger.debug(
+            "PR create request from session without phase (backward compat)",
+            repo=repo,
+        )
+
     # Check Private Repo Mode policy (if enabled)
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -2241,6 +2294,7 @@ def session_create() -> tuple[Response, int] | Response:
     repos = data.get("repos", [])
     uid = data.get("uid")
     gid = data.get("gid")
+    phase = data.get("phase")  # Optional SDLC pipeline phase
 
     # Validate required fields
     if not container_id:
@@ -2257,6 +2311,12 @@ def session_create() -> tuple[Response, int] | Response:
         return make_error("Invalid uid: must be a non-negative integer")
     if gid is not None and (not isinstance(gid, int) or gid < 0):
         return make_error("Invalid gid: must be a non-negative integer")
+
+    # Validate phase if provided
+    if phase is not None and phase not in VALID_PIPELINE_PHASES:
+        return make_error(
+            f"Invalid phase: {phase}. Must be one of: {', '.join(sorted(VALID_PIPELINE_PHASES))}"
+        )
 
     # Step 1: Query visibility for all repos
     repo_visibilities = {}
@@ -2353,6 +2413,7 @@ def session_create() -> tuple[Response, int] | Response:
         container_id=container_id,
         container_ip=container_ip,
         mode=mode,
+        phase=phase,
     )
 
     audit_log(
@@ -2363,6 +2424,7 @@ def session_create() -> tuple[Response, int] | Response:
             "container_id": container_id,
             "container_ip": container_ip,
             "mode": mode,
+            "phase": phase,
             "filtered_repos": filtered_repos,
             "worktree_count": len(worktrees),
             "worktree_errors": worktree_errors if worktree_errors else None,
@@ -2519,6 +2581,59 @@ def session_heartbeat(session_token: str) -> tuple[Response, int] | Response:
             "expires_at": result.session.expires_at.isoformat() if result.session else None,
         },
     )
+
+
+# Valid SDLC pipeline phases
+VALID_PIPELINE_PHASES = frozenset({"refine", "plan", "implement", "pr"})
+
+
+@app.route("/api/v1/sessions/<session_token>/phase", methods=["PATCH"])
+@require_launcher_auth
+def session_update_phase(session_token: str) -> tuple[Response, int] | Response:
+    """
+    Update the SDLC pipeline phase for a session.
+
+    This endpoint allows the launcher/workflow to update the phase as
+    the pipeline progresses. Phase restrictions are enforced by the
+    gateway for operations like PR creation.
+
+    Request body:
+        {
+            "phase": "refine"|"plan"|"implement"|"pr"
+        }
+
+    Args:
+        session_token: The session token to update
+
+    Auth: Bearer {launcher_secret}
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    phase = data.get("phase")
+    if not phase:
+        return make_error("Missing phase")
+
+    if phase not in VALID_PIPELINE_PHASES:
+        return make_error(
+            f"Invalid phase: {phase}. Must be one of: {', '.join(sorted(VALID_PIPELINE_PHASES))}"
+        )
+
+    session_manager = get_session_manager()
+    success = session_manager.update_phase(session_token, phase)
+
+    if not success:
+        return make_error("Session not found or expired", status_code=404)
+
+    audit_log(
+        "session_phase_updated",
+        "session_update_phase",
+        success=True,
+        details={"phase": phase},
+    )
+
+    return make_success("Phase updated", {"phase": phase})
 
 
 @app.route("/api/v1/repos/visibility", methods=["GET"])
