@@ -49,6 +49,7 @@ gateway/
 ├── phase_transition.py     # Phase transition validation
 ├── phase_api.py            # Phase API endpoints
 ├── contract_api.py         # Contract API endpoints
+├── checkpoint_handler.py   # Checkpoint capture on successful push
 ├── auth.py                 # Session authentication
 ├── token_refresher.py      # GitHub App token management (bot and optional reviewer)
 ├── anthropic_credentials.py # API key injection for Claude
@@ -114,7 +115,8 @@ shared/
 │   ├── checkpoints.py      # Checkpoint data models
 │   ├── checkpoint_loader.py # Checkpoint storage and retrieval
 │   ├── checkpoint_cli.py   # Checkpoint browsing CLI
-│   └── transcript_extractor.py # API transcript extraction
+│   ├── transcript_extractor.py # API transcript extraction
+│   └── redactor.py         # Sensitive data redaction for checkpoints
 ├── egg_git/                # Git utilities
 └── egg_logging/            # Structured logging
 ```
@@ -161,7 +163,9 @@ tests/
 │   └── egg_contracts/
 │       ├── test_models.py         # Contract model tests including check models
 │       ├── test_phase_defaults.py # Phase default configuration tests
-│       └── test_agent_recovery.py # Agent recovery and circuit breaker tests
+│       ├── test_agent_recovery.py # Agent recovery and circuit breaker tests
+│       ├── test_checkpoints.py    # Checkpoint model tests
+│       └── test_redactor.py       # Redactor tests for sensitive data masking
 └── workflows/                     # Workflow integration tests
     ├── __init__.py
     └── test_hitl_integration.py   # HITL decision format verification
