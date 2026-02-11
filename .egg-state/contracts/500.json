@@ -1,0 +1,489 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 500,
+    "title": "Checkpoints: capture agent session context as versioned data in Git",
+    "url": "https://github.com/jwbron/egg/issues/500"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Schema validates sample checkpoints with all required fields",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Models match JSON schema, unit tests pass",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Loader can read/write checkpoints with temp file + rename pattern",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-1] Extractor parses Claude Code session files and returns structured data",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-2] Tool calls captured with name, parameters, and result summaries",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-3] Redactor removes/masks env vars, tokens, and sensitive patterns",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-4] Token counts and cost estimates captured",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-1] Checkpoint creation triggered on successful git push",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-2] Session metadata from SessionManager included in checkpoint",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-3] Checkpoints pushed to dedicated branch, branch created if not exists",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-4] Push succeeds even if checkpoint capture fails",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-4-1] Lists checkpoints by branch/issue with metadata",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-4-2] Displays full checkpoint details for a commit",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-4-3] Filters checkpoints by issue number",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-5-1] Task can include checkpoint_id alongside commit SHA",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-5-2] AgentExecutionModel includes checkpoint_ids for each commit",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-5-3] Audit entries for commit actions include checkpoint reference",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Schema and Models",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create checkpoint JSON schema",
+          "status": "pending",
+          "acceptance_criteria": "Schema validates sample checkpoints with all required fields",
+          "files_affected": [
+            ".egg/schemas/checkpoint.schema.json"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Create Pydantic models for checkpoint data",
+          "status": "pending",
+          "acceptance_criteria": "Models match JSON schema, unit tests pass",
+          "files_affected": [
+            "shared/egg_contracts/checkpoints.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add checkpoint loader with atomic write support",
+          "status": "pending",
+          "acceptance_criteria": "Loader can read/write checkpoints with temp file + rename pattern",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_loader.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Transcript Capture",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create transcript extractor for Claude Code JSONL format",
+          "status": "pending",
+          "acceptance_criteria": "Extractor parses Claude Code session files and returns structured data",
+          "files_affected": [
+            "shared/egg_contracts/transcript_extractor.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Implement tool call extraction with parameters and results",
+          "status": "pending",
+          "acceptance_criteria": "Tool calls captured with name, parameters, and result summaries",
+          "files_affected": [
+            "shared/egg_contracts/transcript_extractor.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add sensitive data redaction",
+          "status": "pending",
+          "acceptance_criteria": "Redactor removes/masks env vars, tokens, and sensitive patterns",
+          "files_affected": [
+            "shared/egg_contracts/redactor.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Implement token usage extraction from session data",
+          "status": "pending",
+          "acceptance_criteria": "Token counts and cost estimates captured",
+          "files_affected": [
+            "shared/egg_contracts/transcript_extractor.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Gateway Integration",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add checkpoint capture hook to gateway push endpoint",
+          "status": "pending",
+          "acceptance_criteria": "Checkpoint creation triggered on successful git push",
+          "files_affected": [
+            "gateway/gateway.py",
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Integrate session context into checkpoint",
+          "status": "pending",
+          "acceptance_criteria": "Session metadata from SessionManager included in checkpoint",
+          "files_affected": [
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add checkpoint branch management",
+          "status": "pending",
+          "acceptance_criteria": "Checkpoints pushed to dedicated branch, branch created if not exists",
+          "files_affected": [
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Implement graceful degradation if checkpoint fails",
+          "status": "pending",
+          "acceptance_criteria": "Push succeeds even if checkpoint capture fails",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "CLI and Retrieval",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add egg-checkpoint list command",
+          "status": "pending",
+          "acceptance_criteria": "Lists checkpoints by branch/issue with metadata",
+          "files_affected": [
+            "bin/egg-checkpoint",
+            "shared/egg_contracts/checkpoint_cli.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Add egg-checkpoint show command",
+          "status": "pending",
+          "acceptance_criteria": "Displays full checkpoint details for a commit",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_cli.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add egg-checkpoint browse --issue command",
+          "status": "pending",
+          "acceptance_criteria": "Filters checkpoints by issue number",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_cli.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Contract Integration",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Add checkpoint reference to task commit field",
+          "status": "pending",
+          "acceptance_criteria": "Task can include checkpoint_id alongside commit SHA",
+          "files_affected": [
+            ".egg/schemas/contract.schema.json",
+            "shared/egg_contracts/models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Update agent execution model to include checkpoint references",
+          "status": "pending",
+          "acceptance_criteria": "AgentExecutionModel includes checkpoint_ids for each commit",
+          "files_affected": [
+            "shared/egg_contracts/models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Add checkpoint link to audit log entries",
+          "status": "pending",
+          "acceptance_criteria": "Audit entries for commit actions include checkpoint reference",
+          "files_affected": [
+            "shared/egg_contracts/audit.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 2,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-10T22:33:10Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-10T23:02:48Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-10T23:11:21Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-10T23:39:11Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-11T00:00:49Z",
+      "actor": "system",
+      "role": "system",
+      "action": "update",
+      "field_path": "autofix_attempts",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Autofix attempt completed with result: false"
+    }
+  ],
+  "phase_configs": {
+    "refine": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "plan": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "implement": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "PR_REVIEW"
+    }
+  },
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "refine_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "plan_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Add Checkpoints: capture agent session context in Git",
+    "description": "Implements the Checkpoints feature for capturing agent session context as\nversioned data in Git. When agents commit code, a checkpoint captures the\nfull session (transcript, tool calls, token usage) alongside the commit.\n\nThis enables traceability, faster reviews, and better handoffs by preserving\nthe reasoning behind each change. Checkpoints are stored in a dedicated\nbranch (egg/checkpoints/v1) and linked to commits and SDLC contracts.\n\nSee issue #500 for background and design decisions."
+  },
+  "autofix_attempts": 1
+}

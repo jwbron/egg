@@ -96,6 +96,7 @@ try:
         validate_session_for_request,
     )
     from .worktree_manager import WorktreeManager, startup_cleanup
+    from .checkpoint_handler import capture_and_store_checkpoint
 except ImportError:
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from git_client import (  # type: ignore[no-redef, import-not-found]
@@ -142,6 +143,9 @@ except ImportError:
     from worktree_manager import (  # type: ignore[no-redef, import-not-found]
         WorktreeManager,
         startup_cleanup,
+    )
+    from checkpoint_handler import (  # type: ignore[no-redef, import-not-found]
+        capture_and_store_checkpoint,
     )
 
 # Import repo_config for user mode support
@@ -675,6 +679,41 @@ def git_push() -> tuple[Response, int] | Response:
                     "auth_mode": auth_mode,
                 },
             )
+
+            # Capture checkpoint after successful push (async, non-blocking)
+            # Get the HEAD commit SHA from the worktree
+            try:
+                head_result = subprocess.run(
+                    git_cmd("rev-parse", "HEAD"),
+                    cwd=exec_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                commit_sha = head_result.stdout.strip() if head_result.returncode == 0 else None
+
+                if commit_sha:
+                    # Get session from request context
+                    session = getattr(g, "session", None)
+
+                    # Capture and store checkpoint asynchronously
+                    capture_and_store_checkpoint(
+                        repo_path=exec_path,
+                        commit_sha=commit_sha,
+                        branch=branch,
+                        session=session,
+                        github_token=token_str,
+                        async_store=True,  # Don't block push response
+                    )
+            except Exception as checkpoint_err:
+                # Checkpoint failure should never block push success
+                logger.warning(
+                    "Checkpoint capture failed (non-blocking)",
+                    error=str(checkpoint_err),
+                    branch=branch,
+                )
+
             return make_success(
                 "Push successful",
                 {
