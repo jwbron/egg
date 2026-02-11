@@ -4,6 +4,18 @@ This directory contains slash command documentation for Claude Code CLI in the s
 
 ## Available Commands
 
+### /sdlc
+Initialize and start an SDLC pipeline for an issue.
+
+**Usage**: `/sdlc <issue_number> [--repo owner/repo]`
+
+**What it does**:
+- Creates a new pipeline in the egg-orchestrator
+- Starts automated multi-agent orchestration
+- Shows how to monitor progress
+
+**File**: `sdlc.md`
+
 ### /show-metrics
 Generate a monitoring report showing recent agent activity.
 
@@ -71,4 +83,4 @@ Claude Code will follow these instructions when users invoke the slash command s
 
 ---
 
-**Last Updated**: 2026-02-05
+**Last Updated**: 2026-02-11

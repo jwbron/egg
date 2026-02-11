@@ -80,6 +80,49 @@ services:
     security_opt:
       - label=disable
 
+  orchestrator:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    image: ${EGG_ORCHESTRATOR_IMAGE:-egg-orchestrator:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-egg}-orchestrator
+    networks:
+      egg-isolated:
+        ipv4_address: 172.32.0.3
+      egg-external:
+        ipv4_address: 172.33.0.3
+    ports:
+      # Orchestrator API - used by sandbox for pipeline state management
+      - "${ORCHESTRATOR_API_PORT:-9849}:9849"
+    environment:
+      # Core configuration
+      - ORCHESTRATOR_PORT=9849
+      - EGG_REPO_PATH=/home/egg/repos
+      # Gateway connection (for session coordination)
+      - GATEWAY_URL=http://172.32.0.2:9848
+      # Docker socket for container management
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      # Host info for container spawning
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
+    volumes:
+      # Repositories directory (RW for state persistence in git)
+      - ${EGG_REPOS_DIR:-./repos}:/home/egg/repos
+      # State directory (shared with gateway)
+      - state:/home/egg/.egg-state
+      # Docker socket for container management
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9849/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_healthy
+
   # Sandbox service template - not started by compose directly
   # Use egg --compose or bin/egg-deploy to start sandboxes with proper config
   # This is here as documentation and for potential future use
