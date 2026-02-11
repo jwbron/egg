@@ -308,11 +308,28 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
+      # Check if reviewer bot credentials are available
+      # NOTE: Secrets cannot be referenced directly in `if` expressions — doing so
+      # causes GitHub Actions to reject the workflow file before any jobs run.
+      # Instead, pass secrets through env vars and check in a shell step.
+      - name: Check reviewer credentials
+        id: check-reviewer
+        run: |
+          if [[ -n "$REVIEWER_APP_ID" && -n "$REVIEWER_APP_PRIVATE_KEY" && -n "$REVIEWER_APP_INSTALLATION_ID" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          REVIEWER_APP_ID: ${{ secrets.REVIEWER_APP_ID }}
+          REVIEWER_APP_PRIVATE_KEY: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
+          REVIEWER_APP_INSTALLATION_ID: ${{ secrets.REVIEWER_APP_INSTALLATION_ID }}
+
       # Generate separate reviewer token if reviewer app credentials are provided
       # This allows reviews to use approve/request-changes since reviewer is not the PR author
       - name: Generate GitHub App token for reviewer
         id: reviewer-token
-        if: ${{ secrets.REVIEWER_APP_ID != '' && secrets.REVIEWER_APP_PRIVATE_KEY != '' && secrets.REVIEWER_APP_INSTALLATION_ID != '' }}
+        if: steps.check-reviewer.outputs.available == 'true'
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.REVIEWER_APP_ID }}
