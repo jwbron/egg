@@ -311,9 +311,9 @@ The SDLC pipeline automatically merges the latest main branch into the issue bra
    - Aborts the conflicted merge
    - Looks up the PR number for the branch
    - Triggers the `on-merge-conflict.yml` workflow
-   - Waits for conflict resolution to complete (with timeout)
+   - Waits for conflict resolution to complete
    - Pulls the resolved changes and continues
-   - Fails if no PR exists or conflict resolution fails
+   - Fails if no PR exists (required for `workflow_dispatch` targeting) or conflict resolution fails
 
 This ensures agents always work with the latest codebase and conflicts are resolved before work begins, not at PR finalization time.
 

@@ -275,7 +275,7 @@ Resolves merge conflicts on PRs via rebase. Can be triggered automatically by th
 
 ### Trigger Modes
 
-1. **SDLC pipeline integration** — When the SDLC pipeline merges main into an issue branch and encounters conflicts, it triggers this workflow and waits synchronously for resolution. If successful, the pipeline pulls the resolved changes and continues. If resolution fails, the pipeline exits with an error.
+1. **SDLC pipeline integration** — When the SDLC pipeline attempts to merge `origin/main` into an issue branch and encounters conflicts, it triggers this workflow via `workflow_dispatch` with the PR number and waits synchronously for resolution. If successful, the pipeline pulls the resolved changes and continues. If resolution fails, the pipeline exits with an error.
 
 2. **Push-triggered detection** — When code is pushed to main, waits 60 seconds for GitHub to recompute mergeable state, then queries all open PRs to find conflicts. Concurrent pushes are deduplicated via a concurrency group with cancel-in-progress.
 
