@@ -58,6 +58,7 @@ MAX_BRANCH_PR_CACHE_SIZE = 200
 # Cached values (loaded lazily on first access)
 _bot_identities_cache: frozenset[str] | None = None
 _bot_branch_prefixes_cache: tuple[str, ...] | None = None
+_reviewer_identities_cache: frozenset[str] | None = None
 
 
 def _get_bot_name() -> str:
@@ -85,9 +86,10 @@ def _reset_bot_config_caches() -> None:
     This allows tests to verify behavior with different configurations
     without restarting the process.
     """
-    global _bot_identities_cache, _bot_branch_prefixes_cache
+    global _bot_identities_cache, _bot_branch_prefixes_cache, _reviewer_identities_cache
     _bot_identities_cache = None
     _bot_branch_prefixes_cache = None
+    _reviewer_identities_cache = None
 
 
 def get_bot_identities() -> frozenset[str]:
@@ -143,6 +145,52 @@ def get_bot_branch_prefixes() -> tuple[str, ...]:
         )
     _bot_branch_prefixes_cache = (f"{prefix}-", f"{prefix}/")
     return _bot_branch_prefixes_cache
+
+
+def get_reviewer_identities() -> frozenset[str]:
+    """Get reviewer bot identities, loading from environment on first access.
+
+    The reviewer bot is a separate GitHub App used for posting code reviews.
+    This allows reviews to use the full GitHub Reviews API (approve/request-changes)
+    since the reviewer is not the same account as the PR author.
+
+    The bot name is used to generate identity variants that GitHub may use:
+    - "name" (plain username)
+    - "name[bot]" (GitHub App bot suffix)
+    - "app/name" (GitHub App author format in API)
+    - "apps/name" (alternate app format)
+
+    Returns:
+        Empty frozenset if GATEWAY_REVIEWER_BOT_NAME is not configured (reviewer disabled).
+    """
+    global _reviewer_identities_cache
+    if _reviewer_identities_cache is not None:
+        return _reviewer_identities_cache
+
+    reviewer_name = os.environ.get("GATEWAY_REVIEWER_BOT_NAME", "").strip().lower()
+    if not reviewer_name:
+        # Reviewer is optional - return empty set if not configured
+        _reviewer_identities_cache = frozenset()
+        return _reviewer_identities_cache
+
+    _reviewer_identities_cache = frozenset(
+        {
+            reviewer_name,
+            f"{reviewer_name}[bot]",
+            f"app/{reviewer_name}",
+            f"apps/{reviewer_name}",
+        }
+    )
+    return _reviewer_identities_cache
+
+
+def is_reviewer_configured() -> bool:
+    """Check if a separate reviewer bot is configured.
+
+    Returns:
+        True if GATEWAY_REVIEWER_BOT_NAME is set, False otherwise.
+    """
+    return bool(os.environ.get("GATEWAY_REVIEWER_BOT_NAME", "").strip())
 
 
 # Trusted GitHub users whose branches egg can push to
@@ -233,6 +281,22 @@ class PolicyEngine:
             login = author
 
         return login.lower() in get_bot_identities()
+
+    def _is_reviewer_author(self, author: str | dict[str, Any]) -> bool:
+        """Check if author is a reviewer bot identity.
+
+        The reviewer bot is a separate GitHub App used for posting code reviews.
+        """
+        reviewer_identities = get_reviewer_identities()
+        if not reviewer_identities:
+            return False
+
+        if isinstance(author, dict):
+            login = str(author.get("login", ""))
+        else:
+            login = author
+
+        return login.lower() in reviewer_identities
 
     def _is_bot_branch(self, branch: str) -> bool:
         """Check if branch name indicates bot ownership."""
@@ -455,13 +519,34 @@ class PolicyEngine:
         2. Branch has an open PR authored by egg, OR
         3. Branch has an open PR authored by the configured user
 
+        In reviewer mode: ALWAYS blocked - reviewer can only post reviews, not push.
+
         Protected branches (main, master) are always blocked regardless of mode.
 
         Args:
             repo: Repository in "owner/repo" format
             branch: Branch name
-            auth_mode: "bot" (default) or "user"
+            auth_mode: "bot" (default), "user", or "reviewer"
         """
+        # SAFETY: Reviewer mode is NEVER allowed to push
+        if auth_mode == "reviewer":
+            logger.info(
+                "Push blocked in reviewer mode",
+                repo=repo,
+                branch=branch,
+            )
+            return PolicyResult(
+                allowed=False,
+                reason="Push operations are not allowed in reviewer mode. "
+                "The reviewer account can only post reviews.",
+                details={
+                    "repo": repo,
+                    "branch": branch,
+                    "auth_mode": "reviewer",
+                    "hint": "Use the main bot account to push code.",
+                },
+            )
+
         # SAFETY: Always block pushes to protected branches
         protected_branches = ("main", "master")
         if branch in protected_branches:
@@ -721,14 +806,31 @@ class PolicyEngine:
 
         In bot mode: Always allowed - egg can create PRs.
         In user mode: Blocked - user must create PRs manually via GitHub UI.
+        In reviewer mode: Blocked - reviewer can only post reviews, not create PRs.
 
         This ensures the human maintains control over what PRs are opened in their name.
         egg can push branches in user mode, but the human decides which become PRs.
 
         Args:
             repo: Repository in "owner/repo" format
-            auth_mode: "bot" (default) or "user"
+            auth_mode: "bot" (default), "user", or "reviewer"
         """
+        if auth_mode == "reviewer":
+            logger.info(
+                "PR creation blocked in reviewer mode",
+                repo=repo,
+            )
+            return PolicyResult(
+                allowed=False,
+                reason="PR creation is not allowed in reviewer mode. "
+                "The reviewer account can only post reviews.",
+                details={
+                    "repo": repo,
+                    "auth_mode": "reviewer",
+                    "hint": "Use the main bot account to create PRs.",
+                },
+            )
+
         if auth_mode == "user":
             configured_user = self._get_configured_user()
             logger.info(
@@ -778,6 +880,46 @@ class PolicyEngine:
                 "pr_number": pr_number,
                 "action": f"Use GitHub web UI or 'gh pr merge' from a non-{_get_bot_name()} environment",
             },
+        )
+
+    def check_pr_review_allowed(self, repo: str, pr_number: int, auth_mode: str = "bot") -> PolicyResult:
+        """
+        Check if posting a PR review is allowed.
+
+        In bot mode: Allowed on any PR (same account can comment, but not approve/request-changes own PRs).
+        In user mode: Allowed on any PR.
+        In reviewer mode: Allowed on any PR - this is the primary purpose of the reviewer account.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            pr_number: PR number
+            auth_mode: "bot" (default), "user", or "reviewer"
+        """
+        pr_info = self._get_pr_info(repo, pr_number)
+
+        if not pr_info:
+            logger.warning(
+                "PR not found or inaccessible for review",
+                repo=repo,
+                pr_number=pr_number,
+            )
+            return PolicyResult(
+                allowed=False,
+                reason=f"PR #{pr_number} not found or inaccessible",
+                details={"repo": repo, "pr_number": pr_number},
+            )
+
+        logger.debug(
+            "PR review allowed",
+            repo=repo,
+            pr_number=pr_number,
+            author=pr_info.author,
+            auth_mode=auth_mode,
+        )
+        return PolicyResult(
+            allowed=True,
+            reason=f"Reviews are allowed on PR #{pr_number}",
+            details={"pr_number": pr_number, "author": pr_info.author, "auth_mode": auth_mode},
         )
 
 
