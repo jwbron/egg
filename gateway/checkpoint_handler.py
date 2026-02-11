@@ -44,7 +44,10 @@ from egg_contracts.transcript_extractor import (
 )
 from egg_logging import get_logger
 
-from .session_manager import Session
+try:
+    from .session_manager import Session
+except ImportError:
+    from session_manager import Session  # type: ignore[no-redef, import-not-found]
 
 logger = get_logger("gateway.checkpoint-handler")
 
@@ -281,9 +284,7 @@ class CheckpointHandler:
             if msg.content:
                 redacted_content = self._redactor.redact_text(msg.content)
 
-            redacted_messages.append(
-                msg.model_copy(update={"content": redacted_content})
-            )
+            redacted_messages.append(msg.model_copy(update={"content": redacted_content}))
 
         return transcript.model_copy(update={"messages": redacted_messages})
 
@@ -383,9 +384,7 @@ class CheckpointHandler:
 
                 try:
                     # Get checkpoint path
-                    checkpoint_path = get_checkpoint_path(
-                        temp_path / "checkpoints", checkpoint.id
-                    )
+                    checkpoint_path = get_checkpoint_path(temp_path / "checkpoints", checkpoint.id)
 
                     # Save checkpoint
                     save_checkpoint(checkpoint, checkpoint_path)
