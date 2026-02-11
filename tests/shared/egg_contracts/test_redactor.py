@@ -228,6 +228,43 @@ class TestCommandRedaction:
             result = redactor.redact_command(cmd)
             assert result == cmd
 
+    def test_mysql_password_flag_redacted(self):
+        """Test that MySQL -p password flag is redacted."""
+        redactor = Redactor()
+
+        result = redactor.redact_command("mysql -p secret123 -u admin")
+        assert "secret123" not in result
+        assert REDACTED_PLACEHOLDER in result
+
+        result = redactor.redact_command("mysqldump -p mysecretpwd -u root mydb")
+        assert "mysecretpwd" not in result
+        assert REDACTED_PLACEHOLDER in result
+
+    def test_psql_port_flag_preserved(self):
+        """Test that PostgreSQL -p port flag is NOT redacted."""
+        redactor = Redactor()
+
+        result = redactor.redact_command("psql -p 5432 -h localhost")
+        assert "5432" in result  # Port should be preserved
+
+        result = redactor.redact_command("pg_dump -p 5433 -U postgres mydb")
+        assert "5433" in result  # Port should be preserved
+
+    def test_docker_port_flag_preserved(self):
+        """Test that Docker -p port flag is NOT redacted."""
+        redactor = Redactor()
+
+        result = redactor.redact_command("docker run -p 8080:80 nginx")
+        assert "8080:80" in result  # Port mapping should be preserved
+
+    def test_rsync_preserve_permissions_flag_preserved(self):
+        """Test that rsync -p (preserve permissions) is NOT redacted."""
+        redactor = Redactor()
+
+        result = redactor.redact_command("rsync -p /source /dest")
+        assert "/source" in result
+        assert "/dest" in result
+
 
 class TestRedactorConfig:
     """Tests for redactor configuration."""
