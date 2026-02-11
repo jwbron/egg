@@ -167,6 +167,99 @@ def _has_docker_compose() -> bool:
         return False
 
 
+def _cleanup_stale_resources() -> None:
+    """Remove stale Docker containers and networks that block Compose.
+
+    When switching from ``docker run`` to ``docker compose``, pre-existing
+    containers (egg-gateway, egg-orchestrator) and networks (egg-isolated,
+    egg-external) may conflict because they lack Compose labels.  This
+    function detects and removes them so ``docker compose up`` succeeds.
+    """
+    from egg_config.constants import (
+        EGG_EXTERNAL_NETWORK,
+        EGG_ISOLATED_NETWORK,
+        GATEWAY_CONTAINER_NAME,
+        ORCHESTRATOR_CONTAINER_NAME,
+    )
+
+    # Remove stale containers first (they may hold references to the networks)
+    for name in (GATEWAY_CONTAINER_NAME, ORCHESTRATOR_CONTAINER_NAME):
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "--format", "{{.Id}}", name],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0:
+                info(f"Removing stale container {name}...")
+                subprocess.run(
+                    ["docker", "rm", "-f", name],
+                    capture_output=True,
+                    check=False,
+                )
+        except Exception:
+            pass
+
+    # Remove stale networks that weren't created by Compose
+    for network in (EGG_ISOLATED_NETWORK, EGG_EXTERNAL_NETWORK):
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "network",
+                    "inspect",
+                    "--format",
+                    '{{index .Labels "com.docker.compose.network"}}',
+                    network,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                # Network doesn't exist — nothing to clean up
+                continue
+
+            compose_label = result.stdout.strip()
+            if compose_label:
+                # Network was created by Compose — leave it alone
+                continue
+
+            info(f"Removing stale network {network}...")
+            # Disconnect any remaining containers before removing
+            inspect = subprocess.run(
+                [
+                    "docker",
+                    "network",
+                    "inspect",
+                    "--format",
+                    "{{range .Containers}}{{.Name}} {{end}}",
+                    network,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if inspect.returncode == 0:
+                for container in inspect.stdout.split():
+                    container = container.strip()
+                    if container:
+                        subprocess.run(
+                            ["docker", "network", "disconnect", "-f", network, container],
+                            capture_output=True,
+                            check=False,
+                        )
+
+            subprocess.run(
+                ["docker", "network", "rm", network],
+                capture_output=True,
+                check=False,
+            )
+        except Exception:
+            pass
+
+
 def compose_up(compose_file: Path, build: bool = False) -> bool:
     """Start the egg stack using Docker Compose.
 
@@ -307,6 +400,9 @@ def ensure_compose_services(build: bool = False) -> bool:
         error("Failed to generate .env for Docker Compose")
         return False
 
+    # Clean up stale containers/networks from previous non-Compose runs
+    _cleanup_stale_resources()
+
     # Start services
     if not compose_up(compose_file, build=build):
         return False
@@ -418,6 +514,9 @@ def run_compose_mode(down: bool = False, build: bool = False) -> int:
         if compose_down(compose_file):
             return 0
         return 1
+
+    # Clean up stale containers/networks from previous non-Compose runs
+    _cleanup_stale_resources()
 
     # Generate .env and start
     if not _generate_env_file(compose_file):
