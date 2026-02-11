@@ -19,12 +19,49 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
-# Cost constants - Opus 4.5 pricing (USD per million tokens)
-# Note: These should be made configurable in a future iteration
-DEFAULT_INPUT_COST_PER_MTOK = Decimal("15.00")
-DEFAULT_OUTPUT_COST_PER_MTOK = Decimal("75.00")
-DEFAULT_CACHE_READ_COST_PER_MTOK = Decimal("1.50")  # 10% of input cost
-DEFAULT_CACHE_WRITE_COST_PER_MTOK = Decimal("18.75")  # 125% of input cost
+# Per-model pricing (USD per million tokens)
+# Cache ratios per Anthropic docs: read = 0.1x input, write (5-min) = 1.25x input
+MODEL_PRICING: dict[str, dict[str, Decimal]] = {
+    "opus": {
+        "input": Decimal("5.00"),
+        "output": Decimal("25.00"),
+        "cache_read": Decimal("0.50"),
+        "cache_write": Decimal("6.25"),
+    },
+    "sonnet": {
+        "input": Decimal("3.00"),
+        "output": Decimal("15.00"),
+        "cache_read": Decimal("0.30"),
+        "cache_write": Decimal("3.75"),
+    },
+    "haiku": {
+        "input": Decimal("1.00"),
+        "output": Decimal("5.00"),
+        "cache_read": Decimal("0.10"),
+        "cache_write": Decimal("1.25"),
+    },
+}
+
+# Default to opus pricing (most common model in the system)
+DEFAULT_INPUT_COST_PER_MTOK = MODEL_PRICING["opus"]["input"]
+DEFAULT_OUTPUT_COST_PER_MTOK = MODEL_PRICING["opus"]["output"]
+DEFAULT_CACHE_READ_COST_PER_MTOK = MODEL_PRICING["opus"]["cache_read"]
+DEFAULT_CACHE_WRITE_COST_PER_MTOK = MODEL_PRICING["opus"]["cache_write"]
+
+
+def get_model_pricing(model: str | None) -> dict[str, Decimal]:
+    """Look up pricing for a model alias or full model ID.
+
+    Resolves full model IDs (e.g. 'claude-opus-4-5-20251101') to their
+    base alias ('opus'). Falls back to opus pricing for unknown models.
+    """
+    if model is None:
+        return MODEL_PRICING["opus"]
+    model_lower = model.lower()
+    for alias in MODEL_PRICING:
+        if alias in model_lower:
+            return MODEL_PRICING[alias]
+    return MODEL_PRICING["opus"]
 
 
 class TokenCounts(BaseModel):
@@ -54,19 +91,33 @@ class TokenCounts(BaseModel):
         output_cost_per_mtok: Decimal = DEFAULT_OUTPUT_COST_PER_MTOK,
         cache_read_cost_per_mtok: Decimal = DEFAULT_CACHE_READ_COST_PER_MTOK,
         cache_write_cost_per_mtok: Decimal = DEFAULT_CACHE_WRITE_COST_PER_MTOK,
+        *,
+        model: str | None = None,
     ) -> Decimal:
         """
         Calculate estimated cost in USD.
+
+        If ``model`` is provided, its pricing overrides the individual
+        cost parameters. Otherwise the explicit parameters (defaulting
+        to opus pricing) are used.
 
         Args:
             input_cost_per_mtok: Cost per million input tokens
             output_cost_per_mtok: Cost per million output tokens
             cache_read_cost_per_mtok: Cost per million cache read tokens
             cache_write_cost_per_mtok: Cost per million cache write tokens
+            model: Optional model name/alias to look up pricing for
 
         Returns:
             Estimated cost in USD as Decimal
         """
+        if model is not None:
+            pricing = get_model_pricing(model)
+            input_cost_per_mtok = pricing["input"]
+            output_cost_per_mtok = pricing["output"]
+            cache_read_cost_per_mtok = pricing["cache_read"]
+            cache_write_cost_per_mtok = pricing["cache_write"]
+
         mtok = Decimal("1000000")
         # Regular input (non-cached)
         regular_input = self.input_tokens - self.cache_read_tokens
@@ -108,9 +159,9 @@ class UsageAggregate(BaseModel):
     )
     last_updated: datetime = Field(..., description="When this aggregate was last updated")
 
-    def update_cost(self) -> None:
+    def update_cost(self, model: str | None = None) -> None:
         """Recalculate estimated cost from token counts."""
-        cost = self.tokens.calculate_cost()
+        cost = self.tokens.calculate_cost(model=model)
         self.estimated_cost_usd = float(cost)
 
 
@@ -127,6 +178,11 @@ class SessionUsage(UsageAggregate):
         default=None, description="Agent role (coder, tester, etc.)"
     )
     model: str | None = Field(default=None, description="Model used")
+
+    def update_cost(self, model: str | None = None) -> None:
+        """Recalculate estimated cost using this session's model."""
+        cost = self.tokens.calculate_cost(model=model or self.model)
+        self.estimated_cost_usd = float(cost)
     issue_number: int | None = Field(default=None, ge=1, description="Associated issue number")
     pr_number: int | None = Field(default=None, ge=1, description="Associated PR number")
     checkpoints: list[CheckpointReference] = Field(
