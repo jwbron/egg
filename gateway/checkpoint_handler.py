@@ -2,13 +2,50 @@
 Checkpoint handler for the gateway sidecar.
 
 Captures agent session context on successful git push operations and stores
-checkpoints in a dedicated branch (egg/checkpoints/v1).
+checkpoints in a dedicated branch (egg/checkpoints/v1). Each commit gets
+exactly one checkpoint, enabling precise traceability between code changes
+and agent sessions.
+
+Architecture Overview:
+    ┌──────────────────┐     ┌───────────────────────┐
+    │   gateway.py     │────>│  checkpoint_handler   │
+    │   (push handler) │     │  (this module)        │
+    └──────────────────┘     └───────────────────────┘
+                                        │
+            ┌───────────────────────────┼────────────────────────┐
+            │                           │                        │
+            v                           v                        v
+    ┌───────────────────┐   ┌───────────────────┐   ┌───────────────────┐
+    │ transcript_buffer │   │  transcript_      │   │ checkpoint_loader │
+    │ (API capture)     │   │  extractor        │   │ (storage)         │
+    └───────────────────┘   └───────────────────┘   └───────────────────┘
+
+Checkpoint Flow:
+    1. gateway.py receives git push, forwards to GitHub
+    2. On success, calls capture_and_store_checkpoints_for_push()
+    3. Enumerates commits in push via get_commits_in_push()
+    4. For each commit, captures checkpoint with transcript from proxy buffer
+    5. Stores checkpoint in egg/checkpoints/v1 branch (async)
+
+Transcript Source:
+    Transcripts are extracted from the API proxy buffer at
+    /tmp/egg-transcripts/{container_id}.jsonl. This file is written by
+    transcript_buffer.py when proxying Anthropic API calls. Using the
+    API proxy layer provides a stable format independent of Claude Code
+    internals.
+
+    The buffer captures:
+    - API request/response pairs (messages, tools, content)
+    - Token usage per request
+    - Tool calls and their results
+    - Streaming and non-streaming responses
 
 Integration points:
 - Called from gateway.py after successful push
 - Uses SessionManager for session context
-- Uses transcript_extractor for Claude Code session data
-- Uses checkpoint_loader for atomic writes
+- Uses transcript_extractor for proxy buffer data extraction
+- Uses checkpoint_loader for atomic writes to checkpoint branch
+- Uses transcript_buffer for API traffic capture
 """
 
 import os
