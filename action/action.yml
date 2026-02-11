@@ -27,6 +27,19 @@ inputs:
   bot-app-installation-id:
     description: GitHub App installation ID for bot identity (required for bot mode)
     required: false
+  reviewer-app-id:
+    description: GitHub App ID for reviewer identity (optional - for posting reviews with approve/request-changes)
+    required: false
+  reviewer-app-private-key:
+    description: GitHub App private key PEM for reviewer identity (optional)
+    required: false
+  reviewer-app-installation-id:
+    description: GitHub App installation ID for reviewer identity (optional)
+    required: false
+  reviewer-bot-name:
+    description: Reviewer bot GitHub username (optional - for marker detection)
+    required: false
+    default: ""
   bot-username:
     description: Bot GitHub username for filtering self-comments (REQUIRED for bot mode)
     required: false
@@ -75,6 +88,10 @@ runs:
         INPUT_BOT_APP_ID: ${{ inputs.bot-app-id }}
         INPUT_BOT_APP_PRIVATE_KEY: ${{ inputs.bot-app-private-key }}
         INPUT_BOT_APP_INSTALLATION_ID: ${{ inputs.bot-app-installation-id }}
+        INPUT_REVIEWER_APP_ID: ${{ inputs.reviewer-app-id }}
+        INPUT_REVIEWER_APP_PRIVATE_KEY: ${{ inputs.reviewer-app-private-key }}
+        INPUT_REVIEWER_APP_INSTALLATION_ID: ${{ inputs.reviewer-app-installation-id }}
+        INPUT_REVIEWER_BOT_NAME: ${{ inputs.reviewer-bot-name }}
         INPUT_BOT_USERNAME: ${{ inputs.bot-username }}
         INPUT_BOT_BRANCH_PREFIX: ${{ inputs.bot-branch-prefix }}
         INPUT_MODE: ${{ inputs.mode }}

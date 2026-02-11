@@ -63,6 +63,13 @@ on:
         required: true
       ANTHROPIC_OAUTH_TOKEN:
         required: true
+      # Reviewer bot credentials (optional - if provided, reviews use separate account)
+      REVIEWER_APP_ID:
+        required: false
+      REVIEWER_APP_PRIVATE_KEY:
+        required: false
+      REVIEWER_APP_INSTALLATION_ID:
+        required: false
 
 jobs:
   should-run:
@@ -301,6 +308,16 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
+      # Generate separate reviewer token if reviewer app credentials are provided
+      # This allows reviews to use approve/request-changes since reviewer is not the PR author
+      - name: Generate GitHub App token for reviewer
+        id: reviewer-token
+        if: ${{ secrets.REVIEWER_APP_ID != '' && secrets.REVIEWER_APP_PRIVATE_KEY != '' && secrets.REVIEWER_APP_INSTALLATION_ID != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.REVIEWER_APP_ID }}
+          private-key: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
+
       # For workflow_dispatch, fetch PR metadata via API since
       # github.event.pull_request is not available
       - name: Fetch PR head branch and repo
@@ -374,7 +391,7 @@ jobs:
           fi
 
           # Also check issue comments for the marker (paginated to handle PRs with many comments)
-          # (for self-reviews where GitHub blocks bots from using the Reviews API on their own PRs)
+          # (for legacy self-reviews - deprecated, use separate reviewer bot instead per #287)
           last_comment_commit=""
           last_comment_time=""
           if ! comments=$(gh api --paginate "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
@@ -473,6 +490,9 @@ jobs:
           bot-app-id: ${{ secrets.BOT_APP_ID }}
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          reviewer-app-id: ${{ secrets.REVIEWER_APP_ID }}
+          reviewer-app-private-key: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
+          reviewer-app-installation-id: ${{ secrets.REVIEWER_APP_INSTALLATION_ID }}
           bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
           timeout: ${{ inputs.timeout }}
