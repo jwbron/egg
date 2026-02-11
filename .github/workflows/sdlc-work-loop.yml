@@ -906,6 +906,32 @@ jobs:
             fi
           fi
 
+      - name: Redispatch work-loop for check failures (no PR)
+        if: >-
+          steps.fix.outputs.fixed == 'false' &&
+          steps.check-limit.outputs.exceeded != 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          MAX_REVIEW_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_review_cycles }}
+          MAX_TOTAL_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_total_cycles }}
+          WORKFLOW_OWNER_ENV: ${{ needs.resolve-inputs.outputs.workflow_owner }}
+        run: |
+          set -euo pipefail
+
+          echo "No PR available for reusable autofix — redispatching work-loop so agent can fix check failures"
+
+          gh workflow run sdlc-work-loop.yml \
+            --repo "${{ github.repository }}" \
+            --field phase="${{ needs.resolve-inputs.outputs.phase }}" \
+            --field issue_number="${ISSUE_NUMBER}" \
+            --field branch_name="${BRANCH_NAME}" \
+            --field max_review_cycles="${MAX_REVIEW_CYCLES_ENV}" \
+            --field max_total_cycles="${MAX_TOTAL_CYCLES_ENV}" \
+            --field workflow_owner="${WORKFLOW_OWNER_ENV:-}" \
+            --field pr_number="0"
+
+          echo "Work-loop redispatched for check failure remediation"
+
   # ============================================================
   # Aggregate Checks: Collect all check results
   # ============================================================
@@ -1859,16 +1885,32 @@ jobs:
 
           if [[ "${PR_NUMBER}" != "0" && -n "${PR_NUMBER}" ]]; then
             echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
-          else
-            # Check if PR exists for this branch
-            EXISTING_PR=$(gh pr list --repo "${{ github.repository }}" --head "${BRANCH_NAME}" --state open --json number --jq '.[0].number // empty')
-            if [[ -n "$EXISTING_PR" ]]; then
-              echo "pr_number=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
-            else
-              echo "::error::No PR number provided and no existing PR found for branch ${BRANCH_NAME}"
-              exit 1
-            fi
+            echo "Using provided PR #${PR_NUMBER}"
+            exit 0
           fi
+
+          # Check if PR exists for this branch
+          EXISTING_PR=$(gh pr list --repo "${{ github.repository }}" --head "${BRANCH_NAME}" --state open --json number --jq '.[0].number // empty')
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "pr_number=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
+            echo "Found existing PR #${EXISTING_PR}"
+            exit 0
+          fi
+
+          # No PR exists — create one
+          ISSUE_TITLE=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}" --jq '.title // "Issue #'"${ISSUE_NUMBER}"'"')
+
+          PR_URL=$(gh pr create \
+            --repo "${{ github.repository }}" \
+            --head "${BRANCH_NAME}" \
+            --base main \
+            --title "${ISSUE_TITLE}" \
+            --body "Implementation for #${ISSUE_NUMBER}." \
+            --draft)
+
+          CREATED_PR=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          echo "pr_number=${CREATED_PR}" >> "$GITHUB_OUTPUT"
+          echo "Created draft PR #${CREATED_PR}"
 
       - name: Update PR title and mark ready
         env:

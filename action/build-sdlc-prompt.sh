@@ -625,7 +625,7 @@ Phase: implement
 Branch: ${EGG_BRANCH_NAME}
 EOF
 
-  if [[ -n "$pr_number" ]]; then
+  if [[ -n "$pr_number" && "$pr_number" != "0" ]]; then
     cat <<EOF
 Draft PR: #${pr_number}
 EOF
@@ -642,7 +642,7 @@ ${contract_summary}
 ${issue_body}
 EOF
 
-  if [[ -n "$pr_number" ]]; then
+  if [[ -n "$pr_number" && "$pr_number" != "0" ]]; then
     cat <<EOF
 
 ## Prior Review Feedback
