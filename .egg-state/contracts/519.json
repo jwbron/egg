@@ -6,8 +6,388 @@
     "url": "https://github.com/jwbron/egg/issues/519"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Models defined with proper validation, type hints, and docstrings; unit tests pass",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Schema validates sample usage documents; consistent with checkpoint schema patterns",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Checkpoint and CheckpointSummary models include optional `pr_number` field; schema updated",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-1] `load_*_usage()` and `save_*_usage()` functions implemented with temp-file-rename pattern; handles missing files gracefully",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-2] `usage/by-issue/`, `usage/by-session/`, `usage/by-workflow/`, `usage/by-pr/` directories created on first write",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-3] Existing aggregates are loaded, updated with new checkpoint data, and saved atomically; handles concurrent access with retry logic",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-3-1] Helper function extracts usage data from checkpoint and calls appropriate update functions",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-2] After storing checkpoint, usage aggregates for session, issue, and workflow are updated",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-3] Usage update failures are logged but do not block checkpoint storage; implements graceful degradation",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-4-1] `EGG_PR_NUMBER` environment variable is read and stored in checkpoint if available",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-4-2] Function updates all checkpoints for an issue's branch with PR number and creates PR usage aggregate",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-4-3] When PR is created, backfill is triggered to associate existing checkpoints; callable from gateway or CLI",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-5-1] Functions to query usage by issue, session, workflow, PR with filtering options",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-5-2] CLI supports `--issue`, `--session`, `--workflow`, `--pr` flags; outputs JSON or human-readable format",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-5-3] `egg-checkpoint show` includes token usage breakdown",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-6-1] >90% coverage on new modules; edge cases tested",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-6-2] End-to-end test verifies checkpoint storage updates usage aggregates correctly",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-6-3] Per owner's direction, delete existing checkpoints in `egg/checkpoints/v1` and start fresh",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Data Models and Schema",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create usage aggregate Pydantic models",
+          "status": "pending",
+          "acceptance_criteria": "Models defined with proper validation, type hints, and docstrings; unit tests pass",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Create JSON schema for usage aggregates",
+          "status": "pending",
+          "acceptance_criteria": "Schema validates sample usage documents; consistent with checkpoint schema patterns",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add `pr_number` field to Checkpoint model",
+          "status": "pending",
+          "acceptance_criteria": "Checkpoint and CheckpointSummary models include optional `pr_number` field; schema updated",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Usage Storage Infrastructure",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create usage loader module with atomic read/write",
+          "status": "pending",
+          "acceptance_criteria": "`load_*_usage()` and `save_*_usage()` functions implemented with temp-file-rename pattern; handles missing files gracefully",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add usage directory structure to checkpoint branch",
+          "status": "pending",
+          "acceptance_criteria": "`usage/by-issue/`, `usage/by-session/`, `usage/by-workflow/`, `usage/by-pr/` directories created on first write",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Implement incremental update logic",
+          "status": "pending",
+          "acceptance_criteria": "Existing aggregates are loaded, updated with new checkpoint data, and saved atomically; handles concurrent access with retry logic",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Checkpoint Handler Integration",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Create usage update helper in checkpoint handler",
+          "status": "pending",
+          "acceptance_criteria": "Helper function extracts usage data from checkpoint and calls appropriate update functions",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Integrate usage update into `store_checkpoint()`",
+          "status": "pending",
+          "acceptance_criteria": "After storing checkpoint, usage aggregates for session, issue, and workflow are updated",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add error handling for usage update failures",
+          "status": "pending",
+          "acceptance_criteria": "Usage update failures are logged but do not block checkpoint storage; implements graceful degradation",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "PR Association and Backfill",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add PR number capture to checkpoint creation",
+          "status": "pending",
+          "acceptance_criteria": "`EGG_PR_NUMBER` environment variable is read and stored in checkpoint if available",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Implement PR usage backfill function",
+          "status": "pending",
+          "acceptance_criteria": "Function updates all checkpoints for an issue's branch with PR number and creates PR usage aggregate",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Create backfill trigger hook",
+          "status": "pending",
+          "acceptance_criteria": "When PR is created, backfill is triggered to associate existing checkpoints; callable from gateway or CLI",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Query API and CLI",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Add usage query functions to loader",
+          "status": "pending",
+          "acceptance_criteria": "Functions to query usage by issue, session, workflow, PR with filtering options",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Create `egg-usage` CLI command",
+          "status": "pending",
+          "acceptance_criteria": "CLI supports `--issue`, `--session`, `--workflow`, `--pr` flags; outputs JSON or human-readable format",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Add usage summary to existing checkpoint CLI",
+          "status": "pending",
+          "acceptance_criteria": "`egg-checkpoint show` includes token usage breakdown",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "Testing and Cleanup",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Write unit tests for usage models and loader",
+          "status": "pending",
+          "acceptance_criteria": ">90% coverage on new modules; edge cases tested",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-2",
+          "description": "Write integration tests for checkpoint\u2192usage flow",
+          "status": "pending",
+          "acceptance_criteria": "End-to-end test verifies checkpoint storage updates usage aggregates correctly",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-3",
+          "description": "Clean up existing checkpoint branch",
+          "status": "pending",
+          "acceptance_criteria": "Per owner's direction, delete existing checkpoints in `egg/checkpoints/v1` and start fresh",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 2,
