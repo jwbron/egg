@@ -87,17 +87,17 @@
     {
       "id": "phase-1",
       "name": "Add Phase Field to Session Manager",
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         {
           "id": "task-1-1",
           "description": "Add phase field to Session dataclass",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Field added with type str | None, persisted to disk",
           "files_affected": [
             "gateway/session_manager.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -106,12 +106,12 @@
         {
           "id": "task-1-2",
           "description": "Update persistence methods for phase field",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Phase field is serialized/deserialized correctly",
           "files_affected": [
             "gateway/session_manager.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -120,12 +120,12 @@
         {
           "id": "task-1-3",
           "description": "Add update_phase method to SessionManager",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Method updates phase and persists, returns success/failure",
           "files_affected": [
             "gateway/session_manager.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -141,17 +141,17 @@
     {
       "id": "phase-2",
       "name": "Create Session Phase Update API Endpoint",
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         {
           "id": "task-2-1",
           "description": "Add PATCH /api/v1/sessions/{token}/phase endpoint",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Endpoint validates phase, updates session",
           "files_affected": [
             "gateway/gateway.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -160,12 +160,12 @@
         {
           "id": "task-2-2",
           "description": "Add launcher auth requirement to endpoint",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Only launcher_secret can update phase",
           "files_affected": [
             "gateway/gateway.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -181,17 +181,17 @@
     {
       "id": "phase-3",
       "name": "Enforce Phase Restrictions in PR Create Endpoint",
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         {
           "id": "task-3-1",
           "description": "Retrieve session phase in gh_pr_create after auth",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Phase available from session via g.session_phase",
           "files_affected": [
             "gateway/gateway.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -200,12 +200,12 @@
         {
           "id": "task-3-2",
           "description": "Call filter_operation with phase and pr create pattern",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Returns FilterResult indicating allowed/blocked",
           "files_affected": [
             "gateway/gateway.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -214,12 +214,12 @@
         {
           "id": "task-3-3",
           "description": "Return 403 with clear error message when blocked",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Error matches phase_filter format, audit logged",
           "files_affected": [
             "gateway/gateway.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -228,12 +228,12 @@
         {
           "id": "task-3-4",
           "description": "Allow by default when phase is None for backward compat",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Legacy sessions work, warning logged",
           "files_affected": [
             "gateway/gateway.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -249,17 +249,17 @@
     {
       "id": "phase-4",
       "name": "Pass Phase to Session on Creation",
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         {
           "id": "task-4-1",
           "description": "Add phase parameter to create_session in launcher",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Phase passed in request body",
           "files_affected": [
             "sandbox/egg_lib/gateway.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -268,12 +268,12 @@
         {
           "id": "task-4-2",
           "description": "Update session_create endpoint to accept phase",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Phase from request saved to session",
           "files_affected": [
             "gateway/gateway.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -282,12 +282,12 @@
         {
           "id": "task-4-3",
           "description": "Pass EGG_PIPELINE_PHASE to session creation",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Phase from environment passed through",
           "files_affected": [
             "sandbox/egg_lib/runtime.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -303,17 +303,17 @@
     {
       "id": "phase-5",
       "name": "Add Unit Tests",
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         {
           "id": "task-5-1",
           "description": "Add test for session phase persistence",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Phase survives save/load cycle",
           "files_affected": [
             "gateway/tests/test_session_manager.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -322,12 +322,12 @@
         {
           "id": "task-5-2",
           "description": "Add test for phase restriction on PR create",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "403 during implement, 200 during pr phase",
           "files_affected": [
             "gateway/tests/test_gateway.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
@@ -336,12 +336,12 @@
         {
           "id": "task-5-3",
           "description": "Add test for backward compatibility",
-          "status": "pending",
+          "status": "completed",
           "acceptance_criteria": "Legacy sessions without phase can create PRs",
           "files_affected": [
             "gateway/tests/test_gateway.py"
           ],
-          "commit": null,
+          "commit": "d5624fee082bff4c07c9d4b047f95d0a5adc19cb",
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false,
