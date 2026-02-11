@@ -588,6 +588,12 @@ class TestGhApiPathValidation:
         assert valid is True
         assert error == ""
 
+    def test_list_check_runs_allowed(self):
+        """List check runs for repo endpoint is allowed."""
+        valid, error = github_client.validate_gh_api_path("repos/owner/repo/check-runs")
+        assert valid is True
+        assert error == ""
+
     def test_check_run_by_id_allowed(self):
         """Check run endpoint is allowed."""
         valid, error = github_client.validate_gh_api_path("repos/owner/repo/check-runs/12345")
