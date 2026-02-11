@@ -93,8 +93,14 @@ class TranscriptBuffer:
         self._lock = threading.Lock()
         self._entries_dropped = 0
 
-        # Ensure buffer directory exists
-        self._buffer_dir.mkdir(parents=True, exist_ok=True)
+        # Ensure buffer directory exists with restricted permissions (0o700)
+        # Buffer contains API request/response data that should not be world-readable
+        self._buffer_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # Also fix permissions if directory already exists with wrong mode
+        try:
+            os.chmod(self._buffer_dir, 0o700)
+        except OSError:
+            pass  # May fail if not owner, but that's ok
 
     @property
     def buffer_path(self) -> Path:
@@ -323,43 +329,52 @@ class TranscriptBuffer:
         """
         Rotate the buffer by keeping only the newest entries.
 
-        Strategy: Read all entries, drop the oldest half, write back.
-        This is simpler than a true ring buffer and works well for
-        append-only JSONL files.
+        Strategy: Read all entries, drop the oldest half, write to a temp file,
+        then atomically replace the original. This avoids data loss from
+        concurrent writes during rotation.
         """
         try:
-            # Read all entries
+            # Read all entries with exclusive lock to prevent concurrent writes
             entries = []
-            with open(self.buffer_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        entries.append(line)
+            with open(self.buffer_path, "r+b") as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    for line in f:
+                        line = line.decode("utf-8", errors="replace").strip()
+                        if line:
+                            entries.append(line)
 
-            if not entries:
-                return
+                    if not entries:
+                        return
 
-            # Keep the newest half
-            keep_count = len(entries) // 2
-            if keep_count == 0:
-                keep_count = 1
+                    # Keep the newest half
+                    keep_count = len(entries) // 2
+                    if keep_count == 0:
+                        keep_count = 1
 
-            dropped_count = len(entries) - keep_count
-            self._entries_dropped += dropped_count
+                    dropped_count = len(entries) - keep_count
+                    self._entries_dropped += dropped_count
 
-            logger.info(
-                "Rotating transcript buffer",
-                container_id=self._container_id,
-                entries_before=len(entries),
-                entries_after=keep_count,
-                entries_dropped=dropped_count,
-                total_dropped=self._entries_dropped,
-            )
+                    logger.info(
+                        "Rotating transcript buffer",
+                        container_id=self._container_id,
+                        entries_before=len(entries),
+                        entries_after=keep_count,
+                        entries_dropped=dropped_count,
+                        total_dropped=self._entries_dropped,
+                    )
 
-            # Write back the kept entries
-            with open(self.buffer_path, "w") as f:
-                for entry in entries[-keep_count:]:
-                    f.write(entry + "\n")
+                    # Write kept entries to temp file
+                    temp_path = self.buffer_path.with_suffix(".jsonl.tmp")
+                    with open(temp_path, "w") as tmp:
+                        for entry in entries[-keep_count:]:
+                            tmp.write(entry + "\n")
+
+                    # Atomic replace - still holding lock on original file
+                    os.replace(temp_path, self.buffer_path)
+
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
         except Exception as e:
             logger.warning(
@@ -367,6 +382,13 @@ class TranscriptBuffer:
                 container_id=self._container_id,
                 error=str(e),
             )
+            # Clean up temp file if it exists
+            temp_path = self.buffer_path.with_suffix(".jsonl.tmp")
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
 
     def _append_entry(self, entry_bytes: bytes) -> None:
         """Append an entry to the buffer file with file locking."""

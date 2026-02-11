@@ -432,5 +432,30 @@ def extract_transcript_from_proxy_buffer(
 
 
 def get_proxy_buffer_path(container_id: str) -> Path:
-    """Get the default proxy buffer path for a container ID."""
-    return Path("/tmp/egg-transcripts") / f"{container_id}.jsonl"
+    """
+    Get the default proxy buffer path for a container ID.
+
+    Args:
+        container_id: Container ID (validated to prevent path traversal)
+
+    Returns:
+        Path to the buffer file
+
+    Raises:
+        ValueError: If container_id contains path traversal characters
+    """
+    # Defense in depth: validate container_id to prevent path traversal
+    # Even though container IDs come from session manager, we should still validate
+    if not container_id or "/" in container_id or "\\" in container_id or ".." in container_id:
+        raise ValueError(f"Invalid container_id: {container_id!r}")
+
+    base_dir = Path("/tmp/egg-transcripts")
+    buffer_path = base_dir / f"{container_id}.jsonl"
+
+    # Additional check: ensure resolved path is within base directory
+    try:
+        buffer_path.resolve().relative_to(base_dir.resolve())
+    except ValueError as e:
+        raise ValueError(f"Invalid container_id results in path outside buffer directory: {container_id!r}") from e
+
+    return buffer_path

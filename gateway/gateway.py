@@ -30,6 +30,7 @@ import os
 import secrets
 import subprocess
 import sys
+import time
 import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -2740,6 +2741,7 @@ def _capture_non_streaming_response(
     request_json: dict[str, Any],
     response_body: bytes,
     start_time: float,
+    status_code: int = 200,
 ) -> None:
     """
     Capture a non-streaming API response to the transcript buffer.
@@ -2749,28 +2751,52 @@ def _capture_non_streaming_response(
         request_json: Parsed request body
         response_body: Raw response bytes
         start_time: Request start time for duration calculation
+        status_code: HTTP status code of the response
     """
-    import time
+    duration_ms = (time.time() - start_time) * 1000
 
     try:
         response_json = json.loads(response_body)
     except (json.JSONDecodeError, TypeError):
-        logger.debug("Could not parse response body for transcript capture")
-        return
-
-    duration_ms = (time.time() - start_time) * 1000
+        # For non-JSON responses (error pages, malformed responses), capture basic info
+        # This is important for debugging failed API calls
+        if status_code >= 400:
+            response_json = {
+                "error": {
+                    "type": "api_error",
+                    "status_code": status_code,
+                    "message": response_body.decode("utf-8", errors="replace")[:500],
+                }
+            }
+        else:
+            logger.debug("Could not parse response body for transcript capture")
+            return
 
     try:
         buffer = get_transcript_buffer(container_id)
-        buffer.write_api_turn(
-            request_body=request_json,
-            response_content=response_json.get("content"),
-            response_usage=response_json.get("usage"),
-            response_model=response_json.get("model"),
-            stop_reason=response_json.get("stop_reason"),
-            duration_ms=duration_ms,
-            streaming=False,
-        )
+        # Check if this is an error response
+        error_info = response_json.get("error")
+        if error_info:
+            # Capture error as content block for visibility
+            buffer.write_api_turn(
+                request_body=request_json,
+                response_content=[{"type": "error", "error": error_info}],
+                response_usage=response_json.get("usage"),
+                response_model=response_json.get("model"),
+                stop_reason="error",
+                duration_ms=duration_ms,
+                streaming=False,
+            )
+        else:
+            buffer.write_api_turn(
+                request_body=request_json,
+                response_content=response_json.get("content"),
+                response_usage=response_json.get("usage"),
+                response_model=response_json.get("model"),
+                stop_reason=response_json.get("stop_reason"),
+                duration_ms=duration_ms,
+                streaming=False,
+            )
     except Exception as e:
         logger.warning(
             "Failed to capture non-streaming response to transcript buffer",
@@ -2796,8 +2822,6 @@ def _capture_streaming_response(
         chunks: List of SSE response chunks
         start_time: Request start time for duration calculation
     """
-    import time
-
     duration_ms = (time.time() - start_time) * 1000
 
     # Reassemble SSE response to get content and usage
@@ -2866,10 +2890,32 @@ def _parse_sse_response(
 
         event_type = event.get("type")
 
-        # Extract model from message_start
+        # Extract model and input_tokens from message_start
         if event_type == "message_start":
             message = event.get("message", {})
             model = message.get("model")
+            # Capture input_tokens from message_start (message_delta only has output_tokens)
+            message_usage = message.get("usage", {})
+            if message_usage:
+                if usage is None:
+                    usage = {}
+                # input_tokens comes from message_start, not message_delta
+                if "input_tokens" in message_usage:
+                    usage["input_tokens"] = message_usage["input_tokens"]
+                if "cache_read_input_tokens" in message_usage:
+                    usage["cache_read_input_tokens"] = message_usage["cache_read_input_tokens"]
+                if "cache_creation_input_tokens" in message_usage:
+                    usage["cache_creation_input_tokens"] = message_usage["cache_creation_input_tokens"]
+
+        # Handle error events from streaming API
+        elif event_type == "error":
+            error_info = event.get("error", {})
+            # Add error as a content block so it's captured in transcript
+            content_blocks.append({
+                "type": "error",
+                "error": error_info,
+            })
+            stop_reason = "error"
 
         # Track content block starts
         elif event_type == "content_block_start":
@@ -2884,7 +2930,7 @@ def _parse_sse_response(
             delta_type = delta.get("type")
 
             if index not in content_by_index:
-                content_by_index[index] = {"type": delta_type.replace("_delta", "")}
+                content_by_index[index] = {"type": delta_type.replace("_delta", "") if delta_type else "unknown"}
 
             block = content_by_index[index]
 
@@ -2896,7 +2942,7 @@ def _parse_sse_response(
                 partial_json = delta.get("partial_json", "")
                 block["partial_input"] = block.get("partial_input", "") + partial_json
 
-        # Extract usage from message_delta
+        # Extract output_tokens and stop_reason from message_delta
         elif event_type == "message_delta":
             delta = event.get("delta", {})
             stop_reason = delta.get("stop_reason")
@@ -2904,6 +2950,7 @@ def _parse_sse_response(
             if event_usage:
                 if usage is None:
                     usage = {}
+                # message_delta contains output_tokens
                 usage.update(event_usage)
 
     # Build final content blocks
@@ -2914,7 +2961,13 @@ def _parse_sse_response(
             try:
                 block["input"] = json.loads(block.pop("partial_input"))
             except json.JSONDecodeError:
+                # Log warning but still include the block with parse failure noted
+                logger.debug(
+                    "Failed to parse tool_use input JSON",
+                    tool_id=block.get("id"),
+                )
                 block["input"] = {}
+                block["input_parse_error"] = True
         content_blocks.append(block)
 
     return content_blocks or None, usage, model, stop_reason
@@ -2931,8 +2984,6 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     Uses IP-based session lookup for mode detection (Claude Code doesn't send session tokens).
     API request/response pairs are captured to a per-session buffer for checkpoint creation.
     """
-    import time
-
     start_time = time.time()
 
     # Build headers with injected auth
@@ -2977,12 +3028,28 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
             content_type = upstream.headers.get("content-type", "text/event-stream")
 
             # For streaming, we need to capture the full response while forwarding chunks
+            # Cap memory usage at 10MB to prevent resource exhaustion
+            MAX_CAPTURE_SIZE = 10 * 1024 * 1024  # 10MB
             collected_chunks: list[bytes] = []
+            collected_size = 0
+            capture_truncated = False
 
             def generate() -> Any:
+                nonlocal collected_size, capture_truncated
                 try:
                     for chunk in upstream.iter_bytes():
-                        collected_chunks.append(chunk)
+                        # Only collect chunks until we hit the size limit
+                        if not capture_truncated:
+                            if collected_size + len(chunk) <= MAX_CAPTURE_SIZE:
+                                collected_chunks.append(chunk)
+                                collected_size += len(chunk)
+                            else:
+                                capture_truncated = True
+                                logger.debug(
+                                    "Streaming capture truncated due to size limit",
+                                    container_id=container_id,
+                                    size_limit=MAX_CAPTURE_SIZE,
+                                )
                         yield chunk
                 finally:
                     upstream.close()
@@ -3016,6 +3083,7 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                     request_json=request_json,
                     response_body=response.content,
                     start_time=start_time,
+                    status_code=response.status_code,
                 )
 
             return Response(
