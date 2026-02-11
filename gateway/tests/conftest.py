@@ -194,6 +194,12 @@ checkpoint_handler = _load_module_with_replaced_imports(
     },
 )
 
+# transcript_buffer has no relative imports to other gateway modules
+transcript_buffer = _load_module_with_replaced_imports(
+    "transcript_buffer",
+    GATEWAY_DIR / "transcript_buffer.py",
+)
+
 # config_validator has no relative imports to other gateway modules
 config_validator = _load_module_with_replaced_imports(
     "config_validator",
@@ -257,6 +263,7 @@ gateway = _load_module_with_replaced_imports(
         "from .anthropic_credentials import": "from anthropic_credentials import",
         "from .auth import": "from auth import",
         "from .checkpoint_handler import": "from checkpoint_handler import",
+        "from .transcript_buffer import": "from transcript_buffer import",
         "from .contract_api import": "from contract_api import",
         "from .git_client import": "from git_client import",
         "from .github_client import": "from github_client import",

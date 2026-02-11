@@ -100,6 +100,7 @@ try:
         capture_and_store_checkpoint,
         capture_and_store_checkpoints_for_push,
     )
+    from .transcript_buffer import get_transcript_buffer
 except ImportError:
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from git_client import (  # type: ignore[no-redef, import-not-found]
@@ -151,6 +152,7 @@ except ImportError:
         capture_and_store_checkpoint,
         capture_and_store_checkpoints_for_push,
     )
+    from transcript_buffer import get_transcript_buffer  # type: ignore[no-redef, import-not-found]
 
 # Import repo_config for user mode support
 # Path setup needed because config is in a sibling directory
@@ -2733,16 +2735,206 @@ def _is_streaming_request(request_body: bytes) -> bool:
         return False
 
 
+def _capture_non_streaming_response(
+    container_id: str,
+    request_json: dict[str, Any],
+    response_body: bytes,
+    start_time: float,
+) -> None:
+    """
+    Capture a non-streaming API response to the transcript buffer.
+
+    Args:
+        container_id: Container ID for buffer lookup
+        request_json: Parsed request body
+        response_body: Raw response bytes
+        start_time: Request start time for duration calculation
+    """
+    import time
+
+    try:
+        response_json = json.loads(response_body)
+    except (json.JSONDecodeError, TypeError):
+        logger.debug("Could not parse response body for transcript capture")
+        return
+
+    duration_ms = (time.time() - start_time) * 1000
+
+    try:
+        buffer = get_transcript_buffer(container_id)
+        buffer.write_api_turn(
+            request_body=request_json,
+            response_content=response_json.get("content"),
+            response_usage=response_json.get("usage"),
+            response_model=response_json.get("model"),
+            stop_reason=response_json.get("stop_reason"),
+            duration_ms=duration_ms,
+            streaming=False,
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to capture non-streaming response to transcript buffer",
+            container_id=container_id,
+            error=str(e),
+        )
+
+
+def _capture_streaming_response(
+    container_id: str,
+    request_json: dict[str, Any],
+    chunks: list[bytes],
+    start_time: float,
+) -> None:
+    """
+    Capture a streaming API response to the transcript buffer.
+
+    Reassembles the SSE chunks to extract the final message content and usage.
+
+    Args:
+        container_id: Container ID for buffer lookup
+        request_json: Parsed request body
+        chunks: List of SSE response chunks
+        start_time: Request start time for duration calculation
+    """
+    import time
+
+    duration_ms = (time.time() - start_time) * 1000
+
+    # Reassemble SSE response to get content and usage
+    try:
+        response_content, response_usage, response_model, stop_reason = _parse_sse_response(chunks)
+    except Exception as e:
+        logger.debug(
+            "Failed to parse SSE response for transcript capture",
+            container_id=container_id,
+            error=str(e),
+        )
+        return
+
+    try:
+        buffer = get_transcript_buffer(container_id)
+        buffer.write_api_turn(
+            request_body=request_json,
+            response_content=response_content,
+            response_usage=response_usage,
+            response_model=response_model,
+            stop_reason=stop_reason,
+            duration_ms=duration_ms,
+            streaming=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to capture streaming response to transcript buffer",
+            container_id=container_id,
+            error=str(e),
+        )
+
+
+def _parse_sse_response(
+    chunks: list[bytes],
+) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None, str | None, str | None]:
+    """
+    Parse SSE response chunks to extract message content and usage.
+
+    Returns:
+        Tuple of (content, usage, model, stop_reason)
+    """
+    # Combine chunks and parse SSE events
+    full_response = b"".join(chunks).decode("utf-8", errors="replace")
+
+    content_blocks: list[dict[str, Any]] = []
+    usage: dict[str, Any] | None = None
+    model: str | None = None
+    stop_reason: str | None = None
+
+    # Track content blocks being built (keyed by index)
+    content_by_index: dict[int, dict[str, Any]] = {}
+
+    for line in full_response.split("\n"):
+        line = line.strip()
+        if not line.startswith("data: "):
+            continue
+
+        data_str = line[6:]  # Remove "data: " prefix
+        if data_str == "[DONE]":
+            continue
+
+        try:
+            event = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+
+        event_type = event.get("type")
+
+        # Extract model from message_start
+        if event_type == "message_start":
+            message = event.get("message", {})
+            model = message.get("model")
+
+        # Track content block starts
+        elif event_type == "content_block_start":
+            index = event.get("index", 0)
+            content_block = event.get("content_block", {})
+            content_by_index[index] = content_block.copy()
+
+        # Accumulate content block deltas
+        elif event_type == "content_block_delta":
+            index = event.get("index", 0)
+            delta = event.get("delta", {})
+            delta_type = delta.get("type")
+
+            if index not in content_by_index:
+                content_by_index[index] = {"type": delta_type.replace("_delta", "")}
+
+            block = content_by_index[index]
+
+            if delta_type == "text_delta":
+                text = delta.get("text", "")
+                block["text"] = block.get("text", "") + text
+            elif delta_type == "input_json_delta":
+                # For tool_use blocks
+                partial_json = delta.get("partial_json", "")
+                block["partial_input"] = block.get("partial_input", "") + partial_json
+
+        # Extract usage from message_delta
+        elif event_type == "message_delta":
+            delta = event.get("delta", {})
+            stop_reason = delta.get("stop_reason")
+            event_usage = event.get("usage")
+            if event_usage:
+                if usage is None:
+                    usage = {}
+                usage.update(event_usage)
+
+    # Build final content blocks
+    for index in sorted(content_by_index.keys()):
+        block = content_by_index[index]
+        # For tool_use blocks, parse the accumulated JSON
+        if block.get("type") == "tool_use" and "partial_input" in block:
+            try:
+                block["input"] = json.loads(block.pop("partial_input"))
+            except json.JSONDecodeError:
+                block["input"] = {}
+        content_blocks.append(block)
+
+    return content_blocks or None, usage, model, stop_reason
+
+
 @app.route("/v1/messages", methods=["POST"])
 def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     """
-    Proxy messages API with credential injection and streaming support.
+    Proxy messages API with credential injection, streaming support, and transcript capture.
 
     This endpoint allows Claude Code to use ANTHROPIC_BASE_URL to route
     API traffic through the gateway for credential injection.
 
     Uses IP-based session lookup for mode detection (Claude Code doesn't send session tokens).
+    API request/response pairs are captured to a per-session buffer for checkpoint creation.
     """
+    import time
+
+    start_time = time.time()
+
     # Build headers with injected auth
     headers = _get_forwarded_headers(request.headers)
     headers, error = _inject_anthropic_credentials(headers)
@@ -2755,10 +2947,17 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     session_manager = get_session_manager()
     session = session_manager.get_session_by_ip(request.remote_addr or "")
     session_mode = session.mode if session else None
+    container_id = session.container_id if session else None
     request_body = _filter_blocked_tools(
         request_body, session_mode
     )  # Remove web tools in private mode
     is_streaming = _is_streaming_request(request_body)
+
+    # Parse request body for transcript capture
+    try:
+        request_json = json.loads(request_body)
+    except (json.JSONDecodeError, TypeError):
+        request_json = {}
 
     client = get_anthropic_client()
 
@@ -2777,11 +2976,24 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
             # Forward actual Content-Type from upstream (usually text/event-stream)
             content_type = upstream.headers.get("content-type", "text/event-stream")
 
+            # For streaming, we need to capture the full response while forwarding chunks
+            collected_chunks: list[bytes] = []
+
             def generate() -> Any:
                 try:
-                    yield from upstream.iter_bytes()
+                    for chunk in upstream.iter_bytes():
+                        collected_chunks.append(chunk)
+                        yield chunk
                 finally:
                     upstream.close()
+                    # Capture to transcript buffer after streaming completes
+                    if container_id:
+                        _capture_streaming_response(
+                            container_id=container_id,
+                            request_json=request_json,
+                            chunks=collected_chunks,
+                            start_time=start_time,
+                        )
 
             return Response(
                 stream_with_context(generate()),
@@ -2796,6 +3008,16 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                 headers=headers,
                 content=request_body,
             )
+
+            # Capture to transcript buffer
+            if container_id:
+                _capture_non_streaming_response(
+                    container_id=container_id,
+                    request_json=request_json,
+                    response_body=response.content,
+                    start_time=start_time,
+                )
+
             return Response(
                 response.content,
                 status=response.status_code,

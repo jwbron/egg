@@ -701,3 +701,216 @@ class TestFilterBlockedTools:
         assert result["max_tokens"] == 1024
         assert result["stream"] is True
         assert len(result["tools"]) == 1
+
+
+class TestParseSSEResponse:
+    """Tests for _parse_sse_response helper that reassembles streaming responses."""
+
+    def test_parse_simple_text_response(self):
+        """Test parsing a simple text response from SSE chunks."""
+        from gateway.gateway import _parse_sse_response
+
+        chunks = [
+            b'data: {"type":"message_start","message":{"id":"msg_123","model":"claude-opus-4-5-20251101","role":"assistant"}}\n\n',
+            b'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+            b'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}\n\n',
+            b'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" there!"}}\n\n',
+            b'data: {"type":"content_block_stop","index":0}\n\n',
+            b'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":10}}\n\n',
+            b"data: [DONE]\n\n",
+        ]
+
+        content, usage, model, stop_reason = _parse_sse_response(chunks)
+
+        assert content is not None
+        assert len(content) == 1
+        assert content[0]["type"] == "text"
+        assert content[0]["text"] == "Hello there!"
+        assert usage == {"output_tokens": 10}
+        assert model == "claude-opus-4-5-20251101"
+        assert stop_reason == "end_turn"
+
+    def test_parse_tool_use_response(self):
+        """Test parsing a response with tool use from SSE chunks."""
+        from gateway.gateway import _parse_sse_response
+
+        chunks = [
+            b'data: {"type":"message_start","message":{"model":"claude-3-5-sonnet-20241022"}}\n\n',
+            b'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_123","name":"Bash"}}\n\n',
+            b'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"com"}}\n\n',
+            b'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"mand\\": \\"ls\\"}"}}\n\n',
+            b'data: {"type":"content_block_stop","index":0}\n\n',
+            b'data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":25}}\n\n',
+            b"data: [DONE]\n\n",
+        ]
+
+        content, usage, model, stop_reason = _parse_sse_response(chunks)
+
+        assert content is not None
+        assert len(content) == 1
+        assert content[0]["type"] == "tool_use"
+        assert content[0]["id"] == "toolu_123"
+        assert content[0]["name"] == "Bash"
+        assert content[0]["input"] == {"command": "ls"}
+        assert stop_reason == "tool_use"
+
+    def test_parse_multiple_content_blocks(self):
+        """Test parsing a response with multiple content blocks."""
+        from gateway.gateway import _parse_sse_response
+
+        chunks = [
+            b'data: {"type":"message_start","message":{"model":"claude-3"}}\n\n',
+            b'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+            b'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"First block"}}\n\n',
+            b'data: {"type":"content_block_stop","index":0}\n\n',
+            b'data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}\n\n',
+            b'data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Second block"}}\n\n',
+            b'data: {"type":"content_block_stop","index":1}\n\n',
+            b'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+            b"data: [DONE]\n\n",
+        ]
+
+        content, usage, model, stop_reason = _parse_sse_response(chunks)
+
+        assert content is not None
+        assert len(content) == 2
+        assert content[0]["text"] == "First block"
+        assert content[1]["text"] == "Second block"
+
+    def test_parse_empty_response(self):
+        """Test parsing empty chunks."""
+        from gateway.gateway import _parse_sse_response
+
+        chunks = []
+        content, usage, model, stop_reason = _parse_sse_response(chunks)
+
+        assert content is None
+        assert usage is None
+        assert model is None
+        assert stop_reason is None
+
+    def test_parse_malformed_sse(self):
+        """Test parsing malformed SSE data."""
+        from gateway.gateway import _parse_sse_response
+
+        chunks = [
+            b"data: not json\n\n",
+            b"invalid line without data prefix\n\n",
+            b"data: [DONE]\n\n",
+        ]
+
+        # Should not raise, just return empty/None
+        content, usage, model, stop_reason = _parse_sse_response(chunks)
+        assert content is None or len(content) == 0
+
+
+class TestTranscriptCaptureFunctions:
+    """Tests for transcript capture helper functions."""
+
+    def test_capture_non_streaming_response(self, tmp_path):
+        """Test capturing a non-streaming API response."""
+        import time
+        from unittest.mock import patch
+
+        # Patch buffer directory
+        with patch("gateway.transcript_buffer.BUFFER_DIR", tmp_path):
+            from gateway.gateway import _capture_non_streaming_response
+            from gateway.transcript_buffer import TranscriptBuffer
+
+            container_id = "test-container-123"
+            request_json = {
+                "model": "claude-opus-4-5",
+                "messages": [{"role": "user", "content": "Hello"}],
+            }
+            response_body = json.dumps(
+                {
+                    "content": [{"type": "text", "text": "Hi there!"}],
+                    "model": "claude-opus-4-5",
+                    "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 100, "output_tokens": 50},
+                }
+            ).encode()
+
+            _capture_non_streaming_response(
+                container_id=container_id,
+                request_json=request_json,
+                response_body=response_body,
+                start_time=time.time() - 0.5,  # 500ms ago
+            )
+
+            # Verify buffer was written
+            buffer = TranscriptBuffer(container_id, buffer_dir=tmp_path)
+            entries = buffer.read_entries()
+            assert len(entries) == 1
+
+            entry = entries[0]
+            assert entry["streaming"] is False
+            assert entry["request"]["model"] == "claude-opus-4-5"
+            assert entry["response"]["content"] == [{"type": "text", "text": "Hi there!"}]
+            assert entry["response"]["stop_reason"] == "end_turn"
+            assert entry["duration_ms"] >= 400  # At least 400ms
+
+    def test_capture_streaming_response(self, tmp_path):
+        """Test capturing a streaming API response."""
+        import time
+        from unittest.mock import patch
+
+        with patch("gateway.transcript_buffer.BUFFER_DIR", tmp_path):
+            from gateway.gateway import _capture_streaming_response
+            from gateway.transcript_buffer import TranscriptBuffer
+
+            container_id = "test-container-456"
+            request_json = {
+                "model": "claude-3",
+                "messages": [{"role": "user", "content": "Hi"}],
+            }
+            chunks = [
+                b'data: {"type":"message_start","message":{"model":"claude-3"}}\n\n',
+                b'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+                b'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello!"}}\n\n',
+                b'data: {"type":"content_block_stop","index":0}\n\n',
+                b'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}\n\n',
+                b"data: [DONE]\n\n",
+            ]
+
+            _capture_streaming_response(
+                container_id=container_id,
+                request_json=request_json,
+                chunks=chunks,
+                start_time=time.time() - 0.3,
+            )
+
+            # Verify buffer was written
+            buffer = TranscriptBuffer(container_id, buffer_dir=tmp_path)
+            entries = buffer.read_entries()
+            assert len(entries) == 1
+
+            entry = entries[0]
+            assert entry["streaming"] is True
+            assert entry["response"]["content"][0]["text"] == "Hello!"
+            assert entry["response"]["stop_reason"] == "end_turn"
+            assert entry["response"]["usage"] == {"output_tokens": 5}
+
+    def test_capture_handles_invalid_response(self, tmp_path):
+        """Test that capture handles invalid response gracefully."""
+        import time
+        from unittest.mock import patch
+
+        with patch("gateway.transcript_buffer.BUFFER_DIR", tmp_path):
+            from gateway.gateway import _capture_non_streaming_response
+            from gateway.transcript_buffer import TranscriptBuffer
+
+            container_id = "test-container-789"
+
+            # Invalid JSON response
+            _capture_non_streaming_response(
+                container_id=container_id,
+                request_json={"model": "claude-3"},
+                response_body=b"not json",
+                start_time=time.time(),
+            )
+
+            # Should not crash, and should not write to buffer
+            buffer = TranscriptBuffer(container_id, buffer_dir=tmp_path)
+            entries = buffer.read_entries()
+            assert len(entries) == 0
