@@ -1,12 +1,17 @@
 """
-Transcript extractor for Claude Code JSONL format.
+Transcript extractor for API proxy buffer format.
 
-Parses Claude Code session files (~/.claude/projects/{project}/{session}.jsonl)
-and extracts structured transcript data including messages, tool calls, and
-token usage.
+Extracts transcript data from the gateway's API proxy buffer files
+(/tmp/egg-transcripts/{container_id}.jsonl). This provides a stable and
+format-independent source for checkpoint creation, as the API request/response
+format is stable and documented.
+
+The proxy buffer is the primary and only source for transcript extraction.
+Claude Code's internal JSONL files are no longer used.
 """
 
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -22,14 +27,16 @@ from .checkpoints import (
     Transcript,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class TranscriptExtractError(Exception):
-    """Error extracting transcript from session file."""
+    """Error extracting transcript from buffer file."""
 
     pass
 
 
-# Mapping of Claude Code tool names to file operation types
+# Mapping of tool names to file operation types
 TOOL_TO_FILE_OP: dict[str, FileOperationType] = {
     "Read": FileOperationType.READ,
     "Write": FileOperationType.WRITE,
@@ -52,31 +59,34 @@ def parse_timestamp(ts: str | None) -> datetime | None:
         return None
 
 
-def extract_session_metadata(entries: list[dict[str, Any]]) -> SessionMetadata:
+# ==============================================================================
+# Proxy Buffer Extraction Functions
+#
+# These functions extract transcript data from the API proxy buffer format.
+# The proxy buffer captures API request/response pairs at the gateway layer,
+# providing a stable and format-independent source for checkpoint creation.
+# ==============================================================================
+
+
+def extract_session_metadata_from_proxy_buffer(
+    entries: list[dict[str, Any]],
+    container_id: str | None = None,
+) -> SessionMetadata:
     """
-    Extract session metadata from JSONL entries.
+    Extract session metadata from proxy buffer entries.
 
     Args:
-        entries: List of parsed JSONL entries
+        entries: List of parsed proxy buffer entries
+        container_id: Optional container ID to use as session ID
 
     Returns:
         SessionMetadata with extracted information
     """
-    session_id = ""
     started_at: datetime | None = None
     ended_at: datetime | None = None
     model: str | None = None
-    claude_code_version: str | None = None
 
     for entry in entries:
-        # Get session ID from any entry
-        if "sessionId" in entry and not session_id:
-            session_id = entry["sessionId"]
-
-        # Get version from any entry
-        if "version" in entry and not claude_code_version:
-            claude_code_version = entry["version"]
-
         # Get timestamp for start/end tracking
         ts = parse_timestamp(entry.get("timestamp"))
         if ts:
@@ -85,11 +95,11 @@ def extract_session_metadata(entries: list[dict[str, Any]]) -> SessionMetadata:
             if ended_at is None or ts > ended_at:
                 ended_at = ts
 
-        # Get model from assistant messages
-        if entry.get("type") == "assistant":
-            msg = entry.get("message", {})
-            if "model" in msg and not model:
-                model = msg["model"]
+        # Get model from request or response
+        if not model:
+            model = entry.get("request", {}).get("model")
+        if not model:
+            model = entry.get("response", {}).get("model")
 
     # Calculate duration
     duration_seconds: float | None = None
@@ -101,24 +111,24 @@ def extract_session_metadata(entries: list[dict[str, Any]]) -> SessionMetadata:
         started_at = datetime.now(UTC)
 
     return SessionMetadata(
-        session_id=session_id or "unknown",
+        session_id=container_id or "unknown",
+        container_id=container_id,
         started_at=started_at,
         ended_at=ended_at,
         duration_seconds=duration_seconds,
         model=model,
-        claude_code_version=claude_code_version,
     )
 
 
-def extract_messages(
+def extract_messages_from_proxy_buffer(
     entries: list[dict[str, Any]],
     max_content_length: int = 10000,
 ) -> list[Message]:
     """
-    Extract messages from JSONL entries.
+    Extract messages from proxy buffer entries.
 
     Args:
-        entries: List of parsed JSONL entries
+        entries: List of parsed proxy buffer entries
         max_content_length: Maximum length for message content before summarizing
 
     Returns:
@@ -127,197 +137,198 @@ def extract_messages(
     messages = []
 
     for entry in entries:
-        entry_type = entry.get("type")
         ts = parse_timestamp(entry.get("timestamp"))
 
-        if entry_type == "user":
-            # User message
-            msg = entry.get("message", {})
+        # Extract user messages from request
+        request = entry.get("request", {})
+        req_messages = request.get("messages", [])
+
+        for msg in req_messages:
+            role_str = msg.get("role", "")
             content = msg.get("content", "")
-            content_summary = None
 
-            if len(content) > max_content_length:
-                content_summary = f"[Content truncated: {len(content)} characters]"
-                content = content[:max_content_length] + "..."
+            if role_str == "user":
+                if isinstance(content, list):
+                    # Content may be a list of content blocks
+                    content = " ".join(
+                        c.get("text", str(c)) if isinstance(c, dict) else str(c) for c in content
+                    )
 
-            if ts:
+                content_summary = None
+                if len(str(content)) > max_content_length:
+                    content_summary = f"[Content truncated: {len(str(content))} characters]"
+                    content = str(content)[:max_content_length] + "..."
+
                 messages.append(
                     Message(
                         role=MessageRole.USER,
-                        content=content,
+                        content=str(content),
                         content_summary=content_summary,
                         timestamp=ts,
-                        uuid=entry.get("uuid"),
                     )
                 )
 
-        elif entry_type == "assistant":
-            # Assistant message (may contain tool calls or text)
-            msg = entry.get("message", {})
-            content_parts = msg.get("content", [])
+        # Extract assistant response
+        response = entry.get("response", {})
+        response_content = response.get("content", [])
 
-            for part in content_parts:
-                if isinstance(part, dict):
-                    if part.get("type") == "text":
-                        text = part.get("text", "")
-                        content_summary = None
-                        if len(text) > max_content_length:
-                            content_summary = f"[Content truncated: {len(text)} characters]"
-                            text = text[:max_content_length] + "..."
+        for block in response_content:
+            if not isinstance(block, dict):
+                continue
 
-                        if ts:
-                            messages.append(
-                                Message(
-                                    role=MessageRole.ASSISTANT,
-                                    content=text,
-                                    content_summary=content_summary,
-                                    timestamp=ts,
-                                    uuid=entry.get("uuid"),
-                                )
-                            )
-                    elif part.get("type") == "tool_use":
-                        # Tool use is captured separately in tool_calls
-                        pass
+            block_type = block.get("type", "")
 
-        elif entry_type == "tool_result":
-            # Tool result message
-            msg = entry.get("message", {})
-            content = msg.get("content", "")
-            if isinstance(content, list):
-                # Content may be a list of content blocks
-                content = " ".join(
-                    str(c.get("text", c) if isinstance(c, dict) else c)
-                    for c in content
-                )
-            content_summary = None
-            if len(str(content)) > max_content_length:
-                content_summary = f"[Result truncated: {len(str(content))} characters]"
-                content = str(content)[:max_content_length] + "..."
+            if block_type == "text":
+                text = block.get("text", "")
+                content_summary = None
+                if len(text) > max_content_length:
+                    content_summary = f"[Content truncated: {len(text)} characters]"
+                    text = text[:max_content_length] + "..."
 
-            if ts:
                 messages.append(
                     Message(
-                        role=MessageRole.TOOL_RESULT,
-                        content=str(content) if content else None,
+                        role=MessageRole.ASSISTANT,
+                        content=text,
                         content_summary=content_summary,
                         timestamp=ts,
-                        uuid=entry.get("uuid"),
                     )
                 )
+
+            elif block_type == "tool_use":
+                # Tool use is captured separately in tool_calls
+                pass
 
     return messages
 
 
-def extract_tool_calls(
+def extract_tool_calls_from_proxy_buffer(
     entries: list[dict[str, Any]],
     max_param_length: int = 1000,
     max_result_length: int = 500,
 ) -> tuple[list[ToolCall], list[FileOperation]]:
     """
-    Extract tool calls and file operations from JSONL entries.
+    Extract tool calls and file operations from proxy buffer entries.
 
     Args:
-        entries: List of parsed JSONL entries
+        entries: List of parsed proxy buffer entries
         max_param_length: Maximum length for parameter values
         max_result_length: Maximum length for result summaries
 
     Returns:
         Tuple of (tool_calls, file_operations)
+
+    Note:
+        Tool result matching is order-dependent: tool_use blocks from responses are
+        processed first, then tool_result blocks from subsequent requests are matched.
+        This works correctly because the proxy buffer is append-only and entries are
+        read sequentially. Tool results always appear in requests that follow the
+        response containing the corresponding tool_use.
     """
     tool_calls = []
     file_operations = []
 
-    # Track tool_use_id -> entry for matching results
-    tool_use_map: dict[str, dict[str, Any]] = {}
+    # Track tool_use_id -> tool call for result matching
+    tool_use_map: dict[str, ToolCall] = {}
 
     for entry in entries:
-        entry_type = entry.get("type")
         ts = parse_timestamp(entry.get("timestamp"))
 
-        if entry_type == "assistant":
-            msg = entry.get("message", {})
-            content_parts = msg.get("content", [])
+        # Extract tool uses from response
+        response = entry.get("response", {})
+        response_content = response.get("content", [])
 
-            for part in content_parts:
-                if isinstance(part, dict) and part.get("type") == "tool_use":
-                    tool_name = part.get("name", "")
-                    tool_use_id = part.get("id", "")
-                    params = part.get("input", {})
+        for block in response_content:
+            if not isinstance(block, dict):
+                continue
 
-                    # Truncate large parameter values
-                    truncated_params = {}
-                    for key, value in params.items():
-                        str_value = str(value)
-                        if len(str_value) > max_param_length:
-                            truncated_params[key] = str_value[:max_param_length] + "..."
-                        else:
-                            truncated_params[key] = value
+            if block.get("type") == "tool_use":
+                tool_name = block.get("name", "")
+                tool_use_id = block.get("id", "")
+                params = block.get("input", {})
 
-                    tool_call = ToolCall(
-                        name=tool_name,
-                        tool_use_id=tool_use_id,
-                        parameters=truncated_params,
-                        timestamp=ts or datetime.now(),
+                # Log warning if tool input failed to parse during streaming
+                if block.get("input_parse_error"):
+                    raw_input = block.get("raw_partial_input", "")
+                    logger.warning(
+                        "Tool call has incomplete input due to streaming parse failure: "
+                        "tool=%s id=%s raw_input_preview=%s",
+                        tool_name,
+                        tool_use_id,
+                        raw_input[:100] + "..." if len(raw_input) > 100 else raw_input,
                     )
-                    tool_calls.append(tool_call)
-                    tool_use_map[tool_use_id] = {"tool_call": tool_call, "params": params}
 
-                    # Extract file operations from tool calls
-                    if tool_name in TOOL_TO_FILE_OP:
-                        file_path = params.get("file_path") or params.get("path", "")
-                        if file_path:
-                            file_operations.append(
-                                FileOperation(
-                                    path=file_path,
-                                    operation=TOOL_TO_FILE_OP[tool_name],
-                                    timestamp=ts,
-                                )
+                # Truncate large parameter values
+                truncated_params = {}
+                for key, value in params.items():
+                    str_value = str(value)
+                    if len(str_value) > max_param_length:
+                        truncated_params[key] = str_value[:max_param_length] + "..."
+                    else:
+                        truncated_params[key] = value
+
+                tool_call = ToolCall(
+                    name=tool_name,
+                    tool_use_id=tool_use_id,
+                    parameters=truncated_params,
+                    timestamp=ts or datetime.now(UTC),
+                )
+                tool_calls.append(tool_call)
+                tool_use_map[tool_use_id] = tool_call
+
+                # Extract file operations from tool calls
+                if tool_name in TOOL_TO_FILE_OP:
+                    file_path = params.get("file_path") or params.get("path", "")
+                    if file_path:
+                        file_operations.append(
+                            FileOperation(
+                                path=file_path,
+                                operation=TOOL_TO_FILE_OP[tool_name],
+                                timestamp=ts,
                             )
-                    elif tool_name == "Bash":
-                        # Try to extract file paths from bash commands
-                        # This is heuristic and won't catch everything
-                        pass
+                        )
 
-        elif entry_type == "tool_result":
-            # Match result to tool call
-            msg = entry.get("message", {})
-            tool_use_id = msg.get("tool_use_id", "")
+        # Extract tool results from request messages
+        request = entry.get("request", {})
+        req_messages = request.get("messages", [])
 
-            if tool_use_id and tool_use_id in tool_use_map:
-                tool_data = tool_use_map[tool_use_id]
-                tool_call = tool_data["tool_call"]
+        for msg in req_messages:
+            content = msg.get("content", [])
+            if not isinstance(content, list):
+                continue
 
-                # Get result content
-                content = msg.get("content", "")
-                if isinstance(content, list):
-                    content = " ".join(
-                        str(c.get("text", c) if isinstance(c, dict) else c)
-                        for c in content
-                    )
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
 
-                # Check for errors
-                is_error = msg.get("is_error", False)
+                if block.get("type") == "tool_result":
+                    tool_use_id = block.get("tool_use_id", "")
+                    is_error = block.get("is_error", False)
+                    result_content = block.get("content", "")
 
-                # Create result summary
-                result_str = str(content)
-                if len(result_str) > max_result_length:
-                    result_summary = result_str[:max_result_length] + "..."
-                else:
-                    result_summary = result_str if result_str else None
+                    if isinstance(result_content, list):
+                        result_content = " ".join(
+                            c.get("text", str(c)) if isinstance(c, dict) else str(c)
+                            for c in result_content
+                        )
 
-                # Update tool call with result info
-                tool_call.result_summary = result_summary
-                tool_call.success = not is_error
+                    if tool_use_id and tool_use_id in tool_use_map:
+                        tool_call = tool_use_map[tool_use_id]
+                        result_str = str(result_content)
+                        if len(result_str) > max_result_length:
+                            tool_call.result_summary = result_str[:max_result_length] + "..."
+                        else:
+                            tool_call.result_summary = result_str if result_str else None
+                        tool_call.success = not is_error
 
     return tool_calls, file_operations
 
 
-def extract_token_usage(entries: list[dict[str, Any]]) -> TokenUsage:
+def extract_token_usage_from_proxy_buffer(entries: list[dict[str, Any]]) -> TokenUsage:
     """
-    Extract token usage from JSONL entries.
+    Extract token usage from proxy buffer entries.
 
     Args:
-        entries: List of parsed JSONL entries
+        entries: List of parsed proxy buffer entries
 
     Returns:
         TokenUsage with aggregated totals
@@ -328,11 +339,8 @@ def extract_token_usage(entries: list[dict[str, Any]]) -> TokenUsage:
     total_cache_creation = 0
 
     for entry in entries:
-        if entry.get("type") != "assistant":
-            continue
-
-        msg = entry.get("message", {})
-        usage = msg.get("usage", {})
+        response = entry.get("response", {})
+        usage = response.get("usage", {})
 
         if not usage:
             continue
@@ -341,14 +349,7 @@ def extract_token_usage(entries: list[dict[str, Any]]) -> TokenUsage:
         total_input += usage.get("input_tokens", 0)
         total_output += usage.get("output_tokens", 0)
         total_cache_read += usage.get("cache_read_input_tokens", 0)
-
-        # Handle nested cache_creation structure
-        cache_creation = usage.get("cache_creation", {})
-        if isinstance(cache_creation, dict):
-            total_cache_creation += cache_creation.get("ephemeral_5m_input_tokens", 0)
-            total_cache_creation += cache_creation.get("ephemeral_1h_input_tokens", 0)
-        else:
-            total_cache_creation += usage.get("cache_creation_input_tokens", 0)
+        total_cache_creation += usage.get("cache_creation_input_tokens", 0)
 
     # Calculate totals
     total_tokens = total_input + total_output
@@ -372,17 +373,27 @@ def extract_token_usage(entries: list[dict[str, Any]]) -> TokenUsage:
     )
 
 
-def extract_transcript_from_jsonl(
-    jsonl_path: Path,
+def extract_transcript_from_proxy_buffer(
+    buffer_path: Path,
+    container_id: str | None = None,
     max_content_length: int = 10000,
     max_param_length: int = 1000,
     max_result_length: int = 500,
 ) -> tuple[SessionMetadata, Transcript, list[ToolCall], list[FileOperation], TokenUsage]:
     """
-    Extract full transcript data from a Claude Code JSONL session file.
+    Extract full transcript data from a proxy buffer file.
+
+    The proxy buffer contains API request/response pairs captured at the gateway.
+    This is the primary source for transcript extraction as it provides a stable
+    format independent of Claude Code internals.
 
     Args:
-        jsonl_path: Path to the JSONL session file
+        buffer_path: Path to the proxy buffer JSONL file
+        container_id: Optional container ID for session metadata. If not provided,
+            it's inferred from the buffer filename stem (e.g., "abc123" from
+            "/tmp/egg-transcripts/abc123.jsonl"). This fallback supports standalone
+            testing and ad-hoc transcript extraction where the container context
+            is not available.
         max_content_length: Maximum length for message content
         max_param_length: Maximum length for tool parameter values
         max_result_length: Maximum length for tool result summaries
@@ -395,29 +406,35 @@ def extract_transcript_from_jsonl(
     """
     try:
         entries = []
-        with open(jsonl_path) as f:
-            for _line_num, line in enumerate(f, 1):
+        with open(buffer_path) as f:
+            for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 try:
                     entry = json.loads(line)
-                    entries.append(entry)
+                    # Only process api_turn entries
+                    if entry.get("type") == "api_turn":
+                        entries.append(entry)
                 except json.JSONDecodeError:
-                    # Skip malformed lines but continue
+                    # Skip malformed lines
                     continue
 
         if not entries:
-            msg = f"No valid entries found in {jsonl_path}"
+            msg = f"No valid API turn entries found in {buffer_path}"
             raise TranscriptExtractError(msg)
 
+        # Infer container_id from path if not provided
+        if container_id is None:
+            container_id = buffer_path.stem  # Filename without extension
+
         # Extract all components
-        session_metadata = extract_session_metadata(entries)
-        messages = extract_messages(entries, max_content_length)
-        tool_calls, file_operations = extract_tool_calls(
+        session_metadata = extract_session_metadata_from_proxy_buffer(entries, container_id)
+        messages = extract_messages_from_proxy_buffer(entries, max_content_length)
+        tool_calls, file_operations = extract_tool_calls_from_proxy_buffer(
             entries, max_param_length, max_result_length
         )
-        token_usage = extract_token_usage(entries)
+        token_usage = extract_token_usage_from_proxy_buffer(entries)
 
         # Build transcript
         transcript = Transcript(
@@ -429,104 +446,42 @@ def extract_transcript_from_jsonl(
         return session_metadata, transcript, tool_calls, file_operations, token_usage
 
     except FileNotFoundError as e:
-        msg = f"Session file not found: {jsonl_path}"
+        msg = f"Proxy buffer file not found: {buffer_path}"
         raise TranscriptExtractError(msg) from e
     except Exception as e:
         if isinstance(e, TranscriptExtractError):
             raise
-        msg = f"Error extracting transcript from {jsonl_path}: {e}"
+        msg = f"Error extracting transcript from proxy buffer {buffer_path}: {e}"
         raise TranscriptExtractError(msg) from e
 
 
-def _is_safe_path(file_path: Path, base_dir: Path) -> bool:
+def get_proxy_buffer_path(container_id: str) -> Path:
     """
-    Check if a file path is safe (not a symlink and within the base directory).
+    Get the default proxy buffer path for a container ID.
 
     Args:
-        file_path: The file path to check
-        base_dir: The expected base directory
+        container_id: Container ID (validated to prevent path traversal)
 
     Returns:
-        True if the path is safe, False otherwise
+        Path to the buffer file
+
+    Raises:
+        ValueError: If container_id contains path traversal characters
     """
-    # Skip symlinks to prevent symlink attacks
-    if file_path.is_symlink():
-        return False
-    # Resolve the path and verify it's within the expected directory
+    # Defense in depth: validate container_id to prevent path traversal
+    # Even though container IDs come from session manager, we should still validate
+    if not container_id or "/" in container_id or "\\" in container_id or ".." in container_id:
+        raise ValueError(f"Invalid container_id: {container_id!r}")
+
+    base_dir = Path("/tmp/egg-transcripts")
+    buffer_path = base_dir / f"{container_id}.jsonl"
+
+    # Additional check: ensure resolved path is within base directory
     try:
-        resolved = file_path.resolve()
-        base_resolved = base_dir.resolve()
-        return str(resolved).startswith(str(base_resolved) + "/") or resolved == base_resolved
-    except (OSError, ValueError):
-        return False
+        buffer_path.resolve().relative_to(base_dir.resolve())
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid container_id results in path outside buffer directory: {container_id!r}"
+        ) from e
 
-
-def find_session_file(
-    session_id: str | None = None,
-    project_path: Path | None = None,
-    claude_projects_dir: Path | None = None,
-) -> Path | None:
-    """
-    Find the JSONL session file for the current or specified session.
-
-    Args:
-        session_id: Optional specific session ID to find
-        project_path: Optional project path to search under
-        claude_projects_dir: Optional base directory for Claude projects
-
-    Returns:
-        Path to the session JSONL file, or None if not found
-    """
-    # Default Claude projects directory
-    if claude_projects_dir is None:
-        claude_projects_dir = Path.home() / ".claude" / "projects"
-
-    if not claude_projects_dir.exists():
-        return None
-
-    # If session_id is provided, search for that specific session
-    if session_id:
-        for project_dir in claude_projects_dir.iterdir():
-            if not project_dir.is_dir():
-                continue
-            session_file = project_dir / f"{session_id}.jsonl"
-            if session_file.exists() and _is_safe_path(session_file, claude_projects_dir):
-                return session_file
-        return None
-
-    # If project_path is provided, use it to find the project directory
-    if project_path:
-        # Claude Code encodes project paths by replacing / with -
-        project_name = str(project_path).replace("/", "-")
-        if project_name.startswith("-"):
-            project_name = project_name[1:]
-        project_dir = claude_projects_dir / project_name
-
-        if project_dir.exists():
-            # Find the most recent session file
-            session_files = [
-                f for f in project_dir.glob("*.jsonl")
-                if _is_safe_path(f, claude_projects_dir)
-            ]
-            if session_files:
-                # Sort by modification time, most recent first
-                session_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-                return session_files[0]
-
-    # Fallback: find the most recently modified session file across all projects
-    most_recent: Path | None = None
-    most_recent_time = 0.0
-
-    for project_dir in claude_projects_dir.iterdir():
-        if not project_dir.is_dir():
-            continue
-        for session_file in project_dir.glob("*.jsonl"):
-            # Skip symlinks and paths outside the expected directory
-            if not _is_safe_path(session_file, claude_projects_dir):
-                continue
-            mtime = session_file.stat().st_mtime
-            if mtime > most_recent_time:
-                most_recent = session_file
-                most_recent_time = mtime
-
-    return most_recent
+    return buffer_path

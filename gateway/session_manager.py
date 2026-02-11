@@ -32,6 +32,24 @@ from egg_logging import get_logger
 
 logger = get_logger("gateway.session-manager")
 
+
+# Import transcript buffer cleanup (lazy to avoid circular imports)
+def _cleanup_transcript_buffer(container_id: str) -> None:
+    """Clean up transcript buffer for a container when session ends."""
+    try:
+        from transcript_buffer import cleanup_transcript_buffer
+        cleanup_transcript_buffer(container_id)
+        logger.debug("Transcript buffer cleaned up", container_id=container_id)
+    except ImportError:
+        # transcript_buffer may not be available in all contexts
+        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to clean up transcript buffer",
+            container_id=container_id,
+            error=str(e),
+        )
+
 # Session configuration
 DEFAULT_SESSION_TTL_HOURS = 24
 DEFAULT_CLEANUP_INTERVAL_MINUTES = 15
@@ -506,6 +524,9 @@ class SessionManager:
                     self._token_to_hash.pop(session.session_token, None)
                 self._save_to_disk()
 
+                # Clean up transcript buffer for this container
+                _cleanup_transcript_buffer(container_id)
+
                 logger.info(
                     "Session deleted by container ID",
                     event_type="session_deleted",
@@ -536,6 +557,9 @@ class SessionManager:
                 if session.session_token:
                     self._token_to_hash.pop(session.session_token, None)
                 pruned += 1
+
+                # Clean up transcript buffer for expired session
+                _cleanup_transcript_buffer(session.container_id)
 
                 logger.info(
                     "Session expired and pruned",
