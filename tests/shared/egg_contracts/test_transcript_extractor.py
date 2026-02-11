@@ -1,12 +1,10 @@
 """Tests for transcript extraction from proxy buffer format."""
 
 import json
-import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-
+from egg_contracts.checkpoints import FileOperationType, MessageRole
 from egg_contracts.transcript_extractor import (
     TranscriptExtractError,
     extract_messages_from_proxy_buffer,
@@ -16,7 +14,6 @@ from egg_contracts.transcript_extractor import (
     extract_transcript_from_proxy_buffer,
     get_proxy_buffer_path,
 )
-from egg_contracts.checkpoints import FileOperationType, MessageRole
 
 
 class TestExtractSessionMetadataFromProxyBuffer:
@@ -251,6 +248,85 @@ class TestExtractToolCallsFromProxyBuffer:
         assert len(tool_calls) == 1
         assert tool_calls[0].result_summary == "hello"
         assert tool_calls[0].success is True
+
+    def test_extract_tool_use_with_input_parse_error(self, caplog):
+        """Test extracting tool_use with input_parse_error logs warning."""
+        import logging
+
+        entries = [
+            {
+                "timestamp": "2026-02-11T10:00:00.000000Z",
+                "type": "api_turn",
+                "request": {"messages": []},
+                "response": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_broken_input",
+                            "name": "Edit",
+                            "input": {},  # Empty due to parse failure
+                            "input_parse_error": True,
+                            "raw_partial_input": '{"file_path": "/tmp/test.py", "old_string": "incomplete',
+                        }
+                    ]
+                },
+            },
+        ]
+
+        with caplog.at_level(logging.WARNING):
+            tool_calls, file_ops = extract_tool_calls_from_proxy_buffer(entries)
+
+        # Should still extract the tool call
+        assert len(tool_calls) == 1
+        assert tool_calls[0].name == "Edit"
+        assert tool_calls[0].tool_use_id == "toolu_broken_input"
+        assert tool_calls[0].parameters == {}
+
+        # Should log a warning about the parse failure
+        assert any(
+            "streaming parse failure" in record.message.lower()
+            and "toolu_broken_input" in record.message
+            for record in caplog.records
+        )
+
+    def test_extract_tool_use_with_input_parse_error_long_raw_input(self, caplog):
+        """Test that raw_partial_input is truncated in warning log."""
+        import logging
+
+        long_raw_input = "x" * 200  # Longer than the 100 char preview limit
+
+        entries = [
+            {
+                "timestamp": "2026-02-11T10:00:00.000000Z",
+                "type": "api_turn",
+                "request": {"messages": []},
+                "response": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_long_raw",
+                            "name": "Bash",
+                            "input": {},
+                            "input_parse_error": True,
+                            "raw_partial_input": long_raw_input,
+                        }
+                    ]
+                },
+            },
+        ]
+
+        with caplog.at_level(logging.WARNING):
+            tool_calls, _ = extract_tool_calls_from_proxy_buffer(entries)
+
+        assert len(tool_calls) == 1
+
+        # Warning message should contain truncated preview (100 chars + "...")
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warning_records) == 1
+        # The raw input preview should be truncated to 100 chars + "..."
+        assert "..." in warning_records[0].message
+        # Should not contain the full 200-char string
+        assert long_raw_input not in warning_records[0].message
 
 
 class TestExtractTokenUsageFromProxyBuffer:

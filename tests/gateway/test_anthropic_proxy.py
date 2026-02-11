@@ -803,6 +803,63 @@ class TestParseSSEResponse:
         content, usage, model, stop_reason = _parse_sse_response(chunks)
         assert content is None or len(content) == 0
 
+    def test_parse_tool_use_with_incomplete_json(self):
+        """Test parsing tool_use with incomplete JSON sets input_parse_error flag."""
+        from gateway.gateway import _parse_sse_response
+
+        # Simulate a streaming response where the tool_use input JSON is incomplete
+        # (e.g., connection dropped mid-stream)
+        chunks = [
+            b'data: {"type":"message_start","message":{"model":"claude-3"}}\n\n',
+            b'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_broken","name":"Bash"}}\n\n',
+            b'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"command\\": \\"ls"}}\n\n',
+            # Incomplete JSON - missing closing brace and quote
+            b'data: {"type":"content_block_stop","index":0}\n\n',
+            b'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+            b"data: [DONE]\n\n",
+        ]
+
+        content, usage, model, stop_reason = _parse_sse_response(chunks)
+
+        assert content is not None
+        assert len(content) == 1
+        assert content[0]["type"] == "tool_use"
+        assert content[0]["id"] == "toolu_broken"
+        assert content[0]["name"] == "Bash"
+        # Should have empty input due to parse failure
+        assert content[0]["input"] == {}
+        # Should have input_parse_error flag set
+        assert content[0].get("input_parse_error") is True
+        # Should have raw_partial_input for debugging
+        assert "raw_partial_input" in content[0]
+        assert '{"command": "ls' in content[0]["raw_partial_input"]
+
+    def test_parse_tool_use_with_long_incomplete_json_truncates(self):
+        """Test that raw_partial_input is truncated for very long incomplete JSON."""
+        from gateway.gateway import RAW_INPUT_TRUNCATE_SIZE, _parse_sse_response
+
+        # Create a very long incomplete JSON input
+        long_value = "x" * 2000  # Longer than RAW_INPUT_TRUNCATE_SIZE (1000)
+        partial_json = f'{{"command": "{long_value}'
+
+        chunks = [
+            b'data: {"type":"message_start","message":{"model":"claude-3"}}\n\n',
+            b'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_long","name":"Bash"}}\n\n',
+            f'data: {{"type":"content_block_delta","index":0,"delta":{{"type":"input_json_delta","partial_json":"{partial_json.replace(chr(34), chr(92) + chr(34))}"}}}}\n\n'.encode(),
+            b'data: {"type":"content_block_stop","index":0}\n\n',
+            b'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+            b"data: [DONE]\n\n",
+        ]
+
+        content, usage, model, stop_reason = _parse_sse_response(chunks)
+
+        assert content is not None
+        assert len(content) == 1
+        assert content[0].get("input_parse_error") is True
+        # raw_partial_input should be truncated to RAW_INPUT_TRUNCATE_SIZE
+        raw_input = content[0].get("raw_partial_input", "")
+        assert len(raw_input) == RAW_INPUT_TRUNCATE_SIZE
+
 
 class TestTranscriptCaptureFunctions:
     """Tests for transcript capture helper functions."""
