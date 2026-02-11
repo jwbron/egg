@@ -34,7 +34,7 @@ except ImportError:
 from dispatch import create_dispatcher
 from handoffs import AgentOutput, save_agent_output
 from models import AgentRole, PipelineStatus
-from state_store import PipelineNotFoundError, get_state_store
+from state_store import InvalidPipelineIdError, PipelineNotFoundError, get_state_store
 
 logger = get_logger("orchestrator.signals")
 
@@ -208,6 +208,11 @@ def handle_complete_signal(
             },
         )
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
@@ -310,6 +315,11 @@ def handle_error_signal(
             },
         )
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",

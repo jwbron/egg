@@ -441,7 +441,14 @@ def check_container_health(pipeline_id: str, container_id: str) -> tuple[Respons
             }
         }
     """
-    monitor = get_container_monitor()
-    health = monitor.check_container_health(container_id)
+    try:
+        monitor = get_container_monitor()
+        health = monitor.check_container_health(container_id)
 
-    return make_success_response("Health checked", data=health)
+        return make_success_response("Health checked", data=health)
+
+    except InvalidContainerIdError:
+        return make_error_response(
+            f"Invalid container ID format: {container_id}",
+            status_code=400,
+        )
