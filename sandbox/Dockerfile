@@ -40,7 +40,11 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 
 # Install Python 3.11 as default (Ubuntu 22.04 ships with 3.10)
 # Required for datetime.UTC and other 3.11+ features used by egg scripts
-RUN add-apt-repository -y ppa:deadsnakes/ppa && \
+# Note: We run apt-get update twice - once before adding the PPA to refresh
+# base Ubuntu package lists (avoiding stale libexpat1 etc), and once after
+# to pick up deadsnakes packages
+RUN apt-get update && \
+    add-apt-repository -y ppa:deadsnakes/ppa && \
     apt-get update && \
     apt-get install -y python3.11 python3.11-venv python3.11-dev python3-pip && \
     update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
