@@ -30,6 +30,10 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
   with:
     prompt: "Fix the failing tests"
     anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+    # Optional: enable separate reviewer bot for PR reviews
+    # reviewer-app-id: ${{ secrets.REVIEWER_APP_ID }}
+    # reviewer-app-private-key: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
+    # reviewer-app-installation-id: ${{ secrets.REVIEWER_APP_INSTALLATION_ID }}
 ```
 
 > **Note:** Use `@main` until the first release (v0.1.0) creates the `@v0` tag.

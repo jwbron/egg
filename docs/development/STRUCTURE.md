@@ -40,8 +40,8 @@ The gateway sidecar holds credentials and enforces policies:
 gateway/
 ├── gateway.py              # Main HTTP server
 ├── git_client.py           # Git operation handler
-├── github_client.py        # GitHub API handler
-├── policy.py               # Branch ownership, push policies
+├── github_client.py        # GitHub API handler (supports bot/user/reviewer modes)
+├── policy.py               # Branch ownership, push policies, reviewer identity management
 ├── fork_policy.py          # Fork access policies
 ├── private_repo_policy.py  # Private/public repo access
 ├── phase_filter.py         # Phase-based operation filtering, file restrictions
@@ -50,7 +50,7 @@ gateway/
 ├── phase_api.py            # Phase API endpoints
 ├── contract_api.py         # Contract API endpoints
 ├── auth.py                 # Session authentication
-├── token_refresher.py      # GitHub App token management
+├── token_refresher.py      # GitHub App token management (bot and optional reviewer)
 ├── anthropic_credentials.py # API key injection for Claude
 ├── checkpoint_handler.py   # Per-commit checkpoint capture
 ├── transcript_buffer.py    # API proxy transcript capture buffer
