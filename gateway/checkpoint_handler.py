@@ -79,6 +79,12 @@ from egg_contracts.transcript_extractor import (
     extract_transcript_from_proxy_buffer,
     get_proxy_buffer_path,
 )
+from egg_contracts.usage_loader import (
+    USAGE_TRACKING_ENABLED,
+    UsageLoadError,
+    UsageSaveError,
+    update_usage_from_checkpoint,
+)
 from egg_logging import get_logger
 
 try:
@@ -333,6 +339,15 @@ class CheckpointHandler:
             if pipeline_phase is None:
                 pipeline_phase = os.environ.get("EGG_PIPELINE_PHASE")
 
+            # Get PR number from environment if available
+            pr_number: int | None = None
+            pr_str = os.environ.get("EGG_PR_NUMBER")
+            if pr_str:
+                try:
+                    pr_number = int(pr_str)
+                except ValueError:
+                    pass
+
             # Generate checkpoint ID
             checkpoint_id = generate_checkpoint_id_from_commit(
                 commit_sha, session_metadata.session_id
@@ -352,6 +367,7 @@ class CheckpointHandler:
                 branch=branch,
                 created_at=datetime.now(UTC),
                 push_sha=push_sha or commit_sha,
+                pr_number=pr_number,
             )
 
             logger.info(
@@ -549,6 +565,22 @@ class CheckpointHandler:
                         checkpoint_id=checkpoint.id,
                         branch=CHECKPOINT_BRANCH,
                     )
+
+                    # Update usage aggregates (graceful degradation on failure)
+                    if USAGE_TRACKING_ENABLED:
+                        try:
+                            update_usage_from_checkpoint(temp_path, checkpoint)
+                            logger.debug(
+                                "Usage aggregates updated",
+                                checkpoint_id=checkpoint.id,
+                            )
+                        except (UsageLoadError, UsageSaveError) as e:
+                            # Log but don't fail - usage update is non-critical
+                            logger.warning(
+                                "Failed to update usage aggregates",
+                                error=str(e),
+                                checkpoint_id=checkpoint.id,
+                            )
 
                     return True
 
