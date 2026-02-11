@@ -229,6 +229,10 @@ class GatewayClient:
         container_id: str,
         container_ip: str,
         mode: str = "public",
+        repos: list[str] | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
+        phase: str | None = None,
     ) -> SessionInfo:
         """Register a session for a container.
 
@@ -238,6 +242,10 @@ class GatewayClient:
             container_id: Docker container ID
             container_ip: Container IP address
             mode: Repository visibility mode (private or public)
+            repos: List of repositories in owner/repo format (optional)
+            uid: User ID for worktree ownership (optional)
+            gid: Group ID for worktree ownership (optional)
+            phase: SDLC pipeline phase (optional)
 
         Returns:
             SessionInfo with the created session
@@ -245,14 +253,23 @@ class GatewayClient:
         Raises:
             GatewayError: On registration failure
         """
+        data: dict[str, Any] = {
+            "container_id": container_id,
+            "container_ip": container_ip,
+            "mode": mode,
+            "repos": repos or [],
+        }
+        if uid is not None:
+            data["uid"] = uid
+        if gid is not None:
+            data["gid"] = gid
+        if phase is not None:
+            data["phase"] = phase
+
         result = self._make_request(
-            "/api/v1/session/register",
+            "/api/v1/sessions/create",
             method="POST",
-            data={
-                "container_id": container_id,
-                "container_ip": container_ip,
-                "mode": mode,
-            },
+            data=data,
             use_launcher_auth=True,
         )
 
@@ -261,22 +278,22 @@ class GatewayClient:
                 result.get("message", "Session registration failed")
             )
 
-        data = result.get("data", {})
+        response_data = result.get("data", {})
 
         logger.info(
             "Session registered with gateway",
-            container_id=container_id[:12],
+            container_id=container_id[:12] if len(container_id) >= 12 else container_id,
             container_ip=container_ip,
             mode=mode,
         )
 
         return SessionInfo(
-            session_token=data["session_token"],
+            session_token=response_data["session_token"],
             container_id=container_id,
             container_ip=container_ip,
             mode=mode,
-            created_at=datetime.fromisoformat(data.get("created_at", datetime.now().isoformat())),
-            expires_at=datetime.fromisoformat(data.get("expires_at", (datetime.now() + timedelta(hours=24)).isoformat())),
+            created_at=datetime.fromisoformat(response_data.get("created_at", datetime.now().isoformat())),
+            expires_at=datetime.fromisoformat(response_data.get("expires_at", (datetime.now() + timedelta(hours=24)).isoformat())),
         )
 
     def validate_session(
@@ -286,26 +303,20 @@ class GatewayClient:
     ) -> bool:
         """Validate a session token.
 
+        Requires launcher secret authentication.
+
         Args:
             session_token: Token to validate
-            source_ip: Optional source IP for verification
+            source_ip: Optional source IP for verification (not used in GET request)
 
         Returns:
             True if session is valid
         """
         try:
-            params: dict[str, str] = {}
-            if source_ip:
-                params["source_ip"] = source_ip
-
-            endpoint = "/api/v1/session/validate"
-            if params:
-                endpoint += "?" + urlencode(params)
-
             result = self._make_request(
-                endpoint,
-                method="POST",
-                data={"session_token": session_token},
+                f"/api/v1/sessions/{session_token}",
+                method="GET",
+                use_launcher_auth=True,
             )
 
             return result.get("valid", False)
@@ -315,10 +326,10 @@ class GatewayClient:
     def update_session(
         self,
         session_token: str,
-        container_id: str,
-        container_ip: str,
+        container_id: str | None = None,
+        container_ip: str | None = None,
     ) -> bool:
-        """Update a session with new container ID and IP.
+        """Update a session with new container ID and/or IP.
 
         Used after pre-registering a session before container creation,
         to bind the session to the real container ID once known.
@@ -327,8 +338,8 @@ class GatewayClient:
 
         Args:
             session_token: Token to update
-            container_id: New container ID
-            container_ip: New container IP address
+            container_id: New container ID (optional)
+            container_ip: New container IP address (optional)
 
         Returns:
             True if session was updated
@@ -336,14 +347,19 @@ class GatewayClient:
         Raises:
             GatewayError: On update failure
         """
+        data: dict[str, str] = {}
+        if container_id:
+            data["container_id"] = container_id
+        if container_ip:
+            data["container_ip"] = container_ip
+
+        if not data:
+            raise GatewayError("Must provide container_id and/or container_ip")
+
         result = self._make_request(
-            "/api/v1/session/update",
-            method="POST",
-            data={
-                "session_token": session_token,
-                "container_id": container_id,
-                "container_ip": container_ip,
-            },
+            f"/api/v1/sessions/{session_token}",
+            method="PATCH",
+            data=data,
             use_launcher_auth=True,
         )
 
@@ -354,7 +370,7 @@ class GatewayClient:
 
         logger.info(
             "Session updated",
-            container_id=container_id[:12],
+            container_id=container_id[:12] if container_id and len(container_id) >= 12 else container_id,
             container_ip=container_ip,
         )
 
@@ -373,9 +389,8 @@ class GatewayClient:
         """
         try:
             result = self._make_request(
-                "/api/v1/session/delete",
-                method="POST",
-                data={"session_token": session_token},
+                f"/api/v1/sessions/{session_token}",
+                method="DELETE",
                 use_launcher_auth=True,
             )
 
@@ -397,9 +412,8 @@ class GatewayClient:
         """
         try:
             result = self._make_request(
-                "/api/v1/session/delete",
-                method="POST",
-                data={"container_id": container_id},
+                f"/api/v1/sessions/by-container/{container_id}",
+                method="DELETE",
                 use_launcher_auth=True,
             )
 
@@ -407,7 +421,7 @@ class GatewayClient:
         except GatewayError as e:
             logger.warning(
                 "Failed to delete session by container",
-                container_id=container_id[:12],
+                container_id=container_id[:12] if len(container_id) >= 12 else container_id,
                 error=str(e),
             )
             return False

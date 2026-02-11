@@ -46,6 +46,9 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
                 "version": "0.1.0",
                 "uptime_seconds": 100.0,
             })
+        elif self.path.startswith("/api/v1/sessions/"):
+            # GET /api/v1/sessions/<token> - validate session
+            self._handle_validate_get()
         else:
             self._send_error(404, "Not found")
 
@@ -55,17 +58,33 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(content_length)
         data = json.loads(body) if body else {}
 
-        if self.path == "/api/v1/session/register":
+        if self.path == "/api/v1/sessions/create":
             self._handle_register(data)
-        elif self.path == "/api/v1/session/validate":
-            self._handle_validate(data)
-        elif self.path == "/api/v1/session/delete":
-            self._handle_delete(data)
+        else:
+            self._send_error(404, "Not found")
+
+    def do_PATCH(self):
+        """Handle PATCH requests."""
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_length)
+        data = json.loads(body) if body else {}
+
+        if self.path.startswith("/api/v1/sessions/"):
+            self._handle_update(data)
+        else:
+            self._send_error(404, "Not found")
+
+    def do_DELETE(self):
+        """Handle DELETE requests."""
+        if self.path.startswith("/api/v1/sessions/by-container/"):
+            self._handle_delete_by_container()
+        elif self.path.startswith("/api/v1/sessions/"):
+            self._handle_delete()
         else:
             self._send_error(404, "Not found")
 
     def _handle_register(self, data):
-        """Handle session registration."""
+        """Handle session registration (POST /api/v1/sessions/create)."""
         # Check launcher secret
         secret = self.headers.get("X-Egg-Launcher-Secret")
         if secret != "test-secret":
@@ -81,16 +100,47 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
             },
         })
 
-    def _handle_validate(self, data):
-        """Handle session validation."""
-        token = data.get("session_token")
-        if token == "valid-token":
-            self._send_json({"valid": True})
-        else:
-            self._send_json({"valid": False, "error": "Invalid token"})
+    def _handle_validate_get(self):
+        """Handle session validation (GET /api/v1/sessions/<token>)."""
+        # Check launcher secret
+        secret = self.headers.get("X-Egg-Launcher-Secret")
+        if secret != "test-secret":
+            self._send_error(401, "Unauthorized")
+            return
 
-    def _handle_delete(self, data):
-        """Handle session deletion."""
+        # Extract token from path
+        token = self.path.split("/")[-1]
+        if token == "valid-token":
+            self._send_json({"valid": True, "mode": "public", "container_id": "abc123"})
+        else:
+            self._send_json({"valid": False, "error": "Invalid token"}, status=404)
+
+    def _handle_update(self, data):
+        """Handle session update (PATCH /api/v1/sessions/<token>)."""
+        secret = self.headers.get("X-Egg-Launcher-Secret")
+        if secret != "test-secret":
+            self._send_error(401, "Unauthorized")
+            return
+
+        self._send_json({
+            "success": True,
+            "data": {
+                "container_id": data.get("container_id"),
+                "container_ip": data.get("container_ip"),
+            },
+        })
+
+    def _handle_delete(self):
+        """Handle session deletion (DELETE /api/v1/sessions/<token>)."""
+        secret = self.headers.get("X-Egg-Launcher-Secret")
+        if secret != "test-secret":
+            self._send_error(401, "Unauthorized")
+            return
+
+        self._send_json({"success": True})
+
+    def _handle_delete_by_container(self):
+        """Handle session deletion by container (DELETE /api/v1/sessions/by-container/<id>)."""
         secret = self.headers.get("X-Egg-Launcher-Secret")
         if secret != "test-secret":
             self._send_error(401, "Unauthorized")

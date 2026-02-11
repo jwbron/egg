@@ -2506,6 +2506,35 @@ def session_delete(session_token: str) -> tuple[Response, int] | Response:
     return make_success("Session deleted")
 
 
+@app.route("/api/v1/sessions/by-container/<container_id>", methods=["DELETE"])
+@require_launcher_auth
+def session_delete_by_container(container_id: str) -> tuple[Response, int] | Response:
+    """
+    Delete a session by container ID.
+
+    Used by the orchestrator for cleanup when the session token is not available.
+
+    Args:
+        container_id: The container ID whose session to delete
+
+    Auth: Bearer {launcher_secret}
+    """
+    session_manager = get_session_manager()
+    deleted = session_manager.delete_session_by_container(container_id)
+
+    if not deleted:
+        return make_error("Session not found for container", status_code=404)
+
+    audit_log(
+        "session_deleted",
+        "session_delete_by_container",
+        success=True,
+        details={"container_id": container_id},
+    )
+
+    return make_success("Session deleted")
+
+
 @app.route("/api/v1/sessions/<session_token>", methods=["GET"])
 @require_launcher_auth
 def session_get(session_token: str) -> tuple[Response, int] | Response:
@@ -2579,6 +2608,67 @@ def session_heartbeat(session_token: str) -> tuple[Response, int] | Response:
         "Heartbeat recorded",
         {
             "expires_at": result.session.expires_at.isoformat() if result.session else None,
+        },
+    )
+
+
+@app.route("/api/v1/sessions/<session_token>", methods=["PATCH"])
+@require_launcher_auth
+def session_update(session_token: str) -> tuple[Response, int] | Response:
+    """
+    Update session container binding (container_id and/or container_ip).
+
+    Used by the orchestrator to bind a session to the real container
+    after pre-registering with a placeholder ID before container creation.
+
+    Request body:
+        {
+            "container_id": "abc123...",  # Optional
+            "container_ip": "172.32.0.10"  # Optional
+        }
+
+    At least one of container_id or container_ip must be provided.
+
+    Args:
+        session_token: The session token to update
+
+    Auth: Bearer {launcher_secret}
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    container_id = data.get("container_id")
+    container_ip = data.get("container_ip")
+
+    if not container_id and not container_ip:
+        return make_error("Must provide container_id and/or container_ip")
+
+    session_manager = get_session_manager()
+    success = session_manager.update_session(
+        session_token,
+        container_id=container_id,
+        container_ip=container_ip,
+    )
+
+    if not success:
+        return make_error("Session not found or expired", status_code=404)
+
+    audit_log(
+        "session_container_updated",
+        "session_update",
+        success=True,
+        details={
+            "container_id": container_id,
+            "container_ip": container_ip,
+        },
+    )
+
+    return make_success(
+        "Session updated",
+        {
+            "container_id": container_id,
+            "container_ip": container_ip,
         },
     )
 
