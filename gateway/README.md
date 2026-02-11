@@ -55,6 +55,8 @@ The gateway sidecar is the **trusted** component that holds credentials and vali
 
 The gateway enforces phase-specific operation restrictions based on the current SDLC pipeline phase. This prevents operations like pushing code during planning or creating PRs during implementation.
 
+**Implementation**: Each session tracks the current SDLC phase via the `phase` field. The phase is set during session creation from the `EGG_PIPELINE_PHASE` environment variable and can be updated via the `PATCH /api/v1/sessions/{token}/phase` endpoint. When operations like `gh pr create` are invoked, the gateway checks the session's phase against the allowed operations in `.egg/phase-permissions.json` and returns HTTP 403 if the operation is blocked.
+
 **Phase permissions** (configured in `.egg/phase-permissions.json`):
 
 ### File-Level Access Restrictions
@@ -100,6 +102,20 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 Phase transitions require specific roles (human, reviewer, implementer) as defined in the phase configuration.
 
 ## API Endpoints
+
+### Session Management
+
+```
+POST /api/v1/sessions/create
+  Request: {container_id, container_ip, mode, repos[], uid?, gid?, phase?}
+  Auth: Bearer {launcher_secret}
+  Description: Create a new session with optional SDLC phase tracking
+
+PATCH /api/v1/sessions/<session_token>/phase
+  Request: {phase: "refine"|"plan"|"implement"|"pr"}
+  Auth: Bearer {launcher_secret}
+  Description: Update the SDLC pipeline phase for a session
+```
 
 ### Git Operations
 
