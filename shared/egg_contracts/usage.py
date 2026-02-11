@@ -54,6 +54,14 @@ def get_model_pricing(model: str | None) -> dict[str, Decimal]:
 
     Resolves full model IDs (e.g. 'claude-opus-4-5-20251101') to their
     base alias ('opus'). Falls back to opus pricing for unknown models.
+
+    Expected inputs:
+        - Short aliases: "opus", "sonnet", "haiku"
+        - Full Anthropic model IDs: "claude-opus-4-5-20251101",
+          "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001"
+
+    Note: Uses substring matching, so model IDs must contain exactly one of
+    the known aliases (opus, sonnet, haiku) to match correctly.
     """
     if model is None:
         return MODEL_PRICING["opus"]
@@ -147,9 +155,7 @@ class UsageAggregate(BaseModel):
         default="1.0", pattern=r"^[0-9]+\.[0-9]+$", description="Schema version"
     )
     tokens: TokenCounts = Field(default_factory=TokenCounts, description="Aggregated token counts")
-    estimated_cost_usd: float = Field(
-        default=0.0, ge=0.0, description="Estimated cost in USD"
-    )
+    estimated_cost_usd: float = Field(default=0.0, ge=0.0, description="Estimated cost in USD")
     checkpoint_count: int = Field(default=0, ge=0, description="Number of checkpoints included")
     first_checkpoint_at: datetime | None = Field(
         default=None, description="Timestamp of first checkpoint"
@@ -174,20 +180,18 @@ class SessionUsage(UsageAggregate):
 
     session_id: str = Field(..., description="Session identifier")
     container_id: str | None = Field(default=None, description="Container ID if in sandbox")
-    agent_role: str | None = Field(
-        default=None, description="Agent role (coder, tester, etc.)"
-    )
+    agent_role: str | None = Field(default=None, description="Agent role (coder, tester, etc.)")
     model: str | None = Field(default=None, description="Model used")
-
-    def update_cost(self, model: str | None = None) -> None:
-        """Recalculate estimated cost using this session's model."""
-        cost = self.tokens.calculate_cost(model=model or self.model)
-        self.estimated_cost_usd = float(cost)
     issue_number: int | None = Field(default=None, ge=1, description="Associated issue number")
     pr_number: int | None = Field(default=None, ge=1, description="Associated PR number")
     checkpoints: list[CheckpointReference] = Field(
         default_factory=list, description="Checkpoints in this session"
     )
+
+    def update_cost(self, model: str | None = None) -> None:
+        """Recalculate estimated cost using this session's model."""
+        cost = self.tokens.calculate_cost(model=model or self.model)
+        self.estimated_cost_usd = float(cost)
 
 
 class IssueUsage(UsageAggregate):
@@ -199,13 +203,9 @@ class IssueUsage(UsageAggregate):
 
     issue_number: int = Field(..., ge=1, description="GitHub issue number")
     pr_number: int | None = Field(default=None, ge=1, description="Associated PR number if any")
-    session_ids: list[str] = Field(
-        default_factory=list, description="Session IDs that contributed"
-    )
+    session_ids: list[str] = Field(default_factory=list, description="Session IDs that contributed")
     branch: str | None = Field(default=None, description="Primary branch for this issue")
-    pipeline_phases: list[str] = Field(
-        default_factory=list, description="Pipeline phases seen"
-    )
+    pipeline_phases: list[str] = Field(default_factory=list, description="Pipeline phases seen")
 
 
 class WorkflowUsage(UsageAggregate):
@@ -220,12 +220,8 @@ class WorkflowUsage(UsageAggregate):
     job_name: str | None = Field(default=None, description="Job name within workflow")
     issue_number: int | None = Field(default=None, ge=1, description="Associated issue number")
     pr_number: int | None = Field(default=None, ge=1, description="Associated PR number")
-    trigger_event: str | None = Field(
-        default=None, description="Event that triggered the workflow"
-    )
-    session_ids: list[str] = Field(
-        default_factory=list, description="Session IDs in this workflow"
-    )
+    trigger_event: str | None = Field(default=None, description="Event that triggered the workflow")
+    session_ids: list[str] = Field(default_factory=list, description="Session IDs in this workflow")
 
 
 class PRUsage(UsageAggregate):
@@ -239,12 +235,8 @@ class PRUsage(UsageAggregate):
     issue_number: int | None = Field(default=None, ge=1, description="Associated issue number")
     branch: str | None = Field(default=None, description="PR head branch")
     base_branch: str | None = Field(default=None, description="PR base branch")
-    session_ids: list[str] = Field(
-        default_factory=list, description="Session IDs that contributed"
-    )
-    pipeline_phases: list[str] = Field(
-        default_factory=list, description="Pipeline phases seen"
-    )
+    session_ids: list[str] = Field(default_factory=list, description="Session IDs that contributed")
+    pipeline_phases: list[str] = Field(default_factory=list, description="Pipeline phases seen")
 
 
 class UsageIndex(BaseModel):
@@ -269,9 +261,7 @@ class UsageIndex(BaseModel):
     total_tokens: TokenCounts = Field(
         default_factory=TokenCounts, description="Total tokens across all usage"
     )
-    total_cost_usd: float = Field(
-        default=0.0, ge=0.0, description="Total estimated cost"
-    )
+    total_cost_usd: float = Field(default=0.0, ge=0.0, description="Total estimated cost")
 
     # Lists of IDs for enumeration
     session_ids: list[str] = Field(default_factory=list, description="All session IDs")

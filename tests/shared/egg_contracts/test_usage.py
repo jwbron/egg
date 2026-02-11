@@ -99,9 +99,9 @@ class TestTokenCounts:
         sonnet_cost = counts.calculate_cost(model="sonnet")
         haiku_cost = counts.calculate_cost(model="haiku")
 
-        assert opus_cost == Decimal("30.00")   # $5 + $25
+        assert opus_cost == Decimal("30.00")  # $5 + $25
         assert sonnet_cost == Decimal("18.00")  # $3 + $15
-        assert haiku_cost == Decimal("6.00")    # $1 + $5
+        assert haiku_cost == Decimal("6.00")  # $1 + $5
         assert opus_cost > sonnet_cost > haiku_cost
 
     def test_calculate_cost_with_full_model_id(self):
@@ -275,6 +275,30 @@ class TestIssueUsage:
         assert len(usage.session_ids) == 2
         assert "implement" in usage.pipeline_phases
 
+    def test_update_cost_defaults_to_opus(self):
+        """Test that IssueUsage.update_cost uses opus pricing when model=None."""
+        now = datetime.now(UTC)
+        usage = IssueUsage(
+            issue_number=519,
+            tokens=TokenCounts(input_tokens=1_000_000, output_tokens=1_000_000),
+            last_updated=now,
+        )
+        usage.update_cost()
+        # 1M input at $5 + 1M output at $25 = $30 (opus pricing)
+        assert usage.estimated_cost_usd == pytest.approx(30.0)
+
+    def test_update_cost_with_explicit_model(self):
+        """Test that IssueUsage.update_cost accepts explicit model param."""
+        now = datetime.now(UTC)
+        usage = IssueUsage(
+            issue_number=519,
+            tokens=TokenCounts(input_tokens=1_000_000, output_tokens=1_000_000),
+            last_updated=now,
+        )
+        usage.update_cost(model="haiku")
+        # 1M input at $1 + 1M output at $5 = $6 (haiku pricing)
+        assert usage.estimated_cost_usd == pytest.approx(6.0)
+
 
 class TestPRUsage:
     """Tests for PRUsage model."""
@@ -309,6 +333,30 @@ class TestPRUsage:
         )
         assert usage.base_branch == "main"
         assert len(usage.session_ids) == 3
+
+    def test_update_cost_defaults_to_opus(self):
+        """Test that PRUsage.update_cost uses opus pricing when model=None."""
+        now = datetime.now(UTC)
+        usage = PRUsage(
+            pr_number=522,
+            tokens=TokenCounts(input_tokens=1_000_000, output_tokens=1_000_000),
+            last_updated=now,
+        )
+        usage.update_cost()
+        # 1M input at $5 + 1M output at $25 = $30 (opus pricing)
+        assert usage.estimated_cost_usd == pytest.approx(30.0)
+
+    def test_update_cost_with_explicit_model(self):
+        """Test that PRUsage.update_cost accepts explicit model param."""
+        now = datetime.now(UTC)
+        usage = PRUsage(
+            pr_number=522,
+            tokens=TokenCounts(input_tokens=1_000_000, output_tokens=1_000_000),
+            last_updated=now,
+        )
+        usage.update_cost(model="sonnet")
+        # 1M input at $3 + 1M output at $15 = $18 (sonnet pricing)
+        assert usage.estimated_cost_usd == pytest.approx(18.0)
 
 
 class TestWorkflowUsage:
