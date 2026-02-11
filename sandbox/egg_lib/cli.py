@@ -43,10 +43,9 @@ Network modes:
   egg --public                             # Public mode: full internet + public repos only (default)
   egg --private                            # Private mode: network lockdown + private repos only
 
-Docker Compose mode:
-  egg --compose                            # Start gateway via docker compose
-  egg --compose --down                     # Stop the compose stack
-  egg --compose --build                    # Rebuild images before starting
+Docker Compose control:
+  egg --compose --down                     # Stop the compose stack (gateway + orchestrator)
+  egg --compose --build                    # Rebuild compose images before starting
 
 Note: --exec spawns a new container for each execution (automatic cleanup with --rm)
       Default timeout is 30 minutes, configurable via --timeout
@@ -94,11 +93,12 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
         help="Force rebuild of Docker image even if files haven't changed",
     )
 
-    # Docker Compose mode arguments
+    # Docker Compose control arguments
     parser.add_argument(
         "--compose",
         action="store_true",
-        help="Use Docker Compose to manage the gateway stack",
+        help="Explicit compose control (use with --down or --build). "
+        "Default egg path already uses compose.",
     )
     parser.add_argument(
         "--down",
@@ -108,7 +108,7 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
     parser.add_argument(
         "--build",
         action="store_true",
-        help="Rebuild images when starting Docker Compose (use with --compose)",
+        help="Rebuild compose images before starting (use with --compose)",
     )
 
     # Private mode arguments (mutually exclusive)
@@ -126,8 +126,8 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
 
     args = parser.parse_args()
 
-    # Handle compose mode early (before other checks)
-    if args.compose:
+    # Handle explicit compose control (--compose --down or --compose --build)
+    if args.compose and (args.down or args.build):
         from .compose import run_compose_mode
 
         return run_compose_mode(down=args.down, build=args.build)

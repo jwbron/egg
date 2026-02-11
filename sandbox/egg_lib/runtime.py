@@ -33,6 +33,7 @@ from egg_container import (
 from statusbar import status, status_finish
 
 from .auth import get_anthropic_api_key, get_anthropic_auth_method
+from .compose import ensure_compose_services
 from .config import (
     GATEWAY_PORT,
     get_local_repos,
@@ -51,7 +52,6 @@ from .gateway import (
     create_worktrees,
     delete_session,
     delete_worktrees,
-    start_gateway_container,
 )
 from .output import error, get_quiet_mode, info, warn
 from .setup_flow import add_standard_mounts
@@ -539,12 +539,12 @@ def run_claude(repo_mode: str | None = None) -> bool:
             error("Docker build failed")
             return False
 
-    # Start gateway sidecar container (if not already running)
+    # Start gateway + orchestrator via Docker Compose (if not already running)
     with _host_timer.phase("start_gateway"):
         if quiet:
-            status("Starting gateway sidecar...")
-        if not start_gateway_container():
-            error("Failed to start gateway sidecar")
+            status("Starting services...")
+        if not ensure_compose_services():
+            error("Failed to start services (gateway + orchestrator)")
             return False
 
     # Generate unique container ID
@@ -801,9 +801,9 @@ def exec_in_new_container(
         error("Docker build failed")
         return False
 
-    # Start gateway sidecar container (if not already running)
-    if not start_gateway_container():
-        error("Failed to start gateway sidecar")
+    # Start gateway + orchestrator via Docker Compose (if not already running)
+    if not ensure_compose_services():
+        error("Failed to start services (gateway + orchestrator)")
         return False
 
     # Generate unique container ID for this exec
