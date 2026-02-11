@@ -138,7 +138,6 @@ GH_API_ALLOWED_PATHS = [
     re.compile(r"^repos/[^/]+/[^/]+/actions/artifacts$"),  # List repo artifacts
     re.compile(r"^repos/[^/]+/[^/]+/actions/artifacts/\d+$"),  # Get artifact
     # Check runs and check suites
-    re.compile(r"^repos/[^/]+/[^/]+/check-runs$"),  # List check runs for repo
     re.compile(r"^repos/[^/]+/[^/]+/check-runs/\d+$"),  # Get check run
     re.compile(r"^repos/[^/]+/[^/]+/check-suites/\d+$"),  # Get check suite
     re.compile(r"^repos/[^/]+/[^/]+/check-suites/\d+/check-runs$"),  # List check runs in suite
