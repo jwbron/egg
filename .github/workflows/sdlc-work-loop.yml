@@ -726,6 +726,7 @@ jobs:
           if [[ "${ACTUAL_PR_NUMBER}" == "0" || -z "${ACTUAL_PR_NUMBER}" ]]; then
             echo "::warning::No PR number available for autofix (branch: ${BRANCH_NAME})"
             echo "fixed=false" >> "$GITHUB_OUTPUT"
+            echo "no_pr=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -908,7 +909,7 @@ jobs:
 
       - name: Redispatch work-loop for check failures (no PR)
         if: >-
-          steps.fix.outputs.fixed == 'false' &&
+          steps.fix.outputs.no_pr == 'true' &&
           steps.check-limit.outputs.exceeded != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -1900,15 +1901,22 @@ jobs:
           # No PR exists — create one
           ISSUE_TITLE=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}" --jq '.title // "Issue #'"${ISSUE_NUMBER}"'"')
 
-          PR_URL=$(gh pr create \
+          if ! PR_URL=$(gh pr create \
             --repo "${{ github.repository }}" \
             --head "${BRANCH_NAME}" \
             --base main \
             --title "${ISSUE_TITLE}" \
             --body "Implementation for #${ISSUE_NUMBER}." \
-            --draft)
+            --draft); then
+            echo "::error::Failed to create PR for branch ${BRANCH_NAME}"
+            exit 1
+          fi
 
-          CREATED_PR=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          CREATED_PR=$(echo "$PR_URL" | grep -oE '[0-9]+$' || true)
+          if [[ -z "$CREATED_PR" ]]; then
+            echo "::error::Failed to extract PR number from: ${PR_URL}"
+            exit 1
+          fi
           echo "pr_number=${CREATED_PR}" >> "$GITHUB_OUTPUT"
           echo "Created draft PR #${CREATED_PR}"
 
