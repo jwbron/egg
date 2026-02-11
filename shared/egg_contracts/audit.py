@@ -19,6 +19,7 @@ def create_audit_entry(
     old_value: Any = None,
     new_value: Any = None,
     reason: str | None = None,
+    checkpoint_id: str | None = None,
 ) -> AuditEntry:
     """
     Create a new audit log entry.
@@ -31,6 +32,7 @@ def create_audit_entry(
         old_value: Previous value (if applicable)
         new_value: New value
         reason: Optional reason for the change
+        checkpoint_id: Optional checkpoint ID if this entry relates to a commit
 
     Returns:
         A new AuditEntry
@@ -44,6 +46,7 @@ def create_audit_entry(
         old_value=old_value,
         new_value=new_value,
         reason=reason,
+        checkpoint_id=checkpoint_id,
     )
 
 
@@ -54,6 +57,7 @@ def create_update_entry(
     old_value: Any,
     new_value: Any,
     reason: str | None = None,
+    checkpoint_id: str | None = None,
 ) -> AuditEntry:
     """
     Create an audit entry for an update operation.
@@ -65,6 +69,7 @@ def create_update_entry(
         old_value: Previous value
         new_value: New value
         reason: Optional reason for the change
+        checkpoint_id: Optional checkpoint ID if this entry relates to a commit
 
     Returns:
         A new AuditEntry for an update action
@@ -77,6 +82,7 @@ def create_update_entry(
         old_value=old_value,
         new_value=new_value,
         reason=reason,
+        checkpoint_id=checkpoint_id,
     )
 
 
