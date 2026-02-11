@@ -136,6 +136,9 @@ POST /api/v1/gh/pr/close
 POST /api/v1/gh/execute
   Request: {args[], require_auth}
   Policy: filtered passthrough for read operations
+  Note: For 'gh pr review' commands, automatically switches to reviewer
+        token if available (separate GitHub App identity for posting
+        approve/request-changes on bot-authored PRs)
 ```
 
 ### Phase Operations
@@ -262,7 +265,7 @@ gateway/
 
 3. **Phase-based filtering**: Operations are filtered based on the current SDLC pipeline phase. Configuration is loaded from `.egg/phase-permissions.json` with schema validation. This prevents incidents like pushing code during planning phases.
 
-4. **Token source**: In-memory token refresh via `token_refresher.py`. Tokens are refreshed automatically 15 minutes before expiry.
+4. **Token source**: In-memory token refresh via `token_refresher.py`. Tokens are refreshed automatically 15 minutes before expiry. The gateway supports an optional reviewer token (separate GitHub App) for posting approve/request-changes reviews on bot-authored PRs—GitHub blocks self-approval, so a second identity is required for full review capabilities.
 
 5. **Dual network modes**: Squid proxy controls outbound access. Private mode restricts to Anthropic API only; public mode allows all traffic.
 
