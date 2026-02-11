@@ -27,6 +27,11 @@ try:
         GATEWAY_ISOLATED_IP,
         GATEWAY_PORT,
         GATEWAY_PROXY_PORT,
+        ORCHESTRATOR_CONTAINER_NAME,
+        ORCHESTRATOR_EXTERNAL_IP,
+        ORCHESTRATOR_IMAGE_NAME,
+        ORCHESTRATOR_ISOLATED_IP,
+        ORCHESTRATOR_PORT,
     )
 except ImportError:
     # Development fallback: add shared/ to path
@@ -45,6 +50,11 @@ except ImportError:
         GATEWAY_ISOLATED_IP,
         GATEWAY_PORT,
         GATEWAY_PROXY_PORT,
+        ORCHESTRATOR_CONTAINER_NAME,
+        ORCHESTRATOR_EXTERNAL_IP,
+        ORCHESTRATOR_IMAGE_NAME,
+        ORCHESTRATOR_ISOLATED_IP,
+        ORCHESTRATOR_PORT,
     )
 
 
@@ -104,6 +114,11 @@ __all__ = [
     "GATEWAY_ISOLATED_IP",
     "GATEWAY_PORT",
     "GATEWAY_PROXY_PORT",
+    "ORCHESTRATOR_CONTAINER_NAME",
+    "ORCHESTRATOR_EXTERNAL_IP",
+    "ORCHESTRATOR_IMAGE_NAME",
+    "ORCHESTRATOR_ISOLATED_IP",
+    "ORCHESTRATOR_PORT",
     "get_local_repos",
     "get_platform",
 ]

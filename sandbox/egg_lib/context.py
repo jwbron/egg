@@ -24,6 +24,11 @@ from .config import (
     GATEWAY_ISOLATED_IP,
     GATEWAY_PORT,
     GATEWAY_PROXY_PORT,
+    ORCHESTRATOR_CONTAINER_NAME,
+    ORCHESTRATOR_EXTERNAL_IP,
+    ORCHESTRATOR_IMAGE_NAME,
+    ORCHESTRATOR_ISOLATED_IP,
+    ORCHESTRATOR_PORT,
     Config,
 )
 
@@ -60,6 +65,13 @@ class RuntimeContext:
     # -- Config --
     config_dir: Path = field(default_factory=lambda: Config.USER_CONFIG_DIR)
     launcher_secret: str | None = None
+
+    # -- Orchestrator --
+    orchestrator_container_name: str = ORCHESTRATOR_CONTAINER_NAME
+    orchestrator_image: str = ORCHESTRATOR_IMAGE_NAME
+    orchestrator_port: int = ORCHESTRATOR_PORT
+    orchestrator_isolated_ip: str = ORCHESTRATOR_ISOLATED_IP
+    orchestrator_external_ip: str = ORCHESTRATOR_EXTERNAL_IP
 
     # -- API --
     gateway_port: int = GATEWAY_PORT
@@ -120,6 +132,18 @@ class RuntimeContext:
             ctx.ephemeral = b
         if (b := _env_bool("PUBLISH_GATEWAY_PORTS")) is not None:
             ctx.publish_ports = b
+
+        # Orchestrator
+        if v := _env("ORCHESTRATOR_CONTAINER_NAME"):
+            ctx.orchestrator_container_name = v
+        if v := _env("ORCHESTRATOR_IMAGE"):
+            ctx.orchestrator_image = v
+        if (n := _env_int("ORCHESTRATOR_PORT")) is not None:
+            ctx.orchestrator_port = n
+        if v := _env("ORCHESTRATOR_ISOLATED_IP"):
+            ctx.orchestrator_isolated_ip = v
+        if v := _env("ORCHESTRATOR_EXTERNAL_IP"):
+            ctx.orchestrator_external_ip = v
 
         # Config
         if v := _env("CONFIG_DIR"):
