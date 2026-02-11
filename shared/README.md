@@ -100,8 +100,9 @@ conflict_detector = ConflictDetector(repo_path=Path("/repo"))
 
 # Work with checkpoints
 checkpoint = Checkpoint(...)
-save_checkpoint(checkpoint, base_dir=Path("/checkpoints"))
-loaded = load_checkpoint(base_dir, checkpoint_id)
+checkpoint_path = Path("/checkpoints/ab/ckpt-abcdef123456.json")
+save_checkpoint(checkpoint, checkpoint_path)
+loaded = load_checkpoint(checkpoint_path)
 ```
 
 **Key modules:**

@@ -71,7 +71,7 @@ Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib
 | Command | Purpose |
 |---------|---------|
 | `egg-contract show` | Display current contract state |
-| `egg-contract add-commit --task <id> --commit <sha>` | Link commit to task (with optional checkpoint_id) |
+| `egg-contract add-commit --task <id> --commit <sha>` | Link commit to task |
 | `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes |
 | `egg-contract add-decision --question <text> [--options ...] [--format {json,markdown}]` | Create HITL decision point with optional predefined choices and markdown output format for GitHub comments |
 | `egg-contract add-feedback --question <text> [--question <text>...] [--format {json,markdown}]` | Create feedback comment for open-ended questions |

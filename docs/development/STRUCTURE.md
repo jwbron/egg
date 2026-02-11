@@ -49,7 +49,6 @@ gateway/
 ├── phase_transition.py     # Phase transition validation
 ├── phase_api.py            # Phase API endpoints
 ├── contract_api.py         # Contract API endpoints
-├── checkpoint_handler.py   # Checkpoint capture on successful push
 ├── auth.py                 # Session authentication
 ├── token_refresher.py      # GitHub App token management (bot and optional reviewer)
 ├── anthropic_credentials.py # API key injection for Claude
@@ -165,7 +164,8 @@ tests/
 │       ├── test_phase_defaults.py # Phase default configuration tests
 │       ├── test_agent_recovery.py # Agent recovery and circuit breaker tests
 │       ├── test_checkpoints.py    # Checkpoint model tests
-│       └── test_redactor.py       # Redactor tests for sensitive data masking
+│       ├── test_redactor.py       # Redactor tests for sensitive data masking
+│       └── test_transcript_extractor.py # Transcript extraction tests
 └── workflows/                     # Workflow integration tests
     ├── __init__.py
     └── test_hitl_integration.py   # HITL decision format verification
