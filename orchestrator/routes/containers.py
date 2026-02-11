@@ -35,6 +35,7 @@ from docker_client import (
     ContainerOperationError,
     DockerClientError,
     ImageNotFoundError,
+    InvalidContainerIdError,
     get_docker_client,
 )
 from models import AgentRole, ContainerStatus
@@ -254,6 +255,11 @@ def get_container(pipeline_id: str, container_id: str) -> tuple[Response, int]:
             },
         )
 
+    except InvalidContainerIdError:
+        return make_error_response(
+            f"Invalid container ID format: {container_id}",
+            status_code=400,
+        )
     except ContainerNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
@@ -295,6 +301,11 @@ def remove_container(pipeline_id: str, container_id: str) -> tuple[Response, int
 
         return make_success_response("Container removed")
 
+    except InvalidContainerIdError:
+        return make_error_response(
+            f"Invalid container ID format: {container_id}",
+            status_code=400,
+        )
     except ContainerNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
@@ -351,6 +362,11 @@ def stop_container(pipeline_id: str, container_id: str) -> tuple[Response, int]:
             },
         )
 
+    except InvalidContainerIdError:
+        return make_error_response(
+            f"Invalid container ID format: {container_id}",
+            status_code=400,
+        )
     except ContainerNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
@@ -393,6 +409,11 @@ def get_container_logs(pipeline_id: str, container_id: str) -> tuple[Response, i
             data={"logs": logs},
         )
 
+    except InvalidContainerIdError:
+        return make_error_response(
+            f"Invalid container ID format: {container_id}",
+            status_code=400,
+        )
     except ContainerNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",

@@ -207,6 +207,9 @@ class Pipeline(BaseModel):
         default=True, description="Whether state is synced with contract"
     )
     error: str | None = Field(default=None, description="Error if failed")
+    version: int = Field(
+        default=1, ge=1, description="Optimistic locking version (incremented on each save)"
+    )
 
     def get_phase_execution(self, phase: PipelinePhase) -> PhaseExecution:
         """Get or create phase execution state."""

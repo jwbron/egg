@@ -6,6 +6,7 @@ for sandbox containers spawned by the orchestrator.
 """
 
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -56,6 +57,30 @@ class ImageNotFoundError(DockerClientError):
     """Docker image not found."""
 
     pass
+
+
+class InvalidContainerIdError(DockerClientError):
+    """Invalid container ID format."""
+
+    pass
+
+
+# Valid container ID pattern: 64-char hex (full) or 12-char hex (short), or container name
+# Container names: alphanumeric, underscore, hyphen, period (cannot start with hyphen/period)
+CONTAINER_ID_PATTERN = re.compile(r'^[a-fA-F0-9]{12,64}$|^[a-zA-Z0-9][a-zA-Z0-9_.-]*$')
+
+
+def _validate_container_id(container_id: str) -> None:
+    """Validate container ID format to prevent injection attacks.
+
+    Args:
+        container_id: Container ID or name to validate
+
+    Raises:
+        InvalidContainerIdError: If container ID format is invalid
+    """
+    if not container_id or not CONTAINER_ID_PATTERN.match(container_id):
+        raise InvalidContainerIdError(f"Invalid container ID format: {container_id}")
 
 
 class DockerClient:
@@ -197,9 +222,11 @@ class DockerClient:
             Updated ContainerInfo
 
         Raises:
+            InvalidContainerIdError: If container ID format is invalid
             ContainerNotFoundError: If container doesn't exist
             ContainerOperationError: If start fails
         """
+        _validate_container_id(container_id)
         try:
             container = self.client.containers.get(container_id)
             container.start()
@@ -233,9 +260,11 @@ class DockerClient:
             Updated ContainerInfo
 
         Raises:
+            InvalidContainerIdError: If container ID format is invalid
             ContainerNotFoundError: If container doesn't exist
             ContainerOperationError: If stop fails
         """
+        _validate_container_id(container_id)
         try:
             container = self.client.containers.get(container_id)
             container.stop(timeout=timeout)
@@ -277,9 +306,11 @@ class DockerClient:
             v: Remove associated volumes
 
         Raises:
+            InvalidContainerIdError: If container ID format is invalid
             ContainerNotFoundError: If container doesn't exist
             ContainerOperationError: If removal fails
         """
+        _validate_container_id(container_id)
         try:
             container = self.client.containers.get(container_id)
             container.remove(force=force, v=v)
@@ -301,8 +332,10 @@ class DockerClient:
             ContainerInfo with current state
 
         Raises:
+            InvalidContainerIdError: If container ID format is invalid
             ContainerNotFoundError: If container doesn't exist
         """
+        _validate_container_id(container_id)
         try:
             container = self.client.containers.get(container_id)
             container.reload()
@@ -407,8 +440,10 @@ class DockerClient:
             Log output as string
 
         Raises:
+            InvalidContainerIdError: If container ID format is invalid
             ContainerNotFoundError: If container doesn't exist
         """
+        _validate_container_id(container_id)
         try:
             container = self.client.containers.get(container_id)
             logs = container.logs(tail=tail, since=since, timestamps=True)
@@ -432,9 +467,11 @@ class DockerClient:
             ContainerInfo with exit status
 
         Raises:
+            InvalidContainerIdError: If container ID format is invalid
             ContainerNotFoundError: If container doesn't exist
             ContainerOperationError: If timeout exceeded
         """
+        _validate_container_id(container_id)
         try:
             container = self.client.containers.get(container_id)
 

@@ -36,7 +36,7 @@ from models import (
     PipelinePhase,
     PipelineStatus,
 )
-from state_store import PipelineNotFoundError, get_state_store
+from state_store import InvalidPipelineIdError, PipelineNotFoundError, VersionConflictError, get_state_store
 
 logger = get_logger("orchestrator.phases")
 
@@ -159,6 +159,11 @@ def get_current_phase(pipeline_id: str) -> tuple[Response, int]:
             },
         )
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
@@ -210,6 +215,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
     try:
         store = get_state_store(repo_path)
         pipeline = store.load_pipeline(pipeline_id)
+        original_version = pipeline.version  # Capture version for optimistic locking
 
         previous_phase = pipeline.current_phase
 
@@ -241,8 +247,8 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         target_execution.status = PipelineStatus.RUNNING
         target_execution.started_at = datetime.utcnow()
 
-        # Save updated pipeline
-        store.save_pipeline(pipeline)
+        # Save updated pipeline with optimistic locking
+        store.save_pipeline(pipeline, expected_version=original_version)
 
         logger.info(
             "Phase advanced",
@@ -259,6 +265,16 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             },
         )
 
+    except VersionConflictError:
+        return make_error_response(
+            f"Concurrent modification detected for pipeline {pipeline_id}. Please retry.",
+            status_code=409,
+        )
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
@@ -289,6 +305,7 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
     try:
         store = get_state_store(repo_path)
         pipeline = store.load_pipeline(pipeline_id)
+        original_version = pipeline.version
 
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
 
@@ -301,7 +318,7 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
         phase_execution.started_at = datetime.utcnow()
         pipeline.status = PipelineStatus.RUNNING
 
-        store.save_pipeline(pipeline)
+        store.save_pipeline(pipeline, expected_version=original_version)
 
         logger.info(
             "Phase started",
@@ -317,6 +334,16 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
             },
         )
 
+    except VersionConflictError:
+        return make_error_response(
+            f"Concurrent modification detected for pipeline {pipeline_id}. Please retry.",
+            status_code=409,
+        )
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
@@ -353,6 +380,7 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
     try:
         store = get_state_store(repo_path)
         pipeline = store.load_pipeline(pipeline_id)
+        original_version = pipeline.version
 
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
         phase_execution.status = PipelineStatus.COMPLETE
@@ -366,7 +394,7 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         next_phases = PHASE_TRANSITIONS.get(pipeline.current_phase, [])
         next_phase = next_phases[0] if next_phases else None
 
-        store.save_pipeline(pipeline)
+        store.save_pipeline(pipeline, expected_version=original_version)
 
         logger.info(
             "Phase completed",
@@ -382,6 +410,16 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
             },
         )
 
+    except VersionConflictError:
+        return make_error_response(
+            f"Concurrent modification detected for pipeline {pipeline_id}. Please retry.",
+            status_code=409,
+        )
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
@@ -418,6 +456,7 @@ def fail_phase(pipeline_id: str) -> tuple[Response, int]:
     try:
         store = get_state_store(repo_path)
         pipeline = store.load_pipeline(pipeline_id)
+        original_version = pipeline.version
 
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
         phase_execution.status = PipelineStatus.FAILED
@@ -427,7 +466,7 @@ def fail_phase(pipeline_id: str) -> tuple[Response, int]:
         pipeline.status = PipelineStatus.FAILED
         pipeline.error = error_message
 
-        store.save_pipeline(pipeline)
+        store.save_pipeline(pipeline, expected_version=original_version)
 
         logger.error(
             "Phase failed",
@@ -444,6 +483,16 @@ def fail_phase(pipeline_id: str) -> tuple[Response, int]:
             },
         )
 
+    except VersionConflictError:
+        return make_error_response(
+            f"Concurrent modification detected for pipeline {pipeline_id}. Please retry.",
+            status_code=409,
+        )
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",

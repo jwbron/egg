@@ -6,6 +6,7 @@ State survives orchestrator restarts by reading from git.
 """
 
 import json
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,10 @@ from typing import Any
 from pydantic import ValidationError
 
 from models import Pipeline, PipelineStatus
+
+
+# Valid pipeline ID format: issue-{number} where number is 1+ digits
+PIPELINE_ID_PATTERN = re.compile(r'^issue-[0-9]+$')
 
 
 class StateStoreError(Exception):
@@ -40,6 +45,31 @@ class GitOperationError(StateStoreError):
     pass
 
 
+class InvalidPipelineIdError(StateStoreError):
+    """Invalid pipeline ID format."""
+
+    pass
+
+
+class VersionConflictError(StateStoreError):
+    """Optimistic locking version conflict."""
+
+    pass
+
+
+def _validate_pipeline_id(pipeline_id: str) -> None:
+    """Validate pipeline ID format to prevent path traversal attacks.
+
+    Args:
+        pipeline_id: Pipeline ID to validate
+
+    Raises:
+        InvalidPipelineIdError: If pipeline ID format is invalid
+    """
+    if not pipeline_id or not PIPELINE_ID_PATTERN.match(pipeline_id):
+        raise InvalidPipelineIdError(f"Invalid pipeline ID format: {pipeline_id}")
+
+
 class StateStore:
     """Git-backed state store for pipeline state.
 
@@ -59,8 +89,24 @@ class StateStore:
         self.pipelines_dir = repo_path / self.PIPELINES_DIR
 
     def _get_pipeline_path(self, pipeline_id: str) -> Path:
-        """Get the file path for a pipeline's state."""
-        return self.pipelines_dir / f"{pipeline_id}.json"
+        """Get the file path for a pipeline's state.
+
+        Args:
+            pipeline_id: Pipeline ID
+
+        Returns:
+            Path to the pipeline state file
+
+        Raises:
+            InvalidPipelineIdError: If pipeline ID format is invalid
+        """
+        _validate_pipeline_id(pipeline_id)
+        path = self.pipelines_dir / f"{pipeline_id}.json"
+        # Additional safety: ensure the resolved path stays within pipelines_dir
+        resolved = path.resolve()
+        if not resolved.is_relative_to(self.pipelines_dir.resolve()):
+            raise InvalidPipelineIdError(f"Path traversal detected in pipeline ID: {pipeline_id}")
+        return path
 
     def _ensure_dir(self) -> None:
         """Ensure the pipelines directory exists."""
@@ -133,25 +179,42 @@ class StateStore:
         pipeline: Pipeline,
         commit: bool = True,
         message: str | None = None,
+        expected_version: int | None = None,
     ) -> Path:
-        """Save pipeline state to disk.
+        """Save pipeline state to disk with optimistic locking.
 
         Args:
             pipeline: Pipeline state to save
             commit: Whether to commit the change
             message: Commit message (auto-generated if not provided)
+            expected_version: If provided, checks that current version matches
+                              before saving (optimistic locking)
 
         Returns:
             Path to saved file
 
         Raises:
             GitOperationError: If git operations fail
+            VersionConflictError: If expected_version doesn't match current version
         """
         self._ensure_dir()
         path = self._get_pipeline_path(pipeline.id)
 
-        # Update timestamp
+        # Optimistic locking check
+        if expected_version is not None and path.exists():
+            try:
+                current = self.load_pipeline(pipeline.id)
+                if current.version != expected_version:
+                    raise VersionConflictError(
+                        f"Version conflict for pipeline {pipeline.id}: "
+                        f"expected version {expected_version}, but current is {current.version}"
+                    )
+            except PipelineNotFoundError:
+                pass  # New pipeline, no conflict possible
+
+        # Update timestamp and increment version
         pipeline.updated_at = datetime.utcnow()
+        pipeline.version = (pipeline.version or 0) + 1
 
         # Write state
         with path.open("w") as f:

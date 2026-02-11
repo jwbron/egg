@@ -37,6 +37,7 @@ from decision_queue import (
     DecisionTimeoutError,
     get_decision_queue,
 )
+from state_store import InvalidPipelineIdError
 
 logger = get_logger("orchestrator.decisions")
 
@@ -143,8 +144,13 @@ def list_decisions(pipeline_id: str) -> tuple[Response, int]:
             data={"decisions": decision_data},
         )
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except Exception as e:
-        logger.error("Failed to list decisions", error=str(e))
+        logger.error("Failed to list decisions", pipeline_id=pipeline_id, error=str(e))
         return make_error_response(f"Failed to list decisions: {e}", status_code=500)
 
 
@@ -206,8 +212,13 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
             },
         )
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except Exception as e:
-        logger.error("Failed to queue decision", error=str(e))
+        logger.error("Failed to queue decision", pipeline_id=pipeline_id, error=str(e))
         return make_error_response(f"Failed to queue decision: {e}", status_code=500)
 
 
@@ -251,6 +262,11 @@ def get_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
             },
         )
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except DecisionNotFoundError:
         return make_error_response(
             f"Decision {decision_id} not found",
@@ -309,6 +325,11 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             },
         )
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except DecisionNotFoundError:
         return make_error_response(
             f"Decision {decision_id} not found",
@@ -355,6 +376,11 @@ def cancel_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
             },
         )
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except DecisionNotFoundError:
         return make_error_response(
             f"Decision {decision_id} not found",
@@ -389,8 +415,13 @@ def get_queue_status(pipeline_id: str) -> tuple[Response, int]:
 
         return make_success_response("Status retrieved", data=status)
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except Exception as e:
-        logger.error("Failed to get queue status", error=str(e))
+        logger.error("Failed to get queue status", pipeline_id=pipeline_id, error=str(e))
         return make_error_response(f"Failed to get status: {e}", status_code=500)
 
 
@@ -431,6 +462,11 @@ def check_timeouts(pipeline_id: str) -> tuple[Response, int]:
             },
         )
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except Exception as e:
-        logger.error("Failed to check timeouts", error=str(e))
+        logger.error("Failed to check timeouts", pipeline_id=pipeline_id, error=str(e))
         return make_error_response(f"Failed to check timeouts: {e}", status_code=500)

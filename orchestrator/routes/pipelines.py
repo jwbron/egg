@@ -28,6 +28,7 @@ except ImportError:
 try:
     from ..models import Pipeline, PipelinePhase, PipelineStatus
     from ..state_store import (
+        InvalidPipelineIdError,
         PipelineNotFoundError,
         StateStoreError,
         StateValidationError,
@@ -36,6 +37,7 @@ try:
 except ImportError:
     from models import Pipeline, PipelinePhase, PipelineStatus  # type: ignore
     from state_store import (  # type: ignore
+        InvalidPipelineIdError,
         PipelineNotFoundError,
         StateStoreError,
         StateValidationError,
@@ -187,6 +189,11 @@ def get_pipeline(pipeline_id: str) -> tuple[Response, int]:
             data={"pipeline": pipeline.model_dump(mode="json")},
         )
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
@@ -307,6 +314,11 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
             data={"pipeline": pipeline.model_dump(mode="json")},
         )
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
@@ -343,6 +355,11 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
         return make_success_response("Pipeline deleted")
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
@@ -388,6 +405,11 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
             },
         )
 
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
