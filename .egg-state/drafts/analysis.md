@@ -1,200 +1,262 @@
-# Analysis: Update README.md
+# Analysis: Audit and Update All Markdown Documentation
 
 ## Problem Statement
 
-The README.md needs to be reviewed and refreshed to reflect the current state of the egg project. This means checking for outdated setup instructions, missing sections, incorrect information, and ensuring it accurately describes the project purpose, setup steps, usage, and all other relevant sections.
+Audit all markdown (.md) documentation files in the egg repository against the actual current codebase. For each file: compare documented behavior, commands, file paths, architecture descriptions, and code examples against reality. Fix outdated content inline — no TODO markers.
 
 ## Current State Assessment
 
-The existing README.md (337 lines) is well-structured and covers the core project narrative effectively. It includes:
+The egg repository contains ~70 markdown files across:
+- Root-level docs: `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `RELEASING.md`
+- Documentation hub: `docs/` (index, architecture, ADRs, guides, templates, strategy)
+- Component READMEs: `gateway/`, `sandbox/`, `shared/`, `config/`, `bin/`, `action/`
+- Claude Code config: `sandbox/.claude/` (rules, commands)
+- Draft state: `.egg-state/drafts/` (not auditable — ephemeral per-task)
 
-- Project description and metaphor
-- Pipeline phases diagram and explanation
-- Gateway architecture diagram and enforcement table
-- Phase permissions and isolation details
-- Multi-agent orchestration roles
-- GitHub automation workflows
-- Quick Start (Local, GitHub Actions, Docker Compose)
-- CLI reference tables
-- Documentation links
-- Versioning scheme
-- Development commands
-
-**Overall quality**: High. The architecture diagrams, enforcement tables, and narrative flow are strong. Most content is accurate against the current codebase.
+Overall documentation quality is high. The architecture diagrams, enforcement tables, and narrative structure are strong. Most content is accurate. However, the codebase has evolved faster than the documentation in several areas, creating gaps between documented and actual state.
 
 ## Issues Found
 
-### 1. CLI Reference: Missing `--build` flag (Inaccurate)
+Issues are organized by severity and grouped by file.
 
-**Location**: README.md lines 237-249 (Flags table)
+---
 
-**Problem**: The `--build` flag exists in `sandbox/egg_lib/cli.py` (lines 108-112) but is not documented in the README's Flags table. It rebuilds compose images before starting and is used as `egg --compose --build`.
+### CRITICAL: Content that will actively mislead or cause errors
 
-**Evidence**: The flag is already referenced in the Quick Start Docker Compose section (line 192 area is close, but line 47 of `cli.py` shows `--compose --build`), and in `docs/guides/local-quickstart.md`, but the Flags table omits it.
+#### C1. `config/README.md` — References non-existent `host_config.py` module
 
-**Fix**: Add `--build` to the Flags table: `| --build | Rebuild compose images before starting (use with --compose) |`
+**Lines affected:** 63-89
 
-### 2. CLI Reference: `--compose` description is misleading (Inaccurate)
+The README documents a `config/host_config.py` module with a `HostConfig` class, CLI interface (`python config/host_config.py --list`), and `config/host-config.template.yaml` template. None of these exist. The actual `config/` directory contains only `repo_config.py`, `repositories.yaml.example`, and `secrets.template.env`.
 
-**Location**: README.md line 221
+Code that imports `HostConfig` (e.g., `sandbox/egg_lib/auth.py`) uses try/except to gracefully degrade. The ADR-Declarative-Setup-Architecture is still "Proposed" status — this module was designed but never implemented.
 
-**Problem**: The table entry says `egg --compose` means "Use Docker Compose for gateway management", suggesting it starts a standalone sandbox session. But in the actual CLI (`cli.py` lines 129-133), `--compose` only has an effect when combined with `--down` or `--build`. The default `egg` path already uses compose — `--compose` alone is a no-op (falls through to normal run).
+**Fix:** Remove the `host_config.py` documentation section. Document what actually exists: `repo_config.py` for repository configuration, `secrets.template.env` for secrets templating. Note that the unified config system is planned but not yet implemented.
 
-**Evidence**: `cli.py` line 100-101: `"Explicit compose control (use with --down or --build). Default egg path already uses compose."`
+#### C2. `shared/egg_config/README.md` — Code example uses unimplemented `SlackConfig`
 
-**Fix**: Update the description to: `| egg --compose --down | Stop the Docker Compose stack |` and `| egg --compose --build | Rebuild compose images before starting |`. Remove the standalone `egg --compose` row, or clarify it's implicit.
+**Location:** "Secret Masking" section
 
-### 3. Quick Start: Docker Compose section references `bin/egg-deploy` (Outdated/Confusing)
+The README shows a code example using `SlackConfig.from_env()`. The same README explicitly states "SlackConfig, JiraConfig, and ConfluenceConfig are planned but not yet implemented." Users copying the example will get an ImportError.
 
-**Location**: README.md lines 177-194
+**Fix:** Replace the `SlackConfig` example with an implemented config class (e.g., `GitHubConfig` or `GatewayConfig`).
 
-**Problem**: The Quick Start shows a `bin/egg-deploy` workflow (`bin/egg-deploy init`, edit `.env`, `bin/egg-deploy up`, then `egg --compose`). However, the primary local quickstart workflow described in `docs/guides/local-quickstart.md` is simpler: `pip install -e ./sandbox`, `egg --setup`, then `egg --compose --build` / `egg`. The `egg-deploy` path is for advanced/production deployments, not the recommended quickstart path.
+#### C3. `CHANGELOG.md` — CLI commands don't match actual CLI
 
-The section is labeled "Docker Compose (Advanced)" which is appropriate, but the Quick Start for local use (`pip install ./sandbox` then `egg`) doesn't mention that `egg` already uses compose automatically (the user doesn't need to think about compose at all for local use).
+**Line 20**
 
-**Fix**: Add a note to the Local quickstart that `egg` handles docker compose automatically. Consider adding a reference to the local-quickstart guide for PAT-based setup.
+Lists CLI as: `egg start`, `egg stop`, `egg exec`, `egg logs`, `egg status`, `egg config validate`. The actual CLI is flag-based: `egg`, `egg --exec`, `egg --setup`, `egg --compose --down`. There are no subcommands like `egg start` or `egg stop`. The `config validate` functionality exists as a separate `egg-config validate` tool, not as an `egg` subcommand.
 
-### 4. Local Quickstart Guide not linked from README (Missing)
+**Fix:** Update to: `CLI tool (egg, egg --setup, egg --exec, egg --compose)` and separately mention `egg-deploy` and `egg-config`.
 
-**Location**: Not in README at all
+#### C4. `CHANGELOG.md` — Test count outdated
 
-**Problem**: `docs/guides/local-quickstart.md` is a comprehensive step-by-step guide for getting egg running locally with a GitHub PAT. It covers setup, PAT configuration, `egg --compose --build`, SDLC pipeline usage (local and issue-driven), monitoring, and troubleshooting. This is arguably the most useful guide for new users, but is not linked from the README's Documentation section.
+**Line 26**
 
-**Fix**: Add to the Documentation section under Guides or Quick Start: `- [Local Quickstart](docs/guides/local-quickstart.md) — Step-by-step local setup with PAT authentication`
+Claims "43+ test files". Actual count is 153 test files across `tests/`, `gateway/tests/`, and `integration_tests/`.
 
-### 5. Agent Development Guide not linked from README (Missing)
+**Fix:** Update to "153 test files" or "150+ test files".
 
-**Location**: Not in README at all
+---
 
-**Problem**: `docs/guides/agent-development.md` exists but is not linked from the README Documentation section.
+### HIGH: Significant gaps in documented vs actual functionality
 
-**Fix**: Add to the Documentation section if relevant to external users.
+#### H1. `gateway/README.md` — Undocumented API endpoints
 
-### 6. Deploy Migration Guide not linked from README (Missing)
+The API Endpoints section is missing several endpoint groups that exist in `gateway.py`:
 
-**Location**: Not in README at all
+- **Worktree Management:** `POST /api/v1/worktree/create`, `POST /api/v1/worktree/delete`, `GET /api/v1/worktree/list`
+- **Session Management:** `POST /api/v1/sessions/create`, `DELETE /api/v1/sessions/<token>`, `GET /api/v1/sessions/<token>`, `POST /api/v1/sessions/<token>/heartbeat`, `PATCH /api/v1/sessions/<token>`, `PATCH /api/v1/sessions/<token>/phase`, `GET /api/v1/sessions`
+- **Repository info:** `GET /api/v1/repos/visibility`
+- **Anthropic Proxy:** `POST /v1/messages`, `POST /v1/messages/count_tokens`
+- **Git execute:** `POST /api/v1/git/execute`
 
-**Problem**: `docs/guides/deploy-migration.md` exists but is not linked from the README Documentation section.
+**Fix:** Add sections for Worktree Operations, Session Management, Repository Operations, and Anthropic Proxy endpoints.
 
-**Fix**: Add to the Documentation section if relevant, or skip if it's purely internal.
+#### H2. `gateway/README.md` — Undocumented source files
 
-### 7. HITL Decisions Guide not linked from README (Missing)
+Missing from the Files listing: `agent_restrictions.py`, `checkpoint_handler.py`, `transcript_buffer.py`. Also missing 8 test files: `test_checkpoint_handler.py`, `test_concurrency.py`, `test_config_validator.py`, `test_edge_cases.py`, `test_error_paths.py`, `test_fork_policy.py`, `test_proxy_monitor.py`, `test_transcript_buffer.py`.
 
-**Location**: Not in README at all
+**Fix:** Add these files to the Files section with descriptions.
 
-**Problem**: `docs/hitl-decisions.md` documents the human-in-the-loop decision workflow (formal decisions, feedback comments, phase approvals). This is referenced in `docs/index.md` but not in the README. The README has a brief HITL section (lines 143-151) but doesn't link to this deeper guide.
+#### H3. `sandbox/README.md` — Missing egg_lib modules
 
-**Fix**: Add a link from the HITL section or from the Documentation section.
+The README documents 12 files in `egg_lib/`, but 18 exist. Missing: `checkpoint_cli.py`, `compose.py`, `contract_cli.py`, `orchestration.py`, and the entire `self_improvement/` subdirectory (with `collect.py`, `config.py`, `collectors/base.py`, `collectors/gha.py`, `collectors/local.py`).
 
-### 8. GitHub Action version reference inconsistency (Minor)
+**Fix:** Add the missing modules to the egg_lib file listing.
 
-**Location**: README.md line 201 vs line 295
+#### H4. `sandbox/README.md` — Missing bin/ symlinks
 
-**Problem**: The GitHub Action usage example (line 201) shows `jwbron/egg@main`, while the versioning section (line 295) recommends `jwbron/egg/action@v0`. The note on line 289 explains this (`Use @main until first release`), but the two examples use different path formats: `jwbron/egg@main` vs `jwbron/egg/action@v0`. The `/action` subdirectory reference in the versioning section is correct for composite actions in subdirectories, while the top-level reference may also work due to GitHub's action resolution.
+Documents 3 symlinks but 5 exist. Missing: `egg-checkpoint -> ../egg_lib/checkpoint_cli.py` and `egg-contract -> ../egg_lib/contract_cli.py`.
 
-**Fix**: Standardize to `jwbron/egg@main` in the quick example (which is correct for pre-v1), and clarify the `/action` path in the versioning section if needed, or make both consistent.
+**Fix:** Add the two missing symlinks.
 
-### 9. CHANGELOG CLI commands don't match actual CLI (Outdated in CHANGELOG)
+#### H5. `sandbox/README.md` — Incomplete .claude/ documentation
 
-**Location**: CHANGELOG.md line 20
+- `commands/` shows only `show-metrics.md` but 7 files exist (missing: `coder-mode.md`, `documenter-mode.md`, `integrator-mode.md`, `sdlc.md`, `tester-mode.md`, `README.md`)
+- `rules/` shows 5 files but 7 exist (missing: `contract.md`, `README.md`)
 
-**Problem**: The CHANGELOG lists CLI commands as `egg start`, `egg stop`, `egg exec`, `egg logs`, `egg status`, `egg config validate`. The actual CLI is flag-based: `egg`, `egg --exec`, `egg --compose --down`, etc. There are no subcommands like `egg start` or `egg stop`.
+The `contract.md` rule is particularly important as it documents the SDLC contract workflow with `egg-contract` CLI commands.
 
-**Fix**: This is a CHANGELOG issue, not a README issue, but worth noting. The CHANGELOG should be updated to match the actual flag-based CLI.
+**Fix:** Update the directory tree to show all actual files.
 
-### 10. Versioning note may be outdated (Check needed)
+#### H6. `shared/README.md` — Missing `egg_container` package
 
-**Location**: README.md line 289
+The entire `egg_container` package is undocumented. It contains `build_sandbox_docker_cmd()` (core function used by launchers and tests) and `ContainerNetworkConfig` dataclass.
 
-**Problem**: `> Note: Use @main until the first release (v0.1.0) is published, which will create the @v0 tag.` — The project version in `pyproject.toml` is `0.1.0`, and there's a release script at `.github/scripts/create-release.sh`. It's unclear whether v0.1.0 has been published as a GitHub release yet. If it has, this note should be removed and the example updated to `@v0`.
+**Fix:** Add an `egg_container` section to the shared README.
 
-**Fix**: Verify release status. If v0.1.0 is published, update the action reference to `@v0` and remove the note. If not, leave as-is.
+#### H7. `shared/README.md` — 15 undocumented egg_contracts modules
 
-### 11. No "Requirements/Prerequisites" section (Missing)
+The "Key modules" section lists a few modules but omits 15 active modules including `agent_roles.py`, `checkpoint_cli.py`, `checkpoint_loader.py`, `checkpoints.py`, `dependency_graph.py`, `loader.py`, `orchestration.py`, `orchestrator.py`, `phase_defaults.py`, `redactor.py`, `transcript_extractor.py`, `usage.py`, `usage_cli.py`, `usage_loader.py`, `validator.py`.
 
-**Location**: README.md Quick Start section
+**Fix:** Expand the Key modules section to cover all modules.
 
-**Problem**: The Quick Start jumps straight to `git clone` / `pip install` without listing prerequisites. The actual requirements include:
-- Python 3.11+
-- Docker (Docker Desktop or Docker Engine with Compose v2)
-- `uv` (for development, used by `make setup`)
-- `gh` CLI (for GitHub operations)
-- Anthropic credentials (OAuth token or API key)
-- GitHub credentials (PAT or GitHub App)
+#### H8. `action/README.md` — Incomplete file listing
 
-The local-quickstart guide lists prerequisites; the README does not.
+Documents 11 files but 25 exist. Missing 14 files including role-specific prompt builders (`build-coder-prompt.sh`, `build-tester-prompt.sh`, `build-documenter-prompt.sh`, `build-integrator-prompt.sh`), workloop variants, and convention files.
 
-**Fix**: Add a brief prerequisites list before the Quick Start, or at the top of the Local section.
+**Fix:** Add all missing files to the listing.
 
-### 12. SDLC Pipeline Guide link in Documentation section (Duplicate)
+#### H9. `docs/guides/sdlc-pipeline.md` — References non-existent prompt builders
 
-**Location**: README.md lines 253-256 and 267
+Lines 730-731 reference `action/build-refine-review-prompt.sh` and `action/build-plan-review-prompt.sh`. These files do not exist. They were consolidated into `action/build-unified-review-prompt.sh` which handles all SDLC phases.
 
-**Problem**: The SDLC Pipeline ADR is linked twice — once under "SDLC Pipeline" subsection and again under "Architecture Decision Records" subsection. Minor redundancy.
+**Fix:** Replace the two stale entries with the actual `build-unified-review-prompt.sh` script.
 
-**Fix**: Keep both if intentional (different contexts), or consolidate.
+#### H10. `docs/adr/implemented/ADR-Declarative-Setup-Architecture.md` — Claims completion but implementation differs
+
+The ADR claims Phase 5 "✓ COMPLETED" (December 16, 2025) with deliverables including `setup.py` and `config/setup/` module. Neither exists. The actual implementation is a simpler interactive wizard in `sandbox/egg_lib/setup_flow.py`. The `--setup` flag works, but the modular architecture, service management (`--enable-services`), and `host_config.py` were never built.
+
+**Fix:** Update ADR status to reflect actual state. Mark the completed aspects (interactive setup via `egg --setup`, secrets.env/config.yaml creation) and note the deferred aspects (modular config/setup module, service management, HostConfig class).
+
+---
+
+### MODERATE: Incomplete information that could confuse developers
+
+#### M1. `shared/egg_config/README.md` — Incomplete constants list
+
+Lists selected constants but omits orchestrator-related ones: `ORCHESTRATOR_CONTAINER_NAME`, `ORCHESTRATOR_IMAGE_NAME`, `ORCHESTRATOR_PORT`, `ORCHESTRATOR_ISOLATED_IP`, `ORCHESTRATOR_EXTERNAL_IP`, `TEST_GATEWAY_PORT`, `TEST_GATEWAY_PROXY_PORT`.
+
+**Fix:** Add the missing constants or expand the "See constants.py for the full list" reference.
+
+#### M2. `shared/egg_config/README.md` — GatewayConfig fields undersold
+
+Documents "Key Fields: `secret`, `port`" but actual class also includes `host` (bind address) and `rate_limits` (RateLimitConfig with 7 fields).
+
+**Fix:** Update the Key Fields to include `host` and `rate_limits`.
+
+#### M3. `sandbox/.claude/commands/README.md` — Lists only 2 commands
+
+Documents `/sdlc` and `/show-metrics` but 6 commands exist (missing: `/coder-mode`, `/documenter-mode`, `/integrator-mode`, `/tester-mode`).
+
+**Fix:** Add all commands to the listing.
+
+#### M4. `sandbox/.claude/rules/README.md` — Missing `contract.md` rule
+
+Lists 5 rules but `contract.md` exists and is important (documents SDLC contract CLI commands).
+
+**Fix:** Add `contract.md` to the listing.
+
+---
+
+### LOW: Minor inconsistencies
+
+#### L1. `README.md` — Versioning note may be outdated
+
+Line 289: "Use `@main` until the first release (v0.1.0) is published". The `pyproject.toml` version is `0.1.0` but it's unclear if the GitHub release was actually published. The release script exists.
+
+**Action:** Verify release status; update if v0.1.0 has been published.
+
+#### L2. `docs/adr/README.md` — Minor ADR naming inconsistency
+
+The README index entry says "Anthropic API Credential Injection" but the ADR file is actually about gateway credential injection more broadly. This is a minor label-vs-content mismatch.
+
+**Action:** No change needed — the content is correct, just a naming nuance.
+
+---
+
+## Files NOT Requiring Changes (Verified Accurate)
+
+The following files were audited and found to be accurate:
+
+- `README.md` — Mostly accurate (minor issues noted in prior analysis, already addressed)
+- `CONTRIBUTING.md` — Accurate
+- `RELEASING.md` — Accurate
+- `bin/README.md` — Accurate
+- `sandbox/.claude/README.md` — Accurate
+- `docs/index.md` — Accurate (all links verified)
+- `docs/architecture/README.md` — Accurate
+- `docs/hitl-decisions.md` — Accurate
+- `docs/agentic-feedback-loop.md` — Conceptual; no code claims to verify
+- `docs/collaboration-effectiveness.md` — Conceptual; no code claims to verify
+- `.egg/contract-rules.md` — Operational guidance; accurate
+- `docs/templates/*.md` — Templates; no code claims
+- `docs/adr/implemented/ADR-SDLC-Pipeline.md` — Fully verified against implementation
+- `docs/adr/implemented/ADR-Gateway-Credential-Injection.md` — Verified
+- `docs/adr/implemented/ADR-Git-Isolation-Architecture.md` — Core verified (private repo mode documented as proposed)
+- `docs/adr/implemented/ADR-Standardized-Logging-Interface.md` — Verified
+- `docs/adr/in-progress/*.md` — Correctly marked as in-progress
+- `docs/adr/not-implemented/*.md` — Correctly marked
+- `docs/guides/deployment.md` — Verified
+- `docs/guides/local-quickstart.md` — Verified
+- `docs/guides/github-automation.md` — Verified
+- `docs/guides/reusable-workflows.md` — Verified
+- `docs/guides/agent-mode-design.md` — Verified
+- `docs/guides/agent-development.md` — Verified
+- `docs/guides/deploy-migration.md` — Verified
+- `docs/development/STRUCTURE.md` — Verified
+- `docs/development/TEST_COVERAGE_PLAN.md` — Verified
+- `gateway/tests/README-integration.md` — Not auditable (test docs)
 
 ## Recommended Approach
 
-### Scope: Targeted refresh (not a rewrite)
+### Scope: Targeted inline fixes across ~15 files
 
-The README is fundamentally sound. A full rewrite is unnecessary and would risk losing the strong narrative structure. Instead, make targeted fixes:
+The documentation is fundamentally sound. No rewrites needed. Fix discrepancies inline, preserving existing structure and tone.
 
-**Priority 1 — Accuracy fixes:**
-1. Fix CLI reference table: add `--build`, fix `--compose` description
-2. Add prerequisites to Quick Start section
+### Priority Order
 
-**Priority 2 — Missing content:**
-3. Link local-quickstart guide from README (most impactful for new users)
-4. Link HITL decisions guide from the HITL section
-5. Link agent-development guide if appropriate
+1. **Critical fixes first** (C1-C4): Remove references to non-existent modules, fix misleading code examples and CLI claims
+2. **High-priority gaps** (H1-H10): Add missing endpoints, modules, files to existing documentation sections
+3. **Moderate gaps** (M1-M4): Expand incomplete listings
+4. **Low-priority** (L1-L2): Minor label/status updates
 
-**Priority 3 — Minor cleanup:**
-6. Verify and update versioning note (check if v0.1.0 is released)
-7. Standardize GitHub Action reference format
-8. Note CHANGELOG CLI discrepancy (separate fix)
+### Files Requiring Changes (17 files)
 
-### Implementation Approach
+| File | Issues | Severity |
+|------|--------|----------|
+| `config/README.md` | C1 | Critical |
+| `shared/egg_config/README.md` | C2, M1, M2 | Critical + Moderate |
+| `CHANGELOG.md` | C3, C4 | Critical |
+| `gateway/README.md` | H1, H2 | High |
+| `sandbox/README.md` | H3, H4, H5 | High |
+| `shared/README.md` | H6, H7 | High |
+| `action/README.md` | H8 | High |
+| `docs/guides/sdlc-pipeline.md` | H9 | High |
+| `docs/adr/implemented/ADR-Declarative-Setup-Architecture.md` | H10 | High |
+| `sandbox/.claude/commands/README.md` | M3 | Moderate |
+| `sandbox/.claude/rules/README.md` | M4 | Moderate |
 
-Edit `README.md` in place, making the following specific changes:
+### What NOT to Change
 
-1. **CLI Reference section** (lines 209-249):
-   - Update `egg --compose` row to clarify it's used with `--down`/`--build`
-   - Add `--build` to both the command table and flags table
-   - Reword `--compose` description in flags table
-
-2. **Quick Start > Local section** (lines 155-167):
-   - Add a brief prerequisites note (Python 3.11+, Docker, Anthropic credentials)
-   - Add link to local-quickstart guide for detailed PAT setup
-
-3. **Documentation section** (lines 251-283):
-   - Add `local-quickstart.md` link under Guides
-   - Add `hitl-decisions.md` link under SDLC Pipeline or Other
-   - Consider adding `agent-development.md` link
-
-4. **HITL section** (lines 143-151):
-   - Add link to `docs/hitl-decisions.md` for details
-
-5. **Versioning section** (lines 286-321):
-   - Verify release status and update note if needed
-
-### What NOT to change
-
-- The architecture diagrams (accurate and effective)
-- The enforcement tables (correct)
-- The overall narrative structure and flow
-- The Multi-Agent Orchestration section (accurate)
-- The GitHub Automation section (accurate)
+- Architecture diagrams (accurate and effective)
+- Enforcement/permissions tables (correct)
+- Narrative structure and tone of all documents
+- Strategy/conceptual documents (accurate)
+- ADRs that accurately reflect their implementation status
+- Template files (structural, not code-referencing)
 
 ## Constraints
 
 - Local pipeline only — no push, no PR, no GitHub operations
-- The README should remain under ~400 lines (currently 337)
-- Must maintain the existing strong narrative flow
-- All linked documents must exist (verified above)
+- Preserve existing structure and tone of each document
+- Fix content inline — no TODO markers
+- Do not add new documentation files
+- Focus on accuracy of code references, CLI commands, file paths, API descriptions
 
 ## Dependencies
 
-- None — all changes are to `README.md` and possibly `CHANGELOG.md`
 - No code changes required
 - No test changes required
+- All changes are documentation-only edits to existing markdown files
