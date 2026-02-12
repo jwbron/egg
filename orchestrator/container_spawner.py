@@ -248,6 +248,7 @@ class ContainerSpawner:
                 labels=labels,
                 volumes=volumes if volumes else None,
                 command=command,
+                security_opt=["label=disable"],
             )
 
             logger.info(
