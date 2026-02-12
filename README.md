@@ -248,7 +248,7 @@ For production/advanced deployments using Docker Compose:
 |------|-------------|
 | `--private` | Enable private mode (Anthropic API + private GitHub repos only) |
 | `--public` | Enable public mode (full internet access, default) |
-| `--compose` | Explicit compose control (use with `--down` or `--build`) |
+| `--compose` | Use Docker Compose to manage the gateway stack |
 | `--down` | Stop the Docker Compose stack (use with `--compose`) |
 | `--build` | Rebuild compose images before starting (use with `--compose`) |
 | `--exec <cmd>` | Execute command in new ephemeral container |
