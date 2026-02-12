@@ -6,6 +6,11 @@ accessed via a persistent git worktree.  The main checkout is never modified.
 
 Read/write operations go directly to the worktree directory on disk.  Commits
 are made in-place inside the worktree and stay on the state branch.
+
+Note: The state branch is **local-only** and is not pushed to the remote.
+State persistence relies on the Docker state volume (``/home/egg/.egg-state``).
+This differs from checkpoints which are pushed to remote for cross-container
+access.
 """
 
 import json
@@ -122,6 +127,9 @@ class StateStore:
 
     def _ensure_worktree(self) -> Path:
         """Create or validate the persistent state worktree."""
+        # Clean up any stale worktree entries first (e.g., from crashes)
+        self._run_git("worktree", "prune", check=False)
+
         wt = self._worktree_dir
 
         if wt.exists() and (wt / ".git").exists():
@@ -346,7 +354,9 @@ class StateStore:
 
         result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
         if result.returncode == 0:
-            return self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()
+            # No changes staged - return current HEAD or empty string for unborn branch
+            head_result = self._run_git("rev-parse", "HEAD", cwd=wt, check=False)
+            return head_result.stdout.strip() if head_result.returncode == 0 else ""
 
         self._run_git("commit", "--no-verify", "-m", message, cwd=wt)
         return self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()

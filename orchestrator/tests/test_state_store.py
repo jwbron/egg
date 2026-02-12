@@ -512,3 +512,82 @@ class TestVersionConflict:
 
         final = state_store.load_pipeline("issue-111")
         assert final.version == version_after_create + 3
+
+
+class TestUnbornBranchEdgeCases:
+    """Tests for edge cases with unborn (orphan) branches."""
+
+    def test_commit_state_handles_unborn_branch_no_changes(self, state_store, mock_git):
+        """Test that _commit_state handles unborn branch with no staged changes.
+
+        When the orphan branch is first created but HEAD doesn't exist yet,
+        and there are no staged changes, rev-parse HEAD would fail. The code
+        should handle this gracefully by returning an empty string.
+        """
+        from unittest.mock import MagicMock
+
+        from models import Pipeline
+
+        pipeline = Pipeline(
+            id="issue-999",
+            issue_number=999,
+            repo="owner/repo",
+            branch="egg/issue-999",
+        )
+
+        # Simulate: no staged changes (returncode=0) and unborn branch (HEAD fails)
+        def mock_git_responses(*args, **kwargs):
+            result = MagicMock()
+            if args[0] == "diff" and "--cached" in args:
+                result.returncode = 0  # No staged changes
+                result.stdout = ""
+            elif args[0] == "rev-parse" and "HEAD" in args:
+                result.returncode = 128  # HEAD doesn't exist on unborn branch
+                result.stdout = ""
+            else:
+                result.returncode = 0
+                result.stdout = "abc1234\n"
+            return result
+
+        mock_git.side_effect = mock_git_responses
+
+        # This should not raise - should return empty string for unborn branch
+        sha = state_store._commit_state(pipeline)
+        assert sha == ""
+
+    def test_commit_state_returns_sha_after_commit(self, state_store, mock_git):
+        """Test that _commit_state returns SHA after successful commit."""
+        from unittest.mock import MagicMock
+
+        from models import Pipeline
+
+        pipeline = Pipeline(
+            id="issue-888",
+            issue_number=888,
+            repo="owner/repo",
+            branch="egg/issue-888",
+        )
+
+        expected_sha = "def5678"
+
+        # Simulate: staged changes exist, commit succeeds, rev-parse returns SHA
+        def mock_git_responses(*args, **kwargs):
+            result = MagicMock()
+            if args[0] == "diff" and "--cached" in args:
+                result.returncode = 1  # Changes are staged
+                result.stdout = ""
+            elif args[0] == "commit":
+                result.returncode = 0
+                result.stdout = ""
+            elif args[0] == "rev-parse" and "HEAD" in args:
+                result.returncode = 0
+                result.stdout = f"{expected_sha}\n"
+            else:
+                result.returncode = 0
+                result.stdout = ""
+            return result
+
+        mock_git.side_effect = mock_git_responses
+
+        sha = state_store._commit_state(pipeline)
+        assert sha == expected_sha
