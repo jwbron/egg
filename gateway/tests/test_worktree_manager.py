@@ -376,5 +376,73 @@ class TestWorktreeManagerCreateWorktree:
             assert result.success
 
 
+class TestWorktreeManagerDockerGitDir:
+    """Tests for create_worktree when Docker pre-creates a .git directory."""
+
+    @pytest.fixture
+    def git_repo(self, tmp_path):
+        """Create a real git repo for worktree tests."""
+        import subprocess
+
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        repo_dir = repos_base / "test-repo"
+        repo_dir.mkdir()
+        subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "commit", "--allow-empty", "-m", "init"],
+            cwd=repo_dir,
+            capture_output=True,
+            check=True,
+            env={
+                **__import__("os").environ,
+                "GIT_AUTHOR_NAME": "test",
+                "GIT_AUTHOR_EMAIL": "t@t",
+                "GIT_COMMITTER_NAME": "test",
+                "GIT_COMMITTER_EMAIL": "t@t",
+            },
+        )
+
+        worktree_base = tmp_path / "worktrees"
+        return worktree_base, repos_base, repo_dir
+
+    def test_create_worktree_removes_preexisting_git_directory(self, git_repo):
+        """When Docker pre-creates a .git directory, create_worktree should remove it and succeed."""
+        worktree_base, repos_base, repo_dir = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        # Simulate Docker creating the mount point with a .git directory
+        worktree_path = worktree_base / "container-1" / "test-repo"
+        worktree_path.mkdir(parents=True)
+        git_dir = worktree_path / ".git"
+        git_dir.mkdir()  # Docker's tmpfs creates this as a directory
+
+        # create_worktree should handle the .git directory and succeed
+        info = manager.create_worktree("test-repo", "container-1")
+
+        assert info.container_id == "container-1"
+        assert info.repo_name == "test-repo"
+        assert info.branch == "egg/container-1/work"
+        assert info.worktree_path == worktree_path
+
+        # .git should now be a file (gitdir pointer), not a directory
+        assert git_dir.exists()
+        assert git_dir.is_file()
+        assert git_dir.read_text().strip().startswith("gitdir:")
+
+    def test_create_worktree_normal_case(self, git_repo):
+        """Normal case: no pre-existing directory, worktree created fresh."""
+        worktree_base, repos_base, repo_dir = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        info = manager.create_worktree("test-repo", "container-2")
+
+        assert info.container_id == "container-2"
+        assert info.worktree_path.exists()
+        git_file = info.worktree_path / ".git"
+        assert git_file.is_file()
+        assert git_file.read_text().strip().startswith("gitdir:")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
