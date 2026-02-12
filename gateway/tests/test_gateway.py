@@ -160,7 +160,12 @@ class TestHealthCheck:
             patch.object(
                 gateway,
                 "_check_orchestrator_connectivity",
-                return_value={"configured": True, "reachable": True, "status": "healthy"},
+                return_value={
+                    "configured": True,
+                    "reachable": True,
+                    "url": "http://orchestrator:8080",
+                    "status": "healthy",
+                },
             ),
         ):
             mock_gh.return_value.is_token_valid.return_value = True
@@ -171,6 +176,7 @@ class TestHealthCheck:
             data = json.loads(response.data)
             assert data["orchestrator"]["configured"] is True
             assert data["orchestrator"]["reachable"] is True
+            assert data["orchestrator"]["url"] == "http://orchestrator:8080"
 
     def test_health_check_orchestrator_unreachable(self, client, monkeypatch):
         """Health check shows orchestrator unreachable when connection fails."""
