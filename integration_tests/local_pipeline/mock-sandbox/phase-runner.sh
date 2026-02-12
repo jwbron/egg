@@ -149,6 +149,29 @@ VERDICT_EOF
     exit ${MOCK_EXIT_CODE:-0}
 fi
 
+# --- Worker: write draft files for refine/plan phases ---
+DRAFTS_DIR="${EGG_REPO_PATH:-.}/.egg-state/drafts"
+case "$EGG_PIPELINE_PHASE" in
+    refine)
+        mkdir -p "$DRAFTS_DIR"
+        cat > "$DRAFTS_DIR/analysis.md" <<DRAFT_EOF
+# Analysis Draft (Mock)
+Pipeline: $EGG_PIPELINE_ID
+This is a mock analysis.
+DRAFT_EOF
+        echo "Wrote mock analysis draft to $DRAFTS_DIR/analysis.md"
+        ;;
+    plan)
+        mkdir -p "$DRAFTS_DIR"
+        cat > "$DRAFTS_DIR/plan.md" <<DRAFT_EOF
+# Plan Draft (Mock)
+Pipeline: $EGG_PIPELINE_ID
+## Task 1: Implement feature
+DRAFT_EOF
+        echo "Wrote mock plan draft to $DRAFTS_DIR/plan.md"
+        ;;
+esac
+
 # --- Failure injection ---
 # FORCE_FAIL in prompt → exit 1 (tests real container failure path)
 case "$EGG_PIPELINE_PROMPT" in

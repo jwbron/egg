@@ -29,6 +29,7 @@ except ImportError:
 # Import orchestrator modules - try relative import first
 try:
     from ..container_spawner import ContainerSpawnError, get_container_spawner
+    from ..decision_queue import DecisionTimeoutError, get_decision_queue
     from ..models import AgentRole, PipelineStatus, ReviewVerdict
     from ..state_store import (
         InvalidPipelineIdError,
@@ -39,6 +40,7 @@ try:
     )
 except ImportError:
     from container_spawner import ContainerSpawnError, get_container_spawner  # type: ignore
+    from decision_queue import DecisionTimeoutError, get_decision_queue  # type: ignore
     from models import AgentRole, PipelineStatus, ReviewVerdict  # type: ignore
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
@@ -438,18 +440,29 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         store = get_state_store(repo_path)
         pipeline = store.load_pipeline(pipeline_id)
 
-        pending_decisions = len(pipeline.get_pending_decisions())
+        pending = pipeline.get_pending_decisions()
 
-        return make_success_response(
-            "Status retrieved",
-            data={
-                "id": pipeline.id,
-                "status": pipeline.status.value,
-                "current_phase": pipeline.current_phase.value,
-                "pending_decisions": pending_decisions,
-                "updated_at": pipeline.updated_at.isoformat(),
-            },
-        )
+        data = {
+            "id": pipeline.id,
+            "status": pipeline.status.value,
+            "current_phase": pipeline.current_phase.value,
+            "pending_decisions": len(pending),
+            "updated_at": pipeline.updated_at.isoformat(),
+        }
+
+        # Include first pending decision details so the collaborator
+        # doesn't need a second round-trip to fetch it
+        if pending:
+            d = pending[0]
+            data["pending_decision"] = {
+                "id": d.id,
+                "question": d.question,
+                "context": d.context,
+                "options": d.options,
+                "created_at": d.created_at.isoformat(),
+            }
+
+        return make_success_response("Status retrieved", data=data)
 
     except InvalidPipelineIdError:
         return make_error_response(
@@ -671,6 +684,45 @@ def _verdict_path_for_type(
         return f".egg-state/reviews/{issue_number}-{phase}-{reviewer_type}-review.json"
 
 
+def _get_draft_path(phase: str, pipeline_mode: str, issue_number: int | None = None) -> str | None:
+    """Return relative path to the draft file for a phase."""
+    is_local = pipeline_mode == "local"
+    if is_local:
+        if phase == "refine":
+            return ".egg-state/drafts/analysis.md"
+        elif phase == "implement":
+            return None
+        else:
+            return f".egg-state/drafts/{phase}.md"
+    else:
+        if phase == "refine":
+            return f".egg-state/drafts/{issue_number}-analysis.md"
+        elif phase == "implement":
+            return None
+        else:
+            return f".egg-state/drafts/{issue_number}-{phase}.md"
+
+
+def _read_phase_draft(
+    repo_path: Path,
+    phase: str,
+    pipeline_mode: str,
+    issue_number: int | None = None,
+    max_chars: int = 8000,
+) -> str:
+    """Read draft file contents. Truncates at max_chars."""
+    draft_rel = _get_draft_path(phase, pipeline_mode, issue_number)
+    if not draft_rel:
+        return f"(No draft file for {phase} phase)"
+    draft_path = repo_path / draft_rel
+    if not draft_path.exists():
+        return f"(Draft file not found: {draft_rel})"
+    content = draft_path.read_text(encoding="utf-8")
+    if len(content) > max_chars:
+        return content[:max_chars] + f"\n\n... (truncated, {len(content)} chars total)"
+    return content
+
+
 def _build_review_prompt(
     phase: str,
     pipeline_id: str,
@@ -685,23 +737,7 @@ def _build_review_prompt(
     Tells the reviewer to evaluate the draft for the given phase and write
     a typed verdict JSON file to .egg-state/reviews/.
     """
-    is_local = pipeline_mode == "local"
-
-    # Determine draft path
-    if is_local:
-        if phase == "refine":
-            draft_path = ".egg-state/drafts/analysis.md"
-        elif phase == "implement":
-            draft_path = None  # Review the git diff
-        else:
-            draft_path = f".egg-state/drafts/{phase}.md"
-    else:
-        if phase == "refine":
-            draft_path = f".egg-state/drafts/{issue_number}-analysis.md"
-        elif phase == "implement":
-            draft_path = None
-        else:
-            draft_path = f".egg-state/drafts/{issue_number}-{phase}.md"
+    draft_path = _get_draft_path(phase, pipeline_mode, issue_number)
 
     verdict_path = _verdict_path_for_type(phase, reviewer_type, pipeline_mode, issue_number)
 
@@ -1164,6 +1200,9 @@ def _spawn_and_wait(
 
 # Phases that get an agentic review cycle before advancing
 _REVIEWED_PHASES = {"refine", "plan", "implement"}
+
+# Phases that pause for human approval before advancing (HITL gates)
+_HITL_GATE_PHASES = {"refine", "plan"}
 
 
 def _build_checker_prompt(pipeline_id: str, pipeline_mode: str) -> str:
@@ -1784,6 +1823,42 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # After plan phase: populate contract with task structure
             if current_phase.value == "plan" and pipeline_mode == "local":
                 _populate_contract_from_plan(repo_path, pipeline_id)
+
+            # --- HITL gate: pause for human approval ---
+            if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:
+                draft_content = _read_phase_draft(
+                    repo_path, current_phase.value, pipeline_mode, pipeline.issue_number
+                )
+                phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
+                question = (
+                    f"The {current_phase.value} phase has completed. "
+                    f"Please review the {phase_label} and approve to continue."
+                )
+
+                dq = get_decision_queue(pipeline_id, repo_path)
+                decision = dq.queue_decision(
+                    question=question,
+                    context=draft_content,
+                    options=["approve"],
+                    timeout_seconds=pipeline.config.decision_timeout,
+                )
+
+                pipeline.status = PipelineStatus.AWAITING_HUMAN
+                store.save_pipeline(pipeline)
+
+                try:
+                    dq.wait_for_decision(decision.id)
+                except DecisionTimeoutError:
+                    logger.warning(
+                        "HITL gate timed out, advancing",
+                        pipeline_id=pipeline_id,
+                        decision_id=decision.id,
+                    )
+
+                # Resume — reload since decision resolution may have modified state
+                pipeline = store.load_pipeline(pipeline_id)
+                pipeline.status = PipelineStatus.RUNNING
+                store.save_pipeline(pipeline)
 
             # Determine next phase
             next_phases = transitions.get(current_phase, [])

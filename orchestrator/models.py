@@ -173,6 +173,9 @@ class PipelineConfig(BaseModel):
     decision_timeout: int = Field(
         default=3600, ge=60, description="HITL decision timeout in seconds"
     )
+    hitl_gates: bool = Field(
+        default=True, description="Pause for human approval after refine and plan phases"
+    )
 
 
 class Pipeline(BaseModel):

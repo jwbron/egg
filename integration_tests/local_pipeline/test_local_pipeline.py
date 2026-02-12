@@ -58,6 +58,7 @@ def create_pipeline(
     issue_number: int | None = None,
     repo: str | None = None,
     branch: str | None = None,
+    config: dict | None = None,
 ) -> tuple[dict, int]:
     """Create a pipeline via the orchestrator API and return response data."""
     body: dict = {"mode": mode, "prompt": prompt}
@@ -67,6 +68,8 @@ def create_pipeline(
         body["repo"] = repo
     if branch is not None:
         body["branch"] = branch
+    if config is not None:
+        body["config"] = config
     resp = requests.post(
         f"{orchestrator_url}/api/v1/pipelines",
         json=body,
@@ -157,6 +160,7 @@ class TestStartLocalPipelineCompletes:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Refactor the auth module",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -193,6 +197,7 @@ class TestLocalPipelineIncludesPrPhase:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Full pipeline with PR phase",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -228,6 +233,7 @@ class TestLocalPipelineContainerFailure:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="This pipeline should FORCE_FAIL on first phase",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -270,6 +276,7 @@ class TestLocalPipelineContainerFailure:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="FORCE_FAIL to test log capture",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -311,6 +318,7 @@ class TestSandboxReceivesEnvironment:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Verify pipeline env vars",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -338,6 +346,7 @@ class TestSandboxReceivesEnvironment:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Verify GATEWAY_URL passed",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -364,6 +373,7 @@ class TestSandboxReceivesEnvironment:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Verify repo volume mounted",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -393,6 +403,7 @@ class TestPipelineStartIdempotency:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Test idempotency",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -419,6 +430,7 @@ class TestPipelineStartIdempotency:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Test completed idempotency",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -450,6 +462,7 @@ class TestIssuePipelineIncludesPrPhase:
             issue_number=issue_num,
             repo="test-owner/test-repo",
             branch=f"egg/issue-{issue_num}",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -622,6 +635,7 @@ class TestReviewCycleApproved:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Test multi-reviewer approved",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -663,6 +677,7 @@ class TestReviewCycleCircuitBreaker:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="REVIEW_NEEDS_REVISION circuit breaker test",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -697,6 +712,7 @@ class TestFailedPipelineCannotRestart:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="FORCE_FAIL for restart test",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -731,6 +747,7 @@ class TestImplementPhaseReviewed:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Test implement phase review",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -767,6 +784,7 @@ class TestAutofixLoop:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Test CHECK_FAIL_THEN_PASS autofix loop",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -803,6 +821,7 @@ class TestAutofixCircuitBreaker:
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Test CHECK_FAIL autofix circuit breaker",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -853,6 +872,132 @@ class TestContractCreatedForLocalPipeline:
             contract_data = json.loads(contract_path.read_text())
             assert contract_data.get("pipeline_id") == pipeline_id
             assert contract_data.get("current_phase") == "refine"
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)
+
+
+# ---------------------------------------------------------------------------
+# HITL gate helpers
+# ---------------------------------------------------------------------------
+
+
+def wait_for_awaiting_human(
+    orchestrator_url: str,
+    pipeline_id: str,
+    timeout: int = 120,
+    poll_interval: float = 2.0,
+) -> dict:
+    """Poll GET /status until status == 'awaiting_human' or terminal."""
+    terminal_statuses = {"complete", "failed", "cancelled"}
+    deadline = time.time() + timeout
+
+    while time.time() < deadline:
+        try:
+            resp = requests.get(
+                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                status = data.get("data", {}).get("status", "")
+                if status == "awaiting_human":
+                    return data
+                if status in terminal_statuses:
+                    raise AssertionError(
+                        f"Pipeline reached terminal state '{status}' before awaiting_human: {data}"
+                    )
+        except requests.ConnectionError:
+            pass
+        time.sleep(poll_interval)
+
+    raise TimeoutError(f"Pipeline {pipeline_id} did not reach awaiting_human within {timeout}s")
+
+
+def resolve_pending_decision(
+    orchestrator_url: str,
+    pipeline_id: str,
+    decision_id: str,
+    resolution: str = "approve",
+) -> dict:
+    """POST to resolve a pending decision."""
+    resp = requests.post(
+        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/decisions/{decision_id}/resolve",
+        json={"resolution": resolution},
+        timeout=10,
+    )
+    return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# HITL gate tests
+# ---------------------------------------------------------------------------
+
+
+class TestHITLGate:
+    """Pipeline pauses for human approval after refine and plan phases."""
+
+    def test_hitl_gate_full_flow(self, orchestrator_url: str) -> None:
+        """Pipeline pauses after refine and plan, resumes on approval.
+
+        1. Create pipeline with hitl_gates=True (default)
+        2. Start pipeline
+        3. Wait for awaiting_human after refine
+        4. Verify pending_decision in status response
+        5. Resolve decision
+        6. Wait for awaiting_human after plan
+        7. Resolve plan decision
+        8. Wait for pipeline to complete through implement + pr
+        """
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="Test HITL gate flow",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
+
+        try:
+            # Start pipeline
+            start_data, start_status = start_pipeline(orchestrator_url, pipeline_id)
+            assert start_status == 200
+
+            # --- Gate 1: refine phase ---
+            status_data = wait_for_awaiting_human(orchestrator_url, pipeline_id, timeout=180)
+            assert status_data["data"]["status"] == "awaiting_human"
+            assert status_data["data"]["pending_decisions"] >= 1
+
+            # Verify pending_decision details are included
+            pending = status_data["data"].get("pending_decision")
+            assert pending is not None, "Status should include pending_decision details"
+            assert "id" in pending
+            assert "question" in pending
+            assert "refine" in pending["question"]
+            # Context should contain the mock draft content
+            assert "context" in pending
+            assert len(pending["context"]) > 0
+
+            # Resolve the refine gate
+            resolve_data = resolve_pending_decision(orchestrator_url, pipeline_id, pending["id"])
+            assert resolve_data["success"] is True
+
+            # --- Gate 2: plan phase ---
+            status_data = wait_for_awaiting_human(orchestrator_url, pipeline_id, timeout=180)
+            assert status_data["data"]["status"] == "awaiting_human"
+
+            pending = status_data["data"].get("pending_decision")
+            assert pending is not None
+            assert "plan" in pending["question"]
+
+            # Resolve the plan gate
+            resolve_data = resolve_pending_decision(orchestrator_url, pipeline_id, pending["id"])
+            assert resolve_data["success"] is True
+
+            # --- No gate after implement — pipeline should complete ---
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
+            assert final["data"]["status"] == "complete", (
+                f"Pipeline should complete after both gates approved: {final}"
+            )
+            assert final["data"]["current_phase"] == "pr"
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
