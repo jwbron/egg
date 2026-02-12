@@ -16,7 +16,7 @@ for how to call egg's workflows from your own repositories.
 | [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
 | [@mention Response](#mention-response) | Bot mention in issues/PR comments | Runs arbitrary tasks requested by authorized users |
 | [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
-| [Conflict Resolver](#conflict-resolver) | Push to main / every 2 hours / manual | Resolves merge conflicts via rebase |
+| [Conflict Resolver](#conflict-resolver) | Push to main / every 2 hours / manual | Resolves merge conflicts via merge commits |
 | [Self-Improvement](#self-improvement) | Nightly schedule (2 AM UTC) | Analyzes all runs for issues, creates tracking issues |
 | [Doc Updater](#doc-updater) | Push to main | Checks if code changes require documentation updates |
 
@@ -106,8 +106,20 @@ PR opened → review → address feedback → re-review → ... → approval or 
 
 The workflow runs on:
 - `pull_request_review` — Formal reviews posted via `gh pr review`
-- `issue_comment` — Self-reviews posted as comments (GitHub blocks bots from reviewing their own PRs via the Reviews API)
+- `issue_comment` — Legacy self-reviews posted as comments (deprecated — use a separate reviewer bot instead, see below)
 - `workflow_dispatch` — Manual trigger with PR number (bypasses filters for debugging)
+
+### Separate Reviewer Bot (Recommended)
+
+By default, the bot cannot approve or request changes on its own PRs (GitHub blocks this).
+To enable full review capabilities, configure a separate reviewer GitHub App:
+
+1. Create a second GitHub App (e.g., `egg-reviewer`) with `pull_requests: write` permission
+2. Install it on your repositories
+3. Add secrets: `REVIEWER_APP_ID`, `REVIEWER_APP_PRIVATE_KEY`, `REVIEWER_APP_INSTALLATION_ID`
+
+When configured, reviews use the reviewer account, enabling approve/request-changes on bot PRs.
+Without it, the system falls back to posting reviews as comments (self-review mode).
 
 ### How It Works
 
@@ -271,7 +283,7 @@ The agent follows these rules (customizable via `.egg/autofixer-rules.md`):
 
 **Workflow:** [`.github/workflows/on-merge-conflict.yml`](../../.github/workflows/on-merge-conflict.yml)
 
-Resolves merge conflicts on PRs via rebase. Can be triggered automatically by the SDLC pipeline, on push to main, via schedule, or manually with `workflow_dispatch`.
+Resolves merge conflicts on PRs via merge commits. Can be triggered automatically by the SDLC pipeline, on push to main, via schedule, or manually with `workflow_dispatch`.
 
 ### Trigger Modes
 
@@ -286,22 +298,16 @@ Resolves merge conflicts on PRs via rebase. Can be triggered automatically by th
 ### How It Works
 
 1. **Conflict detection** — Queries open PRs and checks their `mergeable_state`. PRs with a "dirty" state (indicating conflicts) are queued for resolution. Fork PRs are skipped since the bot cannot push to forks. When triggered by the SDLC pipeline with a specific PR number, only that PR is processed.
-
 2. **Skip check** — Skips PRs with `[skip-conflict-fix]` in the title.
-
 3. **Comment cleanup** — Minimizes previous conflict resolution comments to reduce clutter.
-
 4. **Acknowledgment** — Posts a comment indicating conflict resolution has started.
-
-5. **Trusted prompt build** — Builds the conflict prompt from `main` using `build-conflict-prompt.sh`, which includes the base branch name for rebase.
-
+5. **Trusted prompt build** — Builds the conflict prompt from `main` using `build-conflict-prompt.sh`, which includes the base branch name for merging.
 6. **Resolution** — The agent:
-   - Fetches the base branch and starts a rebase
+   - Fetches the base branch and starts a merge
    - Resolves each conflict based on conflict resolution rules
    - Runs local checks to verify the resolution
-   - Pushes with `--force-with-lease` if successful
-
-7. **Escalation** — If conflicts require human judgment (semantic conflicts, security code, database migrations), the agent aborts the rebase and posts a comment explaining which files need review and why.
+   - Pushes the merge commit if successful
+7. **Escalation** — If conflicts require human judgment (semantic conflicts, security code, database migrations), the agent aborts the merge and posts a comment explaining which files need review and why.
 
 ### Resolution Strategy
 

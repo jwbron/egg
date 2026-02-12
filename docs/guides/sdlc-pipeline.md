@@ -201,13 +201,21 @@ The refine and plan phases include an automated internal review step before huma
 
 ### Phase-Based Operation Filtering
 
-Each phase has a defined set of permitted operations. The gateway blocks all other operations:
+Each phase has a defined set of permitted operations. The gateway blocks all other operations via session-based phase tracking:
 
+**How it works:**
+1. The SDLC pipeline sets `EGG_PIPELINE_PHASE` environment variable when starting agent containers
+2. The runtime passes this phase to the gateway during session creation
+3. The gateway stores the phase in the session state
+4. When operations like `gh pr create` are invoked, the gateway checks the session's phase
+5. If the operation is not allowed for that phase (per `.egg/phase-permissions.json`), the gateway returns HTTP 403
+
+**Phase restrictions:**
 - **Refine/Plan phases**: Cannot `git push` or `gh pr create`—prevents code changes before plan approval
-- **Implement phase**: Can `git push` to the branch; draft PR is created automatically by the pipeline
-- **PR phase**: Can update the PR; human must merge
+- **Implement phase**: Can `git push` to the branch; draft PR is created automatically by the pipeline (not by agent)
+- **PR phase**: Can `gh pr create/edit` and `git push`; human must merge
 
-This prevents incidents where agents push code during planning or manually create PRs before implementation is complete.
+This structural enforcement prevents incidents where agents push code during planning or manually create PRs before implementation is complete.
 
 ## Contract System
 

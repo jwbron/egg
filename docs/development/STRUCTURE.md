@@ -40,8 +40,8 @@ The gateway sidecar holds credentials and enforces policies:
 gateway/
 ├── gateway.py              # Main HTTP server
 ├── git_client.py           # Git operation handler
-├── github_client.py        # GitHub API handler
-├── policy.py               # Branch ownership, push policies
+├── github_client.py        # GitHub API handler (supports bot/user/reviewer modes)
+├── policy.py               # Branch ownership, push policies, reviewer identity management
 ├── fork_policy.py          # Fork access policies
 ├── private_repo_policy.py  # Private/public repo access
 ├── phase_filter.py         # Phase-based operation filtering, file restrictions
@@ -50,8 +50,10 @@ gateway/
 ├── phase_api.py            # Phase API endpoints
 ├── contract_api.py         # Contract API endpoints
 ├── auth.py                 # Session authentication
-├── token_refresher.py      # GitHub App token management
+├── token_refresher.py      # GitHub App token management (bot and optional reviewer)
 ├── anthropic_credentials.py # API key injection for Claude
+├── checkpoint_handler.py   # Per-commit checkpoint capture
+├── transcript_buffer.py    # API proxy transcript capture buffer
 ├── worktree_manager.py     # Git worktree lifecycle
 ├── session_manager.py      # Agent session management
 ├── repo_parser.py          # Repository config parsing
@@ -81,9 +83,11 @@ sandbox/
 │   ├── git
 │   ├── gh
 │   ├── egg-contract        # Symlink to contract_cli.py
+│   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
-│   └── contract_cli.py     # SDLC contract CLI implementation
+│   ├── contract_cli.py     # SDLC contract CLI implementation
+│   └── checkpoint_cli.py   # Checkpoint browsing CLI wrapper
 ├── llm/                    # Claude Code / Agent SDK integration
 ├── tools/                  # Interactive tools
 │   ├── discover-tests.py   # Test framework discovery
@@ -99,14 +103,18 @@ sandbox/
 shared/
 ├── egg_config/             # Configuration utilities
 │   └── constants.py        # Centralized constants (ports, networks, container names)
-├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration
+├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration, checkpoints
 │   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig, AgentExecutionModel
 │   ├── phase_defaults.py   # Default check configurations per SDLC phase
 │   ├── agent_roles.py      # Multi-agent role definitions (Coder, Tester, Documenter, Integrator)
 │   ├── orchestrator.py     # Multi-agent orchestration dispatch logic
 │   ├── orchestration.py    # Agent execution state management
 │   ├── dependency_graph.py # Agent dependency resolution for parallel execution
-│   └── agent_recovery.py   # Failed agent recovery logic
+│   ├── agent_recovery.py   # Failed agent recovery logic
+│   ├── checkpoints.py      # Checkpoint data models
+│   ├── checkpoint_loader.py # Checkpoint storage and retrieval
+│   ├── checkpoint_cli.py   # Checkpoint browsing CLI
+│   └── transcript_extractor.py # API transcript extraction
 ├── egg_git/                # Git utilities
 └── egg_logging/            # Structured logging
 ```
@@ -182,7 +190,7 @@ action/
 ├── contract-state.sh                       # Contract state management utility
 ├── populate-contract-tasks.py              # Populates contract tasks from plan document
 ├── autofixer-conventions.md                # Guidelines for autofixer behavior
-├── conflict-conventions.md                 # Guidelines for conflict resolution via rebase
+├── conflict-conventions.md                 # Guidelines for conflict resolution via merge commits
 ├── review-conventions.md                   # Guidelines for review communication
 └── README.md
 ```

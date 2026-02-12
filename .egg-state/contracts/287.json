@@ -1,0 +1,515 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 287,
+    "title": "use a separate account for bot reviews",
+    "url": "https://github.com/jwbron/egg/issues/287"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Gateway reads GATEWAY_REVIEWER_BOT_NAME and generates reviewer identity variants",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Token refresher can fetch and cache tokens for the reviewer app",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] GitHubClient supports mode=\"reviewer\" that uses reviewer token",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Reviewer account is blocked from push/PR create operations",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-1-5] Unit tests verify reviewer token fetching, identity matching, and policy restrictions",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-1] Workflow accepts REVIEWER_APP_ID, REVIEWER_APP_PRIVATE_KEY, REVIEWER_APP_INSTALLATION_ID secrets",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-2] Review job generates a separate token for the reviewer app",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-3] Action inputs support reviewer app credentials, passes them to gateway",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-4] Caller workflow passes reviewer secrets to reusable workflow",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-2-5] Agent-mode design review workflow passes reviewer secrets",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-2-6] Feedback workflow recognizes reviews from reviewer bot",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-1] Lines 575-631 of sandbox/scripts/gh removed",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-3-2] Lines 683-724 of sandbox/scripts/gh removed",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-3-3] Self-Authored PRs section removed or updated",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-3-4] Lines 372-397 simplified",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-3-5] issue_comment event and associated condition removed",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-3-6] Documentation describes separate reviewer account architecture",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-4-1] Tests for self-review handling removed or updated",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-4-2] Integration test verifies reviewer can approve/request-changes",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-4-3] Existing markers continue to work",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Gateway Support for Reviewer Token",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add reviewer bot configuration environment variables",
+          "status": "pending",
+          "acceptance_criteria": "Gateway reads GATEWAY_REVIEWER_BOT_NAME and generates reviewer identity variants",
+          "files_affected": [
+            "gateway/policy.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add reviewer token support to token_refresher",
+          "status": "pending",
+          "acceptance_criteria": "Token refresher can fetch and cache tokens for the reviewer app",
+          "files_affected": [
+            "gateway/token_refresher.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add reviewer mode to GitHubClient",
+          "status": "pending",
+          "acceptance_criteria": "GitHubClient supports mode=\"reviewer\" that uses reviewer token",
+          "files_affected": [
+            "gateway/github_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add policy restrictions for reviewer account",
+          "status": "pending",
+          "acceptance_criteria": "Reviewer account is blocked from push/PR create operations",
+          "files_affected": [
+            "gateway/policy.py",
+            "gateway/app.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add gateway tests for reviewer token handling",
+          "status": "pending",
+          "acceptance_criteria": "Unit tests verify reviewer token fetching, identity matching, and policy restrictions",
+          "files_affected": [
+            "gateway/tests/test_policy.py",
+            "gateway/tests/test_github_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Workflow Updates for Reviewer Token",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add reviewer secrets to reusable-review.yml",
+          "status": "pending",
+          "acceptance_criteria": "Workflow accepts REVIEWER_APP_ID, REVIEWER_APP_PRIVATE_KEY, REVIEWER_APP_INSTALLATION_ID secrets",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Generate reviewer token in review job",
+          "status": "pending",
+          "acceptance_criteria": "Review job generates a separate token for the reviewer app",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Update egg action to accept reviewer credentials",
+          "status": "pending",
+          "acceptance_criteria": "Action inputs support reviewer app credentials, passes them to gateway",
+          "files_affected": [
+            "action/action.yml",
+            "action/generate-config.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Update on-pull-request.yml to pass reviewer secrets",
+          "status": "pending",
+          "acceptance_criteria": "Caller workflow passes reviewer secrets to reusable workflow",
+          "files_affected": [
+            ".github/workflows/on-pull-request.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "Update on-pull-request-agent-mode-design.yml similarly",
+          "status": "pending",
+          "acceptance_criteria": "Agent-mode design review workflow passes reviewer secrets",
+          "files_affected": [
+            ".github/workflows/on-pull-request-agent-mode-design.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-6",
+          "description": "Update on-review-feedback.yml to recognize reviewer account",
+          "status": "pending",
+          "acceptance_criteria": "Feedback workflow recognizes reviews from reviewer bot",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Remove Self-Review Workarounds",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Remove proactive self-review detection from gh wrapper",
+          "status": "pending",
+          "acceptance_criteria": "Lines 575-631 of sandbox/scripts/gh removed",
+          "files_affected": [
+            "sandbox/scripts/gh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Remove reactive self-review fallback from gh wrapper",
+          "status": "pending",
+          "acceptance_criteria": "Lines 683-724 of sandbox/scripts/gh removed",
+          "files_affected": [
+            "sandbox/scripts/gh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Update review-conventions.md",
+          "status": "pending",
+          "acceptance_criteria": "Self-Authored PRs section removed or updated",
+          "files_affected": [
+            "action/review-conventions.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Remove issue comment search for self-reviews from reusable-review.yml",
+          "status": "pending",
+          "acceptance_criteria": "Lines 372-397 simplified",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-5",
+          "description": "Remove issue_comment trigger from on-review-feedback.yml",
+          "status": "pending",
+          "acceptance_criteria": "issue_comment event and associated condition removed",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-6",
+          "description": "Update github-automation.md documentation",
+          "status": "pending",
+          "acceptance_criteria": "Documentation describes separate reviewer account architecture",
+          "files_affected": [
+            "docs/guides/github-automation.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Testing and Validation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Update test_gh_wrapper.py for removed self-review logic",
+          "status": "pending",
+          "acceptance_criteria": "Tests for self-review handling removed or updated",
+          "files_affected": [
+            "tests/sandbox/test_gh_wrapper.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Add integration test for reviewer account reviews",
+          "status": "pending",
+          "acceptance_criteria": "Integration test verifies reviewer can approve/request-changes",
+          "files_affected": [
+            "integration_tests/sdlc/test_review_rejection.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Verify backward compatibility with marker format",
+          "status": "pending",
+          "acceptance_criteria": "Existing markers continue to work",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 2,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-10T04:25:56Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-10T04:35:54Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-10T04:46:03Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-10T17:34:10Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    }
+  ],
+  "phase_configs": {
+    "refine": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "plan": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "implement": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "PR_REVIEW"
+    }
+  },
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add separate reviewer account for bot reviews",
+    "description": "Implements support for a separate GitHub App (egg-reviewer) to post code reviews,\neliminating self-review conflicts and enabling full GitHub Reviews API functionality\n(approve/request-changes). The main bot account continues to handle implementation.\n\nFixes #287"
+  }
+}
