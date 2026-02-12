@@ -405,6 +405,33 @@ def create_pipeline() -> tuple[Response, int]:
             mode="issue",
         )
 
+        # Create companion contract for the issue pipeline
+        try:
+            from egg_contracts.loader import create_contract
+
+            issue_url = f"https://github.com/{repo}/issues/{issue_number}"
+            create_contract(
+                issue_number=issue_number,
+                title=f"Issue #{issue_number}",
+                url=issue_url,
+                repo_root=repo_path,
+            )
+            pipeline.contract_synced = True
+            store.save_pipeline(pipeline, commit=False)
+            logger.info(
+                "Issue pipeline contract created",
+                pipeline_id=pipeline.id,
+                issue_number=issue_number,
+            )
+        except Exception as contract_err:
+            # Contract creation is best-effort — don't block pipeline
+            # contract_synced remains False
+            logger.warning(
+                "Failed to create contract for issue pipeline",
+                pipeline_id=pipeline.id,
+                error=str(contract_err),
+            )
+
         logger.info(
             "Pipeline created",
             pipeline_id=pipeline.id,
