@@ -83,7 +83,7 @@ cmd = build_sandbox_docker_cmd(net_config, ...)
 
 ### egg_contracts
 
-SDLC contract models, role-based validation, plan parsing, and resilience utilities.
+SDLC contract models, role-based validation, plan parsing, resilience utilities, and agent checkpoint capture.
 
 - Pydantic models for contract schema validation
 - Role-based mutation validation (implementer, reviewer, human, system)
@@ -91,6 +91,7 @@ SDLC contract models, role-based validation, plan parsing, and resilience utilit
 - HITL (Human-in-the-Loop) checkbox generation and parsing
 - Resilience utilities (rate limiting, retry with backoff, timeout checkpoints)
 - Agent recovery (retry management, circuit breaker, conflict detection for multi-agent workflows)
+- Checkpoint models and utilities for capturing agent session context
 
 ```python
 from pathlib import Path
@@ -98,6 +99,8 @@ from egg_contracts import Contract, parse_plan
 from egg_contracts import generate_full_hitl_block, parse_checkbox_state
 from egg_contracts import retry_with_backoff, parse_rate_limit_headers
 from egg_contracts import AgentRetryManager, AgentCircuitBreaker, ConflictDetector
+from egg_contracts.checkpoints import Checkpoint, CheckpointIndex
+from egg_contracts.checkpoint_loader import save_checkpoint, load_checkpoint
 
 # Load and validate contract
 contract = Contract.model_validate_json(contract_json)
@@ -114,6 +117,12 @@ def call_external_api():
 retry_mgr = AgentRetryManager()
 circuit_breaker = AgentCircuitBreaker()
 conflict_detector = ConflictDetector(repo_path=Path("/repo"))
+
+# Work with checkpoints
+checkpoint = Checkpoint(...)
+checkpoint_path = Path("/checkpoints/ab/ckpt-abcdef123456.json")
+save_checkpoint(checkpoint, checkpoint_path)
+loaded = load_checkpoint(checkpoint_path)
 ```
 
 **Key modules:**
@@ -126,16 +135,16 @@ conflict_detector = ConflictDetector(repo_path=Path("/repo"))
 - `audit.py` - Audit log utilities
 - `agent_recovery.py` - Multi-agent recovery (retry manager, circuit breaker, conflict detector)
 - `agent_roles.py` - Agent role definitions and file access patterns
-- `checkpoints.py` - Checkpoint model definitions
-- `checkpoint_cli.py` - Checkpoint CLI for saving/restoring agent state
-- `checkpoint_loader.py` - Checkpoint loading utilities
+- `checkpoints.py` - Checkpoint models (Checkpoint, SessionMetadata, Transcript, ToolCall, TokenUsage)
+- `checkpoint_loader.py` - Checkpoint I/O (atomic save, load, indexing)
+- `checkpoint_cli.py` - CLI for browsing and querying checkpoints
 - `dependency_graph.py` - Task dependency graph for multi-agent orchestration
 - `loader.py` - Contract loading from filesystem
 - `orchestration.py` - Orchestration state management
 - `orchestrator.py` - Multi-agent orchestrator logic
 - `phase_defaults.py` - Default check definitions per SDLC phase
-- `redactor.py` - Sensitive content redaction
-- `transcript_extractor.py` - Agent transcript extraction
+- `redactor.py` - Sensitive data redaction (env vars, tokens, credentials)
+- `transcript_extractor.py` - Claude Code session transcript extraction from JSONL files
 - `usage.py` - Usage tracking models
 - `usage_cli.py` - Usage tracking CLI
 - `usage_loader.py` - Usage data loading

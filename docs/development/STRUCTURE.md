@@ -114,7 +114,8 @@ shared/
 │   ├── checkpoints.py      # Checkpoint data models
 │   ├── checkpoint_loader.py # Checkpoint storage and retrieval
 │   ├── checkpoint_cli.py   # Checkpoint browsing CLI
-│   └── transcript_extractor.py # API transcript extraction
+│   ├── transcript_extractor.py # API transcript extraction
+│   └── redactor.py         # Sensitive data redaction for checkpoints
 ├── egg_git/                # Git utilities
 └── egg_logging/            # Structured logging
 ```
@@ -161,7 +162,10 @@ tests/
 │   └── egg_contracts/
 │       ├── test_models.py         # Contract model tests including check models
 │       ├── test_phase_defaults.py # Phase default configuration tests
-│       └── test_agent_recovery.py # Agent recovery and circuit breaker tests
+│       ├── test_agent_recovery.py # Agent recovery and circuit breaker tests
+│       ├── test_checkpoints.py    # Checkpoint model tests
+│       ├── test_redactor.py       # Redactor tests for sensitive data masking
+│       └── test_transcript_extractor.py # Transcript extraction tests
 └── workflows/                     # Workflow integration tests
     ├── __init__.py
     └── test_hitl_integration.py   # HITL decision format verification
