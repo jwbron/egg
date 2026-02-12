@@ -471,7 +471,7 @@ def cmd_backfill_pr(args: argparse.Namespace) -> int:
             try:
                 run_git(["add", "-A"], cwd=str(worktree_path))
                 run_git(
-                    ["commit", "-m", f"Backfill PR #{pr_number} to usage data"],
+                    ["commit", "--no-verify", "-m", f"Backfill PR #{pr_number} to usage data"],
                     cwd=str(worktree_path),
                     check=False,
                 )
