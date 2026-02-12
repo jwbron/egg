@@ -382,6 +382,36 @@ def setup_user(config: Config, logger: Logger) -> None:
             logger.info(f"  chown completed in {elapsed:.1f}s")
 
 
+def setup_repo_permissions(config: Config, logger: Logger) -> None:
+    """Ensure repo bind-mount points are writable by the egg user.
+
+    Docker bind mounts preserve host ownership, so repo directories may
+    be root-owned inside the container.  This must run regardless of
+    whether the egg user's UID was adjusted (setup_user only chowns when
+    UID/GID change, but the mounts are always root-owned).
+
+    Only chown the top-level repo directories (not recursive) — repo file
+    contents are managed by git/gateway worktree operations.
+    """
+    repos_dir = config.repos_dir
+    if not repos_dir.exists():
+        return
+
+    try:
+        os.chown(repos_dir, config.runtime_uid, config.runtime_gid)
+    except OSError:
+        pass  # May be read-only
+
+    for repo_dir in repos_dir.iterdir():
+        if repo_dir.is_dir():
+            try:
+                os.chown(repo_dir, config.runtime_uid, config.runtime_gid)
+            except OSError:
+                pass  # Tolerate read-only mounts (e.g. .git tmpfs)
+
+    logger.success("Repo mount permissions verified")
+
+
 # NOTE: PostgreSQL and Redis service startup removed for now.
 # If needed in the future, add a setup_services() function here that starts them:
 #   service postgresql start
@@ -1233,6 +1263,9 @@ def main() -> None:
     # Debug logging goes to stderr for capture even on container hang
     with timed_phase("setup_user", logger):
         setup_user(config, logger)
+
+    with timed_phase("setup_repo_permissions", logger):
+        setup_repo_permissions(config, logger)
 
     with timed_phase("setup_environment", logger):
         setup_environment(config)

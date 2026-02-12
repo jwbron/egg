@@ -174,6 +174,18 @@ if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; the
             chown -R "$HOST_UID:$HOST_GID" "$vol_dir"
         fi
     done
+    # Chown repo bind-mount points — Docker bind mounts preserve host
+    # ownership, so these directories may be root-owned inside the
+    # container. Only chown the top-level directories (not recursive) —
+    # repo file contents are managed by git/gateway worktree operations.
+    if [ -d /home/egg/repos ]; then
+        chown "$HOST_UID:$HOST_GID" /home/egg/repos
+        for repo_dir in /home/egg/repos/*/; do
+            if [ -d "$repo_dir" ]; then
+                chown "$HOST_UID:$HOST_GID" "$repo_dir"
+            fi
+        done
+    fi
 
     # Configure global git identity for gateway operations (commits, etc.)
     # Repos can override this with local config if needed
