@@ -159,10 +159,12 @@ shared/
 ├── egg_git/                # Git utilities
 ├── egg_logging/            # Structured logging
 └── egg_orchestrator/       # Orchestrator integration layer
+    ├── __init__.py         # Public API exports
     ├── client.py           # OrchestratorClient for API communication
-    ├── types.py            # Data types (CompletionData, ErrorData, SignalResponse, DeploymentMode, SignalType)
+    ├── constants.py        # Orchestrator configuration constants (ports, IPs, endpoints, environment variable names)
     ├── detection.py        # Orchestrator mode detection utilities
-    └── constants.py        # Orchestrator configuration constants (ports, IPs, endpoints)
+    ├── py.typed            # PEP 561 type marker
+    └── types.py            # Typed data classes and enums for signals and responses
 ```
 
 ## Integration Tests Structure
