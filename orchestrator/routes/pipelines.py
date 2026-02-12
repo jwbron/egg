@@ -4,6 +4,7 @@ Pipeline CRUD endpoints for egg-orchestrator.
 
 import json
 import os
+import re
 import sys
 import threading
 from datetime import datetime
@@ -1534,6 +1535,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 )
 
                 if wt_result.success and wt_result.worktrees:
+                    # Gateway returns worktrees keyed by repo name only (e.g., "egg"),
+                    # stripping the owner prefix from "owner/repo" format. This matches
+                    # the container mount target at /home/egg/repos/<name>.
                     repo_volumes = wt_result.worktrees
                     logger.info(
                         "Worktrees created for pipeline",
@@ -1560,10 +1564,20 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
         # Resolve the certs named volume for gateway CA trust.
         # The docker-compose stack creates ${COMPOSE_PROJECT_NAME:-egg}-certs.
-        certs_volume = os.environ.get(
+        certs_volume_raw = os.environ.get(
             "EGG_CERTS_VOLUME",
             os.environ.get("COMPOSE_PROJECT_NAME", "egg") + "-certs",
         )
+        # Validate volume name: Docker allows [a-zA-Z0-9][a-zA-Z0-9_.-]*
+        # We use a permissive check that rejects obvious shell metacharacters.
+        if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$", certs_volume_raw):
+            logger.warning(
+                "Invalid certs volume name, using default",
+                raw_name=certs_volume_raw,
+            )
+            certs_volume = "egg-certs"
+        else:
+            certs_volume = certs_volume_raw
 
         while True:
             pipeline = store.load_pipeline(pipeline_id)

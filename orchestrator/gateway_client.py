@@ -502,7 +502,8 @@ class GatewayClient:
             return WorktreeResult(
                 success=result.get("success", False),
                 worktrees=data.get("worktrees", {}),
-                errors=data.get("errors", []),
+                # Handle both missing key and explicit null from API
+                errors=data.get("errors") or [],
             )
         except GatewayError:
             raise
@@ -544,7 +545,8 @@ class GatewayClient:
             return WorktreeResult(
                 success=result.get("success", False),
                 worktrees=dict.fromkeys(data.get("deleted", []), "deleted"),
-                errors=data.get("errors", []),
+                # Handle both missing key and explicit null from API
+                errors=data.get("errors") or [],
             )
         except GatewayError:
             raise

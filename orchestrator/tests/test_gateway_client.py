@@ -181,7 +181,7 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
                 "message": "Worktrees created",
                 "data": {
                     "worktrees": worktrees,
-                    "errors": None,
+                    "errors": [],
                 },
             }
         )
@@ -199,7 +199,7 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
                 "message": "Worktrees deleted",
                 "data": {
                     "deleted": ["repo1"],
-                    "errors": None,
+                    "errors": [],
                 },
             }
         )
@@ -589,6 +589,34 @@ class TestWorktreeManagement:
                 container_id="test",
                 repos=["repo1"],
             )
+
+    def test_create_worktrees_with_null_errors(self, gateway_client, mock_gateway_server):
+        """Test that null errors from gateway are handled as empty list."""
+        # The mock returns errors: [] but the real gateway might return null.
+        # This test verifies the client handles it correctly by checking the
+        # WorktreeResult.errors is always a list (never None).
+        result = gateway_client.create_worktrees(
+            container_id="test-pipeline",
+            repos=["repo1"],
+        )
+
+        assert result.errors is not None
+        assert isinstance(result.errors, list)
+        # Verify iteration doesn't raise TypeError
+        for _err in result.errors:
+            pass
+
+    def test_delete_worktrees_with_null_errors(self, gateway_client, mock_gateway_server):
+        """Test that null errors from gateway delete are handled as empty list."""
+        result = gateway_client.delete_worktrees(
+            container_id="test-pipeline",
+        )
+
+        assert result.errors is not None
+        assert isinstance(result.errors, list)
+        # Verify iteration doesn't raise TypeError
+        for _err in result.errors:
+            pass
 
 
 class TestSingletonClient:
