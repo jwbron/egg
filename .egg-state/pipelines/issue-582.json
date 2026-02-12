@@ -5,7 +5,7 @@
   "branch": "egg/issue-582",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -18,9 +18,9 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-02-12T21:59:07.151395",
-      "completed_at": null,
+      "completed_at": "2026-02-12T21:59:09.130005",
       "containers": [
         {
           "container_id": "aa4609b300cd47554c2c69bb9c51863177f8279f17aa818e4c2d40a56ee0f22e",
@@ -48,13 +48,13 @@
       ],
       "review_cycles": 0,
       "artifacts": {},
-      "error": null
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-12T21:59:08.956949856Z     GitHub token valid: True\n2026-02-12T21:59:08.956980148Z     Auth configured: True\n2026-02-12T21:59:08.956994273Z ✓   Proxy connectivity verified (Anthropic returned HTTP 403)\n2026-02-12T21:59:08.957004898Z ✓ Gateway ready!\n2026-02-12T21:59:08.957014023Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-12T21:59:08.957023732Z   Credentials injected by gateway (not in container)\n2026-02-12T21:59:08.957033273Z ⚠ Failed to signal orchestrator: OrchestratorError(500): Failed to record error: Contract for 582 not found at /home/egg/repos/.egg-state/contracts/582.json\n2026-02-12T21:59:08.957057898Z \n2026-02-12T21:59:08.957068190Z Cleaning up on container exit...\n2026-02-12T21:59:08.957077523Z ✓ Cleanup complete"
     }
   },
   "decisions": [],
   "created_at": "2026-02-12T21:59:03.841426",
-  "updated_at": "2026-02-12T21:59:09.100310",
+  "updated_at": "2026-02-12T21:59:09.130471",
   "contract_synced": false,
-  "error": null,
-  "version": 6
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-12T21:59:08.956949856Z     GitHub token valid: True\n2026-02-12T21:59:08.956980148Z     Auth configured: True\n2026-02-12T21:59:08.956994273Z ✓   Proxy connectivity verified (Anthropic returned HTTP 403)\n2026-02-12T21:59:08.957004898Z ✓ Gateway ready!\n2026-02-12T21:59:08.957014023Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-12T21:59:08.957023732Z   Credentials injected by gateway (not in container)\n2026-02-12T21:59:08.957033273Z ⚠ Failed to signal orchestrator: OrchestratorError(500): Failed to record error: Contract for 582 not found at /home/egg/repos/.egg-state/contracts/582.json\n2026-02-12T21:59:08.957057898Z \n2026-02-12T21:59:08.957068190Z Cleaning up on container exit...\n2026-02-12T21:59:08.957077523Z ✓ Cleanup complete",
+  "version": 7
 }
