@@ -500,6 +500,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     repos=[pipeline.repo] if pipeline.repo else [],
                     phase=current_phase.value,
                     extra_env={
+                        "EGG_PIPELINE_ID": pipeline_id,
                         "EGG_PIPELINE_PHASE": current_phase.value,
                         "EGG_PIPELINE_MODE": pipeline_mode,
                         **({"EGG_PIPELINE_PROMPT": pipeline.prompt} if pipeline.prompt else {}),

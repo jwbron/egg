@@ -85,9 +85,9 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
 
     def _handle_register(self, data):
         """Handle session registration (POST /api/v1/sessions/create)."""
-        # Check launcher secret
-        secret = self.headers.get("X-Egg-Launcher-Secret")
-        if secret != "test-secret":
+        # Check launcher secret via Authorization header
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer ") or auth_header[7:] != "test-secret":
             self._send_error(401, "Unauthorized")
             return
 
@@ -102,9 +102,9 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
 
     def _handle_validate_get(self):
         """Handle session validation (GET /api/v1/sessions/<token>)."""
-        # Check launcher secret
-        secret = self.headers.get("X-Egg-Launcher-Secret")
-        if secret != "test-secret":
+        # Check launcher secret via Authorization header
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer ") or auth_header[7:] != "test-secret":
             self._send_error(401, "Unauthorized")
             return
 
@@ -117,8 +117,9 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
 
     def _handle_update(self, data):
         """Handle session update (PATCH /api/v1/sessions/<token>)."""
-        secret = self.headers.get("X-Egg-Launcher-Secret")
-        if secret != "test-secret":
+        # Check launcher secret via Authorization header
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer ") or auth_header[7:] != "test-secret":
             self._send_error(401, "Unauthorized")
             return
 
@@ -132,8 +133,9 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
 
     def _handle_delete(self):
         """Handle session deletion (DELETE /api/v1/sessions/<token>)."""
-        secret = self.headers.get("X-Egg-Launcher-Secret")
-        if secret != "test-secret":
+        # Check launcher secret via Authorization header
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer ") or auth_header[7:] != "test-secret":
             self._send_error(401, "Unauthorized")
             return
 
@@ -141,8 +143,9 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
 
     def _handle_delete_by_container(self):
         """Handle session deletion by container (DELETE /api/v1/sessions/by-container/<id>)."""
-        secret = self.headers.get("X-Egg-Launcher-Secret")
-        if secret != "test-secret":
+        # Check launcher secret via Authorization header
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer ") or auth_header[7:] != "test-secret":
             self._send_error(401, "Unauthorized")
             return
 
@@ -276,6 +279,15 @@ class TestSessionManagement:
         """Test validating an invalid session."""
         result = gateway_client.validate_session("invalid-token")
         assert result is False
+
+    def test_update_session(self, gateway_client, mock_gateway_server):
+        """Test updating a session."""
+        result = gateway_client.update_session(
+            "some-token",
+            container_id="new-container-id",
+            container_ip="172.32.0.20",
+        )
+        assert result is True
 
     def test_delete_session(self, gateway_client, mock_gateway_server):
         """Test deleting a session."""

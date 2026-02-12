@@ -341,13 +341,49 @@ class GatewayClient:
             logger.warning("Failed to delete session", error=str(e))
             return False
 
+    def update_session(
+        self,
+        session_token: str,
+        container_id: str | None = None,
+        container_ip: str | None = None,
+    ) -> bool:
+        """Update a session.
+
+        Requires launcher secret authentication.
+
+        Args:
+            session_token: Token to update
+            container_id: New container ID (optional)
+            container_ip: New container IP (optional)
+
+        Returns:
+            True if session was updated
+        """
+        try:
+            data: dict[str, str] = {}
+            if container_id is not None:
+                data["container_id"] = container_id
+            if container_ip is not None:
+                data["container_ip"] = container_ip
+
+            result = self._make_request(
+                f"/api/v1/sessions/{session_token}",
+                method="PATCH",
+                data=data,
+                use_launcher_auth=True,
+            )
+
+            return result.get("success", False)
+        except GatewayError as e:
+            logger.warning("Failed to update session", error=str(e))
+            return False
+
     def delete_session_by_container(self, container_id: str) -> bool:
         """Delete a session by container ID.
 
         Requires launcher secret authentication.
 
-        Note: The gateway doesn't have a dedicated endpoint for this.
-        This method looks up the session token first, then deletes it.
+        Uses the dedicated gateway endpoint for deletion by container ID.
 
         Args:
             container_id: Container ID whose session to delete
@@ -356,21 +392,12 @@ class GatewayClient:
             True if session was deleted
         """
         try:
-            # List sessions and find the one matching this container
             result = self._make_request(
-                "/api/v1/sessions",
-                method="GET",
+                f"/api/v1/sessions/by-container/{container_id}",
+                method="DELETE",
                 use_launcher_auth=True,
             )
-            sessions = result.get("data", {}).get("sessions", [])
-            for session in sessions:
-                if session.get("container_id") == container_id:
-                    return self.delete_session(session["session_token"])
-            logger.warning(
-                "No session found for container",
-                container_id=container_id[:12],
-            )
-            return False
+            return result.get("success", False)
         except GatewayError as e:
             logger.warning(
                 "Failed to delete session by container",
