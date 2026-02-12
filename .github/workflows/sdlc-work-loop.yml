@@ -518,7 +518,7 @@ jobs:
           # Default to true when multi_agent_config is absent, matching
           # Contract.is_multi_agent_enabled() in shared/egg_contracts/models.py
           if [[ -f "$CONTRACT_PATH" ]]; then
-            MULTI_AGENT=$(jq -r 'if .multi_agent_config == null then true else .multi_agent_config.enabled end' "$CONTRACT_PATH" 2>/dev/null || echo "true")
+            MULTI_AGENT=$(jq -r 'if .multi_agent_config == null then true elif .multi_agent_config.enabled == null then true else .multi_agent_config.enabled end' "$CONTRACT_PATH" 2>/dev/null || echo "true")
             echo "enabled=${MULTI_AGENT}" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
