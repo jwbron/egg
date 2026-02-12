@@ -8,6 +8,7 @@ Provides:
 - wait_for_pipeline_terminal(): polls pipeline status until complete/failed/cancelled
 """
 
+import json
 import os
 import secrets
 import shutil
@@ -207,12 +208,26 @@ def local_pipeline_stack() -> Generator[LocalPipelineStack, None, None]:
         timeout=10,
     )
 
+    # Generate docker-compose.override.yml with per-repo volume mounts
+    repo_name = "test-repo"
+    override_file = Path(config_dir) / "docker-compose.override.yml"
+    override_file.write_text(
+        f"# Auto-generated for testing\n"
+        f"services:\n"
+        f"  gateway:\n"
+        f"    volumes:\n"
+        f"      - {repos_dir}:/home/egg/repos/{repo_name}\n"
+        f"  orchestrator:\n"
+        f"    volumes:\n"
+        f"      - {repos_dir}:/home/egg/repos/{repo_name}\n"
+    )
+
     env = {
         **os.environ,
         "COMPOSE_PROJECT_NAME": project_name,
         "EGG_LAUNCHER_SECRET": launcher_secret,
         "EGG_CONFIG_DIR": config_dir,
-        "EGG_REPOS_DIR": repos_dir,
+        "EGG_HOST_REPO_MAP": json.dumps({repo_name: repos_dir}),
         "HOST_UID": str(os.getuid()),
         "HOST_GID": str(os.getgid()),
         "GATEWAY_PORT": "0",
@@ -225,6 +240,8 @@ def local_pipeline_stack() -> Generator[LocalPipelineStack, None, None]:
         "compose",
         "-f",
         str(COMPOSE_FILE),
+        "-f",
+        str(override_file),
         "-p",
         project_name,
     ]

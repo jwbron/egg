@@ -30,10 +30,11 @@ except ImportError:
 try:
     from ..container_spawner import ContainerSpawnError, get_container_spawner
     from ..decision_queue import DecisionTimeoutError, get_decision_queue
-    from ..models import AgentRole, PipelineStatus, ReviewVerdict
+    from ..models import AgentRole, Pipeline, PipelineStatus, ReviewVerdict
     from ..state_store import (
         InvalidPipelineIdError,
         PipelineNotFoundError,
+        StateStore,
         StateStoreError,
         StateValidationError,
         get_state_store,
@@ -41,10 +42,11 @@ try:
 except ImportError:
     from container_spawner import ContainerSpawnError, get_container_spawner  # type: ignore
     from decision_queue import DecisionTimeoutError, get_decision_queue  # type: ignore
-    from models import AgentRole, PipelineStatus, ReviewVerdict  # type: ignore
+    from models import AgentRole, Pipeline, PipelineStatus, ReviewVerdict  # type: ignore
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
         PipelineNotFoundError,
+        StateStore,
         StateStoreError,
         StateValidationError,
         get_state_store,
@@ -81,6 +83,73 @@ def make_success_response(
     return jsonify(response), 200
 
 
+def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pipeline]:
+    """Load a pipeline, scanning repo subdirectories if needed.
+
+    When ``base_path`` is a parent directory containing multiple repos
+    (i.e. it has no ``.git``), and the pipeline is not found at the base
+    level, iterate over immediate subdirectories that are git repos and
+    try to load the pipeline from each.
+
+    Returns:
+        (store, pipeline) tuple
+
+    Raises:
+        PipelineNotFoundError: if the pipeline cannot be found anywhere
+        InvalidPipelineIdError: if the ID format is invalid
+    """
+    # Try the base path first
+    try:
+        store = get_state_store(base_path)
+        pipeline = store.load_pipeline(pipeline_id)
+        return store, pipeline
+    except PipelineNotFoundError:
+        pass
+
+    # If base_path is not itself a git repo, scan subdirectories
+    if not (base_path / ".git").exists():
+        for child in sorted(base_path.iterdir()):
+            if child.is_dir() and (child / ".git").exists():
+                try:
+                    store = get_state_store(child)
+                    pipeline = store.load_pipeline(pipeline_id)
+                    return store, pipeline
+                except (PipelineNotFoundError, StateStoreError):
+                    continue
+
+    raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found")
+
+
+def _collect_all_pipelines(base_path: Path) -> list:
+    """Collect pipelines from base_path and all repo subdirectories."""
+    pipelines = []
+
+    # Check base path itself
+    if (base_path / ".egg-state" / "pipelines").exists():
+        store = get_state_store(base_path)
+        for pid in store.list_pipelines():
+            try:
+                pipelines.append(store.load_pipeline(pid))
+            except StateStoreError:
+                continue
+
+    # Check repo subdirectories if base_path is not a git repo
+    if not (base_path / ".git").exists():
+        for child in sorted(base_path.iterdir()):
+            if child.is_dir() and (child / ".git").exists():
+                try:
+                    store = get_state_store(child)
+                    for pid in store.list_pipelines():
+                        try:
+                            pipelines.append(store.load_pipeline(pid))
+                        except StateStoreError:
+                            continue
+                except StateStoreError:
+                    continue
+
+    return pipelines
+
+
 @pipelines_bp.route("", methods=["GET"])
 def list_pipelines() -> tuple[Response, int]:
     """
@@ -105,18 +174,21 @@ def list_pipelines() -> tuple[Response, int]:
     active_only = request.args.get("active_only", "false").lower() == "true"
 
     try:
-        store = get_state_store(repo_path)
+        all_pipelines = _collect_all_pipelines(repo_path)
 
         if active_only:
-            pipelines = store.get_active_pipelines()
+            pipelines = [
+                p
+                for p in all_pipelines
+                if p.status
+                not in (
+                    PipelineStatus.COMPLETE,
+                    PipelineStatus.FAILED,
+                    PipelineStatus.CANCELLED,
+                )
+            ]
         else:
-            pipeline_ids = store.list_pipelines()
-            pipelines = []
-            for pid in pipeline_ids:
-                try:
-                    pipelines.append(store.load_pipeline(pid))
-                except StateStoreError:
-                    continue
+            pipelines = all_pipelines
 
         # Convert to response format
         pipeline_data = [
@@ -165,8 +237,7 @@ def get_pipeline(pipeline_id: str) -> tuple[Response, int]:
     repo_path = get_repo_path()
 
     try:
-        store = get_state_store(repo_path)
-        pipeline = store.load_pipeline(pipeline_id)
+        _store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
 
         return make_success_response(
             "Pipeline retrieved",
@@ -352,7 +423,7 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
     repo_path = get_repo_path()
 
     try:
-        store = get_state_store(repo_path)
+        store, _pipeline = _resolve_pipeline(pipeline_id, repo_path)
         pipeline = store.update_pipeline(pipeline_id, data)
 
         logger.info("Pipeline updated", pipeline_id=pipeline_id)
@@ -396,7 +467,7 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
     repo_path = get_repo_path()
 
     try:
-        store = get_state_store(repo_path)
+        store, _pipeline = _resolve_pipeline(pipeline_id, repo_path)
         store.delete_pipeline(pipeline_id)
 
         logger.info("Pipeline deleted", pipeline_id=pipeline_id)
@@ -437,8 +508,7 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
     repo_path = get_repo_path()
 
     try:
-        store = get_state_store(repo_path)
-        pipeline = store.load_pipeline(pipeline_id)
+        _store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
 
         pending = pipeline.get_pending_decisions()
 
@@ -1093,7 +1163,7 @@ def _spawn_and_wait(
     pipeline_id: str,
     agent_role: AgentRole,
     issue_number: int | None,
-    host_repos_dir: str | None,
+    repo_volumes: dict[str, str],
     gateway_mode: str,
     repos: list[str],
     phase: str,
@@ -1107,22 +1177,31 @@ def _spawn_and_wait(
     If ``store`` is provided, the container is recorded in the phase execution
     state so that the status endpoint can report it while it runs.
 
+    Args:
+        repo_volumes: Mapping of repo_name -> host_path for volume mounts.
+            Each entry is mounted at /home/egg/repos/<name> in the container.
+
     Returns:
         (exit_code, container_logs) — logs are captured before cleanup on failure.
     """
     from models import ContainerInfo, ContainerStatus, PipelinePhase
 
+    # Build per-repo volume mounts for the spawned container
+    extra_volumes: dict[str, dict[str, str]] = {}
+    for name, host_path in repo_volumes.items():
+        extra_volumes[host_path] = {"bind": f"/home/egg/repos/{name}", "mode": "rw"}
+
     spawned = spawner.spawn_agent_container(
         pipeline_id=pipeline_id,
         agent_role=agent_role,
         issue_number=issue_number,
-        repo_mount=host_repos_dir,
         mode=gateway_mode,
         wait_for_gateway=False,
         repos=repos,
         phase=phase,
         extra_env=sandbox_env,
         command=sandbox_command,
+        extra_volumes=extra_volumes if extra_volumes else None,
     )
 
     # Record container in phase execution state
@@ -1405,16 +1484,23 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # Map pipeline mode to gateway session mode
         gateway_mode = "local" if pipeline_mode == "local" else "public"
 
-        # Determine host repos path for volume mount.  When the
-        # orchestrator runs inside Docker, EGG_REPO_PATH is the
-        # *container* path but volume mounts need the *host* path
-        # (since the Docker socket operates on the host daemon).
-        # EGG_HOST_REPOS_DIR provides that; fall back to EGG_REPO_PATH
-        # when running natively (not in Docker).
-        host_repos_dir = os.environ.get(
-            "EGG_HOST_REPOS_DIR",
-            os.environ.get("EGG_REPO_PATH"),
-        )
+        # Parse host repo map for volume mounts.  When the orchestrator
+        # runs inside Docker, EGG_REPO_PATH is the *container* path but
+        # volume mounts need *host* paths (since the Docker socket
+        # operates on the host daemon).  EGG_HOST_REPO_MAP provides a
+        # JSON mapping of repo_name -> host_path, auto-generated from
+        # repositories.yaml by the egg launcher.
+        host_repo_map_raw = os.environ.get("EGG_HOST_REPO_MAP", "{}")
+        try:
+            host_repo_map: dict[str, str] = json.loads(host_repo_map_raw)
+        except json.JSONDecodeError as exc:
+            logger.error(
+                "Failed to parse EGG_HOST_REPO_MAP — no repos will be mounted in sandbox containers",
+                raw_value=host_repo_map_raw,
+            )
+            raise ValueError(
+                f"EGG_HOST_REPO_MAP contains invalid JSON: {host_repo_map_raw!r}"
+            ) from exc
 
         while True:
             pipeline = store.load_pipeline(pipeline_id)
@@ -1509,7 +1595,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_id=pipeline_id,
                         agent_role=AgentRole.CODER,
                         issue_number=pipeline.issue_number,
-                        host_repos_dir=host_repos_dir,
+                        repo_volumes=host_repo_map,
                         gateway_mode=phase_gateway_mode,
                         repos=repos,
                         phase=current_phase.value,
@@ -1587,7 +1673,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 pipeline_id=pipeline_id,
                                 agent_role=AgentRole.CHECKER,
                                 issue_number=pipeline.issue_number,
-                                host_repos_dir=host_repos_dir,
+                                repo_volumes=host_repo_map,
                                 gateway_mode=phase_gateway_mode,
                                 repos=repos,
                                 phase=current_phase.value,
@@ -1652,7 +1738,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 pipeline_id=pipeline_id,
                                 agent_role=AgentRole.CODER,
                                 issue_number=pipeline.issue_number,
-                                host_repos_dir=host_repos_dir,
+                                repo_volumes=host_repo_map,
                                 gateway_mode=phase_gateway_mode,
                                 repos=repos,
                                 phase=current_phase.value,
@@ -1732,7 +1818,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id=pipeline_id,
                             agent_role=AgentRole.REVIEWER,
                             issue_number=pipeline.issue_number,
-                            host_repos_dir=host_repos_dir,
+                            repo_volumes=host_repo_map,
                             gateway_mode=phase_gateway_mode,
                             repos=repos,
                             phase=current_phase.value,
@@ -1919,8 +2005,9 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
     repo_path = get_repo_path()
 
     try:
-        store = get_state_store(repo_path)
-        pipeline = store.load_pipeline(pipeline_id)
+        store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
+        # Use the store's repo_path so _run_pipeline operates on the correct directory
+        repo_path = store.repo_path
 
         if pipeline.status == PipelineStatus.RUNNING:
             return make_error_response(
