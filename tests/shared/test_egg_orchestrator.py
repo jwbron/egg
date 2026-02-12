@@ -5,8 +5,10 @@ Tests the types, client, and detection functionality used for
 sandbox-to-orchestrator communication.
 """
 
+import json
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -242,3 +244,179 @@ class TestGetOrchestratorClientSingleton:
 
         # Cleanup
         client_module._orchestrator_client = None
+
+
+class TestOrchestratorClientSignalMethods:
+    """Tests for OrchestratorClient signal methods with mocked HTTP responses."""
+
+    @pytest.fixture
+    def client(self):
+        """Create a client with test URL."""
+        return OrchestratorClient(orchestrator_url="http://test-orchestrator:8080")
+
+    @pytest.fixture
+    def mock_urlopen(self):
+        """Create a mock for urllib.request.urlopen."""
+        with patch("egg_orchestrator.client.urlopen") as mock:
+            yield mock
+
+    def _create_mock_response(self, data: dict) -> MagicMock:
+        """Create a mock HTTP response."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(data).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        return mock_response
+
+    def test_signal_complete_success(self, client, mock_urlopen):
+        """Test signal_complete sends correct HTTP request."""
+        mock_urlopen.return_value = self._create_mock_response({
+            "success": True,
+            "message": "Signal received",
+            "data": {"signal_id": 123},
+        })
+
+        response = client.signal_complete(
+            pipeline_id="issue-456",
+            agent_role="coder",
+            commit="abc1234",
+            files_changed=["src/main.py"],
+        )
+
+        assert response.success is True
+        assert response.message == "Signal received"
+
+        # Verify the HTTP request
+        mock_urlopen.assert_called_once()
+        request = mock_urlopen.call_args[0][0]
+        assert request.full_url == "http://test-orchestrator:8080/api/v1/pipelines/issue-456/signal"
+        assert request.method == "POST"
+
+        body = json.loads(request.data.decode())
+        assert body["signal_type"] == "complete"
+        assert body["agent_role"] == "coder"
+        assert body["commit"] == "abc1234"
+        assert body["files_changed"] == ["src/main.py"]
+
+    def test_signal_error_success(self, client, mock_urlopen):
+        """Test signal_error sends correct HTTP request."""
+        mock_urlopen.return_value = self._create_mock_response({
+            "success": True,
+            "message": "Error signal received",
+        })
+
+        response = client.signal_error(
+            pipeline_id="issue-789",
+            agent_role="tester",
+            error="Test suite failed",
+            recoverable=True,
+            traceback="Traceback: ...",
+        )
+
+        assert response.success is True
+
+        # Verify the HTTP request body
+        request = mock_urlopen.call_args[0][0]
+        body = json.loads(request.data.decode())
+        assert body["signal_type"] == "error"
+        assert body["agent_role"] == "tester"
+        assert body["error"] == "Test suite failed"
+        assert body["recoverable"] is True
+        assert body["traceback"] == "Traceback: ..."
+
+    def test_signal_progress_success(self, client, mock_urlopen):
+        """Test signal_progress sends correct HTTP request."""
+        mock_urlopen.return_value = self._create_mock_response({
+            "success": True,
+            "message": "Progress updated",
+        })
+
+        response = client.signal_progress(
+            pipeline_id="issue-100",
+            agent_role="coder",
+            progress_percent=50,
+            current_task="Running tests",
+            message="Halfway done",
+        )
+
+        assert response.success is True
+
+        # Verify the HTTP request body
+        request = mock_urlopen.call_args[0][0]
+        body = json.loads(request.data.decode())
+        assert body["signal_type"] == "progress"
+        assert body["agent_role"] == "coder"
+        assert body["progress_percent"] == 50
+        assert body["current_task"] == "Running tests"
+        assert body["message"] == "Halfway done"
+
+    def test_signal_heartbeat_success(self, client, mock_urlopen):
+        """Test signal_heartbeat sends correct HTTP request."""
+        mock_urlopen.return_value = self._create_mock_response({
+            "success": True,
+            "message": "Heartbeat received",
+        })
+
+        response = client.signal_heartbeat(
+            pipeline_id="issue-200",
+            agent_role="reviewer",
+            container_id="container-abc123",
+        )
+
+        assert response.success is True
+
+        # Verify the HTTP request body
+        request = mock_urlopen.call_args[0][0]
+        body = json.loads(request.data.decode())
+        assert body["signal_type"] == "heartbeat"
+        assert body["agent_role"] == "reviewer"
+        assert body["container_id"] == "container-abc123"
+
+    def test_signal_http_error_with_json_response(self, client, mock_urlopen):
+        """Test signal method handles HTTP errors with JSON response."""
+        from urllib.error import HTTPError
+
+        from egg_orchestrator.client import OrchestratorError
+
+        error_response = MagicMock()
+        error_response.read.return_value = json.dumps({
+            "message": "Pipeline not found",
+            "details": {"pipeline_id": "invalid"},
+        }).encode()
+
+        mock_urlopen.side_effect = HTTPError(
+            url="http://test",
+            code=404,
+            msg="Not Found",
+            hdrs={},
+            fp=error_response,
+        )
+
+        with pytest.raises(OrchestratorError) as exc_info:
+            client.signal_complete(pipeline_id="invalid", agent_role="coder")
+
+        assert exc_info.value.status_code == 404
+        assert "Pipeline not found" in str(exc_info.value)
+
+    def test_signal_http_error_with_non_json_response(self, client, mock_urlopen):
+        """Test signal method handles HTTP errors with non-JSON response."""
+        from urllib.error import HTTPError
+
+        from egg_orchestrator.client import OrchestratorError
+
+        error_response = MagicMock()
+        error_response.read.return_value = b"Internal Server Error"
+
+        mock_urlopen.side_effect = HTTPError(
+            url="http://test",
+            code=500,
+            msg="Internal Server Error",
+            hdrs={},
+            fp=error_response,
+        )
+
+        with pytest.raises(OrchestratorError) as exc_info:
+            client.signal_complete(pipeline_id="issue-123", agent_role="coder")
+
+        assert exc_info.value.status_code == 500
+        assert "Internal Server Error" in str(exc_info.value)

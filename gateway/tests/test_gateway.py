@@ -172,6 +172,32 @@ class TestHealthCheck:
             assert data["orchestrator"]["configured"] is True
             assert data["orchestrator"]["reachable"] is True
 
+    def test_health_check_orchestrator_unreachable(self, client, monkeypatch):
+        """Health check shows orchestrator unreachable when connection fails."""
+        monkeypatch.setenv("EGG_ORCHESTRATOR_URL", "http://orchestrator:8080")
+
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(
+                gateway,
+                "_check_orchestrator_connectivity",
+                return_value={
+                    "configured": True,
+                    "reachable": False,
+                    "error": "Connection refused",
+                },
+            ),
+        ):
+            mock_gh.return_value.is_token_valid.return_value = True
+
+            response = client.get("/api/v1/health")
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["orchestrator"]["configured"] is True
+            assert data["orchestrator"]["reachable"] is False
+            assert "error" in data["orchestrator"]
+
 
 class TestAuthentication:
     """Tests for authentication."""
@@ -995,6 +1021,7 @@ class TestGhPrCreatePhaseRestrictions:
     def auth_headers_with_phase(self):
         """Return session headers with specific phase for testing."""
         import sys
+
         import auth
 
         def _make_headers(phase: str | None):

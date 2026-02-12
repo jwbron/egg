@@ -413,11 +413,12 @@ def _check_orchestrator_connectivity() -> dict[str, Any]:
 
         health_url = f"{orchestrator_url}/api/v1/health"
         req = urllib.request.Request(health_url, method="GET")
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with urllib.request.urlopen(req, timeout=2) as response:
             data = json.loads(response.read().decode())
             return {
                 "configured": True,
                 "reachable": True,
+                "url": orchestrator_url,
                 "status": data.get("status", "unknown"),
             }
     except Exception as e:
