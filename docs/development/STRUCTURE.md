@@ -192,8 +192,14 @@ integration_tests/
 ├── local_pipeline/                # Local orchestrator integration tests
 │   ├── conftest.py                # Local pipeline test fixtures
 │   ├── docker-compose.yml         # Orchestrator test environment
+│   ├── helpers.py                 # Shared API helper functions for tests
 │   ├── mock-sandbox/              # Mock sandbox for testing
+│   ├── test_api_validation.py     # API input validation tests
+│   ├── test_concurrent_pipelines.py  # Concurrent pipeline execution tests
+│   ├── test_error_recovery.py     # Error recovery scenario tests
+│   ├── test_hitl_edge_cases.py    # HITL decision edge case tests
 │   ├── test_local_pipeline.py     # Orchestrator pipeline tests
+│   ├── test_signals.py            # Signal handling tests
 │   ├── test_unified_pipeline_behavior.py  # Unified local/issue mode behavior tests
 │   └── test_worktree_integration.py  # Worktree lifecycle and pipeline isolation tests
 └── sdlc/                          # SDLC pipeline integration tests

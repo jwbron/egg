@@ -34,7 +34,8 @@ All persistent user configuration is consolidated under `~/.config/egg/`:
 ├── github-token       # GitHub token (dedicated file)
 ├── github-app-id      # GitHub App ID (if using App auth)
 ├── github-app-installation-id  # GitHub App Installation ID
-├── github-app.pem     # GitHub App private key
+├── github-app.pem     # GitHub App private key (bot identity)
+├── reviewer-app.pem   # Reviewer GitHub App private key (optional, for separate reviewer bot)
 └── repositories.yaml  # Repository access configuration (created by setup.py)
 ```
 
@@ -74,6 +75,17 @@ Egg supports separate tokens for writable and readable repositories:
 | `GITHUB_READONLY_TOKEN` | Separate PAT for read-only repos (optional, falls back to `GITHUB_TOKEN`) |
 
 Using a separate read-only token provides security benefits. GitHub App setup is covered in `./setup.py` and the ADRs.
+
+### Reviewer GitHub App (Optional)
+
+For workflows that post code reviews, a separate reviewer GitHub App can be configured to enable approve/request-changes capabilities on bot-authored PRs (GitHub blocks self-reviews). Reviewer credentials are stored separately from the bot credentials:
+
+| File | Purpose |
+|------|---------|
+| `secrets.env` | Contains `REVIEWER_APP_ID` and `REVIEWER_APP_INSTALLATION_ID` |
+| `reviewer-app.pem` | Reviewer GitHub App private key (PEM format, multiline) |
+
+The gateway's token refresher reads reviewer credentials from these files, following the same pattern as bot credentials. See the [GitHub Automation Guide](../docs/guides/github-automation.md#separate-reviewer-bot-recommended) for setup details.
 
 ## repositories.yaml (Source of Truth for Repo Access)
 
