@@ -6,8 +6,628 @@
     "url": "https://github.com/jwbron/egg/issues/543"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Config includes phase_file_restrictions section with per-phase allowed/blocked patterns",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] New method check_phase_file_restrictions(phase, files) returns allow/block result",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Push handler checks session phase and enforces file restrictions",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Lines 521-533 removed, local-mode pushes allowed subject to phase restrictions",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-1-5] Pushes to egg/checkpoints/v1 branch succeed from any phase/mode",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-1] Method accepts flag to override mode-based commit skip",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-2] State committed to git when phase changes",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-3] Local pipeline deletion commits the removal to git",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-1] Local mode uses .egg-state/drafts/{pipeline_id}-{phase}.md format",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-2] Local mode uses .egg-state/reviews/{pipeline_id}-{phase}-{type}.json format",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-3] Draft reading works with new path format",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-4] Phase prompts show correct file paths for local mode",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-4-1] Contract CLI instructions appear in prompts for both modes",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-4-2] New local contracts have contract_synced=False in pipeline state",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-4-3] Contract saved as .egg-state/contracts/{pipeline_id}.json",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-5-1] capture_and_store_checkpoints_for_push() called after local-mode push succeeds",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-5-2] .egg-state/checkpoints/* files pushable from all phases",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-5-3] Checkpoint JSON appears on egg/checkpoints/v1 branch after local-mode push",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-6-1] All call sites in pipelines.py pass state store for tracking",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-6-2] PhaseExecution.agents populated when spawning multi-agent containers",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-6-3] AgentExecution records updated with completed_at, commit, error fields",
+      "verified": false
+    },
+    {
+      "id": "ac-22",
+      "description": "[TASK-6-4] GET /pipelines/{id} returns populated containers and agents arrays",
+      "verified": false
+    },
+    {
+      "id": "ac-23",
+      "description": "[TASK-7-1] Test verifies refine/plan can push .egg-state/, implement can push code",
+      "verified": false
+    },
+    {
+      "id": "ac-24",
+      "description": "[TASK-7-2] Test verifies checkpoint JSON created on push",
+      "verified": false
+    },
+    {
+      "id": "ac-25",
+      "description": "[TASK-7-3] Test verifies egg-contract show/add-commit work in local pipeline",
+      "verified": false
+    },
+    {
+      "id": "ac-26",
+      "description": "[TASK-7-4] Two local pipelines run concurrently without file conflicts",
+      "verified": false
+    },
+    {
+      "id": "ac-27",
+      "description": "[TASK-7-5] Test verifies running containers appear in API response",
+      "verified": false
+    },
+    {
+      "id": "ac-28",
+      "description": "[TASK-7-6] Test verifies local pipeline state committed to git on phase transition",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Unify Git Push Restrictions",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add phase-based file restrictions to phase-permissions.json",
+          "status": "pending",
+          "acceptance_criteria": "Config includes phase_file_restrictions section with per-phase allowed/blocked patterns",
+          "files_affected": [
+            ".egg/phase-permissions.json"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Extend PhaseFilter to check phase-based file restrictions",
+          "status": "pending",
+          "acceptance_criteria": "New method check_phase_file_restrictions(phase, files) returns allow/block result",
+          "files_affected": [
+            "gateway/phase_filter.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Update gateway push handler to apply phase restrictions",
+          "status": "pending",
+          "acceptance_criteria": "Push handler checks session phase and enforces file restrictions",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Remove blanket local-mode push block in gateway.py",
+          "status": "pending",
+          "acceptance_criteria": "Lines 521-533 removed, local-mode pushes allowed subject to phase restrictions",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-5",
+          "description": "Ensure checkpoint branch pushes always bypass restrictions",
+          "status": "pending",
+          "acceptance_criteria": "Pushes to egg/checkpoints/v1 branch succeed from any phase/mode",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Unify State Persistence",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add commit_at_phase_boundary flag to StateStore.save_pipeline()",
+          "status": "pending",
+          "acceptance_criteria": "Method accepts flag to override mode-based commit skip",
+          "files_affected": [
+            "orchestrator/state_store.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Modify orchestrator phase transitions to commit local pipeline state",
+          "status": "pending",
+          "acceptance_criteria": "State committed to git when phase changes",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Update delete_pipeline() to handle local pipeline git cleanup",
+          "status": "pending",
+          "acceptance_criteria": "Local pipeline deletion commits the removal to git",
+          "files_affected": [
+            "orchestrator/state_store.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Unify File Paths",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Update _get_draft_path() to use pipeline ID prefix for local mode",
+          "status": "pending",
+          "acceptance_criteria": "Local mode uses .egg-state/drafts/{pipeline_id}-{phase}.md format",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update _verdict_path_for_type() to use pipeline ID prefix for local mode",
+          "status": "pending",
+          "acceptance_criteria": "Local mode uses .egg-state/reviews/{pipeline_id}-{phase}-{type}.json format",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Update _read_phase_draft() to handle prefixed paths",
+          "status": "pending",
+          "acceptance_criteria": "Draft reading works with new path format",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Update agent prompts to reference correct prefixed paths",
+          "status": "pending",
+          "acceptance_criteria": "Phase prompts show correct file paths for local mode",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Unify Contract Usage",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Update _build_phase_prompt() to include contract CLI for local mode",
+          "status": "pending",
+          "acceptance_criteria": "Contract CLI instructions appear in prompts for both modes",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Update create_local_contract() to set contract_synced=False",
+          "status": "pending",
+          "acceptance_criteria": "New local contracts have contract_synced=False in pipeline state",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py",
+            "shared/egg_contracts/loader.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Ensure contract file uses pipeline ID as key for local mode",
+          "status": "pending",
+          "acceptance_criteria": "Contract saved as .egg-state/contracts/{pipeline_id}.json",
+          "files_affected": [
+            "shared/egg_contracts/loader.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Enable Checkpoints for Local Mode",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Verify checkpoint capture triggers on local-mode pushes",
+          "status": "pending",
+          "acceptance_criteria": "capture_and_store_checkpoints_for_push() called after local-mode push succeeds",
+          "files_affected": [
+            "gateway/gateway.py",
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Update phase restrictions to always allow checkpoint file pushes",
+          "status": "pending",
+          "acceptance_criteria": ".egg-state/checkpoints/* files pushable from all phases",
+          "files_affected": [
+            ".egg/phase-permissions.json"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Test checkpoint creation for local pipeline pushes",
+          "status": "pending",
+          "acceptance_criteria": "Checkpoint JSON appears on egg/checkpoints/v1 branch after local-mode push",
+          "files_affected": [
+            "gateway/tests/test_checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "Container and Agent Tracking",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Ensure all _spawn_and_wait() calls pass store parameter",
+          "status": "pending",
+          "acceptance_criteria": "All call sites in pipelines.py pass state store for tracking",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-2",
+          "description": "Add agent tracking in multi-agent execution",
+          "status": "pending",
+          "acceptance_criteria": "PhaseExecution.agents populated when spawning multi-agent containers",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-3",
+          "description": "Update agent status on completion/failure",
+          "status": "pending",
+          "acceptance_criteria": "AgentExecution records updated with completed_at, commit, error fields",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-4",
+          "description": "Verify API exposes container/agent state",
+          "status": "pending",
+          "acceptance_criteria": "GET /pipelines/{id} returns populated containers and agents arrays",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-7",
+      "name": "Integration Tests",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-7-1",
+          "description": "Test local pipeline push restrictions per phase",
+          "status": "pending",
+          "acceptance_criteria": "Test verifies refine/plan can push .egg-state/, implement can push code",
+          "files_affected": [
+            "orchestrator/tests/test_pipeline_push_restrictions.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-2",
+          "description": "Test checkpoint creation for local pipelines",
+          "status": "pending",
+          "acceptance_criteria": "Test verifies checkpoint JSON created on push",
+          "files_affected": [
+            "gateway/tests/test_checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-3",
+          "description": "Test contract CLI in local mode",
+          "status": "pending",
+          "acceptance_criteria": "Test verifies egg-contract show/add-commit work in local pipeline",
+          "files_affected": [
+            "orchestrator/tests/test_local_pipeline_contracts.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-4",
+          "description": "Test concurrent pipelines with prefixed paths",
+          "status": "pending",
+          "acceptance_criteria": "Two local pipelines run concurrently without file conflicts",
+          "files_affected": [
+            "orchestrator/tests/test_concurrent_pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-5",
+          "description": "Test container/agent tracking via API",
+          "status": "pending",
+          "acceptance_criteria": "Test verifies running containers appear in API response",
+          "files_affected": [
+            "orchestrator/tests/test_container_tracking.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-6",
+          "description": "Test state persistence at phase boundaries",
+          "status": "pending",
+          "acceptance_criteria": "Test verifies local pipeline state committed to git on phase transition",
+          "files_affected": [
+            "orchestrator/tests/test_state_persistence.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 2,
@@ -84,5 +704,9 @@
   "plan_reviewer_verdicts": {
     "unified": "missing",
     "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Unify local-mode and issue-mode pipeline behavior",
+    "description": "Unifies local-mode and issue-mode pipelines so both follow the same\ncontract/checkpoint/push discipline. Replaces blanket local-mode push\nblocking with phase-based file restrictions, enables state persistence\nat phase boundaries, and adds container/agent tracking.\n\nFixes #543"
   }
 }
