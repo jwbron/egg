@@ -515,11 +515,13 @@ jobs:
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
           # Check if contract has multi-agent configuration enabled
+          # Default to true when multi_agent_config is absent, matching
+          # Contract.is_multi_agent_enabled() in shared/egg_contracts/models.py
           if [[ -f "$CONTRACT_PATH" ]]; then
-            MULTI_AGENT=$(jq -r '.multi_agent_config.enabled // false' "$CONTRACT_PATH" 2>/dev/null || echo "false")
+            MULTI_AGENT=$(jq -r 'if .multi_agent_config == null then true else .multi_agent_config.enabled end' "$CONTRACT_PATH" 2>/dev/null || echo "true")
             echo "enabled=${MULTI_AGENT}" >> "$GITHUB_OUTPUT"
           else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Trigger multi-agent workflow (if enabled)
