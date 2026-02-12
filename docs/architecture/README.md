@@ -175,5 +175,5 @@ See [ADR Overview](../adr/README.md) for the full list. Key decisions:
 ## See Also
 
 - [ADR: Autonomous Software Engineer](../adr/in-progress/ADR-Autonomous-Software-Engineer.md) - Full system architecture
-- [Setup Guides](../setup/) - Installation and configuration
+- [Local Quickstart](../guides/local-quickstart.md) - Installation and configuration
 - [Project Structure](../development/STRUCTURE.md) - Directory layout

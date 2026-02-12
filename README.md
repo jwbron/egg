@@ -104,7 +104,7 @@ Each pipeline phase has a defined set of permitted operations:
 
 ## Multi-Agent Orchestration
 
-The orchestrator (`shared/egg_contracts/orchestrator.py`) manages parallel execution of specialized agent roles during implementation. Each role runs in its own sandbox container with scoped permissions:
+The orchestrator (`orchestrator/`) manages parallel execution of specialized agent roles during implementation. Each role runs in its own sandbox container with scoped permissions:
 
 | Role | Responsibility |
 |------|----------------|
@@ -168,7 +168,7 @@ egg
 
 Running `egg` starts the gateway and sandbox automatically. On first run it will prompt you to configure repositories and credentials via `egg --setup`. By default it launches in public mode (full internet access); use `egg --private` for network-locked private repo mode.
 
-See the [Deployment Guide](docs/guides/deployment.md) for detailed setup instructions including PAT-based authentication.
+See the [Local Quickstart Guide](docs/guides/local-quickstart.md) for detailed setup instructions including PAT-based authentication.
 
 ### GitHub Actions (SDLC Pipeline)
 
@@ -226,7 +226,7 @@ Additional inputs include `prompt-file` (for large prompts), `bot-app-id`/`bot-a
 | `egg --reset` | Reset configuration and start over |
 | `egg --exec <cmd>` | Execute command in ephemeral container |
 | `egg --compose` | Start gateway via Docker Compose |
-| `egg --compose --down` | Stop the Docker Compose stack |
+| `egg --compose --down` | Stop the Docker Compose stack (gateway + orchestrator) |
 | `egg --compose --build` | Rebuild compose images before starting |
 
 ### egg-deploy CLI
@@ -289,6 +289,7 @@ For production/advanced deployments using Docker Compose:
 
 ### Guides
 
+- [Local Quickstart](docs/guides/local-quickstart.md) — Get running locally with PAT authentication
 - [Deployment Guide](docs/guides/deployment.md) — Production deployment options
 - [Deploy Migration](docs/guides/deploy-migration.md) — Migrating from legacy deployments
 - [GitHub Automation Guide](docs/guides/github-automation.md) — Review bots, autofixer, @mention

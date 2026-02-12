@@ -1,0 +1,120 @@
+# Integration test stack for local SDLC pipeline.
+#
+# Runs gateway + orchestrator with a mock sandbox image so that real
+# Docker containers are spawned for each pipeline phase without needing
+# the full egg-sandbox (and therefore Claude).
+#
+# Network topology mirrors the existing integration_tests/docker-compose.yml
+# using the same test subnets (172.40.x/172.41.x) to avoid collision with
+# production (172.32/172.33) or other CI runs.
+#
+# Usage:
+#   docker compose -f integration_tests/local_pipeline/docker-compose.yml up -d --build
+#   PYTHONPATH=shared pytest integration_tests/local_pipeline -v -m integration --timeout=300
+#   docker compose -f integration_tests/local_pipeline/docker-compose.yml down -v --remove-orphans
+
+services:
+  gateway:
+    build:
+      context: ../..
+      dockerfile: gateway/Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-egg-lp-test}-gateway
+    networks:
+      egg-test-isolated:
+        ipv4_address: 172.40.0.2
+      egg-test-external:
+        ipv4_address: 172.41.0.2
+    ports:
+      - "${GATEWAY_PORT:-0}:9848"
+      - "${PROXY_PORT:-0}:3129"
+    environment:
+      - EGG_REPO_CONFIG=/config/repositories.yaml
+      - EGG_LAUNCHER_SECRET=${EGG_LAUNCHER_SECRET}
+      - GITHUB_USER_TOKEN=${GITHUB_USER_TOKEN:-dummy-github-token}
+      - BOT_GITHUB_TOKEN=${BOT_GITHUB_TOKEN:-}
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
+      - EGG_USER_GIT_NAME=test-user
+      - EGG_USER_GIT_EMAIL=test@example.com
+    volumes:
+      - ${EGG_CONFIG_DIR}/repositories.yaml:/config/repositories.yaml:ro
+      - ${EGG_CONFIG_DIR}/secrets.env:/secrets/secrets.env:ro
+      - ${EGG_CONFIG_DIR}/launcher-secret:/secrets/launcher-secret:ro
+      - certs:/shared/certs
+      - worktrees:/home/egg/.egg-worktrees
+      - state:/home/egg/.egg-state
+      - ${EGG_REPOS_DIR:-/tmp/egg-test-repos}:/home/egg/repos
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9848/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    security_opt:
+      - label=disable
+
+  orchestrator:
+    build:
+      context: ../..
+      dockerfile: orchestrator/Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-egg-lp-test}-orchestrator
+    networks:
+      egg-test-isolated:
+        ipv4_address: 172.40.0.3
+      egg-test-external:
+        ipv4_address: 172.41.0.3
+    ports:
+      - "${ORCHESTRATOR_PORT:-0}:9849"
+    environment:
+      - ORCHESTRATOR_PORT=9849
+      - EGG_REPO_PATH=/home/egg/repos
+      - GATEWAY_URL=http://172.40.0.2:9848
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
+      - WAIT_FOR_GATEWAY=true
+      - GATEWAY_HOST=172.40.0.2
+      - GATEWAY_PORT=9848
+      # Host repos path for sandbox volume mounts (Docker socket sees host paths)
+      - EGG_HOST_REPOS_DIR=${EGG_REPOS_DIR:-/tmp/egg-test-repos}
+      # Use mock sandbox image instead of egg-sandbox:latest
+      - EGG_SANDBOX_IMAGE=mock-sandbox:latest
+      # Override network name so spawned containers join the test network
+      - EGG_ISOLATED_NETWORK=${COMPOSE_PROJECT_NAME:-egg-lp-test}-isolated
+      - EGG_LAUNCHER_SECRET=${EGG_LAUNCHER_SECRET}
+    volumes:
+      - ${EGG_REPOS_DIR:-/tmp/egg-test-repos}:/home/egg/repos
+      - state:/home/egg/.egg-state
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9849/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    security_opt:
+      - label=disable
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+volumes:
+  certs:
+  worktrees:
+  state:
+
+networks:
+  egg-test-isolated:
+    name: ${COMPOSE_PROJECT_NAME:-egg-lp-test}-isolated
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.40.0.0/24
+          gateway: 172.40.0.1
+  egg-test-external:
+    name: ${COMPOSE_PROJECT_NAME:-egg-lp-test}-external
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.41.0.0/24
+          gateway: 172.41.0.1

@@ -47,6 +47,9 @@ services:
       - HOST_UID=${HOST_UID:-1000}
       - HOST_GID=${HOST_GID:-1000}
       - HOST_HOME=${HOST_HOME:-/home/egg}
+      # Credentials (read from mounted secrets volume)
+      - EGG_SECRETS_PATH=/secrets/secrets.env
+      - EGG_CONFIG_DIR=/secrets
       # GitHub authentication
       - GITHUB_USER_TOKEN=${GITHUB_USER_TOKEN:-}
       - BOT_GITHUB_TOKEN=${BOT_GITHUB_TOKEN:-}
@@ -79,6 +82,57 @@ services:
     restart: unless-stopped
     security_opt:
       - label=disable
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    image: ${EGG_ORCHESTRATOR_IMAGE:-egg-orchestrator:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-egg}-orchestrator
+    networks:
+      egg-isolated:
+        ipv4_address: 172.32.0.3
+      egg-external:
+        ipv4_address: 172.33.0.3
+    ports:
+      # Orchestrator API - used by sandbox for pipeline state management
+      - "${ORCHESTRATOR_API_PORT:-9849}:9849"
+    environment:
+      # Core configuration
+      - ORCHESTRATOR_PORT=9849
+      - EGG_REPO_PATH=/home/egg/repos
+      # Gateway connection (for session coordination)
+      - GATEWAY_URL=http://172.32.0.2:9848
+      # Docker socket for container management
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      # Host info for container spawning
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
+      # Host repos path for sandbox volume mounts (Docker socket sees host paths)
+      - EGG_HOST_REPOS_DIR=${EGG_REPOS_DIR:-./repos}
+      # Sandbox image for spawned containers
+      - EGG_SANDBOX_IMAGE=${EGG_SANDBOX_IMAGE:-egg:latest}
+      # Launcher secret for gateway session registration
+      - EGG_LAUNCHER_SECRET=${EGG_LAUNCHER_SECRET}
+    volumes:
+      # Repositories directory (RW for state persistence in git)
+      - ${EGG_REPOS_DIR:-./repos}:/home/egg/repos
+      # State directory (shared with gateway)
+      - state:/home/egg/.egg-state
+      # Docker socket for container management
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9849/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    security_opt:
+      - label=disable
+    depends_on:
+      gateway:
+        condition: service_healthy
 
   # Sandbox service template - not started by compose directly
   # Use egg --compose or bin/egg-deploy to start sandboxes with proper config

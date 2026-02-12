@@ -105,7 +105,7 @@ try:
         validate_session_for_request,
     )
     from .transcript_buffer import get_transcript_buffer
-    from .worktree_manager import WorktreeManager, startup_cleanup
+    from .worktree_manager import WorktreeManager, get_active_docker_containers, startup_cleanup
 except ImportError:
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from checkpoint_handler import (  # type: ignore[no-redef, import-not-found]
@@ -160,6 +160,7 @@ except ImportError:
     from transcript_buffer import get_transcript_buffer  # type: ignore[no-redef, import-not-found]
     from worktree_manager import (  # type: ignore[no-redef, import-not-found]
         WorktreeManager,
+        get_active_docker_containers,
         startup_cleanup,
     )
 
@@ -516,6 +517,20 @@ def git_push() -> tuple[Response, int] | Response:
     # Check Private Repo Mode policy (if enabled)
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
+
+    # Block push in local SDLC mode
+    if session_mode == "local":
+        audit_log(
+            "push_blocked_local_mode",
+            "git_push",
+            success=False,
+            details={"branch": branch, "reason": "Push blocked in local SDLC mode"},
+        )
+        return make_error(
+            "Operation blocked in local SDLC mode. Push manually when the pipeline completes.",
+            status_code=403,
+            details={"session_mode": "local"},
+        )
 
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -1278,6 +1293,20 @@ def gh_pr_create() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
+    # Block PR creation in local SDLC mode
+    if session_mode == "local":
+        audit_log(
+            "pr_create_blocked_local_mode",
+            "gh_pr_create",
+            success=False,
+            details={"repo": repo, "reason": "PR creation blocked in local SDLC mode"},
+        )
+        return make_error(
+            "Operation blocked in local SDLC mode. Create PR manually when the pipeline completes.",
+            status_code=403,
+            details={"session_mode": "local"},
+        )
+
     # Get session phase from request context (set by @require_session_auth decorator)
     session_phase = getattr(g, "session_phase", None)
 
@@ -1465,6 +1494,20 @@ def gh_pr_comment() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
+    # Block PR comment in local SDLC mode
+    if session_mode == "local":
+        audit_log(
+            "pr_comment_blocked_local_mode",
+            "gh_pr_comment",
+            success=False,
+            details={"repo": repo, "reason": "PR comment blocked in local SDLC mode"},
+        )
+        return make_error(
+            "Operation blocked in local SDLC mode. Interact with PRs manually when the pipeline completes.",
+            status_code=403,
+            details={"session_mode": "local"},
+        )
+
     # Check Private Repo Mode policy (if enabled)
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -1583,6 +1626,20 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
+    # Block PR edit in local SDLC mode
+    if session_mode == "local":
+        audit_log(
+            "pr_edit_blocked_local_mode",
+            "gh_pr_edit",
+            success=False,
+            details={"repo": repo, "reason": "PR edit blocked in local SDLC mode"},
+        )
+        return make_error(
+            "Operation blocked in local SDLC mode. Edit PRs manually when the pipeline completes.",
+            status_code=403,
+            details={"session_mode": "local"},
+        )
+
     # Check Private Repo Mode policy (if enabled)
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -1691,6 +1748,20 @@ def gh_pr_close() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
+    # Block PR close in local SDLC mode
+    if session_mode == "local":
+        audit_log(
+            "pr_close_blocked_local_mode",
+            "gh_pr_close",
+            success=False,
+            details={"repo": repo, "reason": "PR close blocked in local SDLC mode"},
+        )
+        return make_error(
+            "Operation blocked in local SDLC mode. Close PRs manually when the pipeline completes.",
+            status_code=403,
+            details={"session_mode": "local"},
+        )
+
     # Check Private Repo Mode policy (if enabled)
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -1793,6 +1864,20 @@ def gh_execute() -> tuple[Response, int] | Response:
 
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
+
+    # Block all gh commands in local SDLC mode
+    if session_mode == "local":
+        audit_log(
+            "gh_command_blocked_local_mode",
+            "gh_execute",
+            success=False,
+            details={"args": args, "reason": "gh commands blocked in local SDLC mode"},
+        )
+        return make_error(
+            "Operation blocked in local SDLC mode. Run gh commands manually when the pipeline completes.",
+            status_code=403,
+            details={"session_mode": "local"},
+        )
 
     # Check for commands blocked entirely in private mode (too broad to filter by repo)
     if session_mode == "private" and args and args[0] in GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE:
@@ -1952,7 +2037,9 @@ def gh_execute() -> tuple[Response, int] | Response:
                 auth_mode = "reviewer"
                 logger.info("Using reviewer token for pr review command")
             else:
-                logger.debug("Reviewer token not available, using %s token for pr review", auth_mode)
+                logger.debug(
+                    "Reviewer token not available, using %s token for pr review", auth_mode
+                )
         except ImportError:
             pass
 
@@ -2326,8 +2413,8 @@ def session_create() -> tuple[Response, int] | Response:
         return make_error("Missing container_id")
     if not container_ip:
         return make_error("Missing container_ip")
-    if mode not in ("private", "public"):
-        return make_error("Invalid mode: must be 'private' or 'public'")
+    if mode not in ("private", "public", "local"):
+        return make_error("Invalid mode: must be 'private', 'public', or 'local'")
     if not repos:
         return make_error("Missing repos list")
 
@@ -2531,6 +2618,35 @@ def session_delete(session_token: str) -> tuple[Response, int] | Response:
     return make_success("Session deleted")
 
 
+@app.route("/api/v1/sessions/by-container/<container_id>", methods=["DELETE"])
+@require_launcher_auth
+def session_delete_by_container(container_id: str) -> tuple[Response, int] | Response:
+    """
+    Delete a session by container ID.
+
+    Used by the orchestrator for cleanup when the session token is not available.
+
+    Args:
+        container_id: The container ID whose session to delete
+
+    Auth: Bearer {launcher_secret}
+    """
+    session_manager = get_session_manager()
+    deleted = session_manager.delete_session_by_container(container_id)
+
+    if not deleted:
+        return make_error("Session not found for container", status_code=404)
+
+    audit_log(
+        "session_deleted",
+        "session_delete_by_container",
+        success=True,
+        details={"container_id": container_id},
+    )
+
+    return make_success("Session deleted")
+
+
 @app.route("/api/v1/sessions/<session_token>", methods=["GET"])
 @require_launcher_auth
 def session_get(session_token: str) -> tuple[Response, int] | Response:
@@ -2604,6 +2720,67 @@ def session_heartbeat(session_token: str) -> tuple[Response, int] | Response:
         "Heartbeat recorded",
         {
             "expires_at": result.session.expires_at.isoformat() if result.session else None,
+        },
+    )
+
+
+@app.route("/api/v1/sessions/<session_token>", methods=["PATCH"])
+@require_launcher_auth
+def session_update(session_token: str) -> tuple[Response, int] | Response:
+    """
+    Update session container binding (container_id and/or container_ip).
+
+    Used by the orchestrator to bind a session to the real container
+    after pre-registering with a placeholder ID before container creation.
+
+    Request body:
+        {
+            "container_id": "abc123...",  # Optional
+            "container_ip": "172.32.0.10"  # Optional
+        }
+
+    At least one of container_id or container_ip must be provided.
+
+    Args:
+        session_token: The session token to update
+
+    Auth: Bearer {launcher_secret}
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    container_id = data.get("container_id")
+    container_ip = data.get("container_ip")
+
+    if not container_id and not container_ip:
+        return make_error("Must provide container_id and/or container_ip")
+
+    session_manager = get_session_manager()
+    success = session_manager.update_session(
+        session_token,
+        container_id=container_id,
+        container_ip=container_ip,
+    )
+
+    if not success:
+        return make_error("Session not found or expired", status_code=404)
+
+    audit_log(
+        "session_container_updated",
+        "session_update",
+        success=True,
+        details={
+            "container_id": container_id,
+            "container_ip": container_ip,
+        },
+    )
+
+    return make_success(
+        "Session updated",
+        {
+            "container_id": container_id,
+            "container_ip": container_ip,
         },
     )
 
@@ -3447,6 +3624,14 @@ def main() -> None:
             )
     except Exception as e:
         logger.warning("Startup session cleanup failed", error=str(e))
+
+    # Also check Docker directly as safety net — sessions may be
+    # pruned but containers still running.
+    try:
+        docker_containers = get_active_docker_containers()
+        active_container_ids |= docker_containers
+    except Exception as e:
+        logger.warning("Could not query Docker containers", error=str(e))
 
     # Clean up orphaned worktrees from crashed containers
     try:

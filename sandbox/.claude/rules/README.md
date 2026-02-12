@@ -47,6 +47,9 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
 - **test-workflow.md** - Test workflow and execution
   - Testing workflow integration
 
+- **contract.md** - SDLC contract CLI commands
+  - `egg-contract` command reference (show, add-commit, update-notes, add-decision, add-feedback)
+
 ## Design Principles
 
 - **Index, Don't Dump** - Rules are concise; detailed docs are referenced

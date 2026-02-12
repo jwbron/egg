@@ -35,7 +35,18 @@ sandbox/
 │   ├── network_mode.py     # Network mode handling
 │   ├── container_logging.py # Container logging
 │   ├── timing.py           # Timing utilities
-│   └── output.py           # Output formatting
+│   ├── output.py           # Output formatting
+│   ├── compose.py          # Docker Compose operations
+│   ├── checkpoint_cli.py   # Checkpoint CLI for saving/restoring state
+│   ├── contract_cli.py     # SDLC contract CLI (egg-contract)
+│   ├── orchestration.py    # Multi-agent orchestration support
+│   └── self_improvement/   # Self-improvement data collection
+│       ├── collect.py      # Data collection orchestrator
+│       ├── config.py       # Collection configuration
+│       └── collectors/     # Data source collectors
+│           ├── base.py     # Base collector class
+│           ├── gha.py      # GitHub Actions collector
+│           └── local.py    # Local metrics collector
 │
 ├── llm/                    # LLM integration
 │   ├── runner.py           # LLM runner abstraction
@@ -45,10 +56,12 @@ sandbox/
 │       ├── runner.py       # Claude Code runner
 │       └── config.py       # Claude-specific config
 │
-├── bin/                    # Symlinks to scripts/ (added to PATH)
+├── bin/                    # Symlinks to scripts/ and egg_lib CLIs (added to PATH)
 │   ├── git -> ../scripts/git
 │   ├── gh -> ../scripts/gh
-│   └── git-credential-github-token -> ../scripts/git-credential-github-token
+│   ├── git-credential-github-token -> ../scripts/git-credential-github-token
+│   ├── egg-checkpoint -> ../egg_lib/checkpoint_cli.py
+│   └── egg-contract -> ../egg_lib/contract_cli.py
 │
 ├── scripts/                # Wrapper script implementations
 │   ├── git                 # Git wrapper (routes to gateway)
@@ -57,13 +70,21 @@ sandbox/
 │
 ├── .claude/                # Claude Code customization
 │   ├── commands/           # Custom slash commands
-│   │   └── show-metrics.md # /show-metrics command
+│   │   ├── README.md       # Commands documentation
+│   │   ├── sdlc.md         # /sdlc — SDLC pipeline initialization
+│   │   ├── show-metrics.md # /show-metrics — Activity monitoring report
+│   │   ├── coder-mode.md   # /coder-mode — Coder agent mode
+│   │   ├── documenter-mode.md # /documenter-mode — Documenter agent mode
+│   │   ├── integrator-mode.md # /integrator-mode — Integrator agent mode
+│   │   └── tester-mode.md  # /tester-mode — Tester agent mode
 │   └── rules/              # Agent behavior rules
+│       ├── README.md       # Rules documentation
 │       ├── mission.md      # Agent mission and workflow
 │       ├── environment.md  # Sandbox constraints
 │       ├── code-standards.md # Code standards
 │       ├── test-workflow.md  # Testing workflow
-│       └── pr-descriptions.md # PR guidelines
+│       ├── pr-descriptions.md # PR guidelines
+│       └── contract.md     # SDLC contract CLI commands
 │
 ├── tools/                  # Interactive tools
 │   ├── discover-tests.py   # Test framework discovery

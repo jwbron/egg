@@ -38,6 +38,7 @@ def _cleanup_transcript_buffer(container_id: str) -> None:
     """Clean up transcript buffer for a container when session ends."""
     try:
         from transcript_buffer import cleanup_transcript_buffer
+
         cleanup_transcript_buffer(container_id)
         logger.debug("Transcript buffer cleaned up", container_id=container_id)
     except ImportError:
@@ -50,6 +51,7 @@ def _cleanup_transcript_buffer(container_id: str) -> None:
             error=str(e),
         )
 
+
 # Session configuration
 DEFAULT_SESSION_TTL_HOURS = 24
 DEFAULT_CLEANUP_INTERVAL_MINUTES = 15
@@ -61,7 +63,7 @@ SESSION_PERSISTENCE_DIR = Path("/home/egg/.egg-state/sessions")
 SESSION_PERSISTENCE_FILE = SESSION_PERSISTENCE_DIR / "sessions.json"
 
 # Mode type alias
-ModeType = Literal["private", "public"]
+ModeType = Literal["private", "public", "local"]
 
 
 def _hash_token(token: str) -> str:
@@ -477,6 +479,72 @@ class SessionManager:
                 if session.container_ip == ip_address and not session.is_expired():
                     return session
         return None
+
+    def update_session(
+        self,
+        token: str,
+        container_id: str | None = None,
+        container_ip: str | None = None,
+    ) -> bool:
+        """
+        Update session container binding (container_id and/or container_ip).
+
+        Used by the orchestrator to bind a session to the real container
+        after pre-registering with a placeholder ID.
+
+        Only the launcher (with launcher_secret) should call this.
+
+        Args:
+            token: The session token
+            container_id: New container ID (optional)
+            container_ip: New container IP (optional)
+
+        Returns:
+            True if session was updated, False if session not found
+        """
+        if not container_id and not container_ip:
+            return False  # Nothing to update
+
+        token_hash = self._token_to_hash.get(token) or _hash_token(token)
+
+        with self._lock:
+            session = self._sessions.get(token_hash)
+            if not session:
+                logger.warning(
+                    "Failed to update session - not found",
+                    session_token_hash=token_hash[:16],
+                )
+                return False
+
+            if session.is_expired():
+                logger.warning(
+                    "Failed to update session - expired",
+                    session_token_hash=token_hash[:16],
+                    container_id=session.container_id,
+                )
+                return False
+
+            old_container_id = session.container_id
+            old_container_ip = session.container_ip
+
+            if container_id:
+                session.container_id = container_id
+            if container_ip:
+                session.container_ip = container_ip
+
+            self._save_to_disk()
+
+            logger.info(
+                "Session container binding updated",
+                event_type="session_container_updated",
+                session_token_hash=token_hash[:16],
+                old_container_id=old_container_id,
+                new_container_id=session.container_id,
+                old_container_ip=old_container_ip,
+                new_container_ip=session.container_ip,
+            )
+
+            return True
 
     def update_phase(self, token: str, phase: str) -> bool:
         """

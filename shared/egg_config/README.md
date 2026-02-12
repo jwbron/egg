@@ -98,6 +98,10 @@ Available constants:
 - `EGG_ISOLATED_NETWORK`, `EGG_EXTERNAL_NETWORK` - Docker network names
 - `EGG_ISOLATED_SUBNET`, `EGG_EXTERNAL_SUBNET` - Network CIDR ranges
 - `EGG_CONTAINER_IP`, `GATEWAY_ISOLATED_IP`, `GATEWAY_EXTERNAL_IP` - Fixed IP addresses
+- `ORCHESTRATOR_CONTAINER_NAME`, `ORCHESTRATOR_IMAGE_NAME` - Orchestrator container identifiers
+- `ORCHESTRATOR_PORT` (9849) - Orchestrator HTTP API port
+- `ORCHESTRATOR_ISOLATED_IP`, `ORCHESTRATOR_EXTERNAL_IP` - Orchestrator network addresses
+- `TEST_GATEWAY_PORT`, `TEST_GATEWAY_PROXY_PORT` - Test-only port overrides
 
 See `shared/egg_config/constants.py` for the full list.
 
@@ -106,7 +110,7 @@ See `shared/egg_config/constants.py` for the full list.
 | Config | Purpose | Key Fields |
 |--------|---------|------------|
 | `GitHubConfig` | GitHub API access | `token`, `readonly_token`, `user_mode_token` |
-| `GatewayConfig` | Gateway sidecar auth | `secret`, `port` |
+| `GatewayConfig` | Gateway sidecar auth | `secret`, `port`, `host`, `rate_limits` |
 | `LLMConfig` | LLM provider settings | `anthropic_api_key`, `model` |
 
 > **Note:** SlackConfig, JiraConfig, and ConfluenceConfig are planned but not yet implemented.
@@ -171,9 +175,9 @@ for warning in result.warnings:
 Use `to_dict()` to get config values with secrets masked (safe for logging):
 
 ```python
-config = SlackConfig.from_env()
+config = GatewayConfig.from_env()
 print(config.to_dict())
-# {'bot_token': 'xoxb-****...****', 'channel': 'C12345', ...}
+# {'host': '0.0.0.0', 'port': 9848, 'secret': '****...****', ...}
 ```
 
 ## Adding a New Config

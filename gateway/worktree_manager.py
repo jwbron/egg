@@ -215,6 +215,13 @@ class WorktreeManager:
             )
             shutil.rmtree(worktree_path, ignore_errors=True)
 
+        # If rmtree couldn't fully remove (e.g., Docker bind mount), at minimum
+        # remove the .git directory so git worktree add can create its .git FILE.
+        if worktree_path.exists():
+            git_path = worktree_path / ".git"
+            if git_path.exists() and git_path.is_dir():
+                shutil.rmtree(git_path, ignore_errors=True)
+
         # Check if branch already exists (from crashed session)
         branch_exists = (
             subprocess.run(

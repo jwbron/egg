@@ -755,8 +755,6 @@ The `autofix_attempts` counter resets to 0 when:
 | `action/build-tester-prompt.sh` | Tester agent prompt builder |
 | `action/build-documenter-prompt.sh` | Documenter agent prompt builder |
 | `action/build-integrator-prompt.sh` | Integrator agent prompt builder |
-| `action/build-refine-review-prompt.sh` | Reviewer prompt for refine phase analysis |
-| `action/build-plan-review-prompt.sh` | Reviewer prompt for plan phase output |
 | `action/build-unified-review-prompt.sh` | Unified review prompt builder for all SDLC phases |
 | `action/build-agent-mode-design-review-prompt-workloop.sh` | Agent-mode design review for work loop |
 | `action/build-contract-verification-prompt-workloop.sh` | Contract verification review for work loop |

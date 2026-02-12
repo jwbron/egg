@@ -4,7 +4,11 @@
   "title": "SDLC Contract",
   "description": "Contract schema for structurally enforced agent checkpoints and verification gates",
   "type": "object",
-  "required": ["schemaVersion", "issue", "phases", "decisions", "audit_log"],
+  "required": ["schemaVersion", "phases", "decisions", "audit_log"],
+  "anyOf": [
+    { "required": ["issue"] },
+    { "required": ["pipeline_id"] }
+  ],
   "properties": {
     "schemaVersion": {
       "type": "string",
@@ -13,27 +17,39 @@
       "default": "1.0"
     },
     "issue": {
-      "type": "object",
-      "description": "Issue metadata",
-      "required": ["number", "title", "url"],
-      "properties": {
-        "number": {
-          "type": "integer",
-          "description": "GitHub issue number",
-          "minimum": 1
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Issue metadata",
+          "required": ["number", "title", "url"],
+          "properties": {
+            "number": {
+              "type": "integer",
+              "description": "GitHub issue number",
+              "minimum": 1
+            },
+            "title": {
+              "type": "string",
+              "description": "Issue title",
+              "minLength": 1
+            },
+            "url": {
+              "type": "string",
+              "description": "Issue URL",
+              "format": "uri"
+            }
+          },
+          "additionalProperties": false
         },
-        "title": {
-          "type": "string",
-          "description": "Issue title",
-          "minLength": 1
-        },
-        "url": {
-          "type": "string",
-          "description": "Issue URL",
-          "format": "uri"
-        }
-      },
-      "additionalProperties": false
+        { "type": "null" }
+      ],
+      "description": "Issue metadata (null for local-mode pipelines)",
+      "default": null
+    },
+    "pipeline_id": {
+      "type": ["string", "null"],
+      "description": "Pipeline ID for local-mode pipelines (e.g., local-a1b2c3d4)",
+      "default": null
     },
     "current_phase": {
       "type": "string",
