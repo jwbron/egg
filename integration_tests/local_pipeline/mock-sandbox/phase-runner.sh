@@ -11,6 +11,17 @@
 #   2 — missing required pipeline env vars
 #   3 — missing required sandbox env vars (GATEWAY_URL, etc.)
 #   4 — repo volume not mounted
+#
+# Prompt keywords:
+#   FORCE_FAIL — exit immediately with code 1
+#   CHECK_FAIL — checker always fails
+#   CHECK_FAIL_THEN_PASS — checker fails first, passes on retry
+#   REVIEW_NEEDS_REVISION — all reviewers return needs_revision
+#   SLOW_PHASE — sleep for SLOW_PHASE_DURATION seconds (default 30)
+#   FAIL_ON_PHASE=<phase> — exit code 1 only when EGG_PIPELINE_PHASE matches
+#   REVIEWER_MIXED_VERDICT — first reviewer approves, second needs_revision
+#   HEARTBEAT_ONLY — send heartbeats but never exit (for timeout tests)
+#   PARTIAL_FAILURE — write partial draft then exit code 1
 
 echo "=== Mock Sandbox ==="
 echo "EGG_PIPELINE_PHASE=$EGG_PIPELINE_PHASE"
@@ -118,16 +129,27 @@ if [ "$EGG_AGENT_ROLE" = "reviewer" ]; then
     REVIEWS_DIR="${EGG_REPO_PATH:-.}/.egg-state/reviews"
     mkdir -p "$REVIEWS_DIR"
 
+    PHASE="$EGG_PIPELINE_PHASE"
+    REVIEWER_TYPE="${EGG_REVIEWER_TYPE:-unified}"
+
     # Check for verdict override: env var > prompt keyword > default (approved)
+    # REVIEWER_MIXED_VERDICT: first reviewer (unified) approves, subsequent reject
     if [ -n "$MOCK_REVIEW_VERDICT" ]; then
         VERDICT="$MOCK_REVIEW_VERDICT"
+    elif echo "$EGG_PIPELINE_PROMPT" | grep -q "REVIEWER_MIXED_VERDICT"; then
+        # First reviewer type (unified) approves, others need revision
+        if [ "$REVIEWER_TYPE" = "unified" ]; then
+            VERDICT="approved"
+            echo "REVIEWER_MIXED_VERDICT: unified reviewer approves"
+        else
+            VERDICT="needs_revision"
+            echo "REVIEWER_MIXED_VERDICT: ${REVIEWER_TYPE} reviewer requests revision"
+        fi
     elif echo "$EGG_PIPELINE_PROMPT" | grep -q "REVIEW_NEEDS_REVISION"; then
         VERDICT="needs_revision"
     else
         VERDICT="approved"
     fi
-    PHASE="$EGG_PIPELINE_PHASE"
-    REVIEWER_TYPE="${EGG_REVIEWER_TYPE:-unified}"
 
     # Typed verdict file path: {phase}-{reviewer_type}-review.json
     VERDICT_FILE="$REVIEWS_DIR/${PHASE}-${REVIEWER_TYPE}-review.json"
@@ -173,6 +195,68 @@ DRAFT_EOF
 esac
 
 # --- Failure injection ---
+
+# SLOW_PHASE: sleep for configurable duration (for timeout testing)
+case "$EGG_PIPELINE_PROMPT" in
+    *SLOW_PHASE*)
+        SLOW_DURATION="${SLOW_PHASE_DURATION:-30}"
+        echo "SLOW_PHASE detected — sleeping for ${SLOW_DURATION}s"
+        sleep "$SLOW_DURATION"
+        ;;
+esac
+
+# FAIL_ON_PHASE=<phase>: fail only when current phase matches
+# Extract phase name from prompt (e.g., FAIL_ON_PHASE=plan)
+case "$EGG_PIPELINE_PROMPT" in
+    *FAIL_ON_PHASE=*)
+        # Extract the phase name after FAIL_ON_PHASE=
+        FAIL_PHASE=$(echo "$EGG_PIPELINE_PROMPT" | sed -n 's/.*FAIL_ON_PHASE=\([a-z]*\).*/\1/p')
+        if [ "$EGG_PIPELINE_PHASE" = "$FAIL_PHASE" ]; then
+            echo "FAIL_ON_PHASE=$FAIL_PHASE matched current phase — exiting with code 1"
+            exit 1
+        fi
+        echo "FAIL_ON_PHASE=$FAIL_PHASE does not match current phase ($EGG_PIPELINE_PHASE) — continuing"
+        ;;
+esac
+
+# PARTIAL_FAILURE: write partial draft then fail
+case "$EGG_PIPELINE_PROMPT" in
+    *PARTIAL_FAILURE*)
+        DRAFTS_DIR="${EGG_REPO_PATH:-.}/.egg-state/drafts"
+        mkdir -p "$DRAFTS_DIR"
+        cat > "$DRAFTS_DIR/partial-draft.md" <<PARTIAL_EOF
+# Partial Draft (Incomplete)
+Pipeline: $EGG_PIPELINE_ID
+Phase: $EGG_PIPELINE_PHASE
+This draft is intentionally incomplete — simulating mid-phase crash.
+PARTIAL_EOF
+        echo "PARTIAL_FAILURE: wrote partial draft to $DRAFTS_DIR/partial-draft.md"
+        echo "PARTIAL_FAILURE: simulating crash mid-execution"
+        exit 1
+        ;;
+esac
+
+# HEARTBEAT_ONLY: send heartbeats forever (for timeout testing)
+# This mode never exits — the container must be killed by timeout
+case "$EGG_PIPELINE_PROMPT" in
+    *HEARTBEAT_ONLY*)
+        echo "HEARTBEAT_ONLY mode — sending heartbeats until killed"
+        HEARTBEAT_INTERVAL="${HEARTBEAT_INTERVAL:-5}"
+        SIGNALS_DIR="${EGG_REPO_PATH:-.}/.egg-state/signals"
+        mkdir -p "$SIGNALS_DIR"
+        HEARTBEAT_COUNT=0
+        while true; do
+            HEARTBEAT_COUNT=$((HEARTBEAT_COUNT + 1))
+            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "2025-01-01T00:00:00Z")
+            cat > "$SIGNALS_DIR/heartbeat-${HEARTBEAT_COUNT}.json" <<HEARTBEAT_EOF
+{"type":"heartbeat","pipeline_id":"$EGG_PIPELINE_ID","phase":"$EGG_PIPELINE_PHASE","count":$HEARTBEAT_COUNT,"timestamp":"$TIMESTAMP"}
+HEARTBEAT_EOF
+            echo "Heartbeat #${HEARTBEAT_COUNT} sent"
+            sleep "$HEARTBEAT_INTERVAL"
+        done
+        ;;
+esac
+
 # FORCE_FAIL in prompt → exit 1 (tests real container failure path)
 case "$EGG_PIPELINE_PROMPT" in
     *FORCE_FAIL*)
