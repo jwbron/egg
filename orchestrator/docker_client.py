@@ -8,7 +8,6 @@ for sandbox containers spawned by the orchestrator.
 import os
 import re
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -67,7 +66,7 @@ class InvalidContainerIdError(DockerClientError):
 
 # Valid container ID pattern: 64-char hex (full) or 12-char hex (short), or container name
 # Container names: alphanumeric, underscore, hyphen, period (cannot start with hyphen/period)
-CONTAINER_ID_PATTERN = re.compile(r'^[a-fA-F0-9]{12,64}$|^[a-zA-Z0-9][a-zA-Z0-9_.-]*$')
+CONTAINER_ID_PATTERN = re.compile(r"^[a-fA-F0-9]{12,64}$|^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
 
 
 def _validate_container_id(container_id: str) -> None:
@@ -90,7 +89,7 @@ class DockerClient:
     for the orchestrator.
     """
 
-    DEFAULT_SANDBOX_IMAGE = "egg-sandbox:latest"
+    DEFAULT_SANDBOX_IMAGE = "egg:latest"
     CONTAINER_PREFIX = "egg-sandbox-"
 
     def __init__(self, docker_host: str | None = None):
@@ -358,16 +357,12 @@ class DockerClient:
             exited_at = None
             if state.get("StartedAt"):
                 try:
-                    started_at = datetime.fromisoformat(
-                        state["StartedAt"].replace("Z", "+00:00")
-                    )
+                    started_at = datetime.fromisoformat(state["StartedAt"].replace("Z", "+00:00"))
                 except ValueError:
                     pass
             if state.get("FinishedAt") and state["FinishedAt"] != "0001-01-01T00:00:00Z":
                 try:
-                    exited_at = datetime.fromisoformat(
-                        state["FinishedAt"].replace("Z", "+00:00")
-                    )
+                    exited_at = datetime.fromisoformat(state["FinishedAt"].replace("Z", "+00:00"))
                 except ValueError:
                     pass
 
@@ -418,10 +413,7 @@ class DockerClient:
 
         containers = self.client.containers.list(all=all, filters=filters)
 
-        return [
-            self.get_container_info(c.id)
-            for c in containers
-        ]
+        return [self.get_container_info(c.id) for c in containers]
 
     def get_container_logs(
         self,

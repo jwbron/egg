@@ -81,7 +81,7 @@ class ContainerSpawner:
     5. Clean up session on container removal
     """
 
-    DEFAULT_SANDBOX_IMAGE = os.environ.get("EGG_SANDBOX_IMAGE", "egg-sandbox:latest")
+    DEFAULT_SANDBOX_IMAGE = os.environ.get("EGG_SANDBOX_IMAGE", "egg:latest")
     CONTAINER_NAME_FORMAT = "egg-{pipeline_id}-{role}"
 
     def __init__(

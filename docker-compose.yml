@@ -109,7 +109,7 @@ services:
       - HOST_UID=${HOST_UID:-1000}
       - HOST_GID=${HOST_GID:-1000}
       # Sandbox image for spawned containers
-      - EGG_SANDBOX_IMAGE=${EGG_SANDBOX_IMAGE:-egg-sandbox:latest}
+      - EGG_SANDBOX_IMAGE=${EGG_SANDBOX_IMAGE:-egg:latest}
       # Launcher secret for gateway session registration
       - EGG_LAUNCHER_SECRET=${EGG_LAUNCHER_SECRET}
     volumes:

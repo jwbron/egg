@@ -5,7 +5,6 @@ Defines the container configuration for spawning sandbox containers
 with correct network, volume, and environment settings.
 """
 
-import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,7 +31,6 @@ except ImportError:
 
 from models import AgentRole
 
-
 # Orchestrator constants (to be added to egg_config.constants)
 ORCHESTRATOR_PORT = 9849
 ORCHESTRATOR_CONTAINER_NAME = "egg-orchestrator"
@@ -49,7 +47,7 @@ class SandboxConfig:
     container_name_suffix: str = ""
 
     # Image settings
-    image: str = "egg-sandbox:latest"
+    image: str = "egg:latest"
 
     # Network settings
     network: str = EGG_ISOLATED_NETWORK
