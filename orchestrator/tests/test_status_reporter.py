@@ -4,9 +4,8 @@ Tests for status reporter module.
 
 import json
 import tempfile
-from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from events import Event, EventBus, EventType
 from models import (

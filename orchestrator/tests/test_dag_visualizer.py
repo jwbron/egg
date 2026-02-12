@@ -6,14 +6,12 @@ from datetime import datetime, timedelta
 
 from dag_visualizer import (
     PHASE_ORDER,
-    STATUS_SYMBOLS,
-    ASCII_STATUS_SYMBOLS,
     _format_duration,
     _get_status_symbol,
     generate_status_report,
     render_compact_status,
-    render_pipeline_dag,
     render_phase_detail,
+    render_pipeline_dag,
     render_progress_bar,
 )
 from models import (
@@ -24,7 +22,6 @@ from models import (
     ContainerStatus,
     PhaseExecution,
     Pipeline,
-    PipelineConfig,
     PipelinePhase,
     PipelineStatus,
 )
