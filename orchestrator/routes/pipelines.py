@@ -1423,9 +1423,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         host_repo_map_raw = os.environ.get("EGG_HOST_REPO_MAP", "{}")
         try:
             host_repo_map: dict[str, str] = json.loads(host_repo_map_raw)
-        except json.JSONDecodeError:
-            logger.warning("Failed to parse EGG_HOST_REPO_MAP, using empty map")
-            host_repo_map = {}
+        except json.JSONDecodeError as exc:
+            logger.error(
+                "Failed to parse EGG_HOST_REPO_MAP — no repos will be mounted in sandbox containers",
+                raw_value=host_repo_map_raw,
+            )
+            raise ValueError(
+                f"EGG_HOST_REPO_MAP contains invalid JSON: {host_repo_map_raw!r}"
+            ) from exc
 
         while True:
             pipeline = store.load_pipeline(pipeline_id)
