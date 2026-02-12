@@ -190,7 +190,7 @@ action/
 ├── contract-state.sh                       # Contract state management utility
 ├── populate-contract-tasks.py              # Populates contract tasks from plan document
 ├── autofixer-conventions.md                # Guidelines for autofixer behavior
-├── conflict-conventions.md                 # Guidelines for conflict resolution via rebase
+├── conflict-conventions.md                 # Guidelines for conflict resolution via merge commits
 ├── review-conventions.md                   # Guidelines for review communication
 └── README.md
 ```
