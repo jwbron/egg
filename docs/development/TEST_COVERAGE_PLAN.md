@@ -342,7 +342,8 @@ integration_tests/       # Full E2E tests (existing)
 │   ├── test_hitl_edge_cases.py
 │   ├── test_local_pipeline.py
 │   ├── test_signals.py
-│   └── test_unified_pipeline_behavior.py
+│   ├── test_unified_pipeline_behavior.py
+│   └── test_worktree_integration.py
 ```
 
 ---
