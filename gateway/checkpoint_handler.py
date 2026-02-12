@@ -632,7 +632,11 @@ class CheckpointHandler:
             env["GIT_USERNAME"] = "x-access-token"
             env["GIT_PASSWORD"] = self._github_token
 
-        cmd = ["git"] + args
+        # SECURITY: Disable all git hooks. The checkpoint handler runs git commands
+        # internally for bookkeeping (storing checkpoints to the egg/checkpoints/v1 branch).
+        # Hooks from user repos must not execute in the gateway's trusted environment.
+        # See issue #58 for context on hook-based attacks.
+        cmd = ["git", "-c", "core.hooksPath=/dev/null"] + args
 
         result = subprocess.run(
             cmd,

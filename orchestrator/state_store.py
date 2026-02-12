@@ -124,7 +124,10 @@ class StateStore:
         Raises:
             GitOperationError: If command fails and check=True
         """
-        cmd = ["git", "-C", str(self.repo_path)] + list(args)
+        # SECURITY: Disable all git hooks. The orchestrator runs git commands internally
+        # for state management. Hooks from repos must not execute in the orchestrator's
+        # trusted environment. See issue #58 for context on hook-based attacks.
+        cmd = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(self.repo_path)] + list(args)
         try:
             result = subprocess.run(
                 cmd,
