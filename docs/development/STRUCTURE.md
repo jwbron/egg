@@ -184,7 +184,8 @@ integration_tests/
 │   ├── conftest.py                # Local pipeline test fixtures
 │   ├── docker-compose.yml         # Orchestrator test environment
 │   ├── mock-sandbox/              # Mock sandbox for testing
-│   └── test_local_pipeline.py     # Orchestrator pipeline tests
+│   ├── test_local_pipeline.py     # Orchestrator pipeline tests
+│   └── test_unified_pipeline_behavior.py  # Unified local/issue mode behavior tests
 └── sdlc/                          # SDLC pipeline integration tests
     ├── conftest.py                # SDLC test fixtures
     ├── test_happy_path.py         # Full pipeline success flow
