@@ -54,7 +54,10 @@ def run_git(
     args: list[str], cwd: str | None = None, check: bool = True
 ) -> subprocess.CompletedProcess[str]:
     """Run a git command."""
-    cmd = ["git"] + args
+    # SECURITY: Disable all git hooks. This CLI may run git commands in
+    # user repositories. Hooks must not execute in this trusted context.
+    # See issue #58 for context on hook-based attacks.
+    cmd = ["git", "-c", "core.hooksPath=/dev/null"] + args
     result = subprocess.run(
         cmd,
         cwd=cwd or get_repo_path(),
