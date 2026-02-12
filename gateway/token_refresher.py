@@ -380,6 +380,7 @@ def get_bot_token() -> tuple[str | None, str]:
 
 
 def initialize_reviewer_token_refresher(
+    config_dir: Path | None = None,
     app_id: str | None = None,
     private_key: str | None = None,
     installation_id: int | None = None,
@@ -394,10 +395,12 @@ def initialize_reviewer_token_refresher(
     Config can be provided via:
     1. Explicit parameters (highest priority)
     2. Environment variables: REVIEWER_APP_ID, REVIEWER_APP_PRIVATE_KEY, REVIEWER_APP_INSTALLATION_ID
+    3. secrets.env file in config_dir
 
     Returns None if required config is missing.
 
     Args:
+        config_dir: Directory containing secrets.env (defaults to ~/.config/egg/)
         app_id: Reviewer GitHub App ID (optional, overrides env)
         private_key: Reviewer private key PEM content (optional)
         installation_id: Reviewer GitHub App installation ID (optional)
@@ -412,13 +415,20 @@ def initialize_reviewer_token_refresher(
         return _reviewer_token_refresher
     _reviewer_refresher_initialization_attempted = True
 
-    # Resolve app_id (explicit > env)
-    resolved_app_id = app_id or os.environ.get("REVIEWER_APP_ID")
+    config_dir = config_dir or DEFAULT_CONFIG_DIR
 
-    # Resolve installation_id (explicit > env)
+    # Read secrets.env for reviewer credentials
+    secrets = _read_secrets_env(config_dir / "secrets.env")
+
+    # Resolve app_id (explicit > env > secrets.env)
+    resolved_app_id = app_id or os.environ.get("REVIEWER_APP_ID") or secrets.get("REVIEWER_APP_ID")
+
+    # Resolve installation_id (explicit > env > secrets.env)
     resolved_installation_id = installation_id
     if resolved_installation_id is None:
         env_installation_id = os.environ.get("REVIEWER_APP_INSTALLATION_ID")
+        if not env_installation_id:
+            env_installation_id = secrets.get("REVIEWER_APP_INSTALLATION_ID")
         if env_installation_id:
             try:
                 resolved_installation_id = int(env_installation_id)
@@ -428,8 +438,12 @@ def initialize_reviewer_token_refresher(
                     value=env_installation_id,
                 )
 
-    # Resolve private key (explicit > env)
-    resolved_private_key = private_key or os.environ.get("REVIEWER_APP_PRIVATE_KEY")
+    # Resolve private key (explicit > env > secrets.env)
+    resolved_private_key = (
+        private_key
+        or os.environ.get("REVIEWER_APP_PRIVATE_KEY")
+        or secrets.get("REVIEWER_APP_PRIVATE_KEY")
+    )
 
     # Validate all required config is present
     if not all([resolved_app_id, resolved_installation_id, resolved_private_key]):
