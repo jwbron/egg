@@ -179,15 +179,18 @@ class StateStore:
         commit: bool = True,
         message: str | None = None,
         expected_version: int | None = None,
+        force_commit: bool = False,
     ) -> Path:
         """Save pipeline state to disk with optimistic locking.
 
         Args:
             pipeline: Pipeline state to save
-            commit: Whether to commit the change
+            commit: Whether to commit the change (ignored for local pipelines unless force_commit=True)
             message: Commit message (auto-generated if not provided)
             expected_version: If provided, checks that current version matches
                               before saving (optimistic locking)
+            force_commit: If True, commit even for local pipelines. Use at phase
+                          boundaries to ensure state is persisted to git.
 
         Returns:
             Path to saved file
@@ -219,9 +222,11 @@ class StateStore:
         with path.open("w") as f:
             f.write(pipeline.model_dump_json(indent=2))
 
-        # Skip git commit for local pipelines (state file is still on disk)
+        # For local pipelines, only commit if force_commit is True (phase boundaries)
+        # For issue pipelines, always commit when commit=True
         is_local = getattr(pipeline, "mode", "issue") == "local"
-        if commit and not is_local:
+        should_commit = commit and (not is_local or force_commit)
+        if should_commit:
             self._commit_state(pipeline, message)
 
         return path
@@ -329,12 +334,15 @@ class StateStore:
         self.save_pipeline(pipeline, message=commit_msg)
         return pipeline
 
-    def delete_pipeline(self, pipeline_id: str, commit: bool = True) -> None:
+    def delete_pipeline(
+        self, pipeline_id: str, commit: bool = True, force_commit: bool = False
+    ) -> None:
         """Delete a pipeline.
 
         Args:
             pipeline_id: Pipeline ID to delete
-            commit: Whether to commit the deletion
+            commit: Whether to commit the deletion (ignored for local unless force_commit)
+            force_commit: If True, commit deletion even for local pipelines
 
         Raises:
             PipelineNotFoundError: If pipeline doesn't exist
@@ -345,9 +353,11 @@ class StateStore:
 
         path.unlink()
 
-        # Skip git commit for local pipelines (matches save_pipeline behavior)
+        # For local pipelines, only commit if force_commit is True
+        # For issue pipelines, always commit when commit=True
         is_local = pipeline_id.startswith("local-")
-        if commit and not is_local:
+        should_commit = commit and (not is_local or force_commit)
+        if should_commit:
             rel_path = path.relative_to(self.repo_path)
             self._run_git("add", str(rel_path))
 

@@ -1951,14 +1951,18 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             if not next_phases:
                 # Terminal phase — pipeline complete
                 pipeline.status = PipelineStatus.COMPLETE
-                store.save_pipeline(pipeline)
+                # Force commit for local pipelines at phase boundary
+                is_local = pipeline_mode == "local"
+                store.save_pipeline(pipeline, force_commit=is_local)
                 logger.info("Pipeline complete", pipeline_id=pipeline_id)
                 break
 
             # Advance to next phase
             next_phase = next_phases[0]
             pipeline.current_phase = next_phase
-            store.save_pipeline(pipeline)
+            # Force commit for local pipelines at phase boundary
+            is_local = pipeline_mode == "local"
+            store.save_pipeline(pipeline, force_commit=is_local)
 
             logger.info(
                 "Phase advanced",
