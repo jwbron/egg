@@ -9,7 +9,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener
 
 from .constants import (
     ENV_ORCHESTRATOR_URL,
@@ -105,6 +105,8 @@ class OrchestratorClient:
         """
         self.orchestrator_url = orchestrator_url or self._get_default_url()
         self.timeout = timeout
+        # Bypass proxy env vars — orchestrator is always on the internal network
+        self._opener = build_opener(ProxyHandler({}))
 
     def _get_default_url(self) -> str:
         """Get default orchestrator URL from environment or network."""
@@ -145,7 +147,7 @@ class OrchestratorClient:
 
         try:
             request = Request(url, data=body, headers=headers, method=method)
-            with urlopen(request, timeout=timeout) as response:
+            with self._opener.open(request, timeout=timeout) as response:
                 result: dict[str, Any] = json.loads(response.read().decode())
                 return result
         except HTTPError as e:
