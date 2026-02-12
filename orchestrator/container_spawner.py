@@ -195,48 +195,49 @@ class ContainerSpawner:
                 env.update(extra_env)
 
             # Register gateway session so the container gets a session token
-            # and proxy config. Skip for local mode — local pipelines don't
-            # need gateway access (no git push, no PR creation).
-            if mode != "local" and repos:
-                try:
-                    host_uid = int(os.environ.get("HOST_UID", 1000))
-                    host_gid = int(os.environ.get("HOST_GID", 1000))
-                    session_info = self.gateway.register_session(
-                        container_id=container_name,
-                        container_ip=EGG_CONTAINER_IP,
-                        mode=mode,
-                        repos=repos,
-                        uid=host_uid,
-                        gid=host_gid,
-                        phase=phase,
-                    )
+            # and proxy config.  Even local-mode containers need a session:
+            # the sandbox git/gh wrappers require EGG_SESSION_TOKEN, and the
+            # gateway enforces local-mode restrictions (push blocking) at the
+            # session level.
+            try:
+                host_uid = int(os.environ.get("HOST_UID", 1000))
+                host_gid = int(os.environ.get("HOST_GID", 1000))
+                session_info = self.gateway.register_session(
+                    container_id=container_name,
+                    container_ip=EGG_CONTAINER_IP,
+                    mode=mode,
+                    repos=repos,
+                    uid=host_uid,
+                    gid=host_gid,
+                    phase=phase,
+                )
 
-                    # Get environment with session token and proxy config
-                    gateway_env = self.gateway.get_container_env(
-                        session_token=session_info.session_token,
-                        issue_number=issue_number,
-                        repo_path=repo_path,
-                        agent_role=agent_role.value,
-                        mode=mode,
-                    )
+                # Get environment with session token and proxy config
+                gateway_env = self.gateway.get_container_env(
+                    session_token=session_info.session_token,
+                    issue_number=issue_number,
+                    repo_path=repo_path,
+                    agent_role=agent_role.value,
+                    mode=mode,
+                )
 
-                    # Add gateway environment to container env BEFORE creation
-                    env.update(gateway_env)
+                # Add gateway environment to container env BEFORE creation
+                env.update(gateway_env)
 
-                    logger.info(
-                        "Pre-registered gateway session",
-                        container_name=container_name,
-                        session_token=session_info.session_token[:12] + "...",
-                    )
+                logger.info(
+                    "Pre-registered gateway session",
+                    container_name=container_name,
+                    session_token=session_info.session_token[:12] + "...",
+                )
 
-                except GatewayError as e:
-                    logger.warning(
-                        "Failed to pre-register gateway session",
-                        container_name=container_name,
-                        error=str(e),
-                    )
-                    # Continue without session - container can still run
-                    # but won't have gateway access
+            except GatewayError as e:
+                logger.warning(
+                    "Failed to pre-register gateway session",
+                    container_name=container_name,
+                    error=str(e),
+                )
+                # Continue without session - container can still run
+                # but won't have gateway access
 
             # Create the container with full environment including gateway config
             container = self.docker.create_container(
