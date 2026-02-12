@@ -6,8 +6,343 @@
     "url": "https://github.com/jwbron/egg/issues/553"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] File exists with imports and pytest markers",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Helpers can check worktree validity (non-empty, correct ownership, writable)",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Mock sandbox can report worktree mount status",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-1] Gateway endpoint returns paths that exist and are non-empty",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-2] Created worktree is owned by specified uid:gid, not root",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-3] Mock sandbox can create files in mounted worktree",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-4] After delete, worktree path no longer exists",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-1] Multiple phase containers see each other's file changes",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-2] Files created in refine phase exist in plan phase",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-3] Worktrees removed when pipeline reaches terminal state",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-4] Worktrees removed even when pipeline fails",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-4-1] Worktree contains expected git files",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-4-2] stat shows uid/gid matching HOST_UID/HOST_GID",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-4-3] Orphaned worktrees from crashed containers are cleaned up",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-4-4] Worktree works even when Docker creates empty .git directory first",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Test Infrastructure Setup",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create test_worktree_integration.py with pytest boilerplate",
+          "status": "pending",
+          "acceptance_criteria": "File exists with imports and pytest markers",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add worktree verification helper functions",
+          "status": "pending",
+          "acceptance_criteria": "Helpers can check worktree validity (non-empty, correct ownership, writable)",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add mock sandbox verification for worktree mounts",
+          "status": "pending",
+          "acceptance_criteria": "Mock sandbox can report worktree mount status",
+          "files_affected": [
+            "integration_tests/local_pipeline/mock-sandbox/phase-runner.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Worktree Lifecycle Tests",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Test worktree creation returns valid paths",
+          "status": "pending",
+          "acceptance_criteria": "Gateway endpoint returns paths that exist and are non-empty",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Test worktree has correct ownership (uid/gid)",
+          "status": "pending",
+          "acceptance_criteria": "Created worktree is owned by specified uid:gid, not root",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Test worktree is writable by container",
+          "status": "pending",
+          "acceptance_criteria": "Mock sandbox can create files in mounted worktree",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Test worktree deletion cleans up properly",
+          "status": "pending",
+          "acceptance_criteria": "After delete, worktree path no longer exists",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "SDLC Pipeline Worktree Tests",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Test pipeline containers share worktrees",
+          "status": "pending",
+          "acceptance_criteria": "Multiple phase containers see each other's file changes",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Test worktree survives phase transitions",
+          "status": "pending",
+          "acceptance_criteria": "Files created in refine phase exist in plan phase",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Test worktree cleanup on pipeline completion",
+          "status": "pending",
+          "acceptance_criteria": "Worktrees removed when pipeline reaches terminal state",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Test worktree cleanup on pipeline failure",
+          "status": "pending",
+          "acceptance_criteria": "Worktrees removed even when pipeline fails",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Edge Cases and Regression Tests",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Test worktree not empty after creation",
+          "status": "pending",
+          "acceptance_criteria": "Worktree contains expected git files",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Test worktree not root-owned",
+          "status": "pending",
+          "acceptance_criteria": "stat shows uid/gid matching HOST_UID/HOST_GID",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Test orphaned worktree cleanup on gateway restart",
+          "status": "pending",
+          "acceptance_criteria": "Orphaned worktrees from crashed containers are cleaned up",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Test worktree with Docker pre-created .git directory",
+          "status": "pending",
+          "acceptance_criteria": "Worktree works even when Docker creates empty .git directory first",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_worktree_integration.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 2,
@@ -84,5 +419,9 @@
   "plan_reviewer_verdicts": {
     "unified": "missing",
     "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Add integration tests for worktree management",
+    "description": "Adds integration tests for worktree management in realistic SDLC pipeline\nscenarios. Tests cover the full worktree lifecycle (create, use, delete),\npermission handling, and edge cases from PR #569 (empty/root-owned worktrees).\n\nCloses #553"
   }
 }
