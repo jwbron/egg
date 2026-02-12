@@ -54,6 +54,7 @@ Contracts are JSON documents that track issue progress through SDLC phases, task
 - `.egg/schemas/contract.schema.json` – Contract structure and role-based field ownership
 - `.egg/schemas/yaml-tasks.schema.json` – Structured appendix format for plan documents (used by plan parser)
 - `.egg/schemas/phase-permissions.schema.json` – Allowed git/gh operations and file restrictions per SDLC phase
+- `.egg/schemas/checkpoint.schema.json` – Agent checkpoint structure (session context, transcripts, tool calls)
 
 **Role-based ownership**: Each contract field is owned by a specific role:
 - `implementer`: `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected`
@@ -74,6 +75,30 @@ Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib
 | `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes |
 | `egg-contract add-decision --question <text> [--options ...] [--format {json,markdown}]` | Create HITL decision point with optional predefined choices and markdown output format for GitHub comments |
 | `egg-contract add-feedback --question <text> [--question <text>...] [--format {json,markdown}]` | Create feedback comment for open-ended questions |
+
+### Checkpoint System
+
+Checkpoints capture agent session context as first-class versioned data in Git. When agents push commits, the gateway automatically captures:
+
+- **Transcript**: Full conversation history with timestamps and message roles
+- **Tool calls**: All tool invocations with parameters, results, and durations
+- **Files touched**: All file operations (read, write, edit, glob, grep)
+- **Token usage**: Input/output tokens and estimated costs
+- **Session metadata**: Session ID, agent role, model, duration
+
+Checkpoints are stored in the `egg/checkpoints/v1` branch and linked to commits via checkpoint IDs in contract tasks and audit entries. This provides full traceability from requirements to implementation.
+
+**Checkpoint CLI**
+
+Browse and query checkpoints via the `egg-checkpoint` CLI:
+
+| Command | Purpose |
+|---------|---------|
+| `egg-checkpoint list [--branch <name>] [--issue <n>] [--limit <n>]` | List checkpoints with metadata |
+| `egg-checkpoint show <commit-sha>` | Display full checkpoint details for a commit |
+| `egg-checkpoint browse --issue <number>` | Filter checkpoints by issue number |
+
+Checkpoints enable post-hoc analysis of agent behavior, debugging failed sessions, and auditing agent decisions.
 
 ### Plan Parser
 
