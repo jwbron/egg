@@ -39,7 +39,10 @@ from egg_contracts.feedback import (
 try:
     from .config import GATEWAY_PORT
 except ImportError:
-    from egg_lib.config import GATEWAY_PORT  # type: ignore[no-redef]
+    try:
+        from egg_lib.config import GATEWAY_PORT  # type: ignore[no-redef]
+    except ImportError:
+        from egg_config.constants import GATEWAY_PORT  # type: ignore[no-redef]
 
 # Regex for validating git commit SHAs (7-40 hex characters)
 COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")

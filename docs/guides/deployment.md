@@ -67,9 +67,10 @@ egg --public
    # Set your GitHub token
    GITHUB_USER_TOKEN=ghp_xxxxx
 
-   # Set your user identity
+   # Set your user identity and home directory
    HOST_UID=$(id -u)
    HOST_GID=$(id -g)
+   HOST_HOME=$HOME  # REQUIRED for worktree bind mounts
    ```
 
 3. **Create repositories.yaml:**

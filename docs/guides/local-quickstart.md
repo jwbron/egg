@@ -187,5 +187,8 @@ egg --exec "make test"     # run a command in an ephemeral container
 **Orchestrator git errors**: The orchestrator stores pipeline state in git. `EGG_REPO_PATH` can be either a single git repository or a parent directory containing multiple repositories (the orchestrator will scan subdirectories automatically).
 
 **Empty repository in sandbox containers**: The orchestrator creates isolated git worktrees for each pipeline via the gateway's worktree API. If containers have empty working trees:
-1. Verify the gateway is healthy: `curl http://egg-gateway:9848/api/v1/health`
-2. Check orchestrator logs for worktree creation errors: `docker logs egg-orchestrator | grep -i worktree`
+1. Ensure `HOST_HOME` in your `.env` file matches your actual home directory: `echo $HOME`
+2. Verify the gateway is healthy: `curl http://egg-gateway:9848/api/v1/health`
+3. Check orchestrator logs for worktree creation errors: `docker logs egg-orchestrator | grep -i worktree`
+
+**Note**: As of PR #569, worktrees use a bind mount instead of a Docker named volume. If upgrading from an older version, remove the old volume: `docker volume rm egg-worktrees`
