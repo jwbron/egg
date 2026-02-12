@@ -47,7 +47,7 @@ This document focuses on the specific challenge of **multi-agent git isolation**
 | Agent pushes malicious code directly to main | Gateway blocks direct pushes to protected branches; PRs require human review |
 | Agent discovers or exfiltrates credentials | Credentials only exist in gateway; container never sees them |
 | Agent modifies git config to bypass security | Container has no access to git metadata; config is gateway-controlled |
-| Agent escapes via git hooks or filters | Hooks universally disabled via `core.hooksPath=/dev/null` in gateway and orchestrator; agents never trigger hooks |
+| Agent escapes via git hooks or filters | Hooks universally disabled via `core.hooksPath=/dev/null` in gateway and orchestrator; filters mitigated by metadata isolation (no `.gitattributes` processing in container) and gateway's non-interactive execution |
 | Crashed container corrupts shared state | Gateway cleans up orphaned workspaces on startup |
 
 ### Explicit Non-Goals
