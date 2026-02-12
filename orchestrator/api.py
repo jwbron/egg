@@ -15,9 +15,10 @@ Usage:
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
-from flask import Flask, Response, jsonify
+from flask import Flask, Response, g, jsonify, request
 from waitress import serve
 
 # Add shared directory to path for egg_logging
@@ -41,13 +42,13 @@ app = Flask(__name__)
 
 # Register blueprints
 try:
-    from routes.health import health_bp
-    from routes.pipelines import pipelines_bp
     from routes.containers import containers_bp
-    from routes.phases import phases_bp
-    from routes.signals import signals_bp
     from routes.decisions import decisions_bp
+    from routes.health import health_bp
     from routes.metrics import metrics_bp
+    from routes.phases import phases_bp
+    from routes.pipelines import pipelines_bp
+    from routes.signals import signals_bp
     from webhooks import webhooks_bp
 
     app.register_blueprint(health_bp)
@@ -59,13 +60,13 @@ try:
     app.register_blueprint(metrics_bp)
     app.register_blueprint(webhooks_bp)
 except ImportError:
-    from .routes.health import health_bp  # type: ignore[no-redef]
-    from .routes.pipelines import pipelines_bp  # type: ignore[no-redef]
     from .routes.containers import containers_bp  # type: ignore[no-redef]
-    from .routes.phases import phases_bp  # type: ignore[no-redef]
-    from .routes.signals import signals_bp  # type: ignore[no-redef]
     from .routes.decisions import decisions_bp  # type: ignore[no-redef]
+    from .routes.health import health_bp  # type: ignore[no-redef]
     from .routes.metrics import metrics_bp  # type: ignore[no-redef]
+    from .routes.phases import phases_bp  # type: ignore[no-redef]
+    from .routes.pipelines import pipelines_bp  # type: ignore[no-redef]
+    from .routes.signals import signals_bp  # type: ignore[no-redef]
     from .webhooks import webhooks_bp  # type: ignore[no-redef]
 
     app.register_blueprint(health_bp)
@@ -76,6 +77,26 @@ except ImportError:
     app.register_blueprint(decisions_bp)
     app.register_blueprint(metrics_bp)
     app.register_blueprint(webhooks_bp)
+
+
+@app.before_request
+def log_request_start() -> None:
+    """Record request start time for duration logging."""
+    g.start_time = time.monotonic()
+
+
+@app.after_request
+def log_request_end(response: Response) -> Response:
+    """Log every request with method, path, status, and duration."""
+    duration_ms = round((time.monotonic() - getattr(g, "start_time", time.monotonic())) * 1000)
+    logger.info(
+        "Request",
+        method=request.method,
+        path=request.path,
+        status=response.status_code,
+        duration_ms=duration_ms,
+    )
+    return response
 
 
 @app.errorhandler(Exception)
@@ -138,6 +159,14 @@ def main() -> None:
         host=host,
         port=port,
         debug=debug,
+    )
+
+    repo_path = os.environ.get("EGG_REPO_PATH", "not set")
+    host_repo_map = os.environ.get("EGG_HOST_REPO_MAP", "not set")
+    logger.info(
+        "Configuration",
+        repo_path=repo_path,
+        host_repo_map=host_repo_map,
     )
 
     if debug:

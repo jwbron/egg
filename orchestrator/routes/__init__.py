@@ -39,7 +39,7 @@ def get_repo_path() -> Path:
         # If it's not itself a git repo, resolve using the repo name from
         # the request body (e.g. "owner/name" -> base / "name").
         if not (base / ".git").exists():
-            repo = data.get("repo", "")
+            repo = data.get("repo", "") or request.args.get("repo", "")
             if repo:
                 repo_name = repo.split("/")[-1]
                 candidate = base / repo_name

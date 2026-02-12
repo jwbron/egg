@@ -30,10 +30,11 @@ except ImportError:
 try:
     from ..container_spawner import ContainerSpawnError, get_container_spawner
     from ..decision_queue import DecisionTimeoutError, get_decision_queue
-    from ..models import AgentRole, PipelineStatus, ReviewVerdict
+    from ..models import AgentRole, Pipeline, PipelineStatus, ReviewVerdict
     from ..state_store import (
         InvalidPipelineIdError,
         PipelineNotFoundError,
+        StateStore,
         StateStoreError,
         StateValidationError,
         get_state_store,
@@ -41,10 +42,11 @@ try:
 except ImportError:
     from container_spawner import ContainerSpawnError, get_container_spawner  # type: ignore
     from decision_queue import DecisionTimeoutError, get_decision_queue  # type: ignore
-    from models import AgentRole, PipelineStatus, ReviewVerdict  # type: ignore
+    from models import AgentRole, Pipeline, PipelineStatus, ReviewVerdict  # type: ignore
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
         PipelineNotFoundError,
+        StateStore,
         StateStoreError,
         StateValidationError,
         get_state_store,
@@ -81,6 +83,73 @@ def make_success_response(
     return jsonify(response), 200
 
 
+def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pipeline]:
+    """Load a pipeline, scanning repo subdirectories if needed.
+
+    When ``base_path`` is a parent directory containing multiple repos
+    (i.e. it has no ``.git``), and the pipeline is not found at the base
+    level, iterate over immediate subdirectories that are git repos and
+    try to load the pipeline from each.
+
+    Returns:
+        (store, pipeline) tuple
+
+    Raises:
+        PipelineNotFoundError: if the pipeline cannot be found anywhere
+        InvalidPipelineIdError: if the ID format is invalid
+    """
+    # Try the base path first
+    try:
+        store = get_state_store(base_path)
+        pipeline = store.load_pipeline(pipeline_id)
+        return store, pipeline
+    except PipelineNotFoundError:
+        pass
+
+    # If base_path is not itself a git repo, scan subdirectories
+    if not (base_path / ".git").exists():
+        for child in sorted(base_path.iterdir()):
+            if child.is_dir() and (child / ".git").exists():
+                try:
+                    store = get_state_store(child)
+                    pipeline = store.load_pipeline(pipeline_id)
+                    return store, pipeline
+                except (PipelineNotFoundError, StateStoreError):
+                    continue
+
+    raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found")
+
+
+def _collect_all_pipelines(base_path: Path) -> list:
+    """Collect pipelines from base_path and all repo subdirectories."""
+    pipelines = []
+
+    # Check base path itself
+    if (base_path / ".egg-state" / "pipelines").exists():
+        store = get_state_store(base_path)
+        for pid in store.list_pipelines():
+            try:
+                pipelines.append(store.load_pipeline(pid))
+            except StateStoreError:
+                continue
+
+    # Check repo subdirectories if base_path is not a git repo
+    if not (base_path / ".git").exists():
+        for child in sorted(base_path.iterdir()):
+            if child.is_dir() and (child / ".git").exists():
+                try:
+                    store = get_state_store(child)
+                    for pid in store.list_pipelines():
+                        try:
+                            pipelines.append(store.load_pipeline(pid))
+                        except StateStoreError:
+                            continue
+                except StateStoreError:
+                    continue
+
+    return pipelines
+
+
 @pipelines_bp.route("", methods=["GET"])
 def list_pipelines() -> tuple[Response, int]:
     """
@@ -105,18 +174,21 @@ def list_pipelines() -> tuple[Response, int]:
     active_only = request.args.get("active_only", "false").lower() == "true"
 
     try:
-        store = get_state_store(repo_path)
+        all_pipelines = _collect_all_pipelines(repo_path)
 
         if active_only:
-            pipelines = store.get_active_pipelines()
+            pipelines = [
+                p
+                for p in all_pipelines
+                if p.status
+                not in (
+                    PipelineStatus.COMPLETE,
+                    PipelineStatus.FAILED,
+                    PipelineStatus.CANCELLED,
+                )
+            ]
         else:
-            pipeline_ids = store.list_pipelines()
-            pipelines = []
-            for pid in pipeline_ids:
-                try:
-                    pipelines.append(store.load_pipeline(pid))
-                except StateStoreError:
-                    continue
+            pipelines = all_pipelines
 
         # Convert to response format
         pipeline_data = [
@@ -165,8 +237,7 @@ def get_pipeline(pipeline_id: str) -> tuple[Response, int]:
     repo_path = get_repo_path()
 
     try:
-        store = get_state_store(repo_path)
-        pipeline = store.load_pipeline(pipeline_id)
+        _store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
 
         return make_success_response(
             "Pipeline retrieved",
@@ -352,7 +423,7 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
     repo_path = get_repo_path()
 
     try:
-        store = get_state_store(repo_path)
+        store, _pipeline = _resolve_pipeline(pipeline_id, repo_path)
         pipeline = store.update_pipeline(pipeline_id, data)
 
         logger.info("Pipeline updated", pipeline_id=pipeline_id)
@@ -396,7 +467,7 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
     repo_path = get_repo_path()
 
     try:
-        store = get_state_store(repo_path)
+        store, _pipeline = _resolve_pipeline(pipeline_id, repo_path)
         store.delete_pipeline(pipeline_id)
 
         logger.info("Pipeline deleted", pipeline_id=pipeline_id)
@@ -437,8 +508,7 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
     repo_path = get_repo_path()
 
     try:
-        store = get_state_store(repo_path)
-        pipeline = store.load_pipeline(pipeline_id)
+        _store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
 
         pending = pipeline.get_pending_decisions()
 
@@ -1935,8 +2005,9 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
     repo_path = get_repo_path()
 
     try:
-        store = get_state_store(repo_path)
-        pipeline = store.load_pipeline(pipeline_id)
+        store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
+        # Use the store's repo_path so _run_pipeline operates on the correct directory
+        repo_path = store.repo_path
 
         if pipeline.status == PipelineStatus.RUNNING:
             return make_error_response(
