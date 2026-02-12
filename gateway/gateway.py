@@ -394,6 +394,37 @@ def audit_log(
         logger.warning(f"Audit: {event_type}", **log_data)
 
 
+def _check_orchestrator_connectivity() -> dict[str, Any]:
+    """Check orchestrator connectivity if configured.
+
+    Returns:
+        Dictionary with orchestrator status or None if not configured
+    """
+    orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL")
+    if not orchestrator_url:
+        return {"configured": False}
+
+    try:
+        # Use a short timeout for health checks
+        import urllib.request
+
+        health_url = f"{orchestrator_url}/api/v1/health"
+        req = urllib.request.Request(health_url, method="GET")
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            return {
+                "configured": True,
+                "reachable": True,
+                "status": data.get("status", "unknown"),
+            }
+    except Exception as e:
+        return {
+            "configured": True,
+            "reachable": False,
+            "error": str(e),
+        }
+
+
 @app.route("/api/v1/health", methods=["GET"])
 def health_check() -> Response:
     """Health check endpoint (no auth required)."""
@@ -411,20 +442,27 @@ def health_check() -> Response:
     session_manager = get_session_manager()
     active_sessions = len(session_manager.list_sessions())
 
+    # Check orchestrator connectivity (if configured)
+    orchestrator_status = _check_orchestrator_connectivity()
+
     # Gateway always runs with locked Squid.
     # Per-container mode is enforced at container start via network selection.
     # - Private containers: isolated network + proxy (locked to api.anthropic.com)
     # - Public containers: external network + direct internet (no proxy)
-    return jsonify(
-        {
-            "status": "healthy" if (token_valid and launcher_secret_configured) else "degraded",
-            "github_token_valid": token_valid,
-            "auth_configured": launcher_secret_configured,
-            "active_sessions": active_sessions,
-            "service": "gateway",
-            "client_ip": request.remote_addr,
-        }
-    )
+    response_data: dict[str, Any] = {
+        "status": "healthy" if (token_valid and launcher_secret_configured) else "degraded",
+        "github_token_valid": token_valid,
+        "auth_configured": launcher_secret_configured,
+        "active_sessions": active_sessions,
+        "service": "gateway",
+        "client_ip": request.remote_addr,
+    }
+
+    # Include orchestrator status if configured
+    if orchestrator_status.get("configured"):
+        response_data["orchestrator"] = orchestrator_status
+
+    return jsonify(response_data)
 
 
 @app.route("/api/v1/git/push", methods=["POST"])
