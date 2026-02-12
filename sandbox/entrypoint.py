@@ -195,12 +195,8 @@ class Config:
     orchestrator_url: str | None = field(
         default_factory=lambda: os.environ.get("EGG_ORCHESTRATOR_URL")
     )
-    pipeline_id: str | None = field(
-        default_factory=lambda: os.environ.get("EGG_PIPELINE_ID")
-    )
-    agent_role: str | None = field(
-        default_factory=lambda: os.environ.get("EGG_AGENT_ROLE")
-    )
+    pipeline_id: str | None = field(default_factory=lambda: os.environ.get("EGG_PIPELINE_ID"))
+    agent_role: str | None = field(default_factory=lambda: os.environ.get("EGG_AGENT_ROLE"))
 
     @property
     def is_orchestrator_mode(self) -> bool:
@@ -1200,6 +1196,9 @@ def signal_orchestrator_completion(
 ) -> None:
     """Signal completion to orchestrator if running in orchestrator mode.
 
+    Uses the OrchestratorClient from egg_orchestrator package for consistency
+    with other orchestrator communication.
+
     Args:
         config: Container configuration
         logger: Logger instance
@@ -1218,37 +1217,31 @@ def signal_orchestrator_completion(
         return
 
     try:
-        import json
-        import urllib.request
+        from egg_orchestrator import OrchestratorClient
 
-        signal_url = f"{config.orchestrator_url}/api/v1/pipelines/{config.pipeline_id}/signal"
+        client = OrchestratorClient(orchestrator_url=config.orchestrator_url)
 
         if exit_code == 0:
             # Success - signal completion
-            payload = {
-                "signal_type": "complete",
-                "agent_role": config.agent_role,
-            }
+            response = client.signal_complete(
+                pipeline_id=config.pipeline_id,
+                agent_role=config.agent_role,
+            )
+            signal_type = "complete"
         else:
             # Failure - signal error
-            payload = {
-                "signal_type": "error",
-                "agent_role": config.agent_role,
-                "error": error_message or f"Container exited with code {exit_code}",
-                "recoverable": False,
-            }
+            response = client.signal_error(
+                pipeline_id=config.pipeline_id,
+                agent_role=config.agent_role,
+                error=error_message or f"Container exited with code {exit_code}",
+                recoverable=False,
+            )
+            signal_type = "error"
 
-        data = json.dumps(payload).encode()
-        headers = {"Content-Type": "application/json"}
-
-        req = urllib.request.Request(signal_url, data=data, headers=headers, method="POST")
-
-        with urllib.request.urlopen(req, timeout=10) as response:
-            result = json.loads(response.read().decode())
-            if result.get("success"):
-                logger.info(f"Signaled {payload['signal_type']} to orchestrator")
-            else:
-                logger.warn(f"Orchestrator signal failed: {result.get('message')}")
+        if response.success:
+            logger.info(f"Signaled {signal_type} to orchestrator")
+        else:
+            logger.warn(f"Orchestrator signal failed: {response.message}")
 
     except Exception as e:
         # Don't fail the exit process if signaling fails
@@ -1278,8 +1271,17 @@ def cleanup_on_exit(config: Config, logger: Logger, exit_code: int = 0) -> None:
 # =============================================================================
 
 
-def run_interactive(config: Config, logger: Logger) -> None:
-    """Launch interactive Claude Code session."""
+def run_interactive(config: Config, logger: Logger) -> int:
+    """Launch interactive Claude Code session.
+
+    Uses subprocess.run() to maintain control after process exits,
+    enabling completion signaling back to orchestrator.
+
+    Returns:
+        Exit code from the subprocess
+    """
+    import subprocess
+
     # Change to repos directory
     if config.repos_dir.exists():
         os.chdir(config.repos_dir)
@@ -1307,9 +1309,9 @@ def run_interactive(config: Config, logger: Logger) -> None:
     # Print timing summary right before launching LLM
     _startup_timer.print_summary()
 
-    # Launch via gosu
-    os.execvpe(
-        "gosu",
+    # Launch via gosu using subprocess.run() to maintain control after exit
+    # This allows completion signaling back to orchestrator
+    result = subprocess.run(
         [
             "gosu",
             f"{config.runtime_uid}:{config.runtime_gid}",
@@ -1317,22 +1319,32 @@ def run_interactive(config: Config, logger: Logger) -> None:
             "-c",
             "from llm import run_interactive; run_interactive()",
         ],
-        env,
+        env=env,
     )
+    return result.returncode
 
 
-def run_exec(config: Config, logger: Logger, args: list[str]) -> None:
-    """Run a command in exec mode."""
+def run_exec(config: Config, logger: Logger, args: list[str]) -> int:
+    """Run a command in exec mode.
+
+    Uses subprocess.run() to maintain control after process exits,
+    enabling completion signaling back to orchestrator.
+
+    Returns:
+        Exit code from the subprocess
+    """
+    import subprocess
+
     env = os.environ.copy()
 
     # Print timing summary before exec
     _startup_timer.print_summary()
 
-    os.execvpe(
-        "gosu",
+    result = subprocess.run(
         ["gosu", f"{config.runtime_uid}:{config.runtime_gid}"] + args,
-        env,
+        env=env,
     )
+    return result.returncode
 
 
 # =============================================================================
@@ -1414,9 +1426,15 @@ def main() -> None:
 
     # Run appropriate mode (timing summary is printed inside each mode)
     if len(sys.argv) == 1:
-        run_interactive(config, logger)
+        exit_code = run_interactive(config, logger)
     else:
-        run_exec(config, logger, sys.argv[1:])
+        exit_code = run_exec(config, logger, sys.argv[1:])
+
+    # Signal completion to orchestrator (if in orchestrator mode)
+    # This runs after subprocess exits, thanks to subprocess.run() instead of os.execvpe()
+    cleanup_on_exit(config, logger, exit_code)
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

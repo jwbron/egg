@@ -89,16 +89,19 @@ class OrchestratorClient:
         )
     """
 
+    # Default timeout for health checks (kept short to avoid blocking)
+    HEALTH_CHECK_TIMEOUT = 5
+
     def __init__(
         self,
         orchestrator_url: str | None = None,
-        timeout: int = 30,
+        timeout: int = 10,
     ):
         """Initialize the orchestrator client.
 
         Args:
             orchestrator_url: Orchestrator URL (default: from env or network)
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (default: 10s for signal operations)
         """
         self.orchestrator_url = orchestrator_url or self._get_default_url()
         self.timeout = timeout
@@ -118,6 +121,7 @@ class OrchestratorClient:
         endpoint: str,
         method: str = "GET",
         data: dict[str, Any] | None = None,
+        timeout_override: int | None = None,
     ) -> dict[str, Any]:
         """Make an HTTP request to the orchestrator.
 
@@ -125,6 +129,7 @@ class OrchestratorClient:
             endpoint: API endpoint path
             method: HTTP method
             data: Request body data
+            timeout_override: Optional timeout override (uses self.timeout if not provided)
 
         Returns:
             Response JSON data
@@ -134,24 +139,27 @@ class OrchestratorClient:
         """
         url = f"{self.orchestrator_url}{endpoint}"
         headers: dict[str, str] = {"Content-Type": "application/json"}
+        timeout = timeout_override if timeout_override is not None else self.timeout
 
         body = json.dumps(data).encode() if data else None
 
         try:
             request = Request(url, data=body, headers=headers, method=method)
-            with urlopen(request, timeout=self.timeout) as response:
+            with urlopen(request, timeout=timeout) as response:
                 result: dict[str, Any] = json.loads(response.read().decode())
                 return result
         except HTTPError as e:
+            # Preserve response body before parsing to avoid losing details on JSONDecodeError
+            error_body = e.read().decode()
             try:
-                error_data = json.loads(e.read().decode())
+                error_data = json.loads(error_body)
                 raise OrchestratorError(
                     error_data.get("message", str(e)),
                     status_code=e.code,
                     details=error_data.get("details"),
                 ) from e
             except json.JSONDecodeError:
-                raise OrchestratorError(str(e), status_code=e.code) from e
+                raise OrchestratorError(f"{e}: {error_body}", status_code=e.code) from e
         except URLError as e:
             raise OrchestratorError(f"Failed to connect to orchestrator: {e.reason}") from e
         except TimeoutError as e:
@@ -160,11 +168,16 @@ class OrchestratorClient:
     def check_health(self) -> OrchestratorHealth:
         """Check orchestrator health status.
 
+        Uses a shorter timeout (5s) than regular operations to avoid blocking.
+
         Returns:
             OrchestratorHealth with status information
         """
         try:
-            result = self._make_request(ORCHESTRATOR_HEALTH_ENDPOINT)
+            result = self._make_request(
+                ORCHESTRATOR_HEALTH_ENDPOINT,
+                timeout_override=self.HEALTH_CHECK_TIMEOUT,
+            )
 
             return OrchestratorHealth(
                 healthy=result.get("status") == "healthy",
@@ -365,19 +378,27 @@ class OrchestratorClient:
         return self._send_signal(pipeline_id, data)
 
 
-# Singleton client instance
+# Singleton client instance with thread-safe initialization
+import threading
+
 _orchestrator_client: OrchestratorClient | None = None
+_orchestrator_client_lock = threading.Lock()
 
 
 def get_orchestrator_client() -> OrchestratorClient:
     """Get the singleton orchestrator client.
+
+    Thread-safe lazy initialization using double-checked locking pattern.
 
     Returns:
         OrchestratorClient instance
     """
     global _orchestrator_client
     if _orchestrator_client is None:
-        _orchestrator_client = OrchestratorClient()
+        with _orchestrator_client_lock:
+            # Double-check after acquiring lock
+            if _orchestrator_client is None:
+                _orchestrator_client = OrchestratorClient()
     return _orchestrator_client
 
 

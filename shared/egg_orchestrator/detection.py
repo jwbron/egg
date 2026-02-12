@@ -7,6 +7,7 @@ mode and to retrieve orchestrator connection information.
 import os
 
 from .constants import (
+    ENV_AGENT_ROLE,
     ENV_ORCHESTRATOR_MODE,
     ENV_ORCHESTRATOR_URL,
     ENV_PIPELINE_ID,
@@ -91,8 +92,6 @@ def get_agent_role() -> str | None:
     Returns:
         Agent role or None if not set
     """
-    from .constants import ENV_AGENT_ROLE
-
     return os.environ.get(ENV_AGENT_ROLE)
 
 

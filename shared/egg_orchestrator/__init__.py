@@ -31,6 +31,7 @@ from .client import (
     OrchestratorClient,
     OrchestratorError,
     OrchestratorHealth,
+    get_orchestrator_client,
 )
 from .constants import (
     ORCHESTRATOR_CONTAINER_NAME,
@@ -60,6 +61,7 @@ __all__ = [
     "OrchestratorClient",
     "OrchestratorError",
     "OrchestratorHealth",
+    "get_orchestrator_client",
     # Constants
     "ORCHESTRATOR_CONTAINER_NAME",
     "ORCHESTRATOR_EXTERNAL_IP",

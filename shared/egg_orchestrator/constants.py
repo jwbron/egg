@@ -4,6 +4,11 @@ Centralized constants for orchestrator communication. Re-exports relevant
 constants from egg_config for convenience.
 """
 
+import logging
+import warnings
+
+_logger = logging.getLogger(__name__)
+
 # Re-export from egg_config for consistency
 try:
     from egg_config.constants import (
@@ -14,6 +19,16 @@ try:
     )
 except ImportError:
     # Fallback values if egg_config is not available
+    # Log warning to help diagnose configuration issues
+    _logger.warning(
+        "egg_config not available, using fallback orchestrator constants. "
+        "This may indicate a packaging or import issue."
+    )
+    warnings.warn(
+        "egg_orchestrator using fallback constants - egg_config not importable",
+        ImportWarning,
+        stacklevel=2,
+    )
     ORCHESTRATOR_CONTAINER_NAME = "egg-orchestrator"
     ORCHESTRATOR_PORT = 9849
     ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"

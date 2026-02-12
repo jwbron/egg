@@ -398,7 +398,8 @@ def _check_orchestrator_connectivity() -> dict[str, Any]:
     """Check orchestrator connectivity if configured.
 
     Returns:
-        Dictionary with orchestrator status or None if not configured
+        Dictionary with orchestrator status. Contains {"configured": False}
+        if orchestrator URL is not set, otherwise includes reachability info.
     """
     orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL")
     if not orchestrator_url:

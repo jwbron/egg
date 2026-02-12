@@ -108,6 +108,11 @@ class ProgressData:
     current_task: str = ""
     message: str = ""
 
+    def __post_init__(self) -> None:
+        """Validate progress_percent is within bounds."""
+        if not 0 <= self.progress_percent <= 100:
+            raise ValueError(f"progress_percent must be 0-100, got {self.progress_percent}")
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API calls."""
         return {
