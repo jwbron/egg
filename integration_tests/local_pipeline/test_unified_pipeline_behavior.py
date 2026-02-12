@@ -220,8 +220,9 @@ class TestPhaseBasedPushRestrictions:
 class TestContainerAgentTracking:
     """Container and agent tracking in phase execution state."""
 
-    def test_pipeline_reports_container_state(self, orchestrator_url: str) -> None:
+    def test_pipeline_reports_container_state(self, local_pipeline_stack) -> None:
         """Pipeline status should include container information when running."""
+        orchestrator_url = local_pipeline_stack.orchestrator_url
         # This test verifies the API structure includes containers field
         data, status = create_pipeline(
             orchestrator_url,

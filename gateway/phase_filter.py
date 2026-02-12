@@ -851,8 +851,7 @@ def check_phase_file_restrictions(
     Returns:
         FileRestrictionResult indicating whether the files are allowed
     """
-    if isinstance(phase, str):
-        phase = PipelinePhase(phase)
+    # Delegate to class method which handles unknown phase gracefully
     return get_phase_filter().check_phase_file_restrictions(phase, files)
 
 

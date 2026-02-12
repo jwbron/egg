@@ -585,6 +585,7 @@ def git_push() -> tuple[Response, int] | Response:
     # blocked because SYSTEM never makes git pushes - it only initializes contracts
     # via the contract API. The gateway itself runs without a role context.
     session_role = None
+    changed_files = None  # May be populated by role check, reused by phase check
     if hasattr(g, "session") and g.session:
         session_role = getattr(g.session, "agent_role", None)
 
@@ -652,7 +653,7 @@ def git_push() -> tuple[Response, int] | Response:
     # Checkpoint branch pushes always bypass this check (see is_checkpoint_push above).
     if session_phase and not is_checkpoint_push:
         # Get the list of files being pushed (reuse if already fetched for role check)
-        if "changed_files" not in dir() or changed_files is None:
+        if changed_files is None:
             changed_files, check_error = get_changed_files_in_push(exec_path, remote, branch)
             if check_error:
                 audit_log(

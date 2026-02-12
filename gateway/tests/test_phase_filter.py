@@ -888,15 +888,18 @@ class TestPhaseFileRestrictions:
         assert ".egg-state/contracts/123.json" in result.blocked_files
         assert "src/main.py" not in result.blocked_files
 
-    def test_unknown_phase_raises_value_error(self):
-        """Unknown phase strings raise ValueError (enum validation)."""
+    def test_unknown_phase_allows_by_default(self):
+        """Unknown phase strings allow files by default (fail-safe behavior)."""
         from phase_filter import check_phase_file_restrictions
 
-        with pytest.raises(ValueError):
-            check_phase_file_restrictions(
-                "unknown_phase",
-                ["src/main.py"],
-            )
+        result = check_phase_file_restrictions(
+            "unknown_phase",
+            ["src/main.py"],
+        )
+
+        # Unknown phases allow by default to match class method behavior
+        assert result.allowed is True
+        assert "unknown" in result.message.lower()
 
     def test_empty_files_list_allowed(self):
         """Empty files list should be allowed."""
@@ -953,3 +956,44 @@ class TestPhaseFileRestrictions:
 
         allowed, _ = restriction.is_file_allowed("anything/goes/here.py")
         assert allowed is True
+
+    def test_path_traversal_normalized_and_blocked(self):
+        """Path traversal attempts are normalized and correctly blocked."""
+        from phase_filter import check_phase_file_restrictions
+
+        # Path traversal attempt: foo/../.egg-state/contracts/123.json
+        # Should normalize to .egg-state/contracts/123.json and be blocked
+        result = check_phase_file_restrictions(
+            "implement",
+            ["foo/../.egg-state/contracts/123.json"],
+        )
+
+        assert result.allowed is False
+        assert any(".egg-state/contracts" in f for f in result.blocked_files)
+
+    def test_path_traversal_multiple_levels_blocked(self):
+        """Multiple levels of path traversal are normalized and blocked."""
+        from phase_filter import check_phase_file_restrictions
+
+        # Multiple traversal: a/b/c/../../../.egg-state/drafts/plan.md
+        result = check_phase_file_restrictions(
+            "implement",
+            ["a/b/c/../../../.egg-state/drafts/plan.md"],
+        )
+
+        assert result.allowed is False
+
+    def test_path_traversal_mixed_with_valid_files(self):
+        """Path traversal blocked even when mixed with valid files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "implement",
+            [
+                "src/main.py",  # Valid
+                "foo/../.egg-state/pipelines/state.json",  # Traversal to blocked path
+            ],
+        )
+
+        assert result.allowed is False
+        assert len(result.blocked_files) == 1
