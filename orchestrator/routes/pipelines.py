@@ -1248,11 +1248,15 @@ def _spawn_and_wait(
         extra_volumes=extra_volumes if extra_volumes else None,
     )
 
-    # Record container in phase execution state
+    # Record container and agent in phase execution state
     if store is not None:
         try:
+            from models import AgentExecution, AgentExecutionStatus
+
             pipeline = store.load_pipeline(pipeline_id)
             phase_execution = pipeline.get_phase_execution(PipelinePhase(phase))
+
+            # Track container
             container_info = ContainerInfo(
                 container_id=spawned.container_info.container_id,
                 container_name=spawned.container_info.container_name,
@@ -1261,10 +1265,20 @@ def _spawn_and_wait(
                 agent_role=agent_role,
             )
             phase_execution.containers.append(container_info)
+
+            # Track agent execution
+            agent_execution = AgentExecution(
+                role=agent_role,
+                status=AgentExecutionStatus.RUNNING,
+                container_id=spawned.container_info.container_id,
+                started_at=datetime.utcnow(),
+            )
+            phase_execution.agents.append(agent_execution)
+
             store.save_pipeline(pipeline)
         except Exception as track_err:
             logger.warning(
-                "Failed to record container in pipeline state",
+                "Failed to record container/agent in pipeline state",
                 container_id=spawned.container_info.container_id[:12],
                 error=str(track_err),
             )
@@ -1285,21 +1299,37 @@ def _spawn_and_wait(
         except Exception:
             pass
 
-    # Update container status in phase execution
+    # Update container and agent status in phase execution
     if store is not None:
         try:
+            from models import AgentExecutionStatus
+
             pipeline = store.load_pipeline(pipeline_id)
             phase_execution = pipeline.get_phase_execution(PipelinePhase(phase))
+
+            # Update container status
             for ci in phase_execution.containers:
                 if ci.container_id == spawned.container_info.container_id:
                     ci.status = ContainerStatus.EXITED
                     ci.exited_at = datetime.utcnow()
                     ci.exit_code = final_info.exit_code
                     break
+
+            # Update agent status
+            for agent in phase_execution.agents:
+                if agent.container_id == spawned.container_info.container_id:
+                    agent.completed_at = datetime.utcnow()
+                    if final_info.exit_code == 0:
+                        agent.status = AgentExecutionStatus.COMPLETE
+                    else:
+                        agent.status = AgentExecutionStatus.FAILED
+                        agent.error = f"Container exited with code {final_info.exit_code}"
+                    break
+
             store.save_pipeline(pipeline)
         except Exception as track_err:
             logger.warning(
-                "Failed to update container status in pipeline state",
+                "Failed to update container/agent status in pipeline state",
                 container_id=spawned.container_info.container_id[:12],
                 error=str(track_err),
             )
