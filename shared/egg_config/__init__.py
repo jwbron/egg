@@ -56,6 +56,11 @@ from .constants import (
     GATEWAY_ISOLATED_IP,
     GATEWAY_PORT,
     GATEWAY_PROXY_PORT,
+    ORCHESTRATOR_CONTAINER_NAME,
+    ORCHESTRATOR_EXTERNAL_IP,
+    ORCHESTRATOR_IMAGE_NAME,
+    ORCHESTRATOR_ISOLATED_IP,
+    ORCHESTRATOR_PORT,
     TEST_GATEWAY_PORT,
     TEST_GATEWAY_PROXY_PORT,
 )
@@ -91,6 +96,12 @@ __all__ = [
     "GATEWAY_PROXY_PORT",
     # Service configurations
     "GatewayConfig",
+    # Orchestrator constants
+    "ORCHESTRATOR_CONTAINER_NAME",
+    "ORCHESTRATOR_EXTERNAL_IP",
+    "ORCHESTRATOR_IMAGE_NAME",
+    "ORCHESTRATOR_ISOLATED_IP",
+    "ORCHESTRATOR_PORT",
     "GitHubConfig",
     "HealthCheckResult",
     "LLMConfig",
