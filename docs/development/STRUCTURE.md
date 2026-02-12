@@ -80,6 +80,7 @@ orchestrator/
 ├── cli.py                  # CLI for pipeline management
 ├── container_spawner.py    # Sandbox container lifecycle
 ├── container_monitor.py    # Container health monitoring
+├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
 ├── decision_queue.py       # HITL decision queue
 ├── decision_timeout.py     # Decision timeout handling
 ├── dispatch.py             # Agent dispatch logic
@@ -93,6 +94,7 @@ orchestrator/
 ├── resilience.py           # Retry and error recovery
 ├── sandbox_template.py     # Sandbox container template
 ├── state_store.py          # Git-backed pipeline state
+├── status_reporter.py      # Real-time status reporter for collaborators
 ├── webhooks.py             # GitHub webhook handlers
 ├── routes/                 # API route handlers
 │   ├── containers.py       # Container management endpoints
@@ -100,7 +102,7 @@ orchestrator/
 │   ├── health.py           # Health check endpoints
 │   ├── metrics.py          # Metrics endpoints
 │   ├── phases.py           # Phase management endpoints
-│   ├── pipelines.py        # Pipeline CRUD endpoints
+│   ├── pipelines.py        # Pipeline CRUD and visualization endpoints
 │   └── signals.py          # Signal handling endpoints
 ├── Dockerfile              # Orchestrator container image
 ├── entrypoint.sh           # Container entry point

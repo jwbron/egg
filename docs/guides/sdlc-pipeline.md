@@ -69,6 +69,62 @@ The pipeline pauses for human approval at phase transitions. Decisions use check
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Pipeline Status Visualization
+
+The orchestrator provides real-time pipeline status visualization through the visualization API endpoint. This allows monitoring pipeline progress and phase status.
+
+**Endpoint**: `GET /api/v1/pipelines/<pipeline_id>/visualization`
+
+**Query parameters**:
+- `format`: Output format - `full` (default), `compact`, `text`, or `json`
+- `ascii`: Use ASCII-only characters (`true` or `false`, default: `false`)
+
+**Response formats**:
+
+1. **`full` (default)**: Returns JSON with full DAG visualization, compact status, and progress bar
+2. **`compact`**: Single-line phase status with symbols
+3. **`text`**: Plain text DAG visualization
+4. **`json`**: Structured JSON report with phase details
+
+**Example JSON response** (`format=full`):
+```json
+{
+  "success": true,
+  "data": {
+    "pipeline_id": "issue-123",
+    "status": "running",
+    "current_phase": "implement",
+    "visualization": {
+      "dag": ">>> ╔══════════════╗\n    │ ▶ Implement │\n    │   running   │\n    ╚══════════════╝",
+      "compact": "✓Refine → ✓Plan → [▶Implement] → ○PR",
+      "progress": "[███████████░░░░░░░░░] 60%"
+    },
+    "phases": {
+      "refine": {"status": "complete", "review_cycles": 2, "containers": 1, "agents": 1},
+      "plan": {"status": "complete", "review_cycles": 1, "containers": 1, "agents": 1},
+      "implement": {"status": "running", "review_cycles": 0, "containers": 1, "agents": 1},
+      "pr": {"status": "pending", "review_cycles": 0, "containers": 0, "agents": 0}
+    },
+    "pending_decisions": 0,
+    "updated_at": "2026-02-12T10:30:00Z"
+  }
+}
+```
+
+**Status symbols**:
+- `○` - Pending (not started)
+- `▶` - Running
+- `⏸` - Awaiting human decision
+- `✓` - Complete
+- `✗` - Failed
+- `⊘` - Cancelled
+
+**Use cases**:
+- Monitor pipeline progress from external tools
+- Display real-time status in CI dashboards
+- Poll for phase completion
+- Debug stuck pipelines
+
 ### Phases
 
 | Phase | Purpose | Allowed Operations | Exit Requires |
