@@ -6,8 +6,565 @@
     "url": "https://github.com/jwbron/egg/issues/541"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Module exists with CharacterSet class supporting Unicode and ASCII modes",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] render_phase_dag returns formatted string with REFINE\u2192PLAN\u2192IMPLEMENT\u2192PR and status",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] render_agent_waves returns formatted string showing waves with parallel agents",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] render_pipeline_visualization returns complete visualization",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-1-5] Auto-detect Unicode support with TERM/LANG checks and ASCII fallback",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-1-6] Tests cover all renderers, both character sets, various pipeline states",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-1] sse_response generator and format_sse_event functions work correctly",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-2] Endpoint returns text/event-stream, connects to EventBus",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-3] SSE endpoint receives pipeline events via wildcard subscription",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-2-4] Events include dag_visualization field with rendered ASCII",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-2-5] Handles client disconnect, timeout, heartbeat keepalive",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-2-6] Tests verify event streaming, reconnection, visualization updates",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-3-1] PHASE_STARTED, PHASE_COMPLETED events include visualization payload",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-3-2] AGENT_STARTED, AGENT_COMPLETED events include updated visualization",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-3-3] Review cycle count changes trigger visualization update event",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-3-4] DECISION_CREATED, DECISION_RESOLVED trigger visualization update",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-4-1] Async SSE client can connect to orchestrator stream endpoint",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-4-2] StatusBar can render multi-line ASCII blocks without flickering",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-4-3] SSE connection established automatically when workflow triggered",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-4-4] Visualization updates in-place without scrolling",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-4-5] Fall back to periodic status display with warning if SSE fails",
+      "verified": false
+    },
+    {
+      "id": "ac-22",
+      "description": "[TASK-4-6] Tests verify visualization appears and updates in simulated terminal",
+      "verified": false
+    },
+    {
+      "id": "ac-23",
+      "description": "[TASK-5-1] PipelineConfig has visualization_charset option (auto/unicode/ascii)",
+      "verified": false
+    },
+    {
+      "id": "ac-24",
+      "description": "[TASK-5-2] Visualization adapts to terminal width changes",
+      "verified": false
+    },
+    {
+      "id": "ac-25",
+      "description": "[TASK-5-3] SSE endpoint documented with examples",
+      "verified": false
+    },
+    {
+      "id": "ac-26",
+      "description": "[TASK-5-4] Common issues documented (terminal compatibility, network)",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "DAG Visualization Renderer",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create dag_visualizer module with character set abstraction",
+          "status": "pending",
+          "acceptance_criteria": "Module exists with CharacterSet class supporting Unicode and ASCII modes",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Implement phase DAG renderer",
+          "status": "pending",
+          "acceptance_criteria": "render_phase_dag returns formatted string with REFINE\u2192PLAN\u2192IMPLEMENT\u2192PR and status",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Implement agent wave renderer",
+          "status": "pending",
+          "acceptance_criteria": "render_agent_waves returns formatted string showing waves with parallel agents",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Implement combined renderer with legend",
+          "status": "pending",
+          "acceptance_criteria": "render_pipeline_visualization returns complete visualization",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add terminal capability detection",
+          "status": "pending",
+          "acceptance_criteria": "Auto-detect Unicode support with TERM/LANG checks and ASCII fallback",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-6",
+          "description": "Write unit tests for visualization module",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover all renderers, both character sets, various pipeline states",
+          "files_affected": [
+            "orchestrator/tests/test_dag_visualizer.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "SSE Streaming Infrastructure",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create sse module with SSE response helpers",
+          "status": "pending",
+          "acceptance_criteria": "sse_response generator and format_sse_event functions work correctly",
+          "files_affected": [
+            "orchestrator/sse.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add SSE stream endpoint to pipelines routes",
+          "status": "pending",
+          "acceptance_criteria": "Endpoint returns text/event-stream, connects to EventBus",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Implement EventBus subscription for SSE stream",
+          "status": "pending",
+          "acceptance_criteria": "SSE endpoint receives pipeline events via wildcard subscription",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/sse.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Emit visualization events on state changes",
+          "status": "pending",
+          "acceptance_criteria": "Events include dag_visualization field with rendered ASCII",
+          "files_affected": [
+            "orchestrator/sse.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "Add connection lifecycle management",
+          "status": "pending",
+          "acceptance_criteria": "Handles client disconnect, timeout, heartbeat keepalive",
+          "files_affected": [
+            "orchestrator/sse.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-6",
+          "description": "Write integration tests for SSE endpoint",
+          "status": "pending",
+          "acceptance_criteria": "Tests verify event streaming, reconnection, visualization updates",
+          "files_affected": [
+            "orchestrator/tests/test_sse.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Event Emission Points",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add events in _run_pipeline for phase transitions",
+          "status": "pending",
+          "acceptance_criteria": "PHASE_STARTED, PHASE_COMPLETED events include visualization payload",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add events in MultiAgentExecutor for wave/agent updates",
+          "status": "pending",
+          "acceptance_criteria": "AGENT_STARTED, AGENT_COMPLETED events include updated visualization",
+          "files_affected": [
+            "orchestrator/multi_agent.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add events for review cycle increments",
+          "status": "pending",
+          "acceptance_criteria": "Review cycle count changes trigger visualization update event",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Add events for HITL decision state changes",
+          "status": "pending",
+          "acceptance_criteria": "DECISION_CREATED, DECISION_RESOLVED trigger visualization update",
+          "files_affected": [
+            "orchestrator/routes/decisions.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Collaborator Client Integration",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Create SSE client module for sandbox",
+          "status": "pending",
+          "acceptance_criteria": "Async SSE client can connect to orchestrator stream endpoint",
+          "files_affected": [
+            "sandbox/egg_lib/sse_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Extend statusbar with multi-line visualization support",
+          "status": "pending",
+          "acceptance_criteria": "StatusBar can render multi-line ASCII blocks without flickering",
+          "files_affected": [
+            "sandbox/statusbar.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add visualization display to workflow trigger flow",
+          "status": "pending",
+          "acceptance_criteria": "SSE connection established automatically when workflow triggered",
+          "files_affected": [
+            "sandbox/egg_lib/orchestrator.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Implement terminal clear/redraw for real-time updates",
+          "status": "pending",
+          "acceptance_criteria": "Visualization updates in-place without scrolling",
+          "files_affected": [
+            "sandbox/statusbar.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-5",
+          "description": "Add graceful degradation for SSE connection failures",
+          "status": "pending",
+          "acceptance_criteria": "Fall back to periodic status display with warning if SSE fails",
+          "files_affected": [
+            "sandbox/egg_lib/sse_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-6",
+          "description": "Write end-to-end tests for collaborator display",
+          "status": "pending",
+          "acceptance_criteria": "Tests verify visualization appears and updates in simulated terminal",
+          "files_affected": [
+            "sandbox/tests/test_visualization.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Documentation and Polish",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Add configuration for visualization preferences",
+          "status": "pending",
+          "acceptance_criteria": "PipelineConfig has visualization_charset option (auto/unicode/ascii)",
+          "files_affected": [
+            "orchestrator/models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Handle terminal resize gracefully",
+          "status": "pending",
+          "acceptance_criteria": "Visualization adapts to terminal width changes",
+          "files_affected": [
+            "sandbox/statusbar.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Update orchestrator API documentation",
+          "status": "pending",
+          "acceptance_criteria": "SSE endpoint documented with examples",
+          "files_affected": [
+            "docs/orchestrator-api.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-4",
+          "description": "Add troubleshooting section to docs",
+          "status": "pending",
+          "acceptance_criteria": "Common issues documented (terminal compatibility, network)",
+          "files_affected": [
+            "docs/orchestrator-api.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 2,
@@ -84,5 +641,9 @@
   "plan_reviewer_verdicts": {
     "unified": "missing",
     "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Add ASCII DAG visualization with SSE streaming",
+    "description": "Implements real-time ASCII visualization of pipeline execution DAG.\nShows phase progression, multi-agent waves, review cycles, and status\nwith Unicode box-drawing (ASCII fallback). Streams updates via SSE\nto the collaborator session that triggered the workflow.\n\nFixes #541."
   }
 }
