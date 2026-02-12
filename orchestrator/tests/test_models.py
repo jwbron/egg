@@ -286,10 +286,12 @@ class TestAgentRole:
         """Test all agent roles are defined."""
         roles = list(AgentRole)
         assert AgentRole.CODER in roles
+        assert AgentRole.REVIEWER in roles
+        assert AgentRole.CHECKER in roles
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
         assert AgentRole.INTEGRATOR in roles
-        assert len(roles) == 4
+        assert len(roles) == 6
 
 
 class TestPipelinePhase:

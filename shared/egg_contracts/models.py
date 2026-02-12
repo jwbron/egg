@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class TaskStatus(StrEnum):
@@ -372,7 +372,10 @@ class Contract(BaseModel):
     schemaVersion: str = Field(  # noqa: N815
         default="1.0", pattern=r"^[0-9]+\.[0-9]+$", description="Schema version"
     )
-    issue: IssueInfo = Field(..., description="Issue metadata")
+    issue: IssueInfo | None = Field(default=None, description="Issue metadata")
+    pipeline_id: str | None = Field(
+        default=None, description="Pipeline ID for local-mode pipelines"
+    )
     current_phase: PipelinePhase = Field(
         default=PipelinePhase.REFINE, description="Current pipeline phase"
     )
@@ -413,6 +416,25 @@ class Contract(BaseModel):
         default=None,
         description="Configuration for multi-agent orchestration",
     )
+
+    @model_validator(mode="after")
+    def _require_issue_or_pipeline_id(self) -> "Contract":
+        """At least one of issue or pipeline_id must be set."""
+        if self.issue is None and self.pipeline_id is None:
+            raise ValueError("At least one of 'issue' or 'pipeline_id' must be set")
+        return self
+
+    @property
+    def contract_key(self) -> int | str:
+        """Return the canonical key used for file naming.
+
+        Returns issue.number for issue-mode contracts, pipeline_id for
+        local-mode contracts.
+        """
+        if self.issue is not None:
+            return self.issue.number
+        assert self.pipeline_id is not None
+        return self.pipeline_id
 
     def get_task(self, phase_id: str, task_id: str) -> Task | None:
         """Get a specific task by phase and task ID."""

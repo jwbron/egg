@@ -167,12 +167,12 @@ class TestStartLocalPipelineCompletes:
             assert start_status == 200, f"Start failed: {start_data}"
             assert start_data["data"]["status"] == "running"
 
-            # Wait for terminal state
-            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            # Wait for terminal state (4 phases: refine, plan, implement, pr)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
             assert final["data"]["status"] == "complete", f"Pipeline did not complete: {final}"
 
-            # Verify final phase is implement (terminal for local)
-            assert final["data"]["current_phase"] == "implement"
+            # Verify final phase is pr (terminal for local)
+            assert final["data"]["current_phase"] == "pr"
 
             # Verify pipeline data via GET
             get_data, get_status = get_pipeline(orchestrator_url, pipeline_id)
@@ -185,14 +185,14 @@ class TestStartLocalPipelineCompletes:
             delete_pipeline(orchestrator_url, pipeline_id)
 
 
-class TestLocalPipelineNoPrPhase:
-    """Local pipelines have 3 phases (refine, plan, implement), no PR."""
+class TestLocalPipelineIncludesPrPhase:
+    """Local pipelines run all 4 phases (refine, plan, implement, pr)."""
 
-    def test_local_pipeline_no_pr_phase(self, orchestrator_url: str) -> None:
-        """Verify the pipeline stops at implement without spawning a PR phase."""
+    def test_local_pipeline_includes_pr_phase(self, orchestrator_url: str) -> None:
+        """Verify the pipeline runs through all phases including PR."""
         data, status = create_pipeline(
             orchestrator_url,
-            prompt="No PR needed",
+            prompt="Full pipeline with PR phase",
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
@@ -200,22 +200,16 @@ class TestLocalPipelineNoPrPhase:
         try:
             start_pipeline(orchestrator_url, pipeline_id)
 
-            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
             assert final["data"]["status"] == "complete"
-            assert final["data"]["current_phase"] == "implement"
+            assert final["data"]["current_phase"] == "pr"
 
-            # Verify phase executions don't include PR
+            # Verify all 4 phase executions are present and complete
             get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
             phases = get_data["data"]["pipeline"].get("phases", {})
-            # refine, plan, implement should be present and complete
-            for phase_name in ["refine", "plan", "implement"]:
+            for phase_name in ["refine", "plan", "implement", "pr"]:
                 assert phase_name in phases, f"Missing phase: {phase_name}"
                 assert phases[phase_name]["status"] == "complete"
-            # PR phase should NOT have been executed
-            if "pr" in phases:
-                assert phases["pr"]["status"] == "pending", (
-                    "PR phase should not have been executed for local pipeline"
-                )
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
@@ -243,7 +237,7 @@ class TestLocalPipelineContainerFailure:
             assert start_status == 200
 
             # Wait for terminal state — should fail on the refine phase
-            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=300)
             assert final["data"]["status"] == "failed", (
                 f"Pipeline should have failed but got: {final}"
             )
@@ -282,7 +276,7 @@ class TestLocalPipelineContainerFailure:
 
         try:
             start_pipeline(orchestrator_url, pipeline_id)
-            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=300)
             assert final["data"]["status"] == "failed"
 
             get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
@@ -313,7 +307,7 @@ class TestSandboxReceivesEnvironment:
     """
 
     def test_sandbox_receives_pipeline_env(self, orchestrator_url: str) -> None:
-        """Pipeline completes → all 3 phases got correct pipeline env vars."""
+        """Pipeline completes → all 4 phases got correct pipeline env vars."""
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Verify pipeline env vars",
@@ -323,7 +317,7 @@ class TestSandboxReceivesEnvironment:
 
         try:
             start_pipeline(orchestrator_url, pipeline_id)
-            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
 
             assert final["data"]["status"] == "complete", (
                 f"Pipeline failed — mock sandbox likely missing required env vars "
@@ -332,7 +326,7 @@ class TestSandboxReceivesEnvironment:
 
             get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
             phases = get_data["data"]["pipeline"].get("phases", {})
-            for phase_name in ["refine", "plan", "implement"]:
+            for phase_name in ["refine", "plan", "implement", "pr"]:
                 assert phase_name in phases, f"Phase {phase_name} not found"
                 assert phases[phase_name]["status"] == "complete"
 
@@ -350,7 +344,7 @@ class TestSandboxReceivesEnvironment:
 
         try:
             start_pipeline(orchestrator_url, pipeline_id)
-            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
 
             if final["data"]["status"] == "failed":
                 # Check if the error mentions exit code 3 (infra vars)
@@ -376,7 +370,7 @@ class TestSandboxReceivesEnvironment:
 
         try:
             start_pipeline(orchestrator_url, pipeline_id)
-            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
 
             if final["data"]["status"] == "failed":
                 get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
@@ -415,7 +409,7 @@ class TestPipelineStartIdempotency:
             )
 
             # Wait for completion so cleanup works cleanly
-            wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
@@ -431,7 +425,7 @@ class TestPipelineStartIdempotency:
 
         try:
             start_pipeline(orchestrator_url, pipeline_id)
-            wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
 
             # Try to start again — should be 409
             start_data, start_status = start_pipeline(orchestrator_url, pipeline_id)
@@ -465,7 +459,7 @@ class TestIssuePipelineIncludesPrPhase:
             start_data, start_status = start_pipeline(orchestrator_url, pipeline_id)
             assert start_status == 200
 
-            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=180)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=300)
             assert final["data"]["status"] == "complete", (
                 f"Issue pipeline did not complete: {final}"
             )
@@ -615,6 +609,88 @@ class TestGatewayLocalModeBlocksPush:
             )
 
 
+class TestReviewCycleApproved:
+    """Multiple reviewer containers are spawned for each reviewed phase.
+
+    The mock sandbox writes an 'approved' verdict by default, so the
+    pipeline should complete normally — with multiple typed reviewer
+    containers spawned after each reviewed phase (refine, plan, implement).
+    """
+
+    def test_pipeline_completes_with_multi_review(self, orchestrator_url: str) -> None:
+        """Pipeline completes when all reviewer types approve all phases."""
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="Test multi-reviewer approved",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
+
+        try:
+            start_pipeline(orchestrator_url, pipeline_id)
+            # Longer timeout: 2 reviewers for refine+plan, 4 for implement + checker
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
+            assert final["data"]["status"] == "complete", (
+                f"Pipeline should complete with approved reviews: {final}"
+            )
+            assert final["data"]["current_phase"] == "pr"
+
+            # Verify all phases completed
+            get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
+            phases = get_data["data"]["pipeline"].get("phases", {})
+            for phase_name in ["refine", "plan", "implement", "pr"]:
+                assert phase_name in phases, f"Missing phase: {phase_name}"
+                assert phases[phase_name]["status"] == "complete"
+
+            # Review cycles should be 0 (approved on first review, no revisions)
+            assert phases["refine"]["review_cycles"] == 0
+            assert phases["plan"]["review_cycles"] == 0
+            assert phases["implement"]["review_cycles"] == 0
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)
+
+
+class TestReviewCycleCircuitBreaker:
+    """Circuit breaker: all reviewers return needs_revision.
+
+    With max_review_cycles=1, the pipeline should still advance after
+    the first multi-reviewer round says needs_revision (circuit breaker kicks in).
+    """
+
+    def test_circuit_breaker_advances_pipeline(self, orchestrator_url: str) -> None:
+        """Pipeline completes despite needs_revision when circuit breaker fires."""
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="REVIEW_NEEDS_REVISION circuit breaker test",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
+
+        try:
+            # Set max_review_cycles=1 so the circuit breaker fires
+            # on the first needs_revision verdict.
+            patch_resp = requests.patch(
+                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
+                json={"config.max_review_cycles": 1},
+                timeout=10,
+            )
+            assert patch_resp.status_code == 200, (
+                f"Failed to patch config: {patch_resp.json()}"
+            )
+
+            start_pipeline(orchestrator_url, pipeline_id)
+            # Longer timeout: each phase has worker + multiple reviewer containers
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=420)
+            assert final["data"]["status"] == "complete", (
+                f"Pipeline should complete via circuit breaker: {final}"
+            )
+            assert final["data"]["current_phase"] == "pr"
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)
+
+
 class TestFailedPipelineCannotRestart:
     """A failed pipeline cannot be restarted (returns 409)."""
 
@@ -629,7 +705,7 @@ class TestFailedPipelineCannotRestart:
 
         try:
             start_pipeline(orchestrator_url, pipeline_id)
-            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=300)
             assert final["data"]["status"] == "failed"
 
             # Try to start again — should be 409
@@ -637,6 +713,150 @@ class TestFailedPipelineCannotRestart:
             assert start_status == 409, (
                 f"Expected 409 for restarting failed pipeline, got {start_status}: {start_data}"
             )
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)
+
+
+class TestImplementPhaseReviewed:
+    """Implement phase now gets checker + multi-reviewer cycle.
+
+    Unlike previous behavior where implement was skipped for review,
+    the implement phase now runs:
+    1. Worker (CODER)
+    2. Checker (CHECKER) — runs tests/lint
+    3. Multi-reviewer loop (unified, agent-design, code, contract)
+    """
+
+    def test_implement_phase_gets_reviewed(self, orchestrator_url: str) -> None:
+        """Pipeline completes with implement phase reviewed (checker + reviewers)."""
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="Test implement phase review",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
+
+        try:
+            start_pipeline(orchestrator_url, pipeline_id)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
+            assert final["data"]["status"] == "complete", (
+                f"Pipeline should complete with implement review: {final}"
+            )
+
+            # Verify implement phase completed (was previously just skipped)
+            get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
+            phases = get_data["data"]["pipeline"].get("phases", {})
+            assert "implement" in phases
+            assert phases["implement"]["status"] == "complete"
+            # No revision cycles (all reviewers approve by default)
+            assert phases["implement"]["review_cycles"] == 0
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)
+
+
+class TestAutofixLoop:
+    """Checker fails on first attempt, autofix runs, checker passes on retry.
+
+    Uses CHECK_FAIL_THEN_PASS prompt keyword to make the mock checker
+    fail on the first attempt and pass on subsequent attempts. Verifies
+    the autofix loop runs and the pipeline still completes.
+    """
+
+    def test_autofix_loop_recovers(self, orchestrator_url: str) -> None:
+        """Pipeline completes after checker fail → autofix → checker pass."""
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="Test CHECK_FAIL_THEN_PASS autofix loop",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
+
+        try:
+            start_pipeline(orchestrator_url, pipeline_id)
+            # Extra time: autofix loop adds checker + autofixer containers
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=480)
+            assert final["data"]["status"] == "complete", (
+                f"Pipeline should complete after autofix recovery: {final}"
+            )
+            assert final["data"]["current_phase"] == "pr"
+
+            # Verify implement phase completed
+            get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
+            phases = get_data["data"]["pipeline"].get("phases", {})
+            assert "implement" in phases
+            assert phases["implement"]["status"] == "complete"
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)
+
+
+class TestAutofixCircuitBreaker:
+    """Checker always fails — verify pipeline still advances after max attempts.
+
+    Uses CHECK_FAIL prompt keyword to make the mock checker always fail.
+    The autofix circuit breaker (max 3 attempts) should fire and the
+    pipeline should proceed to review and complete despite check failures.
+    """
+
+    def test_autofix_circuit_breaker_advances(self, orchestrator_url: str) -> None:
+        """Pipeline completes despite persistent check failures."""
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="Test CHECK_FAIL autofix circuit breaker",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
+
+        try:
+            start_pipeline(orchestrator_url, pipeline_id)
+            # Extra time: max 3 checker + 2 autofixer iterations
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=600)
+            assert final["data"]["status"] == "complete", (
+                f"Pipeline should complete via autofix circuit breaker: {final}"
+            )
+            assert final["data"]["current_phase"] == "pr"
+
+            # Verify implement phase completed (graceful degradation)
+            get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
+            phases = get_data["data"]["pipeline"].get("phases", {})
+            assert "implement" in phases
+            assert phases["implement"]["status"] == "complete"
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)
+
+
+class TestContractCreatedForLocalPipeline:
+    """Creating a local pipeline also creates a companion contract."""
+
+    def test_contract_file_exists_after_create(self, local_pipeline_stack) -> None:
+        """Verify .egg-state/contracts/{pipeline_id}.json is created."""
+        orchestrator_url = local_pipeline_stack.orchestrator_url
+        repos_dir = local_pipeline_stack.repos_dir
+
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="Test contract creation",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
+
+        try:
+            # Check that the contract file was created in the repos dir
+            import json
+            from pathlib import Path
+
+            contract_path = Path(repos_dir) / f".egg-state/contracts/{pipeline_id}.json"
+            assert contract_path.exists(), (
+                f"Contract file should exist at {contract_path}"
+            )
+
+            # Verify contract content
+            contract_data = json.loads(contract_path.read_text())
+            assert contract_data.get("pipeline_id") == pipeline_id
+            assert contract_data.get("current_phase") == "refine"
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)

@@ -65,9 +65,29 @@ class AgentRole(StrEnum):
     """Agent roles in multi-agent execution."""
 
     CODER = "coder"
+    REVIEWER = "reviewer"
+    CHECKER = "checker"
     TESTER = "tester"
     DOCUMENTER = "documenter"
     INTEGRATOR = "integrator"
+
+
+class ReviewerType(StrEnum):
+    """Reviewer specialization types matching GHA reviewer matrix."""
+
+    UNIFIED = "unified"
+    AGENT_DESIGN = "agent-design"
+    CODE = "code"
+    CONTRACT = "contract"
+
+
+class ReviewVerdict(BaseModel):
+    """Verdict from an agentic review cycle."""
+
+    verdict: str = Field(..., description="'approved' or 'needs_revision'")
+    summary: str = Field(default="", description="Brief summary of review findings")
+    feedback: str = Field(default="", description="Detailed feedback if needs_revision")
+    timestamp: str = Field(default="", description="ISO 8601 timestamp")
 
 
 class ContainerInfo(BaseModel):

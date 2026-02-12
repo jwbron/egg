@@ -54,12 +54,12 @@ PHASE_TRANSITIONS = {
     PipelinePhase.PR: [],  # Terminal phase
 }
 
-# Valid phase transitions for local pipelines (no PR phase)
+# Valid phase transitions for local pipelines
 LOCAL_PHASE_TRANSITIONS = {
     PipelinePhase.REFINE: [PipelinePhase.PLAN],
     PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT],
-    PipelinePhase.IMPLEMENT: [],  # Terminal phase for local mode
-    PipelinePhase.PR: [],
+    PipelinePhase.IMPLEMENT: [PipelinePhase.PR],
+    PipelinePhase.PR: [],  # Terminal phase
 }
 
 
