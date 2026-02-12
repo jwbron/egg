@@ -544,13 +544,14 @@ class CheckpointHandler:
                         ["add", str(checkpoint_path.relative_to(temp_path)), INDEX_FILE],
                     )
 
-                    # Commit
+                    # Commit (--no-verify skips pre-commit hooks which are
+                    # irrelevant for the checkpoint branch)
                     commit_msg = (
                         f"Add checkpoint {checkpoint.id} for commit {checkpoint.commit_sha[:7]}"
                     )
                     self._run_git(
                         str(temp_path),
-                        ["commit", "-m", commit_msg],
+                        ["commit", "--no-verify", "-m", commit_msg],
                     )
 
                     # Push (use longer timeout for large transcripts)
@@ -631,7 +632,11 @@ class CheckpointHandler:
             env["GIT_USERNAME"] = "x-access-token"
             env["GIT_PASSWORD"] = self._github_token
 
-        cmd = ["git"] + args
+        # SECURITY: Disable all git hooks. The checkpoint handler runs git commands
+        # internally for bookkeeping (storing checkpoints to the egg/checkpoints/v1 branch).
+        # Hooks from user repos must not execute in the gateway's trusted environment.
+        # See issue #58 for context on hook-based attacks.
+        cmd = ["git", "-c", "core.hooksPath=/dev/null"] + args
 
         result = subprocess.run(
             cmd,
