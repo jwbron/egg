@@ -4,17 +4,15 @@ Tests for state store.
 Note: Git operations are mocked since git init is not available in the sandbox.
 """
 
-import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from models import Pipeline, PipelineConfig, PipelinePhase, PipelineStatus
+from models import Pipeline, PipelinePhase, PipelineStatus
 from state_store import (
     InvalidPipelineIdError,
     PipelineNotFoundError,
     StateStore,
+    StateStoreError,
     StateValidationError,
     VersionConflictError,
     _validate_pipeline_id,
@@ -32,8 +30,14 @@ def mock_git():
 
 @pytest.fixture
 def state_store(tmp_path, mock_git):
-    """Create a state store for testing."""
-    return StateStore(tmp_path)
+    """Create a state store for testing.
+
+    The worktree is mocked out so file I/O goes to tmp_path directly.
+    """
+    store = StateStore(tmp_path, worktree_dir=tmp_path)
+    # Bypass lazy worktree init since git is mocked
+    store._worktree = tmp_path
+    return store
 
 
 class TestStateStoreBasics:
@@ -99,7 +103,7 @@ class TestPipelineCreation:
             repo="owner/repo",
             branch="egg/issue-496",
         )
-        with pytest.raises(Exception):
+        with pytest.raises(StateStoreError):
             state_store.create_pipeline(
                 issue_number=496,
                 repo="owner/repo",
@@ -144,7 +148,7 @@ class TestPipelinePersistence:
 
     def test_save_calls_git(self, state_store, mock_git):
         """Test that saving calls git operations."""
-        pipeline = state_store.create_pipeline(
+        state_store.create_pipeline(
             issue_number=123,
             repo="owner/repo",
             branch="egg/issue-123",
@@ -501,7 +505,7 @@ class TestVersionConflict:
         version_after_create = pipeline.version
 
         # Each save should increment version
-        for i in range(3):
+        for _i in range(3):
             loaded = state_store.load_pipeline("issue-111")
             loaded.status = PipelineStatus.RUNNING
             state_store.save_pipeline(loaded)

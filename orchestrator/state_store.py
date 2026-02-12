@@ -1,9 +1,11 @@
 """
 Git-backed state persistence for pipeline state.
 
-Stores pipeline state in .egg-state/pipelines/{id}.json.  Files are written
-to disk for fast reads and committed to a dedicated ``egg/pipeline-state``
-orphan branch so state history is preserved without polluting main.
+All pipeline state lives on a dedicated ``egg/pipeline-state`` orphan branch,
+accessed via a persistent git worktree.  The main checkout is never modified.
+
+Read/write operations go directly to the worktree directory on disk.  Commits
+are made in-place inside the worktree and stay on the state branch.
 """
 
 import json
@@ -11,7 +13,6 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,11 @@ PIPELINE_ID_PATTERN = re.compile(r"^(issue-[0-9]+|local-[0-9a-f]{8})$")
 
 # Dedicated branch for pipeline state (orphan, never merged into main)
 STATE_BRANCH = "egg/pipeline-state"
+
+# Relative to the Docker state volume (/home/egg/.egg-state)
+_DEFAULT_WORKTREE_DIR = (
+    Path(os.environ.get("EGG_STATE_DIR", "/home/egg/.egg-state")) / "pipeline-worktree"
+)
 
 
 class StateStoreError(Exception):
@@ -78,20 +84,86 @@ def _validate_pipeline_id(pipeline_id: str) -> None:
 class StateStore:
     """Git-backed state store for pipeline state.
 
-    Stores state in .egg-state/pipelines/{id}.json within the repository.
-    Changes are committed to preserve history.
+    All state files live in a persistent git worktree on the
+    ``egg/pipeline-state`` orphan branch.  The main repo checkout
+    is never modified.
     """
 
     PIPELINES_DIR = ".egg-state/pipelines"
 
-    def __init__(self, repo_path: Path):
+    def __init__(
+        self,
+        repo_path: Path,
+        worktree_dir: Path | None = None,
+    ):
         """Initialize state store for a repository.
 
         Args:
-            repo_path: Path to the git repository
+            repo_path: Path to the main git repository
+            worktree_dir: Override the persistent worktree location
+                (default: ``/home/egg/.egg-state/pipeline-worktree``)
         """
         self.repo_path = repo_path
-        self.pipelines_dir = repo_path / self.PIPELINES_DIR
+        self._worktree_dir = worktree_dir or _DEFAULT_WORKTREE_DIR
+        self._worktree: Path | None = None  # lazily initialised
+
+    # -- worktree lifecycle ------------------------------------------------
+
+    @property
+    def worktree(self) -> Path:
+        """Path to the persistent state worktree (created lazily)."""
+        if self._worktree is None:
+            self._worktree = self._ensure_worktree()
+        return self._worktree
+
+    @property
+    def pipelines_dir(self) -> Path:
+        return self.worktree / self.PIPELINES_DIR
+
+    def _ensure_worktree(self) -> Path:
+        """Create or validate the persistent state worktree."""
+        wt = self._worktree_dir
+
+        if wt.exists() and (wt / ".git").exists():
+            # Quick validity check
+            result = self._run_git("rev-parse", "--is-inside-work-tree", cwd=wt, check=False)
+            if result.returncode == 0:
+                return wt
+            # Stale/broken — prune and recreate
+            shutil.rmtree(wt, ignore_errors=True)
+            self._run_git("worktree", "prune", check=False)
+
+        wt.parent.mkdir(parents=True, exist_ok=True)
+
+        if self._state_branch_exists():
+            self._run_git("worktree", "add", str(wt), STATE_BRANCH)
+        else:
+            # First run: create orphan branch
+            self._run_git("worktree", "add", "--detach", str(wt))
+            self._run_git("checkout", "--orphan", STATE_BRANCH, cwd=wt)
+            self._run_git("rm", "-rf", "--cached", ".", cwd=wt, check=False)
+            # Remove inherited files from working directory
+            for item in wt.iterdir():
+                if item.name == ".git":
+                    continue
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+
+        return wt
+
+    def _state_branch_exists(self) -> bool:
+        """Check if the state branch exists locally."""
+        result = self._run_git(
+            "rev-parse",
+            "--verify",
+            f"refs/heads/{STATE_BRANCH}",
+            check=False,
+        )
+        return result.returncode == 0
+
+    # -- low-level helpers -------------------------------------------------
 
     def _get_pipeline_path(self, pipeline_id: str) -> Path:
         """Get the file path for a pipeline's state.
@@ -148,6 +220,8 @@ class StateStore:
             return result
         except subprocess.CalledProcessError as e:
             raise GitOperationError(f"Git command failed: {e.stderr}") from e
+
+    # -- CRUD operations ---------------------------------------------------
 
     def pipeline_exists(self, pipeline_id: str) -> bool:
         """Check if a pipeline exists.
@@ -231,7 +305,7 @@ class StateStore:
         pipeline.updated_at = datetime.utcnow()
         pipeline.version = (pipeline.version or 0) + 1
 
-        # Write state
+        # Write state to the worktree
         with path.open("w") as f:
             f.write(pipeline.model_dump_json(indent=2))
 
@@ -244,10 +318,12 @@ class StateStore:
 
         return path
 
-    def _commit_state(self, pipeline: Pipeline, message: str | None = None) -> str:
-        """Commit pipeline state to the dedicated state branch.
+    # -- git commit helpers ------------------------------------------------
 
-        Uses a temporary git worktree so the main checkout is unaffected.
+    def _commit_state(self, pipeline: Pipeline, message: str | None = None) -> str:
+        """Commit pipeline state to the state branch.
+
+        Commits directly in the persistent worktree.
 
         Args:
             pipeline: Pipeline being saved
@@ -262,99 +338,18 @@ class StateStore:
         if not message:
             message = self._generate_commit_message(pipeline)
 
-        src_path = self._get_pipeline_path(pipeline.id)
-        rel_path = str(src_path.relative_to(self.repo_path))
+        path = self._get_pipeline_path(pipeline.id)
+        rel_path = str(path.relative_to(self.worktree))
 
-        return self._commit_to_state_branch(
-            files={rel_path: src_path},
-            message=message,
-        )
+        wt = self.worktree
+        self._run_git("add", rel_path, cwd=wt)
 
-    def _state_branch_exists(self) -> bool:
-        """Check if the state branch exists locally."""
-        result = self._run_git("rev-parse", "--verify", f"refs/heads/{STATE_BRANCH}", check=False)
-        return result.returncode == 0
+        result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
+        if result.returncode == 0:
+            return self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()
 
-    def _commit_to_state_branch(
-        self,
-        files: dict[str, Path],
-        message: str,
-        delete_paths: list[str] | None = None,
-    ) -> str:
-        """Commit files to the dedicated state branch via a temp worktree.
-
-        Args:
-            files: Mapping of relative paths -> source file paths to copy
-            message: Commit message
-            delete_paths: Relative paths to remove from the branch
-
-        Returns:
-            Commit SHA of the new commit
-        """
-        temp_dir = tempfile.mkdtemp(prefix="egg_state_")
-        temp_path = Path(temp_dir)
-
-        try:
-            branch_exists = self._state_branch_exists()
-
-            if branch_exists:
-                self._run_git("worktree", "add", "--detach", str(temp_path), STATE_BRANCH)
-            else:
-                # Create orphan branch via detached worktree
-                self._run_git("worktree", "add", "--detach", str(temp_path))
-                self._run_git("checkout", "--orphan", STATE_BRANCH, cwd=temp_path)
-                # Clear any inherited files from the index
-                self._run_git("rm", "-rf", "--cached", ".", cwd=temp_path, check=False)
-                # Remove inherited working directory files
-                for item in temp_path.iterdir():
-                    if item.name == ".git":
-                        continue
-                    if item.is_dir():
-                        shutil.rmtree(item)
-                    else:
-                        item.unlink()
-
-            # Copy files into the worktree
-            for rel, src in files.items():
-                if not src.exists():
-                    continue
-                dest = temp_path / rel
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dest)
-
-            # Handle deletions
-            if delete_paths:
-                for rel in delete_paths:
-                    target = temp_path / rel
-                    if target.exists():
-                        target.unlink()
-                    self._run_git("rm", "--cached", rel, cwd=temp_path, check=False)
-
-            # Stage and commit
-            paths_to_add = [r for r in files if (temp_path / r).exists()]
-            if paths_to_add:
-                self._run_git("add", *paths_to_add, cwd=temp_path)
-
-            result = self._run_git("diff", "--cached", "--quiet", cwd=temp_path, check=False)
-            if result.returncode == 0:
-                # No changes
-                return self._run_git("rev-parse", "HEAD", cwd=temp_path).stdout.strip()
-
-            self._run_git("commit", "--no-verify", "-m", message, cwd=temp_path)
-
-            commit_sha = self._run_git("rev-parse", "HEAD", cwd=temp_path).stdout.strip()
-
-            # Update the state branch ref to the new commit
-            self._run_git("update-ref", f"refs/heads/{STATE_BRANCH}", commit_sha)
-
-            return commit_sha
-
-        finally:
-            # Clean up worktree
-            self._run_git("worktree", "remove", "--force", str(temp_path), check=False)
-            # Belt-and-suspenders: remove temp dir if worktree remove failed
-            if temp_path.exists():
-                shutil.rmtree(temp_path, ignore_errors=True)
+        self._run_git("commit", "--no-verify", "-m", message, cwd=wt)
+        return self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()
 
     def _get_current_commit(self) -> str:
         """Get the current HEAD commit SHA."""
@@ -364,6 +359,8 @@ class StateStore:
     def _generate_commit_message(self, pipeline: Pipeline) -> str:
         """Generate a commit message for pipeline state update."""
         return f"Update pipeline state: {pipeline.id} ({pipeline.status.value})"
+
+    # -- pipeline lifecycle ------------------------------------------------
 
     def create_pipeline(
         self,
@@ -444,6 +441,7 @@ class StateStore:
         if not path.exists():
             raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found")
 
+        rel_path = str(path.relative_to(self.worktree))
         path.unlink()
 
         # For local pipelines, only commit if force_commit is True
@@ -451,12 +449,18 @@ class StateStore:
         is_local = pipeline_id.startswith("local-")
         should_commit = commit and (not is_local or force_commit)
         if should_commit:
-            rel_path = str(path.relative_to(self.repo_path))
-            self._commit_to_state_branch(
-                files={},
-                message=f"Delete pipeline: {pipeline_id}",
-                delete_paths=[rel_path],
-            )
+            wt = self.worktree
+            self._run_git("add", rel_path, cwd=wt)
+
+            result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
+            if result.returncode != 0:
+                self._run_git(
+                    "commit",
+                    "--no-verify",
+                    "-m",
+                    f"Delete pipeline: {pipeline_id}",
+                    cwd=wt,
+                )
 
     def list_pipelines(self) -> list[str]:
         """List all pipeline IDs.
