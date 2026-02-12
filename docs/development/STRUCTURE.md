@@ -72,7 +72,7 @@ gateway/
 
 ## Orchestrator Structure
 
-The orchestrator manages local SDLC pipeline execution:
+The orchestrator manages local SDLC pipeline execution. It creates isolated git worktrees for each pipeline via the gateway's worktree API and mounts them into sandbox containers:
 
 ```
 orchestrator/
@@ -85,7 +85,7 @@ orchestrator/
 ├── dispatch.py             # Agent dispatch logic
 ├── docker_client.py        # Docker API client
 ├── events.py               # Event bus for pipeline events
-├── gateway_client.py       # Gateway API client
+├── gateway_client.py       # Gateway API client (sessions, worktrees, config)
 ├── handoffs.py             # Agent handoff data management
 ├── metrics.py              # Pipeline metrics and telemetry
 ├── models.py               # Pydantic models for pipelines

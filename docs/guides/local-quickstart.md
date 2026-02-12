@@ -185,3 +185,7 @@ egg --exec "make test"     # run a command in an ephemeral container
 **Token refresher warnings**: If you see "No valid token available from token refresher", this means no GitHub App is configured. This is expected in PAT-only mode — ensure `auth_mode: user` is set for your repos so the gateway uses your PAT.
 
 **Orchestrator git errors**: The orchestrator stores pipeline state in git. `EGG_REPO_PATH` can be either a single git repository or a parent directory containing multiple repositories (the orchestrator will scan subdirectories automatically).
+
+**Empty repository in sandbox containers**: The orchestrator creates isolated git worktrees for each pipeline via the gateway's worktree API. If containers have empty working trees:
+1. Verify the gateway is healthy: `curl http://egg-gateway:9848/api/v1/health`
+2. Check orchestrator logs for worktree creation errors: `docker logs egg-orchestrator | grep -i worktree`

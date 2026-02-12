@@ -4,6 +4,7 @@ Pipeline CRUD endpoints for egg-orchestrator.
 
 import json
 import os
+import re
 import sys
 import threading
 from datetime import datetime
@@ -347,12 +348,16 @@ def create_pipeline() -> tuple[Response, int]:
                     title=prompt[:100],
                     repo_root=repo_path,
                 )
+                # Mark contract as synced now that it exists
+                pipeline.contract_synced = True
+                store.save_pipeline(pipeline, commit=False)
                 logger.info(
                     "Local pipeline contract created",
                     pipeline_id=pipeline.id,
                 )
             except Exception as contract_err:
                 # Contract creation is best-effort — don't block pipeline
+                # contract_synced remains False
                 logger.warning(
                     "Failed to create contract for local pipeline",
                     pipeline_id=pipeline.id,
@@ -771,24 +776,40 @@ def _verdict_path_for_type(
     reviewer_type: str,
     pipeline_mode: str,
     issue_number: int | None = None,
+    pipeline_id: str | None = None,
 ) -> str:
-    """Return the relative verdict file path for a given reviewer type."""
+    """Return the relative verdict file path for a given reviewer type.
+
+    For issue mode, uses issue number as prefix (e.g., 123-refine-unified-review.json).
+    For local mode, uses pipeline_id as prefix (e.g., local-abc12345-refine-unified-review.json).
+    """
     if pipeline_mode == "local":
-        return f".egg-state/reviews/{phase}-{reviewer_type}-review.json"
+        prefix = pipeline_id if pipeline_id else "local"
+        return f".egg-state/reviews/{prefix}-{phase}-{reviewer_type}-review.json"
     else:
         return f".egg-state/reviews/{issue_number}-{phase}-{reviewer_type}-review.json"
 
 
-def _get_draft_path(phase: str, pipeline_mode: str, issue_number: int | None = None) -> str | None:
-    """Return relative path to the draft file for a phase."""
+def _get_draft_path(
+    phase: str,
+    pipeline_mode: str,
+    issue_number: int | None = None,
+    pipeline_id: str | None = None,
+) -> str | None:
+    """Return relative path to the draft file for a phase.
+
+    For issue mode, uses issue number as prefix (e.g., 123-analysis.md).
+    For local mode, uses pipeline_id as prefix (e.g., local-abc12345-analysis.md).
+    """
     is_local = pipeline_mode == "local"
     if is_local:
+        prefix = pipeline_id if pipeline_id else "local"
         if phase == "refine":
-            return ".egg-state/drafts/analysis.md"
+            return f".egg-state/drafts/{prefix}-analysis.md"
         elif phase == "implement":
             return None
         else:
-            return f".egg-state/drafts/{phase}.md"
+            return f".egg-state/drafts/{prefix}-{phase}.md"
     else:
         if phase == "refine":
             return f".egg-state/drafts/{issue_number}-analysis.md"
@@ -803,10 +824,11 @@ def _read_phase_draft(
     phase: str,
     pipeline_mode: str,
     issue_number: int | None = None,
+    pipeline_id: str | None = None,
     max_chars: int = 8000,
 ) -> str:
     """Read draft file contents. Truncates at max_chars."""
-    draft_rel = _get_draft_path(phase, pipeline_mode, issue_number)
+    draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
     if not draft_rel:
         return f"(No draft file for {phase} phase)"
     draft_path = repo_path / draft_rel
@@ -832,9 +854,11 @@ def _build_review_prompt(
     Tells the reviewer to evaluate the draft for the given phase and write
     a typed verdict JSON file to .egg-state/reviews/.
     """
-    draft_path = _get_draft_path(phase, pipeline_mode, issue_number)
+    draft_path = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
 
-    verdict_path = _verdict_path_for_type(phase, reviewer_type, pipeline_mode, issue_number)
+    verdict_path = _verdict_path_for_type(
+        phase, reviewer_type, pipeline_mode, issue_number, pipeline_id
+    )
 
     lines = [
         f"You are reviewing the **{phase}** phase output of the SDLC pipeline "
@@ -905,13 +929,16 @@ def _read_review_verdict(
     reviewer_type: str = "unified",
     pipeline_mode: str = "local",
     issue_number: int | None = None,
+    pipeline_id: str | None = None,
 ) -> ReviewVerdict | None:
     """Read a typed review verdict JSON from the repo.
 
     Returns None if the file is missing or malformed (treated as approved
     for graceful degradation).
     """
-    verdict_rel = _verdict_path_for_type(phase, reviewer_type, pipeline_mode, issue_number)
+    verdict_rel = _verdict_path_for_type(
+        phase, reviewer_type, pipeline_mode, issue_number, pipeline_id
+    )
     verdict_file = repo_path / verdict_rel
 
     if not verdict_file.exists():
@@ -1018,6 +1045,10 @@ def _build_phase_prompt(
     # --- Phase-specific instructions ---
     lines.append("## Your Task\n")
 
+    # Get the correct draft path based on mode
+    analysis_path = _get_draft_path("refine", pipeline_mode, issue_number, pipeline_id)
+    plan_path = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
+
     if phase == "refine":
         lines.extend(
             [
@@ -1034,15 +1065,15 @@ def _build_phase_prompt(
         if is_local:
             lines.extend(
                 [
-                    "Write your analysis to `.egg-state/drafts/analysis.md`.",
-                    "Commit the draft when done.",
+                    f"Write your analysis to `{analysis_path}`.",
+                    "Commit and push the draft when done.",
                     "",
                 ]
             )
         else:
             lines.extend(
                 [
-                    f"Write your analysis to `.egg-state/drafts/{issue_number}-analysis.md`.",
+                    f"Write your analysis to `{analysis_path}`.",
                     "Commit and push the draft when done.",
                     "",
                 ]
@@ -1064,15 +1095,15 @@ def _build_phase_prompt(
         if is_local:
             lines.extend(
                 [
-                    "Write your plan to `.egg-state/drafts/plan.md`.",
-                    "Commit the draft when done.",
+                    f"Write your plan to `{plan_path}`.",
+                    "Commit and push the draft when done.",
                     "",
                 ]
             )
         else:
             lines.extend(
                 [
-                    f"Write your plan to `.egg-state/drafts/{issue_number}-plan.md`.",
+                    f"Write your plan to `{plan_path}`.",
                     "Commit and push the draft when done.",
                     "",
                 ]
@@ -1090,15 +1121,15 @@ def _build_phase_prompt(
                 "",
             ]
         )
-        if not is_local:
-            lines.extend(
-                [
-                    "Use the contract CLI to track progress:",
-                    "- `egg-contract show` — View current contract state",
-                    "- `egg-contract add-commit --task <id> --commit <sha>` — Link commit to task",
-                    "",
-                ]
-            )
+        # Contract CLI instructions for both local and issue mode
+        lines.extend(
+            [
+                "Use the contract CLI to track progress:",
+                "- `egg-contract show` — View current contract state",
+                "- `egg-contract add-commit --task <id> --commit <sha>` — Link commit to task",
+                "",
+            ]
+        )
 
     elif phase == "pr":
         lines.extend(
@@ -1120,13 +1151,27 @@ def _build_phase_prompt(
 
     # --- Phase restrictions ---
     lines.append("## Phase Restrictions\n")
-    if is_local and phase != "pr":
+    if is_local and phase in ("refine", "plan"):
         lines.extend(
             [
-                "This is a **local** pipeline — no GitHub operations in this phase:",
-                "- You CANNOT push code (git push)",
+                "In this phase:",
+                "- You CAN push state files to git (contracts, drafts, checkpoints)",
+                "- You CANNOT push code changes",
                 "- You CANNOT create PRs (gh pr create)",
                 "- You CANNOT post issue comments",
+                "- You CAN read and modify local files",
+                "- You CAN run tests",
+                "- You CAN commit locally",
+                "",
+            ]
+        )
+    elif is_local and phase == "implement":
+        lines.extend(
+            [
+                "In this phase:",
+                "- You CAN push code changes to git",
+                "- You CANNOT push .egg-state/ files (except checkpoints)",
+                "- You CANNOT create PRs (gh pr create)",
                 "- You CAN read and modify local files",
                 "- You CAN run tests",
                 "- You CAN commit locally",
@@ -1196,6 +1241,7 @@ def _spawn_and_wait(
     sandbox_command: list[str],
     timeout: int = 3600,
     store=None,
+    certs_volume: str | None = None,
 ) -> tuple[int, str]:
     """Spawn a container, wait for it to exit, clean up, return (exit_code, logs).
 
@@ -1205,6 +1251,8 @@ def _spawn_and_wait(
     Args:
         repo_volumes: Mapping of repo_name -> host_path for volume mounts.
             Each entry is mounted at /home/egg/repos/<name> in the container.
+        certs_volume: Docker named volume for gateway CA certs (mounted at
+            /shared/certs read-only). If None, certs are not mounted.
 
     Returns:
         (exit_code, container_logs) — logs are captured before cleanup on failure.
@@ -1215,6 +1263,10 @@ def _spawn_and_wait(
     extra_volumes: dict[str, dict[str, str]] = {}
     for name, host_path in repo_volumes.items():
         extra_volumes[host_path] = {"bind": f"/home/egg/repos/{name}", "mode": "rw"}
+
+    # Mount the gateway CA certs volume so the sandbox trusts the proxy
+    if certs_volume:
+        extra_volumes[certs_volume] = {"bind": "/shared/certs", "mode": "ro"}
 
     spawned = spawner.spawn_agent_container(
         pipeline_id=pipeline_id,
@@ -1229,11 +1281,15 @@ def _spawn_and_wait(
         extra_volumes=extra_volumes if extra_volumes else None,
     )
 
-    # Record container in phase execution state
+    # Record container and agent in phase execution state
     if store is not None:
         try:
+            from models import AgentExecution, AgentExecutionStatus
+
             pipeline = store.load_pipeline(pipeline_id)
             phase_execution = pipeline.get_phase_execution(PipelinePhase(phase))
+
+            # Track container
             container_info = ContainerInfo(
                 container_id=spawned.container_info.container_id,
                 container_name=spawned.container_info.container_name,
@@ -1242,10 +1298,20 @@ def _spawn_and_wait(
                 agent_role=agent_role,
             )
             phase_execution.containers.append(container_info)
+
+            # Track agent execution
+            agent_execution = AgentExecution(
+                role=agent_role,
+                status=AgentExecutionStatus.RUNNING,
+                container_id=spawned.container_info.container_id,
+                started_at=datetime.utcnow(),
+            )
+            phase_execution.agents.append(agent_execution)
+
             store.save_pipeline(pipeline)
         except Exception as track_err:
             logger.warning(
-                "Failed to record container in pipeline state",
+                "Failed to record container/agent in pipeline state",
                 container_id=spawned.container_info.container_id[:12],
                 error=str(track_err),
             )
@@ -1266,21 +1332,37 @@ def _spawn_and_wait(
         except Exception:
             pass
 
-    # Update container status in phase execution
+    # Update container and agent status in phase execution
     if store is not None:
         try:
+            from models import AgentExecutionStatus
+
             pipeline = store.load_pipeline(pipeline_id)
             phase_execution = pipeline.get_phase_execution(PipelinePhase(phase))
+
+            # Update container status
             for ci in phase_execution.containers:
                 if ci.container_id == spawned.container_info.container_id:
                     ci.status = ContainerStatus.EXITED
                     ci.exited_at = datetime.utcnow()
                     ci.exit_code = final_info.exit_code
                     break
+
+            # Update agent status
+            for agent in phase_execution.agents:
+                if agent.container_id == spawned.container_info.container_id:
+                    agent.completed_at = datetime.utcnow()
+                    if final_info.exit_code == 0:
+                        agent.status = AgentExecutionStatus.COMPLETE
+                    else:
+                        agent.status = AgentExecutionStatus.FAILED
+                        agent.error = f"Container exited with code {final_info.exit_code}"
+                    break
+
             store.save_pipeline(pipeline)
         except Exception as track_err:
             logger.warning(
-                "Failed to update container status in pipeline state",
+                "Failed to update container/agent status in pipeline state",
                 container_id=spawned.container_info.container_id[:12],
                 error=str(track_err),
             )
@@ -1527,6 +1609,75 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 f"EGG_HOST_REPO_MAP contains invalid JSON: {host_repo_map_raw!r}"
             ) from exc
 
+        # Create isolated worktrees via the gateway.  The gateway creates
+        # per-pipeline worktrees from the main repos and returns host paths
+        # suitable for Docker volume mounts.  All containers in a pipeline
+        # share the same worktrees so they see each other's commits.
+        #
+        # We use the pipeline_id as the worktree container_id so all
+        # containers in the pipeline share the same working trees.
+        worktree_id = pipeline_id
+        repo_volumes = dict(host_repo_map)  # fallback: raw host paths
+        host_uid = int(os.environ.get("HOST_UID", 1000))
+        host_gid = int(os.environ.get("HOST_GID", 1000))
+        pipeline_repos = [pipeline.repo] if pipeline.repo else []
+
+        if host_repo_map:
+            try:
+                # Request repos in owner/repo format if available, else bare names
+                wt_repos = pipeline_repos if pipeline_repos else list(host_repo_map.keys())
+                wt_result = spawner.gateway.create_worktrees(
+                    container_id=worktree_id,
+                    repos=wt_repos,
+                    uid=host_uid,
+                    gid=host_gid,
+                )
+
+                if wt_result.success and wt_result.worktrees:
+                    # Gateway returns worktrees keyed by repo name only (e.g., "egg"),
+                    # stripping the owner prefix from "owner/repo" format. This matches
+                    # the container mount target at /home/egg/repos/<name>.
+                    repo_volumes = wt_result.worktrees
+                    logger.info(
+                        "Worktrees created for pipeline",
+                        pipeline_id=pipeline_id,
+                        worktrees=list(repo_volumes.keys()),
+                    )
+                else:
+                    logger.warning(
+                        "Worktree creation returned no worktrees, using raw host paths",
+                        pipeline_id=pipeline_id,
+                        errors=wt_result.errors,
+                    )
+
+                if wt_result.errors:
+                    for err in wt_result.errors:
+                        logger.warning("Worktree error", pipeline_id=pipeline_id, error=err)
+
+            except Exception as wt_err:
+                logger.warning(
+                    "Failed to create worktrees, falling back to raw host paths",
+                    pipeline_id=pipeline_id,
+                    error=str(wt_err),
+                )
+
+        # Resolve the certs named volume for gateway CA trust.
+        # The docker-compose stack creates ${COMPOSE_PROJECT_NAME:-egg}-certs.
+        certs_volume_raw = os.environ.get(
+            "EGG_CERTS_VOLUME",
+            os.environ.get("COMPOSE_PROJECT_NAME", "egg") + "-certs",
+        )
+        # Validate volume name: Docker allows [a-zA-Z0-9][a-zA-Z0-9_.-]*
+        # We use a permissive check that rejects obvious shell metacharacters.
+        if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$", certs_volume_raw):
+            logger.warning(
+                "Invalid certs volume name, using default",
+                raw_name=certs_volume_raw,
+            )
+            certs_volume = "egg-certs"
+        else:
+            certs_volume = certs_volume_raw
+
         while True:
             pipeline = store.load_pipeline(pipeline_id)
 
@@ -1627,13 +1778,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_id=pipeline_id,
                         agent_role=AgentRole.CODER,
                         issue_number=pipeline.issue_number,
-                        repo_volumes=host_repo_map,
+                        repo_volumes=repo_volumes,
                         gateway_mode=phase_gateway_mode,
                         repos=repos,
                         phase=current_phase.value,
                         sandbox_env=sandbox_env,
                         sandbox_command=sandbox_command,
                         store=store,
+                        certs_volume=certs_volume,
                     )
                 except ContainerSpawnError as e:
                     pipeline = store.load_pipeline(pipeline_id)
@@ -1705,7 +1857,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 pipeline_id=pipeline_id,
                                 agent_role=AgentRole.CHECKER,
                                 issue_number=pipeline.issue_number,
-                                repo_volumes=host_repo_map,
+                                repo_volumes=repo_volumes,
                                 gateway_mode=phase_gateway_mode,
                                 repos=repos,
                                 phase=current_phase.value,
@@ -1713,6 +1865,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 sandbox_command=checker_command,
                                 timeout=1800,
                                 store=store,
+                                certs_volume=certs_volume,
                             )
                         except ContainerSpawnError as e:
                             logger.warning(
@@ -1770,13 +1923,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 pipeline_id=pipeline_id,
                                 agent_role=AgentRole.CODER,
                                 issue_number=pipeline.issue_number,
-                                repo_volumes=host_repo_map,
+                                repo_volumes=repo_volumes,
                                 gateway_mode=phase_gateway_mode,
                                 repos=repos,
                                 phase=current_phase.value,
                                 sandbox_env=sandbox_env,
                                 sandbox_command=autofix_command,
                                 store=store,
+                                certs_volume=certs_volume,
                             )
                         except ContainerSpawnError as e:
                             logger.warning(
@@ -1795,7 +1949,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Delete stale verdict files before spawning reviewers
                 for rtype in reviewer_types:
                     verdict_rel = _verdict_path_for_type(
-                        current_phase.value, rtype, pipeline_mode, pipeline.issue_number
+                        current_phase.value, rtype, pipeline_mode, pipeline.issue_number, pipeline_id
                     )
                     verdict_path = repo_path / verdict_rel
                     if verdict_path.exists():
@@ -1850,7 +2004,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id=pipeline_id,
                             agent_role=AgentRole.REVIEWER,
                             issue_number=pipeline.issue_number,
-                            repo_volumes=host_repo_map,
+                            repo_volumes=repo_volumes,
                             gateway_mode=phase_gateway_mode,
                             repos=repos,
                             phase=current_phase.value,
@@ -1858,6 +2012,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             sandbox_command=reviewer_command,
                             timeout=1800,
                             store=store,
+                            certs_volume=certs_volume,
                         )
                     except ContainerSpawnError as e:
                         logger.warning(
@@ -1886,6 +2041,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         reviewer_type=reviewer_type,
                         pipeline_mode=pipeline_mode,
                         issue_number=pipeline.issue_number,
+                        pipeline_id=pipeline_id,
                     )
 
                 # Aggregate all verdicts
@@ -1952,7 +2108,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # --- HITL gate: pause for human approval ---
             if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:
                 draft_content = _read_phase_draft(
-                    repo_path, current_phase.value, pipeline_mode, pipeline.issue_number
+                    repo_path, current_phase.value, pipeline_mode, pipeline.issue_number, pipeline_id
                 )
                 phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
                 question = (
@@ -1997,7 +2153,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             if not next_phases:
                 # Terminal phase — pipeline complete
                 pipeline.status = PipelineStatus.COMPLETE
-                store.save_pipeline(pipeline)
+                # Force commit for local pipelines at phase boundary
+                is_local = pipeline_mode == "local"
+                store.save_pipeline(pipeline, force_commit=is_local)
 
                 # Report pipeline completion to collaborator
                 report_pipeline_status(
@@ -2005,14 +2163,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     event_type="pipeline.completed",
                     message="Pipeline completed successfully",
                 )
-
                 logger.info("Pipeline complete", pipeline_id=pipeline_id)
                 break
 
             # Advance to next phase
             next_phase = next_phases[0]
             pipeline.current_phase = next_phase
-            store.save_pipeline(pipeline)
+            # Force commit for local pipelines at phase boundary
+            is_local = pipeline_mode == "local"
+            store.save_pipeline(pipeline, force_commit=is_local)
 
             logger.info(
                 "Phase advanced",
@@ -2040,6 +2199,21 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             )
         except Exception:
             pass
+    finally:
+        # Clean up pipeline-level worktrees regardless of success/failure
+        try:
+            _spawner = get_container_spawner()
+            _spawner.gateway.delete_worktrees(
+                container_id=pipeline_id,
+                force=True,
+            )
+            logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
+        except Exception as wt_err:
+            logger.warning(
+                "Failed to clean up pipeline worktrees",
+                pipeline_id=pipeline_id,
+                error=str(wt_err),
+            )
 
 
 @pipelines_bp.route("/<pipeline_id>/start", methods=["POST"])
