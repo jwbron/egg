@@ -84,6 +84,7 @@ try:
     from .phase_filter import (
         OperationType,
         check_file_restrictions,
+        check_phase_file_restrictions,
         filter_operation,
     )
     from .policy import (
@@ -137,6 +138,7 @@ except ImportError:
     from phase_filter import (  # type: ignore[no-redef, import-not-found]
         OperationType,
         check_file_restrictions,
+        check_phase_file_restrictions,
         filter_operation,
     )
     from policy import (  # type: ignore[no-redef, import-not-found]
@@ -517,20 +519,12 @@ def git_push() -> tuple[Response, int] | Response:
     # Check Private Repo Mode policy (if enabled)
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
+    session_phase = getattr(g, "session_phase", None)
 
-    # Block push in local SDLC mode
-    if session_mode == "local":
-        audit_log(
-            "push_blocked_local_mode",
-            "git_push",
-            success=False,
-            details={"branch": branch, "reason": "Push blocked in local SDLC mode"},
-        )
-        return make_error(
-            "Operation blocked in local SDLC mode. Push manually when the pipeline completes.",
-            status_code=403,
-            details={"session_mode": "local"},
-        )
+    # Checkpoint branch bypass: pushes to the checkpoint branch always succeed
+    # regardless of session mode or phase (checkpoints can be created at any time)
+    CHECKPOINT_BRANCH = "egg/checkpoints/v1"
+    is_checkpoint_push = branch == CHECKPOINT_BRANCH
 
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -645,6 +639,66 @@ def git_push() -> tuple[Response, int] | Response:
                     "blocked_files": restriction_result.blocked_files,
                     "blocked_reason": restriction_result.blocked_reason,
                     "hint": "Use egg-contract CLI commands to update contract state.",
+                },
+            )
+
+    # SECURITY: Check phase-based file restrictions for local mode sessions.
+    # This replaces the blanket local-mode push block with granular phase-based
+    # restrictions. Each phase has specific allowed/blocked file patterns:
+    # - refine/plan: Can only push .egg-state/ files (contracts, drafts, checkpoints)
+    # - implement: Can push code but not .egg-state/ (except checkpoints)
+    # - pr: Can push everything
+    #
+    # Checkpoint branch pushes always bypass this check (see is_checkpoint_push above).
+    if session_phase and not is_checkpoint_push:
+        # Get the list of files being pushed (reuse if already fetched for role check)
+        if "changed_files" not in dir() or changed_files is None:
+            changed_files, check_error = get_changed_files_in_push(exec_path, remote, branch)
+            if check_error:
+                audit_log(
+                    "push_denied_file_check_failed",
+                    "git_push",
+                    success=False,
+                    details={
+                        "repo": repo,
+                        "branch": branch,
+                        "phase": session_phase,
+                        "error": check_error,
+                    },
+                )
+                return make_error(
+                    f"Push denied: Could not verify file changes for phase check: {check_error}",
+                    status_code=500,
+                    details={
+                        "phase": session_phase,
+                        "error": check_error,
+                        "hint": "This is a security precaution. Try again or contact support.",
+                    },
+                )
+
+        # Check phase-based file restrictions
+        phase_result = check_phase_file_restrictions(session_phase, changed_files)
+        if not phase_result.allowed:
+            audit_log(
+                "push_denied_phase_restrictions",
+                "git_push",
+                success=False,
+                details={
+                    "repo": repo,
+                    "branch": branch,
+                    "phase": session_phase,
+                    "blocked_files": phase_result.blocked_files,
+                    "blocked_reason": phase_result.blocked_reason,
+                },
+            )
+            return make_error(
+                f"Push denied: {phase_result.message}",
+                status_code=403,
+                details={
+                    "phase": session_phase,
+                    "blocked_files": phase_result.blocked_files,
+                    "blocked_reason": phase_result.blocked_reason,
+                    "hint": f"Phase '{session_phase}' has file restrictions. Check allowed patterns.",
                 },
             )
 

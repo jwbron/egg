@@ -148,6 +148,88 @@ class FileRestrictionResult:
 
 
 @dataclass
+class PhaseFileRestriction:
+    """Phase-based file restrictions for git push operations.
+
+    Each phase can define:
+    - allowed_patterns: Only files matching these patterns can be pushed (if set)
+    - blocked_patterns: Files matching these patterns are always blocked
+    - description: Human-readable explanation of the restriction
+    """
+
+    allowed_patterns: list[str] = field(default_factory=list)
+    blocked_patterns: list[str] = field(default_factory=list)
+    description: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PhaseFileRestriction:
+        """Create PhaseFileRestriction from a dictionary."""
+        return cls(
+            allowed_patterns=data.get("allowed_patterns", []),
+            blocked_patterns=data.get("blocked_patterns", []),
+            description=data.get("description", ""),
+        )
+
+    def is_file_allowed(self, file_path: str) -> tuple[bool, str]:
+        """Check if a file is allowed for this phase.
+
+        Returns:
+            Tuple of (allowed: bool, reason: str)
+        """
+        normalized = self._normalize_path(file_path)
+
+        # Check blocked patterns first (explicit blocks take priority)
+        for pattern in self.blocked_patterns:
+            if self._matches_pattern(normalized, pattern):
+                return False, f"File '{file_path}' matches blocked pattern '{pattern}'"
+
+        # If allowed_patterns is defined and non-empty, file must match one
+        if self.allowed_patterns:
+            # Special case: "*" means allow everything
+            if "*" in self.allowed_patterns:
+                return True, "All files allowed"
+
+            for pattern in self.allowed_patterns:
+                if self._matches_pattern(normalized, pattern):
+                    return True, f"File '{file_path}' matches allowed pattern '{pattern}'"
+
+            return False, f"File '{file_path}' does not match any allowed pattern"
+
+        # No allowed_patterns defined = allow by default (only blocked patterns matter)
+        return True, "No explicit restrictions"
+
+    @staticmethod
+    def _normalize_path(file_path: str) -> str:
+        """Normalize a file path to prevent bypass via path manipulation."""
+        normalized = posixpath.normpath(file_path)
+        if normalized.startswith("./"):
+            normalized = normalized[2:]
+        return normalized
+
+    @staticmethod
+    def _matches_pattern(file_path: str, pattern: str) -> bool:
+        """Check if a file path matches a glob-like pattern.
+
+        Supports:
+        - Exact prefix match (e.g., ".egg-state/contracts/" matches ".egg-state/contracts/foo.json")
+        - Wildcard suffix match (e.g., ".egg-state/drafts/*analysis*" matches "*-analysis.md")
+        - Full wildcard ("*" matches everything)
+        """
+        if pattern == "*":
+            return True
+
+        # If pattern ends with *, use fnmatch for glob matching
+        if "*" in pattern:
+            return fnmatch.fnmatch(file_path, pattern)
+
+        # Otherwise, use prefix matching (for directory patterns)
+        if pattern.endswith("/"):
+            return file_path.startswith(pattern)
+
+        return file_path.startswith(pattern)
+
+
+@dataclass
 class PhasePermissions:
     """Permission set for a single phase."""
 
@@ -226,6 +308,7 @@ class PhaseFilter:
         """
         self._permissions: dict[PipelinePhase, PhasePermissions] = {}
         self._file_restrictions: list[FileRestriction] = []
+        self._phase_file_restrictions: dict[PipelinePhase, PhaseFileRestriction] = {}
         self._permissions_path = permissions_path
         self._loaded = False
 
@@ -256,6 +339,7 @@ class PhaseFilter:
             # Use default permissions if file doesn't exist
             self._permissions = self._get_default_permissions()
             self._file_restrictions = self._get_default_file_restrictions()
+            self._phase_file_restrictions = self._get_default_phase_file_restrictions()
             self._loaded = True
             return
 
@@ -282,6 +366,22 @@ class PhaseFilter:
         else:
             # Use defaults when file_restrictions not configured (backwards compatibility)
             self._file_restrictions = self._get_default_file_restrictions()
+
+        # Load phase-based file restrictions
+        phase_file_restrictions_data = data.get("phase_file_restrictions", {})
+        if phase_file_restrictions_data:
+            for phase_name, restriction_data in phase_file_restrictions_data.items():
+                try:
+                    phase = PipelinePhase(phase_name)
+                    self._phase_file_restrictions[phase] = PhaseFileRestriction.from_dict(
+                        restriction_data
+                    )
+                except ValueError:
+                    # Skip unknown phases
+                    pass
+        else:
+            # Use defaults when phase_file_restrictions not configured
+            self._phase_file_restrictions = self._get_default_phase_file_restrictions()
 
         self._loaded = True
 
@@ -356,6 +456,50 @@ class PhaseFilter:
             ),
         ]
 
+    def _get_default_phase_file_restrictions(self) -> dict[PipelinePhase, PhaseFileRestriction]:
+        """Get default phase-based file restrictions.
+
+        These defaults define which files can be pushed during each phase:
+        - refine: Only .egg-state/ files (contracts, drafts, checkpoints)
+        - plan: Only .egg-state/ files (contracts, drafts, checkpoints)
+        - implement: Code only, not .egg-state/ (except checkpoints)
+        - pr: Everything
+        """
+        return {
+            PipelinePhase.REFINE: PhaseFileRestriction(
+                allowed_patterns=[
+                    ".egg-state/contracts/*",
+                    ".egg-state/drafts/*analysis*",
+                    ".egg-state/checkpoints/*",
+                ],
+                description="Refine phase can only push contracts, analysis drafts, and checkpoints",
+            ),
+            PipelinePhase.PLAN: PhaseFileRestriction(
+                allowed_patterns=[
+                    ".egg-state/contracts/*",
+                    ".egg-state/drafts/*plan*",
+                    ".egg-state/checkpoints/*",
+                ],
+                description="Plan phase can only push contracts, plan drafts, and checkpoints",
+            ),
+            PipelinePhase.IMPLEMENT: PhaseFileRestriction(
+                blocked_patterns=[
+                    ".egg-state/contracts/*",
+                    ".egg-state/drafts/*",
+                    ".egg-state/pipelines/*",
+                    ".egg-state/reviews/*",
+                ],
+                allowed_patterns=[
+                    ".egg-state/checkpoints/*",
+                ],
+                description="Implement phase can push code but not .egg-state/ (except checkpoints)",
+            ),
+            PipelinePhase.PR: PhaseFileRestriction(
+                allowed_patterns=["*"],
+                description="PR phase can push everything",
+            ),
+        }
+
     def get_file_restrictions(self) -> list[FileRestriction]:
         """Get all configured file restrictions.
 
@@ -423,6 +567,62 @@ class PhaseFilter:
             )
 
         return FileRestrictionResult.allow("All files allowed")
+
+    def check_phase_file_restrictions(
+        self, phase: PipelinePhase | str, files: list[str]
+    ) -> FileRestrictionResult:
+        """Check if files are allowed for the given pipeline phase.
+
+        This method enforces phase-based file restrictions for git push operations.
+        Different phases have different allowed/blocked file patterns to ensure
+        proper separation of concerns in the SDLC pipeline.
+
+        SECURITY: This is a critical control for pipeline integrity:
+        - refine/plan phases can only modify .egg-state/ files
+        - implement phase can modify code but not .egg-state/ (except checkpoints)
+        - pr phase has full access
+
+        Args:
+            phase: The current pipeline phase
+            files: List of file paths being modified in the push
+
+        Returns:
+            FileRestrictionResult indicating whether the files are allowed
+        """
+        self._load_permissions()
+
+        if isinstance(phase, str):
+            try:
+                phase = PipelinePhase(phase)
+            except ValueError:
+                return FileRestrictionResult.allow(f"Unknown phase '{phase}', allowing by default")
+
+        if not files:
+            return FileRestrictionResult.allow("No files to check")
+
+        restrictions = self._phase_file_restrictions.get(phase)
+        if not restrictions:
+            return FileRestrictionResult.allow(f"No phase file restrictions for phase: {phase.value}")
+
+        blocked_files: list[str] = []
+        blocked_reasons: list[str] = []
+
+        for file_path in files:
+            allowed, reason = restrictions.is_file_allowed(file_path)
+            if not allowed:
+                blocked_files.append(file_path)
+                if reason not in blocked_reasons:
+                    blocked_reasons.append(reason)
+
+        if blocked_files:
+            return FileRestrictionResult.block(
+                message=f"Phase '{phase.value}' cannot modify: {', '.join(blocked_files)}",
+                role=f"phase:{phase.value}",
+                blocked_files=blocked_files,
+                blocked_reason="; ".join(blocked_reasons),
+            )
+
+        return FileRestrictionResult.allow(f"All files allowed for phase '{phase.value}'")
 
     def get_permissions(self, phase: PipelinePhase) -> PhasePermissions | None:
         """Get the permissions for a phase.
@@ -629,6 +829,32 @@ def check_file_restrictions(role: str, files: list[str]) -> FileRestrictionResul
         FileRestrictionResult indicating whether the files are allowed
     """
     return get_phase_filter().check_file_restrictions(role, files)
+
+
+def check_phase_file_restrictions(
+    phase: str | PipelinePhase, files: list[str]
+) -> FileRestrictionResult:
+    """Check if files are allowed for a pipeline phase (convenience function).
+
+    This function checks a list of files against the phase-based file restrictions.
+    Different phases have different allowed/blocked patterns to enforce proper
+    separation of concerns in the SDLC pipeline.
+
+    SECURITY: Enforces phase-based file access control:
+    - refine/plan: Can only push .egg-state/ files (contracts, drafts, checkpoints)
+    - implement: Can push code but not .egg-state/ (except checkpoints)
+    - pr: Can push everything
+
+    Args:
+        phase: The current pipeline phase (string or PipelinePhase enum)
+        files: List of file paths being modified
+
+    Returns:
+        FileRestrictionResult indicating whether the files are allowed
+    """
+    if isinstance(phase, str):
+        phase = PipelinePhase(phase)
+    return get_phase_filter().check_phase_file_restrictions(phase, files)
 
 
 def check_agent_restrictions(agent_role: str, files: list[str]) -> FileRestrictionResult:
