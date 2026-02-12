@@ -5,7 +5,7 @@
   "branch": "egg/issue-530",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -18,9 +18,9 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-02-12T17:30:48.765419",
-      "completed_at": null,
+      "completed_at": "2026-02-12T17:30:50.269314",
       "containers": [
         {
           "container_id": "238f6ad310aa0ae6381f196297c8d5650276b2820e0ecc13228a87ba16391e12",
@@ -48,13 +48,13 @@
       ],
       "review_cycles": 0,
       "artifacts": {},
-      "error": null
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-12T17:30:50.082462640Z     GitHub token valid: True\n2026-02-12T17:30:50.082471848Z     Auth configured: True\n2026-02-12T17:30:50.082479640Z ✓   Proxy connectivity verified (Anthropic returned HTTP 403)\n2026-02-12T17:30:50.082487682Z ✓ Gateway ready!\n2026-02-12T17:30:50.082495182Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-12T17:30:50.082503223Z   Credentials injected by gateway (not in container)\n2026-02-12T17:30:50.082511015Z ⚠ Orchestrator mode enabled but missing URL or pipeline_id\n2026-02-12T17:30:50.082529348Z \n2026-02-12T17:30:50.082536807Z Cleaning up on container exit...\n2026-02-12T17:30:50.082544515Z ✓ Cleanup complete"
     }
   },
   "decisions": [],
   "created_at": "2026-02-12T17:30:43.996420",
-  "updated_at": "2026-02-12T17:30:50.225205",
+  "updated_at": "2026-02-12T17:30:50.269456",
   "contract_synced": false,
-  "error": null,
-  "version": 6
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-12T17:30:50.082462640Z     GitHub token valid: True\n2026-02-12T17:30:50.082471848Z     Auth configured: True\n2026-02-12T17:30:50.082479640Z ✓   Proxy connectivity verified (Anthropic returned HTTP 403)\n2026-02-12T17:30:50.082487682Z ✓ Gateway ready!\n2026-02-12T17:30:50.082495182Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-12T17:30:50.082503223Z   Credentials injected by gateway (not in container)\n2026-02-12T17:30:50.082511015Z ⚠ Orchestrator mode enabled but missing URL or pipeline_id\n2026-02-12T17:30:50.082529348Z \n2026-02-12T17:30:50.082536807Z Cleaning up on container exit...\n2026-02-12T17:30:50.082544515Z ✓ Cleanup complete",
+  "version": 7
 }
