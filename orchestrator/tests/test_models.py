@@ -2,9 +2,7 @@
 Tests for orchestrator models.
 """
 
-from datetime import datetime, timedelta
-
-import pytest
+from datetime import datetime
 
 from models import (
     AgentExecution,

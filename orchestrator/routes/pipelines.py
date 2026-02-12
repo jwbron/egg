@@ -29,7 +29,7 @@ except ImportError:
 # Import orchestrator modules - try relative import first
 try:
     from ..container_spawner import ContainerSpawnError, get_container_spawner
-    from ..models import AgentRole, PipelineStatus, ReviewVerdict, ReviewerType
+    from ..models import AgentRole, PipelineStatus, ReviewVerdict
     from ..state_store import (
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -39,7 +39,7 @@ try:
     )
 except ImportError:
     from container_spawner import ContainerSpawnError, get_container_spawner  # type: ignore
-    from models import AgentRole, PipelineStatus, ReviewVerdict, ReviewerType  # type: ignore
+    from models import AgentRole, PipelineStatus, ReviewVerdict  # type: ignore
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -1213,7 +1213,9 @@ def _build_autofix_prompt(
     failures = []
     for check in check_results.get("checks", []):
         if not check.get("passed", True):
-            failures.append(f"- **{check.get('name', 'unknown')}**: {check.get('output', 'failed')}")
+            failures.append(
+                f"- **{check.get('name', 'unknown')}**: {check.get('output', 'failed')}"
+            )
 
     failure_summary = "\n".join(failures) if failures else "No specific failures recorded."
 
@@ -1281,12 +1283,15 @@ def _populate_contract_from_plan(repo_path: Path, pipeline_id: str) -> None:
     try:
         contract = load_contract(pipeline_id, repo_path)
     except Exception:
-        logger.warning("Contract not found for pipeline, skipping population", pipeline_id=pipeline_id)
+        logger.warning(
+            "Contract not found for pipeline, skipping population", pipeline_id=pipeline_id
+        )
         return
 
     try:
         from egg_contracts.models import Phase as ContractPhase
-        from egg_contracts.models import PhaseStatus, Task as ContractTask
+        from egg_contracts.models import PhaseStatus
+        from egg_contracts.models import Task as ContractTask
 
         plan_text = plan_path.read_text()
 
@@ -1482,9 +1487,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pipeline.status = PipelineStatus.FAILED
                     pipeline.error = str(e)
                     store.save_pipeline(pipeline)
-                    logger.error(
-                        "Failed to spawn container", pipeline_id=pipeline_id, error=str(e)
-                    )
+                    logger.error("Failed to spawn container", pipeline_id=pipeline_id, error=str(e))
                     phase_failed = True
                     break
 

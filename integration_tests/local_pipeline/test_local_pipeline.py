@@ -675,9 +675,7 @@ class TestReviewCycleCircuitBreaker:
                 json={"config.max_review_cycles": 1},
                 timeout=10,
             )
-            assert patch_resp.status_code == 200, (
-                f"Failed to patch config: {patch_resp.json()}"
-            )
+            assert patch_resp.status_code == 200, f"Failed to patch config: {patch_resp.json()}"
 
             start_pipeline(orchestrator_url, pipeline_id)
             # Longer timeout: each phase has worker + multiple reviewer containers
@@ -849,9 +847,7 @@ class TestContractCreatedForLocalPipeline:
             from pathlib import Path
 
             contract_path = Path(repos_dir) / f".egg-state/contracts/{pipeline_id}.json"
-            assert contract_path.exists(), (
-                f"Contract file should exist at {contract_path}"
-            )
+            assert contract_path.exists(), f"Contract file should exist at {contract_path}"
 
             # Verify contract content
             contract_data = json.loads(contract_path.read_text())
