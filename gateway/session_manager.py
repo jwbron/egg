@@ -32,6 +32,24 @@ from egg_logging import get_logger
 
 logger = get_logger("gateway.session-manager")
 
+
+# Import transcript buffer cleanup (lazy to avoid circular imports)
+def _cleanup_transcript_buffer(container_id: str) -> None:
+    """Clean up transcript buffer for a container when session ends."""
+    try:
+        from transcript_buffer import cleanup_transcript_buffer
+        cleanup_transcript_buffer(container_id)
+        logger.debug("Transcript buffer cleaned up", container_id=container_id)
+    except ImportError:
+        # transcript_buffer may not be available in all contexts
+        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to clean up transcript buffer",
+            container_id=container_id,
+            error=str(e),
+        )
+
 # Session configuration
 DEFAULT_SESSION_TTL_HOURS = 24
 DEFAULT_CLEANUP_INTERVAL_MINUTES = 15
@@ -85,6 +103,7 @@ class Session:
         last_seen: Last request timestamp (for heartbeat)
         expires_at: Session expiry timestamp
         agent_role: Role set by workflow context for contract operations
+        phase: SDLC pipeline phase (refine, plan, implement, pr) for operation filtering
     """
 
     session_token: str | None  # Raw token, only in memory
@@ -96,6 +115,7 @@ class Session:
     last_seen: datetime
     expires_at: datetime
     agent_role: str | None = None  # Role set by workflow context
+    phase: str | None = None  # SDLC pipeline phase for operation filtering
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -119,6 +139,8 @@ class Session:
         }
         if self.agent_role is not None:
             result["agent_role"] = self.agent_role
+        if self.phase is not None:
+            result["phase"] = self.phase
         return result
 
     @classmethod
@@ -134,6 +156,7 @@ class Session:
             last_seen=datetime.fromisoformat(data["last_seen"]),
             expires_at=datetime.fromisoformat(data["expires_at"]),
             agent_role=data.get("agent_role"),
+            phase=data.get("phase"),
         )
 
 
@@ -275,6 +298,7 @@ class SessionManager:
         container_id: str,
         container_ip: str,
         mode: ModeType,
+        phase: str | None = None,
     ) -> tuple[str, Session]:
         """
         Register a new session for a container.
@@ -283,6 +307,7 @@ class SessionManager:
             container_id: Docker container ID
             container_ip: Container's IP address on the Docker network
             mode: Repository visibility mode (private or public)
+            phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
 
         Returns:
             Tuple of (session_token, Session)
@@ -301,6 +326,7 @@ class SessionManager:
             created_at=now,
             last_seen=now,
             expires_at=now + timedelta(hours=self._ttl_hours),
+            phase=phase,
         )
 
         with self._lock:
@@ -315,6 +341,7 @@ class SessionManager:
             container_id=container_id,
             container_ip=container_ip,
             mode=mode,
+            phase=phase,
         )
 
         return token, session
@@ -451,6 +478,54 @@ class SessionManager:
                     return session
         return None
 
+    def update_phase(self, token: str, phase: str) -> bool:
+        """
+        Update the SDLC pipeline phase for a session.
+
+        Only the launcher (with launcher_secret) should call this to update
+        the phase as the pipeline progresses through stages.
+
+        Args:
+            token: The session token
+            phase: The new phase value (e.g., "refine", "plan", "implement", "pr")
+
+        Returns:
+            True if phase was updated, False if session not found
+        """
+        token_hash = self._token_to_hash.get(token) or _hash_token(token)
+
+        with self._lock:
+            session = self._sessions.get(token_hash)
+            if not session:
+                logger.warning(
+                    "Failed to update phase - session not found",
+                    session_token_hash=token_hash[:16],
+                )
+                return False
+
+            if session.is_expired():
+                logger.warning(
+                    "Failed to update phase - session expired",
+                    session_token_hash=token_hash[:16],
+                    container_id=session.container_id,
+                )
+                return False
+
+            old_phase = session.phase
+            session.phase = phase
+            self._save_to_disk()
+
+            logger.info(
+                "Session phase updated",
+                event_type="session_phase_updated",
+                session_token_hash=token_hash[:16],
+                container_id=session.container_id,
+                old_phase=old_phase,
+                new_phase=phase,
+            )
+
+            return True
+
     def delete_session(self, token: str) -> bool:
         """
         Delete a session by token.
@@ -506,6 +581,9 @@ class SessionManager:
                     self._token_to_hash.pop(session.session_token, None)
                 self._save_to_disk()
 
+                # Clean up transcript buffer for this container
+                _cleanup_transcript_buffer(container_id)
+
                 logger.info(
                     "Session deleted by container ID",
                     event_type="session_deleted",
@@ -536,6 +614,9 @@ class SessionManager:
                 if session.session_token:
                     self._token_to_hash.pop(session.session_token, None)
                 pruned += 1
+
+                # Clean up transcript buffer for expired session
+                _cleanup_transcript_buffer(session.container_id)
 
                 logger.info(
                     "Session expired and pruned",

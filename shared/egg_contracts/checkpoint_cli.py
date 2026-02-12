@@ -3,7 +3,12 @@
 Checkpoint CLI for browsing and querying agent checkpoints.
 
 This CLI provides commands to list, show, and browse checkpoints that capture
-agent session context. Checkpoints are stored in the egg/checkpoints/v1 branch.
+agent session context. Each commit has exactly one checkpoint, enabling precise
+traceability between code changes and agent sessions.
+
+Checkpoints are stored in the egg/checkpoints/v1 branch and are captured
+per-commit during git push operations. Transcript data is extracted from the
+API proxy buffer, providing stable and format-independent capture.
 
 Commands:
     egg-checkpoint list [--branch <branch>] [--issue <number>] [--limit <n>]

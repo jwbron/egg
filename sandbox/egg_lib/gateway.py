@@ -457,6 +457,7 @@ def create_session(
     repos: list[str],
     uid: int | None = None,
     gid: int | None = None,
+    phase: str | None = None,
 ) -> tuple[bool, str | None, dict[str, str], list[str], list[str]]:
     """Create a session with atomic visibility query, filtering, and worktree creation.
 
@@ -473,6 +474,7 @@ def create_session(
         repos: List of repository names (or owner/repo format)
         uid: User ID to set worktree ownership to
         gid: Group ID to set worktree ownership to
+        phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
 
     Returns:
         Tuple of (success, session_token, worktrees_dict, filtered_repos, errors_list)
@@ -491,6 +493,8 @@ def create_session(
         request_data["uid"] = uid
     if gid is not None:
         request_data["gid"] = gid
+    if phase is not None:
+        request_data["phase"] = phase
 
     success_flag, response = launcher_api_call(
         "/api/v1/sessions/create",

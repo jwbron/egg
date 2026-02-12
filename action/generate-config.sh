@@ -18,6 +18,10 @@
 #   INPUT_BOT_APP_PRIVATE_KEY    — GitHub App private key PEM content
 #   INPUT_BOT_APP_INSTALLATION_ID — GitHub App installation ID
 #   INPUT_BOT_USERNAME           — Bot username (REQUIRED for bot mode)
+#   INPUT_REVIEWER_APP_ID        — Reviewer GitHub App ID (for posting reviews)
+#   INPUT_REVIEWER_APP_PRIVATE_KEY — Reviewer GitHub App private key PEM content
+#   INPUT_REVIEWER_APP_INSTALLATION_ID — Reviewer GitHub App installation ID
+#   INPUT_REVIEWER_BOT_NAME      — Reviewer bot username
 #
 # Outputs:
 #   EGG_CONFIG_DIR — path to the generated config directory (written to GITHUB_OUTPUT)
@@ -112,6 +116,23 @@ fi
 BOT_BRANCH_PREFIX="${INPUT_BOT_BRANCH_PREFIX:-}"
 echo "GATEWAY_BOT_NAME=${BOT_USERNAME}" >> "$CONFIG_DIR/secrets.env"
 echo "GATEWAY_BOT_BRANCH_PREFIX=${BOT_BRANCH_PREFIX}" >> "$CONFIG_DIR/secrets.env"
+
+# Add reviewer bot credentials if provided
+# The reviewer bot is a separate GitHub App used for posting code reviews.
+# This allows reviews to use the full GitHub Reviews API (approve/request-changes)
+# since the reviewer is not the same account as the PR author.
+if [[ -n "${INPUT_REVIEWER_APP_ID:-}" && -n "${INPUT_REVIEWER_APP_PRIVATE_KEY:-}" && -n "${INPUT_REVIEWER_APP_INSTALLATION_ID:-}" ]]; then
+  echo "REVIEWER_APP_ID=${INPUT_REVIEWER_APP_ID}" >> "$CONFIG_DIR/secrets.env"
+  echo "REVIEWER_APP_INSTALLATION_ID=${INPUT_REVIEWER_APP_INSTALLATION_ID}" >> "$CONFIG_DIR/secrets.env"
+  # Normalize literal \n sequences to real newlines
+  REVIEWER_PEM="${INPUT_REVIEWER_APP_PRIVATE_KEY//\\n/$'\n'}"
+  echo "REVIEWER_APP_PRIVATE_KEY=${REVIEWER_PEM}" >> "$CONFIG_DIR/secrets.env"
+
+  # Add reviewer bot name for identity checks
+  if [[ -n "${INPUT_REVIEWER_BOT_NAME:-}" ]]; then
+    echo "GATEWAY_REVIEWER_BOT_NAME=${INPUT_REVIEWER_BOT_NAME}" >> "$CONFIG_DIR/secrets.env"
+  fi
+fi
 
 chmod 600 "$CONFIG_DIR/secrets.env"
 

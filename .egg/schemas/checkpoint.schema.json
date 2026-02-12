@@ -74,6 +74,12 @@
       "description": "The tip commit SHA of the push that triggered this checkpoint (may differ from commit_sha for multi-commit pushes)",
       "pattern": "^[a-f0-9]{7,40}$",
       "default": null
+    },
+    "pr_number": {
+      "type": ["integer", "null"],
+      "description": "GitHub PR number if associated with a pull request",
+      "minimum": 1,
+      "default": null
     }
   },
   "additionalProperties": false,

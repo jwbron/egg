@@ -217,9 +217,11 @@ class TokenRefresher:
             self._consecutive_failures = 0
 
 
-# Global token refresher instance
+# Global token refresher instances (bot and reviewer)
 _token_refresher: TokenRefresher | None = None
+_reviewer_token_refresher: TokenRefresher | None = None
 _refresher_initialization_attempted = False
+_reviewer_refresher_initialization_attempted = False
 
 
 def _read_secrets_env(secrets_file: Path) -> dict[str, str]:
@@ -352,7 +354,7 @@ def initialize_token_refresher(
 
 def get_token_refresher() -> TokenRefresher | None:
     """
-    Get the global token refresher instance.
+    Get the global token refresher instance (for bot/main app).
 
     Returns None if refresher was not initialized or initialization failed.
     Call initialize_token_refresher() first during startup.
@@ -376,12 +378,151 @@ def get_bot_token() -> tuple[str | None, str]:
     return None, "none"
 
 
+def initialize_reviewer_token_refresher(
+    app_id: str | None = None,
+    private_key: str | None = None,
+    installation_id: int | None = None,
+) -> TokenRefresher | None:
+    """
+    Initialize the global reviewer token refresher from config or environment.
+
+    The reviewer token is used for a separate GitHub App that posts code reviews.
+    This allows reviews to use the full GitHub Reviews API (approve/request-changes)
+    since the reviewer is not the same account as the PR author.
+
+    Config can be provided via:
+    1. Explicit parameters (highest priority)
+    2. Environment variables: REVIEWER_APP_ID, REVIEWER_APP_PRIVATE_KEY, REVIEWER_APP_INSTALLATION_ID
+
+    Returns None if required config is missing.
+
+    Args:
+        app_id: Reviewer GitHub App ID (optional, overrides env)
+        private_key: Reviewer private key PEM content (optional)
+        installation_id: Reviewer GitHub App installation ID (optional)
+
+    Returns:
+        Initialized TokenRefresher or None if config missing
+    """
+    global _reviewer_token_refresher, _reviewer_refresher_initialization_attempted
+
+    # Only attempt initialization once
+    if _reviewer_refresher_initialization_attempted:
+        return _reviewer_token_refresher
+    _reviewer_refresher_initialization_attempted = True
+
+    # Resolve app_id (explicit > env)
+    resolved_app_id = app_id or os.environ.get("REVIEWER_APP_ID")
+
+    # Resolve installation_id (explicit > env)
+    resolved_installation_id = installation_id
+    if resolved_installation_id is None:
+        env_installation_id = os.environ.get("REVIEWER_APP_INSTALLATION_ID")
+        if env_installation_id:
+            try:
+                resolved_installation_id = int(env_installation_id)
+            except ValueError:
+                logger.warning(
+                    "Invalid REVIEWER_APP_INSTALLATION_ID",
+                    value=env_installation_id,
+                )
+
+    # Resolve private key (explicit > env)
+    resolved_private_key = private_key or os.environ.get("REVIEWER_APP_PRIVATE_KEY")
+
+    # Validate all required config is present
+    if not all([resolved_app_id, resolved_installation_id, resolved_private_key]):
+        # Reviewer is optional - just log debug and return None
+        logger.debug(
+            "Reviewer token refresher not configured (optional)",
+            has_app_id=bool(resolved_app_id),
+            has_installation_id=bool(resolved_installation_id),
+            has_private_key=bool(resolved_private_key),
+        )
+        return None
+
+    try:
+        if resolved_app_id is None or resolved_installation_id is None or resolved_private_key is None:
+            raise ValueError("app_id, installation_id, and private_key are required")
+
+        refresher = TokenRefresher(
+            app_id=resolved_app_id,
+            private_key=resolved_private_key,
+            installation_id=resolved_installation_id,
+        )
+
+        # Verify we can get a token on startup
+        token = refresher.get_token()
+        if token:
+            logger.info(
+                "Reviewer token refresher initialized successfully",
+                app_id=resolved_app_id,
+                installation_id=resolved_installation_id,
+            )
+            _reviewer_token_refresher = refresher
+            return refresher
+        else:
+            logger.error("Reviewer token refresher failed to get initial token")
+            return None
+
+    except Exception as e:
+        logger.error(
+            "Failed to initialize reviewer token refresher",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        return None
+
+
+def get_reviewer_token_refresher() -> TokenRefresher | None:
+    """
+    Get the global reviewer token refresher instance.
+
+    Returns None if refresher was not initialized or initialization failed.
+    Call initialize_reviewer_token_refresher() first during startup.
+    """
+    return _reviewer_token_refresher
+
+
+def get_reviewer_token() -> tuple[str | None, str]:
+    """
+    Get the reviewer token from the reviewer token refresher.
+
+    Returns:
+        Tuple of (token, source) where source is "reviewer_refresher" or "none"
+    """
+    refresher = get_reviewer_token_refresher()
+    if refresher:
+        token = refresher.get_token()
+        if token:
+            return token, "reviewer_refresher"
+
+    return None, "none"
+
+
+def is_reviewer_token_available() -> bool:
+    """
+    Check if a reviewer token is available.
+
+    Returns:
+        True if reviewer token refresher is initialized and has a valid token.
+    """
+    refresher = get_reviewer_token_refresher()
+    if refresher:
+        token = refresher.get_token()
+        return token is not None
+    return False
+
+
 def reset_token_refresher() -> None:
     """
     Reset the global token refresher state (for testing).
 
-    This clears the global instance and allows re-initialization.
+    This clears both bot and reviewer instances and allows re-initialization.
     """
     global _token_refresher, _refresher_initialization_attempted
+    global _reviewer_token_refresher, _reviewer_refresher_initialization_attempted
     _token_refresher = None
     _refresher_initialization_attempted = False
+    _reviewer_token_refresher = None
+    _reviewer_refresher_initialization_attempted = False
