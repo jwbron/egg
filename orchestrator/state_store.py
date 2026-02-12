@@ -160,8 +160,10 @@ class StateStore:
                         shutil.rmtree(item)
                     else:
                         item.unlink()
-            except GitOperationError:
-                # Clean up partial worktree on failure to avoid broken state
+            except (GitOperationError, OSError):
+                # Clean up partial worktree on failure to avoid broken state.
+                # Catch both GitOperationError (git command failures) and OSError
+                # (filesystem errors during file cleanup like permission denied).
                 shutil.rmtree(wt, ignore_errors=True)
                 self._run_git("worktree", "prune", check=False)
                 raise
