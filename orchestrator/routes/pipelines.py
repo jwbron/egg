@@ -59,6 +59,17 @@ pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
 
 from routes import get_repo_path  # noqa: E402 — shared helper
 
+# Import status reporter for real-time updates
+try:
+    from status_reporter import get_status_reporter, report_pipeline_status
+except ImportError:
+    # Fallback if status_reporter not available
+    def get_status_reporter():  # type: ignore[misc]
+        return None
+
+    def report_pipeline_status(pipeline, event_type=None, message=None):  # type: ignore[misc]
+        pass
+
 
 def make_error_response(
     message: str,
@@ -1521,6 +1532,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 pipeline.status = PipelineStatus.RUNNING
                 store.save_pipeline(pipeline)
 
+                # Report phase start to collaborator
+                report_pipeline_status(
+                    pipeline,
+                    event_type="phase.started",
+                    message=f"Phase {current_phase.value} started",
+                )
+
             # Common sandbox environment for all containers in this phase
             gateway_url = os.environ.get("GATEWAY_URL", "http://172.32.0.2:9848")
             sandbox_env: dict[str, str] = {
@@ -1906,6 +1924,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             phase_execution.status = PipelineStatus.COMPLETE
             phase_execution.completed_at = datetime.utcnow()
 
+            # Report phase completion to collaborator
+            report_pipeline_status(
+                pipeline,
+                event_type="phase.completed",
+                message=f"Phase {current_phase.value} completed",
+            )
+
             # After plan phase: populate contract with task structure
             if current_phase.value == "plan" and pipeline_mode == "local":
                 _populate_contract_from_plan(repo_path, pipeline_id)
@@ -1932,6 +1957,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 pipeline.status = PipelineStatus.AWAITING_HUMAN
                 store.save_pipeline(pipeline)
 
+                # Report HITL gate to collaborator
+                report_pipeline_status(
+                    pipeline,
+                    event_type="decision.created",
+                    message=f"Awaiting human approval for {current_phase.value} phase",
+                )
+
                 try:
                     dq.wait_for_decision(decision.id)
                 except DecisionTimeoutError:
@@ -1952,6 +1984,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Terminal phase — pipeline complete
                 pipeline.status = PipelineStatus.COMPLETE
                 store.save_pipeline(pipeline)
+
+                # Report pipeline completion to collaborator
+                report_pipeline_status(
+                    pipeline,
+                    event_type="pipeline.completed",
+                    message="Pipeline completed successfully",
+                )
+
                 logger.info("Pipeline complete", pipeline_id=pipeline_id)
                 break
 
@@ -1977,6 +2017,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             pipeline.status = PipelineStatus.FAILED
             pipeline.error = str(e)
             store.save_pipeline(pipeline)
+
+            # Report pipeline failure to collaborator
+            report_pipeline_status(
+                pipeline,
+                event_type="pipeline.failed",
+                message=f"Pipeline failed: {str(e)[:100]}",
+            )
         except Exception:
             pass
 
@@ -2050,6 +2097,107 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 "current_phase": pipeline.current_phase.value,
             },
         )
+
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found",
+            status_code=404,
+        )
+
+
+@pipelines_bp.route("/<pipeline_id>/visualization", methods=["GET"])
+def get_pipeline_visualization(pipeline_id: str) -> tuple[Response, int]:
+    """
+    Get pipeline DAG visualization.
+
+    URL params:
+        pipeline_id: Pipeline ID
+
+    Query params:
+        format: Output format - "full" (default), "compact", "text", "json"
+        ascii: Use ASCII-only characters (default: false)
+
+    Response:
+        {
+            "success": true,
+            "data": {
+                "pipeline_id": "issue-123",
+                "visualization": {
+                    "dag": "...",  // Full DAG visualization
+                    "compact": "...",  // Single-line status
+                    "progress": "..."  // Progress bar
+                },
+                "phases": {...},  // Phase status summary
+                "status": "running",
+                "current_phase": "implement"
+            }
+        }
+    """
+    # Import visualization modules
+    try:
+        from dag_visualizer import (
+            generate_status_report,
+            render_compact_status,
+            render_pipeline_dag,
+            render_progress_bar,
+        )
+    except ImportError:
+        return make_error_response(
+            "Visualization module not available",
+            status_code=500,
+        )
+
+    repo_path = get_repo_path()
+    output_format = request.args.get("format", "full")
+    use_ascii = request.args.get("ascii", "false").lower() == "true"
+
+    try:
+        _store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
+
+        if output_format == "json":
+            # Return structured JSON report
+            report = generate_status_report(pipeline, use_ascii=use_ascii)
+            return make_success_response(
+                "Visualization generated",
+                data=report,
+            )
+
+        elif output_format == "text":
+            # Return plain text DAG
+            dag_text = render_pipeline_dag(pipeline, use_ascii=use_ascii)
+            return Response(
+                dag_text,
+                mimetype="text/plain",
+                status=200,
+            )
+
+        elif output_format == "compact":
+            # Return compact single-line status
+            compact = render_compact_status(pipeline, use_ascii=use_ascii)
+            progress = render_progress_bar(pipeline, use_ascii=use_ascii)
+            return make_success_response(
+                "Visualization generated",
+                data={
+                    "pipeline_id": pipeline.id,
+                    "compact": compact,
+                    "progress": progress,
+                    "status": pipeline.status.value,
+                    "current_phase": pipeline.current_phase.value,
+                },
+            )
+
+        else:
+            # Full format with all visualizations
+            report = generate_status_report(pipeline, use_ascii=use_ascii)
+            return make_success_response(
+                "Visualization generated",
+                data=report,
+            )
 
     except InvalidPipelineIdError:
         return make_error_response(
