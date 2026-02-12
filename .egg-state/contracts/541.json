@@ -14,7 +14,7 @@
     },
     {
       "id": "ac-2",
-      "description": "[TASK-1-2] render_phase_dag returns formatted string with REFINE\u2192PLAN\u2192IMPLEMENT\u2192PR and status",
+      "description": "[TASK-1-2] render_phase_dag returns formatted string with REFINE→PLAN→IMPLEMENT→PR and status",
       "verified": false
     },
     {
@@ -162,7 +162,7 @@
           "id": "task-1-2",
           "description": "Implement phase DAG renderer",
           "status": "pending",
-          "acceptance_criteria": "render_phase_dag returns formatted string with REFINE\u2192PLAN\u2192IMPLEMENT\u2192PR and status",
+          "acceptance_criteria": "render_phase_dag returns formatted string with REFINE→PLAN→IMPLEMENT→PR and status",
           "files_affected": [
             "orchestrator/dag_visualizer.py"
           ],
@@ -612,9 +612,19 @@
       "old_value": "plan",
       "new_value": "implement",
       "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-12T10:01:33Z",
+      "actor": "system",
+      "role": "system",
+      "action": "update",
+      "field_path": "autofix_attempts",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Autofix attempt completed with result: false"
     }
   ],
-  "autofix_attempts": 0,
+  "autofix_attempts": 1,
   "max_autofix_attempts": 3,
   "phase_configs": {
     "refine": {
