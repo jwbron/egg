@@ -1,0 +1,7 @@
+{
+  "reviewer": "code",
+  "verdict": "approved",
+  "summary": "No security, correctness, or robustness issues found. Shell script (build-conflict-prompt.sh) safely uses gh API with jq extraction—no command injection vectors since values are interpolated into prompt text, not shell commands. Output is truncated (head -c 2000, head -20) to limit data sizes. Gateway reviewer token switching (is_pr_review_command) is correctly scoped to 'pr review' commands only and degrades gracefully on ImportError. Orchestrator review cycle logic has proper circuit breakers for both autofix (max 3) and review cycles (configurable). _spawn_and_wait captures logs before cleanup and always removes containers. _read_review_verdict treats missing/malformed files as approved (fail-open, explicitly documented as graceful degradation). Contract model changes (issue: IssueInfo → IssueInfo | None, new pipeline_id field) are backward-compatible with a model_validator ensuring at least one identifier. Usage pricing refactor from single-model to multi-model lookup table is clean. Two minor notes (non-blocking): (1) ReviewVerdict.verdict is typed as str rather than a Literal['approved','needs_revision'] enum, and (2) the fail-open default on missing verdict files means a reviewer container crash silently approves—both are documented design choices.",
+  "feedback": "",
+  "timestamp": "2026-02-12T08:30:00Z"
+}
