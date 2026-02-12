@@ -206,18 +206,23 @@ case "$EGG_PIPELINE_PROMPT" in
 esac
 
 # FAIL_ON_PHASE=<phase>: fail only when current phase matches
-# Extract phase name from prompt (e.g., FAIL_ON_PHASE=plan)
+# Use case statement matching to avoid shell injection via sed
+FAIL_PHASE=""
 case "$EGG_PIPELINE_PROMPT" in
-    *FAIL_ON_PHASE=*)
-        # Extract the phase name after FAIL_ON_PHASE=
-        FAIL_PHASE=$(echo "$EGG_PIPELINE_PROMPT" | sed -n 's/.*FAIL_ON_PHASE=\([a-z]*\).*/\1/p')
-        if [ "$EGG_PIPELINE_PHASE" = "$FAIL_PHASE" ]; then
-            echo "FAIL_ON_PHASE=$FAIL_PHASE matched current phase — exiting with code 1"
-            exit 1
-        fi
-        echo "FAIL_ON_PHASE=$FAIL_PHASE does not match current phase ($EGG_PIPELINE_PHASE) — continuing"
-        ;;
+    *FAIL_ON_PHASE=refine*) FAIL_PHASE="refine" ;;
+    *FAIL_ON_PHASE=plan*) FAIL_PHASE="plan" ;;
+    *FAIL_ON_PHASE=implement*) FAIL_PHASE="implement" ;;
+    *FAIL_ON_PHASE=review*) FAIL_PHASE="review" ;;
+    *FAIL_ON_PHASE=pr*) FAIL_PHASE="pr" ;;
 esac
+
+if [ -n "$FAIL_PHASE" ]; then
+    if [ "$EGG_PIPELINE_PHASE" = "$FAIL_PHASE" ]; then
+        echo "FAIL_ON_PHASE=$FAIL_PHASE matched current phase — exiting with code 1"
+        exit 1
+    fi
+    echo "FAIL_ON_PHASE=$FAIL_PHASE does not match current phase ($EGG_PIPELINE_PHASE) — continuing"
+fi
 
 # PARTIAL_FAILURE: write partial draft then fail
 case "$EGG_PIPELINE_PROMPT" in

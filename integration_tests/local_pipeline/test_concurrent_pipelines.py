@@ -9,92 +9,19 @@ All tests require Docker and are marked with @pytest.mark.integration.
 
 import concurrent.futures
 import json
-import time
 from pathlib import Path
 
 import pytest
-import requests
+
+from .helpers import (
+    create_pipeline,
+    delete_pipeline,
+    get_pipeline,
+    start_pipeline,
+    wait_for_pipeline_terminal,
+)
 
 pytestmark = pytest.mark.integration
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def create_pipeline(
-    orchestrator_url: str,
-    *,
-    mode: str = "local",
-    prompt: str = "Test pipeline",
-    config: dict | None = None,
-) -> tuple[dict, int]:
-    """Create a pipeline via the orchestrator API."""
-    body: dict = {"mode": mode, "prompt": prompt}
-    if config is not None:
-        body["config"] = config
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines",
-        json=body,
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def get_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """GET a pipeline by ID."""
-    resp = requests.get(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def delete_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """DELETE a pipeline by ID."""
-    resp = requests.delete(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def start_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """POST to start a pipeline."""
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/start",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def wait_for_pipeline_terminal(
-    orchestrator_url: str,
-    pipeline_id: str,
-    timeout: int = 120,
-    poll_interval: float = 2.0,
-) -> dict:
-    """Poll GET /api/v1/pipelines/<id>/status until terminal state."""
-    terminal_statuses = {"complete", "failed", "cancelled"}
-    deadline = time.time() + timeout
-
-    while time.time() < deadline:
-        try:
-            resp = requests.get(
-                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                status = data.get("data", {}).get("status", "")
-                if status in terminal_statuses:
-                    return data
-        except requests.ConnectionError:
-            pass
-        time.sleep(poll_interval)
-
-    raise TimeoutError(f"Pipeline {pipeline_id} did not reach terminal state within {timeout}s")
 
 
 # ---------------------------------------------------------------------------
@@ -154,9 +81,7 @@ class TestConcurrentPipelineExecution:
 class TestPipelineIdIsolation:
     """Pipeline ID isolation in contract files."""
 
-    def test_contract_files_contain_only_own_pipeline_id(
-        self, local_pipeline_stack
-    ) -> None:
+    def test_contract_files_contain_only_own_pipeline_id(self, local_pipeline_stack) -> None:
         """Each pipeline's contract file contains only its own pipeline_id."""
         orchestrator_url = local_pipeline_stack.orchestrator_url
         repos_dir = local_pipeline_stack.repos_dir
@@ -212,9 +137,7 @@ class TestPipelineIdIsolation:
 class TestConcurrentDraftIsolation:
     """Concurrent pipelines have isolated draft files."""
 
-    def test_running_pipelines_have_isolated_drafts(
-        self, local_pipeline_stack
-    ) -> None:
+    def test_running_pipelines_have_isolated_drafts(self, local_pipeline_stack) -> None:
         """Draft files from concurrent pipelines are isolated."""
         orchestrator_url = local_pipeline_stack.orchestrator_url
         repos_dir = local_pipeline_stack.repos_dir
@@ -315,9 +238,7 @@ class TestThreeConcurrentPipelines:
 class TestConcurrentPipelineCreationRace:
     """Concurrent pipeline creation race condition handling."""
 
-    def test_rapid_pipeline_creation_produces_unique_ids(
-        self, orchestrator_url: str
-    ) -> None:
+    def test_rapid_pipeline_creation_produces_unique_ids(self, orchestrator_url: str) -> None:
         """Rapidly creating 5 pipelines results in 5 unique IDs with no collisions."""
         pipelines = []
 
@@ -358,9 +279,7 @@ class TestConcurrentPipelineCreationRace:
 class TestConcurrentPipelineStateFiles:
     """Verify state files are isolated for concurrent pipelines."""
 
-    def test_concurrent_pipelines_have_distinct_state_files(
-        self, local_pipeline_stack
-    ) -> None:
+    def test_concurrent_pipelines_have_distinct_state_files(self, local_pipeline_stack) -> None:
         """Each pipeline has its own state file in .egg-state/pipelines/."""
         orchestrator_url = local_pipeline_stack.orchestrator_url
         repos_dir = local_pipeline_stack.repos_dir

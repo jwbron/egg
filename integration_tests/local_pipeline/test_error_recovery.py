@@ -13,86 +13,15 @@ from pathlib import Path
 import pytest
 import requests
 
+from .helpers import (
+    create_pipeline,
+    delete_pipeline,
+    get_pipeline,
+    start_pipeline,
+    wait_for_pipeline_terminal,
+)
+
 pytestmark = pytest.mark.integration
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def create_pipeline(
-    orchestrator_url: str,
-    *,
-    mode: str = "local",
-    prompt: str = "Test pipeline",
-    config: dict | None = None,
-) -> tuple[dict, int]:
-    """Create a pipeline via the orchestrator API."""
-    body: dict = {"mode": mode, "prompt": prompt}
-    if config is not None:
-        body["config"] = config
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines",
-        json=body,
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def get_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """GET a pipeline by ID."""
-    resp = requests.get(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def delete_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """DELETE a pipeline by ID."""
-    resp = requests.delete(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def start_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """POST to start a pipeline."""
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/start",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def wait_for_pipeline_terminal(
-    orchestrator_url: str,
-    pipeline_id: str,
-    timeout: int = 120,
-    poll_interval: float = 2.0,
-) -> dict:
-    """Poll GET /api/v1/pipelines/<id>/status until terminal state."""
-    terminal_statuses = {"complete", "failed", "cancelled"}
-    deadline = time.time() + timeout
-
-    while time.time() < deadline:
-        try:
-            resp = requests.get(
-                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                status = data.get("data", {}).get("status", "")
-                if status in terminal_statuses:
-                    return data
-        except requests.ConnectionError:
-            pass
-        time.sleep(poll_interval)
-
-    raise TimeoutError(f"Pipeline {pipeline_id} did not reach terminal state within {timeout}s")
 
 
 def get_orphaned_sandbox_containers() -> list[str]:
@@ -155,9 +84,7 @@ class TestPartialPhaseFailure:
 class TestPhaseFailureMidExecution:
     """Test phase failure mid-execution with FAIL_ON_PHASE."""
 
-    def test_fail_on_plan_phase_leaves_refine_complete(
-        self, orchestrator_url: str
-    ) -> None:
+    def test_fail_on_plan_phase_leaves_refine_complete(self, orchestrator_url: str) -> None:
         """Pipeline fails on plan phase; refine phase remains complete."""
         data, status = create_pipeline(
             orchestrator_url,
@@ -317,7 +244,7 @@ class TestStateFileCorruptionDetection:
             # Clean up (may fail if contract is corrupted, that's OK)
             try:
                 delete_pipeline(orchestrator_url, pipeline_id)
-            except Exception:
+            except requests.RequestException:
                 pass
 
 
@@ -349,8 +276,7 @@ class TestOrphanedContainerCleanup:
 
             # Filter to containers related to this pipeline
             pipeline_containers = [
-                c for c in after_containers
-                if pipeline_id.replace("local-", "") in c
+                c for c in after_containers if pipeline_id.replace("local-", "") in c
             ]
 
             assert len(pipeline_containers) == 0, (
@@ -364,9 +290,7 @@ class TestOrphanedContainerCleanup:
 class TestPipelineDeletionDuringRunning:
     """Test pipeline deletion during running state."""
 
-    def test_delete_running_pipeline_stops_container(
-        self, orchestrator_url: str
-    ) -> None:
+    def test_delete_running_pipeline_stops_container(self, orchestrator_url: str) -> None:
         """DELETE returns appropriate status; running container is stopped."""
         # Use SLOW_PHASE to keep the pipeline running long enough to delete
         data, status = create_pipeline(
@@ -386,10 +310,6 @@ class TestPipelineDeletionDuringRunning:
             time.sleep(3)
 
             # Verify it's running
-            status_data, _ = requests.get(
-                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
-                timeout=10,
-            ).json(), None
             status_data = requests.get(
                 f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
                 timeout=10,
@@ -417,8 +337,7 @@ class TestPipelineDeletionDuringRunning:
                 time.sleep(3)
                 containers = get_orphaned_sandbox_containers()
                 pipeline_containers = [
-                    c for c in containers
-                    if pipeline_id.replace("local-", "") in c
+                    c for c in containers if pipeline_id.replace("local-", "") in c
                 ]
                 assert len(pipeline_containers) == 0, (
                     f"Found orphaned containers: {pipeline_containers}"
@@ -428,7 +347,7 @@ class TestPipelineDeletionDuringRunning:
             # Cleanup on any error
             try:
                 delete_pipeline(orchestrator_url, pipeline_id)
-            except Exception:
+            except requests.RequestException:
                 pass
             raise
 
@@ -436,9 +355,7 @@ class TestPipelineDeletionDuringRunning:
 class TestMultipleFailureModes:
     """Test multiple failure scenarios in sequence don't corrupt state."""
 
-    def test_sequential_failures_dont_corrupt_orchestrator(
-        self, orchestrator_url: str
-    ) -> None:
+    def test_sequential_failures_dont_corrupt_orchestrator(self, orchestrator_url: str) -> None:
         """Multiple failed pipelines don't corrupt orchestrator state."""
         pipeline_ids = []
 
@@ -485,5 +402,5 @@ class TestMultipleFailureModes:
             for pid in pipeline_ids:
                 try:
                     delete_pipeline(orchestrator_url, pid)
-                except Exception:
+                except requests.RequestException:
                     pass

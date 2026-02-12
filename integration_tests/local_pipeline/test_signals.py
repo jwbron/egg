@@ -13,117 +13,16 @@ from pathlib import Path
 import pytest
 import requests
 
+from .helpers import (
+    check_signals_api_exists,
+    create_pipeline,
+    delete_pipeline,
+    send_signal,
+    start_pipeline,
+    wait_for_pipeline_terminal,
+)
+
 pytestmark = pytest.mark.integration
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def create_pipeline(
-    orchestrator_url: str,
-    *,
-    mode: str = "local",
-    prompt: str = "Test pipeline",
-    config: dict | None = None,
-) -> tuple[dict, int]:
-    """Create a pipeline via the orchestrator API."""
-    body: dict = {"mode": mode, "prompt": prompt}
-    if config is not None:
-        body["config"] = config
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines",
-        json=body,
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def get_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """GET a pipeline by ID."""
-    resp = requests.get(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def delete_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """DELETE a pipeline by ID."""
-    resp = requests.delete(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def start_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """POST to start a pipeline."""
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/start",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def wait_for_pipeline_terminal(
-    orchestrator_url: str,
-    pipeline_id: str,
-    timeout: int = 120,
-    poll_interval: float = 2.0,
-) -> dict:
-    """Poll GET /api/v1/pipelines/<id>/status until terminal state."""
-    terminal_statuses = {"complete", "failed", "cancelled"}
-    deadline = time.time() + timeout
-
-    while time.time() < deadline:
-        try:
-            resp = requests.get(
-                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                status = data.get("data", {}).get("status", "")
-                if status in terminal_statuses:
-                    return data
-        except requests.ConnectionError:
-            pass
-        time.sleep(poll_interval)
-
-    raise TimeoutError(f"Pipeline {pipeline_id} did not reach terminal state within {timeout}s")
-
-
-def send_signal(
-    orchestrator_url: str,
-    pipeline_id: str,
-    signal_type: str,
-    **kwargs,
-) -> tuple[dict | None, int]:
-    """Send a signal to a pipeline via the orchestrator API."""
-    body = {"type": signal_type, **kwargs}
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/signals",
-        json=body,
-        timeout=10,
-    )
-    try:
-        return resp.json(), resp.status_code
-    except requests.JSONDecodeError:
-        return None, resp.status_code
-
-
-def check_signals_api_exists(orchestrator_url: str, pipeline_id: str) -> bool:
-    """Check if the signals API endpoint exists."""
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/signals",
-        json={"type": "ping"},
-        timeout=10,
-    )
-    # If we get 404 on the endpoint itself, signals API doesn't exist
-    # If we get 400/422 (bad request), the endpoint exists but rejected our payload
-    return resp.status_code != 404
 
 
 # ---------------------------------------------------------------------------
@@ -281,9 +180,7 @@ class TestErrorSignal:
 class TestSignalFromUnknownPipeline:
     """Test signal from invalid/unknown pipeline."""
 
-    def test_signal_to_nonexistent_pipeline_returns_404(
-        self, orchestrator_url: str
-    ) -> None:
+    def test_signal_to_nonexistent_pipeline_returns_404(self, orchestrator_url: str) -> None:
         """API returns 404 for signals to non-existent pipeline."""
         fake_pipeline_id = "nonexistent-pipeline-12345"
 
@@ -310,9 +207,7 @@ class TestSignalFromUnknownPipeline:
         )
 
         # Should return 404 for non-existent pipeline
-        assert signal_status == 404, (
-            f"Expected 404 for non-existent pipeline, got {signal_status}"
-        )
+        assert signal_status == 404, f"Expected 404 for non-existent pipeline, got {signal_status}"
 
 
 class TestSignalRateLimiting:

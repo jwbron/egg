@@ -12,137 +12,17 @@ import time
 import pytest
 import requests
 
+from .helpers import (
+    create_pipeline,
+    delete_pipeline,
+    get_pipeline,
+    resolve_decision,
+    start_pipeline,
+    wait_for_awaiting_human,
+    wait_for_pipeline_terminal,
+)
+
 pytestmark = pytest.mark.integration
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def create_pipeline(
-    orchestrator_url: str,
-    *,
-    mode: str = "local",
-    prompt: str = "Test pipeline",
-    config: dict | None = None,
-) -> tuple[dict, int]:
-    """Create a pipeline via the orchestrator API."""
-    body: dict = {"mode": mode, "prompt": prompt}
-    if config is not None:
-        body["config"] = config
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines",
-        json=body,
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def get_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """GET a pipeline by ID."""
-    resp = requests.get(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def delete_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """DELETE a pipeline by ID."""
-    resp = requests.delete(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def start_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """POST to start a pipeline."""
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/start",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def wait_for_pipeline_terminal(
-    orchestrator_url: str,
-    pipeline_id: str,
-    timeout: int = 120,
-    poll_interval: float = 2.0,
-) -> dict:
-    """Poll GET /api/v1/pipelines/<id>/status until terminal state."""
-    terminal_statuses = {"complete", "failed", "cancelled"}
-    deadline = time.time() + timeout
-
-    while time.time() < deadline:
-        try:
-            resp = requests.get(
-                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                status = data.get("data", {}).get("status", "")
-                if status in terminal_statuses:
-                    return data
-        except requests.ConnectionError:
-            pass
-        time.sleep(poll_interval)
-
-    raise TimeoutError(f"Pipeline {pipeline_id} did not reach terminal state within {timeout}s")
-
-
-def wait_for_awaiting_human(
-    orchestrator_url: str,
-    pipeline_id: str,
-    timeout: int = 120,
-    poll_interval: float = 2.0,
-) -> dict:
-    """Poll GET /status until status == 'awaiting_human' or terminal."""
-    terminal_statuses = {"complete", "failed", "cancelled"}
-    deadline = time.time() + timeout
-
-    while time.time() < deadline:
-        try:
-            resp = requests.get(
-                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                status = data.get("data", {}).get("status", "")
-                if status == "awaiting_human":
-                    return data
-                if status in terminal_statuses:
-                    raise AssertionError(
-                        f"Pipeline reached terminal state '{status}' before awaiting_human"
-                    )
-        except requests.ConnectionError:
-            pass
-        time.sleep(poll_interval)
-
-    raise TimeoutError(f"Pipeline {pipeline_id} did not reach awaiting_human within {timeout}s")
-
-
-def resolve_decision(
-    orchestrator_url: str,
-    pipeline_id: str,
-    decision_id: str,
-    resolution: str = "approve",
-    custom_input: str | None = None,
-) -> tuple[dict, int]:
-    """POST to resolve a pending decision."""
-    body: dict = {"resolution": resolution}
-    if custom_input is not None:
-        body["custom_input"] = custom_input
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/decisions/{decision_id}/resolve",
-        json=body,
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +123,7 @@ class TestCustomInputDecision:
                             resolve_decision(orchestrator_url, pipeline_id, pending["id"])
                     except (TimeoutError, AssertionError):
                         break
-            except Exception:
+            except requests.RequestException:
                 pass
             delete_pipeline(orchestrator_url, pipeline_id)
 
@@ -252,11 +132,11 @@ class TestDecisionTimeout:
     """Test decision timeout with short configurable timeout."""
 
     def test_decision_timeout_transitions_pipeline(self, orchestrator_url: str) -> None:
-        """Pipeline transitions appropriately when decision not resolved.
+        """Pipeline transitions to timeout/failed/cancelled when decision not resolved.
 
-        Note: This test verifies timeout handling if the orchestrator supports
-        decision_timeout_seconds configuration. If not supported, the pipeline
-        will remain in awaiting_human indefinitely.
+        This test verifies timeout handling if the orchestrator supports
+        decision_timeout_seconds configuration. If the feature is not supported,
+        the test will be skipped rather than passing silently.
         """
         data, status = create_pipeline(
             orchestrator_url,
@@ -277,8 +157,8 @@ class TestDecisionTimeout:
             status_data = wait_for_awaiting_human(orchestrator_url, pipeline_id, timeout=180)
             assert status_data["data"]["status"] == "awaiting_human"
 
-            # Don't resolve - wait for potential timeout
-            # Give extra time for timeout to trigger
+            # Don't resolve - wait for timeout to trigger
+            # Give extra time beyond the configured 10s timeout
             time.sleep(15)
 
             # Check status
@@ -289,11 +169,16 @@ class TestDecisionTimeout:
             assert resp.status_code == 200
             current_status = resp.json().get("data", {}).get("status", "")
 
-            # Pipeline should either:
-            # 1. Still be awaiting_human (timeout not supported/enforced)
-            # 2. Failed/cancelled (timeout triggered)
-            assert current_status in ("awaiting_human", "failed", "cancelled", "timeout"), (
-                f"Unexpected status after timeout period: {current_status}"
+            # If still awaiting_human, the timeout feature is not supported
+            if current_status == "awaiting_human":
+                pytest.skip(
+                    "Decision timeout feature not supported by orchestrator "
+                    "(decision_timeout_seconds config has no effect)"
+                )
+
+            # Timeout should transition to failed, cancelled, or timeout status
+            assert current_status in ("failed", "cancelled", "timeout"), (
+                f"Expected timeout transition to failed/cancelled/timeout, got: {current_status}"
             )
 
         finally:
@@ -303,9 +188,7 @@ class TestDecisionTimeout:
 class TestInvalidDecisionId:
     """Test invalid decision resolution (non-existent decision ID)."""
 
-    def test_resolve_nonexistent_decision_returns_404(
-        self, orchestrator_url: str
-    ) -> None:
+    def test_resolve_nonexistent_decision_returns_404(self, orchestrator_url: str) -> None:
         """API returns 404 for non-existent decision ID; pipeline unchanged."""
         data, status = create_pipeline(
             orchestrator_url,
@@ -360,7 +243,7 @@ class TestInvalidDecisionId:
                             resolve_decision(orchestrator_url, pipeline_id, pending["id"])
                     except (TimeoutError, AssertionError):
                         break
-            except Exception:
+            except requests.RequestException:
                 pass
             delete_pipeline(orchestrator_url, pipeline_id)
 
@@ -414,7 +297,7 @@ class TestAlreadyResolvedDecision:
                             resolve_decision(orchestrator_url, pipeline_id, pending["id"])
                     except (TimeoutError, AssertionError):
                         break
-            except Exception:
+            except requests.RequestException:
                 pass
             delete_pipeline(orchestrator_url, pipeline_id)
 
@@ -456,27 +339,28 @@ class TestConcurrentDecisionResolution:
             # At least one should succeed (200)
             assert 200 in status_codes, f"At least one resolution should succeed: {results}"
 
-            # The other should fail with 409 or 404 (or also 200 if very fast)
-            # Both succeeding would indicate a race condition bug
+            # Exactly one should succeed - if both succeed, there's a race condition bug
+            # that allows the same decision to be resolved twice
             success_count = status_codes.count(200)
             conflict_count = sum(1 for s in status_codes if s in (404, 409))
 
-            # Ideally: 1 success + 1 conflict
-            # Acceptable: 2 successes (very fast, both completed before check)
-            assert success_count >= 1, "At least one resolution should succeed"
-            if success_count == 1:
-                assert conflict_count == 1, (
-                    f"Expected 1 conflict, got status codes: {status_codes}"
-                )
+            assert success_count == 1, (
+                f"Expected exactly 1 success, got {success_count}. "
+                f"Both succeeding indicates a concurrency bug allowing duplicate resolution. "
+                f"Status codes: {status_codes}"
+            )
+            assert conflict_count == 1, (
+                f"Expected 1 conflict (404/409), got {conflict_count}. Status codes: {status_codes}"
+            )
 
             # Verify pipeline state is consistent (not corrupted)
             get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
             pipeline = get_data["data"]["pipeline"]
 
             # Pipeline should be in a valid state
-            assert pipeline["status"] in (
-                "running", "awaiting_human", "complete", "failed"
-            ), f"Pipeline in invalid state: {pipeline['status']}"
+            assert pipeline["status"] in ("running", "awaiting_human", "complete", "failed"), (
+                f"Pipeline in invalid state: {pipeline['status']}"
+            )
 
         finally:
             # Cleanup
@@ -491,7 +375,7 @@ class TestConcurrentDecisionResolution:
                             resolve_decision(orchestrator_url, pipeline_id, pending["id"])
                     except (TimeoutError, AssertionError):
                         break
-            except Exception:
+            except requests.RequestException:
                 pass
             delete_pipeline(orchestrator_url, pipeline_id)
 
@@ -538,9 +422,7 @@ class TestDecisionWithInvalidResolution:
         finally:
             # Cleanup
             try:
-                status_data = wait_for_awaiting_human(
-                    orchestrator_url, pipeline_id, timeout=10
-                )
+                status_data = wait_for_awaiting_human(orchestrator_url, pipeline_id, timeout=10)
                 pending = status_data["data"].get("pending_decision")
                 if pending:
                     resolve_decision(orchestrator_url, pipeline_id, pending["id"])
@@ -554,6 +436,6 @@ class TestDecisionWithInvalidResolution:
                             resolve_decision(orchestrator_url, pipeline_id, pending["id"])
                     except (TimeoutError, AssertionError):
                         break
-            except Exception:
+            except requests.RequestException:
                 pass
             delete_pipeline(orchestrator_url, pipeline_id)

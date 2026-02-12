@@ -6,73 +6,12 @@ with proper error responses.
 All tests require Docker and are marked with @pytest.mark.integration.
 """
 
-import time
-
 import pytest
 import requests
 
+from .helpers import create_pipeline, delete_pipeline, wait_for_pipeline_terminal
+
 pytestmark = pytest.mark.integration
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def create_pipeline(
-    orchestrator_url: str,
-    *,
-    mode: str = "local",
-    prompt: str = "Test pipeline",
-    config: dict | None = None,
-) -> tuple[dict, int]:
-    """Create a pipeline via the orchestrator API."""
-    body: dict = {"mode": mode, "prompt": prompt}
-    if config is not None:
-        body["config"] = config
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines",
-        json=body,
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def delete_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """DELETE a pipeline by ID."""
-    resp = requests.delete(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def wait_for_pipeline_terminal(
-    orchestrator_url: str,
-    pipeline_id: str,
-    timeout: int = 120,
-    poll_interval: float = 2.0,
-) -> dict:
-    """Poll GET /api/v1/pipelines/<id>/status until terminal state."""
-    terminal_statuses = {"complete", "failed", "cancelled"}
-    deadline = time.time() + timeout
-
-    while time.time() < deadline:
-        try:
-            resp = requests.get(
-                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                status = data.get("data", {}).get("status", "")
-                if status in terminal_statuses:
-                    return data
-        except requests.ConnectionError:
-            pass
-        time.sleep(poll_interval)
-
-    raise TimeoutError(f"Pipeline {pipeline_id} did not reach terminal state within {timeout}s")
 
 
 # ---------------------------------------------------------------------------
@@ -145,9 +84,7 @@ class TestMissingRequiredFields:
             f"Expected 400 for empty body, got {resp.status_code}: {resp.text}"
         )
 
-    def test_issue_mode_missing_issue_number_returns_400(
-        self, orchestrator_url: str
-    ) -> None:
+    def test_issue_mode_missing_issue_number_returns_400(self, orchestrator_url: str) -> None:
         """Returns 400 when issue mode is used without issue_number."""
         resp = requests.post(
             f"{orchestrator_url}/api/v1/pipelines",
@@ -263,9 +200,7 @@ class TestPatchInvalidConfig:
             final_config = get_resp2.json()["data"]["pipeline"].get("config", {})
 
             # Config should be unchanged
-            assert final_config.get("max_review_cycles") == initial_config.get(
-                "max_review_cycles"
-            )
+            assert final_config.get("max_review_cycles") == initial_config.get("max_review_cycles")
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
@@ -340,9 +275,7 @@ class TestPaginationForListEndpoint:
             assert len(limited_pipelines) >= 1  # At least some results
 
             # Check for pagination metadata if present
-            pagination = limited_data["data"].get("pagination") or limited_data.get(
-                "pagination"
-            )
+            pagination = limited_data["data"].get("pagination") or limited_data.get("pagination")
             if pagination:
                 # If pagination metadata exists, verify structure
                 assert "total" in pagination or "has_more" in pagination
@@ -351,7 +284,7 @@ class TestPaginationForListEndpoint:
             for pid in pipeline_ids:
                 try:
                     delete_pipeline(orchestrator_url, pid)
-                except Exception:
+                except requests.RequestException:
                     pass
 
     def test_list_with_offset(self, orchestrator_url: str) -> None:
@@ -389,7 +322,7 @@ class TestPaginationForListEndpoint:
             for pid in pipeline_ids:
                 try:
                     delete_pipeline(orchestrator_url, pid)
-                except Exception:
+                except requests.RequestException:
                     pass
 
 
