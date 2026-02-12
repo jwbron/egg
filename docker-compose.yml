@@ -65,8 +65,7 @@ services:
       - ${EGG_CONFIG_DIR:-.}/repositories.yaml:/config/repositories.yaml:ro
       # Secrets directory (contains secrets.env, github-app.pem, launcher-secret)
       - ${EGG_CONFIG_DIR:-.}:/secrets:ro
-      # Repositories directory (RW for worktree operations)
-      - ${EGG_REPOS_DIR:-./repos}:/home/egg/repos
+      # Per-repo mounts are added via docker-compose.override.yml (auto-generated)
       # Worktrees directory (per-container isolated worktrees)
       - worktrees:/home/egg/.egg-worktrees
       # State directory (session persistence)
@@ -108,15 +107,15 @@ services:
       # Host info for container spawning
       - HOST_UID=${HOST_UID:-1000}
       - HOST_GID=${HOST_GID:-1000}
-      # Host repos path for sandbox volume mounts (Docker socket sees host paths)
-      - EGG_HOST_REPOS_DIR=${EGG_REPOS_DIR:-./repos}
+      # Host repo map for sandbox volume mounts (Docker socket sees host paths)
+      # JSON mapping of repo_name -> host_path, auto-generated from repositories.yaml
+      - EGG_HOST_REPO_MAP=${EGG_HOST_REPO_MAP:-{}}
       # Sandbox image for spawned containers
       - EGG_SANDBOX_IMAGE=${EGG_SANDBOX_IMAGE:-egg:latest}
       # Launcher secret for gateway session registration
       - EGG_LAUNCHER_SECRET=${EGG_LAUNCHER_SECRET}
     volumes:
-      # Repositories directory (RW for state persistence in git)
-      - ${EGG_REPOS_DIR:-./repos}:/home/egg/repos
+      # Per-repo mounts are added via docker-compose.override.yml (auto-generated)
       # State directory (shared with gateway)
       - state:/home/egg/.egg-state
       # Docker socket for container management

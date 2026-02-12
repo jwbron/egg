@@ -156,8 +156,9 @@ GITHUB_USER_TOKEN=ghp_xxxxx
 
 # From your old config
 EGG_CONFIG_DIR=/path/to/your/config
-EGG_REPOS_DIR=/path/to/your/repos
 ```
+
+Repos are auto-mounted from `local_repos.paths` in your `repositories.yaml`.
 
 ### 4. Verify repositories.yaml
 

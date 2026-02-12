@@ -1093,7 +1093,7 @@ def _spawn_and_wait(
     pipeline_id: str,
     agent_role: AgentRole,
     issue_number: int | None,
-    host_repos_dir: str | None,
+    repo_volumes: dict[str, str],
     gateway_mode: str,
     repos: list[str],
     phase: str,
@@ -1107,22 +1107,31 @@ def _spawn_and_wait(
     If ``store`` is provided, the container is recorded in the phase execution
     state so that the status endpoint can report it while it runs.
 
+    Args:
+        repo_volumes: Mapping of repo_name -> host_path for volume mounts.
+            Each entry is mounted at /home/egg/repos/<name> in the container.
+
     Returns:
         (exit_code, container_logs) — logs are captured before cleanup on failure.
     """
     from models import ContainerInfo, ContainerStatus, PipelinePhase
 
+    # Build per-repo volume mounts for the spawned container
+    extra_volumes: dict[str, dict[str, str]] = {}
+    for name, host_path in repo_volumes.items():
+        extra_volumes[host_path] = {"bind": f"/home/egg/repos/{name}", "mode": "rw"}
+
     spawned = spawner.spawn_agent_container(
         pipeline_id=pipeline_id,
         agent_role=agent_role,
         issue_number=issue_number,
-        repo_mount=host_repos_dir,
         mode=gateway_mode,
         wait_for_gateway=False,
         repos=repos,
         phase=phase,
         extra_env=sandbox_env,
         command=sandbox_command,
+        extra_volumes=extra_volumes if extra_volumes else None,
     )
 
     # Record container in phase execution state
@@ -1405,16 +1414,18 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # Map pipeline mode to gateway session mode
         gateway_mode = "local" if pipeline_mode == "local" else "public"
 
-        # Determine host repos path for volume mount.  When the
-        # orchestrator runs inside Docker, EGG_REPO_PATH is the
-        # *container* path but volume mounts need the *host* path
-        # (since the Docker socket operates on the host daemon).
-        # EGG_HOST_REPOS_DIR provides that; fall back to EGG_REPO_PATH
-        # when running natively (not in Docker).
-        host_repos_dir = os.environ.get(
-            "EGG_HOST_REPOS_DIR",
-            os.environ.get("EGG_REPO_PATH"),
-        )
+        # Parse host repo map for volume mounts.  When the orchestrator
+        # runs inside Docker, EGG_REPO_PATH is the *container* path but
+        # volume mounts need *host* paths (since the Docker socket
+        # operates on the host daemon).  EGG_HOST_REPO_MAP provides a
+        # JSON mapping of repo_name -> host_path, auto-generated from
+        # repositories.yaml by the egg launcher.
+        host_repo_map_raw = os.environ.get("EGG_HOST_REPO_MAP", "{}")
+        try:
+            host_repo_map: dict[str, str] = json.loads(host_repo_map_raw)
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse EGG_HOST_REPO_MAP, using empty map")
+            host_repo_map = {}
 
         while True:
             pipeline = store.load_pipeline(pipeline_id)
@@ -1509,7 +1520,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_id=pipeline_id,
                         agent_role=AgentRole.CODER,
                         issue_number=pipeline.issue_number,
-                        host_repos_dir=host_repos_dir,
+                        repo_volumes=host_repo_map,
                         gateway_mode=phase_gateway_mode,
                         repos=repos,
                         phase=current_phase.value,
@@ -1587,7 +1598,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 pipeline_id=pipeline_id,
                                 agent_role=AgentRole.CHECKER,
                                 issue_number=pipeline.issue_number,
-                                host_repos_dir=host_repos_dir,
+                                repo_volumes=host_repo_map,
                                 gateway_mode=phase_gateway_mode,
                                 repos=repos,
                                 phase=current_phase.value,
@@ -1652,7 +1663,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 pipeline_id=pipeline_id,
                                 agent_role=AgentRole.CODER,
                                 issue_number=pipeline.issue_number,
-                                host_repos_dir=host_repos_dir,
+                                repo_volumes=host_repo_map,
                                 gateway_mode=phase_gateway_mode,
                                 repos=repos,
                                 phase=current_phase.value,
@@ -1732,7 +1743,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id=pipeline_id,
                             agent_role=AgentRole.REVIEWER,
                             issue_number=pipeline.issue_number,
-                            host_repos_dir=host_repos_dir,
+                            repo_volumes=host_repo_map,
                             gateway_mode=phase_gateway_mode,
                             repos=repos,
                             phase=current_phase.value,
