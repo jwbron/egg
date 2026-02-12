@@ -147,17 +147,24 @@ class StateStore:
             self._run_git("worktree", "add", str(wt), STATE_BRANCH)
         else:
             # First run: create orphan branch
-            self._run_git("worktree", "add", "--detach", str(wt))
-            self._run_git("checkout", "--orphan", STATE_BRANCH, cwd=wt)
-            self._run_git("rm", "-rf", "--cached", ".", cwd=wt, check=False)
-            # Remove inherited files from working directory
-            for item in wt.iterdir():
-                if item.name == ".git":
-                    continue
-                if item.is_dir():
-                    shutil.rmtree(item)
-                else:
-                    item.unlink()
+            # Wrap in try/except to clean up on partial failure
+            try:
+                self._run_git("worktree", "add", "--detach", str(wt))
+                self._run_git("checkout", "--orphan", STATE_BRANCH, cwd=wt)
+                self._run_git("rm", "-rf", "--cached", ".", cwd=wt, check=False)
+                # Remove inherited files from working directory
+                for item in wt.iterdir():
+                    if item.name == ".git":
+                        continue
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+            except GitOperationError:
+                # Clean up partial worktree on failure to avoid broken state
+                shutil.rmtree(wt, ignore_errors=True)
+                self._run_git("worktree", "prune", check=False)
+                raise
 
         return wt
 
