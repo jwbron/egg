@@ -77,7 +77,7 @@ elif [ -d "$GIT_PATH" ]; then
 else
     # No .git at all - this is expected if the repo mount is working normally
     # The gateway mounts the worktree at the repo path
-    echo "WARNING: No .git found at $GIT_PATH (may be shadowed by tmpfs or not initialized)"
+    echo "NOTE: No .git found at $GIT_PATH (expected when gateway mounts worktree at repo path)"
 fi
 
 # Report worktree status for debugging

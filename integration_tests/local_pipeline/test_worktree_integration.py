@@ -21,6 +21,10 @@ from .conftest import LocalPipelineStack, wait_for_pipeline_terminal
 
 pytestmark = pytest.mark.integration
 
+# Base path where the gateway stores worktrees inside the container.
+# This matches the gateway's worktree_base configuration.
+GATEWAY_WORKTREE_BASE = "/home/egg/.egg-worktrees"
+
 
 # ---------------------------------------------------------------------------
 # Helper Functions for Worktree Verification
@@ -163,34 +167,58 @@ def verify_worktree_writable(
     worktree_path: str,
     gateway_container_name: str,
     test_filename: str = ".worktree-write-test",
+    uid: int = 1000,
+    gid: int = 1000,
 ) -> tuple[bool, str]:
     """
     Check if a worktree is writable by attempting to create a test file.
+
+    Runs the write test as the specified uid:gid to ensure the worktree
+    is actually writable by non-root users, not just by root.
 
     Args:
         worktree_path: Path to the worktree directory
         gateway_container_name: Name of the gateway container
         test_filename: Name of the test file to create
+        uid: User ID to run the test as (default 1000)
+        gid: Group ID to run the test as (default 1000)
 
     Returns:
         Tuple of (is_writable, reason_message)
     """
     test_file_path = f"{worktree_path}/{test_filename}"
 
-    # Try to create a test file
+    # Try to create a test file as the specified user (not root)
     result = subprocess.run(
-        ["docker", "exec", gateway_container_name, "touch", test_file_path],
+        [
+            "docker",
+            "exec",
+            "-u",
+            f"{uid}:{gid}",
+            gateway_container_name,
+            "touch",
+            test_file_path,
+        ],
         capture_output=True,
         text=True,
         timeout=10,
         check=False,
     )
     if result.returncode != 0:
-        return False, f"Cannot write to worktree: {result.stderr}"
+        return False, f"Cannot write to worktree as {uid}:{gid}: {result.stderr}"
 
-    # Clean up test file
+    # Clean up test file (also as the same user)
     subprocess.run(
-        ["docker", "exec", gateway_container_name, "rm", "-f", test_file_path],
+        [
+            "docker",
+            "exec",
+            "-u",
+            f"{uid}:{gid}",
+            gateway_container_name,
+            "rm",
+            "-f",
+            test_file_path,
+        ],
         capture_output=True,
         timeout=10,
         check=False,
@@ -279,8 +307,8 @@ class TestWorktreeCreation:
             assert "test-repo" in worktrees, f"test-repo not in worktrees: {worktrees}"
 
             # The returned path is a host path, but we need to verify inside the container
-            # The gateway container path is /home/egg/.egg-worktrees/{container_id}/test-repo
-            container_worktree_path = f"/home/egg/.egg-worktrees/{container_id}/test-repo"
+            # The gateway container path is {GATEWAY_WORKTREE_BASE}/{container_id}/test-repo
+            container_worktree_path = f"{GATEWAY_WORKTREE_BASE}/{container_id}/test-repo"
 
             is_valid, reason = verify_worktree_exists_and_valid(
                 container_worktree_path,
@@ -322,7 +350,7 @@ class TestWorktreeCreation:
             )
             assert resp.status_code == 200, f"Worktree create failed: {resp.text}"
 
-            container_worktree_path = f"/home/egg/.egg-worktrees/{container_id}/test-repo"
+            container_worktree_path = f"{GATEWAY_WORKTREE_BASE}/{container_id}/test-repo"
 
             is_correct, reason = verify_worktree_ownership(
                 container_worktree_path,
@@ -362,7 +390,7 @@ class TestWorktreeCreation:
             )
             assert resp.status_code == 200, f"Worktree create failed: {resp.text}"
 
-            container_worktree_path = f"/home/egg/.egg-worktrees/{container_id}/test-repo"
+            container_worktree_path = f"{GATEWAY_WORKTREE_BASE}/{container_id}/test-repo"
 
             is_writable, reason = verify_worktree_writable(
                 container_worktree_path, gateway_container
@@ -390,7 +418,7 @@ class TestWorktreeDeletion:
         gateway_container = get_gateway_container_name(local_pipeline_stack.compose_project)
 
         container_id = f"test-delete-{int(time.time())}"
-        container_worktree_path = f"/home/egg/.egg-worktrees/{container_id}/test-repo"
+        container_worktree_path = f"{GATEWAY_WORKTREE_BASE}/{container_id}/test-repo"
 
         # Create worktree
         resp = requests.post(
@@ -628,7 +656,7 @@ class TestWorktreeEdgeCases:
         gateway_container = get_gateway_container_name(local_pipeline_stack.compose_project)
 
         container_id = f"test-not-empty-{int(time.time())}"
-        container_worktree_path = f"/home/egg/.egg-worktrees/{container_id}/test-repo"
+        container_worktree_path = f"{GATEWAY_WORKTREE_BASE}/{container_id}/test-repo"
 
         try:
             resp = requests.post(
@@ -684,7 +712,7 @@ class TestWorktreeEdgeCases:
         gateway_container = get_gateway_container_name(local_pipeline_stack.compose_project)
 
         container_id = f"test-not-root-{int(time.time())}"
-        container_worktree_path = f"/home/egg/.egg-worktrees/{container_id}/test-repo"
+        container_worktree_path = f"{GATEWAY_WORKTREE_BASE}/{container_id}/test-repo"
 
         try:
             resp = requests.post(
@@ -741,7 +769,7 @@ class TestWorktreeEdgeCases:
         source_ip = health_resp.json().get("client_ip", "127.0.0.1")
 
         container_id = f"test-orphan-{int(time.time())}"
-        container_worktree_path = f"/home/egg/.egg-worktrees/{container_id}/test-repo"
+        container_worktree_path = f"{GATEWAY_WORKTREE_BASE}/{container_id}/test-repo"
 
         # Create session (which creates worktree)
         session_resp = requests.post(
@@ -803,7 +831,7 @@ class TestWorktreeEdgeCases:
         gateway_container = get_gateway_container_name(local_pipeline_stack.compose_project)
 
         container_id = f"test-precreated-{int(time.time())}"
-        container_worktree_path = f"/home/egg/.egg-worktrees/{container_id}/test-repo"
+        container_worktree_path = f"{GATEWAY_WORKTREE_BASE}/{container_id}/test-repo"
 
         try:
             # Pre-create the worktree directory with an empty .git directory
@@ -877,6 +905,16 @@ class TestWorktreeEdgeCases:
             assert result.returncode == 0, ".git should be a file after worktree creation"
 
         finally:
+            # Clean up pre-created directory if it exists (handles case where
+            # mkdir succeeded but worktree create failed)
+            container_base_path = f"{GATEWAY_WORKTREE_BASE}/{container_id}"
+            subprocess.run(
+                ["docker", "exec", gateway_container, "rm", "-rf", container_base_path],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            # Then try worktree delete via API (harmless if nothing to delete)
             requests.post(
                 f"{gateway_url}/api/v1/worktree/delete",
                 headers={"Authorization": f"Bearer {launcher_secret}"},
