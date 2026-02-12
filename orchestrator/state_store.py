@@ -1,14 +1,17 @@
 """
 Git-backed state persistence for pipeline state.
 
-Stores pipeline state in .egg-state/pipelines/{id}.json on the work branch.
-State survives orchestrator restarts by reading from git.
+Stores pipeline state in .egg-state/pipelines/{id}.json.  Files are written
+to disk for fast reads and committed to a dedicated ``egg/pipeline-state``
+orphan branch so state history is preserved without polluting main.
 """
 
 import json
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +21,9 @@ from pydantic import ValidationError
 
 # Valid pipeline ID format: issue-{number} or local-{8 hex chars}
 PIPELINE_ID_PATTERN = re.compile(r"^(issue-[0-9]+|local-[0-9a-f]{8})$")
+
+# Dedicated branch for pipeline state (orphan, never merged into main)
+STATE_BRANCH = "egg/pipeline-state"
 
 
 class StateStoreError(Exception):
@@ -111,12 +117,18 @@ class StateStore:
         """Ensure the pipelines directory exists."""
         self.pipelines_dir.mkdir(parents=True, exist_ok=True)
 
-    def _run_git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    def _run_git(
+        self,
+        *args: str,
+        check: bool = True,
+        cwd: Path | None = None,
+    ) -> subprocess.CompletedProcess:
         """Run a git command in the repository.
 
         Args:
             args: Git command arguments
             check: Whether to check return code
+            cwd: Working directory (default: self.repo_path)
 
         Returns:
             CompletedProcess result
@@ -124,7 +136,8 @@ class StateStore:
         Raises:
             GitOperationError: If command fails and check=True
         """
-        cmd = ["git", "-C", str(self.repo_path)] + list(args)
+        work_dir = str(cwd) if cwd else str(self.repo_path)
+        cmd = ["git", "-C", work_dir] + list(args)
         try:
             result = subprocess.run(
                 cmd,
@@ -232,38 +245,116 @@ class StateStore:
         return path
 
     def _commit_state(self, pipeline: Pipeline, message: str | None = None) -> str:
-        """Commit pipeline state changes.
+        """Commit pipeline state to the dedicated state branch.
+
+        Uses a temporary git worktree so the main checkout is unaffected.
 
         Args:
             pipeline: Pipeline being saved
             message: Optional commit message
 
         Returns:
-            Commit SHA
+            Commit SHA (on the state branch)
 
         Raises:
             GitOperationError: If commit fails
         """
-        path = self._get_pipeline_path(pipeline.id)
-        rel_path = path.relative_to(self.repo_path)
-
-        # Stage the file
-        self._run_git("add", str(rel_path))
-
-        # Check if there are changes to commit
-        result = self._run_git("diff", "--cached", "--quiet", check=False)
-        if result.returncode == 0:
-            # No changes
-            return self._get_current_commit()
-
-        # Generate commit message
         if not message:
             message = self._generate_commit_message(pipeline)
 
-        # Commit (skip hooks — orchestrator container doesn't have pre-commit installed)
-        self._run_git("commit", "--no-verify", "-m", message)
+        src_path = self._get_pipeline_path(pipeline.id)
+        rel_path = str(src_path.relative_to(self.repo_path))
 
-        return self._get_current_commit()
+        return self._commit_to_state_branch(
+            files={rel_path: src_path},
+            message=message,
+        )
+
+    def _state_branch_exists(self) -> bool:
+        """Check if the state branch exists locally."""
+        result = self._run_git("rev-parse", "--verify", f"refs/heads/{STATE_BRANCH}", check=False)
+        return result.returncode == 0
+
+    def _commit_to_state_branch(
+        self,
+        files: dict[str, Path],
+        message: str,
+        delete_paths: list[str] | None = None,
+    ) -> str:
+        """Commit files to the dedicated state branch via a temp worktree.
+
+        Args:
+            files: Mapping of relative paths -> source file paths to copy
+            message: Commit message
+            delete_paths: Relative paths to remove from the branch
+
+        Returns:
+            Commit SHA of the new commit
+        """
+        temp_dir = tempfile.mkdtemp(prefix="egg_state_")
+        temp_path = Path(temp_dir)
+
+        try:
+            branch_exists = self._state_branch_exists()
+
+            if branch_exists:
+                self._run_git("worktree", "add", "--detach", str(temp_path), STATE_BRANCH)
+            else:
+                # Create orphan branch via detached worktree
+                self._run_git("worktree", "add", "--detach", str(temp_path))
+                self._run_git("checkout", "--orphan", STATE_BRANCH, cwd=temp_path)
+                # Clear any inherited files from the index
+                self._run_git("rm", "-rf", "--cached", ".", cwd=temp_path, check=False)
+                # Remove inherited working directory files
+                for item in temp_path.iterdir():
+                    if item.name == ".git":
+                        continue
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+
+            # Copy files into the worktree
+            for rel, src in files.items():
+                if not src.exists():
+                    continue
+                dest = temp_path / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+
+            # Handle deletions
+            if delete_paths:
+                for rel in delete_paths:
+                    target = temp_path / rel
+                    if target.exists():
+                        target.unlink()
+                    self._run_git("rm", "--cached", rel, cwd=temp_path, check=False)
+
+            # Stage and commit
+            paths_to_add = [r for r in files if (temp_path / r).exists()]
+            if paths_to_add:
+                self._run_git("add", *paths_to_add, cwd=temp_path)
+
+            result = self._run_git("diff", "--cached", "--quiet", cwd=temp_path, check=False)
+            if result.returncode == 0:
+                # No changes
+                return self._run_git("rev-parse", "HEAD", cwd=temp_path).stdout.strip()
+
+            self._run_git("commit", "--no-verify", "-m", message, cwd=temp_path)
+
+            commit_sha = self._run_git("rev-parse", "HEAD", cwd=temp_path).stdout.strip()
+
+            # Update the state branch ref to the new commit
+            self._run_git("update-ref", f"refs/heads/{STATE_BRANCH}", commit_sha)
+
+            return commit_sha
+
+        finally:
+            # Clean up worktree
+            self._run_git("worktree", "remove", "--force", str(temp_path), check=False)
+            # Belt-and-suspenders: remove temp dir if worktree remove failed
+            if temp_path.exists():
+                shutil.rmtree(temp_path, ignore_errors=True)
 
     def _get_current_commit(self) -> str:
         """Get the current HEAD commit SHA."""
@@ -360,12 +451,12 @@ class StateStore:
         is_local = pipeline_id.startswith("local-")
         should_commit = commit and (not is_local or force_commit)
         if should_commit:
-            rel_path = path.relative_to(self.repo_path)
-            self._run_git("add", str(rel_path))
-
-            result = self._run_git("diff", "--cached", "--quiet", check=False)
-            if result.returncode != 0:
-                self._run_git("commit", "--no-verify", "-m", f"Delete pipeline: {pipeline_id}")
+            rel_path = str(path.relative_to(self.repo_path))
+            self._commit_to_state_branch(
+                files={},
+                message=f"Delete pipeline: {pipeline_id}",
+                delete_paths=[rel_path],
+            )
 
     def list_pipelines(self) -> list[str]:
         """List all pipeline IDs.
