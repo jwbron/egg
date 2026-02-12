@@ -174,9 +174,9 @@ The contract tracks per-reviewer verdicts for debugging:
 }
 ```
 
-### Multi-Agent Orchestration (Experimental)
+### Multi-Agent Orchestration
 
-The implement phase supports multi-agent orchestration, where specialized agents (Coder, Tester, Documenter, Integrator) execute in parallel waves based on dependencies. This is an experimental alternative to the standard single-agent work loop.
+The implement phase supports multi-agent orchestration, where specialized agents (Coder, Tester, Documenter, Integrator) execute in parallel waves based on dependencies. Multi-agent orchestration is enabled by default; single-agent execution can be selected by explicitly disabling it in the contract's `multi_agent_config`.
 
 **Agent Roles:**
 
