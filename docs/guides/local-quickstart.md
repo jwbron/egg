@@ -184,4 +184,4 @@ egg --exec "make test"     # run a command in an ephemeral container
 
 **Token refresher warnings**: If you see "No valid token available from token refresher", this means no GitHub App is configured. This is expected in PAT-only mode — ensure `auth_mode: user` is set for your repos so the gateway uses your PAT.
 
-**Orchestrator git errors**: The orchestrator stores pipeline state in git. Ensure `EGG_REPO_PATH` resolves to actual git repositories (not just a parent directory containing repos).
+**Orchestrator git errors**: The orchestrator stores pipeline state in git. `EGG_REPO_PATH` can be either a single git repository or a parent directory containing multiple repositories (the orchestrator will scan subdirectories automatically).
