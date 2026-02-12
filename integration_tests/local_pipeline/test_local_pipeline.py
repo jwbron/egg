@@ -14,101 +14,27 @@ import time
 import pytest
 import requests
 
+from .helpers import (
+    create_pipeline,
+    delete_pipeline,
+    get_pipeline,
+    start_pipeline,
+    wait_for_awaiting_human,
+    wait_for_pipeline_terminal,
+)
+
 pytestmark = pytest.mark.integration
 
 
-def wait_for_pipeline_terminal(
-    orchestrator_url: str,
-    pipeline_id: str,
-    timeout: int = 120,
-    poll_interval: float = 2.0,
-) -> dict:
-    """Poll GET /api/v1/pipelines/<id>/status until terminal state."""
-    terminal_statuses = {"complete", "failed", "cancelled"}
-    deadline = time.time() + timeout
-
-    while time.time() < deadline:
-        try:
-            resp = requests.get(
-                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                status = data.get("data", {}).get("status", "")
-                if status in terminal_statuses:
-                    return data
-        except requests.ConnectionError:
-            pass
-        time.sleep(poll_interval)
-
-    raise TimeoutError(f"Pipeline {pipeline_id} did not reach terminal state within {timeout}s")
-
-
 # ---------------------------------------------------------------------------
-# Helpers
+# Local-only helpers (not in shared helpers.py)
 # ---------------------------------------------------------------------------
-
-
-def create_pipeline(
-    orchestrator_url: str,
-    *,
-    mode: str = "local",
-    prompt: str = "Test pipeline",
-    issue_number: int | None = None,
-    repo: str | None = None,
-    branch: str | None = None,
-    config: dict | None = None,
-) -> tuple[dict, int]:
-    """Create a pipeline via the orchestrator API and return response data."""
-    body: dict = {"mode": mode, "prompt": prompt}
-    if issue_number is not None:
-        body["issue_number"] = issue_number
-    if repo is not None:
-        body["repo"] = repo
-    if branch is not None:
-        body["branch"] = branch
-    if config is not None:
-        body["config"] = config
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines",
-        json=body,
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def get_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """GET a pipeline by ID."""
-    resp = requests.get(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
 
 
 def list_pipelines(orchestrator_url: str) -> tuple[dict, int]:
     """LIST all pipelines."""
     resp = requests.get(
         f"{orchestrator_url}/api/v1/pipelines",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def delete_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """DELETE a pipeline by ID."""
-    resp = requests.delete(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
-        timeout=10,
-    )
-    return resp.json(), resp.status_code
-
-
-def start_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
-    """POST to start a pipeline."""
-    resp = requests.post(
-        f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/start",
         timeout=10,
     )
     return resp.json(), resp.status_code
@@ -585,9 +511,12 @@ class TestPipelineCRUD:
             gone_data, gone_status = get_pipeline(orchestrator_url, pipeline_id)
             assert gone_status == 404
 
-        except Exception:
+        except BaseException:
             # Cleanup on failure
-            delete_pipeline(orchestrator_url, pipeline_id)
+            try:
+                delete_pipeline(orchestrator_url, pipeline_id)
+            except requests.RequestException:
+                pass
             raise
 
 
@@ -924,38 +853,6 @@ class TestContractCreatedForLocalPipeline:
 # ---------------------------------------------------------------------------
 # HITL gate helpers
 # ---------------------------------------------------------------------------
-
-
-def wait_for_awaiting_human(
-    orchestrator_url: str,
-    pipeline_id: str,
-    timeout: int = 120,
-    poll_interval: float = 2.0,
-) -> dict:
-    """Poll GET /status until status == 'awaiting_human' or terminal."""
-    terminal_statuses = {"complete", "failed", "cancelled"}
-    deadline = time.time() + timeout
-
-    while time.time() < deadline:
-        try:
-            resp = requests.get(
-                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                status = data.get("data", {}).get("status", "")
-                if status == "awaiting_human":
-                    return data
-                if status in terminal_statuses:
-                    raise AssertionError(
-                        f"Pipeline reached terminal state '{status}' before awaiting_human: {data}"
-                    )
-        except requests.ConnectionError:
-            pass
-        time.sleep(poll_interval)
-
-    raise TimeoutError(f"Pipeline {pipeline_id} did not reach awaiting_human within {timeout}s")
 
 
 def resolve_pending_decision(

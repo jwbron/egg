@@ -14,13 +14,11 @@ import secrets
 import shutil
 import subprocess
 import tempfile
-import time
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-import requests
 from egg_config import GATEWAY_PORT
 from egg_config.constants import ORCHESTRATOR_PORT
 
@@ -88,35 +86,9 @@ class LocalPipelineStack:
     repos_dir: str
 
 
-def wait_for_pipeline_terminal(
-    orchestrator_url: str,
-    pipeline_id: str,
-    timeout: int = 120,
-    poll_interval: float = 2.0,
-) -> dict:
-    """Poll GET /api/v1/pipelines/<id>/status until terminal state.
-
-    Returns the final status response data, or raises TimeoutError.
-    """
-    terminal_statuses = {"complete", "failed", "cancelled"}
-    deadline = time.time() + timeout
-
-    while time.time() < deadline:
-        try:
-            resp = requests.get(
-                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                status = data.get("data", {}).get("status", "")
-                if status in terminal_statuses:
-                    return data
-        except requests.ConnectionError:
-            pass
-        time.sleep(poll_interval)
-
-    raise TimeoutError(f"Pipeline {pipeline_id} did not reach terminal state within {timeout}s")
+# Re-export wait_for_pipeline_terminal from helpers for backwards compatibility
+# with any tests that import it from conftest
+from .helpers import wait_for_pipeline_terminal  # noqa: E402, F401
 
 
 def _cleanup_orphaned_containers() -> None:

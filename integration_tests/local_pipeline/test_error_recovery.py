@@ -343,7 +343,7 @@ class TestPipelineDeletionDuringRunning:
                     f"Found orphaned containers: {pipeline_containers}"
                 )
 
-        except Exception:
+        except BaseException:
             # Cleanup on any error
             try:
                 delete_pipeline(orchestrator_url, pipeline_id)
