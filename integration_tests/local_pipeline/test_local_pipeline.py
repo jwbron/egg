@@ -2,12 +2,13 @@
 
 These tests spawn real Docker containers (gateway + orchestrator + mock sandbox)
 and run through the full pipeline lifecycle. Only the Claude AI portions are
-mocked — sandbox containers start, sleep briefly, and exit.
+mocked — sandbox containers start, validate their environment, and exit.
 
 All tests require Docker and are marked with @pytest.mark.integration.
 """
 
 import random
+import subprocess
 import time
 
 import pytest
@@ -57,7 +58,7 @@ def create_pipeline(
     issue_number: int | None = None,
     repo: str | None = None,
     branch: str | None = None,
-) -> dict:
+) -> tuple[dict, int]:
     """Create a pipeline via the orchestrator API and return response data."""
     body: dict = {"mode": mode, "prompt": prompt}
     if issue_number is not None:
@@ -74,7 +75,7 @@ def create_pipeline(
     return resp.json(), resp.status_code
 
 
-def get_pipeline(orchestrator_url: str, pipeline_id: str) -> dict:
+def get_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
     """GET a pipeline by ID."""
     resp = requests.get(
         f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
@@ -83,7 +84,7 @@ def get_pipeline(orchestrator_url: str, pipeline_id: str) -> dict:
     return resp.json(), resp.status_code
 
 
-def list_pipelines(orchestrator_url: str) -> dict:
+def list_pipelines(orchestrator_url: str) -> tuple[dict, int]:
     """LIST all pipelines."""
     resp = requests.get(
         f"{orchestrator_url}/api/v1/pipelines",
@@ -92,7 +93,7 @@ def list_pipelines(orchestrator_url: str) -> dict:
     return resp.json(), resp.status_code
 
 
-def delete_pipeline(orchestrator_url: str, pipeline_id: str) -> dict:
+def delete_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
     """DELETE a pipeline by ID."""
     resp = requests.delete(
         f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}",
@@ -101,7 +102,7 @@ def delete_pipeline(orchestrator_url: str, pipeline_id: str) -> dict:
     return resp.json(), resp.status_code
 
 
-def start_pipeline(orchestrator_url: str, pipeline_id: str) -> dict:
+def start_pipeline(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
     """POST to start a pipeline."""
     resp = requests.post(
         f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/start",
@@ -110,7 +111,7 @@ def start_pipeline(orchestrator_url: str, pipeline_id: str) -> dict:
     return resp.json(), resp.status_code
 
 
-def get_pipeline_status(orchestrator_url: str, pipeline_id: str) -> dict:
+def get_pipeline_status(orchestrator_url: str, pipeline_id: str) -> tuple[dict, int]:
     """GET pipeline status summary."""
     resp = requests.get(
         f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
@@ -221,27 +222,102 @@ class TestLocalPipelineNoPrPhase:
 
 
 class TestLocalPipelineContainerFailure:
-    """Mock sandbox exits code 1 -> pipeline fails with error message."""
+    """Mock sandbox exits code 1 -> pipeline fails with error + container logs."""
 
-    def test_local_pipeline_container_failure(self, local_pipeline_stack) -> None:
-        """Inject MOCK_EXIT_CODE=1 and verify pipeline fails.
+    def test_local_pipeline_container_failure(self, orchestrator_url: str) -> None:
+        """Inject FORCE_FAIL in prompt and verify pipeline fails.
 
-        This test requires the orchestrator to pass MOCK_EXIT_CODE through
-        to spawned containers. We do this by creating a pipeline, then
-        modifying the orchestrator's env for the sandbox. Since we can't
-        easily inject per-pipeline env vars into the mock sandbox, we instead
-        verify the failure path by starting a pipeline that we know will fail.
-
-        Note: The mock sandbox reads MOCK_EXIT_CODE from its own environment.
-        Since we can't inject this per-pipeline through the current API, we
-        verify the error handling path differently: we create a pipeline and
-        verify the API correctly reports failures when they happen.
+        The mock sandbox's phase-runner.sh checks for FORCE_FAIL in the
+        EGG_PIPELINE_PROMPT environment variable and exits with code 1
+        when found. This tests the real container failure path end-to-end.
         """
-        orchestrator_url = local_pipeline_stack.orchestrator_url
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="This pipeline should FORCE_FAIL on first phase",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
 
-        # Create a pipeline - the mock sandbox exits 0 by default,
-        # so we verify the success path completes first
-        data, status = create_pipeline(orchestrator_url, prompt="Will succeed")
+        try:
+            start_data, start_status = start_pipeline(orchestrator_url, pipeline_id)
+            assert start_status == 200
+
+            # Wait for terminal state — should fail on the refine phase
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            assert final["data"]["status"] == "failed", (
+                f"Pipeline should have failed but got: {final}"
+            )
+
+            # Pipeline should have failed in the refine phase (first phase)
+            assert final["data"]["current_phase"] == "refine"
+
+            # Verify error message on the pipeline
+            get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
+            pipeline = get_data["data"]["pipeline"]
+            assert pipeline["status"] == "failed"
+            assert "exit" in pipeline["error"].lower() or "code 1" in pipeline["error"]
+
+            # Verify the refine phase execution is marked as failed
+            phases = pipeline.get("phases", {})
+            if "refine" in phases:
+                assert phases["refine"]["status"] == "failed"
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)
+
+    def test_failure_error_includes_container_logs(self, orchestrator_url: str) -> None:
+        """When a phase container fails, the error should include log output.
+
+        The orchestrator captures container logs before cleanup so that
+        the pipeline error message contains diagnostic output from the
+        sandbox, making failures debuggable without manual docker log
+        inspection.
+        """
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="FORCE_FAIL to test log capture",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
+
+        try:
+            start_pipeline(orchestrator_url, pipeline_id)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            assert final["data"]["status"] == "failed"
+
+            get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
+            error = get_data["data"]["pipeline"].get("error", "")
+
+            # The error should contain "container logs" section with
+            # output from the mock sandbox's phase-runner.sh
+            assert "container logs" in error.lower(), (
+                f"Error message should include container logs section. Got: {error}"
+            )
+            # The mock sandbox prints "FORCE_FAIL detected" before exiting
+            assert "FORCE_FAIL" in error, (
+                f"Container logs should contain sandbox output. Got: {error}"
+            )
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)
+
+
+class TestSandboxReceivesEnvironment:
+    """Verify spawned containers receive all required environment and volumes.
+
+    The mock sandbox validates three categories (with distinct exit codes):
+      - exit 2: missing pipeline identity vars (EGG_PIPELINE_PHASE, etc.)
+      - exit 3: missing sandbox infra vars (GATEWAY_URL)
+      - exit 4: repo volume not mounted
+    A completed pipeline proves all three checks passed for every phase.
+    """
+
+    def test_sandbox_receives_pipeline_env(self, orchestrator_url: str) -> None:
+        """Pipeline completes → all 3 phases got correct pipeline env vars."""
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="Verify pipeline env vars",
+        )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
 
@@ -249,36 +325,122 @@ class TestLocalPipelineContainerFailure:
             start_pipeline(orchestrator_url, pipeline_id)
             final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
 
-            # This pipeline should succeed with default MOCK_EXIT_CODE=0
-            assert final["data"]["status"] == "complete"
+            assert final["data"]["status"] == "complete", (
+                f"Pipeline failed — mock sandbox likely missing required env vars "
+                f"(exit 2=pipeline vars, 3=infra vars, 4=repo volume): {final}"
+            )
+
+            get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
+            phases = get_data["data"]["pipeline"].get("phases", {})
+            for phase_name in ["refine", "plan", "implement"]:
+                assert phase_name in phases, f"Phase {phase_name} not found"
+                assert phases[phase_name]["status"] == "complete"
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
 
-        # Now verify the error reporting path by checking the API handles
-        # pipeline failure state correctly
-        data2, status2 = create_pipeline(orchestrator_url, prompt="Error path test")
-        assert status2 == 200
-        pipeline_id2 = data2["data"]["pipeline"]["id"]
+    def test_sandbox_receives_gateway_url(self, orchestrator_url: str) -> None:
+        """Pipeline completes → GATEWAY_URL was set (exit 3 if missing)."""
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="Verify GATEWAY_URL passed",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
 
         try:
-            # Manually set pipeline to failed state to test error retrieval
-            requests.patch(
-                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id2}",
-                json={
-                    "status": "failed",
-                    "error": "Container exited with code 1",
-                },
-                timeout=10,
-            )
+            start_pipeline(orchestrator_url, pipeline_id)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
 
-            get_data, _ = get_pipeline(orchestrator_url, pipeline_id2)
-            pipeline = get_data["data"]["pipeline"]
-            assert pipeline["status"] == "failed"
-            assert "exit" in pipeline["error"].lower() or "code 1" in pipeline["error"]
+            if final["data"]["status"] == "failed":
+                # Check if the error mentions exit code 3 (infra vars)
+                get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
+                error = get_data["data"]["pipeline"].get("error", "")
+                assert "code 3" not in error, (
+                    f"Sandbox exited code 3: GATEWAY_URL not passed to container. Error: {error}"
+                )
+
+            assert final["data"]["status"] == "complete", f"Pipeline did not complete: {final}"
 
         finally:
-            delete_pipeline(orchestrator_url, pipeline_id2)
+            delete_pipeline(orchestrator_url, pipeline_id)
+
+    def test_sandbox_receives_repo_volume(self, orchestrator_url: str) -> None:
+        """Pipeline completes → repo volume was mounted (exit 4 if missing)."""
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="Verify repo volume mounted",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
+
+        try:
+            start_pipeline(orchestrator_url, pipeline_id)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+
+            if final["data"]["status"] == "failed":
+                get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
+                error = get_data["data"]["pipeline"].get("error", "")
+                assert "code 4" not in error, (
+                    f"Sandbox exited code 4: repo volume not mounted. Error: {error}"
+                )
+
+            assert final["data"]["status"] == "complete", f"Pipeline did not complete: {final}"
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)
+
+
+class TestPipelineStartIdempotency:
+    """Starting an already-running or completed pipeline returns 409."""
+
+    def test_start_running_pipeline_returns_409(self, orchestrator_url: str) -> None:
+        """Cannot start a pipeline that is already running."""
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="Test idempotency",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
+
+        try:
+            # First start succeeds
+            start_data, start_status = start_pipeline(orchestrator_url, pipeline_id)
+            assert start_status == 200
+
+            # Second start should return 409
+            start_data2, start_status2 = start_pipeline(orchestrator_url, pipeline_id)
+            assert start_status2 == 409, (
+                f"Expected 409 for re-starting running pipeline, got {start_status2}: {start_data2}"
+            )
+
+            # Wait for completion so cleanup works cleanly
+            wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)
+
+    def test_start_completed_pipeline_returns_409(self, orchestrator_url: str) -> None:
+        """Cannot start a pipeline that has already completed."""
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="Test completed idempotency",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
+
+        try:
+            start_pipeline(orchestrator_url, pipeline_id)
+            wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+
+            # Try to start again — should be 409
+            start_data, start_status = start_pipeline(orchestrator_url, pipeline_id)
+            assert start_status == 409, (
+                f"Expected 409 for re-starting completed pipeline, got {start_status}: {start_data}"
+            )
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)
 
 
 class TestIssuePipelineIncludesPrPhase:
@@ -303,7 +465,7 @@ class TestIssuePipelineIncludesPrPhase:
             start_data, start_status = start_pipeline(orchestrator_url, pipeline_id)
             assert start_status == 200
 
-            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=180)
             assert final["data"]["status"] == "complete", (
                 f"Issue pipeline did not complete: {final}"
             )
@@ -320,10 +482,8 @@ class TestIssuePipelineIncludesPrPhase:
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
             # Force-remove any leftover sandbox container for this pipeline
-            import subprocess
-
             subprocess.run(
-                ["docker", "rm", "-f", f"egg-sandbox-egg-issue-{issue_num}-coder"],
+                ["docker", "rm", "-f", f"egg-sandbox-issue-{issue_num}-coder"],
                 capture_output=True,
                 timeout=10,
                 check=False,
@@ -453,3 +613,30 @@ class TestGatewayLocalModeBlocksPush:
                 headers={"Authorization": f"Bearer {launcher_secret}"},
                 timeout=10,
             )
+
+
+class TestFailedPipelineCannotRestart:
+    """A failed pipeline cannot be restarted (returns 409)."""
+
+    def test_failed_pipeline_returns_409(self, orchestrator_url: str) -> None:
+        """Trigger a failure via FORCE_FAIL, then try to restart."""
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="FORCE_FAIL for restart test",
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
+
+        try:
+            start_pipeline(orchestrator_url, pipeline_id)
+            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=120)
+            assert final["data"]["status"] == "failed"
+
+            # Try to start again — should be 409
+            start_data, start_status = start_pipeline(orchestrator_url, pipeline_id)
+            assert start_status == 409, (
+                f"Expected 409 for restarting failed pipeline, got {start_status}: {start_data}"
+            )
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)

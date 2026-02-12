@@ -441,6 +441,200 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
+def _build_phase_prompt(
+    phase: str,
+    pipeline_id: str,
+    pipeline_mode: str,
+    prompt: str | None = None,
+    issue_number: int | None = None,
+    repo: str | None = None,
+    branch: str | None = None,
+) -> str:
+    """Build a phase-specific prompt for the sandbox Claude invocation.
+
+    Follows the same structure as action/build-sdlc-prompt.sh:
+    Context → Task → Restrictions → Completion.  Adapted for the
+    orchestrator (local mode has no GitHub issue, contract, or PR).
+    """
+    is_local = pipeline_mode == "local"
+
+    # --- Context header ---
+    lines = [f"You are in the **{phase}** phase of the SDLC pipeline.\n"]
+    lines.append("## Context\n")
+    lines.append(f"Pipeline ID: {pipeline_id}")
+    lines.append(f"Phase: {phase}")
+    lines.append(f"Mode: {pipeline_mode}")
+    if repo:
+        lines.append(f"Repository: {repo}")
+    if branch:
+        lines.append(f"Branch: {branch}")
+    if issue_number is not None:
+        lines.append(f"Issue: #{issue_number}")
+    lines.append("")
+
+    # --- Task description ---
+    if prompt:
+        lines.append("## Task Description\n")
+        lines.append(prompt)
+        lines.append("")
+
+    # --- Phase-specific instructions ---
+    lines.append("## Your Task\n")
+
+    if phase == "refine":
+        lines.extend(
+            [
+                "Analyze the task and produce a structured analysis:",
+                "",
+                "1. Understand the problem or feature request",
+                "2. Research the current codebase to understand existing patterns",
+                "3. Identify constraints and dependencies",
+                "4. Consider multiple implementation approaches",
+                "5. Recommend an approach with justification",
+                "",
+            ]
+        )
+        if is_local:
+            lines.extend(
+                [
+                    "Write your analysis to `.egg-state/drafts/analysis.md`.",
+                    "Commit the draft when done.",
+                    "",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    f"Write your analysis to `.egg-state/drafts/{issue_number}-analysis.md`.",
+                    "Commit and push the draft when done.",
+                    "",
+                ]
+            )
+
+    elif phase == "plan":
+        lines.extend(
+            [
+                "Create a detailed implementation plan:",
+                "",
+                "1. Review any prior analysis",
+                "2. Break down the work into phases with discrete tasks",
+                "3. Define clear acceptance criteria for each task",
+                "4. Identify test strategy",
+                "5. Consider rollback and risks",
+                "",
+            ]
+        )
+        if is_local:
+            lines.extend(
+                [
+                    "Write your plan to `.egg-state/drafts/plan.md`.",
+                    "Commit the draft when done.",
+                    "",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    f"Write your plan to `.egg-state/drafts/{issue_number}-plan.md`.",
+                    "Commit and push the draft when done.",
+                    "",
+                ]
+            )
+
+    elif phase == "implement":
+        lines.extend(
+            [
+                "Implement the changes described in the task and plan:",
+                "",
+                "1. Review the plan (check `.egg-state/drafts/`)",
+                "2. Implement the required changes",
+                "3. Run tests to verify correctness",
+                "4. Commit with descriptive messages",
+                "",
+            ]
+        )
+        if not is_local:
+            lines.extend(
+                [
+                    "Use the contract CLI to track progress:",
+                    "- `egg-contract show` — View current contract state",
+                    "- `egg-contract add-commit --task <id> --commit <sha>` — Link commit to task",
+                    "",
+                ]
+            )
+
+    elif phase == "pr":
+        lines.extend(
+            [
+                "Create a pull request for this implementation:",
+                "",
+                "1. Ensure all commits are pushed",
+                "2. Create the PR with a descriptive title and body",
+                f"3. Reference the issue (#{issue_number}) in the PR description"
+                if issue_number
+                else "3. Create the PR with a clear summary",
+                "4. Wait for human review and approval",
+                "",
+            ]
+        )
+
+    else:
+        lines.append(f"Execute the {phase} phase.\n")
+
+    # --- Phase restrictions ---
+    lines.append("## Phase Restrictions\n")
+    if is_local:
+        lines.extend(
+            [
+                "This is a **local** pipeline — no GitHub operations:",
+                "- You CANNOT push code (git push)",
+                "- You CANNOT create PRs (gh pr create)",
+                "- You CANNOT post issue comments",
+                "- You CAN read and modify local files",
+                "- You CAN run tests",
+                "- You CAN commit locally",
+                "",
+            ]
+        )
+    else:
+        if phase in ("refine", "plan"):
+            lines.extend(
+                [
+                    "- You CAN write drafts to `.egg-state/drafts/`",
+                    "- You CAN push draft files (git push)",
+                    "- You CANNOT create PRs (gh pr create)",
+                    "",
+                ]
+            )
+        elif phase == "implement":
+            lines.extend(
+                [
+                    "- You CAN push code (git push)",
+                    "- You CAN link commits to tasks (egg-contract add-commit)",
+                    "- You CANNOT create PRs (the pipeline manages the PR)",
+                    "",
+                ]
+            )
+        elif phase == "pr":
+            lines.extend(
+                [
+                    "- You CAN create and edit PRs (gh pr create, gh pr edit)",
+                    "- You CAN push additional commits",
+                    "- You CANNOT merge PRs (human must merge)",
+                    "",
+                ]
+            )
+
+    # --- Completion ---
+    lines.append("## Phase Completion\n")
+    lines.append(
+        "When you have completed your work for this phase, "
+        "ensure everything is committed and exit successfully."
+    )
+
+    return "\n".join(lines)
+
+
 def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     """Run a pipeline by spawning containers for each phase.
 
@@ -462,6 +656,17 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
         # Map pipeline mode to gateway session mode
         gateway_mode = "local" if pipeline_mode == "local" else "public"
+
+        # Determine host repos path for volume mount.  When the
+        # orchestrator runs inside Docker, EGG_REPO_PATH is the
+        # *container* path but volume mounts need the *host* path
+        # (since the Docker socket operates on the host daemon).
+        # EGG_HOST_REPOS_DIR provides that; fall back to EGG_REPO_PATH
+        # when running natively (not in Docker).
+        host_repos_dir = os.environ.get(
+            "EGG_HOST_REPOS_DIR",
+            os.environ.get("EGG_REPO_PATH"),
+        )
 
         while True:
             pipeline = store.load_pipeline(pipeline_id)
@@ -490,21 +695,64 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 mode=gateway_mode,
             )
 
+            # Build sandbox environment.  The sandbox entrypoint needs
+            # GATEWAY_URL for health checks and Anthropic API routing,
+            # plus proxy vars for network access in private mode.
+            gateway_url = os.environ.get("GATEWAY_URL", "http://172.32.0.2:9848")
+            sandbox_env: dict[str, str] = {
+                # Pipeline identity
+                "EGG_PIPELINE_ID": pipeline_id,
+                "EGG_PIPELINE_PHASE": current_phase.value,
+                "EGG_PIPELINE_MODE": pipeline_mode,
+                # Gateway connection (sandbox entrypoint health check + API routing)
+                "GATEWAY_URL": gateway_url,
+                "EGG_GATEWAY_URL": gateway_url,
+                # Host UID/GID for file permission alignment
+                "RUNTIME_UID": os.environ.get("HOST_UID", "1000"),
+                "RUNTIME_GID": os.environ.get("HOST_GID", "1000"),
+            }
+            if pipeline.prompt:
+                sandbox_env["EGG_PIPELINE_PROMPT"] = pipeline.prompt
+
+            # Build the claude --print command for the sandbox entrypoint.
+            # The entrypoint detects args and runs them via gosu as the
+            # egg user instead of launching interactive mode.
+            phase_prompt = _build_phase_prompt(
+                phase=current_phase.value,
+                pipeline_id=pipeline_id,
+                pipeline_mode=pipeline_mode,
+                prompt=pipeline.prompt,
+                issue_number=pipeline.issue_number,
+                repo=pipeline.repo,
+                branch=pipeline.branch,
+            )
+
+            sandbox_command = [
+                "claude",
+                "--dangerously-skip-permissions",
+                "--print",
+                "--verbose",
+                "--output-format",
+                "stream-json",
+                "--model",
+                "opus",
+                "--max-turns",
+                "200",
+                phase_prompt,
+            ]
+
             try:
                 spawned = spawner.spawn_agent_container(
                     pipeline_id=pipeline_id,
                     agent_role=AgentRole.CODER,
                     issue_number=pipeline.issue_number,
+                    repo_mount=host_repos_dir,
                     mode=gateway_mode,
                     wait_for_gateway=False,
                     repos=[pipeline.repo] if pipeline.repo else [],
                     phase=current_phase.value,
-                    extra_env={
-                        "EGG_PIPELINE_ID": pipeline_id,
-                        "EGG_PIPELINE_PHASE": current_phase.value,
-                        "EGG_PIPELINE_MODE": pipeline_mode,
-                        **({"EGG_PIPELINE_PROMPT": pipeline.prompt} if pipeline.prompt else {}),
-                    },
+                    extra_env=sandbox_env,
+                    command=sandbox_command,
                 )
 
                 # Wait for the container to finish
@@ -514,7 +762,57 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     timeout=3600,
                 )
 
-                # Clean up the container so the next phase can reuse the name
+                if final_info.exit_code != 0:
+                    # Capture container logs BEFORE cleanup for diagnostics
+                    container_logs = ""
+                    try:
+                        container_logs = spawner.docker.get_container_logs(
+                            spawned.container_info.container_id,
+                            tail=50,
+                        )
+                    except Exception:
+                        pass
+
+                    # Clean up the failed container
+                    try:
+                        spawner.remove_agent_container(
+                            spawned.container_info.container_id,
+                            force=True,
+                            cleanup_session=True,
+                        )
+                    except Exception as cleanup_err:
+                        logger.warning(
+                            "Failed to clean up phase container",
+                            container_id=spawned.container_info.container_id[:12],
+                            error=str(cleanup_err),
+                        )
+
+                    # Build error message with log tail for debugging
+                    error_msg = f"Container exited with code {final_info.exit_code}"
+                    if container_logs:
+                        # Include last few lines in the error for visibility
+                        log_lines = container_logs.strip().splitlines()
+                        tail = "\n".join(log_lines[-10:])
+                        error_msg += f"\n--- container logs (last 10 lines) ---\n{tail}"
+
+                    pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    phase_execution.status = PipelineStatus.FAILED
+                    phase_execution.error = error_msg
+                    phase_execution.completed_at = datetime.utcnow()
+                    pipeline.status = PipelineStatus.FAILED
+                    pipeline.error = error_msg
+                    store.save_pipeline(pipeline)
+                    logger.error(
+                        "Phase failed",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        exit_code=final_info.exit_code,
+                        container_logs=container_logs[-2000:] if container_logs else "",
+                    )
+                    break
+
+                # Phase succeeded — clean up the container so the next phase can reuse the name
                 try:
                     spawner.remove_agent_container(
                         spawned.container_info.container_id,
@@ -527,23 +825,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         container_id=spawned.container_info.container_id[:12],
                         error=str(cleanup_err),
                     )
-
-                if final_info.exit_code != 0:
-                    pipeline = store.load_pipeline(pipeline_id)
-                    phase_execution = pipeline.get_phase_execution(current_phase)
-                    phase_execution.status = PipelineStatus.FAILED
-                    phase_execution.error = f"Container exited with code {final_info.exit_code}"
-                    phase_execution.completed_at = datetime.utcnow()
-                    pipeline.status = PipelineStatus.FAILED
-                    pipeline.error = phase_execution.error
-                    store.save_pipeline(pipeline)
-                    logger.error(
-                        "Phase failed",
-                        pipeline_id=pipeline_id,
-                        phase=current_phase.value,
-                        exit_code=final_info.exit_code,
-                    )
-                    break
 
             except ContainerSpawnError as e:
                 pipeline = store.load_pipeline(pipeline_id)

@@ -75,6 +75,8 @@ services:
       - WAIT_FOR_GATEWAY=true
       - GATEWAY_HOST=172.40.0.2
       - GATEWAY_PORT=9848
+      # Host repos path for sandbox volume mounts (Docker socket sees host paths)
+      - EGG_HOST_REPOS_DIR=${EGG_REPOS_DIR:-/tmp/egg-test-repos}
       # Use mock sandbox image instead of egg-sandbox:latest
       - EGG_SANDBOX_IMAGE=mock-sandbox:latest
       # Override network name so spawned containers join the test network

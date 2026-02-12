@@ -126,6 +126,7 @@ class ContainerSpawner:
         wait_for_gateway: bool = True,
         repos: list[str] | None = None,
         phase: str | None = None,
+        command: list[str] | None = None,
     ) -> SpawnedContainer:
         """Spawn a container for an agent.
 
@@ -245,6 +246,7 @@ class ContainerSpawner:
                 environment=env,
                 labels=labels,
                 volumes=volumes if volumes else None,
+                command=command,
             )
 
             logger.info(

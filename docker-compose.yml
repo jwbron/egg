@@ -108,6 +108,8 @@ services:
       # Host info for container spawning
       - HOST_UID=${HOST_UID:-1000}
       - HOST_GID=${HOST_GID:-1000}
+      # Host repos path for sandbox volume mounts (Docker socket sees host paths)
+      - EGG_HOST_REPOS_DIR=${EGG_REPOS_DIR:-./repos}
       # Sandbox image for spawned containers
       - EGG_SANDBOX_IMAGE=${EGG_SANDBOX_IMAGE:-egg:latest}
       # Launcher secret for gateway session registration
