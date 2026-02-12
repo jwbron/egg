@@ -1171,6 +1171,7 @@ def _spawn_and_wait(
     sandbox_command: list[str],
     timeout: int = 3600,
     store=None,
+    certs_volume: str | None = None,
 ) -> tuple[int, str]:
     """Spawn a container, wait for it to exit, clean up, return (exit_code, logs).
 
@@ -1180,6 +1181,8 @@ def _spawn_and_wait(
     Args:
         repo_volumes: Mapping of repo_name -> host_path for volume mounts.
             Each entry is mounted at /home/egg/repos/<name> in the container.
+        certs_volume: Docker named volume for gateway CA certs (mounted at
+            /shared/certs read-only). If None, certs are not mounted.
 
     Returns:
         (exit_code, container_logs) — logs are captured before cleanup on failure.
@@ -1190,6 +1193,10 @@ def _spawn_and_wait(
     extra_volumes: dict[str, dict[str, str]] = {}
     for name, host_path in repo_volumes.items():
         extra_volumes[host_path] = {"bind": f"/home/egg/repos/{name}", "mode": "rw"}
+
+    # Mount the gateway CA certs volume so the sandbox trusts the proxy
+    if certs_volume:
+        extra_volumes[certs_volume] = {"bind": "/shared/certs", "mode": "ro"}
 
     spawned = spawner.spawn_agent_container(
         pipeline_id=pipeline_id,
@@ -1502,6 +1509,62 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 f"EGG_HOST_REPO_MAP contains invalid JSON: {host_repo_map_raw!r}"
             ) from exc
 
+        # Create isolated worktrees via the gateway.  The gateway creates
+        # per-pipeline worktrees from the main repos and returns host paths
+        # suitable for Docker volume mounts.  All containers in a pipeline
+        # share the same worktrees so they see each other's commits.
+        #
+        # We use the pipeline_id as the worktree container_id so all
+        # containers in the pipeline share the same working trees.
+        worktree_id = pipeline_id
+        repo_volumes = dict(host_repo_map)  # fallback: raw host paths
+        host_uid = int(os.environ.get("HOST_UID", 1000))
+        host_gid = int(os.environ.get("HOST_GID", 1000))
+        pipeline_repos = [pipeline.repo] if pipeline.repo else []
+
+        if host_repo_map:
+            try:
+                # Request repos in owner/repo format if available, else bare names
+                wt_repos = pipeline_repos if pipeline_repos else list(host_repo_map.keys())
+                wt_result = spawner.gateway.create_worktrees(
+                    container_id=worktree_id,
+                    repos=wt_repos,
+                    uid=host_uid,
+                    gid=host_gid,
+                )
+
+                if wt_result.success and wt_result.worktrees:
+                    repo_volumes = wt_result.worktrees
+                    logger.info(
+                        "Worktrees created for pipeline",
+                        pipeline_id=pipeline_id,
+                        worktrees=list(repo_volumes.keys()),
+                    )
+                else:
+                    logger.warning(
+                        "Worktree creation returned no worktrees, using raw host paths",
+                        pipeline_id=pipeline_id,
+                        errors=wt_result.errors,
+                    )
+
+                if wt_result.errors:
+                    for err in wt_result.errors:
+                        logger.warning("Worktree error", pipeline_id=pipeline_id, error=err)
+
+            except Exception as wt_err:
+                logger.warning(
+                    "Failed to create worktrees, falling back to raw host paths",
+                    pipeline_id=pipeline_id,
+                    error=str(wt_err),
+                )
+
+        # Resolve the certs named volume for gateway CA trust.
+        # The docker-compose stack creates ${COMPOSE_PROJECT_NAME:-egg}-certs.
+        certs_volume = os.environ.get(
+            "EGG_CERTS_VOLUME",
+            os.environ.get("COMPOSE_PROJECT_NAME", "egg") + "-certs",
+        )
+
         while True:
             pipeline = store.load_pipeline(pipeline_id)
 
@@ -1595,13 +1658,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_id=pipeline_id,
                         agent_role=AgentRole.CODER,
                         issue_number=pipeline.issue_number,
-                        repo_volumes=host_repo_map,
+                        repo_volumes=repo_volumes,
                         gateway_mode=phase_gateway_mode,
                         repos=repos,
                         phase=current_phase.value,
                         sandbox_env=sandbox_env,
                         sandbox_command=sandbox_command,
                         store=store,
+                        certs_volume=certs_volume,
                     )
                 except ContainerSpawnError as e:
                     pipeline = store.load_pipeline(pipeline_id)
@@ -1673,7 +1737,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 pipeline_id=pipeline_id,
                                 agent_role=AgentRole.CHECKER,
                                 issue_number=pipeline.issue_number,
-                                repo_volumes=host_repo_map,
+                                repo_volumes=repo_volumes,
                                 gateway_mode=phase_gateway_mode,
                                 repos=repos,
                                 phase=current_phase.value,
@@ -1681,6 +1745,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 sandbox_command=checker_command,
                                 timeout=1800,
                                 store=store,
+                                certs_volume=certs_volume,
                             )
                         except ContainerSpawnError as e:
                             logger.warning(
@@ -1738,13 +1803,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 pipeline_id=pipeline_id,
                                 agent_role=AgentRole.CODER,
                                 issue_number=pipeline.issue_number,
-                                repo_volumes=host_repo_map,
+                                repo_volumes=repo_volumes,
                                 gateway_mode=phase_gateway_mode,
                                 repos=repos,
                                 phase=current_phase.value,
                                 sandbox_env=sandbox_env,
                                 sandbox_command=autofix_command,
                                 store=store,
+                                certs_volume=certs_volume,
                             )
                         except ContainerSpawnError as e:
                             logger.warning(
@@ -1818,7 +1884,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id=pipeline_id,
                             agent_role=AgentRole.REVIEWER,
                             issue_number=pipeline.issue_number,
-                            repo_volumes=host_repo_map,
+                            repo_volumes=repo_volumes,
                             gateway_mode=phase_gateway_mode,
                             repos=repos,
                             phase=current_phase.value,
@@ -1826,6 +1892,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             sandbox_command=reviewer_command,
                             timeout=1800,
                             store=store,
+                            certs_volume=certs_volume,
                         )
                     except ContainerSpawnError as e:
                         logger.warning(
@@ -1979,6 +2046,21 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             store.save_pipeline(pipeline)
         except Exception:
             pass
+    finally:
+        # Clean up pipeline-level worktrees regardless of success/failure
+        try:
+            _spawner = get_container_spawner()
+            _spawner.gateway.delete_worktrees(
+                container_id=pipeline_id,
+                force=True,
+            )
+            logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
+        except Exception as wt_err:
+            logger.warning(
+                "Failed to clean up pipeline worktrees",
+                pipeline_id=pipeline_id,
+                error=str(wt_err),
+            )
 
 
 @pipelines_bp.route("/<pipeline_id>/start", methods=["POST"])

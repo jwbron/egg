@@ -9,12 +9,11 @@ from threading import Thread
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from gateway_client import (
     GatewayClient,
     GatewayError,
     GatewayHealth,
-    SessionInfo,
+    WorktreeResult,
     get_gateway_client,
     validate_security_boundary,
 )
@@ -41,11 +40,13 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         """Handle GET requests."""
         if self.path == "/api/v1/health":
-            self._send_json({
-                "status": "healthy",
-                "version": "0.1.0",
-                "uptime_seconds": 100.0,
-            })
+            self._send_json(
+                {
+                    "status": "healthy",
+                    "version": "0.1.0",
+                    "uptime_seconds": 100.0,
+                }
+            )
         elif self.path.startswith("/api/v1/sessions/"):
             # GET /api/v1/sessions/<token> - validate session
             self._handle_validate_get()
@@ -60,6 +61,10 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
 
         if self.path == "/api/v1/sessions/create":
             self._handle_register(data)
+        elif self.path == "/api/v1/worktree/create":
+            self._handle_worktree_create(data)
+        elif self.path == "/api/v1/worktree/delete":
+            self._handle_worktree_delete(data)
         else:
             self._send_error(404, "Not found")
 
@@ -91,14 +96,16 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
             self._send_error(401, "Unauthorized")
             return
 
-        self._send_json({
-            "success": True,
-            "data": {
-                "session_token": "test-token-12345",
-                "created_at": datetime.now().isoformat(),
-                "expires_at": (datetime.now() + timedelta(hours=24)).isoformat(),
-            },
-        })
+        self._send_json(
+            {
+                "success": True,
+                "data": {
+                    "session_token": "test-token-12345",
+                    "created_at": datetime.now().isoformat(),
+                    "expires_at": (datetime.now() + timedelta(hours=24)).isoformat(),
+                },
+            }
+        )
 
     def _handle_validate_get(self):
         """Handle session validation (GET /api/v1/sessions/<token>)."""
@@ -123,13 +130,15 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
             self._send_error(401, "Unauthorized")
             return
 
-        self._send_json({
-            "success": True,
-            "data": {
-                "container_id": data.get("container_id"),
-                "container_ip": data.get("container_ip"),
-            },
-        })
+        self._send_json(
+            {
+                "success": True,
+                "data": {
+                    "container_id": data.get("container_id"),
+                    "container_ip": data.get("container_ip"),
+                },
+            }
+        )
 
     def _handle_delete(self):
         """Handle session deletion (DELETE /api/v1/sessions/<token>)."""
@@ -151,6 +160,50 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
 
         self._send_json({"success": True})
 
+    def _handle_worktree_create(self, data):
+        """Handle worktree creation (POST /api/v1/worktree/create)."""
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer ") or auth_header[7:] != "test-secret":
+            self._send_error(401, "Unauthorized")
+            return
+
+        container_id = data.get("container_id", "")
+        repos = data.get("repos", [])
+
+        worktrees = {}
+        for repo in repos:
+            repo_name = repo.split("/")[-1] if "/" in repo else repo
+            worktrees[repo_name] = f"/home/user/.egg-worktrees/{container_id}/{repo_name}"
+
+        self._send_json(
+            {
+                "success": True,
+                "message": "Worktrees created",
+                "data": {
+                    "worktrees": worktrees,
+                    "errors": None,
+                },
+            }
+        )
+
+    def _handle_worktree_delete(self, data):
+        """Handle worktree deletion (POST /api/v1/worktree/delete)."""
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer ") or auth_header[7:] != "test-secret":
+            self._send_error(401, "Unauthorized")
+            return
+
+        self._send_json(
+            {
+                "success": True,
+                "message": "Worktrees deleted",
+                "data": {
+                    "deleted": ["repo1"],
+                    "errors": None,
+                },
+            }
+        )
+
     def _send_json(self, data, status=200):
         """Send JSON response."""
         self.send_response(status)
@@ -163,10 +216,14 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(json.dumps({
-            "success": False,
-            "message": message,
-        }).encode())
+        self.wfile.write(
+            json.dumps(
+                {
+                    "success": False,
+                    "message": message,
+                }
+            ).encode()
+        )
 
 
 @pytest.fixture
@@ -451,6 +508,89 @@ class TestGatewayError:
         assert error.details["field"] == "container_ip"
 
 
+class TestWorktreeManagement:
+    """Tests for worktree create/delete operations."""
+
+    def test_create_worktrees(self, gateway_client, mock_gateway_server):
+        """Test creating worktrees for a container."""
+        result = gateway_client.create_worktrees(
+            container_id="egg-test-pipeline-coder",
+            repos=["owner/repo1", "repo2"],
+            uid=1000,
+            gid=1000,
+        )
+
+        assert isinstance(result, WorktreeResult)
+        assert result.success is True
+        assert "repo1" in result.worktrees
+        assert "repo2" in result.worktrees
+        assert "egg-test-pipeline-coder" in result.worktrees["repo1"]
+
+    def test_create_worktrees_without_auth(self, mock_gateway_server):
+        """Test that worktree creation without launcher secret fails."""
+        client = GatewayClient(
+            gateway_host="localhost",
+            gateway_port=19848,
+            launcher_secret=None,
+            timeout=5,
+        )
+
+        with pytest.raises(GatewayError):
+            client.create_worktrees(
+                container_id="test",
+                repos=["repo1"],
+            )
+
+    def test_create_worktrees_with_base_branch(self, gateway_client, mock_gateway_server):
+        """Test creating worktrees with custom base branch."""
+        result = gateway_client.create_worktrees(
+            container_id="test-pipeline",
+            repos=["repo1"],
+            base_branch="main",
+        )
+
+        assert result.success is True
+        assert "repo1" in result.worktrees
+
+    def test_delete_worktrees(self, gateway_client, mock_gateway_server):
+        """Test deleting worktrees for a container."""
+        result = gateway_client.delete_worktrees(
+            container_id="egg-test-pipeline-coder",
+            force=True,
+        )
+
+        assert isinstance(result, WorktreeResult)
+        assert result.success is True
+        assert "repo1" in result.worktrees
+
+    def test_delete_worktrees_without_auth(self, mock_gateway_server):
+        """Test that worktree deletion without launcher secret fails."""
+        client = GatewayClient(
+            gateway_host="localhost",
+            gateway_port=19848,
+            launcher_secret=None,
+            timeout=5,
+        )
+
+        with pytest.raises(GatewayError):
+            client.delete_worktrees(container_id="test")
+
+    def test_create_worktrees_unreachable(self, gateway_client):
+        """Test worktree creation when gateway is unreachable."""
+        client = GatewayClient(
+            gateway_host="localhost",
+            gateway_port=19999,
+            launcher_secret="test-secret",
+            timeout=1,
+        )
+
+        with pytest.raises(GatewayError):
+            client.create_worktrees(
+                container_id="test",
+                repos=["repo1"],
+            )
+
+
 class TestSingletonClient:
     """Tests for singleton client."""
 
@@ -458,6 +598,7 @@ class TestSingletonClient:
         """Test that get_gateway_client returns the same instance."""
         # Reset singleton
         import gateway_client
+
         gateway_client._gateway_client = None
 
         client1 = get_gateway_client()

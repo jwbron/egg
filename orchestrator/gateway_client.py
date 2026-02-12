@@ -64,6 +64,15 @@ class SessionInfo:
 
 
 @dataclass
+class WorktreeResult:
+    """Result of a worktree create/delete operation."""
+
+    success: bool
+    worktrees: dict[str, str]  # repo_name -> host_path (create) or repo_name -> status (delete)
+    errors: list[str]
+
+
+@dataclass
 class GatewayHealth:
     """Gateway health status."""
 
@@ -287,8 +296,12 @@ class GatewayClient:
             container_id=container_id,
             container_ip=container_ip,
             mode=mode,
-            created_at=datetime.fromisoformat(response_data.get("created_at", datetime.now().isoformat())),
-            expires_at=datetime.fromisoformat(response_data.get("expires_at", (datetime.now() + timedelta(hours=24)).isoformat())),
+            created_at=datetime.fromisoformat(
+                response_data.get("created_at", datetime.now().isoformat())
+            ),
+            expires_at=datetime.fromisoformat(
+                response_data.get("expires_at", (datetime.now() + timedelta(hours=24)).isoformat())
+            ),
         )
 
     def validate_session(
@@ -439,6 +452,104 @@ class GatewayClient:
             config["EGG_PRIVATE_MODE"] = "false"
 
         return config
+
+    def create_worktrees(
+        self,
+        container_id: str,
+        repos: list[str],
+        uid: int | None = None,
+        gid: int | None = None,
+        base_branch: str = "HEAD",
+    ) -> WorktreeResult:
+        """Create isolated worktrees for a container.
+
+        Calls the gateway's /api/v1/worktree/create endpoint to create
+        per-container worktrees. Returns host paths suitable for Docker
+        volume mount sources.
+
+        Args:
+            container_id: Container identifier (e.g., 'egg-local-abc123-coder')
+            repos: List of repository names (or owner/repo format)
+            uid: User ID for worktree ownership
+            gid: Group ID for worktree ownership
+            base_branch: Branch to base worktrees on (default: HEAD)
+
+        Returns:
+            WorktreeResult with host paths for each repo
+
+        Raises:
+            GatewayError: On request failure
+        """
+        request_data: dict[str, Any] = {
+            "container_id": container_id,
+            "repos": repos,
+            "base_branch": base_branch,
+        }
+        if uid is not None:
+            request_data["uid"] = uid
+        if gid is not None:
+            request_data["gid"] = gid
+
+        try:
+            result = self._make_request(
+                "/api/v1/worktree/create",
+                method="POST",
+                data=request_data,
+                use_launcher_auth=True,
+            )
+
+            data = result.get("data", {})
+            return WorktreeResult(
+                success=result.get("success", False),
+                worktrees=data.get("worktrees", {}),
+                errors=data.get("errors", []),
+            )
+        except GatewayError:
+            raise
+        except Exception as e:
+            raise GatewayError(f"Failed to create worktrees: {e}") from e
+
+    def delete_worktrees(
+        self,
+        container_id: str,
+        force: bool = True,
+    ) -> WorktreeResult:
+        """Delete worktrees for a container.
+
+        Calls the gateway's /api/v1/worktree/delete endpoint to clean up
+        worktrees when a container exits.
+
+        Args:
+            container_id: Container identifier
+            force: Force removal even with uncommitted changes
+
+        Returns:
+            WorktreeResult with deletion status
+
+        Raises:
+            GatewayError: On request failure
+        """
+        try:
+            result = self._make_request(
+                "/api/v1/worktree/delete",
+                method="POST",
+                data={
+                    "container_id": container_id,
+                    "force": force,
+                },
+                use_launcher_auth=True,
+            )
+
+            data = result.get("data", {})
+            return WorktreeResult(
+                success=result.get("success", False),
+                worktrees=dict.fromkeys(data.get("deleted", []), "deleted"),
+                errors=data.get("errors", []),
+            )
+        except GatewayError:
+            raise
+        except Exception as e:
+            raise GatewayError(f"Failed to delete worktrees: {e}") from e
 
     def get_container_env(
         self,
