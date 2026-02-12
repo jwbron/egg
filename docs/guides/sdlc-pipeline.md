@@ -174,9 +174,9 @@ The contract tracks per-reviewer verdicts for debugging:
 }
 ```
 
-### Multi-Agent Orchestration (Experimental)
+### Multi-Agent Orchestration
 
-The implement phase supports multi-agent orchestration, where specialized agents (Coder, Tester, Documenter, Integrator) execute in parallel waves based on dependencies. This is an experimental alternative to the standard single-agent work loop.
+The implement phase supports multi-agent orchestration, where specialized agents (Coder, Tester, Documenter, Integrator) execute in parallel waves based on dependencies. Multi-agent orchestration is enabled by default; single-agent execution can be selected by explicitly disabling it in the contract's `multi_agent_config`.
 
 **Agent Roles:**
 
@@ -437,7 +437,9 @@ Wave 3:  [Integrator]      ─── Final validation
 
 ### Enabling Multi-Agent Mode
 
-Multi-agent mode is enabled via the contract's `multi_agent_config`:
+Multi-agent mode is **enabled by default**. When `multi_agent_config` is absent from the contract, or when `multi_agent_config.enabled` is not specified, the system defaults to multi-agent orchestration.
+
+To explicitly configure multi-agent mode, use the contract's `multi_agent_config`:
 
 ```json
 {
@@ -445,6 +447,16 @@ Multi-agent mode is enabled via the contract's `multi_agent_config`:
     "enabled": true,
     "roles_enabled": ["coder", "tester", "documenter", "integrator"],
     "parallel_execution": true
+  }
+}
+```
+
+To disable multi-agent mode and use single-agent execution:
+
+```json
+{
+  "multi_agent_config": {
+    "enabled": false
   }
 }
 ```
