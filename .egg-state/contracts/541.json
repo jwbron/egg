@@ -1,0 +1,398 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 541,
+    "title": "improve visibility into local orchestration",
+    "url": "https://github.com/jwbron/egg/issues/541"
+  },
+  "current_phase": "implement",
+  "scope_notes": "PR #557 implements Phase 1 (DAG Visualization) only. SSE streaming (Phase 2), event emission (Phase 3), collaborator integration (Phase 4), and documentation (Phase 5) are deferred to follow-up PRs.",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] dag_visualizer module exists with Unicode/ASCII symbol support via STATUS_SYMBOLS and ASCII_STATUS_SYMBOLS dicts",
+      "verified": true
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] render_pipeline_dag returns formatted DAG string with REFINE→PLAN→IMPLEMENT→PR and status boxes",
+      "verified": true
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] render_phase_detail returns detailed single-phase view with container/agent info",
+      "verified": true
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] generate_status_report returns complete visualization data for API response",
+      "verified": true
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-1-5] use_ascii parameter enables ASCII fallback; auto-detect deferred to follow-up",
+      "verified": true
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-1-6] Tests cover render_pipeline_dag, render_compact_status, render_progress_bar, both character sets",
+      "verified": true
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-1-7] status_reporter module with StatusReporter class for event-driven updates",
+      "verified": true
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-1-8] File handler with atomic writes (temp file + os.replace)",
+      "verified": true
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-1-9] LRU cache eviction prevents memory leaks in pipeline cache",
+      "verified": true
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-1-10] Polling endpoint at /api/v1/pipelines/{id}/visualization",
+      "verified": true
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-1-11] Phase start/complete events reported via report_pipeline_status in pipelines.py",
+      "verified": true
+    },
+    {
+      "id": "ac-12",
+      "description": "[DEFERRED] SSE streaming infrastructure - deferred to follow-up PR",
+      "verified": false,
+      "deferred": true
+    },
+    {
+      "id": "ac-13",
+      "description": "[DEFERRED] Agent-level event emission - deferred to follow-up PR",
+      "verified": false,
+      "deferred": true
+    },
+    {
+      "id": "ac-14",
+      "description": "[DEFERRED] Collaborator client integration - deferred to follow-up PR",
+      "verified": false,
+      "deferred": true
+    },
+    {
+      "id": "ac-15",
+      "description": "[DEFERRED] Documentation and polish - deferred to follow-up PR",
+      "verified": false,
+      "deferred": true
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "DAG Visualization and Status Reporting",
+      "status": "complete",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create dag_visualizer module with Unicode/ASCII symbol support",
+          "status": "complete",
+          "acceptance_criteria": "Module exists with STATUS_SYMBOLS and ASCII_STATUS_SYMBOLS dicts for character set abstraction",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "commit": "f17ee48",
+          "review_cycles": 2,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": "Uses dict-based symbols instead of CharacterSet class for simpler implementation"
+        },
+        {
+          "id": "task-1-2",
+          "description": "Implement pipeline DAG renderer",
+          "status": "complete",
+          "acceptance_criteria": "render_pipeline_dag returns formatted DAG string with REFINE→PLAN→IMPLEMENT→PR and status boxes",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "commit": "f17ee48",
+          "review_cycles": 2,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Implement phase detail renderer",
+          "status": "complete",
+          "acceptance_criteria": "render_phase_detail returns detailed single-phase view with container/agent info",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "commit": "f17ee48",
+          "review_cycles": 2,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Implement status report generator",
+          "status": "complete",
+          "acceptance_criteria": "generate_status_report returns complete visualization data for API response",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "commit": "f17ee48",
+          "review_cycles": 2,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": "Includes render_compact_status and render_progress_bar"
+        },
+        {
+          "id": "task-1-5",
+          "description": "Implement ASCII fallback mode",
+          "status": "complete",
+          "acceptance_criteria": "use_ascii parameter enables ASCII-only output for limited terminals",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "commit": "f17ee48",
+          "review_cycles": 2,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": "Auto-detect via TERM/LANG deferred to follow-up"
+        },
+        {
+          "id": "task-1-6",
+          "description": "Write unit tests for visualization module",
+          "status": "complete",
+          "acceptance_criteria": "Tests cover render_pipeline_dag, render_compact_status, render_progress_bar, both character sets",
+          "files_affected": [
+            "orchestrator/tests/test_dag_visualizer.py"
+          ],
+          "commit": "f17ee48",
+          "review_cycles": 2,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": "49 tests passing"
+        },
+        {
+          "id": "task-1-7",
+          "description": "Create status_reporter module",
+          "status": "complete",
+          "acceptance_criteria": "StatusReporter class with event-driven updates and pluggable handlers",
+          "files_affected": [
+            "orchestrator/status_reporter.py"
+          ],
+          "commit": "f17ee48",
+          "review_cycles": 2,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": "Includes LRU cache eviction for memory safety"
+        },
+        {
+          "id": "task-1-8",
+          "description": "Implement file handler with atomic writes",
+          "status": "complete",
+          "acceptance_criteria": "File handler uses temp file + os.replace for atomic updates",
+          "files_affected": [
+            "orchestrator/status_reporter.py"
+          ],
+          "commit": "f17ee48",
+          "review_cycles": 2,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-9",
+          "description": "Add visualization polling endpoint",
+          "status": "complete",
+          "acceptance_criteria": "GET /api/v1/pipelines/{id}/visualization returns current DAG state",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": "f17ee48",
+          "review_cycles": 2,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": "Module-level import with _DAG_VISUALIZER_AVAILABLE flag"
+        },
+        {
+          "id": "task-1-10",
+          "description": "Add phase event reporting",
+          "status": "complete",
+          "acceptance_criteria": "Phase start/complete events reported via report_pipeline_status in pipelines.py",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": "f17ee48",
+          "review_cycles": 2,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-11",
+          "description": "Write unit tests for status_reporter",
+          "status": "complete",
+          "acceptance_criteria": "Tests cover StatusReporter, handlers, singleton cleanup",
+          "files_affected": [
+            "orchestrator/tests/test_status_reporter.py"
+          ],
+          "commit": "f17ee48",
+          "review_cycles": 2,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": "Uses autouse=True fixture for singleton isolation"
+        }
+      ],
+      "review_cycles": 2,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "SSE Streaming Infrastructure",
+      "status": "deferred",
+      "deferred_reason": "Scoped to follow-up PR to reduce complexity. Polling endpoint provides baseline functionality.",
+      "tasks": [],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Event Emission Points",
+      "status": "deferred",
+      "deferred_reason": "Depends on SSE infrastructure (Phase 2). Agent-level events deferred.",
+      "tasks": [],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Collaborator Client Integration",
+      "status": "deferred",
+      "deferred_reason": "Depends on SSE infrastructure (Phase 2). StatusBar and sandbox client updates deferred.",
+      "tasks": [],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Documentation and Polish",
+      "status": "deferred",
+      "deferred_reason": "Documentation will be added when SSE streaming is implemented.",
+      "tasks": [],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 2,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-12T09:22:09Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-12T09:26:54Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-12T09:37:45Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-12T09:44:16Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-12T10:01:33Z",
+      "actor": "system",
+      "role": "system",
+      "action": "update",
+      "field_path": "autofix_attempts",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Autofix attempt completed with result: false"
+    }
+  ],
+  "autofix_attempts": 1,
+  "max_autofix_attempts": 3,
+  "phase_configs": {
+    "refine": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "plan": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "implement": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "PR_REVIEW"
+    }
+  },
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "refine_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "plan_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Add ASCII DAG visualization with polling endpoint",
+    "description": "Implements ASCII visualization of pipeline execution DAG with polling endpoint.\nShows phase progression (REFINE→PLAN→IMPLEMENT→PR), review cycles, container/agent\ncounts, and status with Unicode box-drawing (ASCII fallback). Includes status_reporter\nmodule with event-driven updates and file handlers with atomic writes.\n\nSSE streaming deferred to follow-up PR.\n\nFixes #541."
+  }
+}
