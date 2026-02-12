@@ -1,129 +1,399 @@
-# Plan: Update README.md
+# Plan: Audit and update all markdown documentation
+
+> Issue: none | Phase: plan
 
 ## Summary
 
-Refresh the egg repository README.md to accurately reflect the current state of the project. The README is largely accurate and well-structured, but has specific areas that need correction, clarification, or expansion based on review of the actual codebase.
-
-## Findings from Analysis
-
-### Issues Identified
-
-1. **Quick Start: `pip install ./sandbox` is misleading** — The sandbox has a `pyproject.toml` but is not a standalone pip-installable package in the traditional sense. The `egg` CLI entry point is defined in the root `pyproject.toml` via `egg_lib.cli:main`. The Quick Start should reflect the actual installation flow (which uses `egg` directly or Docker).
-
-2. **Versioning note is stale** — "Use `@main` until the first release (v0.1.0) is published" suggests v0.1.0 hasn't been released, but `pyproject.toml` already declares `version = "0.1.0"`. No git tags exist yet. This section should clarify the actual release status.
-
-3. **CHANGELOG CLI commands don't match README CLI reference** — The CHANGELOG mentions `egg start`, `egg stop`, `egg exec`, `egg logs`, `egg status`, `egg config validate` as CLI commands. The README documents `egg`, `egg --public`, `egg --private`, `egg --setup`, `egg --reset`, `egg --exec`, `egg --compose`. The README appears to be the accurate reflection. The CHANGELOG is out of scope for this task but worth noting.
-
-4. **Orchestrator service not mentioned** — The `docker-compose.yml` includes an orchestrator service (port 9849) that coordinates pipeline state, but the README doesn't mention it at all. This is a gap for users doing Docker Compose deployments.
-
-5. **Workflow count** — README says nothing about count, but there are 23 workflows (not 24 as initially thought). The README's workflow table is correct but only lists 6 of 23. This is fine as a summary, but users may want to know about additional workflows like conflict resolution, doc updating, and contract verification.
-
-6. **Missing: Reusable Workflows guide** — The docs index references a `guides/reusable-workflows.md` for using egg's SDLC workflows in external repos. The README's Documentation section doesn't link to this.
-
-7. **Missing: `--down` flag documentation** — The CLI reference shows `egg --compose --down` but the Flags table doesn't include `--down`.
-
-8. **Missing: `--setup` and `--reset` in Flags table** — These are in the CLI Reference command table but not in the Flags table below it.
-
-9. **GitHub Action section is thin** — Only shows a basic usage snippet. Could benefit from mentioning key inputs (prompt types, auth methods) and linking to the action README more prominently.
-
-10. **`bin/egg` is a symlink** — `bin/egg` symlinks to `../sandbox/egg`. The Quick Start `pip install ./sandbox` instruction doesn't reflect this.
-
-11. **Multi-agent section could reference agent modes** — The sandbox includes slash commands for coder-mode, tester-mode, documenter-mode, and integrator-mode. These are how roles are activated in practice.
-
-12. **Strategy/philosophy docs missing from README** — The docs index references `agentic-feedback-loop.md` and `collaboration-effectiveness.md` as strategy documents. Only the latter is linked in the README.
-
-### What's Accurate (No Changes Needed)
-
-- Pipeline diagram and phase descriptions
-- Gateway architecture diagram and description
-- Enforcement table (What's Enforced)
-- Phase permissions table
-- Isolation description
-- Multi-agent role table (accurate at high level)
-- GitHub automation workflow table
-- SDLC pipeline triggering instructions
-- Human-in-the-loop decisions section
-- Docker Compose deployment instructions
-- egg-deploy CLI reference
-- ADR documentation links
-- License section
+Audit all 67 markdown files in the egg repository, comparing documented behavior, commands, file paths, architecture descriptions, and code examples against the actual current codebase. Fix outdated content inline — no TODO markers. The work is organized into phases by documentation category, with each phase independently verifiable.
 
 ## Implementation Phases
 
-### Phase 1: Fix Inaccurate Content
+### Phase 1: Core Project Documentation
 
-**Tasks:**
+**Goal**: Ensure root-level docs (README.md, CONTRIBUTING.md, RELEASING.md) accurately reflect the current project structure, commands, and architecture.
 
-1. **Fix Quick Start local instructions** — Replace `pip install ./sandbox` with the correct setup flow. The `egg` CLI is installed via the root package. Update to reflect that `make setup` or `pip install -e .` is the correct local install path, followed by running `egg`.
+**Tasks**:
+- [TASK-1-1] Audit `README.md` — verify architecture diagrams, system descriptions, CLI commands, Docker service names, and port numbers match `constants.py`, `docker-compose.yml`, and `Makefile`. Acceptance: All referenced paths, commands, and ports exist and are correct.
+- [TASK-1-2] Audit `CONTRIBUTING.md` — verify dev setup instructions, `make` targets, test commands, and linter config match `Makefile` and `pyproject.toml`. Acceptance: A developer following these instructions can set up and contribute.
+- [TASK-1-3] Audit `RELEASING.md` — verify release process, versioning scheme, and workflow references match `.github/workflows/release-images.yml` and actual CI. Acceptance: Release instructions match actual workflow.
 
-2. **Update Versioning section** — Clarify the current release status. v0.1.0 is declared in pyproject.toml but no git tags/releases exist yet. The note about using `@main` should be updated or the status clarified.
+**Dependencies**: None
 
-3. **Add `--down` flag to Flags table** — Include the `--down` flag used with `--compose`.
+**Exit criteria**: All root-level markdown files accurately reflect the codebase.
 
-4. **Add `--setup` and `--reset` to Flags table** — These flags are documented in the command table but missing from the flags section.
+### Phase 2: Documentation Hub & Navigation
 
-**Acceptance Criteria:**
-- Quick Start local section shows accurate installation commands
-- Versioning section accurately reflects release status
-- All documented CLI flags appear in the Flags table
+**Goal**: Ensure docs/index.md and docs/README.md link to correct paths and describe the correct structure.
 
-### Phase 2: Add Missing Content
+**Tasks**:
+- [TASK-2-1] Audit `docs/index.md` — verify all relative links resolve to existing files, component descriptions match reality, and the navigation structure is complete. Acceptance: Every link in index.md resolves to an existing file; no dead links.
+- [TASK-2-2] Audit `docs/README.md` — verify overview and links are consistent with index.md. Acceptance: No contradictions with index.md, all links valid.
 
-**Tasks:**
+**Dependencies**: None
 
-5. **Add Orchestrator mention to Docker Compose section** — Briefly mention that `bin/egg-deploy up` starts both the gateway and orchestrator services, and describe the orchestrator's role in pipeline state management.
+**Exit criteria**: All navigation links are valid and descriptions are accurate.
 
-6. **Add Reusable Workflows link to Documentation section** — Add the reusable workflows guide to the documentation section for external repo users.
+### Phase 3: Architecture & Strategy Documents
 
-7. **Add Agentic Feedback Loop link** — Add the strategy doc to the Documentation section alongside the existing "Why egg Works" link.
+**Goal**: Ensure architecture descriptions, component diagrams, and strategy documents match the actual codebase structure.
 
-8. **Expand GitHub Action section slightly** — Add a note about available auth methods and key configuration options without duplicating the action README.
+**Tasks**:
+- [TASK-3-1] Audit `docs/architecture/README.md` — verify claims about contract schema paths (`.egg/schemas/`), contract CLI commands (`egg-contract`), plan parser, check system, and workflow file references. Acceptance: Every file path, command, and schema reference verified against codebase.
+- [TASK-3-2] Audit `docs/agentic-feedback-loop.md` — verify workflow descriptions, phase names, and tool references match implementation. Acceptance: Described workflows match actual phase transitions and tools.
+- [TASK-3-3] Audit `docs/collaboration-effectiveness.md` — verify claims about system capabilities and constraints. Acceptance: No factual inaccuracies about system behavior.
+- [TASK-3-4] Audit `docs/hitl-decisions.md` — verify decision workflow, API endpoints, and queue mechanics match implementation. Acceptance: API paths and decision flow match `orchestrator/decision_queue.py` and `gateway/phase_api.py`.
 
-**Acceptance Criteria:**
-- Docker Compose section mentions orchestrator service
-- Documentation section includes reusable workflows and feedback loop links
-- GitHub Action section provides slightly more context
+**Dependencies**: None
 
-### Phase 3: Minor Improvements
+**Exit criteria**: Architecture docs reflect the real system.
 
-**Tasks:**
+### Phase 4: ADR Documents
 
-9. **Consolidate CLI Reference** — The Flags table duplicates information from the command table. Merge the two so flags aren't listed separately from their commands, or ensure they're consistent and cross-reference each other.
+**Goal**: Ensure all 13 ADRs accurately describe decisions, implementation status, and referenced file paths.
 
-10. **Add Prerequisites section or note** — The current Quick Start assumes users have Python 3.11+, Docker, and uv installed. Add a brief prerequisites note before the Quick Start sections.
+**Tasks**:
+- [TASK-4-1] Audit implemented ADRs (8 files) — verify status labels match reality, referenced paths exist, and described implementations are present. Acceptance: Each ADR's "implemented" status is correct and file references resolve.
+- [TASK-4-2] Audit in-progress ADRs (3 files) — verify current progress descriptions match implementation state. Acceptance: Status accurately reflects what's been built vs. what's planned.
+- [TASK-4-3] Audit not-implemented ADR (1 file) — confirm it remains not-implemented. Acceptance: Status is accurate.
 
-**Acceptance Criteria:**
-- CLI Reference section is internally consistent (no duplicate/conflicting info)
-- Prerequisites are stated before Quick Start
+**Dependencies**: Phase 3 (architecture understanding informs ADR verification)
+
+**Exit criteria**: All ADR statuses and references are accurate.
+
+### Phase 5: Developer Guides
+
+**Goal**: Ensure all guides provide accurate, working instructions.
+
+**Tasks**:
+- [TASK-5-1] Audit `docs/guides/local-quickstart.md` — verify setup commands, config file paths (`~/.config/egg/`), environment variables, monitoring endpoints (ports 9848, 9849), and CLI flags. Acceptance: Following the quickstart produces a working setup.
+- [TASK-5-2] Audit `docs/guides/deployment.md` and `docs/guides/deploy-migration.md` — verify deployment instructions, Docker commands, and infrastructure references. Acceptance: Deployment paths and commands are valid.
+- [TASK-5-3] Audit `docs/guides/agent-development.md` and `docs/guides/agent-mode-design.md` — verify agent constraint levels, tool references, and configuration. Acceptance: Agent development instructions match sandbox implementation.
+- [TASK-5-4] Audit `docs/guides/sdlc-pipeline.md` — verify phase names, transitions, contract format, and CLI commands against `shared/egg_contracts/` and `gateway/phase_api.py`. Acceptance: Pipeline documentation matches implementation.
+- [TASK-5-5] Audit `docs/guides/github-automation.md` and `docs/guides/reusable-workflows.md` — verify workflow file names, trigger events, and input parameters match `.github/workflows/`. Acceptance: All workflow references are correct.
+
+**Dependencies**: None
+
+**Exit criteria**: All guides provide accurate instructions.
+
+### Phase 6: Development Documentation
+
+**Goal**: Ensure STRUCTURE.md and TEST_COVERAGE_PLAN.md reflect the actual project layout and test infrastructure.
+
+**Tasks**:
+- [TASK-6-1] Audit `docs/development/STRUCTURE.md` — verify directory tree, file descriptions, and naming conventions against actual filesystem. Known issue: references `.egg/schemas/` which does not exist. Acceptance: Every directory and file mentioned in STRUCTURE.md exists, and missing ones are removed or corrected.
+- [TASK-6-2] Audit `docs/development/TEST_COVERAGE_PLAN.md` — verify test framework references, coverage targets, and test file paths against `pytest.ini` and test directories. Acceptance: Test strategy matches actual infrastructure.
+
+**Dependencies**: None
+
+**Exit criteria**: Development docs match the filesystem.
+
+### Phase 7: Component READMEs
+
+**Goal**: Ensure each component's README accurately describes its purpose, structure, and usage.
+
+**Tasks**:
+- [TASK-7-1] Audit `gateway/README.md` and `gateway/tests/README-integration.md` — verify API endpoints, configuration, and test instructions. Acceptance: Gateway documentation matches `gateway.py` and test infrastructure.
+- [TASK-7-2] Audit `sandbox/README.md` and `sandbox/.claude/README.md` — verify sandbox structure, Claude Code configuration, and entry points. Acceptance: Documentation matches sandbox directory structure.
+- [TASK-7-3] Audit `shared/README.md` and `shared/egg_config/README.md` — verify module descriptions, key constants (ports, IPs), and package structure. Acceptance: Shared library documentation matches implementation.
+- [TASK-7-4] Audit `bin/README.md`, `config/README.md`, and `action/README.md` — verify CLI entry points, config format, and GitHub Action inputs/outputs. Acceptance: All references are accurate.
+
+**Dependencies**: None
+
+**Exit criteria**: All component READMEs are accurate.
+
+### Phase 8: Sandbox Claude Code Configuration
+
+**Goal**: Ensure all Claude Code commands and rules files match actual system behavior.
+
+**Tasks**:
+- [TASK-8-1] Audit `sandbox/.claude/commands/*.md` (7 files) — verify command descriptions, tool references, and operational instructions match implementation. Acceptance: Commands work as documented.
+- [TASK-8-2] Audit `sandbox/.claude/rules/*.md` (7 files) — verify rules about environment, contracts, code standards, etc. match system behavior. Acceptance: Rules reflect actual constraints.
+
+**Dependencies**: Phase 7 (sandbox understanding)
+
+**Exit criteria**: All Claude Code config docs are accurate.
+
+### Phase 9: Action Convention Documents & Internal Docs
+
+**Goal**: Ensure action conventions and internal docs are accurate.
+
+**Tasks**:
+- [TASK-9-1] Audit `action/autofixer-conventions.md`, `action/conflict-conventions.md`, `action/review-conventions.md` — verify conventions match workflow implementations. Acceptance: Convention docs match workflow behavior.
+- [TASK-9-2] Audit `.egg/contract-rules.md` — verify contract rules match `shared/egg_contracts/` implementation. Acceptance: Rules match validation logic.
+
+**Dependencies**: None
+
+**Exit criteria**: All convention and internal docs are accurate.
+
+### Phase 10: Cross-Document Consistency Check
+
+**Goal**: Ensure no contradictions between documents.
+
+**Tasks**:
+- [TASK-10-1] Verify port numbers are consistent across all docs (9848 for gateway, 9849 for orchestrator, 3129 for proxy). Acceptance: No conflicting port references.
+- [TASK-10-2] Verify branch naming conventions (`egg/` prefix) are consistently documented. Acceptance: All references agree.
+- [TASK-10-3] Verify all inter-document links work — ensure no broken cross-references between docs. Acceptance: Zero broken links.
+
+**Dependencies**: Phases 1-9
+
+**Exit criteria**: All documents are internally consistent.
 
 ## Test Strategy
 
-Since this is a documentation-only change:
+- **Link validation**: For each document, verify all relative links resolve to existing files using file existence checks.
+- **Command verification**: For key CLI commands referenced in docs, verify the command exists (e.g., check `egg-contract` is a real entry point, `make test` target exists).
+- **Path verification**: For every file path referenced in documentation, confirm the file exists in the codebase.
+- **Port/constant verification**: Cross-reference all port numbers and constants against `shared/egg_config/constants.py`.
+- **Manual review**: Each document gets a final read-through for coherence and accuracy after edits.
 
-1. **Link verification** — Check that all relative links in the README resolve to existing files in the repository.
-2. **Markdown rendering** — Verify tables and diagrams render correctly (no broken formatting).
-3. **Accuracy spot-check** — Cross-reference updated claims against actual files (pyproject.toml, Makefile, bin/, docker-compose.yml).
-4. **No broken ASCII art** — Ensure the pipeline and gateway diagrams still display correctly.
+## Rollback Plan
 
-Automated tests are not applicable. Manual review is the verification method.
+All changes are documentation-only (markdown files). Rollback is straightforward:
+- `git diff` shows all changes made
+- `git checkout -- <file>` reverts any individual file
+- `git stash` or `git reset HEAD~1` reverts the entire commit
+- No code changes, no migration needed, no service impact
 
-## Risks and Rollback
+## Risk Assessment
 
-**Risks:**
-- **Low**: Incorrect information introduced during update. Mitigated by cross-referencing all claims against source code.
-- **Low**: Formatting breakage. Mitigated by keeping changes minimal and preserving existing structure.
-- **Low**: Scope creep into restructuring. Mitigated by focusing only on accuracy and completeness, not reorganization.
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| Misinterpreting intended vs. actual behavior | Medium | Medium | Cross-reference multiple source files; when ambiguous, preserve existing documentation and note uncertainty |
+| Missing a document or section | Low | Low | Systematic file enumeration already complete (67 files identified) |
+| Introducing factual errors during edits | Medium | Medium | Verify every edit against source code before applying; preserve document tone and structure |
+| Scope creep into code changes | Low | Medium | Strict policy: only modify .md files, never source code |
+| Breaking relative links between docs | Medium | Medium | Phase 10 cross-document consistency check catches link issues |
 
-**Rollback:**
-- Single commit, easily reverted with `git revert`.
-- No code changes, so no risk of functional regression.
+## Migration Notes
 
-## Out of Scope
+Not applicable — documentation-only changes with no code, configuration, or schema modifications.
 
-- Restructuring the README layout or information architecture
-- Updating CHANGELOG.md (separate concern)
-- Updating component READMEs (gateway, sandbox, shared, etc.)
-- Creating new documentation pages
-- Updating docs/index.md (already accurate)
+## Known Issues to Investigate
 
-Authored-by: egg
+During initial exploration, these discrepancies were already identified:
+
+1. **`.egg/schemas/` directory does not exist** — referenced in `docs/architecture/README.md` and `docs/development/STRUCTURE.md`. Schema files need to be located or references corrected.
+2. **`.github/scripts/checks/` contains Python files** — docs may describe them as shell scripts; verify and correct.
+3. **`egg.yaml.example` vs documented config format** — quickstart references `~/.config/egg/` config files; verify consistency with example.
+4. **Prior README audit exists** — a previous analysis identified 12 specific issues with README.md (stale Quick Start, missing orchestrator mention, incomplete CLI flags table, etc.). These findings should be incorporated into Phase 1.
+
+---
+
+## Structured Task Appendix
+
+The following YAML block is machine-readable and will be extracted into the contract.
+It must accurately reflect the tasks described above. The `pr:` section provides the
+title and description that will be used when creating the pull request.
+
+```yaml
+# yaml-tasks
+pr:
+  title: "Audit and update all markdown documentation"
+  description: |
+    Systematic audit of all 67 markdown files in the repository, comparing
+    documented behavior against the actual codebase. Fixes outdated content
+    inline including file paths, CLI commands, port numbers, architecture
+    descriptions, and cross-document links.
+phases:
+  - id: 1
+    name: Core Project Documentation
+    goal: Root-level docs accurately reflect current project
+    tasks:
+      - id: TASK-1-1
+        description: Audit README.md for architecture, commands, ports
+        acceptance: All referenced paths, commands, and ports exist
+        files:
+          - README.md
+      - id: TASK-1-2
+        description: Audit CONTRIBUTING.md for dev setup and workflow
+        acceptance: Developer can follow instructions successfully
+        files:
+          - CONTRIBUTING.md
+      - id: TASK-1-3
+        description: Audit RELEASING.md for release process accuracy
+        acceptance: Release instructions match actual workflow
+        files:
+          - RELEASING.md
+  - id: 2
+    name: Documentation Hub & Navigation
+    goal: Index and overview docs have valid links and descriptions
+    tasks:
+      - id: TASK-2-1
+        description: Audit docs/index.md for link validity and completeness
+        acceptance: Every link resolves to existing file
+        files:
+          - docs/index.md
+      - id: TASK-2-2
+        description: Audit docs/README.md for consistency with index
+        acceptance: No contradictions, all links valid
+        files:
+          - docs/README.md
+  - id: 3
+    name: Architecture & Strategy Documents
+    goal: Architecture docs match actual codebase structure
+    tasks:
+      - id: TASK-3-1
+        description: Audit architecture README for schemas, CLI, checks
+        acceptance: All file paths and commands verified
+        files:
+          - docs/architecture/README.md
+      - id: TASK-3-2
+        description: Audit agentic-feedback-loop.md
+        acceptance: Workflows match implementation
+        files:
+          - docs/agentic-feedback-loop.md
+      - id: TASK-3-3
+        description: Audit collaboration-effectiveness.md
+        acceptance: No factual inaccuracies
+        files:
+          - docs/collaboration-effectiveness.md
+      - id: TASK-3-4
+        description: Audit hitl-decisions.md
+        acceptance: API paths and decision flow match code
+        files:
+          - docs/hitl-decisions.md
+  - id: 4
+    name: ADR Documents
+    goal: All ADRs have accurate status and references
+    tasks:
+      - id: TASK-4-1
+        description: Audit 8 implemented ADRs
+        acceptance: Status and file references correct
+        files:
+          - docs/adr/implemented/
+      - id: TASK-4-2
+        description: Audit 3 in-progress ADRs
+        acceptance: Progress descriptions match reality
+        files:
+          - docs/adr/in-progress/
+      - id: TASK-4-3
+        description: Audit 1 not-implemented ADR
+        acceptance: Status is accurate
+        files:
+          - docs/adr/not-implemented/
+  - id: 5
+    name: Developer Guides
+    goal: All guides provide accurate working instructions
+    tasks:
+      - id: TASK-5-1
+        description: Audit local-quickstart.md
+        acceptance: Setup commands and paths verified
+        files:
+          - docs/guides/local-quickstart.md
+      - id: TASK-5-2
+        description: Audit deployment and migration guides
+        acceptance: Deployment paths and commands valid
+        files:
+          - docs/guides/deployment.md
+          - docs/guides/deploy-migration.md
+      - id: TASK-5-3
+        description: Audit agent development guides
+        acceptance: Instructions match sandbox implementation
+        files:
+          - docs/guides/agent-development.md
+          - docs/guides/agent-mode-design.md
+      - id: TASK-5-4
+        description: Audit SDLC pipeline guide
+        acceptance: Pipeline docs match implementation
+        files:
+          - docs/guides/sdlc-pipeline.md
+      - id: TASK-5-5
+        description: Audit GitHub automation and reusable workflow guides
+        acceptance: All workflow references correct
+        files:
+          - docs/guides/github-automation.md
+          - docs/guides/reusable-workflows.md
+  - id: 6
+    name: Development Documentation
+    goal: STRUCTURE.md and test plan reflect actual layout
+    tasks:
+      - id: TASK-6-1
+        description: Audit STRUCTURE.md against filesystem
+        acceptance: Every referenced directory and file exists
+        files:
+          - docs/development/STRUCTURE.md
+      - id: TASK-6-2
+        description: Audit TEST_COVERAGE_PLAN.md
+        acceptance: Test strategy matches infrastructure
+        files:
+          - docs/development/TEST_COVERAGE_PLAN.md
+  - id: 7
+    name: Component READMEs
+    goal: Each component README matches its implementation
+    tasks:
+      - id: TASK-7-1
+        description: Audit gateway READMEs
+        acceptance: API endpoints and test docs accurate
+        files:
+          - gateway/README.md
+          - gateway/tests/README-integration.md
+      - id: TASK-7-2
+        description: Audit sandbox READMEs
+        acceptance: Structure and config docs accurate
+        files:
+          - sandbox/README.md
+          - sandbox/.claude/README.md
+      - id: TASK-7-3
+        description: Audit shared library READMEs
+        acceptance: Module docs match implementation
+        files:
+          - shared/README.md
+          - shared/egg_config/README.md
+      - id: TASK-7-4
+        description: Audit bin, config, and action READMEs
+        acceptance: Entry points and config format accurate
+        files:
+          - bin/README.md
+          - config/README.md
+          - action/README.md
+  - id: 8
+    name: Sandbox Claude Code Configuration
+    goal: Claude Code commands and rules match system behavior
+    tasks:
+      - id: TASK-8-1
+        description: Audit 7 command markdown files
+        acceptance: Commands work as documented
+        files:
+          - sandbox/.claude/commands/
+      - id: TASK-8-2
+        description: Audit 7 rules markdown files
+        acceptance: Rules reflect actual constraints
+        files:
+          - sandbox/.claude/rules/
+  - id: 9
+    name: Action Conventions & Internal Docs
+    goal: Convention docs and internal rules are accurate
+    tasks:
+      - id: TASK-9-1
+        description: Audit 3 action convention documents
+        acceptance: Conventions match workflow behavior
+        files:
+          - action/autofixer-conventions.md
+          - action/conflict-conventions.md
+          - action/review-conventions.md
+      - id: TASK-9-2
+        description: Audit contract rules document
+        acceptance: Rules match validation logic
+        files:
+          - .egg/contract-rules.md
+  - id: 10
+    name: Cross-Document Consistency Check
+    goal: No contradictions between documents
+    tasks:
+      - id: TASK-10-1
+        description: Verify port numbers consistent across all docs
+        acceptance: No conflicting port references
+        files: []
+      - id: TASK-10-2
+        description: Verify branch naming consistency across docs
+        acceptance: All references agree
+        files: []
+      - id: TASK-10-3
+        description: Verify all inter-document links work
+        acceptance: Zero broken links
+        files: []
+```
+
+---
+
+*Authored-by: egg*
