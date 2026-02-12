@@ -383,6 +383,7 @@ def initialize_reviewer_token_refresher(
     config_dir: Path | None = None,
     app_id: str | None = None,
     private_key: str | None = None,
+    private_key_path: Path | None = None,
     installation_id: int | None = None,
 ) -> TokenRefresher | None:
     """
@@ -395,14 +396,16 @@ def initialize_reviewer_token_refresher(
     Config can be provided via:
     1. Explicit parameters (highest priority)
     2. Environment variables: REVIEWER_APP_ID, REVIEWER_APP_PRIVATE_KEY, REVIEWER_APP_INSTALLATION_ID
-    3. secrets.env file in config_dir
+    3. secrets.env file in config_dir (for app_id/installation_id)
+    4. reviewer-app.pem file in config_dir (for private key)
 
     Returns None if required config is missing.
 
     Args:
-        config_dir: Directory containing secrets.env (defaults to ~/.config/egg/)
+        config_dir: Directory containing secrets.env and reviewer-app.pem (defaults to ~/.config/egg/)
         app_id: Reviewer GitHub App ID (optional, overrides env)
         private_key: Reviewer private key PEM content (optional)
+        private_key_path: Path to reviewer private key PEM file (optional)
         installation_id: Reviewer GitHub App installation ID (optional)
 
     Returns:
@@ -438,12 +441,23 @@ def initialize_reviewer_token_refresher(
                     value=env_installation_id,
                 )
 
-    # Resolve private key (explicit > env > secrets.env)
-    resolved_private_key = (
-        private_key
-        or os.environ.get("REVIEWER_APP_PRIVATE_KEY")
-        or secrets.get("REVIEWER_APP_PRIVATE_KEY")
-    )
+    # Resolve private key (explicit > env > file)
+    # Note: PEM files are multiline, so we read from a file instead of secrets.env
+    resolved_private_key = private_key or os.environ.get("REVIEWER_APP_PRIVATE_KEY")
+    if not resolved_private_key:
+        # Try to read from PEM file
+        resolved_private_key_path = private_key_path
+        if not resolved_private_key_path:
+            resolved_private_key_path = config_dir / "reviewer-app.pem"
+        if resolved_private_key_path.exists():
+            try:
+                resolved_private_key = resolved_private_key_path.read_text()
+            except Exception as e:
+                logger.warning(
+                    "Failed to read reviewer private key file",
+                    path=str(resolved_private_key_path),
+                    error=str(e),
+                )
 
     # Validate all required config is present
     if not all([resolved_app_id, resolved_installation_id, resolved_private_key]):

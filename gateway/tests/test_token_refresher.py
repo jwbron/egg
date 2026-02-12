@@ -434,10 +434,10 @@ class TestReviewerTokenRefresher:
     @requires_network_mocking
     @patch("token_refresher.jwt.encode")
     @patch("token_refresher.requests.post")
-    def test_initialize_reviewer_from_secrets_env(
+    def test_initialize_reviewer_from_config_files(
         self, mock_post, mock_jwt, tmp_path, mock_private_key, mock_github_response
     ):
-        """Reviewer token refresher initializes from secrets.env file."""
+        """Reviewer token refresher initializes from secrets.env and PEM file."""
         mock_jwt.return_value = "mock_jwt_token"
         mock_post.return_value = MagicMock(
             status_code=200,
@@ -445,25 +445,35 @@ class TestReviewerTokenRefresher:
             raise_for_status=lambda: None,
         )
 
-        # Create secrets.env with reviewer credentials
+        # Create secrets.env with reviewer credentials (without private key)
         secrets_content = """# Reviewer credentials
 REVIEWER_APP_ID=12345
 REVIEWER_APP_INSTALLATION_ID=67890
-REVIEWER_APP_PRIVATE_KEY=mock_private_key_content
 """
         (tmp_path / "secrets.env").write_text(secrets_content)
+
+        # Create reviewer-app.pem with multiline PEM content
+        # Using a mock PEM structure to validate multiline handling
+        pem_content = """-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGy0AHB7PvX
+dGU8S5ydASbATvPuOmF5DAg7ADrmJ1gHCxP3m00rRce0ple7bPu
+-----END RSA PRIVATE KEY-----"""
+        (tmp_path / "reviewer-app.pem").write_text(pem_content)
 
         refresher = initialize_reviewer_token_refresher(config_dir=tmp_path)
         assert refresher is not None
         assert get_reviewer_token_refresher() is refresher
+        # Verify the full multiline PEM was read
+        assert "-----BEGIN RSA PRIVATE KEY-----" in refresher._private_key
+        assert "-----END RSA PRIVATE KEY-----" in refresher._private_key
 
     @requires_network_mocking
     @patch("token_refresher.jwt.encode")
     @patch("token_refresher.requests.post")
-    def test_initialize_reviewer_env_overrides_secrets_env(
+    def test_initialize_reviewer_env_overrides_config_files(
         self, mock_post, mock_jwt, tmp_path, mock_private_key, mock_github_response
     ):
-        """Environment variables take priority over secrets.env for reviewer."""
+        """Environment variables take priority over config files for reviewer."""
         mock_jwt.return_value = "mock_jwt_token"
         mock_post.return_value = MagicMock(
             status_code=200,
@@ -474,9 +484,9 @@ REVIEWER_APP_PRIVATE_KEY=mock_private_key_content
         # secrets.env has one app_id, env var has another
         secrets_content = """REVIEWER_APP_ID=secrets_id
 REVIEWER_APP_INSTALLATION_ID=67890
-REVIEWER_APP_PRIVATE_KEY=mock_private_key_content
 """
         (tmp_path / "secrets.env").write_text(secrets_content)
+        (tmp_path / "reviewer-app.pem").write_text(mock_private_key)
 
         with patch.dict(
             "os.environ",

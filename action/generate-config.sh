@@ -124,9 +124,20 @@ echo "GATEWAY_BOT_BRANCH_PREFIX=${BOT_BRANCH_PREFIX}" >> "$CONFIG_DIR/secrets.en
 if [[ -n "${INPUT_REVIEWER_APP_ID:-}" && -n "${INPUT_REVIEWER_APP_PRIVATE_KEY:-}" && -n "${INPUT_REVIEWER_APP_INSTALLATION_ID:-}" ]]; then
   echo "REVIEWER_APP_ID=${INPUT_REVIEWER_APP_ID}" >> "$CONFIG_DIR/secrets.env"
   echo "REVIEWER_APP_INSTALLATION_ID=${INPUT_REVIEWER_APP_INSTALLATION_ID}" >> "$CONFIG_DIR/secrets.env"
-  # Normalize literal \n sequences to real newlines
+
+  # Write reviewer private key PEM to file (same pattern as bot PEM).
+  # Multiline PEM keys cannot be stored in secrets.env (line-based parsing).
   REVIEWER_PEM="${INPUT_REVIEWER_APP_PRIVATE_KEY//\\n/$'\n'}"
-  echo "REVIEWER_APP_PRIVATE_KEY=${REVIEWER_PEM}" >> "$CONFIG_DIR/secrets.env"
+  printf '%s\n' "$REVIEWER_PEM" > "$CONFIG_DIR/reviewer-app.pem"
+  chmod 600 "$CONFIG_DIR/reviewer-app.pem"
+
+  # Validate PEM structure
+  if ! grep -q -- "-----BEGIN" "$CONFIG_DIR/reviewer-app.pem"; then
+    echo "ERROR: reviewer-app-private-key does not appear to be valid PEM." >&2
+    echo "  Expected '-----BEGIN RSA PRIVATE KEY-----' or '-----BEGIN PRIVATE KEY-----'." >&2
+    echo "  Paste the full .pem file contents (with newlines) into the GitHub secret." >&2
+    exit 1
+  fi
 
   # Add reviewer bot name for identity checks
   if [[ -n "${INPUT_REVIEWER_BOT_NAME:-}" ]]; then
