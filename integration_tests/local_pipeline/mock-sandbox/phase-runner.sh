@@ -52,6 +52,40 @@ if [ ! -d "$EGG_REPO_PATH" ] && [ ! -d "/home/egg/repos" ]; then
 fi
 echo "Repo volume OK: $(ls -d ${EGG_REPO_PATH:-/home/egg/repos} 2>/dev/null)"
 
+# --- Check 4: worktree validity (exit 5) ---
+# Verify the mounted repo is a valid git worktree (has .git file with gitdir pointer)
+# This catches issues like empty worktrees or root-owned worktrees that Docker may create
+REPO_PATH="${EGG_REPO_PATH:-/home/egg/repos}"
+GIT_PATH="$REPO_PATH/.git"
+
+if [ -f "$GIT_PATH" ]; then
+    # .git is a file - check it contains gitdir pointer (valid worktree)
+    if grep -q "gitdir:" "$GIT_PATH" 2>/dev/null; then
+        echo "Worktree OK: .git file contains gitdir pointer"
+    else
+        echo "ERROR: .git file exists but does not contain gitdir pointer"
+        exit 5
+    fi
+elif [ -d "$GIT_PATH" ]; then
+    # .git is a directory - could be a regular repo or empty dir from Docker
+    if [ -f "$GIT_PATH/HEAD" ]; then
+        echo "Git repo OK: .git directory with HEAD (not a worktree, but valid)"
+    else
+        echo "ERROR: .git directory is empty or invalid (no HEAD file)"
+        exit 5
+    fi
+else
+    # No .git at all - this is expected if the repo mount is working normally
+    # The gateway mounts the worktree at the repo path
+    echo "NOTE: No .git found at $GIT_PATH (expected when gateway mounts worktree at repo path)"
+fi
+
+# Report worktree status for debugging
+echo "Worktree mount status:"
+echo "  - Path: $REPO_PATH"
+echo "  - Owner: $(stat -c '%u:%g' "$REPO_PATH" 2>/dev/null || echo 'unknown')"
+echo "  - Files: $(ls -A "$REPO_PATH" 2>/dev/null | head -5 | tr '\n' ' ')"
+
 # --- Checker role handling ---
 # When spawned as a checker, write check results and exit.
 if [ "$EGG_AGENT_ROLE" = "checker" ]; then
