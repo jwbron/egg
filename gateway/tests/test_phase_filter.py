@@ -225,11 +225,12 @@ class TestFilterOperationFunction:
 class TestIsOperationBlockedFunction:
     """Tests for the convenience is_operation_blocked function."""
 
-    def test_blocked_during_refine(self):
-        """Git push is blocked during refine phase."""
+    def test_push_allowed_during_refine(self):
+        """Git push is allowed during refine phase (issue #543 change)."""
+        # Previously blocked, now allowed with file restrictions
         phase_filter._filter = None
 
-        assert is_operation_blocked("refine", "git", "push origin main") is True
+        assert is_operation_blocked("refine", "git", "push origin main") is False
 
     def test_allowed_during_implement(self):
         """Git push is allowed during implement phase."""
@@ -257,11 +258,11 @@ class TestDefaultPermissions:
         yield
         phase_filter._filter = None
 
-    def test_refine_phase_blocks_push(self):
-        """Refine phase blocks git push."""
+    def test_refine_phase_allows_push(self):
+        """Refine phase allows git push (with file restrictions applied separately)."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
         result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GIT, "push origin main")
-        assert result.allowed is False
+        assert result.allowed is True
 
     def test_refine_phase_blocks_pr_create(self):
         """Refine phase blocks PR creation."""
@@ -269,11 +270,11 @@ class TestDefaultPermissions:
         result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GH, "pr create")
         assert result.allowed is False
 
-    def test_plan_phase_blocks_push(self):
-        """Plan phase blocks git push."""
+    def test_plan_phase_allows_push(self):
+        """Plan phase allows git push (with file restrictions applied separately)."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
         result = pf.filter_operation(PipelinePhase.PLAN, OperationType.GIT, "push origin main")
-        assert result.allowed is False
+        assert result.allowed is True
 
     def test_implement_phase_allows_push(self):
         """Implement phase allows git push."""
@@ -843,9 +844,10 @@ class TestPhaseFileRestrictions:
         assert result.allowed is False
 
     def test_implement_phase_allows_checkpoints(self):
-        """Implement phase should allow checkpoint files."""
+        """Implement phase should allow checkpoint files (not in blocked list)."""
         from phase_filter import check_phase_file_restrictions
 
+        # Checkpoints are allowed because they don't match any blocked pattern
         result = check_phase_file_restrictions(
             "implement",
             [".egg-state/checkpoints/commit-abc123.json"],
@@ -886,16 +888,15 @@ class TestPhaseFileRestrictions:
         assert ".egg-state/contracts/123.json" in result.blocked_files
         assert "src/main.py" not in result.blocked_files
 
-    def test_unknown_phase_allows_by_default(self):
-        """Unknown phases should allow files by default."""
+    def test_unknown_phase_raises_value_error(self):
+        """Unknown phase strings raise ValueError (enum validation)."""
         from phase_filter import check_phase_file_restrictions
 
-        result = check_phase_file_restrictions(
-            "unknown_phase",
-            ["src/main.py"],
-        )
-
-        assert result.allowed is True
+        with pytest.raises(ValueError):
+            check_phase_file_restrictions(
+                "unknown_phase",
+                ["src/main.py"],
+            )
 
     def test_empty_files_list_allowed(self):
         """Empty files list should be allowed."""

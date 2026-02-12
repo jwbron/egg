@@ -392,13 +392,13 @@ class PhaseFilter:
                 allowed_operations=[
                     Operation(OperationType.GH, "issue comment *", "Comment on issues"),
                     Operation(OperationType.GH, "issue edit *", "Edit issues"),
+                    Operation(OperationType.GIT, "push *", "Push state files to remote"),
                     Operation(
                         OperationType.EGG_CONTRACT, "add-decision *", "Create HITL decisions"
                     ),
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
                 ],
                 blocked_operations=[
-                    Operation(OperationType.GIT, "push *", "Cannot push during refine"),
                     Operation(OperationType.GH, "pr create*", "Cannot create PRs during refine"),
                 ],
                 exit_requires="human",
@@ -407,13 +407,13 @@ class PhaseFilter:
                 allowed_operations=[
                     Operation(OperationType.GH, "issue comment *", "Comment on issues"),
                     Operation(OperationType.GH, "issue edit *", "Edit issues"),
+                    Operation(OperationType.GIT, "push *", "Push state files to remote"),
                     Operation(
                         OperationType.EGG_CONTRACT, "add-decision *", "Create HITL decisions"
                     ),
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
                 ],
                 blocked_operations=[
-                    Operation(OperationType.GIT, "push *", "Cannot push during plan"),
                     Operation(OperationType.GH, "pr create*", "Cannot create PRs during plan"),
                 ],
                 exit_requires="human",
@@ -489,9 +489,8 @@ class PhaseFilter:
                     ".egg-state/pipelines/*",
                     ".egg-state/reviews/*",
                 ],
-                allowed_patterns=[
-                    ".egg-state/checkpoints/*",
-                ],
+                # No allowed_patterns = allow everything except blocked
+                # Checkpoints are not blocked since they don't match any blocked_patterns
                 description="Implement phase can push code but not .egg-state/ (except checkpoints)",
             ),
             PipelinePhase.PR: PhaseFileRestriction(

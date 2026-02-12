@@ -158,9 +158,6 @@
         ".egg-state/pipelines/*",
         ".egg-state/reviews/*"
       ],
-      "allowed_patterns": [
-        ".egg-state/checkpoints/*"
-      ],
       "description": "Implement phase can push code but not .egg-state files (except checkpoints)"
     },
     "pr": {
