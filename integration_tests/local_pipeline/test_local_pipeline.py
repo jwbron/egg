@@ -425,6 +425,50 @@ class TestPipelineStartIdempotency:
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
 
+    def test_start_awaiting_human_pipeline_returns_409(self, orchestrator_url: str) -> None:
+        """Cannot start a pipeline that is awaiting human approval."""
+        data, status = create_pipeline(
+            orchestrator_url,
+            prompt="Test awaiting_human idempotency",
+            config={"hitl_gates": True},
+        )
+        assert status == 200
+        pipeline_id = data["data"]["pipeline"]["id"]
+
+        try:
+            # Start pipeline — it will pause at the refine HITL gate
+            start_data, start_status = start_pipeline(orchestrator_url, pipeline_id)
+            assert start_status == 200
+
+            # Wait for awaiting_human status
+            status_data = wait_for_awaiting_human(orchestrator_url, pipeline_id, timeout=180)
+            assert status_data["data"]["status"] == "awaiting_human"
+
+            # Try to start again — should be 409
+            start_data2, start_status2 = start_pipeline(orchestrator_url, pipeline_id)
+            assert start_status2 == 409, (
+                f"Expected 409 for starting awaiting_human pipeline, "
+                f"got {start_status2}: {start_data2}"
+            )
+            assert "awaiting human" in start_data2.get("message", "").lower()
+
+            # Resolve the gate so the pipeline can finish cleanly
+            pending = status_data["data"].get("pending_decision")
+            assert pending is not None
+            resolve_pending_decision(orchestrator_url, pipeline_id, pending["id"])
+
+            # Resolve the plan gate too
+            status_data2 = wait_for_awaiting_human(orchestrator_url, pipeline_id, timeout=180)
+            pending2 = status_data2["data"].get("pending_decision")
+            assert pending2 is not None
+            resolve_pending_decision(orchestrator_url, pipeline_id, pending2["id"])
+
+            # Wait for completion so cleanup works cleanly
+            wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
+
+        finally:
+            delete_pipeline(orchestrator_url, pipeline_id)
+
     def test_start_completed_pipeline_returns_409(self, orchestrator_url: str) -> None:
         """Cannot start a pipeline that has already completed."""
         data, status = create_pipeline(
