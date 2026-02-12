@@ -104,6 +104,7 @@ orchestrator/
 │   └── signals.py          # Signal handling endpoints
 ├── Dockerfile              # Orchestrator container image
 ├── entrypoint.sh           # Container entry point
+├── requirements.txt        # Python dependencies
 └── tests/                  # Orchestrator tests
 ```
 

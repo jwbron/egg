@@ -70,7 +70,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 ## Component Documentation
 
-Each major component has its own README with detailed documentation:
+Each major component has detailed documentation:
 
 | Component | Location | Description |
 |-----------|----------|-------------|
