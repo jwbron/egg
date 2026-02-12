@@ -4,17 +4,15 @@ Tests for state store.
 Note: Git operations are mocked since git init is not available in the sandbox.
 """
 
-import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from models import Pipeline, PipelineConfig, PipelinePhase, PipelineStatus
+from models import Pipeline, PipelinePhase, PipelineStatus
 from state_store import (
     InvalidPipelineIdError,
     PipelineNotFoundError,
     StateStore,
+    StateStoreError,
     StateValidationError,
     VersionConflictError,
     _validate_pipeline_id,
@@ -32,8 +30,14 @@ def mock_git():
 
 @pytest.fixture
 def state_store(tmp_path, mock_git):
-    """Create a state store for testing."""
-    return StateStore(tmp_path)
+    """Create a state store for testing.
+
+    The worktree is mocked out so file I/O goes to tmp_path directly.
+    """
+    store = StateStore(tmp_path, worktree_dir=tmp_path)
+    # Bypass lazy worktree init since git is mocked
+    store._worktree = tmp_path
+    return store
 
 
 class TestStateStoreBasics:
@@ -99,7 +103,7 @@ class TestPipelineCreation:
             repo="owner/repo",
             branch="egg/issue-496",
         )
-        with pytest.raises(Exception):
+        with pytest.raises(StateStoreError):
             state_store.create_pipeline(
                 issue_number=496,
                 repo="owner/repo",
@@ -144,7 +148,7 @@ class TestPipelinePersistence:
 
     def test_save_calls_git(self, state_store, mock_git):
         """Test that saving calls git operations."""
-        pipeline = state_store.create_pipeline(
+        state_store.create_pipeline(
             issue_number=123,
             repo="owner/repo",
             branch="egg/issue-123",
@@ -501,10 +505,89 @@ class TestVersionConflict:
         version_after_create = pipeline.version
 
         # Each save should increment version
-        for i in range(3):
+        for _i in range(3):
             loaded = state_store.load_pipeline("issue-111")
             loaded.status = PipelineStatus.RUNNING
             state_store.save_pipeline(loaded)
 
         final = state_store.load_pipeline("issue-111")
         assert final.version == version_after_create + 3
+
+
+class TestUnbornBranchEdgeCases:
+    """Tests for edge cases with unborn (orphan) branches."""
+
+    def test_commit_state_handles_unborn_branch_no_changes(self, state_store, mock_git):
+        """Test that _commit_state handles unborn branch with no staged changes.
+
+        When the orphan branch is first created but HEAD doesn't exist yet,
+        and there are no staged changes, rev-parse HEAD would fail. The code
+        should handle this gracefully by returning an empty string.
+        """
+        from unittest.mock import MagicMock
+
+        from models import Pipeline
+
+        pipeline = Pipeline(
+            id="issue-999",
+            issue_number=999,
+            repo="owner/repo",
+            branch="egg/issue-999",
+        )
+
+        # Simulate: no staged changes (returncode=0) and unborn branch (HEAD fails)
+        def mock_git_responses(*args, **kwargs):
+            result = MagicMock()
+            if args[0] == "diff" and "--cached" in args:
+                result.returncode = 0  # No staged changes
+                result.stdout = ""
+            elif args[0] == "rev-parse" and "HEAD" in args:
+                result.returncode = 128  # HEAD doesn't exist on unborn branch
+                result.stdout = ""
+            else:
+                result.returncode = 0
+                result.stdout = "abc1234\n"
+            return result
+
+        mock_git.side_effect = mock_git_responses
+
+        # This should not raise - should return empty string for unborn branch
+        sha = state_store._commit_state(pipeline)
+        assert sha == ""
+
+    def test_commit_state_returns_sha_after_commit(self, state_store, mock_git):
+        """Test that _commit_state returns SHA after successful commit."""
+        from unittest.mock import MagicMock
+
+        from models import Pipeline
+
+        pipeline = Pipeline(
+            id="issue-888",
+            issue_number=888,
+            repo="owner/repo",
+            branch="egg/issue-888",
+        )
+
+        expected_sha = "def5678"
+
+        # Simulate: staged changes exist, commit succeeds, rev-parse returns SHA
+        def mock_git_responses(*args, **kwargs):
+            result = MagicMock()
+            if args[0] == "diff" and "--cached" in args:
+                result.returncode = 1  # Changes are staged
+                result.stdout = ""
+            elif args[0] == "commit":
+                result.returncode = 0
+                result.stdout = ""
+            elif args[0] == "rev-parse" and "HEAD" in args:
+                result.returncode = 0
+                result.stdout = f"{expected_sha}\n"
+            else:
+                result.returncode = 0
+                result.stdout = ""
+            return result
+
+        mock_git.side_effect = mock_git_responses
+
+        sha = state_store._commit_state(pipeline)
+        assert sha == expected_sha
