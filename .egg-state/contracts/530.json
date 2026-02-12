@@ -6,8 +6,866 @@
     "url": "https://github.com/jwbron/egg/issues/530"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Enums defined with all values from spec, unit tests pass",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Model validates correctly, supports both commit and session-end checkpoints",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Summary captures all fields needed for index lookups",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Index model supports O(1) lookups for all dimensions",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-1-5] Tests cover validation, serialization, and edge cases",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-1] Generates unique IDs without requiring commit_sha",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-2] Writes to v2 directory structure, atomic file operations",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-3] Correctly loads v2 checkpoints and index",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-4] Updates all secondary indices atomically",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-2-5] O(1) lookups using secondary indices",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-2-6] Tests cover save/load, index updates, and concurrent access patterns",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-1] Fields persisted to disk, backward compatible with existing sessions",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-3-2] Parameters stored in Session, passed to gateway API",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-3-3] New fields round-trip correctly through persistence",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-3-4] Tests cover new fields, backward compatibility",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-4-1] Longer messages preserved, existing tests pass",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-4-2] Tool parameters less aggressively truncated",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-4-3] Tool results more complete",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-4-4] Larger transcripts accepted",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-4-5] Comments reflect new limits and rationale",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-5-1] Captures checkpoint with trigger_type=SESSION_END, uses v2 schema",
+      "verified": false
+    },
+    {
+      "id": "ac-22",
+      "description": "[TASK-5-2] Stores to egg/checkpoints/v2 branch with proper index updates",
+      "verified": false
+    },
+    {
+      "id": "ac-23",
+      "description": "[TASK-5-3] Buffer not deleted until capture completes or timeout",
+      "verified": false
+    },
+    {
+      "id": "ac-24",
+      "description": "[TASK-5-4] Transcript marked with truncated_reason when applicable",
+      "verified": false
+    },
+    {
+      "id": "ac-25",
+      "description": "[TASK-5-5] Existing push-triggered checkpoints use v2 format",
+      "verified": false
+    },
+    {
+      "id": "ac-26",
+      "description": "[TASK-6-1] Graceful deletions produce checkpoints",
+      "verified": false
+    },
+    {
+      "id": "ac-27",
+      "description": "[TASK-6-2] Container-based deletions produce checkpoints",
+      "verified": false
+    },
+    {
+      "id": "ac-28",
+      "description": "[TASK-6-3] TTL expirations produce checkpoints",
+      "verified": false
+    },
+    {
+      "id": "ac-29",
+      "description": "[TASK-6-4] Session metadata available for orphan checkpoints",
+      "verified": false
+    },
+    {
+      "id": "ac-30",
+      "description": "[TASK-6-5] Crashed containers produce checkpoints",
+      "verified": false
+    },
+    {
+      "id": "ac-31",
+      "description": "[TASK-6-6] Buffer preserved until capture finishes or 30s timeout",
+      "verified": false
+    },
+    {
+      "id": "ac-32",
+      "description": "[TASK-7-1] New checkpoints written to v2 branch",
+      "verified": false
+    },
+    {
+      "id": "ac-33",
+      "description": "[TASK-7-2] Push checkpoints use v2 models",
+      "verified": false
+    },
+    {
+      "id": "ac-34",
+      "description": "[TASK-7-3] Multi-commit pushes produce v2 checkpoints",
+      "verified": false
+    },
+    {
+      "id": "ac-35",
+      "description": "[TASK-7-4] No v1 code paths remain active",
+      "verified": false
+    },
+    {
+      "id": "ac-36",
+      "description": "[TASK-8-1] Test covers graceful deletion, TTL expiration, and crash scenarios",
+      "verified": false
+    },
+    {
+      "id": "ac-37",
+      "description": "[TASK-8-2] Push-triggered checkpoints work with v2",
+      "verified": false
+    },
+    {
+      "id": "ac-38",
+      "description": "[TASK-8-3] Queries by session, issue, PR, status all work",
+      "verified": false
+    },
+    {
+      "id": "ac-39",
+      "description": "[TASK-8-4] Code is well-documented for future maintainers",
+      "verified": false
+    },
+    {
+      "id": "ac-40",
+      "description": "[TASK-8-5] Full test suite passes, manual smoke test succeeds",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Core Contracts & Models",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add TriggerType, SessionStatus, and AgentType enums to checkpoints.py",
+          "status": "pending",
+          "acceptance_criteria": "Enums defined with all values from spec, unit tests pass",
+          "files_affected": [
+            "shared/egg_contracts/checkpoints.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add CheckpointV2 model with optional commit_sha, required trigger_type and session_id",
+          "status": "pending",
+          "acceptance_criteria": "Model validates correctly, supports both commit and session-end checkpoints",
+          "files_affected": [
+            "shared/egg_contracts/checkpoints.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add CheckpointSummaryV2 model with all queryable fields",
+          "status": "pending",
+          "acceptance_criteria": "Summary captures all fields needed for index lookups",
+          "files_affected": [
+            "shared/egg_contracts/checkpoints.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add CheckpointIndexV2 model with secondary indices",
+          "status": "pending",
+          "acceptance_criteria": "Index model supports O(1) lookups for all dimensions",
+          "files_affected": [
+            "shared/egg_contracts/checkpoints.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add unit tests for v2 models",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover validation, serialization, and edge cases",
+          "files_affected": [
+            "shared/egg_contracts/tests/test_checkpoints.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Checkpoint Loader v2 Functions",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add generate_checkpoint_id_v2() function for session-end checkpoints",
+          "status": "pending",
+          "acceptance_criteria": "Generates unique IDs without requiring commit_sha",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_loader.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add save_checkpoint_v2() with atomic write support",
+          "status": "pending",
+          "acceptance_criteria": "Writes to v2 directory structure, atomic file operations",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_loader.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add load_checkpoint_v2() and load_checkpoint_index_v2() functions",
+          "status": "pending",
+          "acceptance_criteria": "Correctly loads v2 checkpoints and index",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_loader.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Add add_checkpoint_to_index_v2() with multi-index updates",
+          "status": "pending",
+          "acceptance_criteria": "Updates all secondary indices atomically",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_loader.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "Add v2-specific lookup helpers (get_by_session, get_by_trigger, get_by_status)",
+          "status": "pending",
+          "acceptance_criteria": "O(1) lookups using secondary indices",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_loader.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-6",
+          "description": "Add unit tests for v2 loader functions",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover save/load, index updates, and concurrent access patterns",
+          "files_affected": [
+            "shared/egg_contracts/tests/test_checkpoint_loader.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Session Metadata Enhancement",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add issue_number and pr_number optional fields to Session dataclass",
+          "status": "pending",
+          "acceptance_criteria": "Fields persisted to disk, backward compatible with existing sessions",
+          "files_affected": [
+            "gateway/session_manager.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update register_session() to accept optional issue_number and pr_number",
+          "status": "pending",
+          "acceptance_criteria": "Parameters stored in Session, passed to gateway API",
+          "files_affected": [
+            "gateway/session_manager.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Update Session persistence methods for new fields",
+          "status": "pending",
+          "acceptance_criteria": "New fields round-trip correctly through persistence",
+          "files_affected": [
+            "gateway/session_manager.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Add unit tests for session metadata",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover new fields, backward compatibility",
+          "files_affected": [
+            "gateway/tests/test_session_manager.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Transcript Size Limit Increase",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Increase max_content_length from 10,000 to 25,000 characters",
+          "status": "pending",
+          "acceptance_criteria": "Longer messages preserved, existing tests pass",
+          "files_affected": [
+            "shared/egg_contracts/transcript_extractor.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Increase max_param_length from 1,000 to 2,500 characters",
+          "status": "pending",
+          "acceptance_criteria": "Tool parameters less aggressively truncated",
+          "files_affected": [
+            "shared/egg_contracts/transcript_extractor.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Increase max_result_length from 500 to 1,500 characters",
+          "status": "pending",
+          "acceptance_criteria": "Tool results more complete",
+          "files_affected": [
+            "shared/egg_contracts/transcript_extractor.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Increase MAX_TRANSCRIPT_SIZE from 1MB to 3MB",
+          "status": "pending",
+          "acceptance_criteria": "Larger transcripts accepted",
+          "files_affected": [
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-5",
+          "description": "Update constants documentation",
+          "status": "pending",
+          "acceptance_criteria": "Comments reflect new limits and rationale",
+          "files_affected": [
+            "shared/egg_contracts/transcript_extractor.py",
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Session-End Checkpoint Capture",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Add capture_session_end_checkpoint() function",
+          "status": "pending",
+          "acceptance_criteria": "Captures checkpoint with trigger_type=SESSION_END, uses v2 schema",
+          "files_affected": [
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Add store_checkpoint_v2() method for v2 branch",
+          "status": "pending",
+          "acceptance_criteria": "Stores to egg/checkpoints/v2 branch with proper index updates",
+          "files_affected": [
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Implement async capture with buffer preservation (30s timeout)",
+          "status": "pending",
+          "acceptance_criteria": "Buffer not deleted until capture completes or timeout",
+          "files_affected": [
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-4",
+          "description": "Add truncated_reason field handling for crashed sessions",
+          "status": "pending",
+          "acceptance_criteria": "Transcript marked with truncated_reason when applicable",
+          "files_affected": [
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-5",
+          "description": "Update capture_checkpoint() to produce v2 checkpoints",
+          "status": "pending",
+          "acceptance_criteria": "Existing push-triggered checkpoints use v2 format",
+          "files_affected": [
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "Integration with Session Deletion Paths",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Update delete_session() to capture checkpoint with status=COMPLETED",
+          "status": "pending",
+          "acceptance_criteria": "Graceful deletions produce checkpoints",
+          "files_affected": [
+            "gateway/session_manager.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-2",
+          "description": "Update delete_session_by_container() to capture checkpoint",
+          "status": "pending",
+          "acceptance_criteria": "Container-based deletions produce checkpoints",
+          "files_affected": [
+            "gateway/session_manager.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-3",
+          "description": "Update prune_expired_sessions() to capture checkpoints with status=EXPIRED",
+          "status": "pending",
+          "acceptance_criteria": "TTL expirations produce checkpoints",
+          "files_affected": [
+            "gateway/session_manager.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-4",
+          "description": "Add session lookup before worktree cleanup",
+          "status": "pending",
+          "acceptance_criteria": "Session metadata available for orphan checkpoints",
+          "files_affected": [
+            "gateway/worktree_manager.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-5",
+          "description": "Update cleanup_orphaned_worktrees() to capture checkpoint with status=FAILED",
+          "status": "pending",
+          "acceptance_criteria": "Crashed containers produce checkpoints",
+          "files_affected": [
+            "gateway/worktree_manager.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-6",
+          "description": "Refactor _cleanup_transcript_buffer() to await checkpoint completion",
+          "status": "pending",
+          "acceptance_criteria": "Buffer preserved until capture finishes or 30s timeout",
+          "files_affected": [
+            "gateway/session_manager.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-7",
+      "name": "Update Push-Triggered Checkpoints",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-7-1",
+          "description": "Update CHECKPOINT_BRANCH constant to egg/checkpoints/v2",
+          "status": "pending",
+          "acceptance_criteria": "New checkpoints written to v2 branch",
+          "files_affected": [
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-2",
+          "description": "Update capture_and_store_checkpoint() to use v2 capture and storage",
+          "status": "pending",
+          "acceptance_criteria": "Push checkpoints use v2 models",
+          "files_affected": [
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-3",
+          "description": "Update capture_and_store_checkpoints_for_push() to produce v2 checkpoints",
+          "status": "pending",
+          "acceptance_criteria": "Multi-commit pushes produce v2 checkpoints",
+          "files_affected": [
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-4",
+          "description": "Remove v1 imports and references",
+          "status": "pending",
+          "acceptance_criteria": "No v1 code paths remain active",
+          "files_affected": [
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-8",
+      "name": "Integration Testing & Documentation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-8-1",
+          "description": "Add integration tests for session-end checkpoint flow",
+          "status": "pending",
+          "acceptance_criteria": "Test covers graceful deletion, TTL expiration, and crash scenarios",
+          "files_affected": [
+            "gateway/tests/test_checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-8-2",
+          "description": "Add integration tests for commit checkpoint flow with v2",
+          "status": "pending",
+          "acceptance_criteria": "Push-triggered checkpoints work with v2",
+          "files_affected": [
+            "gateway/tests/test_checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-8-3",
+          "description": "Add integration tests for multi-dimensional index queries",
+          "status": "pending",
+          "acceptance_criteria": "Queries by session, issue, PR, status all work",
+          "files_affected": [
+            "gateway/tests/test_checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-8-4",
+          "description": "Update checkpoint docstrings and module-level documentation",
+          "status": "pending",
+          "acceptance_criteria": "Code is well-documented for future maintainers",
+          "files_affected": [
+            "shared/egg_contracts/checkpoints.py",
+            "gateway/checkpoint_handler.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-8-5",
+          "description": "Verify no regressions in existing gateway functionality",
+          "status": "pending",
+          "acceptance_criteria": "Full test suite passes, manual smoke test succeeds",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 2,
@@ -84,5 +942,9 @@
   "plan_reviewer_verdicts": {
     "unified": "missing",
     "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Checkpoint v2: capture all sessions with rich querying",
+    "description": "Implements a v2 checkpoint system that captures every agent session regardless\nof push activity. Adds session-end checkpoints (COMPLETED, EXPIRED, FAILED)\nwith multi-dimensional index for querying by session, issue, PR, commit,\nagent type, phase, and status. Resolves #530."
   }
 }
