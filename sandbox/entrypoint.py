@@ -1311,6 +1311,7 @@ def run_interactive(config: Config, logger: Logger) -> int:
 
     # Launch via gosu using subprocess.run() to maintain control after exit
     # This allows completion signaling back to orchestrator
+    # Explicit stdin/stdout/stderr ensures consistent TTY behavior after switch from os.execvpe()
     result = subprocess.run(
         [
             "gosu",
@@ -1320,6 +1321,9 @@ def run_interactive(config: Config, logger: Logger) -> int:
             "from llm import run_interactive; run_interactive()",
         ],
         env=env,
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
     )
     return result.returncode
 
@@ -1340,9 +1344,13 @@ def run_exec(config: Config, logger: Logger, args: list[str]) -> int:
     # Print timing summary before exec
     _startup_timer.print_summary()
 
+    # Explicit stdin/stdout/stderr ensures consistent TTY behavior after switch from os.execvpe()
     result = subprocess.run(
         ["gosu", f"{config.runtime_uid}:{config.runtime_gid}"] + args,
         env=env,
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
     )
     return result.returncode
 
@@ -1367,11 +1375,18 @@ def main() -> None:
             f"pipeline={config.pipeline_id}, role={config.agent_role}"
         )
 
+    # Track subprocess completion state for signal handling
+    # If SIGTERM arrives before subprocess completes, we signal interrupted (128+signum)
+    # If it arrives after, the subprocess already signaled its exit code
+    subprocess_completed = [False]  # Use list to allow modification from nested function
+
     # Register cleanup handler
     def signal_handler(signum: int, frame: Any) -> None:
-        # SIGTERM (128+15=143) or SIGINT (128+2=130) indicate clean shutdown
-        cleanup_on_exit(config, logger, exit_code=0)
-        sys.exit(0)
+        # If subprocess hasn't completed, this is an interruption - use signal-based exit code
+        # SIGTERM = 128+15=143, SIGINT = 128+2=130
+        if not subprocess_completed[0]:
+            cleanup_on_exit(config, logger, exit_code=128 + signum)
+        sys.exit(128 + signum)
 
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
@@ -1429,6 +1444,9 @@ def main() -> None:
         exit_code = run_interactive(config, logger)
     else:
         exit_code = run_exec(config, logger, sys.argv[1:])
+
+    # Mark subprocess as completed - signal handler should not override exit code now
+    subprocess_completed[0] = True
 
     # Signal completion to orchestrator (if in orchestrator mode)
     # This runs after subprocess exits, thanks to subprocess.run() instead of os.execvpe()

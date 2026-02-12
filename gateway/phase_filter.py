@@ -88,9 +88,13 @@ class FileRestriction:
             file_path: The file path to check (relative to repo root)
 
         Returns:
-            True if the file matches any blocked pattern
+            True if the file matches any blocked pattern, or if the path escapes the repo
         """
-        normalized = self._normalize_path(file_path)
+        try:
+            normalized = self._normalize_path(file_path)
+        except ValueError:
+            # Paths that escape the repository are always blocked
+            return True
         return any(normalized.startswith(pattern) for pattern in self.blocked_patterns)
 
     @staticmethod
@@ -107,10 +111,16 @@ class FileRestriction:
 
         Returns:
             Normalized file path
+
+        Raises:
+            ValueError: If the path escapes the repository (starts with ../ or /)
         """
         normalized = posixpath.normpath(file_path)
         if normalized.startswith("./"):
             normalized = normalized[2:]
+        # Security: block paths that escape the repository
+        if normalized.startswith("../") or normalized.startswith("/"):
+            raise ValueError(f"Invalid path escapes repository: {file_path}")
         return normalized
 
 
@@ -176,7 +186,11 @@ class PhaseFileRestriction:
         Returns:
             Tuple of (allowed: bool, reason: str)
         """
-        normalized = self._normalize_path(file_path)
+        try:
+            normalized = self._normalize_path(file_path)
+        except ValueError as e:
+            # Paths that escape the repository are never allowed
+            return False, str(e)
 
         # Check blocked patterns first (explicit blocks take priority)
         for pattern in self.blocked_patterns:
@@ -200,10 +214,17 @@ class PhaseFileRestriction:
 
     @staticmethod
     def _normalize_path(file_path: str) -> str:
-        """Normalize a file path to prevent bypass via path manipulation."""
+        """Normalize a file path to prevent bypass via path manipulation.
+
+        Raises:
+            ValueError: If the path escapes the repository (starts with ../ or /)
+        """
         normalized = posixpath.normpath(file_path)
         if normalized.startswith("./"):
             normalized = normalized[2:]
+        # Security: block paths that escape the repository
+        if normalized.startswith("../") or normalized.startswith("/"):
+            raise ValueError(f"Invalid path escapes repository: {file_path}")
         return normalized
 
     @staticmethod
@@ -594,7 +615,13 @@ class PhaseFilter:
             try:
                 phase = PipelinePhase(phase)
             except ValueError:
-                return FileRestrictionResult.allow(f"Unknown phase '{phase}', allowing by default")
+                # Security: fail closed for unknown phases to prevent bypass
+                return FileRestrictionResult.block(
+                    message=f"Unknown phase '{phase}' - blocking by default",
+                    role="unknown",
+                    blocked_files=files,
+                    blocked_reason="Security precaution: unknown phases are not allowed",
+                )
 
         if not files:
             return FileRestrictionResult.allow("No files to check")
@@ -851,7 +878,7 @@ def check_phase_file_restrictions(
     Returns:
         FileRestrictionResult indicating whether the files are allowed
     """
-    # Delegate to class method which handles unknown phase gracefully
+    # Delegate to class method which blocks unknown phases (fail-closed for security)
     return get_phase_filter().check_phase_file_restrictions(phase, files)
 
 

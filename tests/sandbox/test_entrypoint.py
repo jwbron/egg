@@ -741,3 +741,111 @@ class TestConfigAuthMethod:
         """VALID_AUTH_METHODS contains expected values."""
         assert "api_key" in entrypoint.Config.VALID_AUTH_METHODS
         assert "oauth" in entrypoint.Config.VALID_AUTH_METHODS
+
+
+class TestOrchestratorMode:
+    """Tests for orchestrator mode support in entrypoint."""
+
+    def test_config_orchestrator_mode_default(self, monkeypatch):
+        """Default orchestrator mode is None (not in orchestrator mode)."""
+        monkeypatch.delenv("EGG_ORCHESTRATOR_MODE", raising=False)
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+
+        config = entrypoint.Config()
+        assert config.is_orchestrator_mode is False
+
+    def test_config_orchestrator_mode_enabled(self, monkeypatch):
+        """Orchestrator mode is enabled when env vars are set."""
+        monkeypatch.setenv("EGG_ORCHESTRATOR_MODE", "distributed")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "issue-123")
+        monkeypatch.setenv("EGG_AGENT_ROLE", "coder")
+
+        config = entrypoint.Config()
+        assert config.is_orchestrator_mode is True
+        assert config.orchestrator_mode == "distributed"
+        assert config.pipeline_id == "issue-123"
+        assert config.agent_role == "coder"
+
+
+class TestRunInteractiveSubprocess:
+    """Tests for run_interactive using subprocess.run()."""
+
+    @patch("subprocess.run")
+    def test_run_interactive_explicit_streams(self, mock_run, monkeypatch):
+        """run_interactive passes explicit stdin/stdout/stderr."""
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+
+        # Set up minimal config
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+
+        config = entrypoint.Config()
+        config._repos_dir = Path("/tmp/test-repos")
+        logger = entrypoint.Logger(quiet=True)
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch("os.chdir"):
+                exit_code = entrypoint.run_interactive(config, logger)
+
+        assert exit_code == 0
+        # Verify explicit stream arguments were passed
+        call_kwargs = mock_run.call_args[1]
+        assert "stdin" in call_kwargs
+        assert "stdout" in call_kwargs
+        assert "stderr" in call_kwargs
+
+    @patch("subprocess.run")
+    def test_run_interactive_returns_exit_code(self, mock_run, monkeypatch):
+        """run_interactive returns subprocess exit code."""
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=42)
+
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+
+        config = entrypoint.Config()
+        config._repos_dir = Path("/tmp/test-repos")
+        logger = entrypoint.Logger(quiet=True)
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch("os.chdir"):
+                exit_code = entrypoint.run_interactive(config, logger)
+
+        assert exit_code == 42
+
+
+class TestRunExecSubprocess:
+    """Tests for run_exec using subprocess.run()."""
+
+    @patch("subprocess.run")
+    def test_run_exec_explicit_streams(self, mock_run, monkeypatch):
+        """run_exec passes explicit stdin/stdout/stderr."""
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+
+        config = entrypoint.Config()
+        logger = entrypoint.Logger(quiet=True)
+
+        exit_code = entrypoint.run_exec(config, logger, ["echo", "test"])
+
+        assert exit_code == 0
+        call_kwargs = mock_run.call_args[1]
+        assert "stdin" in call_kwargs
+        assert "stdout" in call_kwargs
+        assert "stderr" in call_kwargs
+
+    @patch("subprocess.run")
+    def test_run_exec_returns_exit_code(self, mock_run, monkeypatch):
+        """run_exec returns subprocess exit code."""
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1)
+
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+
+        config = entrypoint.Config()
+        logger = entrypoint.Logger(quiet=True)
+
+        exit_code = entrypoint.run_exec(config, logger, ["false"])
+
+        assert exit_code == 1

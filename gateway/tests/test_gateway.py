@@ -134,6 +134,44 @@ class TestHealthCheck:
             assert data["status"] == "degraded"
             assert data["github_token_valid"] is False
 
+    def test_health_check_excludes_orchestrator_when_not_configured(self, client):
+        """Health check excludes orchestrator status when not configured."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(
+                gateway, "_check_orchestrator_connectivity", return_value={"configured": False}
+            ),
+        ):
+            mock_gh.return_value.is_token_valid.return_value = True
+
+            response = client.get("/api/v1/health")
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            # orchestrator key is only present when configured
+            assert "orchestrator" not in data
+
+    def test_health_check_orchestrator_reachable(self, client, monkeypatch):
+        """Health check shows orchestrator reachability when configured."""
+        monkeypatch.setenv("EGG_ORCHESTRATOR_URL", "http://orchestrator:8080")
+
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(
+                gateway,
+                "_check_orchestrator_connectivity",
+                return_value={"configured": True, "reachable": True, "status": "healthy"},
+            ),
+        ):
+            mock_gh.return_value.is_token_valid.return_value = True
+
+            response = client.get("/api/v1/health")
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["orchestrator"]["configured"] is True
+            assert data["orchestrator"]["reachable"] is True
+
 
 class TestAuthentication:
     """Tests for authentication."""
