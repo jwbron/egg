@@ -5,9 +5,26 @@ Each module provides a Flask Blueprint for a logical group of endpoints.
 """
 
 import os
+import sys
 from pathlib import Path
 
 from flask import request
+
+# Add shared directory to path for logging
+_shared_path = Path(__file__).parent.parent.parent / "shared"
+if _shared_path.exists() and str(_shared_path) not in sys.path:
+    sys.path.insert(0, str(_shared_path))
+
+try:
+    from egg_logging import get_logger
+except ImportError:
+    import logging
+
+    def get_logger(name: str, **kwargs) -> logging.Logger:  # type: ignore[misc]
+        return logging.getLogger(name)
+
+
+logger = get_logger("orchestrator.routes")
 
 
 def get_repo_path() -> Path:
@@ -85,7 +102,12 @@ def resolve_repo_path_for_pipeline(pipeline_id: str, base_path: Path) -> Path:
             candidate = base_path / repo_name
             if candidate.exists() and (candidate / ".git").exists():
                 return candidate
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to resolve repo path for pipeline",
+            pipeline_id=pipeline_id,
+            base_path=str(base_path),
+            error=str(e),
+        )
 
     return base_path
