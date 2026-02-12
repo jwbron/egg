@@ -6,8 +6,680 @@
     "url": "https://github.com/jwbron/egg/issues/544"
   },
   "current_phase": "implement",
-  "acceptance_criteria": [],
-  "phases": [],
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Package directory exists with __init__.py, types.py, and py.typed",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] All enums are defined with docstrings, use StrEnum for serialization",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Pydantic models match orchestrator/routes/signals.py request/response format",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Package is discoverable by setuptools",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-1-5] Tests verify enum values, Pydantic serialization/deserialization",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-1] Class follows patterns from orchestrator/gateway_client.py",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-2] Sends POST to /api/v1/pipelines/{id}/signal with signal_type=complete",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-3] Sends error signal with message and recoverable flag",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-4] Sends progress update with percentage and current task",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-2-5] Sends heartbeat with container ID",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-2-6] Exception includes HTTP status code and error message",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-2-7] Returns cached client instance, configurable via environment variables",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-2-8] Tests cover all signal methods with mocked HTTP responses",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-3-1] Reads EGG_ORCHESTRATOR_URL, EGG_PIPELINE_ID, EGG_AGENT_ROLE from environment",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-3-2] Interactive mode launches subprocess and captures exit code",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-3-3] Exec mode launches subprocess and captures exit code",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-3-4] Calls orchestrator client's signal_complete() or signal_error() based on exit code",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-3-5] Completion signal sent before entrypoint exits when orchestrator mode detected",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-3-6] SIGTERM/SIGINT handlers signal completion if in orchestrator mode",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-3-7] Test verifies signal is sent on normal exit and error exit",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-4-1] Gateway reads ORCHESTRATOR_URL from environment",
+      "verified": false
+    },
+    {
+      "id": "ac-22",
+      "description": "[TASK-4-2] Uses urllib to GET orchestrator /api/v1/health with 2-second timeout",
+      "verified": false
+    },
+    {
+      "id": "ac-23",
+      "description": "[TASK-4-3] Response includes orchestrator reachable and url when ORCHESTRATOR_URL is set",
+      "verified": false
+    },
+    {
+      "id": "ac-24",
+      "description": "[TASK-4-4] Short timeout prevents slow health responses",
+      "verified": false
+    },
+    {
+      "id": "ac-25",
+      "description": "[TASK-4-5] Tests cover orchestrator reachable, unreachable, and not configured cases",
+      "verified": false
+    },
+    {
+      "id": "ac-26",
+      "description": "[TASK-5-1] Document exists with proper markdown structure",
+      "verified": false
+    },
+    {
+      "id": "ac-27",
+      "description": "[TASK-5-2] Describes CLI-only mode without orchestrator, includes when to use",
+      "verified": false
+    },
+    {
+      "id": "ac-28",
+      "description": "[TASK-5-3] Describes Docker Compose mode with orchestrator on same host",
+      "verified": false
+    },
+    {
+      "id": "ac-29",
+      "description": "[TASK-5-4] Describes multi-host mode with orchestrator on separate host (future)",
+      "verified": false
+    },
+    {
+      "id": "ac-30",
+      "description": "[TASK-5-5] ASCII or Mermaid diagram showing gateway, sandbox, orchestrator communication",
+      "verified": false
+    },
+    {
+      "id": "ac-31",
+      "description": "[TASK-5-6] Lists environment variables and network requirements",
+      "verified": false
+    },
+    {
+      "id": "ac-32",
+      "description": "[TASK-5-7] New document is linked from architecture index",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Shared Orchestrator Package (AC-29)",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create shared/egg_orchestrator/ package structure",
+          "status": "pending",
+          "acceptance_criteria": "Package directory exists with __init__.py, types.py, and py.typed",
+          "files_affected": [
+            "shared/egg_orchestrator/__init__.py",
+            "shared/egg_orchestrator/types.py",
+            "shared/egg_orchestrator/py.typed"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Extract shared enums (SignalType, AgentRole, PipelinePhase, PipelineStatus, ContainerStatus)",
+          "status": "pending",
+          "acceptance_criteria": "All enums are defined with docstrings, use StrEnum for serialization",
+          "files_affected": [
+            "shared/egg_orchestrator/types.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Create signal-related dataclasses (SignalPayload, SignalResponse)",
+          "status": "pending",
+          "acceptance_criteria": "Pydantic models match orchestrator/routes/signals.py request/response format",
+          "files_affected": [
+            "shared/egg_orchestrator/types.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Update shared/pyproject.toml to include egg_orchestrator*",
+          "status": "pending",
+          "acceptance_criteria": "Package is discoverable by setuptools",
+          "files_affected": [
+            "shared/pyproject.toml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add unit tests for shared types",
+          "status": "pending",
+          "acceptance_criteria": "Tests verify enum values, Pydantic serialization/deserialization",
+          "files_affected": [
+            "shared/tests/test_egg_orchestrator.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Orchestrator Client (AC-27)",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create sandbox/egg_lib/orchestrator_client.py with OrchestratorClient class",
+          "status": "pending",
+          "acceptance_criteria": "Class follows patterns from orchestrator/gateway_client.py",
+          "files_affected": [
+            "sandbox/egg_lib/orchestrator_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Implement signal_complete() method",
+          "status": "pending",
+          "acceptance_criteria": "Sends POST to /api/v1/pipelines/{id}/signal with signal_type=complete",
+          "files_affected": [
+            "sandbox/egg_lib/orchestrator_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Implement signal_error() method",
+          "status": "pending",
+          "acceptance_criteria": "Sends error signal with message and recoverable flag",
+          "files_affected": [
+            "sandbox/egg_lib/orchestrator_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Implement signal_progress() method",
+          "status": "pending",
+          "acceptance_criteria": "Sends progress update with percentage and current task",
+          "files_affected": [
+            "sandbox/egg_lib/orchestrator_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "Implement signal_heartbeat() method",
+          "status": "pending",
+          "acceptance_criteria": "Sends heartbeat with container ID",
+          "files_affected": [
+            "sandbox/egg_lib/orchestrator_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-6",
+          "description": "Add OrchestratorError exception class",
+          "status": "pending",
+          "acceptance_criteria": "Exception includes HTTP status code and error message",
+          "files_affected": [
+            "sandbox/egg_lib/orchestrator_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-7",
+          "description": "Add singleton accessor get_orchestrator_client()",
+          "status": "pending",
+          "acceptance_criteria": "Returns cached client instance, configurable via environment variables",
+          "files_affected": [
+            "sandbox/egg_lib/orchestrator_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-8",
+          "description": "Add unit tests for orchestrator client",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover all signal methods with mocked HTTP responses",
+          "files_affected": [
+            "sandbox/tests/test_orchestrator_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Sandbox Entrypoint Orchestrator Mode (AC-28)",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add orchestrator environment variable detection to entrypoint",
+          "status": "pending",
+          "acceptance_criteria": "Reads EGG_ORCHESTRATOR_URL, EGG_PIPELINE_ID, EGG_AGENT_ROLE from environment",
+          "files_affected": [
+            "sandbox/entrypoint.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Refactor run_interactive() to use subprocess.run() instead of os.execvpe()",
+          "status": "pending",
+          "acceptance_criteria": "Interactive mode launches subprocess and captures exit code",
+          "files_affected": [
+            "sandbox/entrypoint.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Refactor run_exec() to use subprocess.run() instead of os.execvpe()",
+          "status": "pending",
+          "acceptance_criteria": "Exec mode launches subprocess and captures exit code",
+          "files_affected": [
+            "sandbox/entrypoint.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Add signal_completion() function",
+          "status": "pending",
+          "acceptance_criteria": "Calls orchestrator client's signal_complete() or signal_error() based on exit code",
+          "files_affected": [
+            "sandbox/entrypoint.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-5",
+          "description": "Integrate completion signaling after subprocess exits",
+          "status": "pending",
+          "acceptance_criteria": "Completion signal sent before entrypoint exits when orchestrator mode detected",
+          "files_affected": [
+            "sandbox/entrypoint.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-6",
+          "description": "Update signal handlers to signal completion before cleanup",
+          "status": "pending",
+          "acceptance_criteria": "SIGTERM/SIGINT handlers signal completion if in orchestrator mode",
+          "files_affected": [
+            "sandbox/entrypoint.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-7",
+          "description": "Add integration test for orchestrator mode detection",
+          "status": "pending",
+          "acceptance_criteria": "Test verifies signal is sent on normal exit and error exit",
+          "files_affected": [
+            "sandbox/tests/test_entrypoint_orchestrator.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Gateway Health Enhancement (AC-24)",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add ORCHESTRATOR_URL environment variable support to gateway",
+          "status": "pending",
+          "acceptance_criteria": "Gateway reads ORCHESTRATOR_URL from environment",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Create check_orchestrator_health() helper function",
+          "status": "pending",
+          "acceptance_criteria": "Uses urllib to GET orchestrator /api/v1/health with 2-second timeout",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Update /api/v1/health endpoint to include orchestrator field",
+          "status": "pending",
+          "acceptance_criteria": "Response includes orchestrator reachable and url when ORCHESTRATOR_URL is set",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Ensure health check remains fast (less than 3 seconds)",
+          "status": "pending",
+          "acceptance_criteria": "Short timeout prevents slow health responses",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-5",
+          "description": "Add unit test for health endpoint with orchestrator",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover orchestrator reachable, unreachable, and not configured cases",
+          "files_affected": [
+            "gateway/tests/test_health_orchestrator.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Architecture Documentation (AC-33)",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Create docs/architecture/orchestrator.md",
+          "status": "pending",
+          "acceptance_criteria": "Document exists with proper markdown structure",
+          "files_affected": [
+            "docs/architecture/orchestrator.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Document local deployment mode",
+          "status": "pending",
+          "acceptance_criteria": "Describes CLI-only mode without orchestrator, includes when to use",
+          "files_affected": [
+            "docs/architecture/orchestrator.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Document remote-single deployment mode",
+          "status": "pending",
+          "acceptance_criteria": "Describes Docker Compose mode with orchestrator on same host",
+          "files_affected": [
+            "docs/architecture/orchestrator.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-4",
+          "description": "Document distributed deployment mode",
+          "status": "pending",
+          "acceptance_criteria": "Describes multi-host mode with orchestrator on separate host (future)",
+          "files_affected": [
+            "docs/architecture/orchestrator.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-5",
+          "description": "Add component interaction diagram for each mode",
+          "status": "pending",
+          "acceptance_criteria": "ASCII or Mermaid diagram showing gateway, sandbox, orchestrator communication",
+          "files_affected": [
+            "docs/architecture/orchestrator.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-6",
+          "description": "Document configuration requirements per mode",
+          "status": "pending",
+          "acceptance_criteria": "Lists environment variables and network requirements",
+          "files_affected": [
+            "docs/architecture/orchestrator.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-7",
+          "description": "Update docs/architecture/README.md to link to orchestrator docs",
+          "status": "pending",
+          "acceptance_criteria": "New document is linked from architecture index",
+          "files_affected": [
+            "docs/architecture/README.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "circuit_breaker": {
     "total_cycles": 2,
@@ -84,5 +756,9 @@
   "plan_reviewer_verdicts": {
     "unified": "missing",
     "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Add orchestrator integration layer (AC-24, AC-27, AC-28, AC-29, AC-33)",
+    "description": "Implements five acceptance criteria from the orchestrator contract (#524) that form\nthe integration layer for remote/distributed deployment modes:\n\n- **AC-29**: Shared `egg_orchestrator` package with signal and pipeline state types\n- **AC-27**: Typed `OrchestratorClient` for sandbox-to-orchestrator communication\n- **AC-28**: Sandbox entrypoint orchestrator mode detection and completion signaling\n- **AC-24**: Gateway health endpoint reports orchestrator connectivity\n- **AC-33**: Architecture documentation for three deployment modes\n\nAll features are opt-in via environment variables. No breaking changes.\n\nCloses #544"
   }
 }
