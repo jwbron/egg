@@ -30,7 +30,7 @@ gateway/tests/            # Gateway-specific tests (~13 files)
 ├── test_session_manager.py # Session management
 └── ...                   # Additional gateway modules
 
-integration_tests/        # Docker-based integration tests (~12 files)
+integration_tests/        # Docker-based integration tests (~16 files)
 ├── conftest.py           # EggStack fixture, Docker helpers
 ├── docker-compose.yml    # Test stack definition
 ├── test_network_isolation.py
