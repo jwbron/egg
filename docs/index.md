@@ -70,11 +70,12 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 ## Component Documentation
 
-Each major component has its own README with detailed documentation:
+Each major component has detailed documentation:
 
 | Component | Location | Description |
 |-----------|----------|-------------|
 | [Gateway Sidecar](../gateway/README.md) | `gateway/` | Policy enforcement, credential injection, API endpoints |
+| [Orchestrator](../orchestrator/) | `orchestrator/` | Local SDLC pipeline execution, state management, container lifecycle |
 | [Sandbox Container](../sandbox/README.md) | `sandbox/` | Agent environment, tools, entrypoint |
 | [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, and SDLC contracts |
 | [Configuration](../config/README.md) | `config/` | Repository and host configuration |

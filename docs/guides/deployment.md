@@ -104,6 +104,7 @@ sandbox (172.32.0.x) ──┐
                        │         │
                        │         ▼
                        │    gateway (172.32.0.2)
+                       │    orchestrator (172.32.0.3)
                        │         │
                        └─────────┼──▶ egg-external
                                  │         │
@@ -114,6 +115,7 @@ sandbox (172.32.0.x) ──┐
 - **egg-isolated**: Internal network with no external route
 - **egg-external**: Standard bridge network with internet access
 - **Gateway**: Dual-homed, acts as the only egress point for sandboxes
+- **Orchestrator**: Dual-homed, manages SDLC pipelines and spawns sandbox containers
 
 ## CLI with Docker Compose Gateway
 

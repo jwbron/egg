@@ -40,6 +40,7 @@ See the [main README](../../README.md) for the architecture diagram.
 | Component | Role | Documentation |
 |-----------|------|---------------|
 | **Gateway** | Credential injection, policy enforcement, HTTP proxy | [Gateway README](../../gateway/README.md) |
+| **Orchestrator** | Local SDLC pipeline execution, state management, container lifecycle | `orchestrator/` |
 | **Sandbox** | Agent execution environment, git/gh wrappers | [Sandbox README](../../sandbox/README.md) |
 | **Shared Libraries** | Config, logging, git utilities | [Shared README](../../shared/README.md) |
 | **egg_contracts** | SDLC contract models, role-based mutation validation, multi-agent orchestration | `shared/egg_contracts/` |
