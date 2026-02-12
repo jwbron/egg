@@ -1706,12 +1706,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
             # Common sandbox environment for all containers in this phase
             gateway_url = os.environ.get("GATEWAY_URL", "http://172.32.0.2:9848")
+            orchestrator_url = os.environ.get("ORCHESTRATOR_URL", "http://172.32.0.3:9849")
             sandbox_env: dict[str, str] = {
                 "EGG_PIPELINE_ID": pipeline_id,
                 "EGG_PIPELINE_PHASE": current_phase.value,
                 "EGG_PIPELINE_MODE": pipeline_mode,
                 "GATEWAY_URL": gateway_url,
                 "EGG_GATEWAY_URL": gateway_url,
+                "EGG_ORCHESTRATOR_URL": orchestrator_url,
+                "EGG_ORCHESTRATOR_MODE": "distributed",
                 "RUNTIME_UID": os.environ.get("HOST_UID", "1000"),
                 "RUNTIME_GID": os.environ.get("HOST_GID", "1000"),
             }
@@ -1949,7 +1952,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Delete stale verdict files before spawning reviewers
                 for rtype in reviewer_types:
                     verdict_rel = _verdict_path_for_type(
-                        current_phase.value, rtype, pipeline_mode, pipeline.issue_number, pipeline_id
+                        current_phase.value,
+                        rtype,
+                        pipeline_mode,
+                        pipeline.issue_number,
+                        pipeline_id,
                     )
                     verdict_path = repo_path / verdict_rel
                     if verdict_path.exists():
@@ -2108,7 +2115,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # --- HITL gate: pause for human approval ---
             if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:
                 draft_content = _read_phase_draft(
-                    repo_path, current_phase.value, pipeline_mode, pipeline.issue_number, pipeline_id
+                    repo_path,
+                    current_phase.value,
+                    pipeline_mode,
+                    pipeline.issue_number,
+                    pipeline_id,
                 )
                 phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
                 question = (
