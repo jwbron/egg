@@ -81,6 +81,44 @@ net_config = ContainerNetworkConfig(
 cmd = build_sandbox_docker_cmd(net_config, ...)
 ```
 
+### egg_orchestrator
+
+Shared orchestrator types and utilities for sandbox-to-orchestrator communication.
+
+- Typed orchestrator API client (OrchestratorClient)
+- Orchestrator mode detection (is_orchestrator_mode)
+- Deployment mode enum (LOCAL, REMOTE_SINGLE, DISTRIBUTED)
+- Signal types for completion reporting (complete, progress, error, heartbeat)
+
+```python
+from egg_orchestrator import (
+    OrchestratorClient,
+    is_orchestrator_mode,
+    DeploymentMode,
+    SignalType,
+)
+
+# Check if running in orchestrator mode
+if is_orchestrator_mode():
+    client = OrchestratorClient()
+
+    # Signal completion
+    client.signal_complete(
+        pipeline_id="issue-123",
+        agent_role="coder",
+        commit="abc1234",
+    )
+
+# Detect deployment mode
+mode = DeploymentMode.from_env()
+```
+
+**Files:**
+- `client.py` - OrchestratorClient for API communication
+- `types.py` - Data types (CompletionData, ErrorData, SignalResponse)
+- `detection.py` - Orchestrator mode detection utilities
+- `constants.py` - Configuration constants
+
 ### egg_contracts
 
 SDLC contract models, role-based validation, plan parsing, resilience utilities, and agent checkpoint capture.

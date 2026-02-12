@@ -187,6 +187,31 @@ class Config:
     quiet: bool = field(default_factory=lambda: os.environ.get("EGG_QUIET", "0") == "1")
     debug: bool = field(default_factory=lambda: os.environ.get("EGG_DEBUG", "0") == "1")
 
+    # Orchestrator mode configuration
+    # These are set when the sandbox is spawned by an orchestrator
+    orchestrator_mode: str = field(
+        default_factory=lambda: os.environ.get("EGG_ORCHESTRATOR_MODE", "local")
+    )
+    orchestrator_url: str | None = field(
+        default_factory=lambda: os.environ.get("EGG_ORCHESTRATOR_URL")
+    )
+    pipeline_id: str | None = field(default_factory=lambda: os.environ.get("EGG_PIPELINE_ID"))
+    agent_role: str | None = field(default_factory=lambda: os.environ.get("EGG_AGENT_ROLE"))
+
+    @property
+    def is_orchestrator_mode(self) -> bool:
+        """Check if running in orchestrator-managed mode (vs interactive)."""
+        # Explicit mode setting
+        if self.orchestrator_mode in ("remote-single", "distributed"):
+            return True
+        # Implicit detection from pipeline context
+        if self.pipeline_id:
+            return True
+        # Implicit detection from orchestrator URL
+        if self.orchestrator_url:
+            return True
+        return False
+
     # LLM configuration
     # Auth method: "api_key" (default) or "oauth"
     # When oauth, don't warn about missing ANTHROPIC_API_KEY
@@ -1163,13 +1188,78 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
 # =============================================================================
 
 
-def cleanup_on_exit(config: Config, logger: Logger) -> None:
+def signal_orchestrator_completion(
+    config: Config,
+    logger: Logger,
+    exit_code: int = 0,
+    error_message: str | None = None,
+) -> None:
+    """Signal completion to orchestrator if running in orchestrator mode.
+
+    Uses the OrchestratorClient from egg_orchestrator package for consistency
+    with other orchestrator communication.
+
+    Args:
+        config: Container configuration
+        logger: Logger instance
+        exit_code: Process exit code (0 = success)
+        error_message: Optional error message if failed
+    """
+    if not config.is_orchestrator_mode:
+        return
+
+    if not config.orchestrator_url or not config.pipeline_id:
+        logger.warn("Orchestrator mode enabled but missing URL or pipeline_id")
+        return
+
+    if not config.agent_role:
+        logger.warn("Orchestrator mode enabled but missing agent_role")
+        return
+
+    try:
+        from egg_orchestrator import OrchestratorClient
+
+        client = OrchestratorClient(orchestrator_url=config.orchestrator_url)
+
+        if exit_code == 0:
+            # Success - signal completion
+            response = client.signal_complete(
+                pipeline_id=config.pipeline_id,
+                agent_role=config.agent_role,
+            )
+            signal_type = "complete"
+        else:
+            # Failure - signal error
+            response = client.signal_error(
+                pipeline_id=config.pipeline_id,
+                agent_role=config.agent_role,
+                error=error_message or f"Container exited with code {exit_code}",
+                recoverable=False,
+            )
+            signal_type = "error"
+
+        if response.success:
+            logger.info(f"Signaled {signal_type} to orchestrator")
+        else:
+            logger.warn(f"Orchestrator signal failed: {response.message}")
+
+    except Exception as e:
+        # Don't fail the exit process if signaling fails
+        logger.warn(f"Failed to signal orchestrator: {e}")
+
+
+def cleanup_on_exit(config: Config, logger: Logger, exit_code: int = 0) -> None:
     """Cleanup handler for container shutdown.
 
     In the gateway-managed worktree architecture, the container doesn't
     have access to git metadata, so there's minimal cleanup needed.
     The gateway handles worktree cleanup when containers exit.
+
+    If running in orchestrator mode, signals completion/error to orchestrator.
     """
+    # Signal completion to orchestrator if in orchestrator mode
+    signal_orchestrator_completion(config, logger, exit_code)
+
     if not config.quiet:
         print("")
         print("Cleaning up on container exit...")
@@ -1181,8 +1271,17 @@ def cleanup_on_exit(config: Config, logger: Logger) -> None:
 # =============================================================================
 
 
-def run_interactive(config: Config, logger: Logger) -> None:
-    """Launch interactive Claude Code session."""
+def run_interactive(config: Config, logger: Logger) -> int:
+    """Launch interactive Claude Code session.
+
+    Uses subprocess.run() to maintain control after process exits,
+    enabling completion signaling back to orchestrator.
+
+    Returns:
+        Exit code from the subprocess
+    """
+    import subprocess
+
     # Change to repos directory
     if config.repos_dir.exists():
         os.chdir(config.repos_dir)
@@ -1210,9 +1309,10 @@ def run_interactive(config: Config, logger: Logger) -> None:
     # Print timing summary right before launching LLM
     _startup_timer.print_summary()
 
-    # Launch via gosu
-    os.execvpe(
-        "gosu",
+    # Launch via gosu using subprocess.run() to maintain control after exit
+    # This allows completion signaling back to orchestrator
+    # Explicit stdin/stdout/stderr ensures consistent TTY behavior after switch from os.execvpe()
+    result = subprocess.run(
         [
             "gosu",
             f"{config.runtime_uid}:{config.runtime_gid}",
@@ -1220,22 +1320,39 @@ def run_interactive(config: Config, logger: Logger) -> None:
             "-c",
             "from llm import run_interactive; run_interactive()",
         ],
-        env,
+        env=env,
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
     )
+    return result.returncode
 
 
-def run_exec(config: Config, logger: Logger, args: list[str]) -> None:
-    """Run a command in exec mode."""
+def run_exec(config: Config, logger: Logger, args: list[str]) -> int:
+    """Run a command in exec mode.
+
+    Uses subprocess.run() to maintain control after process exits,
+    enabling completion signaling back to orchestrator.
+
+    Returns:
+        Exit code from the subprocess
+    """
+    import subprocess
+
     env = os.environ.copy()
 
     # Print timing summary before exec
     _startup_timer.print_summary()
 
-    os.execvpe(
-        "gosu",
+    # Explicit stdin/stdout/stderr ensures consistent TTY behavior after switch from os.execvpe()
+    result = subprocess.run(
         ["gosu", f"{config.runtime_uid}:{config.runtime_gid}"] + args,
-        env,
+        env=env,
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
     )
+    return result.returncode
 
 
 # =============================================================================
@@ -1251,10 +1368,25 @@ def main() -> None:
     if config.debug:
         logger.phase_start("entrypoint_init")
 
+    # Log orchestrator mode if enabled
+    if config.is_orchestrator_mode:
+        logger.info(
+            f"Running in orchestrator mode: {config.orchestrator_mode}, "
+            f"pipeline={config.pipeline_id}, role={config.agent_role}"
+        )
+
+    # Track subprocess completion state for signal handling
+    # If SIGTERM arrives before subprocess completes, we signal interrupted (128+signum)
+    # If it arrives after, the subprocess already signaled its exit code
+    subprocess_completed = [False]  # Use list to allow modification from nested function
+
     # Register cleanup handler
     def signal_handler(signum: int, frame: Any) -> None:
-        cleanup_on_exit(config, logger)
-        sys.exit(0)
+        # If subprocess hasn't completed, this is an interruption - use signal-based exit code
+        # SIGTERM = 128+15=143, SIGINT = 128+2=130
+        if not subprocess_completed[0]:
+            cleanup_on_exit(config, logger, exit_code=128 + signum)
+        sys.exit(128 + signum)
 
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
@@ -1309,9 +1441,18 @@ def main() -> None:
 
     # Run appropriate mode (timing summary is printed inside each mode)
     if len(sys.argv) == 1:
-        run_interactive(config, logger)
+        exit_code = run_interactive(config, logger)
     else:
-        run_exec(config, logger, sys.argv[1:])
+        exit_code = run_exec(config, logger, sys.argv[1:])
+
+    # Mark subprocess as completed - signal handler should not override exit code now
+    subprocess_completed[0] = True
+
+    # Signal completion to orchestrator (if in orchestrator mode)
+    # This runs after subprocess exits, thanks to subprocess.run() instead of os.execvpe()
+    cleanup_on_exit(config, logger, exit_code)
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

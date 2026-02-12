@@ -741,3 +741,265 @@ class TestConfigAuthMethod:
         """VALID_AUTH_METHODS contains expected values."""
         assert "api_key" in entrypoint.Config.VALID_AUTH_METHODS
         assert "oauth" in entrypoint.Config.VALID_AUTH_METHODS
+
+
+class TestOrchestratorMode:
+    """Tests for orchestrator mode support in entrypoint."""
+
+    def test_config_orchestrator_mode_default(self, monkeypatch):
+        """Default orchestrator mode is None (not in orchestrator mode)."""
+        monkeypatch.delenv("EGG_ORCHESTRATOR_MODE", raising=False)
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+
+        config = entrypoint.Config()
+        assert config.is_orchestrator_mode is False
+
+    def test_config_orchestrator_mode_enabled(self, monkeypatch):
+        """Orchestrator mode is enabled when env vars are set."""
+        monkeypatch.setenv("EGG_ORCHESTRATOR_MODE", "distributed")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "issue-123")
+        monkeypatch.setenv("EGG_AGENT_ROLE", "coder")
+
+        config = entrypoint.Config()
+        assert config.is_orchestrator_mode is True
+        assert config.orchestrator_mode == "distributed"
+        assert config.pipeline_id == "issue-123"
+        assert config.agent_role == "coder"
+
+
+class TestRunInteractiveSubprocess:
+    """Tests for run_interactive using subprocess.run()."""
+
+    @patch("subprocess.run")
+    def test_run_interactive_explicit_streams(self, mock_run, monkeypatch):
+        """run_interactive passes explicit stdin/stdout/stderr."""
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+
+        # Set up minimal config
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+
+        config = entrypoint.Config()
+        config._repos_dir = Path("/tmp/test-repos")
+        logger = entrypoint.Logger(quiet=True)
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch("os.chdir"):
+                exit_code = entrypoint.run_interactive(config, logger)
+
+        assert exit_code == 0
+        # Verify explicit stream arguments were passed
+        call_kwargs = mock_run.call_args[1]
+        assert "stdin" in call_kwargs
+        assert "stdout" in call_kwargs
+        assert "stderr" in call_kwargs
+
+    @patch("subprocess.run")
+    def test_run_interactive_returns_exit_code(self, mock_run, monkeypatch):
+        """run_interactive returns subprocess exit code."""
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=42)
+
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+
+        config = entrypoint.Config()
+        config._repos_dir = Path("/tmp/test-repos")
+        logger = entrypoint.Logger(quiet=True)
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch("os.chdir"):
+                exit_code = entrypoint.run_interactive(config, logger)
+
+        assert exit_code == 42
+
+
+class TestRunExecSubprocess:
+    """Tests for run_exec using subprocess.run()."""
+
+    @patch("subprocess.run")
+    def test_run_exec_explicit_streams(self, mock_run, monkeypatch):
+        """run_exec passes explicit stdin/stdout/stderr."""
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+
+        config = entrypoint.Config()
+        logger = entrypoint.Logger(quiet=True)
+
+        exit_code = entrypoint.run_exec(config, logger, ["echo", "test"])
+
+        assert exit_code == 0
+        call_kwargs = mock_run.call_args[1]
+        assert "stdin" in call_kwargs
+        assert "stdout" in call_kwargs
+        assert "stderr" in call_kwargs
+
+    @patch("subprocess.run")
+    def test_run_exec_returns_exit_code(self, mock_run, monkeypatch):
+        """run_exec returns subprocess exit code."""
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1)
+
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+
+        config = entrypoint.Config()
+        logger = entrypoint.Logger(quiet=True)
+
+        exit_code = entrypoint.run_exec(config, logger, ["false"])
+
+        assert exit_code == 1
+
+
+class TestSignalOrchestratorCompletion:
+    """Tests for signal_orchestrator_completion function."""
+
+    def test_no_signal_when_not_orchestrator_mode(self, monkeypatch):
+        """Does not signal when not in orchestrator mode."""
+        monkeypatch.delenv("EGG_ORCHESTRATOR_MODE", raising=False)
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+
+        config = entrypoint.Config()
+        logger = entrypoint.Logger(quiet=True)
+
+        # Should not raise and not call any orchestrator code
+        with patch("egg_orchestrator.OrchestratorClient") as mock_client:
+            entrypoint.signal_orchestrator_completion(config, logger, exit_code=0)
+            mock_client.assert_not_called()
+
+    def test_signal_complete_on_success(self, monkeypatch):
+        """Signals complete when exit code is 0."""
+        monkeypatch.setenv("EGG_ORCHESTRATOR_MODE", "distributed")
+        monkeypatch.setenv("EGG_ORCHESTRATOR_URL", "http://orchestrator:8080")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "issue-123")
+        monkeypatch.setenv("EGG_AGENT_ROLE", "coder")
+
+        config = entrypoint.Config()
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.message = ""
+
+        with patch("egg_orchestrator.OrchestratorClient") as MockClient:
+            mock_client_instance = MagicMock()
+            mock_client_instance.signal_complete.return_value = mock_response
+            MockClient.return_value = mock_client_instance
+
+            entrypoint.signal_orchestrator_completion(config, logger, exit_code=0)
+
+            mock_client_instance.signal_complete.assert_called_once_with(
+                pipeline_id="issue-123",
+                agent_role="coder",
+            )
+            mock_client_instance.signal_error.assert_not_called()
+
+    def test_signal_error_on_failure(self, monkeypatch):
+        """Signals error when exit code is non-zero."""
+        monkeypatch.setenv("EGG_ORCHESTRATOR_MODE", "distributed")
+        monkeypatch.setenv("EGG_ORCHESTRATOR_URL", "http://orchestrator:8080")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "issue-456")
+        monkeypatch.setenv("EGG_AGENT_ROLE", "tester")
+
+        config = entrypoint.Config()
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.message = ""
+
+        with patch("egg_orchestrator.OrchestratorClient") as MockClient:
+            mock_client_instance = MagicMock()
+            mock_client_instance.signal_error.return_value = mock_response
+            MockClient.return_value = mock_client_instance
+
+            entrypoint.signal_orchestrator_completion(config, logger, exit_code=1)
+
+            mock_client_instance.signal_error.assert_called_once()
+            call_kwargs = mock_client_instance.signal_error.call_args[1]
+            assert call_kwargs["pipeline_id"] == "issue-456"
+            assert call_kwargs["agent_role"] == "tester"
+            assert "exit" in call_kwargs["error"].lower() or "1" in call_kwargs["error"]
+            assert call_kwargs["recoverable"] is False
+            mock_client_instance.signal_complete.assert_not_called()
+
+    def test_signal_error_with_custom_message(self, monkeypatch):
+        """Signals error with custom error message."""
+        monkeypatch.setenv("EGG_ORCHESTRATOR_MODE", "distributed")
+        monkeypatch.setenv("EGG_ORCHESTRATOR_URL", "http://orchestrator:8080")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "issue-789")
+        monkeypatch.setenv("EGG_AGENT_ROLE", "reviewer")
+
+        config = entrypoint.Config()
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.message = ""
+
+        with patch("egg_orchestrator.OrchestratorClient") as MockClient:
+            mock_client_instance = MagicMock()
+            mock_client_instance.signal_error.return_value = mock_response
+            MockClient.return_value = mock_client_instance
+
+            entrypoint.signal_orchestrator_completion(
+                config, logger, exit_code=128, error_message="SIGTERM received"
+            )
+
+            call_kwargs = mock_client_instance.signal_error.call_args[1]
+            assert call_kwargs["error"] == "SIGTERM received"
+
+    def test_handles_signal_failure_gracefully(self, monkeypatch, capsys):
+        """Handles orchestrator signaling failure without crashing."""
+        monkeypatch.setenv("EGG_ORCHESTRATOR_MODE", "distributed")
+        monkeypatch.setenv("EGG_ORCHESTRATOR_URL", "http://orchestrator:8080")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "issue-999")
+        monkeypatch.setenv("EGG_AGENT_ROLE", "coder")
+
+        config = entrypoint.Config()
+        logger = entrypoint.Logger(quiet=False)
+
+        with patch("egg_orchestrator.OrchestratorClient") as MockClient:
+            mock_client_instance = MagicMock()
+            mock_client_instance.signal_complete.side_effect = Exception("Connection failed")
+            MockClient.return_value = mock_client_instance
+
+            # Should not raise
+            entrypoint.signal_orchestrator_completion(config, logger, exit_code=0)
+
+        captured = capsys.readouterr()
+        assert "failed" in captured.out.lower() or "Connection failed" in captured.out
+
+
+class TestCleanupOnExitSignaling:
+    """Tests for cleanup_on_exit orchestrator signaling integration."""
+
+    def test_cleanup_calls_signal_on_success(self, monkeypatch):
+        """cleanup_on_exit calls signal_orchestrator_completion on success."""
+        monkeypatch.setenv("EGG_ORCHESTRATOR_MODE", "distributed")
+        monkeypatch.setenv("EGG_ORCHESTRATOR_URL", "http://orchestrator:8080")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "issue-100")
+        monkeypatch.setenv("EGG_AGENT_ROLE", "coder")
+
+        config = entrypoint.Config()
+        logger = entrypoint.Logger(quiet=True)
+
+        with patch.object(entrypoint, "signal_orchestrator_completion") as mock_signal:
+            entrypoint.cleanup_on_exit(config, logger, exit_code=0)
+
+            mock_signal.assert_called_once_with(config, logger, 0)
+
+    def test_cleanup_calls_signal_on_error(self, monkeypatch):
+        """cleanup_on_exit calls signal_orchestrator_completion on error."""
+        monkeypatch.setenv("EGG_ORCHESTRATOR_MODE", "distributed")
+        monkeypatch.setenv("EGG_ORCHESTRATOR_URL", "http://orchestrator:8080")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "issue-200")
+        monkeypatch.setenv("EGG_AGENT_ROLE", "tester")
+
+        config = entrypoint.Config()
+        logger = entrypoint.Logger(quiet=True)
+
+        with patch.object(entrypoint, "signal_orchestrator_completion") as mock_signal:
+            entrypoint.cleanup_on_exit(config, logger, exit_code=1)
+
+            mock_signal.assert_called_once_with(config, logger, 1)
