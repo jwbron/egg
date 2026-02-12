@@ -255,10 +255,10 @@ class TestOrchestratorClientSignalMethods:
         return OrchestratorClient(orchestrator_url="http://test-orchestrator:8080")
 
     @pytest.fixture
-    def mock_urlopen(self):
-        """Create a mock for urllib.request.urlopen."""
-        with patch("egg_orchestrator.client.urlopen") as mock:
-            yield mock
+    def mock_urlopen(self, client):
+        """Mock the client's opener to bypass proxy-free urllib opener."""
+        with patch.object(client, "_opener") as mock_opener:
+            yield mock_opener.open
 
     def _create_mock_response(self, data: dict) -> MagicMock:
         """Create a mock HTTP response."""
