@@ -1,8 +1,8 @@
 FROM python:3.11-slim
 
-# Install git for state management and curl for health checks
+# Install git for state management, curl for health checks, gosu for dropping privileges
 RUN apt-get update && apt-get install -y \
-    git curl \
+    git curl gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Create egg user with UID/GID 1000 as default

@@ -75,18 +75,14 @@ class ContainerInfo(BaseModel):
 
     container_id: str = Field(..., description="Docker container ID")
     container_name: str = Field(..., description="Container name")
-    status: ContainerStatus = Field(
-        default=ContainerStatus.PENDING, description="Container status"
-    )
+    status: ContainerStatus = Field(default=ContainerStatus.PENDING, description="Container status")
     started_at: datetime | None = Field(default=None, description="When container started")
     exited_at: datetime | None = Field(default=None, description="When container exited")
     exit_code: int | None = Field(default=None, description="Container exit code")
     agent_role: AgentRole | None = Field(
         default=None, description="Agent role if multi-agent execution"
     )
-    session_token: str | None = Field(
-        default=None, description="Session token for gateway auth"
-    )
+    session_token: str | None = Field(default=None, description="Session token for gateway auth")
 
 
 class AgentExecution(BaseModel):
@@ -116,26 +112,18 @@ class HITLDecision(BaseModel):
     options: list[str] = Field(
         default_factory=list, description="Available options (empty for free-form)"
     )
-    status: DecisionStatus = Field(
-        default=DecisionStatus.PENDING, description="Decision status"
-    )
-    created_at: datetime = Field(
-        default_factory=datetime.utcnow, description="When created"
-    )
+    status: DecisionStatus = Field(default=DecisionStatus.PENDING, description="Decision status")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="When created")
     resolved_at: datetime | None = Field(default=None, description="When resolved")
     resolution: str | None = Field(default=None, description="Human's response")
-    timeout_seconds: int = Field(
-        default=3600, ge=60, description="Timeout in seconds"
-    )
+    timeout_seconds: int = Field(default=3600, ge=60, description="Timeout in seconds")
 
 
 class PhaseExecution(BaseModel):
     """State of a single phase execution."""
 
     phase: PipelinePhase = Field(..., description="Phase being executed")
-    status: PipelineStatus = Field(
-        default=PipelineStatus.PENDING, description="Phase status"
-    )
+    status: PipelineStatus = Field(default=PipelineStatus.PENDING, description="Phase status")
     started_at: datetime | None = Field(default=None, description="When started")
     completed_at: datetime | None = Field(default=None, description="When completed")
     containers: list[ContainerInfo] = Field(
@@ -160,12 +148,8 @@ class PipelineConfig(BaseModel):
     multi_agent: bool = Field(
         default=True, description="Use multi-agent execution in implement phase"
     )
-    parallel_agents: bool = Field(
-        default=True, description="Run independent agents in parallel"
-    )
-    max_review_cycles: int = Field(
-        default=3, ge=1, description="Max review cycles per phase"
-    )
+    parallel_agents: bool = Field(default=True, description="Run independent agents in parallel")
+    max_review_cycles: int = Field(default=3, ge=1, description="Max review cycles per phase")
     decision_timeout: int = Field(
         default=3600, ge=60, description="HITL decision timeout in seconds"
     )
@@ -178,34 +162,28 @@ class Pipeline(BaseModel):
     It tracks all state needed to orchestrate a pipeline from issue to PR.
     """
 
-    id: str = Field(..., description="Unique pipeline ID (e.g., 'issue-496')")
-    issue_number: int = Field(..., ge=1, description="GitHub issue number")
-    repo: str = Field(..., description="Repository in owner/name format")
-    branch: str = Field(..., description="Work branch name")
+    id: str = Field(..., description="Unique pipeline ID (e.g., 'issue-496' or 'local-a1b2c3d4')")
+    issue_number: int | None = Field(default=None, ge=1, description="GitHub issue number")
+    repo: str | None = Field(default=None, description="Repository in owner/name format")
+    branch: str | None = Field(default=None, description="Work branch name")
+    mode: str = Field(default="issue", description="Pipeline mode: 'issue' or 'local'")
+    prompt: str | None = Field(default=None, description="User prompt for local-mode pipelines")
     status: PipelineStatus = Field(
         default=PipelineStatus.PENDING, description="Overall pipeline status"
     )
-    current_phase: PipelinePhase = Field(
-        default=PipelinePhase.REFINE, description="Current phase"
-    )
+    current_phase: PipelinePhase = Field(default=PipelinePhase.REFINE, description="Current phase")
     config: PipelineConfig = Field(
         default_factory=PipelineConfig, description="Pipeline configuration"
     )
     phases: dict[str, PhaseExecution] = Field(
         default_factory=dict, description="Phase execution state by phase name"
     )
-    decisions: list[HITLDecision] = Field(
-        default_factory=list, description="HITL decisions"
-    )
+    decisions: list[HITLDecision] = Field(default_factory=list, description="HITL decisions")
     created_at: datetime = Field(
         default_factory=datetime.utcnow, description="When pipeline was created"
     )
-    updated_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Last update time"
-    )
-    contract_synced: bool = Field(
-        default=True, description="Whether state is synced with contract"
-    )
+    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update time")
+    contract_synced: bool = Field(default=True, description="Whether state is synced with contract")
     error: str | None = Field(default=None, description="Error if failed")
     version: int = Field(
         default=1, ge=1, description="Optimistic locking version (incremented on each save)"
@@ -251,9 +229,7 @@ class PipelineEvent(BaseModel):
 
     pipeline_id: str = Field(..., description="Pipeline ID")
     event_type: str = Field(..., description="Event type")
-    timestamp: datetime = Field(
-        default_factory=datetime.utcnow, description="When event occurred"
-    )
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="When event occurred")
     phase: PipelinePhase | None = Field(default=None, description="Phase if applicable")
     agent_role: AgentRole | None = Field(default=None, description="Agent if applicable")
     container_id: str | None = Field(default=None, description="Container if applicable")

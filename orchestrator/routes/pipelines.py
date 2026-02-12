@@ -4,11 +4,12 @@ Pipeline CRUD endpoints for egg-orchestrator.
 
 import os
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from flask import Blueprint, Response, g, jsonify, request
+from flask import Blueprint, Response, jsonify, request
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
@@ -26,7 +27,8 @@ except ImportError:
 
 # Import orchestrator modules - try relative import first
 try:
-    from ..models import Pipeline, PipelinePhase, PipelineStatus
+    from ..container_spawner import ContainerSpawnError, get_container_spawner
+    from ..models import AgentRole, PipelineStatus
     from ..state_store import (
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -35,7 +37,8 @@ try:
         get_state_store,
     )
 except ImportError:
-    from models import Pipeline, PipelinePhase, PipelineStatus  # type: ignore
+    from container_spawner import ContainerSpawnError, get_container_spawner  # type: ignore
+    from models import AgentRole, PipelineStatus  # type: ignore
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -49,29 +52,7 @@ logger = get_logger("orchestrator.pipelines")
 pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
 
 
-def get_repo_path() -> Path:
-    """Get the repository path from environment or request.
-
-    Returns:
-        Path to the repository
-    """
-    # Check request args first
-    repo_path = request.args.get("repo_path")
-    if repo_path:
-        return Path(repo_path)
-
-    # Check JSON body
-    data = request.get_json(silent=True) or {}
-    if data.get("repo_path"):
-        return Path(data["repo_path"])
-
-    # Check environment
-    env_path = os.environ.get("EGG_REPO_PATH")
-    if env_path:
-        return Path(env_path)
-
-    # Default to current working directory
-    return Path.cwd()
+from routes import get_repo_path  # noqa: E402 — shared helper
 
 
 def make_error_response(
@@ -233,7 +214,49 @@ def create_pipeline() -> tuple[Response, int]:
     if not data:
         return make_error_response("Missing request body")
 
-    # Required fields
+    mode = data.get("mode", "issue")
+
+    if mode == "local":
+        # Local mode: prompt required, issue_number/repo/branch optional
+        prompt = data.get("prompt")
+        if not prompt:
+            return make_error_response("Missing prompt (required for local mode)")
+
+        # Local pipelines always use the base EGG_REPO_PATH — not a repo-specific
+        # subdirectory — so that list/get/start resolve to the same path.
+        repo_path = Path(os.environ.get("EGG_REPO_PATH", "."))
+        if not repo_path.is_absolute():
+            repo_path = Path.cwd() / repo_path
+
+        try:
+            store = get_state_store(repo_path)
+            pipeline = store.create_pipeline(
+                issue_number=data.get("issue_number"),
+                repo=data.get("repo"),
+                branch=data.get("branch"),
+                config=data.get("config"),
+                mode="local",
+                prompt=prompt,
+            )
+
+            logger.info(
+                "Local pipeline created",
+                pipeline_id=pipeline.id,
+                prompt=prompt[:100],
+            )
+
+            return make_success_response(
+                "Pipeline created",
+                data={"pipeline": pipeline.model_dump(mode="json")},
+            )
+
+        except StateStoreError as e:
+            if "already exists" in str(e):
+                return make_error_response(str(e), status_code=409)
+            logger.error("Failed to create local pipeline", error=str(e))
+            return make_error_response(f"Failed to create pipeline: {e}", status_code=500)
+
+    # Issue mode: existing behavior
     issue_number = data.get("issue_number")
     repo = data.get("repo")
     branch = data.get("branch")
@@ -254,6 +277,7 @@ def create_pipeline() -> tuple[Response, int]:
             repo=repo,
             branch=branch,
             config=data.get("config"),
+            mode="issue",
         )
 
         logger.info(
@@ -402,6 +426,237 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
                 "current_phase": pipeline.current_phase.value,
                 "pending_decisions": pending_decisions,
                 "updated_at": pipeline.updated_at.isoformat(),
+            },
+        )
+
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found",
+            status_code=404,
+        )
+
+
+def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
+    """Run a pipeline by spawning containers for each phase.
+
+    This runs in a background thread. It spawns a container for the current
+    phase, waits for it to complete, then advances to the next phase.
+
+    Args:
+        pipeline_id: Pipeline ID
+        repo_path: Path to repository
+    """
+    from routes.phases import get_phase_transitions
+
+    try:
+        store = get_state_store(repo_path)
+        spawner = get_container_spawner()
+        pipeline = store.load_pipeline(pipeline_id)
+        pipeline_mode = getattr(pipeline, "mode", "issue")
+        transitions = get_phase_transitions(pipeline_mode)
+
+        # Map pipeline mode to gateway session mode
+        gateway_mode = "local" if pipeline_mode == "local" else "public"
+
+        while True:
+            pipeline = store.load_pipeline(pipeline_id)
+
+            if pipeline.status in (PipelineStatus.FAILED, PipelineStatus.CANCELLED):
+                logger.info(
+                    "Pipeline stopped", pipeline_id=pipeline_id, status=pipeline.status.value
+                )
+                break
+
+            current_phase = pipeline.current_phase
+
+            # Start the current phase
+            phase_execution = pipeline.get_phase_execution(current_phase)
+            if phase_execution.status == PipelineStatus.PENDING:
+                phase_execution.status = PipelineStatus.RUNNING
+                phase_execution.started_at = datetime.utcnow()
+                pipeline.status = PipelineStatus.RUNNING
+                store.save_pipeline(pipeline)
+
+            # Spawn a container for this phase
+            logger.info(
+                "Spawning container for phase",
+                pipeline_id=pipeline_id,
+                phase=current_phase.value,
+                mode=gateway_mode,
+            )
+
+            try:
+                spawned = spawner.spawn_agent_container(
+                    pipeline_id=pipeline_id,
+                    agent_role=AgentRole.CODER,
+                    issue_number=pipeline.issue_number,
+                    mode=gateway_mode,
+                    wait_for_gateway=False,
+                    repos=[pipeline.repo] if pipeline.repo else [],
+                    phase=current_phase.value,
+                    extra_env={
+                        "EGG_PIPELINE_PHASE": current_phase.value,
+                        "EGG_PIPELINE_MODE": pipeline_mode,
+                        **({"EGG_PIPELINE_PROMPT": pipeline.prompt} if pipeline.prompt else {}),
+                    },
+                )
+
+                # Wait for the container to finish
+                docker_client = spawner.docker
+                final_info = docker_client.wait_for_container(
+                    spawned.container_info.container_id,
+                    timeout=3600,
+                )
+
+                # Clean up the container so the next phase can reuse the name
+                try:
+                    spawner.remove_agent_container(
+                        spawned.container_info.container_id,
+                        force=True,
+                        cleanup_session=True,
+                    )
+                except Exception as cleanup_err:
+                    logger.warning(
+                        "Failed to clean up phase container",
+                        container_id=spawned.container_info.container_id[:12],
+                        error=str(cleanup_err),
+                    )
+
+                if final_info.exit_code != 0:
+                    pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    phase_execution.status = PipelineStatus.FAILED
+                    phase_execution.error = f"Container exited with code {final_info.exit_code}"
+                    phase_execution.completed_at = datetime.utcnow()
+                    pipeline.status = PipelineStatus.FAILED
+                    pipeline.error = phase_execution.error
+                    store.save_pipeline(pipeline)
+                    logger.error(
+                        "Phase failed",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        exit_code=final_info.exit_code,
+                    )
+                    break
+
+            except ContainerSpawnError as e:
+                pipeline = store.load_pipeline(pipeline_id)
+                phase_execution = pipeline.get_phase_execution(current_phase)
+                phase_execution.status = PipelineStatus.FAILED
+                phase_execution.error = str(e)
+                phase_execution.completed_at = datetime.utcnow()
+                pipeline.status = PipelineStatus.FAILED
+                pipeline.error = str(e)
+                store.save_pipeline(pipeline)
+                logger.error("Failed to spawn container", pipeline_id=pipeline_id, error=str(e))
+                break
+
+            # Phase succeeded — mark complete and advance
+            pipeline = store.load_pipeline(pipeline_id)
+            phase_execution = pipeline.get_phase_execution(current_phase)
+            phase_execution.status = PipelineStatus.COMPLETE
+            phase_execution.completed_at = datetime.utcnow()
+
+            # Determine next phase
+            next_phases = transitions.get(current_phase, [])
+            if not next_phases:
+                # Terminal phase — pipeline complete
+                pipeline.status = PipelineStatus.COMPLETE
+                store.save_pipeline(pipeline)
+                logger.info("Pipeline complete", pipeline_id=pipeline_id)
+                break
+
+            # Advance to next phase
+            next_phase = next_phases[0]
+            pipeline.current_phase = next_phase
+            store.save_pipeline(pipeline)
+
+            logger.info(
+                "Phase advanced",
+                pipeline_id=pipeline_id,
+                from_phase=current_phase.value,
+                to_phase=next_phase.value,
+            )
+
+    except Exception as e:
+        logger.error(
+            "Pipeline execution failed", pipeline_id=pipeline_id, error=str(e), exc_info=True
+        )
+        try:
+            store = get_state_store(repo_path)
+            pipeline = store.load_pipeline(pipeline_id)
+            pipeline.status = PipelineStatus.FAILED
+            pipeline.error = str(e)
+            store.save_pipeline(pipeline)
+        except Exception:
+            pass
+
+
+@pipelines_bp.route("/<pipeline_id>/start", methods=["POST"])
+def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
+    """
+    Start pipeline execution.
+
+    Spawns containers for each phase in sequence, advancing through
+    the phase DAG until completion or failure. Runs in a background thread.
+
+    URL params:
+        pipeline_id: Pipeline ID
+
+    Response:
+        {
+            "success": true,
+            "message": "Pipeline started",
+            "data": {
+                "pipeline_id": "local-a1b2c3d4",
+                "status": "running"
+            }
+        }
+    """
+    repo_path = get_repo_path()
+
+    try:
+        store = get_state_store(repo_path)
+        pipeline = store.load_pipeline(pipeline_id)
+
+        if pipeline.status == PipelineStatus.RUNNING:
+            return make_error_response(
+                f"Pipeline {pipeline_id} is already running",
+                status_code=409,
+            )
+
+        if pipeline.status in (PipelineStatus.COMPLETE, PipelineStatus.FAILED):
+            return make_error_response(
+                f"Pipeline {pipeline_id} is already {pipeline.status.value}",
+                status_code=409,
+            )
+
+        # Mark pipeline as running
+        pipeline.status = PipelineStatus.RUNNING
+        store.save_pipeline(pipeline)
+
+        # Run the pipeline in a background thread
+        thread = threading.Thread(
+            target=_run_pipeline,
+            args=(pipeline_id, repo_path),
+            daemon=True,
+            name=f"pipeline-{pipeline_id}",
+        )
+        thread.start()
+
+        logger.info("Pipeline started", pipeline_id=pipeline_id)
+
+        return make_success_response(
+            "Pipeline started",
+            data={
+                "pipeline_id": pipeline_id,
+                "status": "running",
+                "current_phase": pipeline.current_phase.value,
             },
         )
 

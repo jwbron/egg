@@ -3,17 +3,16 @@ Tests for container spawner with gateway integration.
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 from container_spawner import (
     ContainerSpawner,
     ContainerSpawnError,
     SpawnedContainer,
     get_container_spawner,
 )
-from docker_client import ContainerNotFoundError, ContainerOperationError
+from docker_client import ContainerOperationError
 from gateway_client import GatewayError, GatewayHealth, SessionInfo
 from models import AgentRole, ContainerInfo, ContainerStatus
 
@@ -77,9 +76,6 @@ def mock_gateway_client():
         "HTTP_PROXY": "http://172.32.0.2:3129",
         "HTTPS_PROXY": "http://172.32.0.2:3129",
     }
-
-    # Default session update behavior
-    mock.update_session.return_value = True
 
     return mock
 
@@ -236,7 +232,9 @@ class TestSpawnAgentContainer:
 
         assert result is not None
 
-    def test_spawn_continues_without_session(self, spawner, mock_gateway_client, mock_docker_client):
+    def test_spawn_continues_without_session(
+        self, spawner, mock_gateway_client, mock_docker_client
+    ):
         """Test that spawn continues even if session registration fails."""
         mock_gateway_client.check_health.return_value = GatewayHealth(
             healthy=True,
@@ -290,7 +288,9 @@ class TestStopAgentContainer:
         mock_docker_client.stop_container.assert_called_with("abc123", timeout=10)
         mock_gateway_client.delete_session_by_container.assert_called_with("abc123")
 
-    def test_stop_container_without_session_cleanup(self, spawner, mock_docker_client, mock_gateway_client):
+    def test_stop_container_without_session_cleanup(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
         """Test stopping without session cleanup."""
         mock_docker_client.stop_container.return_value = ContainerInfo(
             container_id="abc123",
@@ -302,7 +302,9 @@ class TestStopAgentContainer:
 
         mock_gateway_client.delete_session_by_container.assert_not_called()
 
-    def test_stop_container_session_cleanup_error(self, spawner, mock_docker_client, mock_gateway_client):
+    def test_stop_container_session_cleanup_error(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
         """Test that session cleanup errors are logged but not raised."""
         mock_docker_client.stop_container.return_value = ContainerInfo(
             container_id="abc123",
@@ -332,7 +334,9 @@ class TestRemoveAgentContainer:
 
         mock_docker_client.remove_container.assert_called_with("abc123", force=True)
 
-    def test_remove_cleans_up_session_on_error(self, spawner, mock_docker_client, mock_gateway_client):
+    def test_remove_cleans_up_session_on_error(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
         """Test that session is cleaned up even if removal fails."""
         mock_docker_client.remove_container.side_effect = ContainerOperationError("Failed")
 
@@ -514,22 +518,24 @@ class TestContainerEnvironmentAtCreation:
             "HTTPS_PROXY must be included in container environment at creation time"
         )
 
-    def test_spawn_updates_session_after_container_creation(
+    def test_spawn_passes_repos_and_phase_to_register_session(
         self, spawner, mock_docker_client, mock_gateway_client
     ):
-        """Test that session is updated with real container ID after creation."""
+        """Test that repos and phase are passed through to session registration."""
         spawner.spawn_agent_container(
             pipeline_id="issue-123",
             agent_role=AgentRole.CODER,
             issue_number=123,
             repo_path="/workspace/repo",
+            repos=["test-owner/test-repo"],
+            phase="refine",
         )
 
-        # Verify update_session was called with the real container ID
-        mock_gateway_client.update_session.assert_called_once()
-        update_call = mock_gateway_client.update_session.call_args
-        assert update_call.kwargs.get("session_token") == "test-token-12345"
-        assert update_call.kwargs.get("container_id") == "abc123def456"
+        # Verify register_session was called with repos and phase
+        mock_gateway_client.register_session.assert_called_once()
+        register_call = mock_gateway_client.register_session.call_args
+        assert register_call.kwargs.get("repos") == ["test-owner/test-repo"]
+        assert register_call.kwargs.get("phase") == "refine"
 
 
 class TestSingletonSpawner:
@@ -538,6 +544,7 @@ class TestSingletonSpawner:
     def test_get_container_spawner_returns_singleton(self):
         """Test that get_container_spawner returns the same instance."""
         import container_spawner
+
         container_spawner._spawner = None
 
         spawner1 = get_container_spawner()

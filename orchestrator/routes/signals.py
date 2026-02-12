@@ -33,7 +33,7 @@ except ImportError:
 
 from dispatch import create_dispatcher
 from handoffs import AgentOutput, save_agent_output
-from models import AgentRole, PipelineStatus
+from models import AgentRole
 from state_store import InvalidPipelineIdError, PipelineNotFoundError, get_state_store
 
 logger = get_logger("orchestrator.signals")
@@ -64,23 +64,7 @@ def make_success_response(
     return jsonify(response), 200
 
 
-def get_repo_path() -> Path:
-    """Get the repository path from request or environment."""
-    import os
-
-    repo_path = request.args.get("repo_path")
-    if repo_path:
-        return Path(repo_path)
-
-    data = request.get_json(silent=True) or {}
-    if data.get("repo_path"):
-        return Path(data["repo_path"])
-
-    env_path = os.environ.get("EGG_REPO_PATH")
-    if env_path:
-        return Path(env_path)
-
-    return Path.cwd()
+from routes import get_repo_path  # noqa: E402 — shared helper
 
 
 @signals_bp.route("/<pipeline_id>/signal", methods=["POST"])
@@ -132,8 +116,7 @@ def handle_signal(pipeline_id: str) -> tuple[Response, int]:
     handler = handlers.get(signal_type)
     if not handler:
         return make_error_response(
-            f"Unknown signal type: {signal_type}. "
-            f"Valid types: {list(handlers.keys())}"
+            f"Unknown signal type: {signal_type}. Valid types: {list(handlers.keys())}"
         )
 
     return handler(pipeline_id, data, repo_path)
@@ -175,7 +158,7 @@ def handle_complete_signal(
         commit = data.get("commit")
         outputs = data.get("handoff_data", {})
 
-        execution = dispatcher.complete_agent(agent_role, commit=commit, outputs=outputs)
+        dispatcher.complete_agent(agent_role, commit=commit, outputs=outputs)
         dispatcher.save_contract()
 
         # Save agent output
@@ -295,7 +278,7 @@ def handle_error_signal(
 
         # Mark agent as failed
         dispatcher = create_dispatcher(pipeline, repo_path)
-        execution = dispatcher.fail_agent(agent_role, error_message)
+        dispatcher.fail_agent(agent_role, error_message)
         dispatcher.save_contract()
 
         logger.error(
@@ -417,24 +400,30 @@ def handle_batch_signals(pipeline_id: str) -> tuple[Response, int]:
             handler = handlers.get(signal_type)
             if handler:
                 response, status = handler(pipeline_id, signal, repo_path)
-                results.append({
-                    "signal_type": signal_type,
-                    "success": status == 200,
-                    "response": response.get_json(),
-                })
+                results.append(
+                    {
+                        "signal_type": signal_type,
+                        "success": status == 200,
+                        "response": response.get_json(),
+                    }
+                )
             else:
-                results.append({
-                    "signal_type": signal_type,
-                    "success": False,
-                    "error": f"Unknown signal type: {signal_type}",
-                })
+                results.append(
+                    {
+                        "signal_type": signal_type,
+                        "success": False,
+                        "error": f"Unknown signal type: {signal_type}",
+                    }
+                )
 
         except Exception as e:
-            results.append({
-                "signal_type": signal_type,
-                "success": False,
-                "error": str(e),
-            })
+            results.append(
+                {
+                    "signal_type": signal_type,
+                    "success": False,
+                    "error": str(e),
+                }
+            )
 
     return make_success_response(
         f"Processed {len(results)} signal(s)",

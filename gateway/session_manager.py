@@ -38,6 +38,7 @@ def _cleanup_transcript_buffer(container_id: str) -> None:
     """Clean up transcript buffer for a container when session ends."""
     try:
         from transcript_buffer import cleanup_transcript_buffer
+
         cleanup_transcript_buffer(container_id)
         logger.debug("Transcript buffer cleaned up", container_id=container_id)
     except ImportError:
@@ -50,6 +51,7 @@ def _cleanup_transcript_buffer(container_id: str) -> None:
             error=str(e),
         )
 
+
 # Session configuration
 DEFAULT_SESSION_TTL_HOURS = 24
 DEFAULT_CLEANUP_INTERVAL_MINUTES = 15
@@ -61,7 +63,7 @@ SESSION_PERSISTENCE_DIR = Path("/home/egg/.egg-state/sessions")
 SESSION_PERSISTENCE_FILE = SESSION_PERSISTENCE_DIR / "sessions.json"
 
 # Mode type alias
-ModeType = Literal["private", "public"]
+ModeType = Literal["private", "public", "local"]
 
 
 def _hash_token(token: str) -> str:

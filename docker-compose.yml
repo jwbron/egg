@@ -108,6 +108,10 @@ services:
       # Host info for container spawning
       - HOST_UID=${HOST_UID:-1000}
       - HOST_GID=${HOST_GID:-1000}
+      # Sandbox image for spawned containers
+      - EGG_SANDBOX_IMAGE=${EGG_SANDBOX_IMAGE:-egg-sandbox:latest}
+      # Launcher secret for gateway session registration
+      - EGG_LAUNCHER_SECRET=${EGG_LAUNCHER_SECRET}
     volumes:
       # Repositories directory (RW for state persistence in git)
       - ${EGG_REPOS_DIR:-./repos}:/home/egg/repos
@@ -122,6 +126,8 @@ services:
       retries: 6
       start_period: 10s
     restart: unless-stopped
+    security_opt:
+      - label=disable
     depends_on:
       gateway:
         condition: service_healthy

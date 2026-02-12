@@ -11,9 +11,7 @@ Provides high-level container spawning that:
 import os
 import sys
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 # Add shared directory to path for logging and config
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -28,20 +26,26 @@ except ImportError:
     def get_logger(name: str, **kwargs) -> logging.Logger:  # type: ignore[misc]
         return logging.getLogger(name)
 
+
 try:
     from egg_config import (
-        EGG_ISOLATED_NETWORK,
         EGG_CONTAINER_IP,
     )
+    from egg_config import (
+        EGG_ISOLATED_NETWORK as _DEFAULT_ISOLATED_NETWORK,
+    )
 except ImportError:
-    EGG_ISOLATED_NETWORK = "egg-isolated"
+    _DEFAULT_ISOLATED_NETWORK = "egg-isolated"
     EGG_CONTAINER_IP = "172.32.0.10"
 
+# Allow override via environment for test stacks with non-standard network names
+EGG_ISOLATED_NETWORK = os.environ.get("EGG_ISOLATED_NETWORK", _DEFAULT_ISOLATED_NETWORK)
+
 from docker_client import (
-    DockerClient,
-    DockerClientError,
     ContainerNotFoundError,
     ContainerOperationError,
+    DockerClient,
+    DockerClientError,
     get_docker_client,
 )
 from gateway_client import (
@@ -50,7 +54,7 @@ from gateway_client import (
     SessionInfo,
     get_gateway_client,
 )
-from models import AgentRole, ContainerInfo, ContainerStatus
+from models import AgentRole, ContainerInfo
 
 logger = get_logger("orchestrator.spawner")
 
@@ -77,7 +81,7 @@ class ContainerSpawner:
     5. Clean up session on container removal
     """
 
-    DEFAULT_SANDBOX_IMAGE = "egg-sandbox:latest"
+    DEFAULT_SANDBOX_IMAGE = os.environ.get("EGG_SANDBOX_IMAGE", "egg-sandbox:latest")
     CONTAINER_NAME_FORMAT = "egg-{pipeline_id}-{role}"
 
     def __init__(
@@ -112,28 +116,32 @@ class ContainerSpawner:
         self,
         pipeline_id: str,
         agent_role: AgentRole,
-        issue_number: int,
-        repo_path: str,
+        issue_number: int | None = None,
+        repo_path: str = "/home/egg/repos",
         repo_mount: str | None = None,
         mode: str = "public",
         image: str | None = None,
         extra_env: dict[str, str] | None = None,
         extra_volumes: dict[str, dict[str, str]] | None = None,
         wait_for_gateway: bool = True,
+        repos: list[str] | None = None,
+        phase: str | None = None,
     ) -> SpawnedContainer:
         """Spawn a container for an agent.
 
         Args:
-            pipeline_id: Pipeline ID (e.g., "issue-496")
+            pipeline_id: Pipeline ID (e.g., "issue-496" or "local-a1b2c3d4")
             agent_role: Agent role
-            issue_number: GitHub issue number
+            issue_number: GitHub issue number (optional for local pipelines)
             repo_path: Repository path inside container
             repo_mount: Host path to mount as repository (optional)
-            mode: Gateway mode (public or private)
+            mode: Gateway mode (public, private, or local)
             image: Docker image (default: egg-sandbox:latest)
             extra_env: Additional environment variables
             extra_volumes: Additional volume mounts
             wait_for_gateway: Wait for gateway health before spawning
+            repos: List of repositories in owner/name format for gateway session
+            phase: SDLC pipeline phase for gateway session
 
         Returns:
             SpawnedContainer with container and session info
@@ -158,8 +166,9 @@ class ContainerSpawner:
         labels = {
             "egg.pipeline.id": pipeline_id,
             "egg.agent.role": agent_role.value,
-            "egg.issue.number": str(issue_number),
         }
+        if issue_number is not None:
+            labels["egg.issue.number"] = str(issue_number)
 
         # Prepare volumes
         volumes: dict[str, dict[str, str]] = {}
@@ -174,53 +183,59 @@ class ContainerSpawner:
         try:
             # Build base environment first
             env = {
-                "EGG_ISSUE_NUMBER": str(issue_number),
                 "EGG_REPO_PATH": repo_path,
                 "EGG_AGENT_ROLE": agent_role.value,
             }
+            if issue_number is not None:
+                env["EGG_ISSUE_NUMBER"] = str(issue_number)
 
             # Add extra environment
             if extra_env:
                 env.update(extra_env)
 
-            # Pre-register session with gateway before creating container
-            # We use the container name as a temporary identifier, then update
-            # with the real container ID after creation
-            try:
-                # Use container name as placeholder for pre-registration
-                # The gateway will update the binding when we call update_session
-                session_info = self.gateway.register_session(
-                    container_id=f"pending:{container_name}",
-                    container_ip=EGG_CONTAINER_IP,  # Placeholder IP
-                    mode=mode,
-                )
+            # Register gateway session so the container gets a session token
+            # and proxy config. Skip for local mode — local pipelines don't
+            # need gateway access (no git push, no PR creation).
+            if mode != "local" and repos:
+                try:
+                    host_uid = int(os.environ.get("HOST_UID", 1000))
+                    host_gid = int(os.environ.get("HOST_GID", 1000))
+                    session_info = self.gateway.register_session(
+                        container_id=container_name,
+                        container_ip=EGG_CONTAINER_IP,
+                        mode=mode,
+                        repos=repos,
+                        uid=host_uid,
+                        gid=host_gid,
+                        phase=phase,
+                    )
 
-                # Get environment with session token and proxy config
-                gateway_env = self.gateway.get_container_env(
-                    session_token=session_info.session_token,
-                    issue_number=issue_number,
-                    repo_path=repo_path,
-                    agent_role=agent_role.value,
-                    mode=mode,
-                )
+                    # Get environment with session token and proxy config
+                    gateway_env = self.gateway.get_container_env(
+                        session_token=session_info.session_token,
+                        issue_number=issue_number,
+                        repo_path=repo_path,
+                        agent_role=agent_role.value,
+                        mode=mode,
+                    )
 
-                # Add gateway environment to container env BEFORE creation
-                env.update(gateway_env)
+                    # Add gateway environment to container env BEFORE creation
+                    env.update(gateway_env)
 
-                logger.info(
-                    "Pre-registered gateway session",
-                    container_name=container_name,
-                    session_token=session_info.session_token[:12] + "...",
-                )
+                    logger.info(
+                        "Pre-registered gateway session",
+                        container_name=container_name,
+                        session_token=session_info.session_token[:12] + "...",
+                    )
 
-            except GatewayError as e:
-                logger.warning(
-                    "Failed to pre-register gateway session",
-                    container_name=container_name,
-                    error=str(e),
-                )
-                # Continue without session - container can still run
-                # but won't have gateway access
+                except GatewayError as e:
+                    logger.warning(
+                        "Failed to pre-register gateway session",
+                        container_name=container_name,
+                        error=str(e),
+                    )
+                    # Continue without session - container can still run
+                    # but won't have gateway access
 
             # Create the container with full environment including gateway config
             container = self.docker.create_container(
@@ -238,27 +253,6 @@ class ContainerSpawner:
                 pipeline_id=pipeline_id,
                 role=agent_role.value,
             )
-
-            # Update gateway session with real container ID and IP
-            if session_info:
-                try:
-                    container_ip = self._get_container_ip(container.container_id)
-                    self.gateway.update_session(
-                        session_token=session_info.session_token,
-                        container_id=container.container_id,
-                        container_ip=container_ip,
-                    )
-                    logger.info(
-                        "Updated gateway session with container ID",
-                        container_id=container.container_id[:12],
-                    )
-                except GatewayError as e:
-                    logger.warning(
-                        "Failed to update gateway session with container ID",
-                        container_id=container.container_id[:12],
-                        error=str(e),
-                    )
-                    # Session is still valid, just bound to placeholder ID
 
             # Start the container
             container = self.docker.start_container(container.container_id)

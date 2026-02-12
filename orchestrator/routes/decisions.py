@@ -6,7 +6,6 @@ human-in-the-loop decisions.
 """
 
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +33,6 @@ except ImportError:
 from decision_queue import (
     DecisionAlreadyResolvedError,
     DecisionNotFoundError,
-    DecisionTimeoutError,
     get_decision_queue,
 )
 from state_store import InvalidPipelineIdError
@@ -67,23 +65,7 @@ def make_success_response(
     return jsonify(response), 200
 
 
-def get_repo_path() -> Path:
-    """Get the repository path from request or environment."""
-    import os
-
-    repo_path = request.args.get("repo_path")
-    if repo_path:
-        return Path(repo_path)
-
-    data = request.get_json(silent=True) or {}
-    if data.get("repo_path"):
-        return Path(data["repo_path"])
-
-    env_path = os.environ.get("EGG_REPO_PATH")
-    if env_path:
-        return Path(env_path)
-
-    return Path.cwd()
+from routes import get_repo_path  # noqa: E402 — shared helper
 
 
 @decisions_bp.route("/<pipeline_id>/decisions", methods=["GET"])
@@ -256,7 +238,9 @@ def get_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
                     "status": decision.status.value,
                     "created_at": decision.created_at.isoformat(),
                     "timeout_seconds": decision.timeout_seconds,
-                    "resolved_at": decision.resolved_at.isoformat() if decision.resolved_at else None,
+                    "resolved_at": decision.resolved_at.isoformat()
+                    if decision.resolved_at
+                    else None,
                     "resolution": decision.resolution,
                 }
             },
@@ -320,7 +304,9 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
                     "id": decision.id,
                     "status": decision.status.value,
                     "resolution": decision.resolution,
-                    "resolved_at": decision.resolved_at.isoformat() if decision.resolved_at else None,
+                    "resolved_at": decision.resolved_at.isoformat()
+                    if decision.resolved_at
+                    else None,
                 }
             },
         )

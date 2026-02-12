@@ -31,25 +31,43 @@ except ImportError:
 
 
 from models import (
-    PhaseExecution,
-    Pipeline,
     PipelinePhase,
     PipelineStatus,
 )
-from state_store import InvalidPipelineIdError, PipelineNotFoundError, VersionConflictError, get_state_store
+from state_store import (
+    InvalidPipelineIdError,
+    PipelineNotFoundError,
+    VersionConflictError,
+    get_state_store,
+)
 
 logger = get_logger("orchestrator.phases")
 
 phases_bp = Blueprint("phases", __name__, url_prefix="/api/v1/pipelines")
 
 
-# Valid phase transitions
+# Valid phase transitions for issue-driven pipelines
 PHASE_TRANSITIONS = {
     PipelinePhase.REFINE: [PipelinePhase.PLAN],
     PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT],
     PipelinePhase.IMPLEMENT: [PipelinePhase.PR],
     PipelinePhase.PR: [],  # Terminal phase
 }
+
+# Valid phase transitions for local pipelines (no PR phase)
+LOCAL_PHASE_TRANSITIONS = {
+    PipelinePhase.REFINE: [PipelinePhase.PLAN],
+    PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT],
+    PipelinePhase.IMPLEMENT: [],  # Terminal phase for local mode
+    PipelinePhase.PR: [],
+}
+
+
+def get_phase_transitions(pipeline_mode: str = "issue") -> dict:
+    """Get the phase transition map for a pipeline mode."""
+    if pipeline_mode == "local":
+        return LOCAL_PHASE_TRANSITIONS
+    return PHASE_TRANSITIONS
 
 
 def make_error_response(
@@ -75,40 +93,27 @@ def make_success_response(
     return jsonify(response), 200
 
 
-def get_repo_path() -> Path:
-    """Get the repository path from request or environment."""
-    import os
-
-    repo_path = request.args.get("repo_path")
-    if repo_path:
-        return Path(repo_path)
-
-    data = request.get_json(silent=True) or {}
-    if data.get("repo_path"):
-        return Path(data["repo_path"])
-
-    env_path = os.environ.get("EGG_REPO_PATH")
-    if env_path:
-        return Path(env_path)
-
-    return Path.cwd()
+from routes import get_repo_path  # noqa: E402 — shared helper
 
 
 def validate_phase_transition(
     current_phase: PipelinePhase,
     target_phase: PipelinePhase,
+    pipeline_mode: str = "issue",
 ) -> tuple[bool, str]:
     """Validate a phase transition.
 
     Args:
         current_phase: Current pipeline phase
         target_phase: Target phase to transition to
+        pipeline_mode: Pipeline mode ("issue" or "local")
 
     Returns:
         Tuple of (is_valid, error_message)
     """
-    if target_phase not in PHASE_TRANSITIONS.get(current_phase, []):
-        valid_targets = PHASE_TRANSITIONS.get(current_phase, [])
+    transitions = get_phase_transitions(pipeline_mode)
+    if target_phase not in transitions.get(current_phase, []):
+        valid_targets = transitions.get(current_phase, [])
         if not valid_targets:
             return False, f"Phase {current_phase.value} is terminal"
         return False, (
@@ -152,8 +157,12 @@ def get_current_phase(pipeline_id: str) -> tuple[Response, int]:
                 "phase_execution": {
                     "phase": phase_execution.phase.value,
                     "status": phase_execution.status.value,
-                    "started_at": phase_execution.started_at.isoformat() if phase_execution.started_at else None,
-                    "completed_at": phase_execution.completed_at.isoformat() if phase_execution.completed_at else None,
+                    "started_at": phase_execution.started_at.isoformat()
+                    if phase_execution.started_at
+                    else None,
+                    "completed_at": phase_execution.completed_at.isoformat()
+                    if phase_execution.completed_at
+                    else None,
                     "review_cycles": phase_execution.review_cycles,
                 },
             },
@@ -206,8 +215,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         target_phase = PipelinePhase(target_phase_str)
     except ValueError:
         return make_error_response(
-            f"Invalid phase: {target_phase_str}. "
-            f"Valid phases: {[p.value for p in PipelinePhase]}"
+            f"Invalid phase: {target_phase_str}. Valid phases: {[p.value for p in PipelinePhase]}"
         )
 
     force = data.get("force", False)
@@ -221,7 +229,10 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
 
         # Validate transition unless forced
         if not force:
-            is_valid, error = validate_phase_transition(previous_phase, target_phase)
+            pipeline_mode = getattr(pipeline, "mode", "issue")
+            is_valid, error = validate_phase_transition(
+                previous_phase, target_phase, pipeline_mode=pipeline_mode
+            )
             if not is_valid:
                 return make_error_response(error, status_code=400)
 
@@ -310,9 +321,7 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
 
         if phase_execution.status == PipelineStatus.RUNNING:
-            return make_error_response(
-                f"Phase {pipeline.current_phase.value} is already running"
-            )
+            return make_error_response(f"Phase {pipeline.current_phase.value} is already running")
 
         phase_execution.status = PipelineStatus.RUNNING
         phase_execution.started_at = datetime.utcnow()
@@ -390,8 +399,10 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         if data.get("artifacts"):
             phase_execution.artifacts = data["artifacts"]
 
-        # Determine next phase
-        next_phases = PHASE_TRANSITIONS.get(pipeline.current_phase, [])
+        # Determine next phase (respects pipeline mode)
+        pipeline_mode = getattr(pipeline, "mode", "issue")
+        transitions = get_phase_transitions(pipeline_mode)
+        next_phases = transitions.get(pipeline.current_phase, [])
         next_phase = next_phases[0] if next_phases else None
 
         store.save_pipeline(pipeline, expected_version=original_version)

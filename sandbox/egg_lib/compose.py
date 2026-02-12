@@ -147,7 +147,15 @@ def _generate_env_file(compose_file: Path) -> bool:
         else:
             lines.append(f"{key}={value}")
 
-    env_file.write_text("\n".join(lines) + "\n")
+    new_content = "\n".join(lines) + "\n"
+    # Only write if content changed to avoid unnecessary container restarts
+    if env_file.exists():
+        try:
+            if env_file.read_text() == new_content:
+                return True
+        except OSError:
+            pass
+    env_file.write_text(new_content)
     # Restrict file permissions to owner only (contains secrets)
     env_file.chmod(0o600)
     return True
@@ -186,18 +194,32 @@ def _cleanup_stale_resources() -> None:
     for name in (GATEWAY_CONTAINER_NAME, ORCHESTRATOR_CONTAINER_NAME):
         try:
             result = subprocess.run(
-                ["docker", "inspect", "--format", "{{.Id}}", name],
+                [
+                    "docker",
+                    "inspect",
+                    "--format",
+                    '{{index .Config.Labels "com.docker.compose.service"}}',
+                    name,
+                ],
                 capture_output=True,
                 text=True,
                 check=False,
             )
-            if result.returncode == 0:
-                info(f"Removing stale container {name}...")
-                subprocess.run(
-                    ["docker", "rm", "-f", name],
-                    capture_output=True,
-                    check=False,
-                )
+            if result.returncode != 0:
+                # Container doesn't exist — nothing to clean up
+                continue
+
+            compose_label = result.stdout.strip()
+            if compose_label:
+                # Container was created by Compose — leave it alone
+                continue
+
+            info(f"Removing stale container {name}...")
+            subprocess.run(
+                ["docker", "rm", "-f", name],
+                capture_output=True,
+                check=False,
+            )
         except Exception:
             pass
 

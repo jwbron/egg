@@ -8,6 +8,7 @@ Provides coordination between the orchestrator and gateway sidecar for:
 - Security boundary validation
 """
 
+import json
 import os
 import sys
 from dataclasses import dataclass
@@ -15,9 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-import json
 
 # Add shared directory to path for egg_logging and config
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -32,13 +31,14 @@ except ImportError:
     def get_logger(name: str, **kwargs) -> logging.Logger:  # type: ignore[misc]
         return logging.getLogger(name)
 
+
 try:
     from egg_config import (
+        EGG_ISOLATED_NETWORK,
         GATEWAY_CONTAINER_NAME,
+        GATEWAY_ISOLATED_IP,
         GATEWAY_PORT,
         GATEWAY_PROXY_PORT,
-        GATEWAY_ISOLATED_IP,
-        EGG_ISOLATED_NETWORK,
     )
 except ImportError:
     # Fallback defaults
@@ -99,12 +99,8 @@ class GatewayClient:
             launcher_secret: Launcher secret for privileged operations
             timeout: Request timeout in seconds
         """
-        self.gateway_host = gateway_host or os.environ.get(
-            "GATEWAY_HOST", GATEWAY_CONTAINER_NAME
-        )
-        self.gateway_port = gateway_port or int(
-            os.environ.get("GATEWAY_PORT", GATEWAY_PORT)
-        )
+        self.gateway_host = gateway_host or os.environ.get("GATEWAY_HOST", GATEWAY_CONTAINER_NAME)
+        self.gateway_port = gateway_port or int(os.environ.get("GATEWAY_PORT", GATEWAY_PORT))
         self.launcher_secret = launcher_secret or os.environ.get("EGG_LAUNCHER_SECRET")
         self.timeout = timeout
 
@@ -138,7 +134,7 @@ class GatewayClient:
         headers: dict[str, str] = {"Content-Type": "application/json"}
 
         if use_launcher_auth and self.launcher_secret:
-            headers["X-Egg-Launcher-Secret"] = self.launcher_secret
+            headers["Authorization"] = f"Bearer {self.launcher_secret}"
 
         body = json.dumps(data).encode() if data else None
 
@@ -156,11 +152,11 @@ class GatewayClient:
                     details=error_data.get("details"),
                 )
             except json.JSONDecodeError:
-                raise GatewayError(str(e), status_code=e.code)
+                raise GatewayError(str(e), status_code=e.code) from e
         except URLError as e:
-            raise GatewayError(f"Failed to connect to gateway: {e.reason}")
-        except TimeoutError:
-            raise GatewayError("Gateway request timed out")
+            raise GatewayError(f"Failed to connect to gateway: {e.reason}") from e
+        except TimeoutError as e:
+            raise GatewayError("Gateway request timed out") from e
 
     def check_health(self) -> GatewayHealth:
         """Check gateway health status.
@@ -241,11 +237,11 @@ class GatewayClient:
         Args:
             container_id: Docker container ID
             container_ip: Container IP address
-            mode: Repository visibility mode (private or public)
-            repos: List of repositories in owner/repo format (optional)
-            uid: User ID for worktree ownership (optional)
-            gid: Group ID for worktree ownership (optional)
-            phase: SDLC pipeline phase (optional)
+            mode: Repository visibility mode (private, public, or local)
+            repos: List of repositories in owner/name format
+            uid: Host UID for worktree ownership
+            gid: Host GID for worktree ownership
+            phase: Optional SDLC pipeline phase
 
         Returns:
             SessionInfo with the created session
@@ -253,30 +249,29 @@ class GatewayClient:
         Raises:
             GatewayError: On registration failure
         """
-        data: dict[str, Any] = {
+        request_data: dict[str, Any] = {
             "container_id": container_id,
             "container_ip": container_ip,
             "mode": mode,
-            "repos": repos or [],
         }
+        if repos:
+            request_data["repos"] = repos
         if uid is not None:
-            data["uid"] = uid
+            request_data["uid"] = uid
         if gid is not None:
-            data["gid"] = gid
-        if phase is not None:
-            data["phase"] = phase
+            request_data["gid"] = gid
+        if phase:
+            request_data["phase"] = phase
 
         result = self._make_request(
             "/api/v1/sessions/create",
             method="POST",
-            data=data,
+            data=request_data,
             use_launcher_auth=True,
         )
 
         if not result.get("success"):
-            raise GatewayError(
-                result.get("message", "Session registration failed")
-            )
+            raise GatewayError(result.get("message", "Session registration failed"))
 
         response_data = result.get("data", {})
 
@@ -323,59 +318,6 @@ class GatewayClient:
         except GatewayError:
             return False
 
-    def update_session(
-        self,
-        session_token: str,
-        container_id: str | None = None,
-        container_ip: str | None = None,
-    ) -> bool:
-        """Update a session with new container ID and/or IP.
-
-        Used after pre-registering a session before container creation,
-        to bind the session to the real container ID once known.
-
-        Requires launcher secret authentication.
-
-        Args:
-            session_token: Token to update
-            container_id: New container ID (optional)
-            container_ip: New container IP address (optional)
-
-        Returns:
-            True if session was updated
-
-        Raises:
-            GatewayError: On update failure
-        """
-        data: dict[str, str] = {}
-        if container_id:
-            data["container_id"] = container_id
-        if container_ip:
-            data["container_ip"] = container_ip
-
-        if not data:
-            raise GatewayError("Must provide container_id and/or container_ip")
-
-        result = self._make_request(
-            f"/api/v1/sessions/{session_token}",
-            method="PATCH",
-            data=data,
-            use_launcher_auth=True,
-        )
-
-        if not result.get("success"):
-            raise GatewayError(
-                result.get("message", "Session update failed")
-            )
-
-        logger.info(
-            "Session updated",
-            container_id=container_id[:12] if container_id and len(container_id) >= 12 else container_id,
-            container_ip=container_ip,
-        )
-
-        return True
-
     def delete_session(self, session_token: str) -> bool:
         """Delete a session.
 
@@ -404,6 +346,9 @@ class GatewayClient:
 
         Requires launcher secret authentication.
 
+        Note: The gateway doesn't have a dedicated endpoint for this.
+        This method looks up the session token first, then deletes it.
+
         Args:
             container_id: Container ID whose session to delete
 
@@ -411,13 +356,21 @@ class GatewayClient:
             True if session was deleted
         """
         try:
+            # List sessions and find the one matching this container
             result = self._make_request(
-                f"/api/v1/sessions/by-container/{container_id}",
-                method="DELETE",
+                "/api/v1/sessions",
+                method="GET",
                 use_launcher_auth=True,
             )
-
-            return result.get("success", False)
+            sessions = result.get("data", {}).get("sessions", [])
+            for session in sessions:
+                if session.get("container_id") == container_id:
+                    return self.delete_session(session["session_token"])
+            logger.warning(
+                "No session found for container",
+                container_id=container_id[:12],
+            )
+            return False
         except GatewayError as e:
             logger.warning(
                 "Failed to delete session by container",
