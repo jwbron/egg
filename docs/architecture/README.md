@@ -40,10 +40,11 @@ See the [main README](../../README.md) for the architecture diagram.
 | Component | Role | Documentation |
 |-----------|------|---------------|
 | **Gateway** | Credential injection, policy enforcement, HTTP proxy | [Gateway README](../../gateway/README.md) |
-| **Orchestrator** | Local SDLC pipeline execution, state management, container lifecycle | `orchestrator/` |
+| **Orchestrator** | SDLC pipeline execution, state management, container lifecycle | [Orchestrator Architecture](orchestrator.md) |
 | **Sandbox** | Agent execution environment, git/gh wrappers | [Sandbox README](../../sandbox/README.md) |
-| **Shared Libraries** | Config, logging, git utilities | [Shared README](../../shared/README.md) |
+| **Shared Libraries** | Config, logging, git utilities, orchestrator types | [Shared README](../../shared/README.md) |
 | **egg_contracts** | SDLC contract models, role-based mutation validation, multi-agent orchestration | `shared/egg_contracts/` |
+| **egg_orchestrator** | Shared orchestrator types and sandbox-to-orchestrator communication | `shared/egg_orchestrator/` |
 | **Check Scripts** | Phase-specific validation (lint, test, merge conflicts) | `.github/scripts/checks/` |
 | **Multi-Agent Orchestration** | Parallel agent execution (Coder, Tester, Documenter, Integrator) | `.github/workflows/sdlc-multi-agent.yml` |
 
