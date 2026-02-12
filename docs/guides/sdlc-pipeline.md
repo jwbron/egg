@@ -90,6 +90,7 @@ The orchestrator provides real-time pipeline status visualization through the vi
 ```json
 {
   "success": true,
+  "message": "Visualization generated",
   "data": {
     "pipeline_id": "issue-123",
     "status": "running",
