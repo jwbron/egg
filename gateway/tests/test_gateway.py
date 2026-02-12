@@ -786,6 +786,8 @@ class TestGitPush:
         mock_session.expires_at = None
         # Explicitly NOT setting agent_role to simulate legacy session
         mock_session.agent_role = None
+        # Explicitly set phase to None to prevent MagicMock auto-creation
+        mock_session.phase = None
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
