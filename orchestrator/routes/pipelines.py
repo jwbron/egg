@@ -1928,6 +1928,12 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 status_code=409,
             )
 
+        if pipeline.status == PipelineStatus.AWAITING_HUMAN:
+            return make_error_response(
+                f"Pipeline {pipeline_id} is awaiting human approval",
+                status_code=409,
+            )
+
         if pipeline.status in (PipelineStatus.COMPLETE, PipelineStatus.FAILED):
             return make_error_response(
                 f"Pipeline {pipeline_id} is already {pipeline.status.value}",

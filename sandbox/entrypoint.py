@@ -559,11 +559,25 @@ def setup_worktrees(config: Config, logger: Logger) -> bool:
         logger.warn("Repos workspace not found - check mount configuration")
         return True
 
-    # Count repos for logging
+    # Count repos and validate working trees
     repo_count = 0
     for repo_dir in config.repos_dir.iterdir():
         if repo_dir.is_dir():
             repo_count += 1
+            # Check if working tree is populated (should have more than just .git)
+            visible_files = [f for f in repo_dir.iterdir() if f.name != ".git"]
+            if not visible_files:
+                logger.warn(f"Working tree empty for {repo_dir.name}, re-populating via gateway")
+                result = subprocess.run(
+                    ["git", "-C", str(repo_dir), "checkout", "HEAD", "--", "."],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if result.returncode == 0:
+                    logger.success(f"Re-populated working tree for {repo_dir.name}")
+                else:
+                    logger.error(f"Failed to re-populate {repo_dir.name}: {result.stderr}")
 
     if repo_count > 0:
         logger.success(f"Repos mounted: {repo_count} repo(s) (gateway-managed worktrees)")

@@ -105,7 +105,7 @@ try:
         validate_session_for_request,
     )
     from .transcript_buffer import get_transcript_buffer
-    from .worktree_manager import WorktreeManager, startup_cleanup
+    from .worktree_manager import WorktreeManager, get_active_docker_containers, startup_cleanup
 except ImportError:
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from checkpoint_handler import (  # type: ignore[no-redef, import-not-found]
@@ -160,6 +160,7 @@ except ImportError:
     from transcript_buffer import get_transcript_buffer  # type: ignore[no-redef, import-not-found]
     from worktree_manager import (  # type: ignore[no-redef, import-not-found]
         WorktreeManager,
+        get_active_docker_containers,
         startup_cleanup,
     )
 
@@ -3623,6 +3624,14 @@ def main() -> None:
             )
     except Exception as e:
         logger.warning("Startup session cleanup failed", error=str(e))
+
+    # Also check Docker directly as safety net — sessions may be
+    # pruned but containers still running.
+    try:
+        docker_containers = get_active_docker_containers()
+        active_container_ids |= docker_containers
+    except Exception as e:
+        logger.warning("Could not query Docker containers", error=str(e))
 
     # Clean up orphaned worktrees from crashed containers
     try:
