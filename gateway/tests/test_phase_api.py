@@ -210,8 +210,8 @@ class TestFilterPhaseOperation:
                 headers=auth_headers,
                 json={
                     "issue_number": 123,
-                    "operation_type": "git",
-                    "command": "push origin main",
+                    "operation_type": "gh",
+                    "command": "pr create --title test",
                 },
             )
 
