@@ -11,6 +11,7 @@ egg/
 ├── docs/                   # Cross-cutting documentation
 ├── gateway/                # Gateway sidecar (trusted container)
 ├── integration_tests/      # Integration tests (require Docker)
+├── orchestrator/           # SDLC pipeline orchestrator (local execution)
 ├── sandbox/                # Sandbox container (untrusted, runs the LLM agent)
 ├── scripts/                # Validation and lint scripts
 ├── shared/                 # Shared Python libraries (used by gateway + sandbox)
@@ -27,8 +28,9 @@ egg/
 | `config/` | Repository config, secrets template | Host |
 | `gateway/` | Gateway sidecar: policy enforcement, credential injection, proxying | Gateway container |
 | `integration_tests/` | Integration tests requiring Docker and real containers | CI / local |
+| `orchestrator/` | SDLC pipeline orchestrator: state management, container lifecycle, HITL queue | Orchestrator container |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
-| `shared/` | Shared libraries: logging, config, git utilities, centralized constants | Both containers |
+| `shared/` | Shared libraries: logging, config, git utilities, centralized constants | All containers |
 | `scripts/` | CI/lint scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement) | CI / local |
 | `tests/` | Test suite | CI / local |
 
@@ -66,6 +68,43 @@ gateway/
 ├── squid.conf              # Proxy config (private mode)
 ├── scripts/                # Gateway helper scripts
 └── tests/                  # Gateway tests
+```
+
+## Orchestrator Structure
+
+The orchestrator manages local SDLC pipeline execution:
+
+```
+orchestrator/
+├── api.py                  # REST API server (Flask)
+├── cli.py                  # CLI for pipeline management
+├── container_spawner.py    # Sandbox container lifecycle
+├── container_monitor.py    # Container health monitoring
+├── decision_queue.py       # HITL decision queue
+├── decision_timeout.py     # Decision timeout handling
+├── dispatch.py             # Agent dispatch logic
+├── docker_client.py        # Docker API client
+├── events.py               # Event bus for pipeline events
+├── gateway_client.py       # Gateway API client
+├── handoffs.py             # Agent handoff data management
+├── metrics.py              # Pipeline metrics and telemetry
+├── models.py               # Pydantic models for pipelines
+├── multi_agent.py          # Multi-agent orchestration
+├── resilience.py           # Retry and error recovery
+├── sandbox_template.py     # Sandbox container template
+├── state_store.py          # Git-backed pipeline state
+├── webhooks.py             # GitHub webhook handlers
+├── routes/                 # API route handlers
+│   ├── containers.py       # Container management endpoints
+│   ├── decisions.py        # HITL decision endpoints
+│   ├── health.py           # Health check endpoints
+│   ├── metrics.py          # Metrics endpoints
+│   ├── phases.py           # Phase management endpoints
+│   ├── pipelines.py        # Pipeline CRUD endpoints
+│   └── signals.py          # Signal handling endpoints
+├── Dockerfile              # Orchestrator container image
+├── entrypoint.sh           # Container entry point
+└── tests/                  # Orchestrator tests
 ```
 
 ## Sandbox Structure
@@ -140,6 +179,11 @@ integration_tests/
 ├── test_policy_enforcement.py     # Policy enforcement tests
 ├── test_rate_limiting.py          # Rate limiting tests
 ├── test_stack_lifecycle.py        # Container lifecycle tests
+├── local_pipeline/                # Local orchestrator integration tests
+│   ├── conftest.py                # Local pipeline test fixtures
+│   ├── docker-compose.yml         # Orchestrator test environment
+│   ├── mock-sandbox/              # Mock sandbox for testing
+│   └── test_local_pipeline.py     # Orchestrator pipeline tests
 └── sdlc/                          # SDLC pipeline integration tests
     ├── conftest.py                # SDLC test fixtures
     ├── test_happy_path.py         # Full pipeline success flow
