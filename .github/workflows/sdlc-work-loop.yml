@@ -1177,13 +1177,6 @@ jobs:
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
 
     steps:
-      - name: Generate bot token
-        id: bot-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-
       - name: Re-dispatch work loop in checks-only mode
         env:
           GH_TOKEN: ${{ github.token }}
