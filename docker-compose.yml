@@ -114,6 +114,8 @@ services:
       - EGG_SANDBOX_IMAGE=${EGG_SANDBOX_IMAGE:-egg:latest}
       # Launcher secret for gateway session registration
       - EGG_LAUNCHER_SECRET=${EGG_LAUNCHER_SECRET}
+      # Compose project name for resolving named volumes (certs, worktrees)
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-egg}
     volumes:
       # Per-repo mounts are added via docker-compose.override.yml (auto-generated)
       # State directory (shared with gateway)
