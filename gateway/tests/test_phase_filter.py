@@ -888,8 +888,8 @@ class TestPhaseFileRestrictions:
         assert ".egg-state/contracts/123.json" in result.blocked_files
         assert "src/main.py" not in result.blocked_files
 
-    def test_unknown_phase_allows_by_default(self):
-        """Unknown phase strings allow files by default (fail-safe behavior)."""
+    def test_unknown_phase_blocks_by_default(self):
+        """Unknown phase strings block files by default (fail-closed security)."""
         from phase_filter import check_phase_file_restrictions
 
         result = check_phase_file_restrictions(
@@ -897,9 +897,10 @@ class TestPhaseFileRestrictions:
             ["src/main.py"],
         )
 
-        # Unknown phases allow by default to match class method behavior
-        assert result.allowed is True
+        # Unknown phases block by default for security (fail-closed)
+        assert result.allowed is False
         assert "unknown" in result.message.lower()
+        assert "src/main.py" in result.blocked_files
 
     def test_empty_files_list_allowed(self):
         """Empty files list should be allowed."""
@@ -911,6 +912,32 @@ class TestPhaseFileRestrictions:
         )
 
         assert result.allowed is True
+
+    def test_path_escape_blocked(self):
+        """Paths that escape the repository should be blocked."""
+        from phase_filter import check_phase_file_restrictions
+
+        # Path traversal attempt
+        result = check_phase_file_restrictions(
+            "implement",
+            [".egg-state/contracts/../../../etc/passwd"],
+        )
+        assert result.allowed is False
+        assert "escapes repository" in result.message.lower() or result.blocked_files
+
+        # Direct parent reference
+        result = check_phase_file_restrictions(
+            "implement",
+            ["../outside_repo.txt"],
+        )
+        assert result.allowed is False
+
+        # Absolute path
+        result = check_phase_file_restrictions(
+            "implement",
+            ["/etc/passwd"],
+        )
+        assert result.allowed is False
 
     def test_phasefilerestriction_from_dict(self):
         """PhaseFileRestriction.from_dict should parse correctly."""
