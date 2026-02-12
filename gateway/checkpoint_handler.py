@@ -544,13 +544,14 @@ class CheckpointHandler:
                         ["add", str(checkpoint_path.relative_to(temp_path)), INDEX_FILE],
                     )
 
-                    # Commit
+                    # Commit (--no-verify skips pre-commit hooks which are
+                    # irrelevant for the checkpoint branch)
                     commit_msg = (
                         f"Add checkpoint {checkpoint.id} for commit {checkpoint.commit_sha[:7]}"
                     )
                     self._run_git(
                         str(temp_path),
-                        ["commit", "-m", commit_msg],
+                        ["commit", "--no-verify", "-m", commit_msg],
                     )
 
                     # Push (use longer timeout for large transcripts)
