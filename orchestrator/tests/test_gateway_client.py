@@ -618,6 +618,49 @@ class TestWorktreeManagement:
         for _err in result.errors:
             pass
 
+    def test_create_worktrees_with_explicit_null_fields(self, gateway_client):
+        """Test that explicit null worktrees and errors from gateway are handled."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "success": True,
+                "data": {"worktrees": None, "errors": None},
+            }
+            result = gateway_client.create_worktrees(
+                container_id="test-pipeline",
+                repos=["repo1"],
+            )
+
+            # worktrees should be {} not None
+            assert result.worktrees == {}
+            # errors should be [] not None
+            assert result.errors == []
+            # Verify iteration doesn't raise TypeError
+            for _err in result.errors:
+                pass
+            for _key in result.worktrees:
+                pass
+
+    def test_delete_worktrees_with_explicit_null_fields(self, gateway_client):
+        """Test that explicit null deleted and errors from gateway are handled."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "success": True,
+                "data": {"deleted": None, "errors": None},
+            }
+            result = gateway_client.delete_worktrees(
+                container_id="test-pipeline",
+            )
+
+            # worktrees should be {} not None (from deleted field)
+            assert result.worktrees == {}
+            # errors should be [] not None
+            assert result.errors == []
+            # Verify iteration doesn't raise TypeError
+            for _err in result.errors:
+                pass
+            for _key in result.worktrees:
+                pass
+
 
 class TestSingletonClient:
     """Tests for singleton client."""
