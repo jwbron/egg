@@ -322,12 +322,16 @@ def create_pipeline() -> tuple[Response, int]:
                     title=prompt[:100],
                     repo_root=repo_path,
                 )
+                # Mark contract as synced now that it exists
+                pipeline.contract_synced = True
+                store.save_pipeline(pipeline, commit=False)
                 logger.info(
                     "Local pipeline contract created",
                     pipeline_id=pipeline.id,
                 )
             except Exception as contract_err:
                 # Contract creation is best-effort — don't block pipeline
+                # contract_synced remains False
                 logger.warning(
                     "Failed to create contract for local pipeline",
                     pipeline_id=pipeline.id,
@@ -1091,15 +1095,15 @@ def _build_phase_prompt(
                 "",
             ]
         )
-        if not is_local:
-            lines.extend(
-                [
-                    "Use the contract CLI to track progress:",
-                    "- `egg-contract show` — View current contract state",
-                    "- `egg-contract add-commit --task <id> --commit <sha>` — Link commit to task",
-                    "",
-                ]
-            )
+        # Contract CLI instructions for both local and issue mode
+        lines.extend(
+            [
+                "Use the contract CLI to track progress:",
+                "- `egg-contract show` — View current contract state",
+                "- `egg-contract add-commit --task <id> --commit <sha>` — Link commit to task",
+                "",
+            ]
+        )
 
     elif phase == "pr":
         lines.extend(
@@ -1121,13 +1125,27 @@ def _build_phase_prompt(
 
     # --- Phase restrictions ---
     lines.append("## Phase Restrictions\n")
-    if is_local and phase != "pr":
+    if is_local and phase in ("refine", "plan"):
         lines.extend(
             [
-                "This is a **local** pipeline — no GitHub operations in this phase:",
-                "- You CANNOT push code (git push)",
+                "In this phase:",
+                "- You CAN push state files to git (contracts, drafts, checkpoints)",
+                "- You CANNOT push code changes",
                 "- You CANNOT create PRs (gh pr create)",
                 "- You CANNOT post issue comments",
+                "- You CAN read and modify local files",
+                "- You CAN run tests",
+                "- You CAN commit locally",
+                "",
+            ]
+        )
+    elif is_local and phase == "implement":
+        lines.extend(
+            [
+                "In this phase:",
+                "- You CAN push code changes to git",
+                "- You CANNOT push .egg-state/ files (except checkpoints)",
+                "- You CANNOT create PRs (gh pr create)",
                 "- You CAN read and modify local files",
                 "- You CAN run tests",
                 "- You CAN commit locally",

@@ -319,6 +319,8 @@ class StateStore:
             branch=branch,
             mode=mode,
             prompt=prompt,
+            # Contract is created separately — mark as unsynced until verified
+            contract_synced=False,
         )
 
         if config:
