@@ -159,7 +159,14 @@ shared/
 │   ├── transcript_extractor.py # API transcript extraction
 │   └── redactor.py         # Sensitive data redaction for checkpoints
 ├── egg_git/                # Git utilities
-└── egg_logging/            # Structured logging
+├── egg_logging/            # Structured logging
+└── egg_orchestrator/       # Orchestrator integration layer
+    ├── __init__.py         # Public API exports
+    ├── client.py           # OrchestratorClient for API communication
+    ├── constants.py        # Orchestrator configuration constants (ports, IPs, endpoints, environment variable names)
+    ├── detection.py        # Orchestrator mode detection utilities
+    ├── py.typed            # PEP 561 type marker
+    └── types.py            # Typed data classes and enums for signals and responses
 ```
 
 ## Integration Tests Structure
