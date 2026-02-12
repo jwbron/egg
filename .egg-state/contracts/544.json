@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 544,
+    "title": "Implement remaining orchestrator integration items (AC-24, AC-27, AC-28, AC-29, AC-33)",
+    "url": "https://github.com/jwbron/egg/issues/544"
+  },
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [],
+  "autofix_attempts": 0,
+  "max_autofix_attempts": 3,
+  "phase_configs": {
+    "refine": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "plan": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "implement": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "PR_REVIEW"
+    }
+  }
+}
