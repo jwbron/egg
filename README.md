@@ -225,7 +225,8 @@ Additional inputs include `prompt-file` (for large prompts), `bot-app-id`/`bot-a
 | `egg --setup` | Run interactive setup wizard |
 | `egg --reset` | Reset configuration and start over |
 | `egg --exec <cmd>` | Execute command in ephemeral container |
-| `egg --compose --down` | Stop the Docker Compose stack (gateway + orchestrator) |
+| `egg --compose` | Start gateway via Docker Compose |
+| `egg --compose --down` | Stop the Docker Compose stack |
 | `egg --compose --build` | Rebuild compose images before starting |
 
 ### egg-deploy CLI
@@ -247,7 +248,7 @@ For production/advanced deployments using Docker Compose:
 |------|-------------|
 | `--private` | Enable private mode (Anthropic API + private GitHub repos only) |
 | `--public` | Enable public mode (full internet access, default) |
-| `--compose` | Explicit compose control (use with `--down` or `--build`) |
+| `--compose` | Use Docker Compose to manage the gateway stack |
 | `--down` | Stop the Docker Compose stack (use with `--compose`) |
 | `--build` | Rebuild compose images before starting (use with `--compose`) |
 | `--exec <cmd>` | Execute command in new ephemeral container |
