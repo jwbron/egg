@@ -64,7 +64,7 @@ def make_success_response(
     return jsonify(response), 200
 
 
-from routes import get_repo_path  # noqa: E402 — shared helper
+from routes import get_repo_path, resolve_repo_path_for_pipeline  # noqa: E402 — shared helper
 
 
 @signals_bp.route("/<pipeline_id>/signal", methods=["POST"])
@@ -104,6 +104,10 @@ def handle_signal(pipeline_id: str) -> tuple[Response, int]:
         return make_error_response("Missing signal_type")
 
     repo_path = get_repo_path()
+    # Signal requests don't include a repo field, so get_repo_path() may
+    # return the bare parent directory.  Resolve using the pipeline's
+    # stored repo field.
+    repo_path = resolve_repo_path_for_pipeline(pipeline_id, repo_path)
 
     # Route to appropriate handler
     handlers = {
@@ -383,6 +387,7 @@ def handle_batch_signals(pipeline_id: str) -> tuple[Response, int]:
         return make_error_response("signals must be an array")
 
     repo_path = get_repo_path()
+    repo_path = resolve_repo_path_for_pipeline(pipeline_id, repo_path)
     results = []
 
     for signal in signals:
