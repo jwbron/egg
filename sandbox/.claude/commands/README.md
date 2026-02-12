@@ -28,6 +28,26 @@ Generate a monitoring report showing recent agent activity.
 
 **File**: `show-metrics.md`
 
+### /coder-mode
+Switch to Coder agent mode for implementation-focused work.
+
+**File**: `coder-mode.md`
+
+### /documenter-mode
+Switch to Documenter agent mode for documentation-focused work.
+
+**File**: `documenter-mode.md`
+
+### /integrator-mode
+Switch to Integrator agent mode for integration-focused work.
+
+**File**: `integrator-mode.md`
+
+### /tester-mode
+Switch to Tester agent mode for testing-focused work.
+
+**File**: `tester-mode.md`
+
 ## How Commands Work
 
 These commands are **slash commands** for Claude Code. They are markdown files that provide instructions to Claude on how to respond when you use the command syntax.

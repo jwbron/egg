@@ -57,36 +57,12 @@ This directory respects `$XDG_CACHE_HOME` if set.
 
 **Note**: Previously this was `~/.egg/`. The egg script auto-migrates on first run.
 
-**Migration from legacy locations:**
-Run manual migration if you have existing configs:
-```bash
-python3 config/host_config.py --migrate
-```
-
-This migrates from:
-- `~/.config/egg-notifier/config.json` → `~/.config/egg/`
-- `~/.config/context-sync/.env` → `~/.config/egg/secrets.env`
-
-**Usage:**
-```python
-from config.host_config import HostConfig
-
-config = HostConfig()
-slack_token = config.get_secret('SLACK_TOKEN')
-slack_channel = config.get('slack_channel')
-```
-
-**CLI:**
-```bash
-python config/host_config.py                   # Show config status
-python config/host_config.py --list            # Show non-secret config
-python config/host_config.py --list-secrets    # Show secret keys (values hidden)
-python config/host_config.py --migrate         # Migrate from legacy locations
-```
-
 **Templates:**
-- `config/host-config.template.yaml` - Non-secret settings template
 - `config/secrets.template.env` - Secrets template
+
+**In-repo modules:**
+- `config/repo_config.py` - Repository access configuration loader
+- `config/repositories.yaml.example` - Example repository configuration
 
 ### GitHub Tokens
 

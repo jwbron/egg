@@ -17,13 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Action for CI/CD automation (`action/`)
 - @mention trigger workflow for GitHub issues and PRs
 - Shared libraries: `egg_config` (configuration), `egg_logging` (structured logging), `egg_git` (git utilities)
-- CLI tool (`egg start`, `egg stop`, `egg exec`, `egg logs`, `egg status`, `egg config validate`)
+- CLI tool (`egg`, `egg --setup`, `egg --exec`, `egg --compose --down`) with separate `egg-config` and `egg-deploy` utilities
 - Claude Code integration with custom rules and slash commands
 - Container log persistence and correlation system
 - Rate limiting for gateway operations
 - Fork and private repository access policies
 - CI infrastructure (GitHub Actions, pre-commit hooks, act-based local CI)
-- Comprehensive test suite (43+ test files)
+- Comprehensive test suite (130+ test files)
 - Architecture Decision Records (ADRs) for all major design choices
 
 ### Changed

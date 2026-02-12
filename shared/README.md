@@ -61,6 +61,26 @@ branch = get_default_branch("/path/to/repo")  # Returns "main", "master", etc.
 **Files:**
 - `default_branch.py` - Default branch detection logic
 
+### egg_container
+
+Shared container-launch command builder used by production launchers and tests.
+
+- `build_sandbox_docker_cmd()` — Pure function that constructs the `docker run` argument list
+- `ContainerNetworkConfig` — Dataclass for network parameters (network name, gateway hostname/IP, port, repo mode)
+
+```python
+from egg_container import build_sandbox_docker_cmd, ContainerNetworkConfig
+
+net_config = ContainerNetworkConfig(
+    network_name="egg-isolated",
+    gateway_hostname="egg-gateway",
+    gateway_ip="172.32.0.2",
+    gateway_port=9848,
+    repo_mode="public",
+)
+cmd = build_sandbox_docker_cmd(net_config, ...)
+```
+
 ### egg_contracts
 
 SDLC contract models, role-based validation, plan parsing, and resilience utilities.
@@ -97,7 +117,7 @@ conflict_detector = ConflictDetector(repo_path=Path("/repo"))
 ```
 
 **Key modules:**
-- `models.py` - Pydantic models (Contract, Task, Phase, Feedback, etc.)
+- `models.py` - Pydantic models (Contract, Task, Phase, Feedback, CheckDefinition, CheckResult, PhaseConfig, etc.)
 - `hitl.py` - Human-in-the-loop checkbox UI generation and parsing
 - `feedback.py` - Feedback comment generation and parsing for open-ended questions
 - `resilience.py` - Rate limit handling, retry logic, timeout checkpoints
@@ -105,6 +125,21 @@ conflict_detector = ConflictDetector(repo_path=Path("/repo"))
 - `roles.py` - Role-based field ownership validation
 - `audit.py` - Audit log utilities
 - `agent_recovery.py` - Multi-agent recovery (retry manager, circuit breaker, conflict detector)
+- `agent_roles.py` - Agent role definitions and file access patterns
+- `checkpoints.py` - Checkpoint model definitions
+- `checkpoint_cli.py` - Checkpoint CLI for saving/restoring agent state
+- `checkpoint_loader.py` - Checkpoint loading utilities
+- `dependency_graph.py` - Task dependency graph for multi-agent orchestration
+- `loader.py` - Contract loading from filesystem
+- `orchestration.py` - Orchestration state management
+- `orchestrator.py` - Multi-agent orchestrator logic
+- `phase_defaults.py` - Default check definitions per SDLC phase
+- `redactor.py` - Sensitive content redaction
+- `transcript_extractor.py` - Agent transcript extraction
+- `usage.py` - Usage tracking models
+- `usage_cli.py` - Usage tracking CLI
+- `usage_loader.py` - Usage data loading
+- `validator.py` - Contract validation logic
 
 ## Installation
 

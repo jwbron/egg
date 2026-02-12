@@ -213,6 +213,79 @@ GET /api/v1/contract/exists/<issue_number>
 
 Role is determined from workflow context (session metadata), not request body, preventing privilege escalation.
 
+### Worktree Operations
+
+```
+POST /api/v1/worktree/create
+  Request: {repo_path, branch, base_branch?}
+  Policy: session_auth
+  Description: Create a new git worktree for isolated development
+
+POST /api/v1/worktree/delete
+  Request: {worktree_path}
+  Policy: session_auth
+  Description: Delete a worktree
+
+GET /api/v1/worktree/list
+  Policy: session_auth
+  Description: List active worktrees
+```
+
+### Session Management (Extended)
+
+```
+DELETE /api/v1/sessions/<session_token>
+  Auth: Bearer {launcher_secret}
+  Description: Delete a session
+
+DELETE /api/v1/sessions/by-container/<container_id>
+  Auth: Bearer {launcher_secret}
+  Description: Delete sessions for a specific container
+
+GET /api/v1/sessions/<session_token>
+  Auth: Bearer {launcher_secret}
+  Description: Get session details
+
+POST /api/v1/sessions/<session_token>/heartbeat
+  Auth: Bearer {launcher_secret}
+  Description: Send session heartbeat
+
+PATCH /api/v1/sessions/<session_token>
+  Auth: Bearer {launcher_secret}
+  Description: Update session metadata
+
+GET /api/v1/sessions
+  Auth: Bearer {launcher_secret}
+  Description: List all active sessions
+```
+
+### Repository Operations
+
+```
+GET /api/v1/repos/visibility
+  Policy: session_auth
+  Description: Get repository visibility information (public/private)
+```
+
+### Git Execute
+
+```
+POST /api/v1/git/execute
+  Request: {args[], repo_path?}
+  Policy: session_auth
+  Description: Execute arbitrary git commands (read operations)
+```
+
+### Anthropic Proxy
+
+```
+POST /v1/messages
+  Description: Proxy for Anthropic messages API with credential injection
+
+POST /v1/messages/count_tokens
+  Description: Proxy for Anthropic token counting API
+```
+
 ### Health
 
 ```
@@ -245,6 +318,9 @@ gateway/
 ├── rate_limiter.py         # Rate limiting
 ├── config_validator.py     # Configuration validation
 ├── error_messages.py       # Error message formatting
+├── agent_restrictions.py   # Agent role-based file access restrictions
+├── checkpoint_handler.py   # Session checkpoint handling
+├── transcript_buffer.py    # Transcript buffering for agent sessions
 ├── Dockerfile              # Gateway container image
 ├── entrypoint.sh           # Gateway startup script
 ├── squid.conf              # Squid proxy config (private mode)
@@ -258,6 +334,7 @@ gateway/
 │   ├── test_policy.py
 │   ├── test_private_repo_policy.py
 │   ├── test_proxy_security.py
+│   ├── test_proxy_monitor.py
 │   ├── test_rate_limiter.py
 │   ├── test_repo_parser.py
 │   ├── test_repo_visibility.py
@@ -268,6 +345,13 @@ gateway/
 │   ├── test_phase_transition.py
 │   ├── test_phase_api.py
 │   ├── test_contract_api.py
+│   ├── test_checkpoint_handler.py
+│   ├── test_concurrency.py
+│   ├── test_config_validator.py
+│   ├── test_edge_cases.py
+│   ├── test_error_paths.py
+│   ├── test_fork_policy.py
+│   ├── test_transcript_buffer.py
 │   ├── integration_test.sh
 │   └── README-integration.md
 └── README.md               # This file
