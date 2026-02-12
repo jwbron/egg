@@ -6,6 +6,7 @@ Provides mechanisms for reporting pipeline status to the collaborator
 """
 
 import json
+import os
 import sys
 import threading
 from collections.abc import Callable
@@ -25,6 +26,7 @@ except ImportError:
 
     def get_logger(name: str, **kwargs) -> logging.Logger:  # type: ignore[misc]
         return logging.getLogger(name)
+
 
 from dag_visualizer import (
     generate_status_report,
@@ -90,6 +92,9 @@ class StatusReporter:
     HTTP endpoints, or notification systems).
     """
 
+    # Maximum number of pipelines to cache (LRU eviction beyond this)
+    MAX_CACHE_SIZE = 100
+
     def __init__(
         self,
         event_bus: EventBus | None = None,
@@ -107,8 +112,9 @@ class StatusReporter:
         self._lock = threading.Lock()
         self._subscribed = False
 
-        # Pipeline state cache for generating visualizations
+        # Pipeline state cache for generating visualizations (LRU order)
         self._pipeline_cache: dict[str, Pipeline] = {}
+        self._cache_order: list[str] = []  # Track insertion order for LRU
 
     def add_handler(self, handler: StatusHandler) -> None:
         """Add a status update handler.
@@ -137,7 +143,28 @@ class StatusReporter:
             pipeline: Pipeline to cache
         """
         with self._lock:
+            # Update LRU order
+            if pipeline.id in self._cache_order:
+                self._cache_order.remove(pipeline.id)
+            self._cache_order.append(pipeline.id)
+
             self._pipeline_cache[pipeline.id] = pipeline
+
+            # Evict oldest entries if cache exceeds limit
+            while len(self._pipeline_cache) > self.MAX_CACHE_SIZE:
+                oldest_id = self._cache_order.pop(0)
+                self._pipeline_cache.pop(oldest_id, None)
+
+    def clear_pipeline_from_cache(self, pipeline_id: str) -> None:
+        """Remove a pipeline from cache (e.g., when completed or failed).
+
+        Args:
+            pipeline_id: Pipeline ID to remove
+        """
+        with self._lock:
+            self._pipeline_cache.pop(pipeline_id, None)
+            if pipeline_id in self._cache_order:
+                self._cache_order.remove(pipeline_id)
 
     def _get_cached_pipeline(self, pipeline_id: str) -> Pipeline | None:
         """Get cached pipeline state."""
@@ -215,6 +242,15 @@ class StatusReporter:
                 "compact": render_compact_status(pipeline, use_ascii=self.use_ascii),
                 "progress": render_progress_bar(pipeline, use_ascii=self.use_ascii),
             }
+
+        # Clear cache for terminal pipeline states to prevent memory leaks
+        terminal_events = {
+            EventType.PIPELINE_COMPLETED,
+            EventType.PIPELINE_FAILED,
+            EventType.PIPELINE_CANCELLED,
+        }
+        if event.event_type in terminal_events:
+            self.clear_pipeline_from_cache(event.pipeline_id)
 
         return StatusUpdate(
             pipeline_id=event.pipeline_id,
@@ -303,9 +339,11 @@ def create_file_handler(output_dir: Path) -> StatusHandler:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     def handler(update: StatusUpdate) -> None:
-        # Write latest status to pipeline-specific file
+        # Write latest status to pipeline-specific file atomically
         status_file = output_dir / f"{update.pipeline_id}-status.json"
-        status_file.write_text(update.to_json())
+        tmp_file = status_file.with_suffix(".tmp")
+        tmp_file.write_text(update.to_json())
+        os.replace(tmp_file, status_file)
 
         # Also append to history file
         history_file = output_dir / f"{update.pipeline_id}-history.jsonl"

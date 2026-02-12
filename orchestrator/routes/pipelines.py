@@ -71,6 +71,20 @@ except ImportError:
         pass
 
 
+# Import visualization modules for DAG endpoint
+try:
+    from dag_visualizer import (
+        generate_status_report,
+        render_compact_status,
+        render_pipeline_dag,
+        render_progress_bar,
+    )
+
+    _DAG_VISUALIZER_AVAILABLE = True
+except ImportError:
+    _DAG_VISUALIZER_AVAILABLE = False
+
+
 def make_error_response(
     message: str,
     status_code: int = 400,
@@ -2138,15 +2152,8 @@ def get_pipeline_visualization(pipeline_id: str) -> tuple[Response, int]:
             }
         }
     """
-    # Import visualization modules
-    try:
-        from dag_visualizer import (
-            generate_status_report,
-            render_compact_status,
-            render_pipeline_dag,
-            render_progress_bar,
-        )
-    except ImportError:
+    # Check if visualization module is available (imported at module level)
+    if not _DAG_VISUALIZER_AVAILABLE:
         return make_error_response(
             "Visualization module not available",
             status_code=500,

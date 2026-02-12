@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+import status_reporter as status_reporter_module
 from events import Event, EventBus, EventType
 from models import (
     Pipeline,
@@ -21,6 +23,18 @@ from status_reporter import (
     get_status_reporter,
     report_pipeline_status,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_singleton():
+    """Reset the singleton status reporter before and after each test."""
+    # Save original state
+    original = status_reporter_module._status_reporter
+    # Reset before test
+    status_reporter_module._status_reporter = None
+    yield
+    # Restore after test (cleanup)
+    status_reporter_module._status_reporter = original
 
 
 def create_test_pipeline(
@@ -321,10 +335,7 @@ class TestSingletonReporter:
 
     def test_get_status_reporter_returns_same_instance(self):
         """Test that get_status_reporter returns singleton."""
-        # Reset the singleton first
-        import status_reporter
-        status_reporter._status_reporter = None
-
+        # Fixture handles singleton reset
         reporter1 = get_status_reporter()
         reporter2 = get_status_reporter()
 
@@ -332,9 +343,7 @@ class TestSingletonReporter:
 
     def test_report_pipeline_status_uses_singleton(self):
         """Test that report_pipeline_status uses singleton reporter."""
-        import status_reporter
-        status_reporter._status_reporter = None
-
+        # Fixture handles singleton reset
         pipeline = create_test_pipeline()
         update = report_pipeline_status(pipeline, "test.event", "Test message")
 

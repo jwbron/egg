@@ -112,9 +112,30 @@ def _render_phase_box(
     # Current phase indicator
     current_marker = ">>>" if is_current else "   "
 
-    # Width calculation
-    content_width = max(len(name), len(status_text), 12)
-    box_width = content_width + 6  # padding + borders
+    # Build optional info line
+    info_line = ""
+    if containers_count > 0 or agents_count > 0:
+        info_parts = []
+        if containers_count > 0:
+            info_parts.append(f"{containers_count} container(s)")
+        if agents_count > 0:
+            info_parts.append(f"{agents_count} agent(s)")
+        info_line = "   " + ", ".join(info_parts)
+
+    # Build duration line
+    dur_line = f"   [{duration}]" if duration else ""
+
+    # Width calculation - consider ALL potential content lines upfront
+    # Name line has format " {symbol} {name}", so length is 3 + len(name)
+    name_line_content = f" {symbol} {name}"
+    status_line_content = f"   {status_text}"
+    content_widths = [len(name_line_content), len(status_line_content), 12]
+    if info_line:
+        content_widths.append(len(info_line))
+    if dur_line:
+        content_widths.append(len(dur_line))
+    content_width = max(content_widths)
+    box_width = content_width + 2  # borders only (content is already padded)
 
     # Build box lines
     lines = []
@@ -129,26 +150,17 @@ def _render_phase_box(
     lines.append(f"{current_marker} {corner_tl}{border_h * (box_width - 2)}{corner_tr}")
 
     # Phase name with symbol
-    name_line = f" {symbol} {name}"
-    lines.append(f"    {border_v}{name_line:<{box_width - 2}}{border_v}")
+    lines.append(f"    {border_v}{name_line_content:<{box_width - 2}}{border_v}")
 
     # Status line
-    status_line = f"   {status_text}"
-    lines.append(f"    {border_v}{status_line:<{box_width - 2}}{border_v}")
+    lines.append(f"    {border_v}{status_line_content:<{box_width - 2}}{border_v}")
 
     # Optional container/agent info
-    if containers_count > 0 or agents_count > 0:
-        info_parts = []
-        if containers_count > 0:
-            info_parts.append(f"{containers_count} container(s)")
-        if agents_count > 0:
-            info_parts.append(f"{agents_count} agent(s)")
-        info_line = "   " + ", ".join(info_parts)
+    if info_line:
         lines.append(f"    {border_v}{info_line:<{box_width - 2}}{border_v}")
 
     # Duration if available
-    if duration:
-        dur_line = f"   [{duration}]"
+    if dur_line:
         lines.append(f"    {border_v}{dur_line:<{box_width - 2}}{border_v}")
 
     # Bottom border
@@ -280,10 +292,12 @@ def render_phase_detail(
         lines.append(f"Containers ({len(phase_exec.containers)}):")
         for container in phase_exec.containers:
             c_status = _get_status_symbol(
-                PipelineStatus.COMPLETE if container.status == ContainerStatus.EXITED else
-                PipelineStatus.RUNNING if container.status == ContainerStatus.RUNNING else
-                PipelineStatus.PENDING,
-                use_ascii
+                PipelineStatus.COMPLETE
+                if container.status == ContainerStatus.EXITED
+                else PipelineStatus.RUNNING
+                if container.status == ContainerStatus.RUNNING
+                else PipelineStatus.PENDING,
+                use_ascii,
             )
             role = container.agent_role.value if container.agent_role else "worker"
             lines.append(f"  {c_status} {container.container_name[:20]} ({role})")
@@ -294,11 +308,14 @@ def render_phase_detail(
         lines.append(f"Agents ({len(phase_exec.agents)}):")
         for agent in phase_exec.agents:
             a_status = _get_status_symbol(
-                PipelineStatus.COMPLETE if agent.status == AgentExecutionStatus.COMPLETE else
-                PipelineStatus.RUNNING if agent.status == AgentExecutionStatus.RUNNING else
-                PipelineStatus.FAILED if agent.status == AgentExecutionStatus.FAILED else
-                PipelineStatus.PENDING,
-                use_ascii
+                PipelineStatus.COMPLETE
+                if agent.status == AgentExecutionStatus.COMPLETE
+                else PipelineStatus.RUNNING
+                if agent.status == AgentExecutionStatus.RUNNING
+                else PipelineStatus.FAILED
+                if agent.status == AgentExecutionStatus.FAILED
+                else PipelineStatus.PENDING,
+                use_ascii,
             )
             lines.append(f"  {a_status} {agent.role.value}")
             if agent.commit:
