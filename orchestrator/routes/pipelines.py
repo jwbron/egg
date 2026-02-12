@@ -746,24 +746,40 @@ def _verdict_path_for_type(
     reviewer_type: str,
     pipeline_mode: str,
     issue_number: int | None = None,
+    pipeline_id: str | None = None,
 ) -> str:
-    """Return the relative verdict file path for a given reviewer type."""
+    """Return the relative verdict file path for a given reviewer type.
+
+    For issue mode, uses issue number as prefix (e.g., 123-refine-unified-review.json).
+    For local mode, uses pipeline_id as prefix (e.g., local-abc12345-refine-unified-review.json).
+    """
     if pipeline_mode == "local":
-        return f".egg-state/reviews/{phase}-{reviewer_type}-review.json"
+        prefix = pipeline_id if pipeline_id else "local"
+        return f".egg-state/reviews/{prefix}-{phase}-{reviewer_type}-review.json"
     else:
         return f".egg-state/reviews/{issue_number}-{phase}-{reviewer_type}-review.json"
 
 
-def _get_draft_path(phase: str, pipeline_mode: str, issue_number: int | None = None) -> str | None:
-    """Return relative path to the draft file for a phase."""
+def _get_draft_path(
+    phase: str,
+    pipeline_mode: str,
+    issue_number: int | None = None,
+    pipeline_id: str | None = None,
+) -> str | None:
+    """Return relative path to the draft file for a phase.
+
+    For issue mode, uses issue number as prefix (e.g., 123-analysis.md).
+    For local mode, uses pipeline_id as prefix (e.g., local-abc12345-analysis.md).
+    """
     is_local = pipeline_mode == "local"
     if is_local:
+        prefix = pipeline_id if pipeline_id else "local"
         if phase == "refine":
-            return ".egg-state/drafts/analysis.md"
+            return f".egg-state/drafts/{prefix}-analysis.md"
         elif phase == "implement":
             return None
         else:
-            return f".egg-state/drafts/{phase}.md"
+            return f".egg-state/drafts/{prefix}-{phase}.md"
     else:
         if phase == "refine":
             return f".egg-state/drafts/{issue_number}-analysis.md"
@@ -778,10 +794,11 @@ def _read_phase_draft(
     phase: str,
     pipeline_mode: str,
     issue_number: int | None = None,
+    pipeline_id: str | None = None,
     max_chars: int = 8000,
 ) -> str:
     """Read draft file contents. Truncates at max_chars."""
-    draft_rel = _get_draft_path(phase, pipeline_mode, issue_number)
+    draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
     if not draft_rel:
         return f"(No draft file for {phase} phase)"
     draft_path = repo_path / draft_rel
@@ -807,9 +824,11 @@ def _build_review_prompt(
     Tells the reviewer to evaluate the draft for the given phase and write
     a typed verdict JSON file to .egg-state/reviews/.
     """
-    draft_path = _get_draft_path(phase, pipeline_mode, issue_number)
+    draft_path = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
 
-    verdict_path = _verdict_path_for_type(phase, reviewer_type, pipeline_mode, issue_number)
+    verdict_path = _verdict_path_for_type(
+        phase, reviewer_type, pipeline_mode, issue_number, pipeline_id
+    )
 
     lines = [
         f"You are reviewing the **{phase}** phase output of the SDLC pipeline "
@@ -880,13 +899,16 @@ def _read_review_verdict(
     reviewer_type: str = "unified",
     pipeline_mode: str = "local",
     issue_number: int | None = None,
+    pipeline_id: str | None = None,
 ) -> ReviewVerdict | None:
     """Read a typed review verdict JSON from the repo.
 
     Returns None if the file is missing or malformed (treated as approved
     for graceful degradation).
     """
-    verdict_rel = _verdict_path_for_type(phase, reviewer_type, pipeline_mode, issue_number)
+    verdict_rel = _verdict_path_for_type(
+        phase, reviewer_type, pipeline_mode, issue_number, pipeline_id
+    )
     verdict_file = repo_path / verdict_rel
 
     if not verdict_file.exists():
@@ -993,6 +1015,10 @@ def _build_phase_prompt(
     # --- Phase-specific instructions ---
     lines.append("## Your Task\n")
 
+    # Get the correct draft path based on mode
+    analysis_path = _get_draft_path("refine", pipeline_mode, issue_number, pipeline_id)
+    plan_path = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
+
     if phase == "refine":
         lines.extend(
             [
@@ -1009,15 +1035,15 @@ def _build_phase_prompt(
         if is_local:
             lines.extend(
                 [
-                    "Write your analysis to `.egg-state/drafts/analysis.md`.",
-                    "Commit the draft when done.",
+                    f"Write your analysis to `{analysis_path}`.",
+                    "Commit and push the draft when done.",
                     "",
                 ]
             )
         else:
             lines.extend(
                 [
-                    f"Write your analysis to `.egg-state/drafts/{issue_number}-analysis.md`.",
+                    f"Write your analysis to `{analysis_path}`.",
                     "Commit and push the draft when done.",
                     "",
                 ]
@@ -1039,15 +1065,15 @@ def _build_phase_prompt(
         if is_local:
             lines.extend(
                 [
-                    "Write your plan to `.egg-state/drafts/plan.md`.",
-                    "Commit the draft when done.",
+                    f"Write your plan to `{plan_path}`.",
+                    "Commit and push the draft when done.",
                     "",
                 ]
             )
         else:
             lines.extend(
                 [
-                    f"Write your plan to `.egg-state/drafts/{issue_number}-plan.md`.",
+                    f"Write your plan to `{plan_path}`.",
                     "Commit and push the draft when done.",
                     "",
                 ]
@@ -1763,7 +1789,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Delete stale verdict files before spawning reviewers
                 for rtype in reviewer_types:
                     verdict_rel = _verdict_path_for_type(
-                        current_phase.value, rtype, pipeline_mode, pipeline.issue_number
+                        current_phase.value, rtype, pipeline_mode, pipeline.issue_number, pipeline_id
                     )
                     verdict_path = repo_path / verdict_rel
                     if verdict_path.exists():
@@ -1854,6 +1880,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         reviewer_type=reviewer_type,
                         pipeline_mode=pipeline_mode,
                         issue_number=pipeline.issue_number,
+                        pipeline_id=pipeline_id,
                     )
 
                 # Aggregate all verdicts
@@ -1913,7 +1940,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # --- HITL gate: pause for human approval ---
             if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:
                 draft_content = _read_phase_draft(
-                    repo_path, current_phase.value, pipeline_mode, pipeline.issue_number
+                    repo_path, current_phase.value, pipeline_mode, pipeline.issue_number, pipeline_id
                 )
                 phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
                 question = (
