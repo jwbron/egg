@@ -1,0 +1,534 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 427,
+    "title": "Merge fixer bot is causing issues with PR history and introducing incorrect changes",
+    "url": "https://github.com/jwbron/egg/issues/427"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Prompt instructs agent to use git merge instead of git rebase",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Documentation reflects merge approach with examples",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Workflow uses git push without --force-with-lease after merge",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Prompt includes instructions for reverting failed merge commits",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-1] Prompt contains PR body and commit messages from both sides",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-2] Agent receives file content for conflicting files",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-3] Prompt contains reviewer feedback",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-4] Prompt includes guidance for analyzing conflict intent",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-1] Agent runs git merge --no-commit first to preview conflicts",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-2] Agent categorizes each conflict before taking action",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-3] Agent has clear guidance on semantic conflict resolution",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-4] Comment includes specific changes made for each conflict",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-4-1] Workflow detects PRs with recent failed merge attempts",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-4-2] Agent can revert merge commit if post-merge CI fails",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-4-3] After reverting, agent can attempt new merge",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-4-4] Documentation includes common failure patterns",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-5-1] Test repository with branches producing various conflict types",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-5-2] CI test verifies correct resolution",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-5-3] Test confirms revert-and-retry works correctly",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-5-4] Test results and edge cases documented",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Core Workflow Changes",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Update build-conflict-prompt.sh to use merge instead of rebase",
+          "status": "pending",
+          "acceptance_criteria": "Prompt instructs agent to use git merge instead of git rebase",
+          "files_affected": [
+            "action/build-conflict-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Update conflict-conventions.md to document merge-based workflow",
+          "status": "pending",
+          "acceptance_criteria": "Documentation reflects merge approach with examples",
+          "files_affected": [
+            "action/conflict-conventions.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Modify reusable-conflict-resolve.yml for regular push",
+          "status": "pending",
+          "acceptance_criteria": "Workflow uses git push without --force-with-lease after merge",
+          "files_affected": [
+            ".github/workflows/reusable-conflict-resolve.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add retry capability via merge commit revert",
+          "status": "pending",
+          "acceptance_criteria": "Prompt includes instructions for reverting failed merge commits",
+          "files_affected": [
+            "action/build-conflict-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Enhanced Context Gathering",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Include PR description and commit messages in prompt",
+          "status": "pending",
+          "acceptance_criteria": "Prompt contains PR body and commit messages from both sides",
+          "files_affected": [
+            "action/build-conflict-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add contextual file analysis to the prompt",
+          "status": "pending",
+          "acceptance_criteria": "Agent receives file content for conflicting files",
+          "files_affected": [
+            "action/build-conflict-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Include existing code review comments on the PR",
+          "status": "pending",
+          "acceptance_criteria": "Prompt contains reviewer feedback",
+          "files_affected": [
+            "action/build-conflict-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Add semantic analysis instructions for understanding intent",
+          "status": "pending",
+          "acceptance_criteria": "Prompt includes guidance for analyzing conflict intent",
+          "files_affected": [
+            "action/build-conflict-prompt.sh",
+            "action/conflict-conventions.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Improved Conflict Detection and Analysis",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add pre-merge conflict preview to the prompt",
+          "status": "pending",
+          "acceptance_criteria": "Agent runs git merge --no-commit first to preview conflicts",
+          "files_affected": [
+            "action/build-conflict-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update prompt to categorize conflicts before resolving",
+          "status": "pending",
+          "acceptance_criteria": "Agent categorizes each conflict before taking action",
+          "files_affected": [
+            "action/build-conflict-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Improve instructions for handling semantic conflicts",
+          "status": "pending",
+          "acceptance_criteria": "Agent has clear guidance on semantic conflict resolution",
+          "files_affected": [
+            "action/conflict-conventions.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Add conflict summary output in post-resolution comment",
+          "status": "pending",
+          "acceptance_criteria": "Comment includes specific changes made for each conflict",
+          "files_affected": [
+            "action/build-conflict-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Retry and Recovery Mechanism",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add merge commit detection in on-merge-conflict.yml",
+          "status": "pending",
+          "acceptance_criteria": "Workflow detects PRs with recent failed merge attempts",
+          "files_affected": [
+            ".github/workflows/on-merge-conflict.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Implement automatic revert of failed merges when CI fails",
+          "status": "pending",
+          "acceptance_criteria": "Agent can revert merge commit if post-merge CI fails",
+          "files_affected": [
+            "action/build-conflict-prompt.sh",
+            ".github/workflows/reusable-conflict-resolve.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add ability to retry conflict resolution after revert",
+          "status": "pending",
+          "acceptance_criteria": "After reverting, agent can attempt new merge",
+          "files_affected": [
+            "action/build-conflict-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Update conflict rules with learned failure patterns",
+          "status": "pending",
+          "acceptance_criteria": "Documentation includes common failure patterns",
+          "files_affected": [
+            "action/conflict-conventions.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Testing and Validation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Create test fixtures with sample conflict scenarios",
+          "status": "pending",
+          "acceptance_criteria": "Test repository with branches producing various conflict types",
+          "files_affected": [
+            "tests/fixtures/conflict-scenarios/"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Add integration test for merge-based resolution",
+          "status": "pending",
+          "acceptance_criteria": "CI test verifies correct resolution",
+          "files_affected": [
+            "tests/integration/test_conflict_resolution.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Test retry mechanism with intentionally failing resolution",
+          "status": "pending",
+          "acceptance_criteria": "Test confirms revert-and-retry works correctly",
+          "files_affected": [
+            "tests/integration/test_conflict_resolution.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-4",
+          "description": "Document testing and validation results",
+          "status": "pending",
+          "acceptance_criteria": "Test results and edge cases documented",
+          "files_affected": [
+            "action/conflict-conventions.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 2,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-10T17:19:01Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-10T17:24:02Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-10T17:31:05Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-10T17:33:52Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    }
+  ],
+  "phase_configs": {
+    "refine": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "plan": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "implement": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "PR_REVIEW"
+    }
+  },
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "refine_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "plan_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Switch conflict resolver from rebase to merge commits",
+    "description": "Fixes the merge fixer bot issues where it was corrupting PR history and\nintroducing incorrect changes. Switches from rebase (force-push) to merge\ncommits (regular push), enabling easy retry if resolution fails. Also\nenhances context gathering so the agent can make smarter resolution decisions.\n\nCloses #427"
+  }
+}
