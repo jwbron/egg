@@ -32,7 +32,7 @@ The orchestrator persists pipeline state using a dedicated git worktree on an or
 **Worktree lifecycle:**
 - Created lazily on first state access
 - Validated on each access (repairs stale/broken worktrees)
-- Cleaned up via `git worktree prune` on startup
+- Cleaned up via `git worktree prune` on first access (not container startup)
 
 This differs from agent worktrees (managed by the gateway for agent isolation). The orchestrator manages its own state worktree independently.
 
