@@ -10,6 +10,8 @@
 
 This document describes how we safely allow multiple AI agent containers to work on the same git repositories simultaneously, without risking cross-contamination or unauthorized access.
 
+**Scope:** This ADR focuses on **agent isolation** (gateway-managed worktrees for sandbox containers). The orchestrator also uses git worktrees for pipeline state persistence, but that is a separate concern managed independently. See [Orchestrator Architecture](../../architecture/orchestrator.md#pipeline-state-persistence) for details on orchestrator state storage.
+
 **The core security guarantee**: An AI agent can only see and modify its own isolated workspace. It cannot access other agents' work, cannot directly push to remote repositories, and cannot see credentials. All git operations that touch the network or affect shared state go through a trusted gateway that enforces access policies.
 
 **Key properties:**

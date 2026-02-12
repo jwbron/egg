@@ -12,6 +12,32 @@ The orchestrator manages SDLC pipeline execution, container lifecycle, and agent
 - Human-in-the-loop (HITL) decision handling
 - Completion signaling and handoff management
 
+## Pipeline State Persistence
+
+The orchestrator persists pipeline state using a dedicated git worktree on an orphan branch.
+
+**Architecture:**
+- All pipeline state is stored in `.egg-state/pipelines/{id}.json` files
+- Files live on the `egg/pipeline-state` orphan branch (never merged to main)
+- Accessed via a persistent git worktree at `/home/egg/.egg-state/pipeline-worktree`
+- State branch is local-only (not pushed to remote)
+- Persistence relies on the Docker state volume (`/home/egg/.egg-state`)
+
+**Key properties:**
+- Read/write operations go directly to the worktree directory on disk
+- Commits are made in-place and stay on the state branch
+- Survives orchestrator restarts by reading from git
+- Distinct from checkpoints, which are pushed to remote for cross-container access
+
+**Worktree lifecycle:**
+- Created lazily on first state access
+- Validated on each access (repairs stale/broken worktrees)
+- Cleaned up via `git worktree prune` on startup
+
+This differs from agent worktrees (managed by the gateway for agent isolation). The orchestrator manages its own state worktree independently.
+
+See `orchestrator/state_store.py` for implementation details.
+
 ## Deployment Modes
 
 egg supports three deployment modes, each suited to different use cases:
