@@ -306,17 +306,36 @@ This field can only be modified by role 'reviewer'.
 
 ## Implementation Workflow
 
+### Keeping Branches Up-to-Date
+
+The SDLC pipeline automatically merges the latest main branch into the issue branch before starting work in each phase. This prevents agents from working on stale code that conflicts with recent changes.
+
+**Merge Process:**
+
+1. **Check if merge needed** — The pipeline uses `git merge-base --is-ancestor` to check if main has commits not in the issue branch
+2. **Perform merge** — If needed, merges `origin/main` into the issue branch with `--no-edit`
+3. **Push merge commit** — Pushes the merge commit so reviewers and subsequent steps see an up-to-date branch
+4. **Automatic conflict resolution** — If merge conflicts occur:
+   - Aborts the conflicted merge
+   - Looks up the PR number for the branch
+   - Triggers the `on-merge-conflict.yml` workflow
+   - Waits for conflict resolution to complete
+   - Pulls the resolved changes and continues
+   - Fails if no PR exists (required for `workflow_dispatch` targeting) or conflict resolution fails
+
+This ensures agents always work with the latest codebase and conflicts are resolved before work begins, not at PR finalization time.
+
 ### Implement and PR-Based Review
 
 The implement phase uses PR-based automated code review:
 
-1. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
-2. **Draft PR created** — After implementation succeeds, a draft PR is created automatically with commit messages in the description
-3. **CI and review checks** — The pipeline waits for all GitHub check runs (linting, tests, and PR review) to complete
-4. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
-5. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
-6. **Merge conflict check** — Before finalization, the pipeline checks if the PR has conflicts with the base branch. If conflicts exist, the PR remains as draft and the pipeline exits; conflicts must be resolved and the pipeline re-run
-7. **PR finalization** — Once all checks pass, review approves, and no merge conflicts exist, the draft PR is marked ready for human merge
+1. **Main branch merge** — Before starting work, merges latest main into the issue branch (see above)
+2. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
+3. **Draft PR created** — After implementation succeeds, a draft PR is created automatically with commit messages in the description
+4. **CI and review checks** — The pipeline waits for all GitHub check runs (linting, tests, and PR review) to complete
+5. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
+6. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
+7. **PR finalization** — Once all checks pass and review approves, the draft PR is marked ready for human merge
 8. **Issue closure** — When the PR is merged, the original issue is automatically closed (the PR body includes `Closes #<issue>`)
 
 This approach provides:
@@ -324,6 +343,7 @@ This approach provides:
 - Integration with existing PR review workflows
 - Human visibility into every implementation cycle
 - CI/test validation before review
+- Automatic resolution of merge conflicts before work begins
 
 ### Context Window Isolation
 
