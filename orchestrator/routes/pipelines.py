@@ -71,6 +71,19 @@ except ImportError:
     ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"
     ORCHESTRATOR_PORT = 9849
 
+try:
+    from egg_config.validators import validate_checks
+except ImportError:
+
+    def validate_checks(checks: list) -> list[dict[str, str]]:  # type: ignore[misc]
+        if not isinstance(checks, list):
+            return []
+        return [
+            {"name": str(c["name"]), "command": str(c["command"])}
+            for c in checks
+            if isinstance(c, dict) and "name" in c and "command" in c
+        ]
+
 pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
 
 
@@ -1428,44 +1441,88 @@ _REVIEWED_PHASES = {"refine", "plan", "implement"}
 _HITL_GATE_PHASES = {"refine", "plan"}
 
 
-def _build_checker_prompt(pipeline_id: str, pipeline_mode: str) -> str:
+def _build_checker_prompt(
+    pipeline_id: str,
+    pipeline_mode: str,
+    repo: str | None = None,
+    repo_checks: list[dict] | None = None,
+) -> str:
     """Build a prompt for the checker agent that runs tests/lint.
 
     The checker discovers and runs project test/lint commands, then
     writes structured results to .egg-state/checks/implement-results.json.
+
+    Args:
+        pipeline_id: Pipeline identifier.
+        pipeline_mode: Pipeline mode (e.g. "local", "issue").
+        repo: Target repository in "owner/repo" format.
+        repo_checks: Pre-configured check commands from repositories.yaml.
     """
-    return (
-        "You are the **checker** for the SDLC pipeline implement phase.\n\n"
-        f"Pipeline ID: {pipeline_id}\n"
-        f"Mode: {pipeline_mode}\n\n"
-        "## Your Task\n\n"
-        "Discover and run all project test and lint commands, then write results.\n\n"
-        "1. **Discover commands**: Look for Makefile, pyproject.toml, package.json, "
-        "setup.cfg, tox.ini, or similar build/test configuration files\n"
-        "2. **Run tests**: Execute the project's test suite (pytest, jest, go test, etc.)\n"
-        "3. **Run linting**: Execute linters (ruff, eslint, golangci-lint, etc.)\n"
-        "4. **Write results**: Create `.egg-state/checks/implement-results.json` with:\n\n"
-        "```json\n"
-        "{\n"
-        '  "all_passed": true/false,\n'
-        '  "checks": [\n'
-        '    {"name": "pytest", "passed": true/false, "output": "summary of output"},\n'
-        '    {"name": "lint", "passed": true/false, "output": "summary of output"}\n'
-        "  ]\n"
-        "}\n"
-        "```\n\n"
-        "5. Commit the results file\n\n"
-        "## Important\n\n"
-        "- Always exit 0 regardless of check results (results are informational)\n"
-        "- Write the results file even if all checks pass\n"
-        "- If you cannot find any test/lint commands, write all_passed: true\n"
+    lines = [
+        "You are the **checker** for the SDLC pipeline implement phase.\n",
+        f"Pipeline ID: {pipeline_id}",
+        f"Mode: {pipeline_mode}",
+    ]
+    if repo:
+        repo_name = repo.split("/")[-1]
+        lines.append(f"Repository: {repo}")
+        lines.append(f"Working directory: ~/repos/{repo_name}")
+    lines.append("")
+
+    lines.append("## Your Task\n")
+
+    if repo_checks:
+        # Use explicitly configured check commands
+        lines.append("Run the following check commands in order, then write results.\n")
+        if repo:
+            repo_name = repo.split("/")[-1]
+            lines.append(f"First, `cd ~/repos/{repo_name}`.\n")
+        for i, check in enumerate(repo_checks, 1):
+            lines.append(f"{i}. **{check['name']}**: `{check['command']}`")
+        lines.append("")
+    else:
+        # Fall back to discovery mode
+        lines.append("Discover and run all project test and lint commands, then write results.\n")
+        if repo:
+            repo_name = repo.split("/")[-1]
+            lines.append(f"Work in the `~/repos/{repo_name}` directory.\n")
+        lines.extend(
+            [
+                "1. **Discover commands**: Look for Makefile, pyproject.toml, package.json, "
+                "setup.cfg, tox.ini, or similar build/test configuration files",
+                "2. **Run tests**: Execute the project's test suite (pytest, jest, go test, etc.)",
+                "3. **Run linting**: Execute linters (ruff, eslint, golangci-lint, etc.)",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "After running checks, **write results** to `.egg-state/checks/implement-results.json`:\n",
+            "```json",
+            "{",
+            '  "all_passed": true/false,',
+            '  "checks": [',
+            '    {"name": "pytest", "passed": true/false, "output": "summary of output"},',
+            '    {"name": "lint", "passed": true/false, "output": "summary of output"}',
+            "  ]",
+            "}",
+            "```\n",
+            "Then commit the results file.\n",
+            "## Important\n",
+            "- Always exit 0 regardless of check results (results are informational)",
+            "- Write the results file even if all checks pass",
+            "- If you cannot find any test/lint commands, write all_passed: true",
+        ]
     )
+    return "\n".join(lines)
 
 
 def _build_autofix_prompt(
     pipeline_id: str,
     pipeline_mode: str,
     check_results: dict,
+    repo: str | None = None,
 ) -> str:
     """Build a prompt for the autofixer agent.
 
@@ -1481,30 +1538,48 @@ def _build_autofix_prompt(
 
     failure_summary = "\n".join(failures) if failures else "No specific failures recorded."
 
-    return (
-        "You are the **autofixer** for the SDLC pipeline implement phase.\n\n"
-        f"Pipeline ID: {pipeline_id}\n"
-        f"Mode: {pipeline_mode}\n\n"
-        "## Check Failures\n\n"
-        f"{failure_summary}\n\n"
-        "## Your Task\n\n"
-        "**Fix ALL auto-fixable issues in a single pass.**\n\n"
-        "1. **Read the check results** at `.egg-state/checks/implement-results.json`\n"
-        "2. **Investigate all failures**: Examine test output, lint errors, etc.\n"
-        "3. **Fix without committing yet**: For each auto-fixable issue "
-        "(lint errors, formatting, simple type errors, obvious test fixes), make the fix\n"
-        "4. **Verify locally**: Run the same checks again to confirm fixes work\n"
-        "5. **Commit all fixes together** with a descriptive message\n\n"
-        "## Auto-fixable vs Report-only\n\n"
-        "**Auto-fixable (commit fixes directly):**\n"
-        "- Lint errors (formatting, import order, code style)\n"
-        "- Type errors with clear fixes\n"
-        "- Simple test failures with obvious fixes\n\n"
-        "**Report only (note in commit message):**\n"
-        "- Complex logic errors requiring design decisions\n"
-        "- Security issues requiring architectural changes\n"
-        "- Test failures from unclear requirements\n"
+    lines = [
+        "You are the **autofixer** for the SDLC pipeline implement phase.\n",
+        f"Pipeline ID: {pipeline_id}",
+        f"Mode: {pipeline_mode}",
+    ]
+    if repo:
+        repo_name = repo.split("/")[-1]
+        lines.append(f"Repository: {repo}")
+        lines.append(f"Working directory: ~/repos/{repo_name}")
+    lines.extend(
+        [
+            "",
+            "## Check Failures\n",
+            failure_summary,
+            "",
+            "## Your Task\n",
+            "**Fix ALL auto-fixable issues in a single pass.**\n",
+        ]
     )
+    if repo:
+        repo_name = repo.split("/")[-1]
+        lines.append(f"Work in the `~/repos/{repo_name}` directory.\n")
+    lines.extend(
+        [
+            "1. **Read the check results** at `.egg-state/checks/implement-results.json`",
+            "2. **Investigate all failures**: Examine test output, lint errors, etc.",
+            "3. **Fix without committing yet**: For each auto-fixable issue "
+            "(lint errors, formatting, simple type errors, obvious test fixes), make the fix",
+            "4. **Verify locally**: Run the same checks again to confirm fixes work",
+            "5. **Commit all fixes together** with a descriptive message\n",
+            "## Auto-fixable vs Report-only\n",
+            "**Auto-fixable (commit fixes directly):**",
+            "- Lint errors (formatting, import order, code style)",
+            "- Type errors with clear fixes",
+            "- Simple test failures with obvious fixes\n",
+            "**Report only (note in commit message):**",
+            "- Complex logic errors requiring design decisions",
+            "- Security issues requiring architectural changes",
+            "- Test failures from unclear requirements",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _read_check_results(repo_path: Path) -> dict | None:
@@ -1956,6 +2031,21 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                 # 2. Checker + autofix loop (implement phase only)
                 if current_phase.value == "implement":
+                    # Look up configured check commands for this repo
+                    repo_checks: list[dict] | None = None
+                    if pipeline.repo:
+                        try:
+                            all_repo_checks = json.loads(os.environ.get("EGG_REPO_CHECKS", "{}"))
+                        except json.JSONDecodeError:
+                            all_repo_checks = {}
+                        # Case-insensitive lookup
+                        repo_lower = pipeline.repo.lower()
+                        for cfg_repo, cfg_checks in all_repo_checks.items():
+                            if cfg_repo.lower() == repo_lower:
+                                if isinstance(cfg_checks, list):
+                                    repo_checks = validate_checks(cfg_checks) or None
+                                break
+
                     max_autofix = 3
                     for autofix_attempt in range(max_autofix):
                         logger.info(
@@ -1964,7 +2054,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             autofix_attempt=autofix_attempt + 1,
                         )
 
-                        checker_prompt = _build_checker_prompt(pipeline_id, pipeline_mode)
+                        checker_prompt = _build_checker_prompt(
+                            pipeline_id,
+                            pipeline_mode,
+                            repo=pipeline.repo,
+                            repo_checks=repo_checks,
+                        )
                         checker_command = [
                             "claude",
                             "--dangerously-skip-permissions",
@@ -2030,7 +2125,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         )
 
                         autofix_prompt = _build_autofix_prompt(
-                            pipeline_id, pipeline_mode, check_results
+                            pipeline_id,
+                            pipeline_mode,
+                            check_results,
+                            repo=pipeline.repo,
                         )
                         autofix_command = [
                             "claude",
