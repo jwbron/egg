@@ -5,7 +5,7 @@
   "branch": "egg/issue-530",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -18,21 +18,21 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-02-13T17:52:05.770842",
-      "completed_at": null,
+      "completed_at": "2026-02-13T17:52:05.948040",
       "containers": [],
       "agents": [],
       "review_cycles": 0,
       "artifacts": {},
-      "error": null
+      "error": "Failed to spawn container: Failed to create container: 409 Client Error for http+docker://localhost/v1.52/containers/create?name=egg-sandbox-egg-issue-530-coder: Conflict (\"Conflict. The container name \"/egg-sandbox-egg-issue-530-coder\" is already in use by container \"0c235d82494100a4087bf8ec95db3bdd7b59a32f5237d3f91b763e256ab49a78\". You have to remove (or rename) that container to be able to reuse that name.\")"
     }
   },
   "decisions": [],
   "created_at": "2026-02-13T17:51:59.896056",
-  "updated_at": "2026-02-13T17:52:05.770899",
+  "updated_at": "2026-02-13T17:52:05.948220",
   "contract_synced": true,
   "sdlc_token_gated": false,
-  "error": null,
-  "version": 5
+  "error": "Failed to spawn container: Failed to create container: 409 Client Error for http+docker://localhost/v1.52/containers/create?name=egg-sandbox-egg-issue-530-coder: Conflict (\"Conflict. The container name \"/egg-sandbox-egg-issue-530-coder\" is already in use by container \"0c235d82494100a4087bf8ec95db3bdd7b59a32f5237d3f91b763e256ab49a78\". You have to remove (or rename) that container to be able to reuse that name.\")",
+  "version": 6
 }
