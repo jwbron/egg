@@ -7,6 +7,10 @@ compact dashboard showing all active pipelines with real-time updates.
 
 Runs on the host (outside the sandbox container).
 
+In streaming mode (default), the connection is not automatically re-established
+if it drops (network blip, orchestrator restart, timeout). Use --once for a
+single snapshot, or wrap in a process manager / watch loop for persistence.
+
 Usage:
     egg-status [--port PORT] [--ascii] [--once] [--all] [--verbose]
 
@@ -206,6 +210,7 @@ def watch_all_pipelines(
     if params:
         path += "?" + "&".join(params)
 
+    conn = None
     try:
         conn = HTTPConnection(host, port, timeout=60)
         conn.request(
@@ -281,10 +286,11 @@ def watch_all_pipelines(
         _write(f"{RED}Connection error: {e}{RESET}\n", file=sys.stderr)
         return 1
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     return 0
 

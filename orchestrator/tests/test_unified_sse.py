@@ -203,41 +203,61 @@ class TestUnifiedSSEManager:
         manager.unsubscribe_from_events()
         assert manager._subscribed is False
 
-    def test_enrichment_with_visualization(self):
-        """Test that events are enriched with compact status when available."""
+    def test_handle_event_lightweight_payload(self):
+        """Test that _handle_event produces lightweight payloads without enrichment.
+
+        Enrichment (compact, progress, etc.) is deferred to the stream
+        generator where per-client settings like use_ascii are known.
+        """
         bus = EventBus()
         manager = UnifiedSSEManager(event_bus=bus)
         manager.subscribe_to_events()
 
         q = manager.add_client()
-        pipeline = create_test_pipeline()
 
-        with patch("unified_sse._resolve_repo_path") as mock_path, \
-             patch("unified_sse.get_state_store") as mock_store, \
-             patch("unified_sse.render_compact_status") as mock_compact, \
-             patch("unified_sse.render_progress_bar") as mock_progress:
-            mock_path.return_value = Path("/tmp/test")
-            store_instance = MagicMock()
-            store_instance.load_pipeline.return_value = pipeline
-            mock_store.return_value = store_instance
-            mock_compact.return_value = "COMPACT STATUS"
-            mock_progress.return_value = "[####] 50%"
-
-            event = Event(
-                event_type=EventType.PHASE_STARTED,
-                pipeline_id="test-123",
-                data={},
-            )
-            bus.publish(event)
+        event = Event(
+            event_type=EventType.PHASE_STARTED,
+            pipeline_id="test-123",
+            data={"phase": "plan"},
+        )
+        bus.publish(event)
 
         payload = q.get_nowait()
-        assert payload["compact"] == "COMPACT STATUS"
-        assert payload["progress"] == "[####] 50%"
-        assert payload["status"] == "running"
-        assert payload["current_phase"] == "implement"
+        assert payload["event_type"] == "phase.started"
+        assert payload["pipeline_id"] == "test-123"
+        assert payload["data"] == {"phase": "plan"}
+        # Enrichment fields should NOT be present - they're added by the stream generator
+        assert "compact" not in payload
+        assert "progress" not in payload
 
         manager.unsubscribe_from_events()
         manager.remove_client(q)
+
+    def test_handle_event_copies_payload_per_client(self):
+        """Test that each client gets an independent copy of the payload dict."""
+        bus = EventBus()
+        manager = UnifiedSSEManager(event_bus=bus)
+        manager.subscribe_to_events()
+
+        q1 = manager.add_client()
+        q2 = manager.add_client()
+
+        event = Event(
+            event_type=EventType.PHASE_STARTED,
+            pipeline_id="test-123",
+            data={},
+        )
+        bus.publish(event)
+
+        p1 = q1.get_nowait()
+        p2 = q2.get_nowait()
+        # Payloads should be equal but not the same object
+        assert p1 == p2
+        assert p1 is not p2
+
+        manager.unsubscribe_from_events()
+        manager.remove_client(q1)
+        manager.remove_client(q2)
 
 
 class TestCreateUnifiedSSEStream:
@@ -512,6 +532,101 @@ class TestCreateUnifiedSSEStream:
             assert entry["branch"] == "egg/fix-bug"
             assert entry["compact"] == "[>Implement] -> oPR"
             assert entry["progress"] == "[####----] 50%"
+
+
+    def test_stream_enriches_events_with_visualization(self):
+        """Test that the stream generator enriches events with compact/progress."""
+        pipeline = create_test_pipeline("p-1")
+
+        with patch("unified_sse.get_unified_sse_manager") as mock_mgr, \
+             patch("unified_sse._resolve_repo_path") as mock_path, \
+             patch("unified_sse.get_state_store") as mock_store, \
+             patch("unified_sse.render_compact_status") as mock_compact, \
+             patch("unified_sse.render_progress_bar") as mock_progress:
+
+            mock_q = Queue()
+            mock_manager = MagicMock()
+            mock_manager.add_client.return_value = mock_q
+            mock_mgr.return_value = mock_manager
+            mock_path.return_value = None
+
+            store_instance = MagicMock()
+            store_instance.load_pipeline.return_value = pipeline
+            mock_store.return_value = store_instance
+            mock_compact.return_value = "COMPACT"
+            mock_progress.return_value = "[##] 50%"
+
+            # Queue an event payload (as _handle_event would produce)
+            mock_q.put({
+                "event_type": "phase.started",
+                "pipeline_id": "p-1",
+                "is_terminal": False,
+                "timestamp": "2026-01-01T00:00:00Z",
+                "data": {},
+            })
+
+            gen = create_unified_sse_stream(
+                repo_path=Path("/tmp/test"), use_ascii=True
+            )
+            # Get snapshot
+            next(gen)
+            # Get the enriched event
+            event_str = next(gen)
+            gen.close()
+
+            assert "phase.started" in event_str
+            # Verify enrichment functions were called with use_ascii
+            mock_compact.assert_called()
+            _, kwargs = mock_compact.call_args
+            assert kwargs.get("use_ascii") is True
+            mock_progress.assert_called()
+
+    def test_stream_enriches_full_dag_in_single_load(self):
+        """Test that full_dag enrichment uses a single state store load."""
+        pipeline = create_test_pipeline("p-1")
+
+        with patch("unified_sse.get_unified_sse_manager") as mock_mgr, \
+             patch("unified_sse._resolve_repo_path") as mock_path, \
+             patch("unified_sse.get_state_store") as mock_store, \
+             patch("unified_sse.render_compact_status") as mock_compact, \
+             patch("unified_sse.render_progress_bar") as mock_progress, \
+             patch("unified_sse.render_pipeline_dag") as mock_dag:
+
+            mock_q = Queue()
+            mock_manager = MagicMock()
+            mock_manager.add_client.return_value = mock_q
+            mock_mgr.return_value = mock_manager
+            mock_path.return_value = None
+
+            store_instance = MagicMock()
+            store_instance.load_pipeline.return_value = pipeline
+            mock_store.return_value = store_instance
+            mock_compact.return_value = "COMPACT"
+            mock_progress.return_value = "[##] 50%"
+            mock_dag.return_value = "PLAN -> IMPLEMENT -> TEST"
+
+            # Queue an event payload
+            mock_q.put({
+                "event_type": "phase.started",
+                "pipeline_id": "p-1",
+                "is_terminal": False,
+                "timestamp": "2026-01-01T00:00:00Z",
+                "data": {},
+            })
+
+            gen = create_unified_sse_stream(
+                repo_path=Path("/tmp/test"), full_dag=True
+            )
+            # Get snapshot
+            next(gen)
+            # Get the enriched event
+            event_str = next(gen)
+            gen.close()
+
+            assert "PLAN -> IMPLEMENT -> TEST" in event_str
+            # Should only load pipeline once (not twice)
+            assert store_instance.load_pipeline.call_count == 1
+            mock_dag.assert_called_once()
 
 
 class TestGetUnifiedSSEManager:

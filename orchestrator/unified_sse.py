@@ -30,12 +30,11 @@ except ImportError:
 
 
 from dag_visualizer import (
-    generate_status_report,
     render_compact_status,
     render_pipeline_dag,
     render_progress_bar,
 )
-from events import Event, EventBus, EventType, get_event_bus
+from events import Event, EventBus, get_event_bus
 from models import Pipeline, PipelineStatus
 from sse import (
     HEARTBEAT_INTERVAL,
@@ -45,6 +44,11 @@ from sse import (
     format_sse_event,
 )
 from state_store import get_state_store
+
+try:
+    from routes.pipelines import _collect_all_pipelines
+except ImportError:
+    _collect_all_pipelines = None  # type: ignore[assignment,misc]
 
 logger = get_logger("orchestrator.unified_sse")
 
@@ -99,7 +103,12 @@ class UnifiedSSEManager:
         logger.info("Unified SSE client disconnected", remaining_clients=remaining)
 
     def _handle_event(self, event: Event) -> None:
-        """Handle an event from EventBus and fan out to all unified clients."""
+        """Handle an event from EventBus and fan out to all unified clients.
+
+        Builds a lightweight payload without state store I/O. Enrichment
+        (compact status, progress bar, DAG) is deferred to the per-client
+        stream generator where client preferences (use_ascii) are known.
+        """
         with self._lock:
             clients = list(self._clients)
 
@@ -116,26 +125,9 @@ class UnifiedSSEManager:
             "is_terminal": is_terminal,
         }
 
-        # Try to enrich with visualization from state store
-        try:
-            repo_path = _resolve_repo_path()
-            if repo_path:
-                store = get_state_store(repo_path)
-                pipeline = store.load_pipeline(event.pipeline_id)
-                payload["status"] = pipeline.status.value
-                payload["current_phase"] = pipeline.current_phase.value
-                payload["compact"] = render_compact_status(pipeline)
-                payload["progress"] = render_progress_bar(pipeline)
-        except Exception:
-            logger.debug(
-                "Failed to enrich unified SSE event",
-                pipeline_id=event.pipeline_id,
-                exc_info=True,
-            )
-
         for q in clients:
             try:
-                q.put_nowait(payload)
+                q.put_nowait(dict(payload))
             except Full:
                 logger.warning(
                     "Unified SSE client queue full, dropping event",
@@ -174,33 +166,23 @@ def _resolve_repo_path() -> Path | None:
 
 
 def _collect_all_pipelines_safe(repo_path: Path) -> list[Pipeline]:
-    """Collect all pipelines, suppressing errors for individual loads."""
-    pipelines: list[Pipeline] = []
+    """Collect all pipelines, suppressing errors gracefully.
 
-    # Check base path
-    if (repo_path / ".egg-state" / "pipelines").exists():
-        store = get_state_store(repo_path)
-        for pid in store.list_pipelines():
-            try:
-                pipelines.append(store.load_pipeline(pid))
-            except Exception:
-                continue
-
-    # Check repo subdirectories if base_path is not a git repo
-    if not (repo_path / ".git").exists():
-        for child in sorted(repo_path.iterdir()):
-            if child.is_dir() and (child / ".git").exists():
-                try:
-                    store = get_state_store(child)
-                    for pid in store.list_pipelines():
-                        try:
-                            pipelines.append(store.load_pipeline(pid))
-                        except Exception:
-                            continue
-                except Exception:
-                    continue
-
-    return pipelines
+    Delegates to routes.pipelines._collect_all_pipelines and catches any
+    unexpected exceptions so the SSE stream remains stable.
+    """
+    if _collect_all_pipelines is None:
+        logger.warning("_collect_all_pipelines not available (import failed)")
+        return []
+    try:
+        return _collect_all_pipelines(repo_path)
+    except Exception:
+        logger.warning(
+            "Failed to collect pipelines for unified SSE",
+            repo_path=str(repo_path),
+            exc_info=True,
+        )
+        return []
 
 
 def create_unified_sse_stream(
@@ -303,19 +285,35 @@ def create_unified_sse_stream(
             try:
                 payload = q.get(timeout=HEARTBEAT_INTERVAL)
 
-                # Enrich with compact/dag if requested and not already present
-                if full_dag and "dag" not in payload:
-                    try:
-                        if repo_path:
-                            store = get_state_store(repo_path)
-                            pipeline = store.load_pipeline(
-                                payload["pipeline_id"]
-                            )
+                # Enrich with visualization from state store.
+                # Done here (not in _handle_event) so we can respect
+                # per-client use_ascii and avoid I/O on the EventBus thread.
+                # TODO: Consider caching pipeline state briefly (1-2s) to
+                # avoid hitting the store on every event under heavy load.
+                try:
+                    if repo_path:
+                        store = get_state_store(repo_path)
+                        pipeline = store.load_pipeline(
+                            payload["pipeline_id"]
+                        )
+                        payload["status"] = pipeline.status.value
+                        payload["current_phase"] = pipeline.current_phase.value
+                        payload["compact"] = render_compact_status(
+                            pipeline, use_ascii=use_ascii
+                        )
+                        payload["progress"] = render_progress_bar(
+                            pipeline, use_ascii=use_ascii
+                        )
+                        if full_dag:
                             payload["dag"] = render_pipeline_dag(
                                 pipeline, use_ascii=use_ascii
                             )
-                    except Exception:
-                        pass
+                except Exception:
+                    logger.debug(
+                        "Failed to enrich unified SSE event",
+                        pipeline_id=payload.get("pipeline_id"),
+                        exc_info=True,
+                    )
 
                 yield format_sse_event(
                     payload,
