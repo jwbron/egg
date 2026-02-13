@@ -17,11 +17,11 @@ Options:
 import argparse
 import json
 import os
+import re
 import signal
 import sys
 from http.client import HTTPConnection
 from urllib.parse import urlparse
-
 
 # ANSI escape codes
 CLEAR_SCREEN = "\033[2J"
@@ -34,14 +34,27 @@ RED = "\033[31m"
 YELLOW = "\033[33m"
 CYAN = "\033[36m"
 
+# Whether stdout is a real terminal (vs piped/captured by Claude Code)
+IS_TTY = sys.stdout.isatty()
+
+# Regex to strip ANSI escape sequences
+_ANSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
+
 
 def get_orchestrator_url() -> str:
     """Get the orchestrator base URL from environment."""
     return os.environ.get("EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849")
 
 
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from text."""
+    return _ANSI_RE.sub("", text)
+
+
 def clear_and_home() -> None:
-    """Move cursor to top-left and clear screen."""
+    """Move cursor to top-left and clear screen (TTY only)."""
+    if not IS_TTY:
+        return
     sys.stdout.write(MOVE_HOME + CLEAR_SCREEN)
     sys.stdout.flush()
 
@@ -86,9 +99,13 @@ def render_event_info(data: dict) -> str:
     return "\n".join(lines)
 
 
+# Track last rendered content for deduplication in non-TTY mode
+_last_rendered: str | None = None
+
+
 def display_visualization(data: dict, compact: bool = False) -> None:
     """Display the DAG visualization with in-place update."""
-    clear_and_home()
+    global _last_rendered
 
     pipeline_id = data.get("pipeline_id", "unknown")
     event_type = data.get("event_type", "")
@@ -108,11 +125,31 @@ def display_visualization(data: dict, compact: bool = False) -> None:
 
     output += render_event_info(data)
 
-    # Footer
-    output += f"\n\n{DIM}Press Ctrl+C to stop watching{RESET}\n"
+    if IS_TTY:
+        # Interactive terminal: clear and redraw in-place
+        clear_and_home()
+        output += f"\n\n{DIM}Press Ctrl+C to stop watching{RESET}\n"
+        sys.stdout.write(output)
+        sys.stdout.flush()
+    else:
+        # Non-TTY (e.g., Claude Code bash tool): sequential frames,
+        # deduplicated to avoid flooding the output buffer.
+        plain = strip_ansi(output)
+        if plain == _last_rendered:
+            return
+        _last_rendered = plain
+        # Print a separator then the frame without ANSI codes
+        sys.stdout.write("---\n" + plain + "\n")
+        sys.stdout.flush()
 
-    sys.stdout.write(output)
-    sys.stdout.flush()
+
+def _write(text: str, file=None) -> None:
+    """Write text, stripping ANSI codes if not a TTY."""
+    file = file or sys.stdout
+    if not file.isatty():
+        text = strip_ansi(text)
+    file.write(text)
+    file.flush()
 
 
 def display_done(data: dict) -> None:
@@ -126,14 +163,13 @@ def display_done(data: dict) -> None:
         "timeout": f"{YELLOW}Connection timed out. Re-run to reconnect.{RESET}",
     }
     msg = reason_messages.get(reason, f"Stream ended: {reason}")
-    sys.stdout.write(f"\n{msg}\n")
-    sys.stdout.flush()
+    _write(f"\n{msg}\n")
 
 
 def display_error(data: dict) -> None:
     """Display an error message."""
     error = data.get("error", "Unknown error")
-    sys.stderr.write(f"{RED}Error: {error}{RESET}\n")
+    _write(f"{RED}Error: {error}{RESET}\n", file=sys.stderr)
 
 
 def parse_sse_stream(response):
@@ -218,7 +254,7 @@ def watch_pipeline(
                 msg = err.get("message", body)
             except json.JSONDecodeError:
                 msg = body
-            sys.stderr.write(f"{RED}Error ({response.status}): {msg}{RESET}\n")
+            _write(f"{RED}Error ({response.status}): {msg}{RESET}\n", file=sys.stderr)
             return 1
 
         for event_type, data in parse_sse_stream(response):
@@ -237,16 +273,17 @@ def watch_pipeline(
                 return 0
 
     except KeyboardInterrupt:
-        sys.stdout.write(f"\n{DIM}Stopped watching.{RESET}\n")
+        _write(f"\n{DIM}Stopped watching.{RESET}\n")
         return 0
     except ConnectionRefusedError:
-        sys.stderr.write(
+        _write(
             f"{RED}Cannot connect to orchestrator at {base_url}\n"
-            f"Is the orchestrator running?{RESET}\n"
+            f"Is the orchestrator running?{RESET}\n",
+            file=sys.stderr,
         )
         return 1
     except Exception as e:
-        sys.stderr.write(f"{RED}Connection error: {e}{RESET}\n")
+        _write(f"{RED}Connection error: {e}{RESET}\n", file=sys.stderr)
         return 1
     finally:
         try:
