@@ -11,10 +11,11 @@ import sys
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
 from queue import Empty, Full, Queue
-from typing import Any, Generator
+from typing import Any
 
 # Add shared directory to path
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -32,7 +33,6 @@ except ImportError:
 
 from dag_visualizer import generate_status_report, render_pipeline_dag
 from events import Event, EventBus, EventType, get_event_bus
-from models import Pipeline
 from state_store import PipelineNotFoundError, get_state_store
 
 logger = get_logger("orchestrator.sse")
@@ -303,6 +303,7 @@ def create_sse_stream(
     if repo_path is None:
         try:
             from routes import get_repo_path
+
             repo_path = get_repo_path()
         except Exception:
             pass
@@ -371,9 +372,7 @@ def create_sse_stream(
 
             except Empty:
                 # No events — send heartbeat to keep connection alive
-                yield format_sse_comment(
-                    f"heartbeat {datetime.utcnow().isoformat()}Z"
-                )
+                yield format_sse_comment(f"heartbeat {datetime.utcnow().isoformat()}Z")
 
     finally:
         manager.remove_client(pipeline_id, q)

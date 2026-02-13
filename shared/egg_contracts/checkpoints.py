@@ -149,9 +149,7 @@ class Checkpoint(BaseModel):
         description="Git commit SHA this checkpoint is associated with",
     )
     session: SessionMetadata = Field(..., description="Session metadata")
-    transcript: Transcript | None = Field(
-        default=None, description="The conversation transcript"
-    )
+    transcript: Transcript | None = Field(default=None, description="The conversation transcript")
     files_touched: list[FileOperation] = Field(
         default_factory=list, description="Files that were read, created, or edited"
     )
@@ -172,9 +170,7 @@ class Checkpoint(BaseModel):
         pattern=r"^[a-f0-9]{7,40}$",
         description="The tip commit SHA of the push",
     )
-    pr_number: int | None = Field(
-        default=None, ge=1, description="GitHub PR number if associated"
-    )
+    pr_number: int | None = Field(default=None, ge=1, description="GitHub PR number if associated")
 
     @field_validator("pipeline_phase")
     @classmethod

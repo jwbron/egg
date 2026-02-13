@@ -156,9 +156,7 @@ def save_checkpoint(checkpoint: Checkpoint, path: Path) -> None:
         json_str = json.dumps(data, indent=2, sort_keys=True)
 
         # Write to temp file in same directory (for atomic rename)
-        fd, temp_path = tempfile.mkstemp(
-            suffix=".tmp", prefix=".checkpoint_", dir=path.parent
-        )
+        fd, temp_path = tempfile.mkstemp(suffix=".tmp", prefix=".checkpoint_", dir=path.parent)
         try:
             with os.fdopen(fd, "w") as f:
                 f.write(json_str)
@@ -340,9 +338,8 @@ def load_checkpoint_by_commit(
         for checkpoint_file in subdir.glob("ckpt-*.json"):
             try:
                 checkpoint = load_checkpoint(checkpoint_file)
-                if (
-                    checkpoint.commit_sha == commit_sha
-                    or commit_sha.startswith(checkpoint.commit_sha[:7])
+                if checkpoint.commit_sha == commit_sha or commit_sha.startswith(
+                    checkpoint.commit_sha[:7]
                 ):
                     return checkpoint
             except CheckpointLoadError:

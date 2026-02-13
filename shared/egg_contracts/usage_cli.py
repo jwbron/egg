@@ -538,9 +538,7 @@ def create_parser() -> argparse.ArgumentParser:
     backfill_parser.add_argument(
         "--issue", type=int, help="Associated issue number (helps find checkpoints)"
     )
-    backfill_parser.add_argument(
-        "--branch", help="Branch name (helps find checkpoints)"
-    )
+    backfill_parser.add_argument("--branch", help="Branch name (helps find checkpoints)")
     backfill_parser.set_defaults(func=cmd_backfill_pr)
 
     return parser

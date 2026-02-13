@@ -3,8 +3,6 @@ Tests for SSE streaming module.
 """
 
 import json
-import threading
-import time
 from pathlib import Path
 from queue import Queue
 from unittest.mock import MagicMock, patch
@@ -89,7 +87,7 @@ class TestFormatSSEEvent:
         """Test that data dict is properly JSON encoded."""
         result = format_sse_event({"nested": {"a": [1, 2]}})
         lines = result.strip().split("\n")
-        data_line = [l for l in lines if l.startswith("data: ")][0]
+        data_line = [line for line in lines if line.startswith("data: ")][0]
         json_str = data_line[6:]
         parsed = json.loads(json_str)
         assert parsed == {"nested": {"a": [1, 2]}}
@@ -243,8 +241,10 @@ class TestSSEClientManager:
 
         q = manager.add_client("test-123")
 
-        with patch("sse.get_state_store") as mock_store, \
-             patch("sse.render_pipeline_dag") as mock_dag:
+        with (
+            patch("sse.get_state_store") as mock_store,
+            patch("sse.render_pipeline_dag") as mock_dag,
+        ):
             store_instance = MagicMock()
             store_instance.load_pipeline.return_value = pipeline
             mock_store.return_value = store_instance
@@ -276,9 +276,11 @@ class TestSSEClientManager:
 
         q = manager.add_client("test-123")
 
-        with patch("sse.get_state_store") as mock_store, \
-             patch("sse.render_pipeline_dag") as mock_dag, \
-             patch.dict("os.environ", {"EGG_REPO_PATH": "/tmp/test-env-repo"}):
+        with (
+            patch("sse.get_state_store") as mock_store,
+            patch("sse.render_pipeline_dag") as mock_dag,
+            patch.dict("os.environ", {"EGG_REPO_PATH": "/tmp/test-env-repo"}),
+        ):
             store_instance = MagicMock()
             store_instance.load_pipeline.return_value = pipeline
             mock_store.return_value = store_instance
@@ -307,11 +309,12 @@ class TestCreateSSEStream:
         pipeline = create_test_pipeline(status=PipelineStatus.COMPLETE)
         tmp_dir = Path("/tmp/test-sse-stream")
 
-        with patch("sse.get_sse_manager") as mock_mgr, \
-             patch("sse.get_state_store") as mock_store, \
-             patch("sse.render_pipeline_dag") as mock_dag, \
-             patch("sse.generate_status_report") as mock_report:
-
+        with (
+            patch("sse.get_sse_manager") as mock_mgr,
+            patch("sse.get_state_store") as mock_store,
+            patch("sse.render_pipeline_dag") as mock_dag,
+            patch("sse.generate_status_report") as mock_report,
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -339,9 +342,7 @@ class TestCreateSSEStream:
 
         tmp_dir = Path("/tmp/test-sse-notfound")
 
-        with patch("sse.get_sse_manager") as mock_mgr, \
-             patch("sse.get_state_store") as mock_store:
-
+        with patch("sse.get_sse_manager") as mock_mgr, patch("sse.get_state_store") as mock_store:
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -363,11 +364,12 @@ class TestCreateSSEStream:
         pipeline = create_test_pipeline()
         tmp_dir = Path("/tmp/test-sse-cleanup")
 
-        with patch("sse.get_sse_manager") as mock_mgr, \
-             patch("sse.get_state_store") as mock_store, \
-             patch("sse.render_pipeline_dag") as mock_dag, \
-             patch("sse.generate_status_report") as mock_report:
-
+        with (
+            patch("sse.get_sse_manager") as mock_mgr,
+            patch("sse.get_state_store") as mock_store,
+            patch("sse.render_pipeline_dag") as mock_dag,
+            patch("sse.generate_status_report") as mock_report,
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -391,11 +393,12 @@ class TestCreateSSEStream:
         pipeline = create_test_pipeline()
         tmp_dir = Path("/tmp/test-sse-snapshot")
 
-        with patch("sse.get_sse_manager") as mock_mgr, \
-             patch("sse.get_state_store") as mock_store, \
-             patch("sse.render_pipeline_dag") as mock_dag, \
-             patch("sse.generate_status_report") as mock_report:
-
+        with (
+            patch("sse.get_sse_manager") as mock_mgr,
+            patch("sse.get_state_store") as mock_store,
+            patch("sse.render_pipeline_dag") as mock_dag,
+            patch("sse.generate_status_report") as mock_report,
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -424,11 +427,12 @@ class TestCreateSSEStream:
         pipeline = create_test_pipeline()
         tmp_dir = Path("/tmp/test-sse-terminal")
 
-        with patch("sse.get_sse_manager") as mock_mgr, \
-             patch("sse.get_state_store") as mock_store, \
-             patch("sse.render_pipeline_dag") as mock_dag, \
-             patch("sse.generate_status_report") as mock_report:
-
+        with (
+            patch("sse.get_sse_manager") as mock_mgr,
+            patch("sse.get_state_store") as mock_store,
+            patch("sse.render_pipeline_dag") as mock_dag,
+            patch("sse.generate_status_report") as mock_report,
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -461,7 +465,6 @@ class TestCreateSSEStream:
     def test_no_initial_snapshot(self):
         """Test stream without initial snapshot."""
         with patch("sse.get_sse_manager") as mock_mgr:
-
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q

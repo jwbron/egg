@@ -986,8 +986,7 @@ class TestReviewCycleEdgeCases:
             # At least one reviewed phase should have processed the mixed verdict
             reviewed_phases = ["refine", "plan", "implement"]
             any_reviewed = any(
-                phases.get(p, {}).get("status") == "complete"
-                for p in reviewed_phases
+                phases.get(p, {}).get("status") == "complete" for p in reviewed_phases
             )
             assert any_reviewed, "At least one reviewed phase should have completed"
 
@@ -1037,9 +1036,7 @@ class TestReviewCycleEdgeCases:
                 if phase_name in phases:
                     # review_cycles should not exceed 0 (circuit breaker fired immediately)
                     cycles = phases[phase_name].get("review_cycles", 0)
-                    assert cycles <= 1, (
-                        f"Phase {phase_name} had {cycles} review cycles with max=0"
-                    )
+                    assert cycles <= 1, f"Phase {phase_name} had {cycles} review cycles with max=0"
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
@@ -1084,9 +1081,7 @@ class TestReviewCycleEdgeCases:
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
 
-    def test_reviewer_verdict_files_isolated_per_pipeline(
-        self, local_pipeline_stack
-    ) -> None:
+    def test_reviewer_verdict_files_isolated_per_pipeline(self, local_pipeline_stack) -> None:
         """Concurrent pipelines have distinct verdict file paths.
 
         Verifies that reviewer verdict files are properly namespaced by
@@ -1152,9 +1147,7 @@ class TestReviewCycleEdgeCases:
             delete_pipeline(orchestrator_url, pipeline_id_1)
             delete_pipeline(orchestrator_url, pipeline_id_2)
 
-    def test_pipeline_completes_despite_all_reviewers_reject(
-        self, orchestrator_url: str
-    ) -> None:
+    def test_pipeline_completes_despite_all_reviewers_reject(self, orchestrator_url: str) -> None:
         """Pipeline completes via circuit breaker when all reviewers reject.
 
         This test verifies graceful degradation: even if all reviewers

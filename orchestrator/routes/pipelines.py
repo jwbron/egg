@@ -84,6 +84,7 @@ except ImportError:
             if isinstance(c, dict) and "name" in c and "command" in c
         ]
 
+
 pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
 
 
@@ -2233,9 +2234,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase_execution = pipeline.get_phase_execution(current_phase)
                         review_cycle = phase_execution.review_cycles
 
-                        reviewer_types = _PHASE_REVIEWERS.get(
-                            current_phase.value, ["unified"]
-                        )
+                        reviewer_types = _PHASE_REVIEWERS.get(current_phase.value, ["unified"])
 
                         # Delete stale verdict files
                         for rtype in reviewer_types:
@@ -2331,7 +2330,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pass
 
             # Only enter the single-agent path if multi-agent was not used or fell back
-            if not (pipeline.config.multi_agent and current_phase.value in _multi_agent_phases and not phase_failed):
+            if not (
+                pipeline.config.multi_agent
+                and current_phase.value in _multi_agent_phases
+                and not phase_failed
+            ):
                 pass  # Fall through to single-agent path below
             elif not phase_failed:
                 # Multi-agent succeeded, skip to phase completion
@@ -2361,7 +2364,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline.issue_number,
                         pipeline_id,
                     )
-                    phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
+                    phase_label = (
+                        "analysis" if current_phase.value == "refine" else current_phase.value
+                    )
                     question = (
                         f"The {current_phase.value} phase has completed. "
                         f"Please review the {phase_label} and approve to continue."

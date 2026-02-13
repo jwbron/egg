@@ -533,7 +533,6 @@ class TestFindWorktreeGitDir:
             "The fix ensures gitdir content must include /.git suffix to match."
         )
 
-
     def test_original_bug_comparison_without_git_suffix(self, tmp_path):
         """Demonstrate why comparing against worktree_path (not worktree_path/.git) was wrong.
 
@@ -576,9 +575,7 @@ class TestFindWorktreeGitDir:
 
         # NEW (fixed) comparison: gitdir_content == str(worktree_path / ".git")
         new_fixed_comparison = gitdir_content == str(pipeline_wt / ".git")
-        assert new_fixed_comparison, (
-            "New comparison SHOULD match (both have /.git suffix)"
-        )
+        assert new_fixed_comparison, "New comparison SHOULD match (both have /.git suffix)"
 
         # Verify the actual function returns the correct admin dir
         result = manager._find_worktree_git_dir(main_repo, pipeline_wt)

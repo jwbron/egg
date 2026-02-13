@@ -81,7 +81,10 @@ class TestTranscriptBuffer:
 
         for i in range(3):
             buffer.write_api_turn(
-                request_body={"model": "claude", "messages": [{"role": "user", "content": f"Message {i}"}]},
+                request_body={
+                    "model": "claude",
+                    "messages": [{"role": "user", "content": f"Message {i}"}],
+                },
                 response_content=[{"type": "text", "text": f"Response {i}"}],
                 response_usage={"input_tokens": 100 + i, "output_tokens": 50 + i},
                 streaming=False,
@@ -119,8 +122,18 @@ class TestTranscriptBuffer:
                 "model": "claude",
                 "messages": [],
                 "tools": [
-                    {"name": "Bash", "type": "function", "description": "Run bash commands", "input_schema": {}},
-                    {"name": "Read", "type": "function", "description": "Read files", "input_schema": {}},
+                    {
+                        "name": "Bash",
+                        "type": "function",
+                        "description": "Run bash commands",
+                        "input_schema": {},
+                    },
+                    {
+                        "name": "Read",
+                        "type": "function",
+                        "description": "Read files",
+                        "input_schema": {},
+                    },
                 ],
             },
             response_content=None,
@@ -217,7 +230,10 @@ class TestBufferRotation:
         # Write entries until we exceed the limit
         for i in range(20):
             buffer.write_api_turn(
-                request_body={"model": "claude", "messages": [{"role": "user", "content": f"Message {i} with padding"}]},
+                request_body={
+                    "model": "claude",
+                    "messages": [{"role": "user", "content": f"Message {i} with padding"}],
+                },
                 response_content=[{"type": "text", "text": f"Response {i} with some padding text"}],
                 response_usage={"input_tokens": 100, "output_tokens": 50},
                 streaming=False,
@@ -241,7 +257,10 @@ class TestBufferRotation:
         # Write entries with identifiable content
         for i in range(10):
             buffer.write_api_turn(
-                request_body={"model": "claude", "messages": [{"role": "user", "content": f"Message-{i}"}]},
+                request_body={
+                    "model": "claude",
+                    "messages": [{"role": "user", "content": f"Message-{i}"}],
+                },
                 response_content=[{"type": "text", "text": f"Response-{i}"}],
                 response_usage={"input_tokens": i},
                 streaming=False,
@@ -270,7 +289,10 @@ class TestConcurrency:
         def writer(thread_id):
             for i in range(writes_per_thread):
                 success = buffer.write_api_turn(
-                    request_body={"model": "claude", "messages": [{"role": "user", "content": f"Thread-{thread_id}-{i}"}]},
+                    request_body={
+                        "model": "claude",
+                        "messages": [{"role": "user", "content": f"Thread-{thread_id}-{i}"}],
+                    },
                     response_content=[{"type": "text", "text": f"Response-{thread_id}-{i}"}],
                     response_usage={"thread": thread_id, "write": i},
                     streaming=False,

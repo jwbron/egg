@@ -165,11 +165,13 @@ class TestSignalResponse:
 
     def test_from_dict_success(self):
         """Test parsing successful response."""
-        response = SignalResponse.from_dict({
-            "success": True,
-            "message": "Signal received",
-            "data": {"id": 123},
-        })
+        response = SignalResponse.from_dict(
+            {
+                "success": True,
+                "message": "Signal received",
+                "data": {"id": 123},
+            }
+        )
 
         assert response.success is True
         assert response.message == "Signal received"
@@ -235,6 +237,7 @@ class TestGetOrchestratorClientSingleton:
         """Test that singleton returns the same instance."""
         # Reset the global client first
         import egg_orchestrator.client as client_module
+
         client_module._orchestrator_client = None
 
         monkeypatch.setenv("EGG_ORCHESTRATOR_URL", "http://test:8080")
@@ -272,11 +275,13 @@ class TestOrchestratorClientSignalMethods:
 
     def test_signal_complete_success(self, client, mock_urlopen):
         """Test signal_complete sends correct HTTP request."""
-        mock_urlopen.return_value = self._create_mock_response({
-            "success": True,
-            "message": "Signal received",
-            "data": {"signal_id": 123},
-        })
+        mock_urlopen.return_value = self._create_mock_response(
+            {
+                "success": True,
+                "message": "Signal received",
+                "data": {"signal_id": 123},
+            }
+        )
 
         response = client.signal_complete(
             pipeline_id="issue-456",
@@ -302,10 +307,12 @@ class TestOrchestratorClientSignalMethods:
 
     def test_signal_error_success(self, client, mock_urlopen):
         """Test signal_error sends correct HTTP request."""
-        mock_urlopen.return_value = self._create_mock_response({
-            "success": True,
-            "message": "Error signal received",
-        })
+        mock_urlopen.return_value = self._create_mock_response(
+            {
+                "success": True,
+                "message": "Error signal received",
+            }
+        )
 
         response = client.signal_error(
             pipeline_id="issue-789",
@@ -328,10 +335,12 @@ class TestOrchestratorClientSignalMethods:
 
     def test_signal_progress_success(self, client, mock_urlopen):
         """Test signal_progress sends correct HTTP request."""
-        mock_urlopen.return_value = self._create_mock_response({
-            "success": True,
-            "message": "Progress updated",
-        })
+        mock_urlopen.return_value = self._create_mock_response(
+            {
+                "success": True,
+                "message": "Progress updated",
+            }
+        )
 
         response = client.signal_progress(
             pipeline_id="issue-100",
@@ -354,10 +363,12 @@ class TestOrchestratorClientSignalMethods:
 
     def test_signal_heartbeat_success(self, client, mock_urlopen):
         """Test signal_heartbeat sends correct HTTP request."""
-        mock_urlopen.return_value = self._create_mock_response({
-            "success": True,
-            "message": "Heartbeat received",
-        })
+        mock_urlopen.return_value = self._create_mock_response(
+            {
+                "success": True,
+                "message": "Heartbeat received",
+            }
+        )
 
         response = client.signal_heartbeat(
             pipeline_id="issue-200",
@@ -381,10 +392,12 @@ class TestOrchestratorClientSignalMethods:
         from egg_orchestrator.client import OrchestratorError
 
         error_response = MagicMock()
-        error_response.read.return_value = json.dumps({
-            "message": "Pipeline not found",
-            "details": {"pipeline_id": "invalid"},
-        }).encode()
+        error_response.read.return_value = json.dumps(
+            {
+                "message": "Pipeline not found",
+                "details": {"pipeline_id": "invalid"},
+            }
+        ).encode()
 
         mock_urlopen.side_effect = HTTPError(
             url="http://test",

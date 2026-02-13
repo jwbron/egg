@@ -1,6 +1,5 @@
 """Tests for the sensitive data redactor."""
 
-
 from egg_contracts.redactor import (
     REDACTED_PLACEHOLDER,
     Redactor,

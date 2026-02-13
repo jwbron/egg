@@ -112,10 +112,12 @@ def github_webhook() -> tuple[Response, int]:
     signature = request.headers.get("X-Hub-Signature-256")
 
     if not event_type:
-        return jsonify({
-            "success": False,
-            "message": "Missing X-GitHub-Event header",
-        }), 400
+        return jsonify(
+            {
+                "success": False,
+                "message": "Missing X-GitHub-Event header",
+            }
+        ), 400
 
     # Verify signature if secret is configured
     webhook_secret = os.environ.get("GITHUB_WEBHOOK_SECRET")
@@ -126,19 +128,23 @@ def github_webhook() -> tuple[Response, int]:
                 event_type=event_type,
                 delivery_id=delivery_id,
             )
-            return jsonify({
-                "success": False,
-                "message": "Invalid signature",
-            }), 401
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "Invalid signature",
+                }
+            ), 401
 
     # Parse payload
     try:
         payload = request.get_json()
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": f"Invalid JSON: {e}",
-        }), 400
+        return jsonify(
+            {
+                "success": False,
+                "message": f"Invalid JSON: {e}",
+            }
+        ), 400
 
     logger.info(
         "GitHub webhook received",
@@ -151,11 +157,13 @@ def github_webhook() -> tuple[Response, int]:
     try:
         result = handle_github_event(event_type, payload)
 
-        return jsonify({
-            "success": True,
-            "message": "Webhook processed",
-            "data": result,
-        }), 200
+        return jsonify(
+            {
+                "success": True,
+                "message": "Webhook processed",
+                "data": result,
+            }
+        ), 200
 
     except Exception as e:
         logger.error(
@@ -163,10 +171,12 @@ def github_webhook() -> tuple[Response, int]:
             event_type=event_type,
             error=str(e),
         )
-        return jsonify({
-            "success": False,
-            "message": f"Processing error: {e}",
-        }), 500
+        return jsonify(
+            {
+                "success": False,
+                "message": f"Processing error: {e}",
+            }
+        ), 500
 
 
 def handle_github_event(
@@ -317,20 +327,24 @@ def manual_trigger() -> tuple[Response, int]:
     """
     data = request.get_json()
     if not data:
-        return jsonify({
-            "success": False,
-            "message": "Missing request body",
-        }), 400
+        return jsonify(
+            {
+                "success": False,
+                "message": "Missing request body",
+            }
+        ), 400
 
     event = data.get("event")
     issue_number = data.get("issue_number")
     repo = data.get("repo")
 
     if not event:
-        return jsonify({
-            "success": False,
-            "message": "Missing event type",
-        }), 400
+        return jsonify(
+            {
+                "success": False,
+                "message": "Missing event type",
+            }
+        ), 400
 
     logger.info(
         "Manual trigger received",
@@ -360,17 +374,21 @@ def manual_trigger() -> tuple[Response, int]:
         )
         result["handled"] = True
 
-    return jsonify({
-        "success": True,
-        "message": "Trigger processed",
-        "data": result,
-    }), 200
+    return jsonify(
+        {
+            "success": True,
+            "message": "Trigger processed",
+            "data": result,
+        }
+    ), 200
 
 
 @webhooks_bp.route("/health", methods=["GET"])
 def webhook_health() -> tuple[Response, int]:
     """Webhook endpoint health check."""
-    return jsonify({
-        "status": "healthy",
-        "registered_handlers": list(_webhook_handlers.keys()),
-    }), 200
+    return jsonify(
+        {
+            "status": "healthy",
+            "registered_handlers": list(_webhook_handlers.keys()),
+        }
+    ), 200

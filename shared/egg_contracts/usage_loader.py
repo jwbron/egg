@@ -111,9 +111,7 @@ def _atomic_write(path: Path, data: dict) -> None:
         json_str = json.dumps(data, indent=2, sort_keys=True, default=str)
 
         # Write to temp file in same directory (for atomic rename)
-        fd, temp_path = tempfile.mkstemp(
-            suffix=".tmp", prefix=".usage_", dir=path.parent
-        )
+        fd, temp_path = tempfile.mkstemp(suffix=".tmp", prefix=".usage_", dir=path.parent)
         try:
             with os.fdopen(fd, "w") as f:
                 f.write(json_str)
@@ -432,7 +430,9 @@ def update_usage_from_checkpoint(
                 break
             except (UsageLoadError, UsageSaveError) as e:
                 if attempt == retry_attempts - 1:
-                    logger.error(f"Failed to update issue usage after {retry_attempts} attempts: {e}")
+                    logger.error(
+                        f"Failed to update issue usage after {retry_attempts} attempts: {e}"
+                    )
                     raise
                 time.sleep(RETRY_DELAY_SECONDS * (attempt + 1))
 

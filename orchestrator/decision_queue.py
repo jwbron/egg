@@ -185,10 +185,7 @@ class DecisionQueue:
         """
         with self._lock:
             pipeline = self._load_pipeline()
-            return [
-                d for d in pipeline.decisions
-                if d.status == DecisionStatus.PENDING
-            ]
+            return [d for d in pipeline.decisions if d.status == DecisionStatus.PENDING]
 
     def get_decision(self, decision_id: str) -> HITLDecision:
         """Get a specific decision.
@@ -306,9 +303,7 @@ class DecisionQueue:
                 if decision.status != DecisionStatus.PENDING:
                     continue
 
-                timeout_at = decision.created_at + timedelta(
-                    seconds=decision.timeout_seconds
-                )
+                timeout_at = decision.created_at + timedelta(seconds=decision.timeout_seconds)
                 if now > timeout_at:
                     decision.status = DecisionStatus.TIMEOUT
                     decision.resolved_at = now
@@ -359,9 +354,7 @@ class DecisionQueue:
             if decision.status == DecisionStatus.RESOLVED:
                 return decision
             elif decision.status in (DecisionStatus.TIMEOUT, DecisionStatus.CANCELLED):
-                raise DecisionTimeoutError(
-                    f"Decision {decision_id} was {decision.status.value}"
-                )
+                raise DecisionTimeoutError(f"Decision {decision_id} was {decision.status.value}")
 
             time.sleep(poll_interval)
 

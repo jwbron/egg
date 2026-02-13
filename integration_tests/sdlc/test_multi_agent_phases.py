@@ -157,9 +157,7 @@ class TestReviewerRoles:
         from egg_contracts.agent_roles import REVIEWER_UNIFIED_ROLE
 
         assert not REVIEWER_UNIFIED_ROLE.file_access.can_write("src/main.py")
-        assert REVIEWER_UNIFIED_ROLE.file_access.can_write(
-            ".egg-state/agent-outputs/review.json"
-        )
+        assert REVIEWER_UNIFIED_ROLE.file_access.can_write(".egg-state/agent-outputs/review.json")
 
 
 class TestPlanPhaseDependencyGraph:
@@ -242,9 +240,7 @@ class TestFileConflictDetection:
 
     def test_plan_roles_overlap_on_drafts(self):
         """TASK_PLANNER and RISK_ANALYST share .egg-state/drafts/ writes."""
-        overlaps = detect_write_overlaps(
-            [AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST]
-        )
+        overlaps = detect_write_overlaps([AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST])
         assert len(overlaps) == 1
         role1, role2, patterns = overlaps[0]
         assert ".egg-state/drafts/" in patterns

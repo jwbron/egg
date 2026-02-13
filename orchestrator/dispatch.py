@@ -131,10 +131,7 @@ class PipelineDispatcher:
             List of AgentRole values
         """
         decision = self.get_next_dispatch()
-        return [
-            map_contract_role_to_agent_role(role)
-            for role in decision.agents_to_run
-        ]
+        return [map_contract_role_to_agent_role(role) for role in decision.agents_to_run]
 
     def is_complete(self) -> bool:
         """Check if all agents have completed.
