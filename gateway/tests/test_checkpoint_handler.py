@@ -1,17 +1,15 @@
-"""Tests for checkpoint_handler module - per-commit checkpoint creation."""
+"""Tests for checkpoint_handler module - per-commit and session-end checkpoint creation."""
 
 import subprocess
-from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch, call
-
-import pytest
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, patch
 
 # Import from conftest-loaded modules
 from checkpoint_handler import (
+    capture_session_end_checkpoint,
     get_commits_in_push,
-    capture_and_store_checkpoints_for_push,
-    CheckpointHandler,
 )
+from session_manager import Session, _hash_token
 
 
 class TestGetCommitsInPush:
@@ -400,3 +398,253 @@ class TestCaptureAndStoreCheckpointsForPush:
         # Only second commit's checkpoint should be returned
         assert len(checkpoints) == 1
         assert checkpoints[0].commit_sha == commit2
+
+
+def _make_test_session(
+    container_id="test-container",
+    agent_role="coder",
+    phase="implement",
+    issue_number=530,
+    pr_number=42,
+):
+    """Create a test Session for checkpoint tests."""
+    now = datetime.now(UTC)
+    return Session(
+        session_token="test-token",
+        session_token_hash=_hash_token("test-token"),
+        container_id=container_id,
+        container_ip="172.18.0.5",
+        mode="private",
+        created_at=now - timedelta(hours=1),
+        last_seen=now,
+        expires_at=now + timedelta(hours=23),
+        agent_role=agent_role,
+        phase=phase,
+        issue_number=issue_number,
+        pr_number=pr_number,
+    )
+
+
+class TestCaptureSessionEndCheckpoint:
+    """Tests for capture_session_end_checkpoint function."""
+
+    def test_returns_none_when_disabled(self):
+        """Returns (None, None) when checkpoints are disabled."""
+        import checkpoint_handler
+
+        original = checkpoint_handler.CHECKPOINT_ENABLED
+        checkpoint_handler.CHECKPOINT_ENABLED = False
+
+        try:
+            from egg_contracts.checkpoints import SessionStatus
+
+            session = _make_test_session()
+            result = capture_session_end_checkpoint(
+                session=session,
+                session_status=SessionStatus.COMPLETED,
+            )
+            assert result == (None, None)
+        finally:
+            checkpoint_handler.CHECKPOINT_ENABLED = original
+
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_completed_session_creates_checkpoint(self, mock_get_handler):
+        """Session-end with COMPLETED status creates a checkpoint."""
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            SessionStatus,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        mock_handler = MagicMock()
+        mock_handler.capture_session_end_checkpoint.return_value = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.COMPLETED,
+            session_id="test-container",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+        mock_handler.store_checkpoint_v2.return_value = True
+        mock_get_handler.return_value = mock_handler
+
+        session = _make_test_session()
+        checkpoint, event = capture_session_end_checkpoint(
+            session=session,
+            session_status=SessionStatus.COMPLETED,
+            repo_path="/home/egg/repos/test-repo",
+            async_store=False,
+        )
+
+        assert checkpoint is not None
+        assert checkpoint.trigger_type == TriggerType.SESSION_END
+        assert checkpoint.session_status == SessionStatus.COMPLETED
+        assert event is None  # sync store
+
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_expired_session_creates_checkpoint(self, mock_get_handler):
+        """Session-end with EXPIRED status creates a checkpoint."""
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            SessionStatus,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        mock_handler = MagicMock()
+        mock_handler.capture_session_end_checkpoint.return_value = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.EXPIRED,
+            session_id="test-container",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+        mock_get_handler.return_value = mock_handler
+
+        session = _make_test_session()
+        checkpoint, event = capture_session_end_checkpoint(
+            session=session,
+            session_status=SessionStatus.EXPIRED,
+            repo_path="/home/egg/repos/test-repo",
+            async_store=False,
+        )
+
+        assert checkpoint is not None
+        assert checkpoint.session_status == SessionStatus.EXPIRED
+
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_failed_session_creates_checkpoint(self, mock_get_handler):
+        """Session-end with FAILED status creates a checkpoint."""
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            SessionStatus,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        mock_handler = MagicMock()
+        mock_handler.capture_session_end_checkpoint.return_value = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.FAILED,
+            session_id="test-container",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+        mock_get_handler.return_value = mock_handler
+
+        session = _make_test_session()
+        checkpoint, event = capture_session_end_checkpoint(
+            session=session,
+            session_status=SessionStatus.FAILED,
+            repo_path="/home/egg/repos/test-repo",
+            async_store=False,
+        )
+
+        assert checkpoint is not None
+        assert checkpoint.session_status == SessionStatus.FAILED
+
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_async_store_returns_completion_event(self, mock_get_handler):
+        """Async store returns a completion event that is eventually set."""
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            SessionStatus,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        mock_handler = MagicMock()
+        mock_handler.capture_session_end_checkpoint.return_value = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.COMPLETED,
+            session_id="test-container",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+        mock_handler.store_checkpoint_v2.return_value = True
+        mock_get_handler.return_value = mock_handler
+
+        session = _make_test_session()
+        checkpoint, event = capture_session_end_checkpoint(
+            session=session,
+            session_status=SessionStatus.COMPLETED,
+            repo_path="/home/egg/repos/test-repo",
+            async_store=True,
+        )
+
+        assert checkpoint is not None
+        assert event is not None
+        # Wait for async storage to complete
+        event.wait(timeout=5)
+        assert event.is_set()
+        mock_handler.store_checkpoint_v2.assert_called_once()
+
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_capture_failure_returns_none(self, mock_get_handler):
+        """Returns (None, None) when handler fails to capture."""
+        from egg_contracts.checkpoints import SessionStatus
+
+        mock_handler = MagicMock()
+        mock_handler.capture_session_end_checkpoint.return_value = None
+        mock_get_handler.return_value = mock_handler
+
+        session = _make_test_session()
+        checkpoint, event = capture_session_end_checkpoint(
+            session=session,
+            session_status=SessionStatus.COMPLETED,
+        )
+
+        assert checkpoint is None
+        assert event is None
+
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_no_repo_path_returns_checkpoint_without_event(self, mock_get_handler):
+        """When no repo_path is available, returns checkpoint but no event."""
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            SessionStatus,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        mock_handler = MagicMock()
+        mock_handler.capture_session_end_checkpoint.return_value = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.COMPLETED,
+            session_id="test-container",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+        mock_get_handler.return_value = mock_handler
+
+        session = _make_test_session()
+
+        # Patch Path to make repos dir not exist
+        with patch("checkpoint_handler.Path") as mock_path:
+            mock_repos_base = MagicMock()
+            mock_repos_base.exists.return_value = False
+            mock_path.return_value = mock_repos_base
+
+            checkpoint, event = capture_session_end_checkpoint(
+                session=session,
+                session_status=SessionStatus.COMPLETED,
+                repo_path=None,
+            )
+
+            assert checkpoint is not None
+            assert event is None
