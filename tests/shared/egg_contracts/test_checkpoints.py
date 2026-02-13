@@ -1,12 +1,20 @@
 """Tests for checkpoint models and utilities."""
 
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-import tempfile
-import json
 
 import pytest
-
+from egg_contracts.checkpoint_loader import (
+    CheckpointLoadError,
+    add_checkpoint_to_index,
+    generate_checkpoint_id,
+    generate_checkpoint_id_from_commit,
+    get_checkpoint_path,
+    list_checkpoints,
+    load_checkpoint,
+    save_checkpoint,
+)
 from egg_contracts.checkpoints import (
     Checkpoint,
     CheckpointIndex,
@@ -19,19 +27,6 @@ from egg_contracts.checkpoints import (
     TokenUsage,
     ToolCall,
     Transcript,
-)
-from egg_contracts.checkpoint_loader import (
-    CheckpointLoadError,
-    CheckpointSaveError,
-    generate_checkpoint_id,
-    generate_checkpoint_id_from_commit,
-    get_checkpoint_filename,
-    get_checkpoint_path,
-    load_checkpoint,
-    save_checkpoint,
-    add_checkpoint_to_index,
-    load_checkpoint_index,
-    list_checkpoints,
 )
 
 

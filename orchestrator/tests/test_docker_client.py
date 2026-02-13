@@ -9,12 +9,9 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from docker_client import (
     ContainerNotFoundError,
-    ContainerOperationError,
     DockerClient,
-    DockerClientError,
     ImageNotFoundError,
     InvalidContainerIdError,
     _validate_container_id,
@@ -76,7 +73,6 @@ class TestContainerCreation:
 
     def test_create_container_image_not_found(self, docker_client, mock_docker):
         """Test create fails when image not found."""
-        from docker.errors import ImageNotFound
 
         mock_docker.images.get.return_value = None
 

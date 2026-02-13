@@ -29,7 +29,6 @@ import threading
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
-
 from typing import Any, ClassVar
 
 from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT

@@ -27,14 +27,16 @@ except ImportError:
 
 from egg_contracts.agent_roles import (
     AgentRole as ContractAgentRole,
+)
+from egg_contracts.agent_roles import (
     get_role_definition,
 )
 from egg_contracts.orchestrator import (
-    collect_handoff_data as contract_collect_handoff,
     load_agent_output,
+)
+from egg_contracts.orchestrator import (
     save_agent_output as contract_save_output,
 )
-
 from models import AgentExecution, AgentExecutionStatus, AgentRole
 
 logger = get_logger("orchestrator.handoffs")
