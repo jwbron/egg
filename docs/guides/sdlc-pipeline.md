@@ -149,6 +149,11 @@ Returns a Server-Sent Events (SSE) stream for real-time pipeline updates.
 - `phase.*`: Phase transition events (started, completed, failed)
 - `agent.*`: Agent lifecycle events (started, completed, failed, timeout)
 - `decision.*`: HITL decision events (created, resolved, timeout)
+- `container.*`: Container lifecycle events (spawned, stopped, removed) — *planned; not yet emitted via SSE*
+- `done`: Stream ending (pipeline terminal state or timeout)
+- `error`: Error occurred
+
+Each event includes the current visualization data and pipeline status. The stream automatically closes when the pipeline reaches a terminal state or after 1 hour.
 
 **4. Unified Streaming (All Pipelines)**: `GET /api/v1/pipelines/stream`
 
@@ -162,14 +167,9 @@ Returns a Server-Sent Events (SSE) stream for real-time updates across all activ
 **Event types**:
 - `snapshot`: Initial state of all active pipelines
 - `pipeline.*`, `phase.*`, `agent.*`, `decision.*`: Events for individual pipelines
-- `done`: Stream is ending (timeout after 5 minutes)
+- `done`: Stream is ending (timeout after 1 hour)
 
 **CLI tool**: Use `egg-status` to monitor all pipelines in a live dashboard. Runs on the host and connects to the orchestrator's unified stream endpoint.
-- `container.*`: Container lifecycle events (spawned, stopped, removed) — *planned; not yet emitted via SSE*
-- `done`: Stream ending (pipeline terminal state or timeout)
-- `error`: Error occurred
-
-Each event includes the current visualization data and pipeline status. The stream automatically closes when the pipeline reaches a terminal state or after 1 hour.
 
 **Example JSON response** (`format=full`):
 ```json
