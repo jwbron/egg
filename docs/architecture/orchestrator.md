@@ -179,6 +179,8 @@ Fixed IPs:
 **Orchestrator (`/api/v1/`)**
 - `GET /health` - Health check
 - `GET/POST /pipelines` - Pipeline CRUD
+- `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII)
+- `GET /pipelines/{id}/stream` - Real-time SSE stream for pipeline events and visualization
 - `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error)
 - `GET /pipelines/{id}/decisions` - HITL decision queue
 
