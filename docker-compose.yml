@@ -129,6 +129,8 @@ services:
       - state:/home/egg/.egg-state
       # Docker socket for container management
       - /var/run/docker.sock:/var/run/docker.sock
+      # Worktrees directory (read container-written artifacts: verdicts, drafts, checks)
+      - ${HOST_HOME:-/home/egg}/.egg-worktrees:/home/egg/.egg-worktrees
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:9849/api/v1/health"]
       interval: 10s

@@ -562,11 +562,13 @@ handle_pr_review() {
         return 1
     fi
 
-    # Get PR head commit SHA for the marker via GitHub API
-    # (git rev-parse HEAD is unreliable in the container because .git is
-    # shadowed by tmpfs and the working directory may not be a repo)
-    local commit_sha=""
-    if [ -n "$pr_number" ] && [ -n "$repo" ]; then
+    # Get PR head commit SHA for the marker.
+    # Prefer EGG_COMMIT_SHA (set by the workflow to the SHA that was actually
+    # checked out and reviewed) over a live API query. A live query can race
+    # with commits pushed during the review, causing the marker to reference
+    # a commit whose code was never reviewed.
+    local commit_sha="${EGG_COMMIT_SHA:-}"
+    if [ -z "$commit_sha" ] && [ -n "$pr_number" ] && [ -n "$repo" ]; then
         local sha_payload
         sha_payload=$(python3 -c "
 import json

@@ -55,6 +55,10 @@ except ImportError:
 
 logger = get_logger("orchestrator.pipelines")
 
+# Base directory where the gateway creates per-pipeline worktrees.
+# Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
+WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
+
 # Network constants for sandbox container URLs
 try:
     from egg_config import (
@@ -385,33 +389,8 @@ def create_pipeline() -> tuple[Response, int]:
                 prompt=prompt,
             )
 
-            # Create companion contract — required for pipeline to function
-            from egg_contracts.loader import create_local_contract
-
-            try:
-                create_local_contract(
-                    pipeline_id=pipeline.id,
-                    title=prompt[:100],
-                    repo_root=repo_path,
-                )
-            except Exception as contract_err:
-                # Clean up the pipeline we just created
-                store.delete_pipeline(pipeline.id)
-                logger.error(
-                    "Failed to create contract for local pipeline",
-                    pipeline_id=pipeline.id,
-                    error=str(contract_err),
-                )
-                return make_error_response(
-                    f"Failed to create contract: {contract_err}",
-                    status_code=500,
-                )
-            pipeline.contract_synced = True
-            store.save_pipeline(pipeline, commit=False)
-            logger.info(
-                "Local pipeline contract created",
-                pipeline_id=pipeline.id,
-            )
+            # Contract creation is deferred to _run_pipeline so it writes
+            # into the per-pipeline worktree instead of the main repo.
 
             logger.info(
                 "Local pipeline created",
@@ -457,43 +436,14 @@ def create_pipeline() -> tuple[Response, int]:
             mode="issue",
         )
 
-        # Create companion contract — required for pipeline to function
-        from egg_contracts.loader import create_contract
-
-        issue_url = f"https://github.com/{repo}/issues/{issue_number}"
-        try:
-            create_contract(
-                issue_number=issue_number,
-                title=f"Issue #{issue_number}",
-                url=issue_url,
-                repo_root=repo_path,
-            )
-        except Exception as contract_err:
-            # Clean up the pipeline we just created
-            store.delete_pipeline(pipeline.id)
-            logger.error(
-                "Failed to create contract for issue pipeline",
-                pipeline_id=pipeline.id,
-                issue_number=issue_number,
-                error=str(contract_err),
-            )
-            return make_error_response(
-                f"Failed to create contract: {contract_err}",
-                status_code=500,
-            )
-        pipeline.contract_synced = True
+        # Contract creation is deferred to _run_pipeline so it writes
+        # into the per-pipeline worktree instead of the main repo.
 
         # Enable token gating if tokens were pre-generated for this pipeline
         if has_tokens_for_pipeline(pipeline.id):
             pipeline.sdlc_token_gated = True
+            store.save_pipeline(pipeline, commit=False)
             logger.info("Pipeline token-gated", pipeline_id=pipeline.id)
-
-        store.save_pipeline(pipeline, commit=False)
-        logger.info(
-            "Issue pipeline contract created",
-            pipeline_id=pipeline.id,
-            issue_number=issue_number,
-        )
 
         logger.info(
             "Pipeline created",
@@ -1730,6 +1680,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # containers in the pipeline share the same working trees.
         worktree_id = pipeline_id
         repo_volumes = dict(host_repo_map)  # fallback: raw host paths
+        worktree_repo_path = repo_path  # default; overridden when worktrees exist
         host_uid = int(os.environ.get("HOST_UID", 1000))
         host_gid = int(os.environ.get("HOST_GID", 1000))
         pipeline_repos = [pipeline.repo] if pipeline.repo else []
@@ -1750,6 +1701,27 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     # stripping the owner prefix from "owner/repo" format. This matches
                     # the container mount target at /home/egg/repos/<name>.
                     repo_volumes = wt_result.worktrees
+
+                    # Derive the orchestrator-accessible worktree path.
+                    # Reviewer containers write verdict/draft/check files into
+                    # the worktree, so the orchestrator must read from there.
+                    # Match against pipeline.repo explicitly to avoid picking
+                    # the wrong repo in multi-repo pipelines.
+                    repo_short = pipeline.repo.split("/")[-1] if pipeline.repo else None
+                    matched = False
+                    if repo_short and repo_short in wt_result.worktrees:
+                        candidate = WORKTREE_BASE_DIR / worktree_id / repo_short
+                        if candidate.exists():
+                            worktree_repo_path = candidate
+                            matched = True
+                    if not matched:
+                        # Fallback: take the first existing worktree path
+                        for name in wt_result.worktrees:
+                            candidate = WORKTREE_BASE_DIR / worktree_id / name
+                            if candidate.exists():
+                                worktree_repo_path = candidate
+                                break
+
                     logger.info(
                         "Worktrees created for pipeline",
                         pipeline_id=pipeline_id,
@@ -1789,6 +1761,46 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             certs_volume = "egg-certs"
         else:
             certs_volume = certs_volume_raw
+
+        # Create companion contract in the worktree (deferred from pipeline
+        # creation so it doesn't pollute the main repo working directory).
+        if not pipeline.contract_synced:
+            try:
+                if pipeline_mode == "local":
+                    from egg_contracts.loader import create_local_contract
+
+                    create_local_contract(
+                        pipeline_id=pipeline.id,
+                        title=(pipeline.prompt or "")[:100],
+                        repo_root=worktree_repo_path,
+                    )
+                else:
+                    from egg_contracts.loader import create_contract
+
+                    issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
+                    create_contract(
+                        issue_number=pipeline.issue_number,
+                        title=f"Issue #{pipeline.issue_number}",
+                        url=issue_url,
+                        repo_root=worktree_repo_path,
+                    )
+                pipeline.contract_synced = True
+                store.save_pipeline(pipeline, commit=False)
+                logger.info(
+                    "Pipeline contract created in worktree",
+                    pipeline_id=pipeline_id,
+                    mode=pipeline_mode,
+                )
+            except Exception as contract_err:
+                logger.error(
+                    "Failed to create contract in worktree",
+                    pipeline_id=pipeline_id,
+                    error=str(contract_err),
+                )
+                pipeline.status = PipelineStatus.FAILED
+                pipeline.error = f"Failed to create contract: {contract_err}"
+                store.save_pipeline(pipeline)
+                return
 
         while True:
             pipeline = store.load_pipeline(pipeline_id)
@@ -1992,7 +2004,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
                             break
 
-                        check_results = _read_check_results(repo_path)
+                        check_results = _read_check_results(worktree_repo_path)
                         if check_results is None or check_results.get("all_passed"):
                             logger.info(
                                 "All checks passed",
@@ -2072,7 +2084,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline.issue_number,
                         pipeline_id,
                     )
-                    verdict_path = repo_path / verdict_rel
+                    verdict_path = worktree_repo_path / verdict_rel
                     if verdict_path.exists():
                         try:
                             verdict_path.unlink()
@@ -2157,7 +2169,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                     # Read this reviewer's verdict
                     all_verdicts[reviewer_type] = _read_review_verdict(
-                        repo_path,
+                        worktree_repo_path,
                         current_phase.value,
                         reviewer_type=reviewer_type,
                         pipeline_mode=pipeline_mode,
@@ -2223,16 +2235,20 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 message=f"Phase {current_phase.value} completed",
             )
 
-            # After plan phase: populate contract with task structure
+            # After plan phase: populate contract with task structure.
+            # NOTE: worktree_repo_path is used for both draft reads and
+            # contract load/save inside _populate_contract_from_plan.
+            # The contract was created at worktree_repo_path above, so
+            # both operations must use the same path.
             if current_phase.value == "plan":
                 _populate_contract_from_plan(
-                    repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+                    worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
                 )
 
             # --- HITL gate: pause for human approval ---
             if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:
                 draft_content = _read_phase_draft(
-                    repo_path,
+                    worktree_repo_path,
                     current_phase.value,
                     pipeline_mode,
                     pipeline.issue_number,
