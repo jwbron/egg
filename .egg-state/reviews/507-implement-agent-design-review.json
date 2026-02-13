@@ -1,0 +1,7 @@
+{
+  "reviewer": "agent-design",
+  "verdict": "approved",
+  "summary": "No agent-mode design anti-patterns found. The implementation correctly delegates runtime work to the agent (file reading, diff inspection, PR creation) rather than pre-fetching content into the prompt. High-risk heuristics are pre-processing that inject conditional objectives, not post-processing of agent output. The prompt provides structured objectives with clear what-to-check guidance while leaving the agent discretion on how to act. No security constraints are enforced via prompt instructions alone.",
+  "feedback": "",
+  "timestamp": "2026-02-13T19:02:00Z"
+}

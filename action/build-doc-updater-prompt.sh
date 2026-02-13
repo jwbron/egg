@@ -117,6 +117,17 @@ find_related_docs() {
         grep -v -E '(docs/index\.md|docs/development/STRUCTURE\.md|docs/architecture/README\.md)$' | \
         sort -u || true)
 
+    # Also search root-level markdown files (README.md is excluded here
+    # because it gets explicit handling as a structural doc in step 3)
+    local root_md_results
+    root_md_results=$(grep -rl -i -E "$pattern" ./*.md 2>/dev/null | \
+        sed 's|^\./||' | \
+        grep -v -E '^README\.md$' | \
+        sort -u || true)
+
+    # Combine results from docs/ and root-level
+    results=$(printf '%s\n%s' "$results" "$root_md_results" | grep -v '^$' | sort -u)
+
     # Filter out docs that were changed in the same commit
     if [[ -n "$changed_docs" ]]; then
         local exclude_pattern
@@ -125,6 +136,76 @@ find_related_docs() {
     else
         echo "$results"
     fi
+}
+
+# ---------------------------------------------------------------------------
+# High-risk file detection heuristics
+# ---------------------------------------------------------------------------
+
+detect_high_risk_docs() {
+    local changed_files="$1"
+    local flags=""
+
+    if echo "$changed_files" | grep -qE 'sandbox/egg_lib/cli\.py'; then
+        flags+="README_CLI "
+    fi
+
+    if echo "$changed_files" | grep -qE '(gateway/phase_filter\.py|gateway/policy\.py|\.egg/phase-permissions\.json)'; then
+        flags+="README_ENFORCEMENT "
+    fi
+
+    if echo "$changed_files" | grep -qE '(docker-compose|bin/egg-deploy|sandbox/egg_lib/(compose|deploy))'; then
+        flags+="DEPLOYMENT_GUIDE "
+    fi
+
+    if echo "$changed_files" | grep -qE '(action/action\.yml|action/entrypoint\.sh)'; then
+        flags+="README_ACTION ACTION_README "
+    fi
+
+    if echo "$changed_files" | grep -qE '\.github/workflows/'; then
+        flags+="GITHUB_AUTOMATION "
+    fi
+
+    if echo "$changed_files" | grep -qE 'orchestrator/'; then
+        flags+="README_ORCHESTRATION "
+    fi
+
+    echo "$flags"
+}
+
+build_high_risk_instructions() {
+    local flags="$1"
+    local instructions=""
+
+    if [[ "$flags" == *"README_CLI"* ]]; then
+        instructions+="- **CLI Reference**: Compare argparse definitions in \`sandbox/egg_lib/cli.py\` against CLI Reference and Flags tables in \`README.md\`. Check for missing flags, changed descriptions, or reordered arguments.\n"
+    fi
+
+    if [[ "$flags" == *"README_ENFORCEMENT"* ]]; then
+        instructions+="- **Enforcement tables**: Compare \`gateway/phase_filter.py\` and \`.egg/phase-permissions.json\` against the \"What's Enforced\" and \"Phase Permissions\" tables in \`README.md\`.\n"
+    fi
+
+    if [[ "$flags" == *"DEPLOYMENT_GUIDE"* ]]; then
+        instructions+="- **Deployment guide**: Check \`docs/guides/deployment.md\` for consistency with README Quick Start and CLI Reference. Ensure deployment commands and options match.\n"
+    fi
+
+    if [[ "$flags" == *"README_ACTION"* ]]; then
+        instructions+="- **GitHub Action inputs**: Compare \`action/action.yml\` inputs against the GitHub Action section in \`README.md\`.\n"
+    fi
+
+    if [[ "$flags" == *"ACTION_README"* ]]; then
+        instructions+="- **Action README**: Check \`action/README.md\` for accuracy against \`action/action.yml\` and \`action/entrypoint.sh\`.\n"
+    fi
+
+    if [[ "$flags" == *"GITHUB_AUTOMATION"* ]]; then
+        instructions+="- **Workflow table**: Check \`docs/guides/github-automation.md\` for accuracy against actual workflow files in \`.github/workflows/\`.\n"
+    fi
+
+    if [[ "$flags" == *"README_ORCHESTRATION"* ]]; then
+        instructions+="- **Orchestration section**: Check the Multi-Agent Orchestration section in \`README.md\` against files in \`orchestrator/\`.\n"
+    fi
+
+    printf '%b' "$instructions"
 }
 
 # ---------------------------------------------------------------------------
@@ -138,6 +219,9 @@ build_prompt() {
 
     changed_files=$(get_changed_files)
     commit_messages=$(get_commit_messages)
+    local diff_stats
+    local new_files
+    local related_docs
     diff_stats=$(get_diff_stats)
     new_files=$(get_new_files)
     related_docs=$(find_related_docs)
@@ -153,6 +237,28 @@ build_prompt() {
             echo "model=haiku"
         } >> "${GITHUB_OUTPUT:-/dev/null}"
         return
+    fi
+
+    # Detect high-risk file patterns that need specific doc cross-references
+    local high_risk_flags high_risk_instructions high_risk_step
+    high_risk_flags=$(detect_high_risk_docs "$changed_files")
+    high_risk_instructions=$(build_high_risk_instructions "$high_risk_flags")
+
+    # Build the conditional step 3b for the prompt
+    if [[ -n "$high_risk_flags" ]]; then
+        high_risk_step=$(cat <<'HRSTEP'
+3b. **Cross-reference high-risk sections** (flagged changes detected):
+
+HRSTEP
+)
+        high_risk_step+="${high_risk_instructions}"
+        high_risk_step+="
+    For each flagged section:
+    - Read the SOURCE file to extract the current definitions
+    - Read the TARGET doc section to check for discrepancies
+    - If they differ, update the doc to match the source"
+    else
+        high_risk_step=""
     fi
 
     local prompt
@@ -186,6 +292,11 @@ Docs that reference related terms (may need updating):
 ${related_docs:-none found}
 \`\`\`
 
+High-risk doc flags (auto-detected from changed files):
+\`\`\`
+${high_risk_flags:-none}
+\`\`\`
+
 ## Your Task
 
 1. **Analyze the changes**: Read the changed files and understand what was modified.
@@ -212,7 +323,15 @@ ${related_docs:-none found}
      key files? Are new packages/modules missing?
    - \`docs/architecture/README.md\` — Does it cover the components added/changed?
    - \`docs/index.md\` — Are new docs or templates referenced?
+   - \`README.md\` — Does the root README reflect the current state? Check:
+     - CLI Reference and Flags tables (compare with \`sandbox/egg_lib/cli.py\` argparse)
+     - "What's Enforced" table (compare with \`gateway/phase_filter.py\` and \`.egg/phase-permissions.json\`)
+     - Phase Permissions table
+     - Multi-Agent Orchestration section
+     - GitHub Automation workflow table
+     - Quick Start instructions
 
+${high_risk_step}
 4. **Check related docs**: The "Docs that reference related terms" list above
    shows doc files that mention concepts related to the code changes. For each
    file, read it and check whether it describes behavior, interfaces, or
@@ -229,6 +348,10 @@ ${related_docs:-none found}
    a new CLI flag, any guide that documents that CLI needs to mention the new
    flag. If a commit changes a workflow's behavior, any guide or ADR that
    describes that workflow needs to reflect the new behavior.
+
+   Pay special attention to \`docs/guides/deployment.md\` — it must stay in sync
+   with the README Quick Start section. If either document's deployment
+   instructions changed, verify both are consistent.
 
 5. **If updates are needed**:
    - Create a new branch: \`egg/doc-update-<short-description>\`
