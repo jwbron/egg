@@ -129,8 +129,8 @@ Without it, the system falls back to posting reviews as comments (self-review mo
    - PR author is the bot (unless manually triggered)
    - PR doesn't have `[skip-review]` marker
    - Review requires action (filtered at job level to prevent runner allocation):
-     - Non-approval reviews (request-changes, comment) always trigger
-     - Approvals trigger only if they include `<!-- has-suggestions -->` marker
+     - Automated reviews (bot/reviewer with marker): trigger unless clean approval
+     - Human reviews on bot-authored PRs: trigger for non-approvals only
    - Iteration count is below the limit (default: 3 rounds)
 
 2. **Wait for all reviewers** — Polls GitHub check runs for all `egg-reviewer-*` jobs
