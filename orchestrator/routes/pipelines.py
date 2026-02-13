@@ -414,6 +414,9 @@ def create_pipeline() -> tuple[Response, int]:
     repo = data.get("repo")
     branch = data.get("branch")
 
+    # Check for pre-generated SDLC tokens (set by entrypoint before Claude starts)
+    from routes.sdlc_tokens import has_tokens_for_pipeline
+
     if not issue_number:
         return make_error_response("Missing issue_number")
     if not repo:
@@ -435,6 +438,12 @@ def create_pipeline() -> tuple[Response, int]:
 
         # Contract creation is deferred to _run_pipeline so it writes
         # into the per-pipeline worktree instead of the main repo.
+
+        # Enable token gating if tokens were pre-generated for this pipeline
+        if has_tokens_for_pipeline(pipeline.id):
+            pipeline.sdlc_token_gated = True
+            store.save_pipeline(pipeline, commit=False)
+            logger.info("Pipeline token-gated", pipeline_id=pipeline.id)
 
         logger.info(
             "Pipeline created",
