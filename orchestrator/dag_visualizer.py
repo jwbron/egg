@@ -304,7 +304,11 @@ def render_phase_detail(
         return "\n".join(lines)
 
     symbol = _get_status_symbol(phase_exec.status, use_ascii)
-    lines.append(f"Status: {symbol} {phase_exec.status.value}")
+    if phase_exec.status == PipelineStatus.AWAITING_HUMAN:
+        status_text = "awaiting approval"
+    else:
+        status_text = phase_exec.status.value
+    lines.append(f"Status: {symbol} {status_text}")
     lines.append(f"Review Cycles: {phase_exec.review_cycles}")
 
     if phase_exec.started_at:
