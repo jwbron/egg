@@ -32,14 +32,19 @@ try:
         EGG_CONTAINER_IP,
     )
     from egg_config import (
+        EGG_EXTERNAL_NETWORK as _DEFAULT_EXTERNAL_NETWORK,
+    )
+    from egg_config import (
         EGG_ISOLATED_NETWORK as _DEFAULT_ISOLATED_NETWORK,
     )
 except ImportError:
     _DEFAULT_ISOLATED_NETWORK = "egg-isolated"
+    _DEFAULT_EXTERNAL_NETWORK = "egg-external"
     EGG_CONTAINER_IP = "172.32.0.10"
 
 # Allow override via environment for test stacks with non-standard network names
 EGG_ISOLATED_NETWORK = os.environ.get("EGG_ISOLATED_NETWORK", _DEFAULT_ISOLATED_NETWORK)
+EGG_EXTERNAL_NETWORK = os.environ.get("EGG_EXTERNAL_NETWORK", _DEFAULT_EXTERNAL_NETWORK)
 
 from docker_client import (
     ContainerNotFoundError,
@@ -186,6 +191,12 @@ class ContainerSpawner:
             env = {
                 "EGG_REPO_PATH": repo_path,
                 "EGG_AGENT_ROLE": agent_role.value,
+                # CONTAINER_ID must match the worktree container_id so the
+                # gateway git proxy can map /home/egg/repos/<name> to the
+                # correct worktree at /home/egg/.egg-worktrees/<id>/<name>.
+                # The orchestrator creates worktrees with pipeline_id as the
+                # container_id (see _run_pipeline_phases).
+                "CONTAINER_ID": pipeline_id,
             }
             if issue_number is not None:
                 env["EGG_ISSUE_NUMBER"] = str(issue_number)
@@ -239,11 +250,18 @@ class ContainerSpawner:
                 # Continue without session - container can still run
                 # but won't have gateway access
 
+            # Choose network based on mode:
+            # - private/local: egg-isolated (lockdown, proxy filtering)
+            # - public: egg-external (direct internet access)
+            container_network = (
+                EGG_ISOLATED_NETWORK if mode in ("private", "local") else EGG_EXTERNAL_NETWORK
+            )
+
             # Create the container with full environment including gateway config
             container = self.docker.create_container(
                 name=container_name,
                 image=image or self.DEFAULT_SANDBOX_IMAGE,
-                network=EGG_ISOLATED_NETWORK,
+                network=container_network,
                 environment=env,
                 labels=labels,
                 volumes=volumes if volumes else None,
@@ -425,10 +443,11 @@ class ContainerSpawner:
             container = self.docker.client.containers.get(container_id)
             networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
 
-            if EGG_ISOLATED_NETWORK in networks:
-                ip = networks[EGG_ISOLATED_NETWORK].get("IPAddress")
-                if ip:
-                    return ip
+            for net_name in (EGG_ISOLATED_NETWORK, EGG_EXTERNAL_NETWORK):
+                if net_name in networks:
+                    ip = networks[net_name].get("IPAddress")
+                    if ip:
+                        return ip
 
         except Exception:
             pass

@@ -36,6 +36,7 @@ try:
     from egg_config import (
         EGG_ISOLATED_NETWORK,
         GATEWAY_CONTAINER_NAME,
+        GATEWAY_EXTERNAL_IP,
         GATEWAY_ISOLATED_IP,
         GATEWAY_PORT,
         GATEWAY_PROXY_PORT,
@@ -46,6 +47,7 @@ except ImportError:
     GATEWAY_PORT = 9848
     GATEWAY_PROXY_PORT = 3129
     GATEWAY_ISOLATED_IP = "172.32.0.2"
+    GATEWAY_EXTERNAL_IP = "172.33.0.2"
     EGG_ISOLATED_NETWORK = "egg-isolated"
 
 logger = get_logger("orchestrator.gateway_client")
@@ -426,12 +428,20 @@ class GatewayClient:
         containers to route traffic through the gateway proxy.
 
         Args:
-            mode: Repository visibility mode
+            mode: Repository visibility mode (public, private, or local)
 
         Returns:
             Dictionary of environment variables
         """
-        proxy_url = f"http://{GATEWAY_ISOLATED_IP}:{GATEWAY_PROXY_PORT}"
+        # Use the correct gateway IP for the container's network:
+        # - private/local: containers on egg-isolated (172.32.0.x)
+        # - public: containers on egg-external (172.33.0.x)
+        if mode in ("private", "local"):
+            gateway_ip = GATEWAY_ISOLATED_IP
+        else:
+            gateway_ip = GATEWAY_EXTERNAL_IP
+
+        proxy_url = f"http://{gateway_ip}:{GATEWAY_PROXY_PORT}"
 
         # Base proxy configuration
         config = {
@@ -440,13 +450,12 @@ class GatewayClient:
             "http_proxy": proxy_url,
             "https_proxy": proxy_url,
             # Don't proxy internal network traffic
-            "NO_PROXY": f"localhost,127.0.0.1,{GATEWAY_ISOLATED_IP},.local",
-            "no_proxy": f"localhost,127.0.0.1,{GATEWAY_ISOLATED_IP},.local",
+            "NO_PROXY": f"localhost,127.0.0.1,{gateway_ip},.local",
+            "no_proxy": f"localhost,127.0.0.1,{gateway_ip},.local",
         }
 
         # Mode-specific settings
         if mode == "private":
-            # In private mode, only Anthropic API is allowed
             config["EGG_PRIVATE_MODE"] = "true"
         else:
             config["EGG_PRIVATE_MODE"] = "false"

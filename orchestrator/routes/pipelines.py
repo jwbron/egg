@@ -55,6 +55,24 @@ except ImportError:
 
 logger = get_logger("orchestrator.pipelines")
 
+# Network constants for sandbox container URLs
+try:
+    from egg_config import (
+        GATEWAY_EXTERNAL_IP,
+        GATEWAY_ISOLATED_IP,
+        GATEWAY_PORT,
+        ORCHESTRATOR_EXTERNAL_IP,
+        ORCHESTRATOR_ISOLATED_IP,
+        ORCHESTRATOR_PORT,
+    )
+except ImportError:
+    GATEWAY_ISOLATED_IP = "172.32.0.2"
+    GATEWAY_EXTERNAL_IP = "172.33.0.2"
+    GATEWAY_PORT = 9848
+    ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"
+    ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"
+    ORCHESTRATOR_PORT = 9849
+
 pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
 
 
@@ -339,30 +357,33 @@ def create_pipeline() -> tuple[Response, int]:
                 prompt=prompt,
             )
 
-            # Create companion contract for the local pipeline
-            try:
-                from egg_contracts.loader import create_local_contract
+            # Create companion contract — required for pipeline to function
+            from egg_contracts.loader import create_local_contract
 
+            try:
                 create_local_contract(
                     pipeline_id=pipeline.id,
                     title=prompt[:100],
                     repo_root=repo_path,
                 )
-                # Mark contract as synced now that it exists
-                pipeline.contract_synced = True
-                store.save_pipeline(pipeline, commit=False)
-                logger.info(
-                    "Local pipeline contract created",
-                    pipeline_id=pipeline.id,
-                )
             except Exception as contract_err:
-                # Contract creation is best-effort — don't block pipeline
-                # contract_synced remains False
-                logger.warning(
+                # Clean up the pipeline we just created
+                store.delete_pipeline(pipeline.id, commit=False)
+                logger.error(
                     "Failed to create contract for local pipeline",
                     pipeline_id=pipeline.id,
                     error=str(contract_err),
                 )
+                return make_error_response(
+                    f"Failed to create contract: {contract_err}",
+                    status_code=500,
+                )
+            pipeline.contract_synced = True
+            store.save_pipeline(pipeline, commit=False)
+            logger.info(
+                "Local pipeline contract created",
+                pipeline_id=pipeline.id,
+            )
 
             logger.info(
                 "Local pipeline created",
@@ -405,32 +426,37 @@ def create_pipeline() -> tuple[Response, int]:
             mode="issue",
         )
 
-        # Create companion contract for the issue pipeline
-        try:
-            from egg_contracts.loader import create_contract
+        # Create companion contract — required for pipeline to function
+        from egg_contracts.loader import create_contract
 
-            issue_url = f"https://github.com/{repo}/issues/{issue_number}"
+        issue_url = f"https://github.com/{repo}/issues/{issue_number}"
+        try:
             create_contract(
                 issue_number=issue_number,
                 title=f"Issue #{issue_number}",
                 url=issue_url,
                 repo_root=repo_path,
             )
-            pipeline.contract_synced = True
-            store.save_pipeline(pipeline, commit=False)
-            logger.info(
-                "Issue pipeline contract created",
-                pipeline_id=pipeline.id,
-                issue_number=issue_number,
-            )
         except Exception as contract_err:
-            # Contract creation is best-effort — don't block pipeline
-            # contract_synced remains False
-            logger.warning(
+            # Clean up the pipeline we just created
+            store.delete_pipeline(pipeline.id, commit=False)
+            logger.error(
                 "Failed to create contract for issue pipeline",
                 pipeline_id=pipeline.id,
+                issue_number=issue_number,
                 error=str(contract_err),
             )
+            return make_error_response(
+                f"Failed to create contract: {contract_err}",
+                status_code=500,
+            )
+        pipeline.contract_synced = True
+        store.save_pipeline(pipeline, commit=False)
+        logger.info(
+            "Issue pipeline contract created",
+            pipeline_id=pipeline.id,
+            issue_number=issue_number,
+        )
 
         logger.info(
             "Pipeline created",
@@ -1354,7 +1380,7 @@ def _spawn_and_wait(
         try:
             container_logs = spawner.docker.get_container_logs(
                 spawned.container_info.container_id,
-                tail=50,
+                tail=200,
             )
         except Exception:
             pass
@@ -1731,9 +1757,17 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     message=f"Phase {current_phase.value} started",
                 )
 
-            # Common sandbox environment for all containers in this phase
-            gateway_url = os.environ.get("GATEWAY_URL", "http://172.32.0.2:9848")
-            orchestrator_url = os.environ.get("ORCHESTRATOR_URL", "http://172.32.0.3:9849")
+            # Common sandbox environment for all containers in this phase.
+            # Use network-appropriate IPs: containers on egg-isolated use
+            # 172.32.0.x, containers on egg-external use 172.33.0.x.
+            if gateway_mode in ("private", "local"):
+                gateway_ip = GATEWAY_ISOLATED_IP
+                orchestrator_ip = ORCHESTRATOR_ISOLATED_IP
+            else:
+                gateway_ip = GATEWAY_EXTERNAL_IP
+                orchestrator_ip = ORCHESTRATOR_EXTERNAL_IP
+            gateway_url = f"http://{gateway_ip}:{GATEWAY_PORT}"
+            orchestrator_url = f"http://{orchestrator_ip}:{ORCHESTRATOR_PORT}"
             sandbox_env: dict[str, str] = {
                 "EGG_PIPELINE_ID": pipeline_id,
                 "EGG_PIPELINE_PHASE": current_phase.value,
