@@ -190,17 +190,17 @@
       "options": [
         "approve"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-13T18:28:43.488353",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-02-13T18:41:26.765563",
+      "resolution": "approve",
       "timeout_seconds": 3600
     }
   ],
   "created_at": "2026-02-13T17:53:48.267710",
-  "updated_at": "2026-02-13T18:28:43.504429",
+  "updated_at": "2026-02-13T18:41:26.767058",
   "contract_synced": true,
   "sdlc_token_gated": false,
   "error": null,
-  "version": 27
+  "version": 28
 }
