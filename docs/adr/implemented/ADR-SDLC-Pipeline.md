@@ -190,6 +190,31 @@ In addition to formal HITL decisions, a simpler phase approval mechanism exists 
 - Detected by the `handle-approval` job in `sdlc-hitl.yml`
 - See [Phase Completion Template](../../templates/phase-completion.md) for the comment format
 
+### Token-Gated Approvals
+
+For local interactive sessions, token-gated approvals provide an additional security layer to prevent agents from self-approving phase transitions. This mechanism is available when starting the pipeline with `egg --sdlc <issue>`.
+
+**Architecture:**
+
+1. **Token Generation**: On startup, the entrypoint generates two 3-word human-memorizable tokens (e.g., `APPLE-HORSE-RIVER`) via the orchestrator's `/api/v1/sdlc-tokens/generate` endpoint
+2. **Display to Human**: Tokens are displayed in the terminal before the agent launches
+3. **Hook Installation**: A UserPromptSubmit hook (`sdlc-approve.sh`) is installed as root-owned (0555) to intercept `!approve <phase>` commands
+4. **Token Entry**: When the agent types `!approve refine`, the hook prompts the human via `/dev/tty` for the approval token
+5. **Server-Side Validation**: The token is sent to `/api/v1/sdlc-tokens/approve` with SHA-256 hashing and timing-safe comparison
+6. **Auto-Resolution**: On successful validation, pending HITL decisions for that phase are auto-resolved
+
+**Security Properties:**
+
+- **Agent Isolation**: Tokens are never visible to the agent (displayed before launch, entered via `/dev/tty`)
+- **Tamper Resistance**: Hook script is root-owned; agent runs as `egg` user and cannot modify it
+- **Watchdog Protection**: Background thread monitors `settings.json` for hook removal and re-adds if necessary
+- **Privileged Endpoint Auth**: `/generate` and `/reset` endpoints require launcher secret authentication, preventing agents from calling them directly
+- **Timing-Safe Validation**: SHA-256 hashing with `secrets.compare_digest` prevents brute-force attacks
+
+**Failure Recovery:**
+
+If the orchestrator restarts while a pipeline is token-gated, in-memory tokens are lost but the persistent `Pipeline.sdlc_token_gated` flag remains set in storage. The `/api/v1/sdlc-tokens/reset` endpoint (requires launcher secret auth) clears both the in-memory tokens and the persistent flag to allow the pipeline to proceed.
+
 ---
 
 ## Gateway Integration

@@ -183,6 +183,9 @@ Fixed IPs:
 - `GET /pipelines/{id}/stream` - Real-time SSE stream for pipeline events and visualization
 - `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error)
 - `GET /pipelines/{id}/decisions` - HITL decision queue
+- `POST /sdlc-tokens/generate` - Generate approval tokens for SDLC pipeline (requires launcher secret auth)
+- `POST /sdlc-tokens/approve` - Validate token and approve SDLC phase
+- `POST /sdlc-tokens/reset` - Clear token-gated state for recovery (requires launcher secret auth)
 
 ### Signal Flow
 
