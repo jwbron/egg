@@ -163,7 +163,7 @@ def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pi
                         return store, pipeline
                     except (PipelineNotFoundError, StateStoreError):
                         continue
-        raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found")
+        raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found") from None
 
     # The global worktree means the pipeline is always found at base_path,
     # even when base_path is a parent directory (e.g. /home/egg/repos/).
