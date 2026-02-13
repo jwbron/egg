@@ -305,6 +305,12 @@ def gha_exec() -> int:
     if issue_number:
         extra_env["EGG_ISSUE_NUMBER"] = issue_number
 
+    # Pass commit SHA so the gh wrapper can pin the review marker to the
+    # commit that was actually checked out, avoiding races with new pushes
+    commit_sha = os.environ.get("EGG_COMMIT_SHA")
+    if commit_sha:
+        extra_env["EGG_COMMIT_SHA"] = commit_sha
+
     # Pass agent role for gateway authorization (e.g., reviewer role)
     agent_role = os.environ.get("EGG_AGENT_ROLE")
     if agent_role:

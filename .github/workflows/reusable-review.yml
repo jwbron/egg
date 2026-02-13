@@ -494,7 +494,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ steps.pr-meta.outputs.head-repo }}
-          ref: ${{ steps.pr-meta.outputs.head-ref }}
+          ref: ${{ steps.pr-meta.outputs.head-sha }}
           persist-credentials: false
 
       - name: Run egg to review and post feedback
@@ -515,6 +515,7 @@ jobs:
           timeout: ${{ inputs.timeout }}
         env:
           EGG_BOT_NAME: ${{ inputs.bot_name }}
+          EGG_COMMIT_SHA: ${{ steps.pr-meta.outputs.head-sha }}
           EGG_AGENT_ROLE: ${{ inputs.agent_role }}
           EGG_ISSUE_NUMBER: ${{ inputs.issue_number }}
 
