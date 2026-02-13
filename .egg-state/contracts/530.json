@@ -181,7 +181,7 @@
     {
       "id": "ac-35",
       "description": "[TASK-7-4] No v1 code paths remain active",
-      "verified": false
+      "verified": true
     },
     {
       "id": "ac-36",
