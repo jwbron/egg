@@ -111,10 +111,10 @@ Browse and query checkpoints via the `egg-checkpoint` CLI:
 - `--issue <n>` — Filter by issue number
 - `--pr <n>` — Filter by PR number
 - `--session <id>` — Filter by session ID
-- `--trigger <commit\|session_end>` — Filter by trigger type
-- `--status <completed\|expired\|failed>` — Filter by session status
-- `--agent-type <coder\|tester\|documenter\|integrator\|reviewer>` — Filter by agent type
-- `--phase <refine\|plan\|implement\|pr>` — Filter by pipeline phase
+- `--trigger <commit|session_end>` — Filter by trigger type
+- `--status <completed|expired|failed>` — Filter by session status
+- `--agent-type <coder|tester|documenter|integrator|reviewer|unknown>` — Filter by agent type
+- `--phase <refine|plan|implement|pr>` — Filter by pipeline phase
 
 Checkpoints enable post-hoc analysis of agent behavior, debugging failed sessions, auditing agent decisions, and tracking token usage across issues and PRs.
 
