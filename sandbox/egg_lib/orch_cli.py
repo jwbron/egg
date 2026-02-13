@@ -35,9 +35,11 @@ Commands:
 import argparse
 import json
 import os
+import re
 import sys
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlencode
 from urllib.request import ProxyHandler, Request, build_opener
 
 try:
@@ -52,6 +54,45 @@ except ImportError:
     ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"
     GATEWAY_PORT = 9848
     GATEWAY_ISOLATED_IP = "172.32.0.2"
+
+# Validation patterns for IDs used in URL path segments
+_UUID_PATTERN = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+_SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_\-\.]+$")
+
+
+class ApiError(Exception):
+    """Error from an API request."""
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+        self.details = details
+
+
+def validate_id(value: str, name: str) -> str:
+    """Validate that an ID is safe for use in URL paths.
+
+    Accepts UUIDs and alphanumeric strings with hyphens, underscores, and dots.
+    """
+    if not value:
+        print(f"Error: {name} cannot be empty", file=sys.stderr)
+        sys.exit(1)
+    if not _SAFE_ID_PATTERN.match(value):
+        print(
+            f"Error: Invalid {name} '{value}': must contain only "
+            "alphanumeric characters, hyphens, underscores, and dots",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return quote(value, safe="")
 
 
 def get_orchestrator_url() -> str:
@@ -78,6 +119,17 @@ def get_pipeline_id_from_env() -> str | None:
 def get_agent_role_from_env() -> str | None:
     """Get agent role from environment if set."""
     return os.environ.get("EGG_AGENT_ROLE")
+
+
+def get_issue_number() -> int | None:
+    """Get the current issue number from environment."""
+    issue_str = os.environ.get("EGG_ISSUE_NUMBER")
+    if issue_str:
+        try:
+            return int(issue_str)
+        except ValueError:
+            return None
+    return None
 
 
 def get_session_token() -> str | None:
@@ -119,7 +171,7 @@ def api_request(
         Response JSON
 
     Raises:
-        SystemExit: On request failure
+        ApiError: On request failure
     """
     url = f"{base_url}{endpoint}"
     req_headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -137,20 +189,36 @@ def api_request(
         error_body = e.read().decode()
         try:
             error_data = json.loads(error_body)
-            message = error_data.get("message", str(e))
-            details = error_data.get("details")
-            print(f"Error ({e.code}): {message}", file=sys.stderr)
-            if details:
-                print(f"Details: {json.dumps(details, indent=2)}", file=sys.stderr)
-        except (json.JSONDecodeError, Exception):
-            print(f"Error ({e.code}): {error_body}", file=sys.stderr)
-        sys.exit(1)
+            raise ApiError(
+                error_data.get("message", str(e)),
+                status_code=e.code,
+                details=error_data.get("details"),
+            ) from e
+        except json.JSONDecodeError:
+            raise ApiError(f"{e}: {error_body}", status_code=e.code) from e
     except URLError as e:
-        print(f"Connection error: {e.reason}", file=sys.stderr)
-        print(f"URL: {url}", file=sys.stderr)
-        sys.exit(1)
-    except TimeoutError:
-        print(f"Request timed out: {url}", file=sys.stderr)
+        raise ApiError(f"Connection error: {e.reason}") from e
+    except TimeoutError as e:
+        raise ApiError(f"Request timed out: {url}") from e
+
+
+def api_request_or_exit(
+    base_url: str,
+    endpoint: str,
+    method: str = "GET",
+    data: dict[str, Any] | None = None,
+    timeout: int = 15,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Make an API request, printing errors and exiting on failure."""
+    try:
+        return api_request(base_url, endpoint, method, data, timeout, headers)
+    except ApiError as e:
+        print(f"Error: {e.message}", file=sys.stderr)
+        if e.status_code:
+            print(f"Status: {e.status_code}", file=sys.stderr)
+        if e.details:
+            print(f"Details: {json.dumps(e.details, indent=2)}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -161,7 +229,7 @@ def orch_request(
     timeout: int = 15,
 ) -> dict[str, Any]:
     """Make a request to the orchestrator API."""
-    return api_request(get_orchestrator_url(), endpoint, method, data, timeout)
+    return api_request_or_exit(get_orchestrator_url(), endpoint, method, data, timeout)
 
 
 def gateway_request(
@@ -175,7 +243,7 @@ def gateway_request(
     token = get_session_token()
     if token:
         headers["X-Egg-Session-Token"] = token
-    return api_request(get_gateway_url(), endpoint, method, data, timeout, headers)
+    return api_request_or_exit(get_gateway_url(), endpoint, method, data, timeout, headers)
 
 
 def print_json(data: Any) -> None:
@@ -184,7 +252,7 @@ def print_json(data: Any) -> None:
 
 
 def require_pipeline_id(args: argparse.Namespace) -> str:
-    """Get pipeline_id from args or environment, exit if missing."""
+    """Get pipeline_id from args or environment, validate, and return URL-safe value."""
     pid = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
     if not pid:
         print(
@@ -192,7 +260,17 @@ def require_pipeline_id(args: argparse.Namespace) -> str:
             file=sys.stderr,
         )
         sys.exit(1)
-    return pid
+    return validate_id(pid, "pipeline_id")
+
+
+def _get_orch_client():
+    """Get an OrchestratorClient instance for signal commands."""
+    try:
+        from egg_orchestrator.client import OrchestratorClient
+
+        return OrchestratorClient()
+    except ImportError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -202,40 +280,60 @@ def require_pipeline_id(args: argparse.Namespace) -> str:
 
 def cmd_health(args: argparse.Namespace) -> int:
     """Check orchestrator and gateway health."""
+    health_data: dict[str, Any] = {"orchestrator": {}, "gateway": {}}
     errors = 0
 
     # Orchestrator health
-    print("Orchestrator:")
+    if not getattr(args, "json", False):
+        print("Orchestrator:")
     try:
-        result = api_request(
-            get_orchestrator_url(), "/api/v1/health", timeout=5
-        )
+        result = api_request(get_orchestrator_url(), "/api/v1/health", timeout=5)
         status = result.get("status", "unknown")
-        icon = "ok" if status == "healthy" else "UNHEALTHY"
-        print(f"  Status: {icon} ({status})")
-        if result.get("timestamp"):
-            print(f"  Time:   {result['timestamp']}")
-        components = result.get("components", {})
-        for name, state in components.items():
-            print(f"  {name}: {state}")
-    except SystemExit:
-        print("  Status: UNREACHABLE")
+        health_data["orchestrator"] = {
+            "status": status,
+            "reachable": True,
+            "timestamp": result.get("timestamp"),
+            "components": result.get("components", {}),
+        }
+        if not getattr(args, "json", False):
+            icon = "ok" if status == "healthy" else "UNHEALTHY"
+            print(f"  Status: {icon} ({status})")
+            if result.get("timestamp"):
+                print(f"  Time:   {result['timestamp']}")
+            components = result.get("components", {})
+            for name, state in components.items():
+                print(f"  {name}: {state}")
+    except ApiError:
+        health_data["orchestrator"] = {"status": "unreachable", "reachable": False}
+        if not getattr(args, "json", False):
+            print("  Status: UNREACHABLE")
         errors += 1
 
-    print()
+    if not getattr(args, "json", False):
+        print()
 
     # Gateway health
-    print("Gateway:")
+    if not getattr(args, "json", False):
+        print("Gateway:")
     try:
-        result = api_request(
-            get_gateway_url(), "/api/v1/health", timeout=5
-        )
+        result = api_request(get_gateway_url(), "/api/v1/health", timeout=5)
         valid = result.get("github_token_valid", False)
-        print(f"  Status: ok")
-        print(f"  GitHub token valid: {valid}")
-    except SystemExit:
-        print("  Status: UNREACHABLE")
+        health_data["gateway"] = {
+            "status": "ok",
+            "reachable": True,
+            "github_token_valid": valid,
+        }
+        if not getattr(args, "json", False):
+            print("  Status: ok")
+            print(f"  GitHub token valid: {valid}")
+    except ApiError:
+        health_data["gateway"] = {"status": "unreachable", "reachable": False}
+        if not getattr(args, "json", False):
+            print("  Status: UNREACHABLE")
         errors += 1
+
+    if getattr(args, "json", False):
+        print_json(health_data)
 
     return 1 if errors else 0
 
@@ -247,15 +345,15 @@ def cmd_health(args: argparse.Namespace) -> int:
 
 def cmd_pipeline_list(args: argparse.Namespace) -> int:
     """List all pipelines."""
-    params = []
+    params: dict[str, str] = {}
     if args.status:
-        params.append(f"status={args.status}")
+        params["status"] = args.status
     if args.limit:
-        params.append(f"limit={args.limit}")
+        params["limit"] = str(args.limit)
 
     endpoint = "/api/v1/pipelines"
     if params:
-        endpoint += "?" + "&".join(params)
+        endpoint += "?" + urlencode(params)
 
     result = orch_request(endpoint)
 
@@ -354,6 +452,10 @@ def cmd_pipeline_delete(args: argparse.Namespace) -> int:
     pid = require_pipeline_id(args)
     result = orch_request(f"/api/v1/pipelines/{pid}", method="DELETE")
 
+    if getattr(args, "json", False):
+        print_json(result)
+        return 0
+
     if result.get("success"):
         print(f"Deleted pipeline: {pid}")
         return 0
@@ -362,18 +464,55 @@ def cmd_pipeline_delete(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Signal commands
+# Signal commands (using OrchestratorClient where available)
 # ---------------------------------------------------------------------------
+
+
+def _require_role(args: argparse.Namespace) -> str:
+    """Get agent role from args or environment."""
+    role = args.role or get_agent_role_from_env()
+    if not role:
+        print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
+        sys.exit(1)
+    return role
 
 
 def cmd_signal_complete(args: argparse.Namespace) -> int:
     """Signal agent completion."""
-    pid = require_pipeline_id(args)
-    role = args.role or get_agent_role_from_env()
-    if not role:
-        print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
+    pid_raw = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
+    if not pid_raw:
+        print(
+            "Error: pipeline_id required. Provide as argument or set EGG_PIPELINE_ID.",
+            file=sys.stderr,
+        )
         return 1
+    role = _require_role(args)
 
+    client = _get_orch_client()
+    if client:
+        try:
+            from egg_orchestrator.client import OrchestratorError
+
+            response = client.signal_complete(
+                pipeline_id=pid_raw,
+                agent_role=role,
+                commit=args.commit,
+                files_changed=args.files,
+            )
+            if getattr(args, "json", False):
+                print_json({"success": response.success, "message": response.message})
+                return 0
+            if response.success:
+                print(f"Signaled complete for {role}")
+                return 0
+            print(f"Error: {response.message}", file=sys.stderr)
+            return 1
+        except OrchestratorError as e:
+            print(f"Error: {e.message}", file=sys.stderr)
+            return 1
+
+    # Fallback to direct HTTP
+    pid = validate_id(pid_raw, "pipeline_id")
     data: dict[str, Any] = {
         "signal_type": "complete",
         "agent_role": role,
@@ -383,9 +522,11 @@ def cmd_signal_complete(args: argparse.Namespace) -> int:
     if args.files:
         data["files_changed"] = args.files
 
-    result = orch_request(
-        f"/api/v1/pipelines/{pid}/signal", method="POST", data=data
-    )
+    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+
+    if getattr(args, "json", False):
+        print_json(result)
+        return 0
 
     if result.get("success"):
         print(f"Signaled complete for {role}")
@@ -396,12 +537,41 @@ def cmd_signal_complete(args: argparse.Namespace) -> int:
 
 def cmd_signal_progress(args: argparse.Namespace) -> int:
     """Signal progress update."""
-    pid = require_pipeline_id(args)
-    role = args.role or get_agent_role_from_env()
-    if not role:
-        print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
+    pid_raw = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
+    if not pid_raw:
+        print(
+            "Error: pipeline_id required. Provide as argument or set EGG_PIPELINE_ID.",
+            file=sys.stderr,
+        )
         return 1
+    role = _require_role(args)
 
+    client = _get_orch_client()
+    if client:
+        try:
+            from egg_orchestrator.client import OrchestratorError
+
+            response = client.signal_progress(
+                pipeline_id=pid_raw,
+                agent_role=role,
+                progress_percent=args.percent,
+                current_task=args.task or "",
+                message=args.message or "",
+            )
+            if getattr(args, "json", False):
+                print_json({"success": response.success, "message": response.message})
+                return 0
+            if response.success:
+                print(f"Progress: {args.percent}%")
+                return 0
+            print(f"Error: {response.message}", file=sys.stderr)
+            return 1
+        except OrchestratorError as e:
+            print(f"Error: {e.message}", file=sys.stderr)
+            return 1
+
+    # Fallback to direct HTTP
+    pid = validate_id(pid_raw, "pipeline_id")
     data: dict[str, Any] = {
         "signal_type": "progress",
         "agent_role": role,
@@ -412,9 +582,11 @@ def cmd_signal_progress(args: argparse.Namespace) -> int:
     if args.message:
         data["message"] = args.message
 
-    result = orch_request(
-        f"/api/v1/pipelines/{pid}/signal", method="POST", data=data
-    )
+    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+
+    if getattr(args, "json", False):
+        print_json(result)
+        return 0
 
     if result.get("success"):
         print(f"Progress: {args.percent}%")
@@ -425,12 +597,40 @@ def cmd_signal_progress(args: argparse.Namespace) -> int:
 
 def cmd_signal_error(args: argparse.Namespace) -> int:
     """Signal an error."""
-    pid = require_pipeline_id(args)
-    role = args.role or get_agent_role_from_env()
-    if not role:
-        print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
+    pid_raw = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
+    if not pid_raw:
+        print(
+            "Error: pipeline_id required. Provide as argument or set EGG_PIPELINE_ID.",
+            file=sys.stderr,
+        )
         return 1
+    role = _require_role(args)
 
+    client = _get_orch_client()
+    if client:
+        try:
+            from egg_orchestrator.client import OrchestratorError
+
+            response = client.signal_error(
+                pipeline_id=pid_raw,
+                agent_role=role,
+                error=args.error,
+                recoverable=args.recoverable,
+            )
+            if getattr(args, "json", False):
+                print_json({"success": response.success, "message": response.message})
+                return 0
+            if response.success:
+                print(f"Signaled error for {role}")
+                return 0
+            print(f"Error: {response.message}", file=sys.stderr)
+            return 1
+        except OrchestratorError as e:
+            print(f"Error: {e.message}", file=sys.stderr)
+            return 1
+
+    # Fallback to direct HTTP
+    pid = validate_id(pid_raw, "pipeline_id")
     data: dict[str, Any] = {
         "signal_type": "error",
         "agent_role": role,
@@ -438,9 +638,11 @@ def cmd_signal_error(args: argparse.Namespace) -> int:
         "recoverable": args.recoverable,
     }
 
-    result = orch_request(
-        f"/api/v1/pipelines/{pid}/signal", method="POST", data=data
-    )
+    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+
+    if getattr(args, "json", False):
+        print_json(result)
+        return 0
 
     if result.get("success"):
         print(f"Signaled error for {role}")
@@ -451,20 +653,48 @@ def cmd_signal_error(args: argparse.Namespace) -> int:
 
 def cmd_signal_heartbeat(args: argparse.Namespace) -> int:
     """Send heartbeat."""
-    pid = require_pipeline_id(args)
-    role = args.role or get_agent_role_from_env()
-    if not role:
-        print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
+    pid_raw = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
+    if not pid_raw:
+        print(
+            "Error: pipeline_id required. Provide as argument or set EGG_PIPELINE_ID.",
+            file=sys.stderr,
+        )
         return 1
+    role = _require_role(args)
 
+    client = _get_orch_client()
+    if client:
+        try:
+            from egg_orchestrator.client import OrchestratorError
+
+            response = client.signal_heartbeat(
+                pipeline_id=pid_raw,
+                agent_role=role,
+            )
+            if getattr(args, "json", False):
+                print_json({"success": response.success, "message": response.message})
+                return 0
+            if response.success:
+                print("Heartbeat sent")
+                return 0
+            print(f"Error: {response.message}", file=sys.stderr)
+            return 1
+        except OrchestratorError as e:
+            print(f"Error: {e.message}", file=sys.stderr)
+            return 1
+
+    # Fallback to direct HTTP
+    pid = validate_id(pid_raw, "pipeline_id")
     data: dict[str, Any] = {
         "signal_type": "heartbeat",
         "agent_role": role,
     }
 
-    result = orch_request(
-        f"/api/v1/pipelines/{pid}/signal", method="POST", data=data
-    )
+    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+
+    if getattr(args, "json", False):
+        print_json(result)
+        return 0
 
     if result.get("success"):
         print("Heartbeat sent")
@@ -502,9 +732,7 @@ def cmd_phase_advance(args: argparse.Namespace) -> int:
     if args.reason:
         data["reason"] = args.reason
 
-    result = orch_request(
-        f"/api/v1/pipelines/{pid}/phase", method="POST", data=data
-    )
+    result = orch_request(f"/api/v1/pipelines/{pid}/phase", method="POST", data=data)
 
     if args.json:
         print_json(result)
@@ -521,9 +749,11 @@ def cmd_phase_advance(args: argparse.Namespace) -> int:
 def cmd_phase_start(args: argparse.Namespace) -> int:
     """Start the current phase."""
     pid = require_pipeline_id(args)
-    result = orch_request(
-        f"/api/v1/pipelines/{pid}/phase/start", method="POST", data={}
-    )
+    result = orch_request(f"/api/v1/pipelines/{pid}/phase/start", method="POST", data={})
+
+    if getattr(args, "json", False):
+        print_json(result)
+        return 0
 
     if result.get("success"):
         print("Phase started")
@@ -539,9 +769,11 @@ def cmd_phase_complete(args: argparse.Namespace) -> int:
     if args.reason:
         data["reason"] = args.reason
 
-    result = orch_request(
-        f"/api/v1/pipelines/{pid}/phase/complete", method="POST", data=data
-    )
+    result = orch_request(f"/api/v1/pipelines/{pid}/phase/complete", method="POST", data=data)
+
+    if getattr(args, "json", False):
+        print_json(result)
+        return 0
 
     if result.get("success"):
         print("Phase completed")
@@ -592,9 +824,7 @@ def cmd_decision_create(args: argparse.Namespace) -> int:
     if args.timeout:
         data["timeout_seconds"] = args.timeout
 
-    result = orch_request(
-        f"/api/v1/pipelines/{pid}/decisions", method="POST", data=data
-    )
+    result = orch_request(f"/api/v1/pipelines/{pid}/decisions", method="POST", data=data)
 
     if args.json:
         print_json(result)
@@ -612,6 +842,7 @@ def cmd_decision_create(args: argparse.Namespace) -> int:
 def cmd_decision_resolve(args: argparse.Namespace) -> int:
     """Resolve a decision."""
     pid = require_pipeline_id(args)
+    did = validate_id(args.decision_id, "decision_id")
     data: dict[str, Any] = {
         "resolution": args.resolution,
     }
@@ -619,10 +850,14 @@ def cmd_decision_resolve(args: argparse.Namespace) -> int:
         data["resolved_by"] = args.resolved_by
 
     result = orch_request(
-        f"/api/v1/pipelines/{pid}/decisions/{args.decision_id}/resolve",
+        f"/api/v1/pipelines/{pid}/decisions/{did}/resolve",
         method="POST",
         data=data,
     )
+
+    if getattr(args, "json", False):
+        print_json(result)
+        return 0
 
     if result.get("success"):
         print(f"Resolved decision: {args.decision_id}")
@@ -709,9 +944,8 @@ def cmd_container_spawn(args: argparse.Namespace) -> int:
 def cmd_container_get(args: argparse.Namespace) -> int:
     """Get container info."""
     pid = require_pipeline_id(args)
-    result = orch_request(
-        f"/api/v1/pipelines/{pid}/containers/{args.container_id}"
-    )
+    cid = validate_id(args.container_id, "container_id")
+    result = orch_request(f"/api/v1/pipelines/{pid}/containers/{cid}")
 
     if args.json:
         print_json(result)
@@ -729,11 +963,16 @@ def cmd_container_get(args: argparse.Namespace) -> int:
 def cmd_container_stop(args: argparse.Namespace) -> int:
     """Stop a container."""
     pid = require_pipeline_id(args)
+    cid = validate_id(args.container_id, "container_id")
     result = orch_request(
-        f"/api/v1/pipelines/{pid}/containers/{args.container_id}/stop",
+        f"/api/v1/pipelines/{pid}/containers/{cid}/stop",
         method="POST",
         data={},
     )
+
+    if getattr(args, "json", False):
+        print_json(result)
+        return 0
 
     if result.get("success"):
         print(f"Stopped container: {args.container_id}")
@@ -745,15 +984,20 @@ def cmd_container_stop(args: argparse.Namespace) -> int:
 def cmd_container_logs(args: argparse.Namespace) -> int:
     """Get container logs."""
     pid = require_pipeline_id(args)
-    params = []
+    cid = validate_id(args.container_id, "container_id")
+    params: dict[str, str] = {}
     if args.lines:
-        params.append(f"lines={args.lines}")
+        params["lines"] = str(args.lines)
 
-    endpoint = f"/api/v1/pipelines/{pid}/containers/{args.container_id}/logs"
+    endpoint = f"/api/v1/pipelines/{pid}/containers/{cid}/logs"
     if params:
-        endpoint += "?" + "&".join(params)
+        endpoint += "?" + urlencode(params)
 
     result = orch_request(endpoint)
+
+    if getattr(args, "json", False):
+        print_json(result)
+        return 0
 
     data = result.get("data", result)
     logs = data.get("logs", data.get("output", ""))
@@ -771,13 +1015,20 @@ def cmd_container_logs(args: argparse.Namespace) -> int:
 
 def cmd_gateway_health(args: argparse.Namespace) -> int:
     """Check gateway health."""
-    result = api_request(get_gateway_url(), "/api/v1/health", timeout=5)
+    try:
+        result = api_request(get_gateway_url(), "/api/v1/health", timeout=5)
+    except ApiError:
+        if getattr(args, "json", False):
+            print_json({"status": "unreachable", "reachable": False})
+            return 1
+        print("Status: UNREACHABLE")
+        return 1
 
-    if args.json:
+    if getattr(args, "json", False):
         print_json(result)
         return 0
 
-    print(f"Status: ok")
+    print("Status: ok")
     print(f"GitHub token valid: {result.get('github_token_valid', False)}")
     return 0
 
@@ -786,9 +1037,7 @@ def cmd_gateway_phase(args: argparse.Namespace) -> int:
     """Get current phase from gateway."""
     issue = args.issue
     if not issue:
-        issue_str = os.environ.get("EGG_ISSUE_NUMBER")
-        if issue_str:
-            issue = int(issue_str)
+        issue = get_issue_number()
     if not issue:
         print("Error: --issue required or set EGG_ISSUE_NUMBER", file=sys.stderr)
         return 1
@@ -807,7 +1056,8 @@ def cmd_gateway_phase(args: argparse.Namespace) -> int:
 
 def cmd_gateway_permissions(args: argparse.Namespace) -> int:
     """Get allowed operations for a phase."""
-    result = gateway_request(f"/api/v1/phase/permissions/{args.phase}")
+    phase = quote(args.phase, safe="")
+    result = gateway_request(f"/api/v1/phase/permissions/{phase}")
 
     if args.json:
         print_json(result)
@@ -845,6 +1095,13 @@ def cmd_env(args: argparse.Namespace) -> int:
         ("EGG_SESSION_TOKEN", "(set)" if get_session_token() else "(not set)"),
     ]
 
+    if getattr(args, "json", False):
+        env_dict = {}
+        for name, value in env_vars:
+            env_dict[name] = value
+        print_json(env_dict)
+        return 0
+
     for name, value in env_vars:
         print(f"  {name}={value}")
     return 0
@@ -855,28 +1112,28 @@ def cmd_env(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _add_json_flag(parser: argparse.ArgumentParser) -> None:
+    """Add --json flag to a subparser."""
+    parser.add_argument("--json", action="store_true", help="Output raw JSON")
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
         prog="egg-orch",
         description="CLI for the egg orchestrator and gateway APIs",
     )
-    parser.add_argument(
-        "--json", action="store_true", help="Output raw JSON"
-    )
 
     subparsers = parser.add_subparsers(dest="command", help="Command group")
 
     # -- health --
-    health_parser = subparsers.add_parser(
-        "health", help="Check orchestrator + gateway health"
-    )
+    health_parser = subparsers.add_parser("health", help="Check orchestrator + gateway health")
+    _add_json_flag(health_parser)
     health_parser.set_defaults(func=cmd_health)
 
     # -- env --
-    env_parser = subparsers.add_parser(
-        "env", help="Show orchestrator environment variables"
-    )
+    env_parser = subparsers.add_parser("env", help="Show orchestrator environment variables")
+    _add_json_flag(env_parser)
     env_parser.set_defaults(func=cmd_env)
 
     # -- pipeline --
@@ -887,33 +1144,40 @@ def create_parser() -> argparse.ArgumentParser:
     pl_list = pipeline_sub.add_parser("list", help="List pipelines")
     pl_list.add_argument("--status", help="Filter by status")
     pl_list.add_argument("--limit", type=int, help="Max results")
+    _add_json_flag(pl_list)
     pl_list.set_defaults(func=cmd_pipeline_list)
 
     # pipeline get
     pl_get = pipeline_sub.add_parser("get", help="Get pipeline details")
     pl_get.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(pl_get)
     pl_get.set_defaults(func=cmd_pipeline_get)
 
     # pipeline create
     pl_create = pipeline_sub.add_parser("create", help="Create a pipeline")
     pl_create.add_argument("--repo", required=True, help="Repository (owner/name)")
     pl_create.add_argument(
-        "--mode", default="local", choices=["issue", "local"],
+        "--mode",
+        default="local",
+        choices=["issue", "local"],
         help="Pipeline mode (default: local)",
     )
     pl_create.add_argument("--issue", type=int, help="Issue number")
     pl_create.add_argument("--branch", help="Branch name")
     pl_create.add_argument("--prompt", help="Prompt (required for local mode)")
+    _add_json_flag(pl_create)
     pl_create.set_defaults(func=cmd_pipeline_create)
 
     # pipeline status
     pl_status = pipeline_sub.add_parser("status", help="Get pipeline status")
     pl_status.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(pl_status)
     pl_status.set_defaults(func=cmd_pipeline_status)
 
     # pipeline delete
     pl_delete = pipeline_sub.add_parser("delete", help="Delete a pipeline")
     pl_delete.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(pl_delete)
     pl_delete.set_defaults(func=cmd_pipeline_delete)
 
     # -- signal --
@@ -924,6 +1188,7 @@ def create_parser() -> argparse.ArgumentParser:
     def add_signal_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
         p.add_argument("--role", help="Agent role (default: EGG_AGENT_ROLE)")
+        _add_json_flag(p)
 
     # signal complete
     sig_complete = signal_sub.add_parser("complete", help="Signal completion")
@@ -946,9 +1211,7 @@ def create_parser() -> argparse.ArgumentParser:
     sig_error = signal_sub.add_parser("error", help="Signal error")
     add_signal_args(sig_error)
     sig_error.add_argument("--error", required=True, help="Error message")
-    sig_error.add_argument(
-        "--recoverable", action="store_true", help="Error is recoverable"
-    )
+    sig_error.add_argument("--recoverable", action="store_true", help="Error is recoverable")
     sig_error.set_defaults(func=cmd_signal_error)
 
     # signal heartbeat
@@ -963,23 +1226,27 @@ def create_parser() -> argparse.ArgumentParser:
     # phase get
     ph_get = phase_sub.add_parser("get", help="Get current phase")
     ph_get.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(ph_get)
     ph_get.set_defaults(func=cmd_phase_get)
 
     # phase advance
     ph_advance = phase_sub.add_parser("advance", help="Advance to next phase")
     ph_advance.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     ph_advance.add_argument("--reason", help="Reason for advancement")
+    _add_json_flag(ph_advance)
     ph_advance.set_defaults(func=cmd_phase_advance)
 
     # phase start
     ph_start = phase_sub.add_parser("start", help="Start current phase")
     ph_start.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(ph_start)
     ph_start.set_defaults(func=cmd_phase_start)
 
     # phase complete
     ph_complete = phase_sub.add_parser("complete", help="Complete current phase")
     ph_complete.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     ph_complete.add_argument("--reason", help="Completion reason")
+    _add_json_flag(ph_complete)
     ph_complete.set_defaults(func=cmd_phase_complete)
 
     # -- decision --
@@ -989,6 +1256,7 @@ def create_parser() -> argparse.ArgumentParser:
     # decision list
     dec_list = decision_sub.add_parser("list", help="List decisions")
     dec_list.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(dec_list)
     dec_list.set_defaults(func=cmd_decision_list)
 
     # decision create
@@ -997,9 +1265,8 @@ def create_parser() -> argparse.ArgumentParser:
     dec_create.add_argument("--question", required=True, help="Decision question")
     dec_create.add_argument("--context", help="Additional context")
     dec_create.add_argument("--options", nargs="*", help="Decision options")
-    dec_create.add_argument(
-        "--timeout", type=int, help="Timeout in seconds (default: 3600)"
-    )
+    dec_create.add_argument("--timeout", type=int, help="Timeout in seconds (default: 3600)")
+    _add_json_flag(dec_create)
     dec_create.set_defaults(func=cmd_decision_create)
 
     # decision resolve
@@ -1008,11 +1275,13 @@ def create_parser() -> argparse.ArgumentParser:
     dec_resolve.add_argument("decision_id", help="Decision ID")
     dec_resolve.add_argument("--resolution", required=True, help="Resolution value")
     dec_resolve.add_argument("--resolved-by", help="Who resolved it")
+    _add_json_flag(dec_resolve)
     dec_resolve.set_defaults(func=cmd_decision_resolve)
 
     # decision status
     dec_status = decision_sub.add_parser("status", help="Decision queue status")
     dec_status.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(dec_status)
     dec_status.set_defaults(func=cmd_decision_status)
 
     # -- container --
@@ -1022,6 +1291,7 @@ def create_parser() -> argparse.ArgumentParser:
     # container list
     ct_list = container_sub.add_parser("list", help="List containers")
     ct_list.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(ct_list)
     ct_list.set_defaults(func=cmd_container_list)
 
     # container spawn
@@ -1030,18 +1300,21 @@ def create_parser() -> argparse.ArgumentParser:
     ct_spawn.add_argument("--role", required=True, help="Agent role")
     ct_spawn.add_argument("--issue", type=int, help="Issue number")
     ct_spawn.add_argument("--private", action="store_true", help="Private mode")
+    _add_json_flag(ct_spawn)
     ct_spawn.set_defaults(func=cmd_container_spawn)
 
     # container get
     ct_get = container_sub.add_parser("get", help="Get container info")
     ct_get.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     ct_get.add_argument("container_id", help="Container ID")
+    _add_json_flag(ct_get)
     ct_get.set_defaults(func=cmd_container_get)
 
     # container stop
     ct_stop = container_sub.add_parser("stop", help="Stop a container")
     ct_stop.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     ct_stop.add_argument("container_id", help="Container ID")
+    _add_json_flag(ct_stop)
     ct_stop.set_defaults(func=cmd_container_stop)
 
     # container logs
@@ -1049,6 +1322,7 @@ def create_parser() -> argparse.ArgumentParser:
     ct_logs.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     ct_logs.add_argument("container_id", help="Container ID")
     ct_logs.add_argument("--lines", type=int, help="Number of log lines")
+    _add_json_flag(ct_logs)
     ct_logs.set_defaults(func=cmd_container_logs)
 
     # -- gateway --
@@ -1057,21 +1331,23 @@ def create_parser() -> argparse.ArgumentParser:
 
     # gateway health
     gw_health = gw_sub.add_parser("health", help="Check gateway health")
+    _add_json_flag(gw_health)
     gw_health.set_defaults(func=cmd_gateway_health)
 
     # gateway phase
     gw_phase = gw_sub.add_parser("phase", help="Get current phase from gateway")
     gw_phase.add_argument("--issue", type=int, help="Issue number")
+    _add_json_flag(gw_phase)
     gw_phase.set_defaults(func=cmd_gateway_phase)
 
     # gateway permissions
-    gw_perms = gw_sub.add_parser(
-        "permissions", help="Get allowed operations for a phase"
-    )
+    gw_perms = gw_sub.add_parser("permissions", help="Get allowed operations for a phase")
     gw_perms.add_argument(
-        "phase", choices=["refine", "plan", "implement", "pr"],
+        "phase",
+        choices=["refine", "plan", "implement", "pr"],
         help="SDLC phase",
     )
+    _add_json_flag(gw_perms)
     gw_perms.set_defaults(func=cmd_gateway_permissions)
 
     return parser
