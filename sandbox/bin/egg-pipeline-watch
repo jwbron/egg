@@ -111,7 +111,8 @@ def format_status_line(pipeline_id: str, data: dict) -> str:
     if updated:
         time_part = updated.split("T")[-1].rstrip("Z")[:8]
 
-    line = f"{BOLD}{pipeline_id}{RESET}  {color}{status}{RESET}  phase={phase}"
+    display_status = "awaiting approval" if status == "awaiting_human" else status
+    line = f"{BOLD}{pipeline_id}{RESET}  {color}{display_status}{RESET}  phase={phase}"
     if pending:
         line += f"  {YELLOW}({pending} pending decision{'s' if pending != 1 else ''}){RESET}"
     if time_part:
@@ -141,8 +142,9 @@ def render_event_info(data: dict) -> str:
 
     color = STATUS_COLORS.get(status, "")
 
+    display_status = "awaiting approval" if status == "awaiting_human" else status
     lines.append("")
-    lines.append(f"  Status: {color}{status}{RESET}  |  Phase: {phase}")
+    lines.append(f"  Status: {color}{display_status}{RESET}  |  Phase: {phase}")
     if timestamp:
         time_part = timestamp.split("T")[-1].rstrip("Z")[:8]
         lines.append(f"  {DIM}Updated: {time_part}  Event: {event_type}{RESET}")

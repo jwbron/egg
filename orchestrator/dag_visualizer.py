@@ -121,7 +121,10 @@ def _render_phase_box(
     name = PHASE_NAMES.get(phase, phase.value)
 
     # Build status line
-    status_text = status.value
+    if status == PipelineStatus.AWAITING_HUMAN:
+        status_text = "awaiting approval"
+    else:
+        status_text = status.value
     if review_cycles > 0:
         status_text += f" (cycle {review_cycles})"
 
@@ -225,7 +228,10 @@ def render_pipeline_dag(
     # Header
     if include_header:
         lines.append(f"Pipeline: {pipeline.id}")
-        lines.append(f"Status: {pipeline.status.value}")
+        header_status = pipeline.status.value
+        if pipeline.status == PipelineStatus.AWAITING_HUMAN:
+            header_status = "awaiting approval"
+        lines.append(f"Status: {header_status}")
         if pipeline.repo:
             lines.append(f"Repository: {pipeline.repo}")
         if pipeline.branch:
@@ -298,7 +304,11 @@ def render_phase_detail(
         return "\n".join(lines)
 
     symbol = _get_status_symbol(phase_exec.status, use_ascii)
-    lines.append(f"Status: {symbol} {phase_exec.status.value}")
+    if phase_exec.status == PipelineStatus.AWAITING_HUMAN:
+        status_text = "awaiting approval"
+    else:
+        status_text = phase_exec.status.value
+    lines.append(f"Status: {symbol} {status_text}")
     lines.append(f"Review Cycles: {phase_exec.review_cycles}")
 
     if phase_exec.started_at:

@@ -2378,6 +2378,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # otherwise the stale local object overwrites it with an empty decisions list.
                 pipeline = store.load_pipeline(pipeline_id)
                 pipeline.status = PipelineStatus.AWAITING_HUMAN
+                # Also mark the phase as awaiting human so the DAG visualization
+                # shows the HITL gate on the correct phase box.
+                phase_execution = pipeline.get_phase_execution(current_phase)
+                phase_execution.status = PipelineStatus.AWAITING_HUMAN
                 store.save_pipeline(pipeline)
 
                 # Report HITL gate to collaborator
@@ -2399,6 +2403,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Resume — reload since decision resolution may have modified state
                 pipeline = store.load_pipeline(pipeline_id)
                 pipeline.status = PipelineStatus.RUNNING
+                # Restore phase status to COMPLETE now that the HITL gate is cleared
+                phase_execution = pipeline.get_phase_execution(current_phase)
+                phase_execution.status = PipelineStatus.COMPLETE
                 store.save_pipeline(pipeline)
 
             # Determine next phase

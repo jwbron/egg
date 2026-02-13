@@ -283,6 +283,38 @@ class TestRenderPipelineDag:
         assert "> reviewer" in result
 
 
+    def test_hitl_gate_phase_shows_awaiting_approval(self):
+        """Test that a phase in AWAITING_HUMAN status shows 'awaiting approval'."""
+        phases = {
+            "refine": PhaseExecution(
+                phase=PipelinePhase.REFINE,
+                status=PipelineStatus.AWAITING_HUMAN,
+            ),
+        }
+        pipeline = create_test_pipeline(
+            phases=phases,
+            current_phase=PipelinePhase.REFINE,
+            status=PipelineStatus.AWAITING_HUMAN,
+        )
+        result = render_pipeline_dag(pipeline)
+
+        assert "⏸" in result
+        assert "awaiting approval" in result
+        # Should NOT show the raw enum value
+        assert "awaiting_human" not in result
+
+    def test_hitl_gate_header_shows_awaiting_approval(self):
+        """Test that pipeline header shows 'awaiting approval' instead of 'awaiting_human'."""
+        pipeline = create_test_pipeline(
+            status=PipelineStatus.AWAITING_HUMAN,
+            current_phase=PipelinePhase.REFINE,
+        )
+        result = render_pipeline_dag(pipeline, include_header=True)
+
+        assert "Status: awaiting approval" in result
+        assert "Status: awaiting_human" not in result
+
+
 class TestRenderCompactStatus:
     """Tests for render_compact_status function."""
 
@@ -442,6 +474,21 @@ class TestRenderPhaseDetail:
 
         assert "failed" in result
         assert "Error: Container failed to start" in result
+
+    def test_awaiting_human_phase_shows_awaiting_approval(self):
+        """Test detail view shows 'awaiting approval' for AWAITING_HUMAN status."""
+        phases = {
+            "refine": PhaseExecution(
+                phase=PipelinePhase.REFINE,
+                status=PipelineStatus.AWAITING_HUMAN,
+            ),
+        }
+        pipeline = create_test_pipeline(phases=phases)
+        result = render_phase_detail(pipeline, PipelinePhase.REFINE)
+
+        assert "⏸" in result
+        assert "awaiting approval" in result
+        assert "awaiting_human" not in result
 
 
 class TestGenerateStatusReport:
