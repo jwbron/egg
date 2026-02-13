@@ -143,10 +143,18 @@ def resolve_worktree_path(pipeline_id: str, repo_path: Path) -> Path:
     if candidate.is_dir():
         return candidate
 
-    # Fallback: take the first existing subdirectory
+    # Fallback: take the first existing subdirectory.
+    # iterdir() order is non-deterministic; log a warning so operators
+    # can detect when the heuristic fires (e.g. after a repo rename).
     try:
         for entry in wt_pipeline_dir.iterdir():
             if entry.is_dir():
+                logger.warning(
+                    "Worktree repo name mismatch, using fallback",
+                    pipeline_id=pipeline_id,
+                    expected_repo=repo_name,
+                    fallback_path=str(entry),
+                )
                 return entry
     except OSError:
         pass
