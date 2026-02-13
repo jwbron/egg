@@ -13,7 +13,8 @@ set -euo pipefail
 INPUT=$(cat)
 PROMPT=$(echo "$INPUT" | jq -r '.user_prompt // .prompt // ""' 2>/dev/null || echo "$INPUT")
 
-# Only intercept !approve commands
+# Only intercept !approve commands for token-gated phases (refine|plan).
+# NOTE: If gated phases change, also update VALID_PHASES in sdlc_tokens.py.
 if [[ ! "$PROMPT" =~ ^!approve[[:space:]]+(refine|plan)$ ]]; then
     exit 0  # Pass through all other prompts
 fi
@@ -39,10 +40,15 @@ if [[ -z "$TOKEN" ]]; then
 fi
 
 ORCH_URL="${EGG_ORCHESTRATOR_URL:-http://egg-orchestrator:9849}"
+JSON_PAYLOAD=$(jq -n \
+    --arg pid "$PIPELINE_ID" \
+    --arg phase "$PHASE" \
+    --arg token "$TOKEN" \
+    '{pipeline_id: $pid, phase: $phase, token: $token}')
 RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
     "$ORCH_URL/api/v1/sdlc-tokens/approve" \
     -H "Content-Type: application/json" \
-    -d "{\"pipeline_id\": \"$PIPELINE_ID\", \"phase\": \"$PHASE\", \"token\": \"$TOKEN\"}")
+    -d "$JSON_PAYLOAD")
 
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)
 BODY=$(echo "$RESPONSE" | sed '$d')

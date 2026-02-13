@@ -39,10 +39,15 @@ logger = get_logger("orchestrator.sdlc_tokens")
 sdlc_tokens_bp = Blueprint("sdlc_tokens", __name__, url_prefix="/api/v1/sdlc-tokens")
 
 # In-memory token store: pipeline_id -> token data
-# Acceptable because tokens are ephemeral (one session lifetime),
-# orchestrator is a singleton, restart invalidates tokens.
+# Tokens are ephemeral (one session lifetime); orchestrator is a singleton.
+# CAVEAT: If the orchestrator restarts while a pipeline is token-gated,
+# the in-memory tokens are lost but Pipeline.sdlc_token_gated remains True
+# in persistent storage. Use the /reset endpoint to recover from this state.
 _token_store: dict[str, dict[str, Any]] = {}
 
+# Only the first two PipelinePhase values (refine, plan) are token-gated.
+# The implement and pr phases proceed automatically after plan approval.
+# NOTE: If this set changes, also update the regex in sdlc-approve.sh.
 VALID_PHASES = {"refine", "plan"}
 
 
@@ -186,6 +191,53 @@ def approve_phase() -> tuple[Response, int]:
     )
 
 
+@sdlc_tokens_bp.route("/reset", methods=["POST"])
+def reset_token_gate() -> tuple[Response, int]:
+    """Clear token-gated state for a pipeline.
+
+    Recovery endpoint for when the orchestrator restarts and in-memory tokens
+    are lost while Pipeline.sdlc_token_gated is still True in persistent storage.
+
+    Request body:
+        {"pipeline_id": "issue-596"}
+    """
+    data = request.get_json() or {}
+    pipeline_id = data.get("pipeline_id")
+
+    if not pipeline_id:
+        return _make_error("Missing pipeline_id")
+
+    # Clear in-memory tokens if present
+    _token_store.pop(pipeline_id, None)
+
+    # Clear persistent flag
+    try:
+        from routes import get_repo_path
+        from state_store import get_state_store
+
+        repo_path = get_repo_path()
+        store = get_state_store(repo_path)
+        pipeline = store.load_pipeline(pipeline_id)
+        if pipeline.sdlc_token_gated:
+            pipeline.sdlc_token_gated = False
+            store.save_pipeline(pipeline)
+            logger.info("Token gate cleared", pipeline_id=pipeline_id)
+    except Exception as e:
+        logger.warning("Failed to clear persistent token gate", pipeline_id=pipeline_id, error=str(e))
+
+    return _make_success("Token gate cleared", data={"pipeline_id": pipeline_id})
+
+
+def _is_phase_transition_decision(decision: Any, phase: str) -> bool:
+    """Check if a decision is a phase-transition gate for the given phase.
+
+    Matches the specific question format produced by the HITL gate in
+    pipelines.py: "The {phase} phase has completed. ..."
+    """
+    expected_prefix = f"the {phase} phase has completed"
+    return decision.question.lower().startswith(expected_prefix)
+
+
 def _resolve_phase_decisions(pipeline_id: str, phase: str) -> None:
     """Resolve pending HITL decisions for a pipeline phase."""
     from routes import get_repo_path
@@ -198,9 +250,7 @@ def _resolve_phase_decisions(pipeline_id: str, phase: str) -> None:
         pending = queue.get_pending_decisions()
 
         for decision in pending:
-            # Match decisions that reference this phase
-            question_lower = decision.question.lower()
-            if phase in question_lower:
+            if _is_phase_transition_decision(decision, phase):
                 queue.resolve_decision(decision.id, f"Approved via SDLC token ({phase})")
                 logger.info(
                     "Auto-resolved decision via SDLC token",

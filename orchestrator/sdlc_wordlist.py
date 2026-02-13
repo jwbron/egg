@@ -1,8 +1,8 @@
 """
 Word list for SDLC approval token generation.
 
-Contains ~200 concrete, unambiguous, easy-to-spell English nouns (3-7 chars each).
-3-word tokens yield 200^3 = 8M combinations, sufficient for ephemeral single-session use.
+210 unique concrete, unambiguous, easy-to-spell English nouns (3-7 chars each).
+3-word tokens yield 210^3 ≈ 9.3M combinations, sufficient for ephemeral single-session use.
 """
 
 WORD_LIST = [
@@ -20,8 +20,8 @@ WORD_LIST = [
     # Fruits & food
     "APPLE", "BASIL", "BEAN", "BERRY", "BREAD", "CANDY", "CEDAR", "CHERRY",
     "CHILI", "COCOA", "DATE", "FIG", "GRAPE", "GUAVA", "HONEY", "KIWI",
-    "LEMON", "LIME", "MANGO", "MAPLE", "MELON", "MINT", "OLIVE", "PEACH",
-    "PEAR", "PLUM", "RICE", "SAGE", "WHEAT",
+    "LEMON", "LIME", "MANGO", "MAPLE", "MELON", "MINT",
+    "PEAR", "RICE", "SAGE", "WHEAT",
     # Weather & sky
     "BOLT", "BREEZE", "CLOUD", "DEW", "FLAME", "FLOOD", "FOG", "FROST",
     "GALE", "HAIL", "ICE", "MIST", "MOON", "RAIN", "SKY", "SLEET",
@@ -34,7 +34,7 @@ WORD_LIST = [
     "RIDGE", "RIVER", "ROCK", "SAND", "SHORE", "SLOPE", "STONE", "TRAIL",
     "VALE", "VINE", "WOOD",
     # Tools & objects
-    "ANVIL", "AXE", "BELL", "BOLT", "BOW", "BRICK", "BRUSH", "CHAIN",
+    "ANVIL", "AXE", "BELL", "BOW", "BRICK", "BRUSH", "CHAIN",
     "CHEST", "CLOCK", "COIN", "CROWN", "DRUM", "FLUTE", "FORGE", "GATE",
     "GEAR", "GLASS", "GLOBE", "GONG", "HARP", "HELM", "HORN", "KEY",
     "KNOT", "LANCE", "LATCH", "LENS", "LOCK", "MASK", "NAIL", "OPAL",
@@ -42,13 +42,3 @@ WORD_LIST = [
     "SPEAR", "SPIKE", "SWORD", "TORCH", "TOWER", "VAULT", "WAGON",
     "WHEEL",
 ]
-
-# Deduplicate while preserving order
-_seen: set[str] = set()
-_unique: list[str] = []
-for _w in WORD_LIST:
-    if _w not in _seen:
-        _seen.add(_w)
-        _unique.append(_w)
-WORD_LIST = _unique
-del _seen, _unique, _w

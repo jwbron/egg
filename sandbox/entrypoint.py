@@ -683,13 +683,11 @@ def setup_sdlc_tokens(config: Config, logger: Logger) -> None:
     else:
         settings = {}
 
-    settings["hooks"] = settings.get("hooks", {})
-    settings["hooks"]["UserPromptSubmit"] = [
-        {
-            "type": "command",
-            "command": str(hook_dst),
-        }
-    ]
+    settings.setdefault("hooks", {})
+    existing_hooks = settings["hooks"].get("UserPromptSubmit", [])
+    if not any(h.get("command") == str(hook_dst) for h in existing_hooks if isinstance(h, dict)):
+        existing_hooks.append({"type": "command", "command": str(hook_dst)})
+    settings["hooks"]["UserPromptSubmit"] = existing_hooks
     settings_file.write_text(json.dumps(settings, indent=2))
     os.chown(settings_file, config.runtime_uid, config.runtime_gid)
 
@@ -705,13 +703,11 @@ def setup_sdlc_tokens(config: Config, logger: Logger) -> None:
             project_settings = json.loads(project_settings_file.read_text())
         except json.JSONDecodeError:
             pass
-    project_settings["hooks"] = project_settings.get("hooks", {})
-    project_settings["hooks"]["UserPromptSubmit"] = [
-        {
-            "type": "command",
-            "command": str(hook_dst),
-        }
-    ]
+    project_settings.setdefault("hooks", {})
+    existing_project_hooks = project_settings["hooks"].get("UserPromptSubmit", [])
+    if not any(h.get("command") == str(hook_dst) for h in existing_project_hooks if isinstance(h, dict)):
+        existing_project_hooks.append({"type": "command", "command": str(hook_dst)})
+    project_settings["hooks"]["UserPromptSubmit"] = existing_project_hooks
     project_settings_file.write_text(json.dumps(project_settings, indent=2))
     os.chown(project_settings_file, config.runtime_uid, config.runtime_gid)
     chown_recursive(project_claude_dir, config.runtime_uid, config.runtime_gid)
@@ -756,15 +752,14 @@ def _start_settings_watchdog(config: Config, logger: Logger, hook_path: str) -> 
 
                 if not hook_present:
                     logger.warn("SDLC hook removed from settings.json — re-adding")
-                    if "hooks" not in settings:
-                        settings["hooks"] = {}
-                    settings["hooks"]["UserPromptSubmit"] = [
-                        {"type": "command", "command": hook_path}
-                    ]
+                    settings.setdefault("hooks", {})
+                    existing = settings["hooks"].get("UserPromptSubmit", [])
+                    existing.append({"type": "command", "command": hook_path})
+                    settings["hooks"]["UserPromptSubmit"] = existing
                     settings_file.write_text(json.dumps(settings, indent=2))
                     os.chown(settings_file, config.runtime_uid, config.runtime_gid)
             except Exception:
-                pass  # Don't crash watchdog on transient errors
+                logger.debug("SDLC settings watchdog error", exc_info=True)
 
     thread = threading.Thread(target=watchdog, daemon=True, name="sdlc-settings-watchdog")
     thread.start()

@@ -300,7 +300,11 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
     except PipelineNotFoundError:
         pass  # Pipeline may not exist yet, allow resolution
     except Exception:
-        pass  # Don't block on state store errors
+        logger.error("Failed to check token gate", pipeline_id=pipeline_id, exc_info=True)
+        return make_error_response(
+            "Unable to verify pipeline token gate. Try again.",
+            status_code=503,
+        )
 
     try:
         queue = get_decision_queue(pipeline_id, repo_path)
