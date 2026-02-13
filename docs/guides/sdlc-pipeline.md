@@ -107,16 +107,25 @@ Returns the current pipeline status for polling-based monitoring.
 }
 ```
 
-When `pending_decisions > 0`, the response includes an additional `pending_decision` object with the first pending decision's details, so consumers don't need a second round-trip to fetch it:
+When `pending_decisions > 0`, the `data` object includes an additional `pending_decision` field with the first pending decision's details, so consumers don't need a second round-trip to fetch it:
 
 ```json
 {
-  "pending_decision": {
-    "id": "decision-1",
-    "question": "How should we proceed?",
-    "context": "Additional context for the decision",
-    "options": ["Option A", "Option B"],
-    "created_at": "2026-02-12T11:00:00Z"
+  "success": true,
+  "message": "Status retrieved",
+  "data": {
+    "id": "issue-123",
+    "status": "running",
+    "current_phase": "implement",
+    "pending_decisions": 1,
+    "updated_at": "2026-02-12T10:30:00Z",
+    "pending_decision": {
+      "id": "decision-1",
+      "question": "How should we proceed?",
+      "context": "Additional context for the decision",
+      "options": ["Option A", "Option B"],
+      "created_at": "2026-02-12T11:00:00Z"
+    }
   }
 }
 ```
