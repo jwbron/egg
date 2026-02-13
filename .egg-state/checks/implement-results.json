@@ -1,0 +1,20 @@
+{
+  "all_passed": true,
+  "checks": [
+    {
+      "name": "pytest",
+      "passed": true,
+      "output": "3151 passed, 81 skipped, 3 warnings in 12.75s"
+    },
+    {
+      "name": "ruff-check",
+      "passed": true,
+      "output": "All checks passed!"
+    },
+    {
+      "name": "ruff-format",
+      "passed": true,
+      "output": "347 files already formatted"
+    }
+  ]
+}
