@@ -123,22 +123,32 @@ find_config_files() {
 
 count_source_files() {
     # Count files per top-level directory to show project scale.
-    # Uses -name based pruning so exclusions work regardless of find start path.
+    # Uses -name/-path based pruning so exclusions work regardless of find start path.
+    # Multi-segment exclude paths use -path with a leading wildcard; single-segment
+    # use -name so they match at any depth.
     local -a prune_args=()
+    local -A excluded_basenames=()
     local dir
     local first=true
     while IFS= read -r dir; do
-        local basename="${dir##*/}"
         if [[ "$first" == true ]]; then
             first=false
         else
             prune_args+=("-o")
         fi
-        prune_args+=("-name" "$basename")
+        if [[ "$dir" == */* ]]; then
+            prune_args+=("-path" "*/${dir}")
+        else
+            prune_args+=("-name" "$dir")
+            excluded_basenames["$dir"]=1
+        fi
     done < <(get_exclude_dirs)
 
     for dir in */; do
         [[ -d "$dir" ]] || continue
+        # Skip top-level directories that are themselves excluded
+        local dirname="${dir%/}"
+        [[ -n "${excluded_basenames[$dirname]+x}" ]] && continue
         local count
         if [[ ${#prune_args[@]} -gt 0 ]]; then
             count=$(find "$dir" \( "${prune_args[@]}" \) -prune -o -type f -print 2>/dev/null | wc -l)
