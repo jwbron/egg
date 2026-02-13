@@ -18,9 +18,9 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-02-13T17:53:51.952536",
-      "completed_at": null,
+      "completed_at": "2026-02-13T18:02:09.811799",
       "containers": [
         {
           "container_id": "98caf8c29cf0c78bcba1122d4a1e0918bd8bb154bc4c043d608b97f88497dee0",
@@ -95,9 +95,9 @@
   },
   "decisions": [],
   "created_at": "2026-02-13T17:53:48.267710",
-  "updated_at": "2026-02-13T18:02:09.775447",
+  "updated_at": "2026-02-13T18:02:09.811878",
   "contract_synced": true,
   "sdlc_token_gated": false,
   "error": null,
-  "version": 11
+  "version": 12
 }
