@@ -19,7 +19,6 @@ import json
 import os
 import re
 import signal
-import socket
 import sys
 import time
 from http.client import HTTPConnection
@@ -52,10 +51,11 @@ MAX_CONSECUTIVE_ERRORS = 3
 
 def _is_inside_container() -> bool:
     """Detect whether we're running inside a Docker container."""
-    try:
-        socket.getaddrinfo("egg-orchestrator", None)
+    if os.environ.get("EGG_CONTAINER"):
         return True
-    except socket.gaierror:
+    try:
+        return os.path.exists("/.dockerenv")
+    except OSError:
         return False
 
 
@@ -98,8 +98,13 @@ def _clear_screen() -> None:
         sys.stdout.flush()
 
 
-def _http_get(host: str, port: int, path: str) -> tuple[int, str] | None:
-    """Make an HTTP GET request. Returns (status_code, body) or None on error."""
+def _http_get(host: str, port: int, path: str, quiet: bool = False) -> tuple[int, str] | None:
+    """Make an HTTP GET request. Returns (status_code, body) or None on error.
+
+    Args:
+        quiet: If True, suppress error messages to stderr. Useful when the
+               caller expects failure and will fall back silently.
+    """
     try:
         conn = HTTPConnection(host, port, timeout=10)
         conn.request("GET", path)
@@ -108,14 +113,16 @@ def _http_get(host: str, port: int, path: str) -> tuple[int, str] | None:
         conn.close()
         return response.status, body
     except ConnectionRefusedError:
-        _write(
-            f"{RED}Cannot connect to orchestrator at {host}:{port}\n"
-            f"Is the orchestrator running?{RESET}\n",
-            file=sys.stderr,
-        )
+        if not quiet:
+            _write(
+                f"{RED}Cannot connect to orchestrator at {host}:{port}\n"
+                f"Is the orchestrator running?{RESET}\n",
+                file=sys.stderr,
+            )
         return None
     except Exception as e:
-        _write(f"{RED}Connection error: {e}{RESET}\n", file=sys.stderr)
+        if not quiet:
+            _write(f"{RED}Connection error: {e}{RESET}\n", file=sys.stderr)
         return None
 
 
@@ -146,7 +153,7 @@ def fetch_status(host: str, port: int, pipeline_id: str) -> dict | None:
 def fetch_visualization(host: str, port: int, pipeline_id: str) -> str | None:
     """Fetch pipeline DAG visualization as plain text."""
     path = f"/api/v1/pipelines/{pipeline_id}/visualization?format=text"
-    result = _http_get(host, port, path)
+    result = _http_get(host, port, path, quiet=True)
     if result is None:
         return None
 
