@@ -131,12 +131,10 @@ When `pending_decisions > 0`, the `data` object includes an additional `pending_
 ```
 
 **CLI tools**:
-- `egg-pipeline-watch <pipeline_id>` — Monitor a single pipeline via polling (updates every 10 seconds)
+- `egg-pipeline-watch <pipeline_id>` — Monitor a single pipeline via SSE stream (real-time DAG visualization)
 - `egg-status` — Monitor all active pipelines via unified SSE stream (real-time updates)
 
-**3. Real-time Streaming (Deprecated)**: `GET /api/v1/pipelines/<pipeline_id>/stream`
-
-> **Deprecated**: Prefer the polling endpoint above for single-pipeline monitoring. The `egg-pipeline-watch` CLI tool has been switched to polling as of #621. The per-pipeline SSE endpoint remains available but may be removed in a future release.
+**3. Real-time Streaming**: `GET /api/v1/pipelines/<pipeline_id>/stream`
 
 Returns a Server-Sent Events (SSE) stream for real-time pipeline updates.
 

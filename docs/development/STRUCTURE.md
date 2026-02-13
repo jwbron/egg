@@ -128,7 +128,7 @@ sandbox/
 │   ├── gh
 │   ├── egg-contract        # Symlink to contract_cli.py
 │   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
-│   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via polling
+│   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
 │   ├── contract_cli.py     # SDLC contract CLI implementation
