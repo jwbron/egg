@@ -8,12 +8,18 @@ operations to prevent corruption from concurrent access or interrupted writes.
 import hashlib
 import json
 import os
-import secrets
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .checkpoints import Checkpoint, CheckpointIndex, CheckpointSummary
+from .checkpoints import (
+    AgentType,
+    CheckpointIndexV2,
+    CheckpointSummaryV2,
+    CheckpointV2,
+    SessionStatus,
+    TriggerType,
+)
 
 
 class CheckpointLoadError(Exception):
@@ -26,18 +32,6 @@ class CheckpointSaveError(Exception):
     """Error saving a checkpoint."""
 
     pass
-
-
-def generate_checkpoint_id() -> str:
-    """
-    Generate a unique checkpoint ID.
-
-    Returns:
-        A checkpoint ID in the format ckpt-{12 hex chars}
-    """
-    random_bytes = secrets.token_bytes(6)
-    hex_str = random_bytes.hex()
-    return f"ckpt-{hex_str}"
 
 
 def generate_checkpoint_id_from_commit(
@@ -101,95 +95,86 @@ def get_checkpoint_path(base_dir: Path, checkpoint_id: str) -> Path:
     return base_dir / prefix / get_checkpoint_filename(checkpoint_id)
 
 
-def load_checkpoint(path: Path) -> Checkpoint:
+# ==============================================================================
+# Checkpoint v2 Loader Functions
+#
+# V2 checkpoints support session-end triggers (no commit_sha required) and
+# multi-dimensional indexing. Stored on the egg/checkpoints/v2 branch.
+# ==============================================================================
+
+
+def generate_checkpoint_id_v2(
+    session_id: str,
+    timestamp: datetime | None = None,
+) -> str:
     """
-    Load a checkpoint from a JSON file.
+    Generate a deterministic checkpoint ID for session-end checkpoints.
+
+    Unlike commit-based IDs, these are derived from session_id + timestamp
+    since no commit_sha is available.
 
     Args:
-        path: Path to the checkpoint JSON file
+        session_id: The session/container ID
+        timestamp: Optional timestamp for uniqueness (defaults to now)
 
     Returns:
-        The loaded Checkpoint
-
-    Raises:
-        CheckpointLoadError: If the file cannot be loaded or parsed
+        A checkpoint ID in the format ckpt-{16 hex chars}
     """
-    try:
-        with open(path) as f:
-            data = json.load(f)
-        return Checkpoint.model_validate(data)
-    except FileNotFoundError as e:
-        msg = f"Checkpoint file not found: {path}"
-        raise CheckpointLoadError(msg) from e
-    except json.JSONDecodeError as e:
-        msg = f"Invalid JSON in checkpoint file {path}: {e}"
-        raise CheckpointLoadError(msg) from e
-    except Exception as e:
-        msg = f"Error loading checkpoint from {path}: {e}"
-        raise CheckpointLoadError(msg) from e
+    if timestamp is None:
+        timestamp = datetime.now(UTC)
+    content = f"session:{session_id}:{timestamp.isoformat()}"
+    hash_bytes = hashlib.sha256(content.encode()).digest()[:8]
+    hex_str = hash_bytes.hex()
+    return f"ckpt-{hex_str}"
 
 
-def save_checkpoint(checkpoint: Checkpoint, path: Path) -> None:
+def save_checkpoint_v2(checkpoint: CheckpointV2, path: Path) -> None:
     """
-    Save a checkpoint to a JSON file atomically.
+    Save a v2 checkpoint to a JSON file atomically.
 
-    Uses the temp file + rename pattern to ensure atomic writes:
-    1. Write to a temporary file in the same directory
-    2. Sync to disk
-    3. Atomically rename to the target path
-
-    This prevents corruption if the process is interrupted during write.
+    Uses the same temp file + rename pattern as v1 for crash safety.
 
     Args:
-        checkpoint: The checkpoint to save
+        checkpoint: The v2 checkpoint to save
         path: Path to save the checkpoint to
 
     Raises:
         CheckpointSaveError: If the checkpoint cannot be saved
     """
     try:
-        # Ensure parent directory exists
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Serialize checkpoint to JSON
         data = checkpoint.model_dump(mode="json")
         json_str = json.dumps(data, indent=2, sort_keys=True)
 
-        # Write to temp file in same directory (for atomic rename)
-        fd, temp_path = tempfile.mkstemp(
-            suffix=".tmp", prefix=".checkpoint_", dir=path.parent
-        )
+        fd, temp_path = tempfile.mkstemp(suffix=".tmp", prefix=".checkpoint_", dir=path.parent)
         try:
             with os.fdopen(fd, "w") as f:
                 f.write(json_str)
                 f.flush()
                 os.fsync(f.fileno())
 
-            # Set restrictive permissions
             os.chmod(temp_path, 0o644)
-
-            # Atomic rename
             os.rename(temp_path, path)
         except Exception:
-            # Clean up temp file on error
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
             raise
 
     except Exception as e:
-        msg = f"Error saving checkpoint to {path}: {e}"
+        msg = f"Error saving v2 checkpoint to {path}: {e}"
         raise CheckpointSaveError(msg) from e
 
 
-def load_checkpoint_index(path: Path) -> CheckpointIndex:
+def load_checkpoint_v2(path: Path) -> CheckpointV2:
     """
-    Load the checkpoint index from a JSON file.
+    Load a v2 checkpoint from a JSON file.
 
     Args:
-        path: Path to the index JSON file
+        path: Path to the checkpoint JSON file
 
     Returns:
-        The loaded CheckpointIndex
+        The loaded CheckpointV2
 
     Raises:
         CheckpointLoadError: If the file cannot be loaded or parsed
@@ -197,38 +182,61 @@ def load_checkpoint_index(path: Path) -> CheckpointIndex:
     try:
         with open(path) as f:
             data = json.load(f)
-        return CheckpointIndex.model_validate(data)
-    except FileNotFoundError:
-        # Return empty index if file doesn't exist
-        return CheckpointIndex(last_updated=datetime.now(UTC), checkpoints=[])
+        return CheckpointV2.model_validate(data)
+    except FileNotFoundError as e:
+        msg = f"V2 checkpoint file not found: {path}"
+        raise CheckpointLoadError(msg) from e
     except json.JSONDecodeError as e:
-        msg = f"Invalid JSON in index file {path}: {e}"
+        msg = f"Invalid JSON in v2 checkpoint file {path}: {e}"
         raise CheckpointLoadError(msg) from e
     except Exception as e:
-        msg = f"Error loading checkpoint index from {path}: {e}"
+        msg = f"Error loading v2 checkpoint from {path}: {e}"
         raise CheckpointLoadError(msg) from e
 
 
-def save_checkpoint_index(index: CheckpointIndex, path: Path) -> None:
+def load_checkpoint_index_v2(path: Path) -> CheckpointIndexV2:
     """
-    Save the checkpoint index to a JSON file atomically.
+    Load the v2 checkpoint index from a JSON file.
+
+    Returns an empty index if the file doesn't exist.
 
     Args:
-        index: The checkpoint index to save
+        path: Path to the index JSON file
+
+    Returns:
+        The loaded CheckpointIndexV2
+    """
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return CheckpointIndexV2.model_validate(data)
+    except FileNotFoundError:
+        return CheckpointIndexV2(last_updated=datetime.now(UTC))
+    except json.JSONDecodeError as e:
+        msg = f"Invalid JSON in v2 index file {path}: {e}"
+        raise CheckpointLoadError(msg) from e
+    except Exception as e:
+        msg = f"Error loading v2 checkpoint index from {path}: {e}"
+        raise CheckpointLoadError(msg) from e
+
+
+def save_checkpoint_index_v2(index: CheckpointIndexV2, path: Path) -> None:
+    """
+    Save the v2 checkpoint index to a JSON file atomically.
+
+    Args:
+        index: The v2 checkpoint index to save
         path: Path to save the index to
 
     Raises:
         CheckpointSaveError: If the index cannot be saved
     """
     try:
-        # Ensure parent directory exists
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Serialize index to JSON
         data = index.model_dump(mode="json")
         json_str = json.dumps(data, indent=2, sort_keys=True)
 
-        # Write to temp file in same directory (for atomic rename)
         fd, temp_path = tempfile.mkstemp(suffix=".tmp", prefix=".index_", dir=path.parent)
         try:
             with os.fdopen(fd, "w") as f:
@@ -236,165 +244,227 @@ def save_checkpoint_index(index: CheckpointIndex, path: Path) -> None:
                 f.flush()
                 os.fsync(f.fileno())
 
-            # Set restrictive permissions
             os.chmod(temp_path, 0o644)
-
-            # Atomic rename
             os.rename(temp_path, path)
         except Exception:
-            # Clean up temp file on error
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
             raise
 
     except Exception as e:
-        msg = f"Error saving checkpoint index to {path}: {e}"
+        msg = f"Error saving v2 checkpoint index to {path}: {e}"
         raise CheckpointSaveError(msg) from e
 
 
-def add_checkpoint_to_index(
-    checkpoint: Checkpoint,
+def add_checkpoint_to_index_v2(
+    checkpoint: CheckpointV2,
     index_path: Path,
-) -> CheckpointIndex:
+) -> CheckpointIndexV2:
     """
-    Add a checkpoint to the index and save it.
+    Add a v2 checkpoint to the index with multi-dimensional index updates.
 
-    This is a convenience function that:
-    1. Loads the existing index (or creates a new one)
-    2. Adds the checkpoint summary
-    3. Saves the updated index atomically
+    Updates the primary checkpoint list and all secondary indices. The final
+    file write uses atomic rename, but the read-modify-write cycle is not
+    locked — concurrent callers must coordinate externally (e.g., via git
+    push non-fast-forward rejection) to avoid lost updates.
+    Deduplicates by checkpoint ID.
 
     Args:
-        checkpoint: The checkpoint to add
+        checkpoint: The v2 checkpoint to add
         index_path: Path to the index file
 
     Returns:
-        The updated CheckpointIndex
+        The updated CheckpointIndexV2
 
     Raises:
         CheckpointSaveError: If the index cannot be saved
     """
-    # Load existing index or create new one
-    index = load_checkpoint_index(index_path)
+    index = load_checkpoint_index_v2(index_path)
 
-    # Check if checkpoint already exists in index
-    existing = index.get_by_commit(checkpoint.commit_sha)
-    if existing and existing.id == checkpoint.id:
-        # Already in index with same ID, no update needed
+    # Deduplicate by checkpoint ID
+    existing_ids = {cp.id for cp in index.checkpoints}
+    if checkpoint.id in existing_ids:
         return index
 
-    # Remove any existing entry for this commit (in case of re-checkpoint)
-    index.checkpoints = [cp for cp in index.checkpoints if cp.commit_sha != checkpoint.commit_sha]
-
-    # Add new checkpoint summary
-    summary = CheckpointSummary.from_checkpoint(checkpoint)
+    # Create summary and add to primary list
+    summary = CheckpointSummaryV2.from_checkpoint(checkpoint)
     index.checkpoints.append(summary)
 
-    # Update timestamp
+    # Update secondary indices
+    _append_to_index(index.by_session, checkpoint.session_id, checkpoint.id)
+    _append_to_index(index.by_trigger, checkpoint.trigger_type.value, checkpoint.id)
+
+    if checkpoint.issue_number is not None:
+        _append_to_index(index.by_issue, str(checkpoint.issue_number), checkpoint.id)
+
+    if checkpoint.pr_number is not None:
+        _append_to_index(index.by_pr, str(checkpoint.pr_number), checkpoint.id)
+
+    if checkpoint.commit_sha is not None:
+        index.by_commit[checkpoint.commit_sha] = checkpoint.id
+
+    _append_to_index(index.by_agent_type, checkpoint.agent_type.value, checkpoint.id)
+
+    if checkpoint.pipeline_phase is not None:
+        _append_to_index(index.by_phase, checkpoint.pipeline_phase, checkpoint.id)
+
+    if checkpoint.session_status is not None:
+        _append_to_index(index.by_status, checkpoint.session_status.value, checkpoint.id)
+
     index.last_updated = datetime.now(UTC)
 
-    # Save atomically
-    save_checkpoint_index(index, index_path)
+    save_checkpoint_index_v2(index, index_path)
 
     return index
 
 
-def load_checkpoint_by_commit(
+def _append_to_index(index_dict: dict[str, list[str]], key: str, value: str) -> None:
+    """Append value to index dict list, deduplicating."""
+    if key not in index_dict:
+        index_dict[key] = []
+    if value not in index_dict[key]:
+        index_dict[key].append(value)
+
+
+def load_checkpoint_by_id_v2(
+    checkpoint_id: str,
+    checkpoints_dir: Path,
+) -> CheckpointV2 | None:
+    """
+    Load a v2 checkpoint by its ID.
+
+    Args:
+        checkpoint_id: The checkpoint ID (e.g., ckpt-abc123def456)
+        checkpoints_dir: Directory containing checkpoint files
+
+    Returns:
+        The CheckpointV2 if found, None otherwise
+    """
+    checkpoint_path = get_checkpoint_path(checkpoints_dir, checkpoint_id)
+    if not checkpoint_path.exists():
+        return None
+    try:
+        return load_checkpoint_v2(checkpoint_path)
+    except CheckpointLoadError:
+        return None
+
+
+def load_checkpoint_by_commit_v2(
     commit_sha: str,
     checkpoints_dir: Path,
-    index_path: Path | None = None,
-) -> Checkpoint | None:
+    index_path: Path,
+) -> CheckpointV2 | None:
     """
-    Load a checkpoint by commit SHA.
-
-    If an index path is provided, uses the index for fast lookup.
-    Otherwise, scans the checkpoint directory.
+    Load a v2 checkpoint by commit SHA using the v2 index.
 
     Args:
         commit_sha: The commit SHA to find
         checkpoints_dir: Directory containing checkpoint files
-        index_path: Optional path to the checkpoint index
+        index_path: Path to the v2 index file
 
     Returns:
-        The Checkpoint if found, None otherwise
+        The CheckpointV2 if found, None otherwise
     """
-    # Try using index for fast lookup
-    if index_path and index_path.exists():
-        try:
-            index = load_checkpoint_index(index_path)
-            summary = index.get_by_commit(commit_sha)
-            if summary:
-                checkpoint_path = get_checkpoint_path(checkpoints_dir, summary.id)
-                if checkpoint_path.exists():
-                    return load_checkpoint(checkpoint_path)
-        except CheckpointLoadError:
-            pass  # Fall through to scan
-
-    # Fallback: scan checkpoint directory
-    if not checkpoints_dir.exists():
+    try:
+        index = load_checkpoint_index_v2(index_path)
+    except CheckpointLoadError:
         return None
 
-    for subdir in checkpoints_dir.iterdir():
-        if not subdir.is_dir():
-            continue
-        for checkpoint_file in subdir.glob("ckpt-*.json"):
-            try:
-                checkpoint = load_checkpoint(checkpoint_file)
-                if (
-                    checkpoint.commit_sha == commit_sha
-                    or commit_sha.startswith(checkpoint.commit_sha[:7])
-                ):
-                    return checkpoint
-            except CheckpointLoadError:
-                continue
+    checkpoint_id = index.get_by_commit(commit_sha)
+    if not checkpoint_id:
+        return None
 
-    return None
+    return load_checkpoint_by_id_v2(checkpoint_id, checkpoints_dir)
 
 
-def list_checkpoints(
+def list_checkpoints_v2(
     checkpoints_dir: Path,
+    index_path: Path,
     issue_number: int | None = None,
+    pr_number: int | None = None,
     branch: str | None = None,
+    session_id: str | None = None,
+    trigger_type: str | None = None,
+    session_status: str | None = None,
+    agent_type: str | None = None,
+    pipeline_phase: str | None = None,
     limit: int | None = None,
-) -> list[Checkpoint]:
+) -> list[CheckpointSummaryV2]:
     """
-    List checkpoints, optionally filtered by issue or branch.
+    List v2 checkpoint summaries using the index, with multi-dimensional filtering.
+
+    Uses the v2 index for fast lookups. Filters are intersected (AND logic).
 
     Args:
-        checkpoints_dir: Directory containing checkpoint files
-        issue_number: Optional issue number to filter by
-        branch: Optional branch to filter by
-        limit: Optional maximum number of checkpoints to return
+        checkpoints_dir: Directory containing checkpoint files (unused, kept for API symmetry)
+        index_path: Path to the v2 index file
+        issue_number: Filter by issue number
+        pr_number: Filter by PR number
+        branch: Filter by branch name
+        session_id: Filter by session ID
+        trigger_type: Filter by trigger type value
+        session_status: Filter by session status value
+        agent_type: Filter by agent type value
+        pipeline_phase: Filter by pipeline phase
+        limit: Maximum number of results
 
     Returns:
-        List of Checkpoint objects, sorted by created_at descending
+        List of CheckpointSummaryV2, sorted by created_at descending
     """
-    if not checkpoints_dir.exists():
+    try:
+        index = load_checkpoint_index_v2(index_path)
+    except CheckpointLoadError:
         return []
 
-    checkpoints = []
-    for subdir in checkpoints_dir.iterdir():
-        if not subdir.is_dir():
+    if not index.checkpoints:
+        return []
+
+    # Build set of matching checkpoint IDs using index lookups
+    # Start with None (meaning "all") and intersect with each filter
+    matching_ids: set[str] | None = None
+
+    def _intersect(ids: list[str]) -> None:
+        nonlocal matching_ids
+        id_set = set(ids)
+        if matching_ids is None:
+            matching_ids = id_set
+        else:
+            matching_ids &= id_set
+
+    if issue_number is not None:
+        _intersect(index.get_by_issue(issue_number))
+
+    if pr_number is not None:
+        _intersect(index.get_by_pr(pr_number))
+
+    if session_id is not None:
+        _intersect(index.get_by_session(session_id))
+
+    if trigger_type is not None:
+        _intersect(index.get_by_trigger(TriggerType(trigger_type)))
+
+    if session_status is not None:
+        _intersect(index.get_by_status(SessionStatus(session_status)))
+
+    if agent_type is not None:
+        _intersect(index.get_by_agent_type(AgentType(agent_type)))
+
+    if pipeline_phase is not None:
+        _intersect(index.get_by_phase(pipeline_phase))
+
+    # Filter summaries
+    results = []
+    for summary in index.checkpoints:
+        if matching_ids is not None and summary.id not in matching_ids:
             continue
-        for checkpoint_file in subdir.glob("ckpt-*.json"):
-            try:
-                checkpoint = load_checkpoint(checkpoint_file)
+        if branch is not None and summary.branch != branch:
+            continue
+        results.append(summary)
 
-                # Apply filters
-                if issue_number is not None and checkpoint.issue_number != issue_number:
-                    continue
-                if branch is not None and checkpoint.branch != branch:
-                    continue
+    # Sort by created_at descending
+    results.sort(key=lambda cp: cp.created_at, reverse=True)
 
-                checkpoints.append(checkpoint)
-            except CheckpointLoadError:
-                continue
-
-    # Sort by created_at descending (most recent first)
-    checkpoints.sort(key=lambda cp: cp.created_at, reverse=True)
-
-    # Apply limit
     if limit is not None:
-        checkpoints = checkpoints[:limit]
+        results = results[:limit]
 
-    return checkpoints
+    return results

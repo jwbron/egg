@@ -10,10 +10,8 @@ Provides:
 
 import sys
 import threading
-import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from enum import Enum
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -112,7 +110,7 @@ class Histogram:
     def get_bucket_counts(self) -> dict[float, int]:
         """Get counts per bucket."""
         with self._lock:
-            counts = {b: 0 for b in self.buckets}
+            counts = dict.fromkeys(self.buckets, 0)
             counts[float("inf")] = 0
 
             for obs in self._observations:

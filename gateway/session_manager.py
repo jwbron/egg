@@ -13,6 +13,8 @@ Security Properties:
 - Rate limiting prevents enumeration attacks
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import os
@@ -50,6 +52,76 @@ def _cleanup_transcript_buffer(container_id: str) -> None:
             container_id=container_id,
             error=str(e),
         )
+
+
+_captured_containers: set[str] = set()
+_captured_containers_lock = threading.Lock()
+
+
+def _capture_and_cleanup_session(
+    session: Session,
+    session_status: str,
+) -> None:
+    """Capture session-end checkpoint, then clean up transcript buffer.
+
+    Ensures the transcript buffer is preserved until checkpoint capture completes.
+    Falls back to immediate cleanup if checkpoint capture is unavailable.
+
+    Uses a per-container deduplication guard to prevent multiple captures from
+    racing code paths (delete_session, cleanup_orphaned_worktrees, prune_expired).
+    """
+    # Deduplicate: only capture once per container
+    with _captured_containers_lock:
+        if session.container_id in _captured_containers:
+            logger.debug(
+                "Session-end checkpoint already captured, skipping",
+                container_id=session.container_id,
+                session_status=session_status,
+            )
+            return
+        _captured_containers.add(session.container_id)
+
+    try:
+        from checkpoint_handler import (
+            SESSION_END_CAPTURE_TIMEOUT,
+            capture_session_end_checkpoint,
+        )
+        from egg_contracts.checkpoints import SessionStatus
+
+        status = (
+            session_status
+            if isinstance(session_status, SessionStatus)
+            else SessionStatus(session_status)
+        )
+        _checkpoint, completion_event = capture_session_end_checkpoint(
+            session=session,
+            session_status=status,
+        )
+
+        # Wait for async storage to complete before cleaning up the buffer
+        if completion_event is not None:
+            completion_event.wait(timeout=SESSION_END_CAPTURE_TIMEOUT)
+
+    except ImportError:
+        logger.debug(
+            "checkpoint_handler not available, skipping session-end checkpoint",
+            container_id=session.container_id,
+        )
+    except Exception as e:
+        logger.warning(
+            "Session-end checkpoint capture failed",
+            container_id=session.container_id,
+            error=str(e),
+        )
+    finally:
+        # Always clean up the buffer after checkpoint capture
+        _cleanup_transcript_buffer(session.container_id)
+
+        # Remove from dedup set to prevent unbounded growth.
+        # The session is fully processed (checkpoint captured, buffer cleaned up)
+        # and no future code path will call this for the same container.
+        with _captured_containers_lock:
+            _captured_containers.discard(session.container_id)
 
 
 # Session configuration
@@ -118,6 +190,8 @@ class Session:
     expires_at: datetime
     agent_role: str | None = None  # Role set by workflow context
     phase: str | None = None  # SDLC pipeline phase for operation filtering
+    issue_number: int | None = None  # GitHub issue number for checkpoint linkage
+    pr_number: int | None = None  # GitHub PR number for checkpoint linkage
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -143,10 +217,14 @@ class Session:
             result["agent_role"] = self.agent_role
         if self.phase is not None:
             result["phase"] = self.phase
+        if self.issue_number is not None:
+            result["issue_number"] = self.issue_number
+        if self.pr_number is not None:
+            result["pr_number"] = self.pr_number
         return result
 
     @classmethod
-    def from_persistence(cls, data: dict[str, Any]) -> "Session":
+    def from_persistence(cls, data: dict[str, Any]) -> Session:
         """Create Session from persisted data (no raw token)."""
         return cls(
             session_token=None,  # Raw token not persisted
@@ -159,6 +237,8 @@ class Session:
             expires_at=datetime.fromisoformat(data["expires_at"]),
             agent_role=data.get("agent_role"),
             phase=data.get("phase"),
+            issue_number=data.get("issue_number"),
+            pr_number=data.get("pr_number"),
         )
 
 
@@ -301,6 +381,8 @@ class SessionManager:
         container_ip: str,
         mode: ModeType,
         phase: str | None = None,
+        issue_number: int | None = None,
+        pr_number: int | None = None,
     ) -> tuple[str, Session]:
         """
         Register a new session for a container.
@@ -310,6 +392,8 @@ class SessionManager:
             container_ip: Container's IP address on the Docker network
             mode: Repository visibility mode (private or public)
             phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
+            issue_number: Optional GitHub issue number for checkpoint linkage
+            pr_number: Optional GitHub PR number for checkpoint linkage
 
         Returns:
             Tuple of (session_token, Session)
@@ -329,6 +413,8 @@ class SessionManager:
             last_seen=now,
             expires_at=now + timedelta(hours=self._ttl_hours),
             phase=phase,
+            issue_number=issue_number,
+            pr_number=pr_number,
         )
 
         with self._lock:
@@ -598,6 +684,7 @@ class SessionManager:
         """
         Delete a session by token.
 
+        Captures a session-end checkpoint (COMPLETED) before cleaning up.
         Only the launcher (with launcher_secret) should call this.
 
         Args:
@@ -607,6 +694,7 @@ class SessionManager:
             True if session was deleted, False if not found
         """
         token_hash = self._token_to_hash.get(token) or _hash_token(token)
+        session = None
 
         with self._lock:
             session = self._sessions.get(token_hash)
@@ -617,18 +705,24 @@ class SessionManager:
             self._token_to_hash.pop(token, None)
             self._save_to_disk()
 
-            logger.info(
-                "Session deleted",
-                event_type="session_deleted",
-                session_token_hash=token_hash[:16],
-                container_id=session.container_id,
-            )
+        # Capture session-end checkpoint outside the lock to avoid
+        # blocking other session operations during the up-to-30s wait
+        _capture_and_cleanup_session(session, "completed")
 
-            return True
+        logger.info(
+            "Session deleted",
+            event_type="session_deleted",
+            session_token_hash=token_hash[:16],
+            container_id=session.container_id,
+        )
+
+        return True
 
     def delete_session_by_container(self, container_id: str) -> bool:
         """
         Delete session by container ID.
+
+        Captures a session-end checkpoint (COMPLETED) before cleaning up.
 
         Args:
             container_id: Docker container ID
@@ -636,42 +730,51 @@ class SessionManager:
         Returns:
             True if session was deleted, False if not found
         """
+        session = None
+        token_hash = None
+
         with self._lock:
-            to_delete = None
-            for token_hash, session in self._sessions.items():
-                if session.container_id == container_id:
-                    to_delete = token_hash
+            for th, s in self._sessions.items():
+                if s.container_id == container_id:
+                    token_hash = th
+                    session = s
                     break
 
-            if to_delete:
-                session = self._sessions.pop(to_delete)
+            if token_hash:
+                self._sessions.pop(token_hash)
                 if session.session_token:
                     self._token_to_hash.pop(session.session_token, None)
                 self._save_to_disk()
 
-                # Clean up transcript buffer for this container
-                _cleanup_transcript_buffer(container_id)
+        if session:
+            # Capture session-end checkpoint outside the lock to avoid
+            # blocking other session operations during the up-to-30s wait
+            _capture_and_cleanup_session(session, "completed")
 
-                logger.info(
-                    "Session deleted by container ID",
-                    event_type="session_deleted",
-                    session_token_hash=to_delete[:16],
-                    container_id=container_id,
-                )
-                return True
+            logger.info(
+                "Session deleted by container ID",
+                event_type="session_deleted",
+                session_token_hash=token_hash[:16],
+                container_id=container_id,
+            )
+            return True
 
-            return False
+        return False
 
     def prune_expired_sessions(self) -> int:
         """
         Remove all expired sessions.
+
+        Captures session-end checkpoints (EXPIRED) for each pruned session
+        before cleaning up transcript buffers.
 
         Called periodically and on gateway startup.
 
         Returns:
             Number of sessions pruned
         """
-        pruned = 0
+        expired_sessions: list[tuple[str, Session]] = []
+
         with self._lock:
             expired_hashes = [
                 token_hash for token_hash, session in self._sessions.items() if session.is_expired()
@@ -681,22 +784,43 @@ class SessionManager:
                 session = self._sessions.pop(token_hash)
                 if session.session_token:
                     self._token_to_hash.pop(session.session_token, None)
-                pruned += 1
+                expired_sessions.append((token_hash, session))
 
-                # Clean up transcript buffer for expired session
-                _cleanup_transcript_buffer(session.container_id)
-
-                logger.info(
-                    "Session expired and pruned",
-                    event_type="session_expired",
-                    session_token_hash=token_hash[:16],
-                    container_id=session.container_id,
-                )
-
-            if pruned > 0:
+            if expired_sessions:
                 self._save_to_disk()
 
-        return pruned
+        # Capture checkpoints concurrently to avoid blocking N×30s sequentially.
+        # Each capture waits up to 30s for async storage, so we use threads.
+        if expired_sessions:
+            threads = []
+            for token_hash, session in expired_sessions:
+                t = threading.Thread(
+                    target=_capture_and_cleanup_session,
+                    args=(session, "expired"),
+                    daemon=True,
+                )
+                t.start()
+                threads.append((t, token_hash, session))
+
+            for t, token_hash, session in threads:
+                t.join(timeout=35)  # 30s capture timeout + 5s buffer
+                if t.is_alive():
+                    logger.warning(
+                        "Session expired, checkpoint capture still in progress",
+                        event_type="session_expired",
+                        session_token_hash=token_hash[:16],
+                        container_id=session.container_id,
+                        capture_timed_out=True,
+                    )
+                else:
+                    logger.info(
+                        "Session expired and pruned",
+                        event_type="session_expired",
+                        session_token_hash=token_hash[:16],
+                        container_id=session.container_id,
+                    )
+
+        return len(expired_sessions)
 
     def list_sessions(self) -> list[dict[str, Any]]:
         """

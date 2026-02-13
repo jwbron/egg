@@ -361,8 +361,10 @@ class TestDecisionGateFailClosed:
         mock_store.load_pipeline.return_value = mock_pipeline
 
         with test_app.test_client() as c:
-            with patch("routes.decisions.get_state_store", return_value=mock_store), \
-                 patch("routes.decisions.get_repo_path", return_value="/tmp/test"):
+            with (
+                patch("routes.decisions.get_state_store", return_value=mock_store),
+                patch("routes.decisions.get_repo_path", return_value="/tmp/test"),
+            ):
                 resp = c.post(
                     "/api/v1/pipelines/issue-500/decisions/decision-1/resolve",
                     json={"resolution": "approve"},
@@ -381,8 +383,10 @@ class TestDecisionGateFailClosed:
         mock_store.load_pipeline.side_effect = RuntimeError("connection lost")
 
         with test_app.test_client() as c:
-            with patch("routes.decisions.get_state_store", return_value=mock_store), \
-                 patch("routes.decisions.get_repo_path", return_value="/tmp/test"):
+            with (
+                patch("routes.decisions.get_state_store", return_value=mock_store),
+                patch("routes.decisions.get_repo_path", return_value="/tmp/test"),
+            ):
                 resp = c.post(
                     "/api/v1/pipelines/issue-500/decisions/decision-1/resolve",
                     json={"resolution": "approve"},
@@ -412,9 +416,11 @@ class TestDecisionGateFailClosed:
         mock_queue.resolve_decision.return_value = mock_decision
 
         with test_app.test_client() as c:
-            with patch("routes.decisions.get_state_store", return_value=mock_store), \
-                 patch("routes.decisions.get_repo_path", return_value="/tmp/test"), \
-                 patch("routes.decisions.get_decision_queue", return_value=mock_queue):
+            with (
+                patch("routes.decisions.get_state_store", return_value=mock_store),
+                patch("routes.decisions.get_repo_path", return_value="/tmp/test"),
+                patch("routes.decisions.get_decision_queue", return_value=mock_queue),
+            ):
                 resp = c.post(
                     "/api/v1/pipelines/issue-500/decisions/decision-1/resolve",
                     json={"resolution": "approve"},
@@ -431,7 +437,9 @@ class TestPhaseTransitionDecisionMatching:
         from routes.sdlc_tokens import _is_phase_transition_decision
 
         decision = MagicMock()
-        decision.question = "The refine phase has completed. Please review the analysis and approve to continue."
+        decision.question = (
+            "The refine phase has completed. Please review the analysis and approve to continue."
+        )
         assert _is_phase_transition_decision(decision, "refine") is True
 
     def test_does_not_match_different_phase(self):
@@ -439,7 +447,9 @@ class TestPhaseTransitionDecisionMatching:
         from routes.sdlc_tokens import _is_phase_transition_decision
 
         decision = MagicMock()
-        decision.question = "The refine phase has completed. Please review the analysis and approve to continue."
+        decision.question = (
+            "The refine phase has completed. Please review the analysis and approve to continue."
+        )
         assert _is_phase_transition_decision(decision, "plan") is False
 
     def test_does_not_match_unrelated_question_containing_phase_name(self):
@@ -464,7 +474,9 @@ class TestPhaseTransitionDecisionMatching:
         from routes.sdlc_tokens import _is_phase_transition_decision
 
         decision = MagicMock()
-        decision.question = "The plan phase has completed. Please review the plan and approve to continue."
+        decision.question = (
+            "The plan phase has completed. Please review the plan and approve to continue."
+        )
         assert _is_phase_transition_decision(decision, "plan") is True
 
 
@@ -478,13 +490,17 @@ class TestResolvePhaseDecisions:
 
         mock_decision = MagicMock()
         mock_decision.id = "decision-1"
-        mock_decision.question = "The refine phase has completed. Please review the analysis and approve to continue."
+        mock_decision.question = (
+            "The refine phase has completed. Please review the analysis and approve to continue."
+        )
 
         mock_queue = MagicMock()
         mock_queue.get_pending_decisions.return_value = [mock_decision]
 
-        with patch("routes.get_repo_path", return_value="/tmp/test"), \
-             patch("decision_queue.get_decision_queue", return_value=mock_queue):
+        with (
+            patch("routes.get_repo_path", return_value="/tmp/test"),
+            patch("decision_queue.get_decision_queue", return_value=mock_queue),
+        ):
             _resolve_phase_decisions("issue-600", "refine")
 
         mock_queue.resolve_decision.assert_called_once_with(
@@ -502,8 +518,10 @@ class TestResolvePhaseDecisions:
         mock_queue = MagicMock()
         mock_queue.get_pending_decisions.return_value = [mock_decision]
 
-        with patch("routes.get_repo_path", return_value="/tmp/test"), \
-             patch("decision_queue.get_decision_queue", return_value=mock_queue):
+        with (
+            patch("routes.get_repo_path", return_value="/tmp/test"),
+            patch("decision_queue.get_decision_queue", return_value=mock_queue),
+        ):
             _resolve_phase_decisions("issue-600", "plan")
 
         mock_queue.resolve_decision.assert_not_called()
@@ -537,8 +555,10 @@ class TestResetEndpoint:
         mock_store = MagicMock()
         mock_store.load_pipeline.side_effect = PipelineNotFoundError("not found")
 
-        with patch("state_store.get_state_store", return_value=mock_store), \
-             patch("routes.get_repo_path", return_value="/tmp/test"):
+        with (
+            patch("state_store.get_state_store", return_value=mock_store),
+            patch("routes.get_repo_path", return_value="/tmp/test"),
+        ):
             resp = client.post(
                 "/api/v1/sdlc-tokens/reset",
                 json={"pipeline_id": "issue-700"},
@@ -563,8 +583,10 @@ class TestResetEndpoint:
         mock_store = MagicMock()
         mock_store.load_pipeline.side_effect = PipelineNotFoundError("not found")
 
-        with patch("state_store.get_state_store", return_value=mock_store), \
-             patch("routes.get_repo_path", return_value="/tmp/test"):
+        with (
+            patch("state_store.get_state_store", return_value=mock_store),
+            patch("routes.get_repo_path", return_value="/tmp/test"),
+        ):
             resp = client.post(
                 "/api/v1/sdlc-tokens/reset",
                 json={"pipeline_id": "issue-999"},
@@ -591,8 +613,10 @@ class TestResetEndpoint:
         mock_store.load_pipeline.return_value = mock_pipeline
         mock_store.save_pipeline.side_effect = RuntimeError("disk full")
 
-        with patch("state_store.get_state_store", return_value=mock_store), \
-             patch("routes.get_repo_path", return_value="/tmp/test"):
+        with (
+            patch("state_store.get_state_store", return_value=mock_store),
+            patch("routes.get_repo_path", return_value="/tmp/test"),
+        ):
             resp = client.post(
                 "/api/v1/sdlc-tokens/reset",
                 json={"pipeline_id": "issue-750"},
@@ -620,8 +644,10 @@ class TestResetEndpoint:
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = mock_pipeline
 
-        with patch("state_store.get_state_store", return_value=mock_store), \
-             patch("routes.get_repo_path", return_value="/tmp/test"):
+        with (
+            patch("state_store.get_state_store", return_value=mock_store),
+            patch("routes.get_repo_path", return_value="/tmp/test"),
+        ):
             resp = client.post(
                 "/api/v1/sdlc-tokens/reset",
                 json={"pipeline_id": "issue-760"},

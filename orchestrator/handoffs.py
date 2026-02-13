@@ -27,14 +27,16 @@ except ImportError:
 
 from egg_contracts.agent_roles import (
     AgentRole as ContractAgentRole,
+)
+from egg_contracts.agent_roles import (
     get_role_definition,
 )
 from egg_contracts.orchestrator import (
-    collect_handoff_data as contract_collect_handoff,
     load_agent_output,
+)
+from egg_contracts.orchestrator import (
     save_agent_output as contract_save_output,
 )
-
 from models import AgentExecution, AgentExecutionStatus, AgentRole
 
 logger = get_logger("orchestrator.handoffs")
@@ -237,10 +239,7 @@ def get_handoff_env_var(
     """
     handoffs = collect_handoff_data(repo_path, target_role)
 
-    data = {
-        role: handoff.data
-        for role, handoff in handoffs.items()
-    }
+    data = {role: handoff.data for role, handoff in handoffs.items()}
 
     return json.dumps(data)
 
@@ -257,10 +256,7 @@ def get_agent_dependencies(role: AgentRole) -> list[AgentRole]:
     contract_role = ROLE_MAP[role]
     role_def = get_role_definition(contract_role)
 
-    return [
-        REVERSE_ROLE_MAP[dep_role]
-        for dep_role in role_def.dependencies
-    ]
+    return [REVERSE_ROLE_MAP[dep_role] for dep_role in role_def.dependencies]
 
 
 def get_agent_dependents(role: AgentRole) -> list[AgentRole]:
@@ -343,17 +339,11 @@ class ResultCollector:
 
     def get_successful(self) -> list[AgentExecution]:
         """Get all successful executions."""
-        return [
-            ex for ex in self.results.values()
-            if ex.status == AgentExecutionStatus.COMPLETE
-        ]
+        return [ex for ex in self.results.values() if ex.status == AgentExecutionStatus.COMPLETE]
 
     def get_failed(self) -> list[AgentExecution]:
         """Get all failed executions."""
-        return [
-            ex for ex in self.results.values()
-            if ex.status == AgentExecutionStatus.FAILED
-        ]
+        return [ex for ex in self.results.values() if ex.status == AgentExecutionStatus.FAILED]
 
     def all_succeeded(self) -> bool:
         """Check if all agents succeeded."""
@@ -361,11 +351,7 @@ class ResultCollector:
 
     def get_commits(self) -> list[str]:
         """Get all commit SHAs from successful agents."""
-        return [
-            ex.commit
-            for ex in self.get_successful()
-            if ex.commit
-        ]
+        return [ex.commit for ex in self.get_successful() if ex.commit]
 
     def get_summary(self) -> dict[str, Any]:
         """Get a summary of all results."""

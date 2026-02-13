@@ -74,9 +74,7 @@ class TestExtractMessagesFromProxyBuffer:
             {
                 "timestamp": "2026-02-11T10:00:00.000000Z",
                 "type": "api_turn",
-                "request": {
-                    "messages": [{"role": "user", "content": "Hello, Claude!"}]
-                },
+                "request": {"messages": [{"role": "user", "content": "Hello, Claude!"}]},
             }
         ]
 
@@ -93,9 +91,7 @@ class TestExtractMessagesFromProxyBuffer:
                 "timestamp": "2026-02-11T10:00:00.000000Z",
                 "type": "api_turn",
                 "request": {"messages": []},
-                "response": {
-                    "content": [{"type": "text", "text": "Hello! How can I help?"}]
-                },
+                "response": {"content": [{"type": "text", "text": "Hello! How can I help?"}]},
             }
         ]
 

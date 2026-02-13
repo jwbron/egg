@@ -3,17 +3,20 @@
 Checkpoint CLI for browsing and querying agent checkpoints.
 
 This CLI provides commands to list, show, and browse checkpoints that capture
-agent session context. Each commit has exactly one checkpoint, enabling precise
-traceability between code changes and agent sessions.
+agent session context. Supports both commit-triggered and session-end checkpoints
+with rich multi-dimensional querying.
 
-Checkpoints are stored in the egg/checkpoints/v1 branch and are captured
-per-commit during git push operations. Transcript data is extracted from the
-API proxy buffer, providing stable and format-independent capture.
+Checkpoints are stored in the egg/checkpoints/v2 branch and are captured
+per-commit during git push operations and at session end. Transcript data is
+extracted from the API proxy buffer, providing stable and format-independent
+capture.
 
 Commands:
     egg-checkpoint list [--branch <branch>] [--issue <number>] [--limit <n>]
+                        [--trigger <type>] [--status <status>] [--agent-type <type>]
+                        [--session <id>] [--pr <number>] [--phase <phase>]
                                             List checkpoints with metadata
-    egg-checkpoint show <commit-sha>        Display full checkpoint details
+    egg-checkpoint show <id-or-commit>      Display full checkpoint details
     egg-checkpoint browse --issue <number>  Filter checkpoints by issue
 """
 
@@ -28,16 +31,20 @@ from pathlib import Path
 from typing import Any
 
 from .checkpoint_loader import (
-    CheckpointLoadError,
-    list_checkpoints,
-    load_checkpoint,
-    load_checkpoint_by_commit,
-    load_checkpoint_index,
+    list_checkpoints_v2,
+    load_checkpoint_by_commit_v2,
+    load_checkpoint_by_id_v2,
 )
-from .checkpoints import Checkpoint, CheckpointIndex
+from .checkpoints import (
+    AgentType,
+    CheckpointSummaryV2,
+    CheckpointV2,
+    SessionStatus,
+    TriggerType,
+)
 
 # Checkpoint branch name
-CHECKPOINT_BRANCH = "egg/checkpoints/v1"
+CHECKPOINT_BRANCH = "egg/checkpoints/v2"
 
 
 def get_repo_path() -> str:
@@ -45,7 +52,9 @@ def get_repo_path() -> str:
     return os.environ.get("EGG_REPO_PATH", str(Path.cwd()))
 
 
-def run_git(args: list[str], cwd: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run_git(
+    args: list[str], cwd: str | None = None, check: bool = True
+) -> subprocess.CompletedProcess[str]:
     """Run a git command."""
     cmd = ["git"] + args
     result = subprocess.run(
@@ -93,6 +102,7 @@ def checkout_checkpoint_branch(repo_path: str) -> Path | None:
         # Cleanup on failure
         if temp_path.exists():
             import shutil
+
             shutil.rmtree(temp_path, ignore_errors=True)
         return None
 
@@ -107,6 +117,7 @@ def cleanup_worktree(repo_path: str, worktree_path: Path) -> None:
     # Also try to remove the directory if worktree remove failed
     if worktree_path.exists():
         import shutil
+
         shutil.rmtree(worktree_path, ignore_errors=True)
 
 
@@ -131,42 +142,74 @@ def format_tokens(n: int) -> str:
     return str(n)
 
 
-def print_checkpoint_summary(checkpoint: Checkpoint | dict[str, Any]) -> None:
+def _format_trigger(trigger_type: TriggerType | str) -> str:
+    """Format trigger type for display."""
+    value = trigger_type.value if isinstance(trigger_type, TriggerType) else trigger_type
+    return {"commit": "commit", "session_end": "session-end"}.get(value, value)
+
+
+def _format_status(status: SessionStatus | str | None) -> str:
+    """Format session status for display."""
+    if status is None:
+        return ""
+    return status.value if isinstance(status, SessionStatus) else status
+
+
+def print_checkpoint_summary(
+    checkpoint: CheckpointSummaryV2 | CheckpointV2 | dict[str, Any],
+) -> None:
     """Print a one-line summary of a checkpoint."""
-    if isinstance(checkpoint, Checkpoint):
+    if isinstance(checkpoint, (CheckpointSummaryV2, CheckpointV2)):
         data = checkpoint.model_dump()
     else:
         data = checkpoint
 
     cp_id = data.get("id", "unknown")
-    commit = data.get("commit_sha", "unknown")[:7]
+    commit = data.get("commit_sha")
     created = format_timestamp(data.get("created_at"))
     branch = data.get("branch", "")
     issue = data.get("issue_number")
+    pr = data.get("pr_number")
     phase = data.get("pipeline_phase", "")
+    trigger = data.get("trigger_type", "")
+    status = data.get("session_status", "")
+    agent = data.get("agent_type", "")
 
-    session = data.get("session", {})
-    role = session.get("agent_role", "")
-
-    transcript = data.get("transcript", {})
-    msg_count = transcript.get("message_count", 0) if transcript else 0
-
-    tool_calls = data.get("tool_calls", [])
-    tool_count = len(tool_calls)
-
-    token_usage = data.get("token_usage", {})
-    tokens = token_usage.get("total_tokens", 0) if token_usage else 0
+    # Extract metrics depending on model type
+    if isinstance(checkpoint, CheckpointV2):
+        msg_count = checkpoint.transcript.message_count if checkpoint.transcript else 0
+        tool_count = len(checkpoint.tool_calls)
+        tokens = checkpoint.token_usage.total_tokens if checkpoint.token_usage else 0
+    elif isinstance(checkpoint, CheckpointSummaryV2):
+        msg_count = checkpoint.message_count
+        tool_count = checkpoint.tool_call_count
+        tokens = checkpoint.total_tokens
+    else:
+        transcript = data.get("transcript", {})
+        msg_count = data.get(
+            "message_count", transcript.get("message_count", 0) if transcript else 0
+        )
+        tool_count = data.get("tool_call_count", len(data.get("tool_calls", [])))
+        token_usage = data.get("token_usage", {})
+        tokens = data.get("total_tokens", token_usage.get("total_tokens", 0) if token_usage else 0)
 
     # Build summary line
-    parts = [f"{cp_id}", f"commit:{commit}"]
+    parts = [f"{cp_id}"]
+    if commit:
+        parts.append(f"commit:{commit[:7]}")
+    parts.append(f"trigger:{_format_trigger(trigger)}")
+    if status:
+        parts.append(f"status:{_format_status(status)}")
     if branch:
         parts.append(f"branch:{branch}")
     if issue:
         parts.append(f"issue:#{issue}")
+    if pr:
+        parts.append(f"pr:#{pr}")
     if phase:
         parts.append(f"phase:{phase}")
-    if role:
-        parts.append(f"role:{role}")
+    if agent and agent != "unknown":
+        parts.append(f"agent:{agent}")
     parts.append(f"msgs:{msg_count}")
     parts.append(f"tools:{tool_count}")
     parts.append(f"tokens:{format_tokens(tokens)}")
@@ -175,37 +218,53 @@ def print_checkpoint_summary(checkpoint: Checkpoint | dict[str, Any]) -> None:
     print("  " + " | ".join(parts))
 
 
-def print_checkpoint_details(checkpoint: Checkpoint | dict[str, Any]) -> None:
+def print_checkpoint_details(checkpoint: CheckpointV2 | dict[str, Any]) -> None:
     """Print detailed checkpoint information."""
-    if isinstance(checkpoint, Checkpoint):
+    if isinstance(checkpoint, CheckpointV2):
         data = checkpoint.model_dump()
     else:
         data = checkpoint
 
     print(f"Checkpoint: {data.get('id')}")
-    print(f"  Commit: {data.get('commit_sha')}")
+    print(f"  Trigger: {_format_trigger(data.get('trigger_type', ''))}")
+    if data.get("session_status"):
+        print(f"  Session Status: {_format_status(data.get('session_status'))}")
+    if data.get("commit_sha"):
+        print(f"  Commit: {data.get('commit_sha')}")
+    if data.get("push_sha"):
+        print(f"  Push SHA: {data.get('push_sha')}")
     print(f"  Branch: {data.get('branch', 'N/A')}")
     print(f"  Created: {format_timestamp(data.get('created_at'))}")
 
     if data.get("issue_number"):
         print(f"  Issue: #{data.get('issue_number')}")
+    if data.get("pr_number"):
+        print(f"  PR: #{data.get('pr_number')}")
     if data.get("pipeline_phase"):
         print(f"  Phase: {data.get('pipeline_phase')}")
+
+    agent = data.get("agent_type", "")
+    if agent and agent != "unknown":
+        print(f"  Agent Type: {agent}")
 
     # Session metadata
     print()
     print("Session:")
+    print(f"  Session ID: {data.get('session_id', 'N/A')}")
     session = data.get("session", {})
-    print(f"  Session ID: {session.get('session_id', 'N/A')}")
     if session.get("container_id"):
         print(f"  Container: {session.get('container_id')}")
     if session.get("agent_role"):
         print(f"  Role: {session.get('agent_role')}")
     if session.get("model"):
         print(f"  Model: {session.get('model')}")
-    print(f"  Started: {format_timestamp(session.get('started_at'))}")
-    if session.get("ended_at"):
-        print(f"  Ended: {format_timestamp(session.get('ended_at'))}")
+    print(
+        f"  Started: {format_timestamp(data.get('session_started_at') or session.get('started_at'))}"
+    )
+    if data.get("session_ended_at") or session.get("ended_at"):
+        print(
+            f"  Ended: {format_timestamp(data.get('session_ended_at') or session.get('ended_at'))}"
+        )
     if session.get("duration_seconds"):
         duration = session.get("duration_seconds")
         if duration >= 3600:
@@ -275,33 +334,34 @@ def cmd_list(args: argparse.Namespace) -> int:
 
     try:
         checkpoints_dir = worktree_path / "checkpoints"
+        index_path = worktree_path / "index.json"
 
-        # Load checkpoints
-        checkpoints = list_checkpoints(
+        summaries = list_checkpoints_v2(
             checkpoints_dir,
+            index_path,
             issue_number=args.issue,
+            pr_number=getattr(args, "pr", None),
             branch=args.branch,
+            session_id=getattr(args, "session", None),
+            trigger_type=getattr(args, "trigger", None),
+            session_status=getattr(args, "status", None),
+            agent_type=getattr(args, "agent_type", None),
+            pipeline_phase=getattr(args, "phase", None),
             limit=args.limit,
         )
 
-        if not checkpoints:
-            filters = []
-            if args.issue:
-                filters.append(f"issue #{args.issue}")
-            if args.branch:
-                filters.append(f"branch '{args.branch}'")
-            filter_str = f" matching {', '.join(filters)}" if filters else ""
-            print(f"No checkpoints found{filter_str}")
+        if not summaries:
+            print("No checkpoints found matching filters")
             return 0
 
         if args.json:
-            output = [cp.model_dump(mode="json") for cp in checkpoints]
+            output = [s.model_dump(mode="json") for s in summaries]
             print(json.dumps(output, indent=2))
         else:
-            print(f"Checkpoints ({len(checkpoints)} found):")
+            print(f"Checkpoints ({len(summaries)} found):")
             print()
-            for cp in checkpoints:
-                print_checkpoint_summary(cp)
+            for s in summaries:
+                print_checkpoint_summary(s)
 
         return 0
 
@@ -310,9 +370,9 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-    """Display full checkpoint details for a commit."""
+    """Display full checkpoint details by checkpoint ID or commit SHA."""
     repo_path = args.repo_path or get_repo_path()
-    commit_sha = args.commit
+    identifier = args.identifier
 
     # Checkout checkpoint branch
     worktree_path = checkout_checkpoint_branch(repo_path)
@@ -324,15 +384,17 @@ def cmd_show(args: argparse.Namespace) -> int:
         checkpoints_dir = worktree_path / "checkpoints"
         index_path = worktree_path / "index.json"
 
-        # Load checkpoint by commit
-        checkpoint = load_checkpoint_by_commit(
-            commit_sha,
-            checkpoints_dir,
-            index_path,
-        )
+        checkpoint: CheckpointV2 | None = None
+
+        # Try as checkpoint ID first (ckpt-... prefix)
+        if identifier.startswith("ckpt-"):
+            checkpoint = load_checkpoint_by_id_v2(identifier, checkpoints_dir)
+        else:
+            # Try as commit SHA
+            checkpoint = load_checkpoint_by_commit_v2(identifier, checkpoints_dir, index_path)
 
         if not checkpoint:
-            print(f"No checkpoint found for commit {commit_sha}")
+            print(f"No checkpoint found for '{identifier}'")
             return 1
 
         if args.json:
@@ -358,39 +420,45 @@ def cmd_browse(args: argparse.Namespace) -> int:
 
     try:
         checkpoints_dir = worktree_path / "checkpoints"
+        index_path = worktree_path / "index.json"
 
-        # Load checkpoints for issue
-        checkpoints = list_checkpoints(
+        summaries = list_checkpoints_v2(
             checkpoints_dir,
+            index_path,
             issue_number=args.issue,
             limit=args.limit,
         )
 
-        if not checkpoints:
+        if not summaries:
             print(f"No checkpoints found for issue #{args.issue}")
             return 0
 
         if args.json:
-            output = [cp.model_dump(mode="json") for cp in checkpoints]
+            output = [s.model_dump(mode="json") for s in summaries]
             print(json.dumps(output, indent=2))
         else:
-            print(f"Checkpoints for Issue #{args.issue} ({len(checkpoints)} found):")
+            print(f"Checkpoints for Issue #{args.issue} ({len(summaries)} found):")
             print()
 
             # Group by session
-            sessions: dict[str, list[Checkpoint]] = {}
-            for cp in checkpoints:
-                session_id = cp.session.session_id
-                if session_id not in sessions:
-                    sessions[session_id] = []
-                sessions[session_id].append(cp)
+            sessions: dict[str, list[CheckpointSummaryV2]] = {}
+            for s in summaries:
+                sid = s.session_id
+                if sid not in sessions:
+                    sessions[sid] = []
+                sessions[sid].append(s)
 
-            for session_id, session_checkpoints in sessions.items():
-                first = session_checkpoints[0]
-                role = first.session.agent_role or "unknown"
-                print(f"Session: {session_id[:12]}... (role: {role})")
-                for cp in session_checkpoints:
-                    print_checkpoint_summary(cp)
+            for sid, session_summaries in sessions.items():
+                first = session_summaries[0]
+                agent = (
+                    first.agent_type.value if first.agent_type != AgentType.UNKNOWN else "unknown"
+                )
+                triggers = {_format_trigger(s.trigger_type) for s in session_summaries}
+                print(
+                    f"Session: {sid[:12]}... (agent: {agent}, triggers: {', '.join(sorted(triggers))})"
+                )
+                for s in session_summaries:
+                    print_checkpoint_summary(s)
                 print()
 
         return 0
@@ -416,13 +484,35 @@ def create_parser() -> argparse.ArgumentParser:
     list_parser = subparsers.add_parser("list", help="List checkpoints with metadata")
     list_parser.add_argument("--branch", help="Filter by branch name")
     list_parser.add_argument("--issue", type=int, help="Filter by issue number")
+    list_parser.add_argument("--pr", type=int, help="Filter by PR number")
+    list_parser.add_argument("--session", help="Filter by session ID")
+    list_parser.add_argument(
+        "--trigger",
+        choices=[t.value for t in TriggerType],
+        help="Filter by trigger type",
+    )
+    list_parser.add_argument(
+        "--status",
+        choices=[s.value for s in SessionStatus],
+        help="Filter by session status",
+    )
+    list_parser.add_argument(
+        "--agent-type",
+        choices=[a.value for a in AgentType],
+        help="Filter by agent type",
+    )
+    list_parser.add_argument(
+        "--phase",
+        choices=["refine", "plan", "implement", "pr"],
+        help="Filter by pipeline phase",
+    )
     list_parser.add_argument("--limit", type=int, default=50, help="Maximum checkpoints to show")
     list_parser.add_argument("--json", action="store_true", help="Output as JSON")
     list_parser.set_defaults(func=cmd_list)
 
     # show command
     show_parser = subparsers.add_parser("show", help="Display full checkpoint details")
-    show_parser.add_argument("commit", help="Commit SHA to show checkpoint for")
+    show_parser.add_argument("identifier", help="Checkpoint ID (ckpt-...) or commit SHA")
     show_parser.add_argument("--json", action="store_true", help="Output as JSON")
     show_parser.set_defaults(func=cmd_show)
 

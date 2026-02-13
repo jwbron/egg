@@ -255,6 +255,7 @@ class TestSingletonMetrics:
     def test_get_metrics_registry_singleton(self):
         """Test registry singleton."""
         import metrics
+
         metrics._registry = None
 
         registry1 = get_metrics_registry()
@@ -264,6 +265,7 @@ class TestSingletonMetrics:
     def test_get_metrics_singleton(self):
         """Test metrics singleton."""
         import metrics
+
         metrics._metrics = None
 
         metrics1 = get_metrics()

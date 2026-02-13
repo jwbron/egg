@@ -224,9 +224,7 @@ def create_unified_sse_stream(
                         PipelineStatus.FAILED,
                         PipelineStatus.CANCELLED,
                     }
-                    all_pipelines = [
-                        p for p in all_pipelines if p.status not in terminal
-                    ]
+                    all_pipelines = [p for p in all_pipelines if p.status not in terminal]
 
                 snapshot_data: list[dict[str, Any]] = []
                 for pipeline in all_pipelines:
@@ -236,17 +234,11 @@ def create_unified_sse_stream(
                         "current_phase": pipeline.current_phase.value,
                         "repo": pipeline.repo,
                         "branch": pipeline.branch,
-                        "compact": render_compact_status(
-                            pipeline, use_ascii=use_ascii
-                        ),
-                        "progress": render_progress_bar(
-                            pipeline, use_ascii=use_ascii
-                        ),
+                        "compact": render_compact_status(pipeline, use_ascii=use_ascii),
+                        "progress": render_progress_bar(pipeline, use_ascii=use_ascii),
                     }
                     if full_dag:
-                        entry["dag"] = render_pipeline_dag(
-                            pipeline, use_ascii=use_ascii
-                        )
+                        entry["dag"] = render_pipeline_dag(pipeline, use_ascii=use_ascii)
                     snapshot_data.append(entry)
 
                 yield format_sse_event(
@@ -293,21 +285,13 @@ def create_unified_sse_stream(
                 try:
                     if repo_path:
                         store = get_state_store(repo_path)
-                        pipeline = store.load_pipeline(
-                            payload["pipeline_id"]
-                        )
+                        pipeline = store.load_pipeline(payload["pipeline_id"])
                         payload["status"] = pipeline.status.value
                         payload["current_phase"] = pipeline.current_phase.value
-                        payload["compact"] = render_compact_status(
-                            pipeline, use_ascii=use_ascii
-                        )
-                        payload["progress"] = render_progress_bar(
-                            pipeline, use_ascii=use_ascii
-                        )
+                        payload["compact"] = render_compact_status(pipeline, use_ascii=use_ascii)
+                        payload["progress"] = render_progress_bar(pipeline, use_ascii=use_ascii)
                         if full_dag:
-                            payload["dag"] = render_pipeline_dag(
-                                pipeline, use_ascii=use_ascii
-                            )
+                            payload["dag"] = render_pipeline_dag(pipeline, use_ascii=use_ascii)
                 except Exception:
                     logger.debug(
                         "Failed to enrich unified SSE event",
@@ -324,9 +308,7 @@ def create_unified_sse_stream(
                 # end the unified stream — we keep watching all pipelines.
 
             except Empty:
-                yield format_sse_comment(
-                    f"heartbeat {datetime.utcnow().isoformat()}Z"
-                )
+                yield format_sse_comment(f"heartbeat {datetime.utcnow().isoformat()}Z")
 
     finally:
         manager.remove_client(q)

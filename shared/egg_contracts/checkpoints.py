@@ -128,30 +128,93 @@ class TokenUsage(BaseModel):
         return self.input_tokens + self.output_tokens
 
 
-class Checkpoint(BaseModel):
-    """
-    An agent checkpoint capturing session context.
+# ==============================================================================
+# Checkpoint v2 Models
+#
+# V2 checkpoints capture every agent session (not just push events) and support
+# rich multi-dimensional querying. Stored on the egg/checkpoints/v2 branch.
+# ==============================================================================
 
-    Checkpoints are created when agents push commits and capture the full
-    reasoning context: transcript, tool calls, files touched, and token usage.
-    They are stored in the egg/checkpoints/v1 branch and linked to commits.
+
+class TriggerType(StrEnum):
+    """What triggered checkpoint creation."""
+
+    COMMIT = "commit"
+    SESSION_END = "session_end"
+
+
+class SessionStatus(StrEnum):
+    """Terminal state of the session."""
+
+    COMPLETED = "completed"
+    EXPIRED = "expired"
+    FAILED = "failed"
+
+
+class AgentType(StrEnum):
+    """Agent role/type for classification."""
+
+    CODER = "coder"
+    TESTER = "tester"
+    DOCUMENTER = "documenter"
+    INTEGRATOR = "integrator"
+    REVIEWER = "reviewer"
+    UNKNOWN = "unknown"
+
+
+class CheckpointV2(BaseModel):
+    """
+    V2 checkpoint with rich metadata for querying.
+
+    Unlike v1, commit_sha is optional (session-end checkpoints may not have
+    commits) and trigger_type/session_id are required at top level for
+    direct indexing.
     """
 
     schemaVersion: str = Field(  # noqa: N815
-        default="1.0", pattern=r"^[0-9]+\.[0-9]+$", description="Schema version"
+        default="2.0", pattern=r"^[0-9]+\.[0-9]+$", description="Schema version"
     )
     id: str = Field(
         ..., pattern=r"^ckpt-[a-f0-9]{8,16}$", description="Unique checkpoint identifier"
     )
-    commit_sha: str = Field(
-        ...,
+
+    # Trigger context
+    trigger_type: TriggerType = Field(..., description="What created this checkpoint")
+    session_status: SessionStatus | None = Field(
+        default=None, description="Terminal session state (only for SESSION_END triggers)"
+    )
+
+    # Git context (optional for session-end checkpoints)
+    commit_sha: str | None = Field(
+        default=None,
         pattern=r"^[a-f0-9]{7,40}$",
-        description="Git commit SHA this checkpoint is associated with",
+        description="Git commit SHA (optional in v2)",
     )
+    push_sha: str | None = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{7,40}$",
+        description="The tip commit SHA of the push",
+    )
+    branch: str | None = Field(default=None, description="Git branch")
+
+    # Workflow correlation
+    session_id: str = Field(..., description="Session/container ID for direct indexing")
+    issue_number: int | None = Field(
+        default=None, ge=1, description="GitHub issue number if associated"
+    )
+    pr_number: int | None = Field(default=None, ge=1, description="GitHub PR number if associated")
+
+    # Agent classification
+    agent_type: AgentType = Field(
+        default=AgentType.UNKNOWN, description="Agent role classification"
+    )
+    pipeline_phase: str | None = Field(
+        default=None, description="SDLC pipeline phase when checkpoint was created"
+    )
+
+    # Session details
     session: SessionMetadata = Field(..., description="Session metadata")
-    transcript: Transcript | None = Field(
-        default=None, description="The conversation transcript"
-    )
+    transcript: Transcript | None = Field(default=None, description="The conversation transcript")
     files_touched: list[FileOperation] = Field(
         default_factory=list, description="Files that were read, created, or edited"
     )
@@ -159,22 +222,11 @@ class Checkpoint(BaseModel):
         default_factory=list, description="Tool invocations made during the session"
     )
     token_usage: TokenUsage | None = Field(default=None, description="Token usage for the session")
-    issue_number: int | None = Field(
-        default=None, ge=1, description="GitHub issue number if associated"
-    )
-    pipeline_phase: str | None = Field(
-        default=None, description="SDLC pipeline phase when checkpoint was created"
-    )
-    branch: str | None = Field(default=None, description="Git branch where the commit was made")
+
+    # Timestamps
     created_at: datetime = Field(..., description="When checkpoint was created")
-    push_sha: str | None = Field(
-        default=None,
-        pattern=r"^[a-f0-9]{7,40}$",
-        description="The tip commit SHA of the push",
-    )
-    pr_number: int | None = Field(
-        default=None, ge=1, description="GitHub PR number if associated"
-    )
+    session_started_at: datetime = Field(..., description="When session started")
+    session_ended_at: datetime | None = Field(default=None, description="When session ended")
 
     @field_validator("pipeline_phase")
     @classmethod
@@ -194,53 +246,48 @@ class Checkpoint(BaseModel):
             return None
         return str(v)
 
-    def get_tool_calls_by_name(self, name: str) -> list[ToolCall]:
-        """Get all tool calls with the given name."""
-        return [tc for tc in self.tool_calls if tc.name == name]
 
-    def get_files_by_operation(self, operation: FileOperationType) -> list[FileOperation]:
-        """Get all file operations of the given type."""
-        return [fo for fo in self.files_touched if fo.operation == operation]
-
-    def get_files_written(self) -> list[str]:
-        """Get paths of all files that were written or created."""
-        write_ops = {FileOperationType.WRITE, FileOperationType.CREATE, FileOperationType.EDIT}
-        return [fo.path for fo in self.files_touched if fo.operation in write_ops]
-
-    def get_files_read(self) -> list[str]:
-        """Get paths of all files that were read."""
-        return [fo.path for fo in self.files_touched if fo.operation == FileOperationType.READ]
-
-
-class CheckpointSummary(BaseModel):
-    """Summary of a checkpoint for the index."""
+class CheckpointSummaryV2(BaseModel):
+    """Summary with all queryable fields for the v2 index."""
 
     id: str = Field(
         ..., pattern=r"^ckpt-[a-f0-9]{8,16}$", description="Unique checkpoint identifier"
     )
-    commit_sha: str = Field(..., pattern=r"^[a-f0-9]{7,40}$", description="Git commit SHA")
-    session_id: str = Field(..., description="Session ID")
-    agent_role: str | None = Field(default=None, description="Agent role")
+    trigger_type: TriggerType = Field(..., description="What created this checkpoint")
+    session_status: SessionStatus | None = Field(default=None, description="Terminal session state")
+
+    # All queryable fields
+    session_id: str = Field(..., description="Session/container ID")
+    commit_sha: str | None = Field(
+        default=None, pattern=r"^[a-f0-9]{7,40}$", description="Git commit SHA"
+    )
     issue_number: int | None = Field(default=None, ge=1, description="GitHub issue number")
     pr_number: int | None = Field(default=None, ge=1, description="GitHub PR number")
     branch: str | None = Field(default=None, description="Git branch")
+    agent_type: AgentType = Field(
+        default=AgentType.UNKNOWN, description="Agent role classification"
+    )
     pipeline_phase: str | None = Field(default=None, description="Pipeline phase")
+
+    # Metrics
     created_at: datetime = Field(..., description="When checkpoint was created")
     message_count: int = Field(default=0, ge=0, description="Number of messages in transcript")
     tool_call_count: int = Field(default=0, ge=0, description="Number of tool calls")
     total_tokens: int = Field(default=0, ge=0, description="Total tokens used")
 
     @classmethod
-    def from_checkpoint(cls, checkpoint: Checkpoint) -> "CheckpointSummary":
-        """Create a summary from a full checkpoint."""
+    def from_checkpoint(cls, checkpoint: "CheckpointV2") -> "CheckpointSummaryV2":
+        """Create a summary from a full v2 checkpoint."""
         return cls(
             id=checkpoint.id,
+            trigger_type=checkpoint.trigger_type,
+            session_status=checkpoint.session_status,
+            session_id=checkpoint.session_id,
             commit_sha=checkpoint.commit_sha,
-            session_id=checkpoint.session.session_id,
-            agent_role=checkpoint.session.agent_role,
             issue_number=checkpoint.issue_number,
             pr_number=checkpoint.pr_number,
             branch=checkpoint.branch,
+            agent_type=checkpoint.agent_type,
             pipeline_phase=checkpoint.pipeline_phase,
             created_at=checkpoint.created_at,
             message_count=checkpoint.transcript.message_count if checkpoint.transcript else 0,
@@ -249,33 +296,85 @@ class CheckpointSummary(BaseModel):
         )
 
 
-class CheckpointIndex(BaseModel):
+class CheckpointIndexV2(BaseModel):
     """
-    Index of checkpoints for a repository.
+    Multi-dimensional index for fast checkpoint lookups.
 
-    Stored at the root of the egg/checkpoints/v1 branch to enable
-    fast lookup of checkpoints by commit SHA, issue number, or branch.
+    Supports queries like:
+    - "All checkpoints for issue #530"
+    - "All checkpoints for PR #42"
+    - "All checkpoints by session abc123"
+    - "All checkpoints for commit deadbeef"
+    - "All coder agent checkpoints in implement phase"
+    - "All failed sessions"
+
+    Stored at the root of the egg/checkpoints/v2 branch.
     """
 
     schemaVersion: str = Field(  # noqa: N815
-        default="1.0", pattern=r"^[0-9]+\.[0-9]+$", description="Schema version"
-    )
-    checkpoints: list[CheckpointSummary] = Field(
-        default_factory=list, description="List of checkpoint summaries"
+        default="2.0", pattern=r"^[0-9]+\.[0-9]+$", description="Schema version"
     )
     last_updated: datetime = Field(..., description="When the index was last updated")
 
-    def get_by_commit(self, commit_sha: str) -> CheckpointSummary | None:
-        """Get checkpoint summary by commit SHA."""
-        for cp in self.checkpoints:
-            if cp.commit_sha == commit_sha or commit_sha.startswith(cp.commit_sha[:7]):
-                return cp
-        return None
+    # Primary index: all checkpoint summaries
+    checkpoints: list[CheckpointSummaryV2] = Field(
+        default_factory=list, description="List of checkpoint summaries"
+    )
 
-    def get_by_issue(self, issue_number: int) -> list[CheckpointSummary]:
-        """Get all checkpoint summaries for an issue."""
-        return [cp for cp in self.checkpoints if cp.issue_number == issue_number]
+    # Secondary indices for fast lookups (populated on write)
+    by_session: dict[str, list[str]] = Field(
+        default_factory=dict, description="session_id -> [checkpoint_ids]"
+    )
+    by_issue: dict[str, list[str]] = Field(
+        default_factory=dict, description="issue_number (as str) -> [checkpoint_ids]"
+    )
+    by_pr: dict[str, list[str]] = Field(
+        default_factory=dict, description="pr_number (as str) -> [checkpoint_ids]"
+    )
+    by_commit: dict[str, str] = Field(
+        default_factory=dict, description="commit_sha -> checkpoint_id (1:1)"
+    )
+    by_agent_type: dict[str, list[str]] = Field(
+        default_factory=dict, description="agent_type -> [checkpoint_ids]"
+    )
+    by_phase: dict[str, list[str]] = Field(
+        default_factory=dict, description="pipeline_phase -> [checkpoint_ids]"
+    )
+    by_trigger: dict[str, list[str]] = Field(
+        default_factory=dict, description="trigger_type -> [checkpoint_ids]"
+    )
+    by_status: dict[str, list[str]] = Field(
+        default_factory=dict, description="session_status -> [checkpoint_ids]"
+    )
 
-    def get_by_branch(self, branch: str) -> list[CheckpointSummary]:
-        """Get all checkpoint summaries for a branch."""
-        return [cp for cp in self.checkpoints if cp.branch == branch]
+    def get_by_session(self, session_id: str) -> list[str]:
+        """Get checkpoint IDs for a session."""
+        return self.by_session.get(session_id, [])
+
+    def get_by_issue(self, issue_number: int) -> list[str]:
+        """Get checkpoint IDs for an issue."""
+        return self.by_issue.get(str(issue_number), [])
+
+    def get_by_pr(self, pr_number: int) -> list[str]:
+        """Get checkpoint IDs for a PR."""
+        return self.by_pr.get(str(pr_number), [])
+
+    def get_by_commit(self, commit_sha: str) -> str | None:
+        """Get checkpoint ID for a commit (1:1 mapping)."""
+        return self.by_commit.get(commit_sha)
+
+    def get_by_agent_type(self, agent_type: AgentType) -> list[str]:
+        """Get checkpoint IDs for an agent type."""
+        return self.by_agent_type.get(agent_type.value, [])
+
+    def get_by_phase(self, phase: str) -> list[str]:
+        """Get checkpoint IDs for a pipeline phase."""
+        return self.by_phase.get(phase, [])
+
+    def get_by_trigger(self, trigger_type: TriggerType) -> list[str]:
+        """Get checkpoint IDs for a trigger type."""
+        return self.by_trigger.get(trigger_type.value, [])
+
+    def get_by_status(self, status: SessionStatus) -> list[str]:
+        """Get checkpoint IDs for a session status."""
+        return self.by_status.get(status.value, [])

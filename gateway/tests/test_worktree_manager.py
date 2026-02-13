@@ -268,7 +268,9 @@ class TestStartupCleanup:
 
             removed = startup_cleanup(active_containers={"active-container"})
             assert removed == 1
-            mock_instance.cleanup_orphaned_worktrees.assert_called_once_with({"active-container"})
+            mock_instance.cleanup_orphaned_worktrees.assert_called_once_with(
+                {"active-container"}, None
+            )
 
     def test_with_none_uses_docker(self):
         """Falls back to querying Docker when active_containers is None."""
@@ -388,7 +390,9 @@ class TestWorktreeManagerDockerGitDir:
         repos_base.mkdir()
         repo_dir = repos_base / "test-repo"
         repo_dir.mkdir()
-        subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, check=True)
+        result = subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, text=True)
+        if result.returncode != 0:
+            pytest.skip(f"git init not available: {result.stderr.strip()}")
         subprocess.run(
             ["git", "commit", "--allow-empty", "-m", "init"],
             cwd=repo_dir,
@@ -533,7 +537,6 @@ class TestFindWorktreeGitDir:
             "The fix ensures gitdir content must include /.git suffix to match."
         )
 
-
     def test_original_bug_comparison_without_git_suffix(self, tmp_path):
         """Demonstrate why comparing against worktree_path (not worktree_path/.git) was wrong.
 
@@ -576,9 +579,7 @@ class TestFindWorktreeGitDir:
 
         # NEW (fixed) comparison: gitdir_content == str(worktree_path / ".git")
         new_fixed_comparison = gitdir_content == str(pipeline_wt / ".git")
-        assert new_fixed_comparison, (
-            "New comparison SHOULD match (both have /.git suffix)"
-        )
+        assert new_fixed_comparison, "New comparison SHOULD match (both have /.git suffix)"
 
         # Verify the actual function returns the correct admin dir
         result = manager._find_worktree_git_dir(main_repo, pipeline_wt)

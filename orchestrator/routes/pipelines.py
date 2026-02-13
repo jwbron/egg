@@ -84,6 +84,7 @@ except ImportError:
             if isinstance(c, dict) and "name" in c and "command" in c
         ]
 
+
 pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
 
 

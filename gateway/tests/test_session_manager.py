@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 # Import from conftest-loaded module
+import session_manager as session_manager_module
 from session_manager import (
     Session,
     SessionManager,
@@ -1105,3 +1106,321 @@ class TestSessionPhase:
 
         session = Session.from_persistence(data)
         assert session.phase is None
+
+
+class TestSessionMetadataFields:
+    """Tests for issue_number and pr_number fields on Session."""
+
+    def test_session_with_issue_and_pr(self):
+        """Session can be created with issue_number and pr_number."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            issue_number=530,
+            pr_number=42,
+        )
+        assert session.issue_number == 530
+        assert session.pr_number == 42
+
+    def test_session_default_metadata_none(self):
+        """issue_number and pr_number default to None."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+        )
+        assert session.issue_number is None
+        assert session.pr_number is None
+
+    def test_to_dict_includes_metadata(self):
+        """to_dict_for_persistence includes issue_number and pr_number."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            issue_number=530,
+            pr_number=42,
+        )
+        d = session.to_dict_for_persistence()
+        assert d["issue_number"] == 530
+        assert d["pr_number"] == 42
+
+    def test_to_dict_excludes_none_metadata(self):
+        """to_dict_for_persistence excludes None issue_number/pr_number."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+        )
+        d = session.to_dict_for_persistence()
+        assert "issue_number" not in d
+        assert "pr_number" not in d
+
+    def test_roundtrip_with_metadata(self):
+        """issue_number and pr_number survive serialization roundtrip."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            issue_number=530,
+            pr_number=42,
+        )
+        d = session.to_dict_for_persistence()
+        restored = Session.from_persistence(d)
+
+        assert restored.issue_number == 530
+        assert restored.pr_number == 42
+
+    def test_backward_compatibility_without_metadata(self):
+        """from_persistence handles sessions without issue_number/pr_number."""
+        now = datetime.now(UTC)
+        data = {
+            "session_token_hash": "abc123",
+            "container_id": "test-container",
+            "container_ip": "172.18.0.5",
+            "mode": "private",
+            "created_at": now.isoformat(),
+            "last_seen": now.isoformat(),
+            "expires_at": (now + timedelta(hours=24)).isoformat(),
+            # No issue_number or pr_number - simulates legacy session
+        }
+
+        session = Session.from_persistence(data)
+        assert session.issue_number is None
+        assert session.pr_number is None
+
+    def test_register_session_with_metadata(self, tmp_path):
+        """register_session passes issue_number and pr_number."""
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            issue_number=530,
+            pr_number=42,
+        )
+        assert session.issue_number == 530
+        assert session.pr_number == 42
+
+    def test_metadata_persists_through_restart(self, tmp_path):
+        """issue_number and pr_number persist across gateway restarts."""
+        persist_path = tmp_path / "sessions.json"
+
+        manager1 = SessionManager(persistence_file=persist_path)
+        token, _ = manager1.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            issue_number=530,
+            pr_number=42,
+        )
+
+        # Simulate restart
+        manager2 = SessionManager(persistence_file=persist_path)
+        session = manager2.get_session_by_container("test-container")
+
+        assert session is not None
+        assert session.issue_number == 530
+        assert session.pr_number == 42
+
+
+class TestSessionEndCheckpointCapture:
+    """Tests for session-end checkpoint capture during deletion/expiry."""
+
+    @pytest.fixture(autouse=True)
+    def clear_captured_containers(self):
+        """Clear the capture dedup set before each test."""
+        session_manager_module._captured_containers.clear()
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a session manager with a temporary persistence file."""
+        return SessionManager(persistence_file=tmp_path / "sessions.json")
+
+    def test_delete_session_by_token_captures_checkpoint(self, manager):
+        """delete_session(token) captures a session-end checkpoint."""
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        from unittest.mock import patch
+
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
+            result = manager.delete_session(token)
+            assert result is True
+            mock_capture.assert_called_once()
+            args = mock_capture.call_args[0]
+            assert args[0].container_id == "test-container"
+            assert args[1] == "completed"
+
+    def test_delete_session_by_container_captures_checkpoint(self, manager):
+        """delete_session_by_container captures a session-end checkpoint."""
+        _token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        from unittest.mock import patch
+
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
+            result = manager.delete_session_by_container("test-container")
+            assert result is True
+            mock_capture.assert_called_once()
+            args = mock_capture.call_args[0]
+            assert args[0].container_id == "test-container"
+            assert args[1] == "completed"
+
+    def test_prune_captures_expired_checkpoints(self, manager):
+        """prune_expired_sessions captures checkpoints with EXPIRED status."""
+        # Create and expire sessions
+        for i in range(3):
+            _token, session = manager.register_session(
+                container_id=f"expired-{i}",
+                container_ip="172.18.0.5",
+                mode="private",
+            )
+            session.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+
+        from unittest.mock import patch
+
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
+            pruned = manager.prune_expired_sessions()
+            assert pruned == 3
+            assert mock_capture.call_count == 3
+            # All calls should use "expired" status
+            for c in mock_capture.call_args_list:
+                assert c[0][1] == "expired"
+
+    def test_delete_by_token_not_found_skips_capture(self, manager):
+        """delete_session with invalid token doesn't capture checkpoint."""
+        from unittest.mock import patch
+
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
+            result = manager.delete_session("nonexistent-token")
+            assert result is False
+            mock_capture.assert_not_called()
+
+    def test_delete_by_container_not_found_skips_capture(self, manager):
+        """delete_session_by_container with invalid container doesn't capture."""
+        from unittest.mock import patch
+
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
+            result = manager.delete_session_by_container("nonexistent")
+            assert result is False
+            mock_capture.assert_not_called()
+
+    def test_capture_called_outside_lock(self, manager):
+        """Verify that checkpoint capture doesn't hold the session lock."""
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        # Register another session to test lock contention
+        token2, _ = manager.register_session(
+            container_id="other-container",
+            container_ip="172.18.0.6",
+            mode="private",
+        )
+
+        from unittest.mock import patch
+
+        def capture_mock(session_obj, status):
+            # While capture is running, other session operations should work
+            # If the lock were held, this would deadlock
+            result = manager.validate_session(token2)
+            assert result.valid
+
+        with patch.object(
+            session_manager_module, "_capture_and_cleanup_session", side_effect=capture_mock
+        ):
+            result = manager.delete_session_by_container("test-container")
+            assert result is True
+
+    def test_capture_and_cleanup_handles_import_error(self):
+        """_capture_and_cleanup_session handles ImportError gracefully."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+        )
+
+        from unittest.mock import patch
+
+        from session_manager import _capture_and_cleanup_session
+
+        with patch.object(session_manager_module, "_cleanup_transcript_buffer") as mock_cleanup:
+            with patch.dict("sys.modules", {"checkpoint_handler": None}):
+                # Should not raise - just log and clean up
+                _capture_and_cleanup_session(session, "completed")
+            # Buffer cleanup should always happen
+            mock_cleanup.assert_called_once_with("test-container")
+
+    def test_capture_and_cleanup_handles_capture_failure(self):
+        """_capture_and_cleanup_session cleans up buffer even on failure."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+        )
+
+        from unittest.mock import patch
+
+        from session_manager import _capture_and_cleanup_session
+
+        with patch.object(session_manager_module, "_cleanup_transcript_buffer") as mock_cleanup:
+            with patch(
+                "checkpoint_handler.capture_session_end_checkpoint",
+                side_effect=RuntimeError("capture failed"),
+            ):
+                # Should not raise
+                _capture_and_cleanup_session(session, "completed")
+            # Buffer cleanup should still happen
+            mock_cleanup.assert_called_once_with("test-container")

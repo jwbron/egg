@@ -1,0 +1,20 @@
+{
+  "all_passed": false,
+  "checks": [
+    {
+      "name": "ruff-check",
+      "passed": true,
+      "output": "All checks passed!"
+    },
+    {
+      "name": "ruff-format",
+      "passed": false,
+      "output": "29 files would be reformatted, 311 files already formatted. Formatting issues in gateway/, orchestrator/, shared/, tests/ directories."
+    },
+    {
+      "name": "pytest",
+      "passed": false,
+      "output": "4123 passed, 3 failed, 81 skipped, 2 errors in 39.39s. Failures: 3 tests in gateway/tests/test_session_manager.py (TestSessionEndCheckpointCapture - _capture_and_cleanup_session not called). Errors: 2 tests in gateway/tests/test_worktree_manager.py (TestWorktreeManagerDockerGitDir - git init failed in sandbox environment)."
+    }
+  ]
+}

@@ -206,7 +206,9 @@ def approve_phase() -> tuple[Response, int]:
         return _make_error("Missing token")
 
     if phase not in VALID_PHASES:
-        return _make_error(f"Invalid phase: {phase}. Must be one of: {', '.join(sorted(VALID_PHASES))}")
+        return _make_error(
+            f"Invalid phase: {phase}. Must be one of: {', '.join(sorted(VALID_PHASES))}"
+        )
 
     if pipeline_id not in _token_store:
         return _make_error(f"No tokens found for pipeline {pipeline_id}", 404)

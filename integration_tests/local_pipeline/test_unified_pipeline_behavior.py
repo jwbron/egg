@@ -14,8 +14,6 @@ Key behaviors tested:
 """
 
 import json
-import random
-import subprocess
 import time
 from pathlib import Path
 
@@ -59,9 +57,7 @@ class TestLocalPipelineContractCreation:
 class TestLocalPipelinePrefixedPaths:
     """Local pipelines use pipeline_id-prefixed file paths."""
 
-    def test_multiple_concurrent_pipelines_have_distinct_paths(
-        self, local_pipeline_stack
-    ) -> None:
+    def test_multiple_concurrent_pipelines_have_distinct_paths(self, local_pipeline_stack) -> None:
         """Two concurrent local pipelines should have distinct draft/verdict paths."""
         orchestrator_url = local_pipeline_stack.orchestrator_url
         repos_dir = local_pipeline_stack.repos_dir
@@ -93,9 +89,9 @@ class TestLocalPipelinePrefixedPaths:
                 for draft in draft_files:
                     name = draft.name
                     # Should be prefixed with one of the pipeline IDs
-                    assert (
-                        name.startswith(pipeline_id_1) or name.startswith(pipeline_id_2)
-                    ), f"Draft {name} should be prefixed with pipeline ID"
+                    assert name.startswith(pipeline_id_1) or name.startswith(pipeline_id_2), (
+                        f"Draft {name} should be prefixed with pipeline ID"
+                    )
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id_1)
@@ -130,9 +126,7 @@ class TestLocalPipelineContractSynced:
 class TestPhaseBasedPushRestrictions:
     """Push restrictions are per-phase, not per-mode."""
 
-    def test_gateway_session_in_local_refine_allows_state_push(
-        self, local_pipeline_stack
-    ) -> None:
+    def test_gateway_session_in_local_refine_allows_state_push(self, local_pipeline_stack) -> None:
         """Local session in refine phase can push .egg-state/ files."""
         gateway_url = local_pipeline_stack.gateway_url
         launcher_secret = local_pipeline_stack.launcher_secret
@@ -234,9 +228,7 @@ class TestPhaseBoundaryCommits:
 class TestPhasePromptInstructions:
     """Agent prompts include correct instructions for unified behavior."""
 
-    def test_local_pipeline_includes_contract_cli_instructions(
-        self, local_pipeline_stack
-    ) -> None:
+    def test_local_pipeline_includes_contract_cli_instructions(self, local_pipeline_stack) -> None:
         """Local pipeline contract should exist with proper structure."""
         orchestrator_url = local_pipeline_stack.orchestrator_url
         repos_dir = local_pipeline_stack.repos_dir
@@ -268,13 +260,10 @@ class TestCheckpointBranchBypass:
     def test_checkpoint_branch_constant_defined(self) -> None:
         """Verify checkpoint branch constant is used consistently."""
         # This is a structural test - the constant should be defined
-        # in gateway.py and should be "egg/checkpoints/v1"
-        expected_branch = "egg/checkpoints/v1"
+        # in gateway.py and should include "egg/checkpoints/v2"
 
         # Read gateway.py to verify the constant
-        gateway_path = (
-            Path(__file__).parent.parent.parent / "gateway" / "gateway.py"
-        )
+        gateway_path = Path(__file__).parent.parent.parent / "gateway" / "gateway.py"
         if gateway_path.exists():
             content = gateway_path.read_text()
-            assert 'CHECKPOINT_BRANCH = "egg/checkpoints/v1"' in content
+            assert '"egg/checkpoints/v2"' in content

@@ -124,16 +124,20 @@ class TestUnifiedSSEManager:
         q = manager.add_client()
 
         # Events from two different pipelines
-        bus.publish(Event(
-            event_type=EventType.PHASE_STARTED,
-            pipeline_id="pipeline-1",
-            data={"phase": "plan"},
-        ))
-        bus.publish(Event(
-            event_type=EventType.PHASE_COMPLETED,
-            pipeline_id="pipeline-2",
-            data={"phase": "implement"},
-        ))
+        bus.publish(
+            Event(
+                event_type=EventType.PHASE_STARTED,
+                pipeline_id="pipeline-1",
+                data={"phase": "plan"},
+            )
+        )
+        bus.publish(
+            Event(
+                event_type=EventType.PHASE_COMPLETED,
+                pipeline_id="pipeline-2",
+                data={"phase": "implement"},
+            )
+        )
 
         assert q.qsize() == 2
         p1 = q.get_nowait()
@@ -270,11 +274,12 @@ class TestCreateUnifiedSSEStream:
             create_test_pipeline("p-2", PipelineStatus.RUNNING),
         ]
 
-        with patch("unified_sse.get_unified_sse_manager") as mock_mgr, \
-             patch("unified_sse._collect_all_pipelines_safe") as mock_collect, \
-             patch("unified_sse.render_compact_status") as mock_compact, \
-             patch("unified_sse.render_progress_bar") as mock_progress:
-
+        with (
+            patch("unified_sse.get_unified_sse_manager") as mock_mgr,
+            patch("unified_sse._collect_all_pipelines_safe") as mock_collect,
+            patch("unified_sse.render_compact_status") as mock_compact,
+            patch("unified_sse.render_progress_bar") as mock_progress,
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -292,9 +297,7 @@ class TestCreateUnifiedSSEStream:
             assert "retry: 5000" in snapshot
 
             # Parse the snapshot data
-            data_line = [
-                l for l in snapshot.split("\n") if l.startswith("data: ")
-            ][0]
+            data_line = [l for l in snapshot.split("\n") if l.startswith("data: ")][0]
             data = json.loads(data_line[6:])
             assert len(data["pipelines"]) == 2
             assert data["pipelines"][0]["pipeline_id"] == "p-1"
@@ -308,11 +311,12 @@ class TestCreateUnifiedSSEStream:
             create_test_pipeline("p-3", PipelineStatus.FAILED),
         ]
 
-        with patch("unified_sse.get_unified_sse_manager") as mock_mgr, \
-             patch("unified_sse._collect_all_pipelines_safe") as mock_collect, \
-             patch("unified_sse.render_compact_status") as mock_compact, \
-             patch("unified_sse.render_progress_bar") as mock_progress:
-
+        with (
+            patch("unified_sse.get_unified_sse_manager") as mock_mgr,
+            patch("unified_sse._collect_all_pipelines_safe") as mock_collect,
+            patch("unified_sse.render_compact_status") as mock_compact,
+            patch("unified_sse.render_progress_bar") as mock_progress,
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -322,15 +326,11 @@ class TestCreateUnifiedSSEStream:
             mock_compact.return_value = "COMPACT"
             mock_progress.return_value = "[##] 50%"
 
-            gen = create_unified_sse_stream(
-                repo_path=Path("/tmp/test"), active_only=True
-            )
+            gen = create_unified_sse_stream(repo_path=Path("/tmp/test"), active_only=True)
             snapshot = next(gen)
             gen.close()
 
-            data_line = [
-                l for l in snapshot.split("\n") if l.startswith("data: ")
-            ][0]
+            data_line = [l for l in snapshot.split("\n") if l.startswith("data: ")][0]
             data = json.loads(data_line[6:])
             assert len(data["pipelines"]) == 1
             assert data["pipelines"][0]["pipeline_id"] == "p-1"
@@ -342,11 +342,12 @@ class TestCreateUnifiedSSEStream:
             create_test_pipeline("p-2", PipelineStatus.COMPLETE),
         ]
 
-        with patch("unified_sse.get_unified_sse_manager") as mock_mgr, \
-             patch("unified_sse._collect_all_pipelines_safe") as mock_collect, \
-             patch("unified_sse.render_compact_status") as mock_compact, \
-             patch("unified_sse.render_progress_bar") as mock_progress:
-
+        with (
+            patch("unified_sse.get_unified_sse_manager") as mock_mgr,
+            patch("unified_sse._collect_all_pipelines_safe") as mock_collect,
+            patch("unified_sse.render_compact_status") as mock_compact,
+            patch("unified_sse.render_progress_bar") as mock_progress,
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -356,23 +357,20 @@ class TestCreateUnifiedSSEStream:
             mock_compact.return_value = "COMPACT"
             mock_progress.return_value = "[##] 50%"
 
-            gen = create_unified_sse_stream(
-                repo_path=Path("/tmp/test"), active_only=False
-            )
+            gen = create_unified_sse_stream(repo_path=Path("/tmp/test"), active_only=False)
             snapshot = next(gen)
             gen.close()
 
-            data_line = [
-                l for l in snapshot.split("\n") if l.startswith("data: ")
-            ][0]
+            data_line = [l for l in snapshot.split("\n") if l.startswith("data: ")][0]
             data = json.loads(data_line[6:])
             assert len(data["pipelines"]) == 2
 
     def test_terminal_event_does_not_end_stream(self):
         """Test that terminal event for one pipeline doesn't end the unified stream."""
-        with patch("unified_sse.get_unified_sse_manager") as mock_mgr, \
-             patch("unified_sse._resolve_repo_path") as mock_path:
-
+        with (
+            patch("unified_sse.get_unified_sse_manager") as mock_mgr,
+            patch("unified_sse._resolve_repo_path") as mock_path,
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -409,12 +407,14 @@ class TestCreateUnifiedSSEStream:
 
     def test_heartbeat_on_idle(self):
         """Test that heartbeat is sent when no events arrive."""
-        with patch("unified_sse.get_unified_sse_manager") as mock_mgr, \
-             patch("unified_sse._resolve_repo_path") as mock_path, \
-             patch("unified_sse.HEARTBEAT_INTERVAL", 0.1):
-
+        with (
+            patch("unified_sse.get_unified_sse_manager") as mock_mgr,
+            patch("unified_sse._resolve_repo_path") as mock_path,
+            patch("unified_sse.HEARTBEAT_INTERVAL", 0.1),
+        ):
             # Need to also patch the imported constant
             import unified_sse
+
             original_interval = unified_sse.HEARTBEAT_INTERVAL
 
             mock_q = Queue()
@@ -439,11 +439,12 @@ class TestCreateUnifiedSSEStream:
 
     def test_max_connection_time(self):
         """Test that stream ends after max connection time."""
-        with patch("unified_sse.get_unified_sse_manager") as mock_mgr, \
-             patch("unified_sse._resolve_repo_path") as mock_path, \
-             patch("unified_sse.MAX_CONNECTION_TIME", 0), \
-             patch("unified_sse.HEARTBEAT_INTERVAL", 0.01):
-
+        with (
+            patch("unified_sse.get_unified_sse_manager") as mock_mgr,
+            patch("unified_sse._resolve_repo_path") as mock_path,
+            patch("unified_sse.MAX_CONNECTION_TIME", 0),
+            patch("unified_sse.HEARTBEAT_INTERVAL", 0.01),
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -461,9 +462,10 @@ class TestCreateUnifiedSSEStream:
 
     def test_cleanup_on_generator_close(self):
         """Test that client is removed when generator is closed."""
-        with patch("unified_sse.get_unified_sse_manager") as mock_mgr, \
-             patch("unified_sse._resolve_repo_path") as mock_path:
-
+        with (
+            patch("unified_sse.get_unified_sse_manager") as mock_mgr,
+            patch("unified_sse._resolve_repo_path") as mock_path,
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -478,9 +480,10 @@ class TestCreateUnifiedSSEStream:
 
     def test_empty_snapshot_when_no_repo_path(self):
         """Test that an empty snapshot is sent when no repo path available."""
-        with patch("unified_sse.get_unified_sse_manager") as mock_mgr, \
-             patch("unified_sse._resolve_repo_path") as mock_path:
-
+        with (
+            patch("unified_sse.get_unified_sse_manager") as mock_mgr,
+            patch("unified_sse._resolve_repo_path") as mock_path,
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -491,25 +494,22 @@ class TestCreateUnifiedSSEStream:
             snapshot = next(gen)
             gen.close()
 
-            data_line = [
-                l for l in snapshot.split("\n") if l.startswith("data: ")
-            ][0]
+            data_line = [l for l in snapshot.split("\n") if l.startswith("data: ")][0]
             data = json.loads(data_line[6:])
             assert data["pipelines"] == []
 
     def test_snapshot_includes_pipeline_metadata(self):
         """Test that snapshot entries include repo, branch, compact, progress."""
         pipelines = [
-            create_test_pipeline(
-                "p-1", repo="owner/repo", branch="egg/fix-bug"
-            ),
+            create_test_pipeline("p-1", repo="owner/repo", branch="egg/fix-bug"),
         ]
 
-        with patch("unified_sse.get_unified_sse_manager") as mock_mgr, \
-             patch("unified_sse._collect_all_pipelines_safe") as mock_collect, \
-             patch("unified_sse.render_compact_status") as mock_compact, \
-             patch("unified_sse.render_progress_bar") as mock_progress:
-
+        with (
+            patch("unified_sse.get_unified_sse_manager") as mock_mgr,
+            patch("unified_sse._collect_all_pipelines_safe") as mock_collect,
+            patch("unified_sse.render_compact_status") as mock_compact,
+            patch("unified_sse.render_progress_bar") as mock_progress,
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -523,9 +523,7 @@ class TestCreateUnifiedSSEStream:
             snapshot = next(gen)
             gen.close()
 
-            data_line = [
-                l for l in snapshot.split("\n") if l.startswith("data: ")
-            ][0]
+            data_line = [l for l in snapshot.split("\n") if l.startswith("data: ")][0]
             data = json.loads(data_line[6:])
             entry = data["pipelines"][0]
             assert entry["repo"] == "owner/repo"
@@ -533,17 +531,17 @@ class TestCreateUnifiedSSEStream:
             assert entry["compact"] == "[>Implement] -> oPR"
             assert entry["progress"] == "[####----] 50%"
 
-
     def test_stream_enriches_events_with_visualization(self):
         """Test that the stream generator enriches events with compact/progress."""
         pipeline = create_test_pipeline("p-1")
 
-        with patch("unified_sse.get_unified_sse_manager") as mock_mgr, \
-             patch("unified_sse._resolve_repo_path") as mock_path, \
-             patch("unified_sse.get_state_store") as mock_store, \
-             patch("unified_sse.render_compact_status") as mock_compact, \
-             patch("unified_sse.render_progress_bar") as mock_progress:
-
+        with (
+            patch("unified_sse.get_unified_sse_manager") as mock_mgr,
+            patch("unified_sse._resolve_repo_path") as mock_path,
+            patch("unified_sse.get_state_store") as mock_store,
+            patch("unified_sse.render_compact_status") as mock_compact,
+            patch("unified_sse.render_progress_bar") as mock_progress,
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -557,17 +555,17 @@ class TestCreateUnifiedSSEStream:
             mock_progress.return_value = "[##] 50%"
 
             # Queue an event payload (as _handle_event would produce)
-            mock_q.put({
-                "event_type": "phase.started",
-                "pipeline_id": "p-1",
-                "is_terminal": False,
-                "timestamp": "2026-01-01T00:00:00Z",
-                "data": {},
-            })
-
-            gen = create_unified_sse_stream(
-                repo_path=Path("/tmp/test"), use_ascii=True
+            mock_q.put(
+                {
+                    "event_type": "phase.started",
+                    "pipeline_id": "p-1",
+                    "is_terminal": False,
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "data": {},
+                }
             )
+
+            gen = create_unified_sse_stream(repo_path=Path("/tmp/test"), use_ascii=True)
             # Get snapshot
             next(gen)
             # Get the enriched event
@@ -587,13 +585,14 @@ class TestCreateUnifiedSSEStream:
         """Test that full_dag enrichment uses a single state store load."""
         pipeline = create_test_pipeline("p-1")
 
-        with patch("unified_sse.get_unified_sse_manager") as mock_mgr, \
-             patch("unified_sse._resolve_repo_path") as mock_path, \
-             patch("unified_sse.get_state_store") as mock_store, \
-             patch("unified_sse.render_compact_status") as mock_compact, \
-             patch("unified_sse.render_progress_bar") as mock_progress, \
-             patch("unified_sse.render_pipeline_dag") as mock_dag:
-
+        with (
+            patch("unified_sse.get_unified_sse_manager") as mock_mgr,
+            patch("unified_sse._resolve_repo_path") as mock_path,
+            patch("unified_sse.get_state_store") as mock_store,
+            patch("unified_sse.render_compact_status") as mock_compact,
+            patch("unified_sse.render_progress_bar") as mock_progress,
+            patch("unified_sse.render_pipeline_dag") as mock_dag,
+        ):
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q
@@ -608,17 +607,17 @@ class TestCreateUnifiedSSEStream:
             mock_dag.return_value = "PLAN -> IMPLEMENT -> TEST"
 
             # Queue an event payload
-            mock_q.put({
-                "event_type": "phase.started",
-                "pipeline_id": "p-1",
-                "is_terminal": False,
-                "timestamp": "2026-01-01T00:00:00Z",
-                "data": {},
-            })
-
-            gen = create_unified_sse_stream(
-                repo_path=Path("/tmp/test"), full_dag=True
+            mock_q.put(
+                {
+                    "event_type": "phase.started",
+                    "pipeline_id": "p-1",
+                    "is_terminal": False,
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "data": {},
+                }
             )
+
+            gen = create_unified_sse_stream(repo_path=Path("/tmp/test"), full_dag=True)
             # Get snapshot
             next(gen)
             # Get the enriched event
