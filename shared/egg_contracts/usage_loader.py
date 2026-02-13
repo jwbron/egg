@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypeVar
 
-from .checkpoints import Checkpoint, CheckpointV2, TokenUsage
+from .checkpoints import CheckpointV2, TokenUsage
 from .usage import (
     CheckpointReference,
     IssueUsage,
@@ -377,7 +377,7 @@ def _token_usage_to_counts(token_usage: TokenUsage | None) -> TokenCounts:
 
 def update_usage_from_checkpoint(
     base_dir: Path,
-    checkpoint: Checkpoint | CheckpointV2,
+    checkpoint: CheckpointV2,
     retry_attempts: int = MAX_RETRY_ATTEMPTS,
 ) -> None:
     """
@@ -462,7 +462,7 @@ def update_usage_from_checkpoint(
 
 def _update_session_usage(
     base_dir: Path,
-    checkpoint: Checkpoint | CheckpointV2,
+    checkpoint: CheckpointV2,
     token_counts: TokenCounts,
     checkpoint_ref: CheckpointReference,
     now: datetime,
@@ -516,7 +516,7 @@ def _update_session_usage(
 
 def _update_issue_usage(
     base_dir: Path,
-    checkpoint: Checkpoint | CheckpointV2,
+    checkpoint: CheckpointV2,
     token_counts: TokenCounts,
     now: datetime,
 ) -> None:
@@ -573,7 +573,7 @@ def _update_issue_usage(
 
 def _update_pr_usage(
     base_dir: Path,
-    checkpoint: Checkpoint | CheckpointV2,
+    checkpoint: CheckpointV2,
     token_counts: TokenCounts,
     now: datetime,
 ) -> None:
@@ -626,7 +626,7 @@ def _update_pr_usage(
 
 def _update_usage_index(
     base_dir: Path,
-    checkpoint: Checkpoint | CheckpointV2,
+    checkpoint: CheckpointV2,
     token_counts: TokenCounts,
     now: datetime,
 ) -> None:

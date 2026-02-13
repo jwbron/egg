@@ -563,8 +563,8 @@ def git_push() -> tuple[Response, int] | Response:
 
     # Checkpoint branch bypass: pushes to the checkpoint branch always succeed
     # regardless of session mode or phase (checkpoints can be created at any time)
-    CHECKPOINT_BRANCHES = {"egg/checkpoints/v1", "egg/checkpoints/v2"}
-    is_checkpoint_push = branch in CHECKPOINT_BRANCHES
+    CHECKPOINT_BRANCH = "egg/checkpoints/v2"
+    is_checkpoint_push = branch == CHECKPOINT_BRANCH
 
     repo_info = parse_owner_repo(repo)
     if repo_info:

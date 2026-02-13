@@ -175,7 +175,7 @@ class TestCaptureAndStoreCheckpointsForPush:
     @patch("checkpoint_handler.get_checkpoint_handler")
     def test_creates_checkpoint_for_each_commit(self, mock_get_handler, mock_get_commits):
         """Test that a checkpoint is created for each commit in the push."""
-        from egg_contracts.checkpoints import Checkpoint, SessionMetadata
+        from egg_contracts.checkpoints import CheckpointV2, SessionMetadata, TriggerType
 
         # Mock 3 commits
         commit1 = "1111111111111111111111111111111111111111"
@@ -197,11 +197,15 @@ class TestCaptureAndStoreCheckpointsForPush:
             pipeline_phase=None,
             push_sha=None,
         ):
-            return Checkpoint(
+            now = datetime.now(UTC)
+            return CheckpointV2(
                 id=f"ckpt-{commit_sha[:12]}",
+                trigger_type=TriggerType.COMMIT,
                 commit_sha=commit_sha,
-                session=SessionMetadata(session_id="test", started_at=datetime.now(UTC)),
-                created_at=datetime.now(UTC),
+                session_id="test",
+                session=SessionMetadata(session_id="test", started_at=now),
+                created_at=now,
+                session_started_at=now,
                 push_sha=push_sha,
                 branch=branch,
             )
@@ -228,7 +232,7 @@ class TestCaptureAndStoreCheckpointsForPush:
     @patch("checkpoint_handler.get_checkpoint_handler")
     def test_push_sha_set_on_all_checkpoints(self, mock_get_handler, mock_get_commits):
         """Test that push_sha is set to the tip commit for all checkpoints."""
-        from egg_contracts.checkpoints import Checkpoint, SessionMetadata
+        from egg_contracts.checkpoints import CheckpointV2, SessionMetadata, TriggerType
 
         # Mock 2 commits
         commit1 = "1111111111111111111111111111111111111111"
@@ -248,11 +252,15 @@ class TestCaptureAndStoreCheckpointsForPush:
             push_sha=None,
         ):
             captured_push_shas.append(push_sha)
-            return Checkpoint(
+            now = datetime.now(UTC)
+            return CheckpointV2(
                 id=f"ckpt-{commit_sha[:12]}",
+                trigger_type=TriggerType.COMMIT,
                 commit_sha=commit_sha,
-                session=SessionMetadata(session_id="test", started_at=datetime.now(UTC)),
-                created_at=datetime.now(UTC),
+                session_id="test",
+                session=SessionMetadata(session_id="test", started_at=now),
+                created_at=now,
+                session_started_at=now,
                 push_sha=push_sha,
                 branch=branch,
             )
@@ -280,7 +288,7 @@ class TestCaptureAndStoreCheckpointsForPush:
     @patch("checkpoint_handler.get_checkpoint_handler")
     def test_continues_on_individual_checkpoint_failure(self, mock_get_handler, mock_get_commits):
         """Test that failure to capture one checkpoint doesn't stop others."""
-        from egg_contracts.checkpoints import Checkpoint, SessionMetadata
+        from egg_contracts.checkpoints import CheckpointV2, SessionMetadata, TriggerType
 
         # Mock 3 commits
         commit1 = "1111111111111111111111111111111111111111"
@@ -302,11 +310,15 @@ class TestCaptureAndStoreCheckpointsForPush:
             call_count[0] += 1
             if call_count[0] == 2:
                 raise Exception("Simulated failure")
-            return Checkpoint(
+            now = datetime.now(UTC)
+            return CheckpointV2(
                 id=f"ckpt-{commit_sha[:12]}",
+                trigger_type=TriggerType.COMMIT,
                 commit_sha=commit_sha,
-                session=SessionMetadata(session_id="test", started_at=datetime.now(UTC)),
-                created_at=datetime.now(UTC),
+                session_id="test",
+                session=SessionMetadata(session_id="test", started_at=now),
+                created_at=now,
+                session_started_at=now,
                 push_sha=push_sha,
                 branch=branch,
             )
@@ -335,17 +347,21 @@ class TestCaptureAndStoreCheckpointsForPush:
     @patch("checkpoint_handler.get_checkpoint_handler")
     def test_async_store_uses_thread(self, mock_get_handler, mock_get_commits):
         """Test that async_store=True stores in a background thread."""
-        from egg_contracts.checkpoints import Checkpoint, SessionMetadata
+        from egg_contracts.checkpoints import CheckpointV2, SessionMetadata, TriggerType
 
         commit1 = "1111111111111111111111111111111111111111"
         mock_get_commits.return_value = [commit1]
 
         mock_handler = MagicMock()
-        mock_handler.capture_checkpoint.return_value = Checkpoint(
+        now = datetime.now(UTC)
+        mock_handler.capture_checkpoint.return_value = CheckpointV2(
             id="ckpt-1111111111111",
+            trigger_type=TriggerType.COMMIT,
             commit_sha=commit1,
-            session=SessionMetadata(session_id="test", started_at=datetime.now(UTC)),
-            created_at=datetime.now(UTC),
+            session_id="test",
+            session=SessionMetadata(session_id="test", started_at=now),
+            created_at=now,
+            session_started_at=now,
             branch="main",
         )
         mock_get_handler.return_value = mock_handler
@@ -375,7 +391,7 @@ class TestCaptureAndStoreCheckpointsForPush:
     @patch("checkpoint_handler.get_checkpoint_handler")
     def test_checkpoint_returns_none_excluded(self, mock_get_handler, mock_get_commits):
         """Test that checkpoints returning None are excluded from result."""
-        from egg_contracts.checkpoints import Checkpoint, SessionMetadata
+        from egg_contracts.checkpoints import CheckpointV2, SessionMetadata, TriggerType
 
         commit1 = "1111111111111111111111111111111111111111"
         commit2 = "2222222222222222222222222222222222222222"
@@ -395,11 +411,15 @@ class TestCaptureAndStoreCheckpointsForPush:
             call_count[0] += 1
             if call_count[0] == 1:
                 return None
-            return Checkpoint(
+            now = datetime.now(UTC)
+            return CheckpointV2(
                 id=f"ckpt-{commit_sha[:12]}",
+                trigger_type=TriggerType.COMMIT,
                 commit_sha=commit_sha,
-                session=SessionMetadata(session_id="test", started_at=datetime.now(UTC)),
-                created_at=datetime.now(UTC),
+                session_id="test",
+                session=SessionMetadata(session_id="test", started_at=now),
+                created_at=now,
+                session_started_at=now,
                 push_sha=push_sha,
                 branch=branch,
             )

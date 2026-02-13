@@ -6,9 +6,10 @@ from pathlib import Path
 
 import pytest
 from egg_contracts.checkpoints import (
-    Checkpoint,
+    CheckpointV2,
     SessionMetadata,
     TokenUsage,
+    TriggerType,
 )
 from egg_contracts.usage import (
     IssueUsage,
@@ -232,12 +233,14 @@ class TestUpdateUsageFromCheckpoint:
         pr_number: int | None = None,
         input_tokens: int = 1000,
         output_tokens: int = 500,
-    ) -> Checkpoint:
+    ) -> CheckpointV2:
         """Create a test checkpoint."""
         now = datetime.now(UTC)
-        return Checkpoint(
+        return CheckpointV2(
             id="ckpt-abc123456789",
+            trigger_type=TriggerType.COMMIT,
             commit_sha="abc123456789",
+            session_id=session_id,
             session=SessionMetadata(
                 session_id=session_id,
                 container_id="container-123",
@@ -255,6 +258,7 @@ class TestUpdateUsageFromCheckpoint:
             branch="egg/issue-519",
             pipeline_phase="implement",
             created_at=now,
+            session_started_at=now,
         )
 
     def test_update_creates_new_session_usage(self):

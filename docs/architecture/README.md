@@ -88,7 +88,7 @@ Checkpoints capture agent session context as first-class versioned data in Git. 
 - **Token usage**: Input/output tokens and estimated costs
 - **Session metadata**: Session ID, agent role, model, duration
 
-Checkpoints are stored in the `egg/checkpoints/v1` branch and linked to commits via checkpoint IDs in contract tasks and audit entries. This provides full traceability from requirements to implementation.
+Checkpoints are stored in the `egg/checkpoints/v2` branch and linked to commits via checkpoint IDs in contract tasks and audit entries. This provides full traceability from requirements to implementation.
 
 **Checkpoint CLI**
 
