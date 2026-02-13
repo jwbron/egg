@@ -5,7 +5,7 @@
   "branch": "egg/issue-507",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "awaiting_human",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -18,9 +18,9 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-02-13T03:35:38.838137",
-      "completed_at": null,
+      "completed_at": "2026-02-13T03:51:31.594216",
       "containers": [
         {
           "container_id": "4002f469d3f4699c38a4768de9d71a9bf55d805fb82ca9ff0ade14ac493d111a",
@@ -93,23 +93,9 @@
       "error": null
     }
   },
-  "decisions": [
-    {
-      "id": "decision-1",
-      "question": "The refine phase has completed. Please review the analysis and approve to continue.",
-      "context": "(Draft file not found: .egg-state/drafts/507-analysis.md)",
-      "options": [
-        "approve"
-      ],
-      "status": "pending",
-      "created_at": "2026-02-13T03:51:31.595712",
-      "resolved_at": null,
-      "resolution": null,
-      "timeout_seconds": 3600
-    }
-  ],
+  "decisions": [],
   "created_at": "2026-02-13T03:35:35.665383",
-  "updated_at": "2026-02-13T03:51:31.597057",
+  "updated_at": "2026-02-13T03:51:31.607098",
   "contract_synced": true,
   "error": null,
   "version": 12
