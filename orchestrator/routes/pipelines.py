@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from flask import Blueprint, Response, jsonify, request, stream_with_context
+from flask import Blueprint, Response, jsonify, request
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
@@ -55,35 +55,6 @@ except ImportError:
 
 logger = get_logger("orchestrator.pipelines")
 
-# Base directory where the gateway creates per-pipeline worktrees.
-# Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
-WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
-
-# Network constants for sandbox container URLs
-try:
-    from egg_config import (
-        ORCHESTRATOR_EXTERNAL_IP,
-        ORCHESTRATOR_ISOLATED_IP,
-        ORCHESTRATOR_PORT,
-    )
-except ImportError:
-    ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"
-    ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"
-    ORCHESTRATOR_PORT = 9849
-
-try:
-    from egg_config.validators import validate_checks
-except ImportError:
-
-    def validate_checks(checks: list) -> list[dict[str, str]]:  # type: ignore[misc]
-        if not isinstance(checks, list):
-            return []
-        return [
-            {"name": str(c["name"]), "command": str(c["command"])}
-            for c in checks
-            if isinstance(c, dict) and "name" in c and "command" in c
-        ]
-
 pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
 
 
@@ -114,22 +85,6 @@ try:
 except ImportError:
     _DAG_VISUALIZER_AVAILABLE = False
 
-# Import SSE streaming support
-try:
-    from sse import create_sse_stream
-
-    _SSE_AVAILABLE = True
-except ImportError:
-    _SSE_AVAILABLE = False
-
-# Import unified SSE streaming support
-try:
-    from unified_sse import create_unified_sse_stream
-
-    _UNIFIED_SSE_AVAILABLE = True
-except ImportError:
-    _UNIFIED_SSE_AVAILABLE = False
-
 
 def make_error_response(
     message: str,
@@ -155,14 +110,12 @@ def make_success_response(
 
 
 def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pipeline]:
-    """Load a pipeline, resolving the correct repo subdirectory.
+    """Load a pipeline, scanning repo subdirectories if needed.
 
-    The StateStore uses a global shared worktree, so it can find any
-    pipeline regardless of which ``repo_path`` is used.  When
-    ``base_path`` is a parent directory (no ``.git``), we resolve the
-    correct repo subdirectory using the pipeline's ``repo`` field so
-    that ``store.repo_path`` points to the actual git repository
-    (needed for reading draft files, verdict files, contracts, etc.).
+    When ``base_path`` is a parent directory containing multiple repos
+    (i.e. it has no ``.git``), and the pipeline is not found at the base
+    level, iterate over immediate subdirectories that are git repos and
+    try to load the pipeline from each.
 
     Returns:
         (store, pipeline) tuple
@@ -175,46 +128,22 @@ def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pi
     try:
         store = get_state_store(base_path)
         pipeline = store.load_pipeline(pipeline_id)
+        return store, pipeline
     except PipelineNotFoundError:
-        # If base_path is not itself a git repo, scan subdirectories
-        store = None
-        pipeline = None
-        if not (base_path / ".git").exists():
-            for child in sorted(base_path.iterdir()):
-                if child.is_dir() and (child / ".git").exists():
-                    try:
-                        store = get_state_store(child)
-                        pipeline = store.load_pipeline(pipeline_id)
-                        return store, pipeline
-                    except (PipelineNotFoundError, StateStoreError):
-                        continue
-        raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found") from None
+        pass
 
-    # The global worktree means the pipeline is always found at base_path,
-    # even when base_path is a parent directory (e.g. /home/egg/repos/).
-    # Resolve to the correct repo subdirectory using the pipeline's repo field.
-    # NOTE: The pipeline was loaded from the original store, but both stores
-    # share the same underlying worktree state — only repo_path differs.
+    # If base_path is not itself a git repo, scan subdirectories
     if not (base_path / ".git").exists():
-        if pipeline.repo:
-            repo_name = pipeline.repo.split("/")[-1]
-            candidate = base_path / repo_name
-            if candidate.exists() and (candidate / ".git").exists():
-                store = get_state_store(candidate)
-            else:
-                logger.warning(
-                    "Repo subdirectory not found for pipeline",
-                    pipeline_id=pipeline_id,
-                    repo=pipeline.repo,
-                    candidate=str(candidate),
-                )
-        else:
-            logger.warning(
-                "Pipeline has no repo field, cannot resolve subdirectory",
-                pipeline_id=pipeline_id,
-            )
+        for child in sorted(base_path.iterdir()):
+            if child.is_dir() and (child / ".git").exists():
+                try:
+                    store = get_state_store(child)
+                    pipeline = store.load_pipeline(pipeline_id)
+                    return store, pipeline
+                except (PipelineNotFoundError, StateStoreError):
+                    continue
 
-    return store, pipeline
+    raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found")
 
 
 def _collect_all_pipelines(base_path: Path) -> list:
@@ -410,8 +339,30 @@ def create_pipeline() -> tuple[Response, int]:
                 prompt=prompt,
             )
 
-            # Contract creation is deferred to _run_pipeline so it writes
-            # into the per-pipeline worktree instead of the main repo.
+            # Create companion contract for the local pipeline
+            try:
+                from egg_contracts.loader import create_local_contract
+
+                create_local_contract(
+                    pipeline_id=pipeline.id,
+                    title=prompt[:100],
+                    repo_root=repo_path,
+                )
+                # Mark contract as synced now that it exists
+                pipeline.contract_synced = True
+                store.save_pipeline(pipeline, commit=False)
+                logger.info(
+                    "Local pipeline contract created",
+                    pipeline_id=pipeline.id,
+                )
+            except Exception as contract_err:
+                # Contract creation is best-effort — don't block pipeline
+                # contract_synced remains False
+                logger.warning(
+                    "Failed to create contract for local pipeline",
+                    pipeline_id=pipeline.id,
+                    error=str(contract_err),
+                )
 
             logger.info(
                 "Local pipeline created",
@@ -435,9 +386,6 @@ def create_pipeline() -> tuple[Response, int]:
     repo = data.get("repo")
     branch = data.get("branch")
 
-    # Check for pre-generated SDLC tokens (set by entrypoint before Claude starts)
-    from routes.sdlc_tokens import has_tokens_for_pipeline
-
     if not issue_number:
         return make_error_response("Missing issue_number")
     if not repo:
@@ -456,15 +404,6 @@ def create_pipeline() -> tuple[Response, int]:
             config=data.get("config"),
             mode="issue",
         )
-
-        # Contract creation is deferred to _run_pipeline so it writes
-        # into the per-pipeline worktree instead of the main repo.
-
-        # Enable token gating if tokens were pre-generated for this pipeline
-        if has_tokens_for_pipeline(pipeline.id):
-            pipeline.sdlc_token_gated = True
-            store.save_pipeline(pipeline, commit=False)
-            logger.info("Pipeline token-gated", pipeline_id=pipeline.id)
 
         logger.info(
             "Pipeline created",
@@ -1309,14 +1248,9 @@ def _spawn_and_wait(
     If ``store`` is provided, the container is recorded in the phase execution
     state so that the status endpoint can report it while it runs.
 
-    The container is launched via the shared ``build_sandbox_config()`` path,
-    which handles GATEWAY_URL, proxy vars, DNS lockdown, extra_hosts, and
-    .git shadow mounts automatically.
-
     Args:
         repo_volumes: Mapping of repo_name -> host_path for volume mounts.
-            Each entry is mounted at /home/egg/repos/<name> in the container,
-            with .git shadowed by /dev/null bind mounts to force gateway git operations.
+            Each entry is mounted at /home/egg/repos/<name> in the container.
         certs_volume: Docker named volume for gateway CA certs (mounted at
             /shared/certs read-only). If None, certs are not mounted.
 
@@ -1324,6 +1258,15 @@ def _spawn_and_wait(
         (exit_code, container_logs) — logs are captured before cleanup on failure.
     """
     from models import ContainerInfo, ContainerStatus, PipelinePhase
+
+    # Build per-repo volume mounts for the spawned container
+    extra_volumes: dict[str, dict[str, str]] = {}
+    for name, host_path in repo_volumes.items():
+        extra_volumes[host_path] = {"bind": f"/home/egg/repos/{name}", "mode": "rw"}
+
+    # Mount the gateway CA certs volume so the sandbox trusts the proxy
+    if certs_volume:
+        extra_volumes[certs_volume] = {"bind": "/shared/certs", "mode": "ro"}
 
     spawned = spawner.spawn_agent_container(
         pipeline_id=pipeline_id,
@@ -1335,8 +1278,7 @@ def _spawn_and_wait(
         phase=phase,
         extra_env=sandbox_env,
         command=sandbox_command,
-        repo_volumes=repo_volumes,
-        certs_volume=certs_volume,
+        extra_volumes=extra_volumes if extra_volumes else None,
     )
 
     # Record container and agent in phase execution state
@@ -1385,7 +1327,7 @@ def _spawn_and_wait(
         try:
             container_logs = spawner.docker.get_container_logs(
                 spawned.container_info.container_id,
-                tail=200,
+                tail=50,
             )
         except Exception:
             pass
@@ -1449,88 +1391,44 @@ _REVIEWED_PHASES = {"refine", "plan", "implement"}
 _HITL_GATE_PHASES = {"refine", "plan"}
 
 
-def _build_checker_prompt(
-    pipeline_id: str,
-    pipeline_mode: str,
-    repo: str | None = None,
-    repo_checks: list[dict] | None = None,
-) -> str:
+def _build_checker_prompt(pipeline_id: str, pipeline_mode: str) -> str:
     """Build a prompt for the checker agent that runs tests/lint.
 
     The checker discovers and runs project test/lint commands, then
     writes structured results to .egg-state/checks/implement-results.json.
-
-    Args:
-        pipeline_id: Pipeline identifier.
-        pipeline_mode: Pipeline mode (e.g. "local", "issue").
-        repo: Target repository in "owner/repo" format.
-        repo_checks: Pre-configured check commands from repositories.yaml.
     """
-    lines = [
-        "You are the **checker** for the SDLC pipeline implement phase.\n",
-        f"Pipeline ID: {pipeline_id}",
-        f"Mode: {pipeline_mode}",
-    ]
-    if repo:
-        repo_name = repo.split("/")[-1]
-        lines.append(f"Repository: {repo}")
-        lines.append(f"Working directory: ~/repos/{repo_name}")
-    lines.append("")
-
-    lines.append("## Your Task\n")
-
-    if repo_checks:
-        # Use explicitly configured check commands
-        lines.append("Run the following check commands in order, then write results.\n")
-        if repo:
-            repo_name = repo.split("/")[-1]
-            lines.append(f"First, `cd ~/repos/{repo_name}`.\n")
-        for i, check in enumerate(repo_checks, 1):
-            lines.append(f"{i}. **{check['name']}**: `{check['command']}`")
-        lines.append("")
-    else:
-        # Fall back to discovery mode
-        lines.append("Discover and run all project test and lint commands, then write results.\n")
-        if repo:
-            repo_name = repo.split("/")[-1]
-            lines.append(f"Work in the `~/repos/{repo_name}` directory.\n")
-        lines.extend(
-            [
-                "1. **Discover commands**: Look for Makefile, pyproject.toml, package.json, "
-                "setup.cfg, tox.ini, or similar build/test configuration files",
-                "2. **Run tests**: Execute the project's test suite (pytest, jest, go test, etc.)",
-                "3. **Run linting**: Execute linters (ruff, eslint, golangci-lint, etc.)",
-                "",
-            ]
-        )
-
-    lines.extend(
-        [
-            "After running checks, **write results** to `.egg-state/checks/implement-results.json`:\n",
-            "```json",
-            "{",
-            '  "all_passed": true/false,',
-            '  "checks": [',
-            '    {"name": "pytest", "passed": true/false, "output": "summary of output"},',
-            '    {"name": "lint", "passed": true/false, "output": "summary of output"}',
-            "  ]",
-            "}",
-            "```\n",
-            "Then commit the results file.\n",
-            "## Important\n",
-            "- Always exit 0 regardless of check results (results are informational)",
-            "- Write the results file even if all checks pass",
-            "- If you cannot find any test/lint commands, write all_passed: true",
-        ]
+    return (
+        "You are the **checker** for the SDLC pipeline implement phase.\n\n"
+        f"Pipeline ID: {pipeline_id}\n"
+        f"Mode: {pipeline_mode}\n\n"
+        "## Your Task\n\n"
+        "Discover and run all project test and lint commands, then write results.\n\n"
+        "1. **Discover commands**: Look for Makefile, pyproject.toml, package.json, "
+        "setup.cfg, tox.ini, or similar build/test configuration files\n"
+        "2. **Run tests**: Execute the project's test suite (pytest, jest, go test, etc.)\n"
+        "3. **Run linting**: Execute linters (ruff, eslint, golangci-lint, etc.)\n"
+        "4. **Write results**: Create `.egg-state/checks/implement-results.json` with:\n\n"
+        "```json\n"
+        "{\n"
+        '  "all_passed": true/false,\n'
+        '  "checks": [\n'
+        '    {"name": "pytest", "passed": true/false, "output": "summary of output"},\n'
+        '    {"name": "lint", "passed": true/false, "output": "summary of output"}\n'
+        "  ]\n"
+        "}\n"
+        "```\n\n"
+        "5. Commit the results file\n\n"
+        "## Important\n\n"
+        "- Always exit 0 regardless of check results (results are informational)\n"
+        "- Write the results file even if all checks pass\n"
+        "- If you cannot find any test/lint commands, write all_passed: true\n"
     )
-    return "\n".join(lines)
 
 
 def _build_autofix_prompt(
     pipeline_id: str,
     pipeline_mode: str,
     check_results: dict,
-    repo: str | None = None,
 ) -> str:
     """Build a prompt for the autofixer agent.
 
@@ -1546,48 +1444,30 @@ def _build_autofix_prompt(
 
     failure_summary = "\n".join(failures) if failures else "No specific failures recorded."
 
-    lines = [
-        "You are the **autofixer** for the SDLC pipeline implement phase.\n",
-        f"Pipeline ID: {pipeline_id}",
-        f"Mode: {pipeline_mode}",
-    ]
-    if repo:
-        repo_name = repo.split("/")[-1]
-        lines.append(f"Repository: {repo}")
-        lines.append(f"Working directory: ~/repos/{repo_name}")
-    lines.extend(
-        [
-            "",
-            "## Check Failures\n",
-            failure_summary,
-            "",
-            "## Your Task\n",
-            "**Fix ALL auto-fixable issues in a single pass.**\n",
-        ]
+    return (
+        "You are the **autofixer** for the SDLC pipeline implement phase.\n\n"
+        f"Pipeline ID: {pipeline_id}\n"
+        f"Mode: {pipeline_mode}\n\n"
+        "## Check Failures\n\n"
+        f"{failure_summary}\n\n"
+        "## Your Task\n\n"
+        "**Fix ALL auto-fixable issues in a single pass.**\n\n"
+        "1. **Read the check results** at `.egg-state/checks/implement-results.json`\n"
+        "2. **Investigate all failures**: Examine test output, lint errors, etc.\n"
+        "3. **Fix without committing yet**: For each auto-fixable issue "
+        "(lint errors, formatting, simple type errors, obvious test fixes), make the fix\n"
+        "4. **Verify locally**: Run the same checks again to confirm fixes work\n"
+        "5. **Commit all fixes together** with a descriptive message\n\n"
+        "## Auto-fixable vs Report-only\n\n"
+        "**Auto-fixable (commit fixes directly):**\n"
+        "- Lint errors (formatting, import order, code style)\n"
+        "- Type errors with clear fixes\n"
+        "- Simple test failures with obvious fixes\n\n"
+        "**Report only (note in commit message):**\n"
+        "- Complex logic errors requiring design decisions\n"
+        "- Security issues requiring architectural changes\n"
+        "- Test failures from unclear requirements\n"
     )
-    if repo:
-        repo_name = repo.split("/")[-1]
-        lines.append(f"Work in the `~/repos/{repo_name}` directory.\n")
-    lines.extend(
-        [
-            "1. **Read the check results** at `.egg-state/checks/implement-results.json`",
-            "2. **Investigate all failures**: Examine test output, lint errors, etc.",
-            "3. **Fix without committing yet**: For each auto-fixable issue "
-            "(lint errors, formatting, simple type errors, obvious test fixes), make the fix",
-            "4. **Verify locally**: Run the same checks again to confirm fixes work",
-            "5. **Commit all fixes together** with a descriptive message\n",
-            "## Auto-fixable vs Report-only\n",
-            "**Auto-fixable (commit fixes directly):**",
-            "- Lint errors (formatting, import order, code style)",
-            "- Type errors with clear fixes",
-            "- Simple test failures with obvious fixes\n",
-            "**Report only (note in commit message):**",
-            "- Complex logic errors requiring design decisions",
-            "- Security issues requiring architectural changes",
-            "- Test failures from unclear requirements",
-        ]
-    )
-    return "\n".join(lines)
 
 
 def _read_check_results(repo_path: Path) -> dict | None:
@@ -1607,17 +1487,12 @@ def _read_check_results(repo_path: Path) -> dict | None:
         return None
 
 
-def _populate_contract_from_plan(
-    repo_path: Path,
-    pipeline_id: str,
-    pipeline_mode: str = "local",
-    issue_number: int | None = None,
-) -> None:
+def _populate_contract_from_plan(repo_path: Path, pipeline_id: str) -> None:
     """Read the plan draft and populate the contract with tasks.
 
     Lightweight version of action/populate-contract-tasks.py.
-    Reads the plan draft, extracts task structure from markdown headers,
-    and writes tasks + acceptance criteria to the contract.
+    Reads .egg-state/drafts/plan.md, extracts task structure from
+    markdown headers, and writes tasks + acceptance criteria to the contract.
     """
     try:
         from egg_contracts.loader import load_contract, save_contract
@@ -1625,33 +1500,13 @@ def _populate_contract_from_plan(
         logger.warning("egg_contracts not available, skipping contract population")
         return
 
-    # Guard against issue-mode pipelines missing issue_number — _get_draft_path
-    # would produce a path containing literal "None" (e.g. .egg-state/drafts/None-plan.md).
-    if pipeline_mode != "local" and not issue_number:
-        logger.warning(
-            "Issue-mode pipeline missing issue_number, skipping contract population",
-            pipeline_id=pipeline_id,
-        )
-        return
-
-    # Resolve draft path based on pipeline mode
-    draft_rel = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
-    if not draft_rel:
-        logger.warning("No draft path for plan phase", pipeline_id=pipeline_id)
-        return
-
-    plan_path = repo_path / draft_rel
+    plan_path = repo_path / ".egg-state/drafts/plan.md"
     if not plan_path.exists():
         logger.warning("Plan draft not found, skipping contract population", path=str(plan_path))
         return
 
-    # For issue mode, use issue number as the contract identifier
-    contract_id: int | str = pipeline_id
-    if pipeline_mode != "local" and issue_number:
-        contract_id = issue_number
-
     try:
-        contract = load_contract(contract_id, repo_path)
+        contract = load_contract(pipeline_id, repo_path)
     except Exception:
         logger.warning(
             "Contract not found for pipeline, skipping population", pipeline_id=pipeline_id
@@ -1763,7 +1618,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # containers in the pipeline share the same working trees.
         worktree_id = pipeline_id
         repo_volumes = dict(host_repo_map)  # fallback: raw host paths
-        worktree_repo_path = repo_path  # default; overridden when worktrees exist
         host_uid = int(os.environ.get("HOST_UID", 1000))
         host_gid = int(os.environ.get("HOST_GID", 1000))
         pipeline_repos = [pipeline.repo] if pipeline.repo else []
@@ -1784,27 +1638,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     # stripping the owner prefix from "owner/repo" format. This matches
                     # the container mount target at /home/egg/repos/<name>.
                     repo_volumes = wt_result.worktrees
-
-                    # Derive the orchestrator-accessible worktree path.
-                    # Reviewer containers write verdict/draft/check files into
-                    # the worktree, so the orchestrator must read from there.
-                    # Match against pipeline.repo explicitly to avoid picking
-                    # the wrong repo in multi-repo pipelines.
-                    repo_short = pipeline.repo.split("/")[-1] if pipeline.repo else None
-                    matched = False
-                    if repo_short and repo_short in wt_result.worktrees:
-                        candidate = WORKTREE_BASE_DIR / worktree_id / repo_short
-                        if candidate.exists():
-                            worktree_repo_path = candidate
-                            matched = True
-                    if not matched:
-                        # Fallback: take the first existing worktree path
-                        for name in wt_result.worktrees:
-                            candidate = WORKTREE_BASE_DIR / worktree_id / name
-                            if candidate.exists():
-                                worktree_repo_path = candidate
-                                break
-
                     logger.info(
                         "Worktrees created for pipeline",
                         pipeline_id=pipeline_id,
@@ -1845,46 +1678,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         else:
             certs_volume = certs_volume_raw
 
-        # Create companion contract in the worktree (deferred from pipeline
-        # creation so it doesn't pollute the main repo working directory).
-        if not pipeline.contract_synced:
-            try:
-                if pipeline_mode == "local":
-                    from egg_contracts.loader import create_local_contract
-
-                    create_local_contract(
-                        pipeline_id=pipeline.id,
-                        title=(pipeline.prompt or "")[:100],
-                        repo_root=worktree_repo_path,
-                    )
-                else:
-                    from egg_contracts.loader import create_contract
-
-                    issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
-                    create_contract(
-                        issue_number=pipeline.issue_number,
-                        title=f"Issue #{pipeline.issue_number}",
-                        url=issue_url,
-                        repo_root=worktree_repo_path,
-                    )
-                pipeline.contract_synced = True
-                store.save_pipeline(pipeline, commit=False)
-                logger.info(
-                    "Pipeline contract created in worktree",
-                    pipeline_id=pipeline_id,
-                    mode=pipeline_mode,
-                )
-            except Exception as contract_err:
-                logger.error(
-                    "Failed to create contract in worktree",
-                    pipeline_id=pipeline_id,
-                    error=str(contract_err),
-                )
-                pipeline.status = PipelineStatus.FAILED
-                pipeline.error = f"Failed to create contract: {contract_err}"
-                store.save_pipeline(pipeline)
-                return
-
         while True:
             pipeline = store.load_pipeline(pipeline_id)
 
@@ -1911,21 +1704,19 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     message=f"Phase {current_phase.value} started",
                 )
 
-            # Common sandbox environment for all containers in this phase.
-            # GATEWAY_URL, RUNTIME_UID/GID, proxy vars, DNS lockdown, and
-            # extra_hosts are now handled by the shared build_sandbox_config()
-            # inside spawn_agent_container().  Only pipeline-specific vars go here.
-            if gateway_mode in ("private", "local"):
-                orchestrator_ip = ORCHESTRATOR_ISOLATED_IP
-            else:
-                orchestrator_ip = ORCHESTRATOR_EXTERNAL_IP
-            orchestrator_url = f"http://{orchestrator_ip}:{ORCHESTRATOR_PORT}"
+            # Common sandbox environment for all containers in this phase
+            gateway_url = os.environ.get("GATEWAY_URL", "http://172.32.0.2:9848")
+            orchestrator_url = os.environ.get("ORCHESTRATOR_URL", "http://172.32.0.3:9849")
             sandbox_env: dict[str, str] = {
                 "EGG_PIPELINE_ID": pipeline_id,
                 "EGG_PIPELINE_PHASE": current_phase.value,
                 "EGG_PIPELINE_MODE": pipeline_mode,
+                "GATEWAY_URL": gateway_url,
+                "EGG_GATEWAY_URL": gateway_url,
                 "EGG_ORCHESTRATOR_URL": orchestrator_url,
                 "EGG_ORCHESTRATOR_MODE": "distributed",
+                "RUNTIME_UID": os.environ.get("HOST_UID", "1000"),
+                "RUNTIME_GID": os.environ.get("HOST_GID", "1000"),
             }
             if pipeline.prompt:
                 sandbox_env["EGG_PIPELINE_PROMPT"] = pipeline.prompt
@@ -2039,21 +1830,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                 # 2. Checker + autofix loop (implement phase only)
                 if current_phase.value == "implement":
-                    # Look up configured check commands for this repo
-                    repo_checks: list[dict] | None = None
-                    if pipeline.repo:
-                        try:
-                            all_repo_checks = json.loads(os.environ.get("EGG_REPO_CHECKS", "{}"))
-                        except json.JSONDecodeError:
-                            all_repo_checks = {}
-                        # Case-insensitive lookup
-                        repo_lower = pipeline.repo.lower()
-                        for cfg_repo, cfg_checks in all_repo_checks.items():
-                            if cfg_repo.lower() == repo_lower:
-                                if isinstance(cfg_checks, list):
-                                    repo_checks = validate_checks(cfg_checks) or None
-                                break
-
                     max_autofix = 3
                     for autofix_attempt in range(max_autofix):
                         logger.info(
@@ -2062,12 +1838,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             autofix_attempt=autofix_attempt + 1,
                         )
 
-                        checker_prompt = _build_checker_prompt(
-                            pipeline_id,
-                            pipeline_mode,
-                            repo=pipeline.repo,
-                            repo_checks=repo_checks,
-                        )
+                        checker_prompt = _build_checker_prompt(pipeline_id, pipeline_mode)
                         checker_command = [
                             "claude",
                             "--dangerously-skip-permissions",
@@ -2107,7 +1878,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
                             break
 
-                        check_results = _read_check_results(worktree_repo_path)
+                        check_results = _read_check_results(repo_path)
                         if check_results is None or check_results.get("all_passed"):
                             logger.info(
                                 "All checks passed",
@@ -2133,10 +1904,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         )
 
                         autofix_prompt = _build_autofix_prompt(
-                            pipeline_id,
-                            pipeline_mode,
-                            check_results,
-                            repo=pipeline.repo,
+                            pipeline_id, pipeline_mode, check_results
                         )
                         autofix_command = [
                             "claude",
@@ -2190,7 +1958,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline.issue_number,
                         pipeline_id,
                     )
-                    verdict_path = worktree_repo_path / verdict_rel
+                    verdict_path = repo_path / verdict_rel
                     if verdict_path.exists():
                         try:
                             verdict_path.unlink()
@@ -2275,7 +2043,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                     # Read this reviewer's verdict
                     all_verdicts[reviewer_type] = _read_review_verdict(
-                        worktree_repo_path,
+                        repo_path,
                         current_phase.value,
                         reviewer_type=reviewer_type,
                         pipeline_mode=pipeline_mode,
@@ -2332,7 +2100,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             phase_execution = pipeline.get_phase_execution(current_phase)
             phase_execution.status = PipelineStatus.COMPLETE
             phase_execution.completed_at = datetime.utcnow()
-            store.save_pipeline(pipeline)  # Persist phase completion before HITL gate
 
             # Report phase completion to collaborator
             report_pipeline_status(
@@ -2341,20 +2108,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 message=f"Phase {current_phase.value} completed",
             )
 
-            # After plan phase: populate contract with task structure.
-            # NOTE: worktree_repo_path is used for both draft reads and
-            # contract load/save inside _populate_contract_from_plan.
-            # The contract was created at worktree_repo_path above, so
-            # both operations must use the same path.
-            if current_phase.value == "plan":
-                _populate_contract_from_plan(
-                    worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
-                )
+            # After plan phase: populate contract with task structure
+            if current_phase.value == "plan" and pipeline_mode == "local":
+                _populate_contract_from_plan(repo_path, pipeline_id)
 
             # --- HITL gate: pause for human approval ---
             if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:
                 draft_content = _read_phase_draft(
-                    worktree_repo_path,
+                    repo_path,
                     current_phase.value,
                     pipeline_mode,
                     pipeline.issue_number,
@@ -2374,9 +2135,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     timeout_seconds=pipeline.config.decision_timeout,
                 )
 
-                # Reload pipeline to pick up the decision persisted by queue_decision(),
-                # otherwise the stale local object overwrites it with an empty decisions list.
-                pipeline = store.load_pipeline(pipeline_id)
                 pipeline.status = PipelineStatus.AWAITING_HUMAN
                 store.save_pipeline(pipeline)
 
@@ -2643,118 +2401,3 @@ def get_pipeline_visualization(pipeline_id: str) -> tuple[Response, int]:
             f"Pipeline {pipeline_id} not found",
             status_code=404,
         )
-
-
-@pipelines_bp.route("/stream", methods=["GET"])
-def stream_all_pipelines() -> Response:
-    """
-    Stream unified events for all pipelines via Server-Sent Events (SSE).
-
-    Provides real-time updates for ALL pipeline state changes in a single
-    SSE connection. Unlike the per-pipeline stream, terminal events for
-    individual pipelines do not end the stream.
-
-    Query params:
-        ascii: Use ASCII-only characters (default: false)
-        active_only: Only include active pipelines (default: true)
-        full_dag: Include full DAG visualization (default: false)
-
-    Response:
-        text/event-stream with the following event types:
-        - snapshot: Initial state of all active pipelines
-        - pipeline.*: Pipeline lifecycle events
-        - phase.*: Phase transition events
-        - agent.*: Agent lifecycle events
-        - decision.*: HITL decision events
-        - done: Stream is ending (timeout)
-    """
-    if not _UNIFIED_SSE_AVAILABLE:
-        return make_error_response(
-            "Unified SSE streaming module not available",
-            status_code=500,
-        )
-
-    use_ascii = request.args.get("ascii", "false").lower() == "true"
-    active_only = request.args.get("active_only", "true").lower() == "true"
-    full_dag = request.args.get("full_dag", "false").lower() == "true"
-
-    repo_path = get_repo_path()
-
-    return Response(
-        stream_with_context(
-            create_unified_sse_stream(
-                repo_path=repo_path,
-                use_ascii=use_ascii,
-                active_only=active_only,
-                full_dag=full_dag,
-            )
-        ),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-@pipelines_bp.route("/<pipeline_id>/stream", methods=["GET"])
-def stream_pipeline(pipeline_id: str) -> Response:
-    """
-    Stream pipeline events via Server-Sent Events (SSE).
-
-    Provides real-time updates for pipeline state changes including
-    phase transitions, agent lifecycle, and DAG visualization.
-
-    URL params:
-        pipeline_id: Pipeline ID
-
-    Query params:
-        ascii: Use ASCII-only characters (default: false)
-
-    Response:
-        text/event-stream with the following event types:
-        - snapshot: Initial pipeline state
-        - pipeline.*: Pipeline lifecycle events
-        - phase.*: Phase transition events
-        - agent.*: Agent lifecycle events
-        - decision.*: HITL decision events
-        - done: Stream is ending (terminal state or timeout)
-        - error: An error occurred
-
-    The stream automatically closes when the pipeline reaches a
-    terminal state (completed, failed, cancelled) or after the
-    maximum connection time (1 hour).
-    """
-    if not _SSE_AVAILABLE:
-        return make_error_response(
-            "SSE streaming module not available",
-            status_code=500,
-        )
-
-    use_ascii = request.args.get("ascii", "false").lower() == "true"
-
-    # Validate pipeline exists before starting stream
-    repo_path = get_repo_path()
-    try:
-        _resolve_pipeline(pipeline_id, repo_path)
-    except InvalidPipelineIdError:
-        return make_error_response(
-            f"Invalid pipeline ID format: {pipeline_id}",
-            status_code=400,
-        )
-    except PipelineNotFoundError:
-        return make_error_response(
-            f"Pipeline {pipeline_id} not found",
-            status_code=404,
-        )
-
-    return Response(
-        stream_with_context(
-            create_sse_stream(pipeline_id, repo_path=repo_path, use_ascii=use_ascii)
-        ),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )

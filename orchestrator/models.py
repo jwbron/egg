@@ -207,9 +207,6 @@ class Pipeline(BaseModel):
     )
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update time")
     contract_synced: bool = Field(default=True, description="Whether state is synced with contract")
-    sdlc_token_gated: bool = Field(
-        default=False, description="Whether this pipeline requires token-gated approval"
-    )
     error: str | None = Field(default=None, description="Error if failed")
     version: int = Field(
         default=1, ge=1, description="Optimistic locking version (incremented on each save)"

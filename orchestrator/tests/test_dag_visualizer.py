@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from dag_visualizer import (
     PHASE_ORDER,
     _format_duration,
-    _get_agent_status_symbol,
     _get_status_symbol,
     generate_status_report,
     render_compact_status,
@@ -104,24 +103,6 @@ class TestStatusSymbol:
         assert _get_status_symbol(PipelineStatus.FAILED, use_ascii=True) == "x"
 
 
-class TestAgentStatusSymbol:
-    """Tests for _get_agent_status_symbol helper."""
-
-    def test_unicode_agent_symbols(self):
-        """Test Unicode symbols for all agent execution statuses."""
-        assert _get_agent_status_symbol(AgentExecutionStatus.PENDING) == "○"
-        assert _get_agent_status_symbol(AgentExecutionStatus.RUNNING) == "▶"
-        assert _get_agent_status_symbol(AgentExecutionStatus.COMPLETE) == "✓"
-        assert _get_agent_status_symbol(AgentExecutionStatus.FAILED) == "✗"
-
-    def test_ascii_agent_symbols(self):
-        """Test ASCII symbols for all agent execution statuses."""
-        assert _get_agent_status_symbol(AgentExecutionStatus.PENDING, use_ascii=True) == "o"
-        assert _get_agent_status_symbol(AgentExecutionStatus.RUNNING, use_ascii=True) == ">"
-        assert _get_agent_status_symbol(AgentExecutionStatus.COMPLETE, use_ascii=True) == "+"
-        assert _get_agent_status_symbol(AgentExecutionStatus.FAILED, use_ascii=True) == "x"
-
-
 class TestRenderPipelineDag:
     """Tests for render_pipeline_dag function."""
 
@@ -184,103 +165,30 @@ class TestRenderPipelineDag:
 
         assert "cycle 2" in result
 
-    def test_phase_with_agents(self):
-        """Test phase showing per-agent role and status."""
+    def test_phase_with_containers(self):
+        """Test phase showing container count."""
         phases = {
             "implement": PhaseExecution(
                 phase=PipelinePhase.IMPLEMENT,
                 status=PipelineStatus.RUNNING,
-                agents=[
-                    AgentExecution(
-                        role=AgentRole.CODER,
-                        status=AgentExecutionStatus.COMPLETE,
+                containers=[
+                    ContainerInfo(
+                        container_id="abc123",
+                        container_name="test-container",
+                        status=ContainerStatus.RUNNING,
                     ),
-                    AgentExecution(
-                        role=AgentRole.REVIEWER,
-                        status=AgentExecutionStatus.RUNNING,
+                    ContainerInfo(
+                        container_id="def456",
+                        container_name="test-container-2",
+                        status=ContainerStatus.EXITED,
                     ),
                 ],
             )
         }
-        pipeline = create_test_pipeline(
-            phases=phases, current_phase=PipelinePhase.IMPLEMENT
-        )
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.IMPLEMENT)
         result = render_pipeline_dag(pipeline)
 
-        assert "coder" in result
-        assert "reviewer" in result
-        # Completed coder should have checkmark, running reviewer should have play symbol
-        assert "✓ coder" in result
-        assert "▶ reviewer" in result
-        # Old container count should not appear
-        assert "container(s)" not in result
-
-    def test_phase_with_mixed_agent_statuses(self):
-        """Test phase with agents in different states renders each with correct symbol."""
-        phases = {
-            "implement": PhaseExecution(
-                phase=PipelinePhase.IMPLEMENT,
-                status=PipelineStatus.RUNNING,
-                agents=[
-                    AgentExecution(
-                        role=AgentRole.CODER,
-                        status=AgentExecutionStatus.COMPLETE,
-                    ),
-                    AgentExecution(
-                        role=AgentRole.REVIEWER,
-                        status=AgentExecutionStatus.RUNNING,
-                    ),
-                    AgentExecution(
-                        role=AgentRole.TESTER,
-                        status=AgentExecutionStatus.FAILED,
-                    ),
-                ],
-            )
-        }
-        pipeline = create_test_pipeline(
-            phases=phases, current_phase=PipelinePhase.IMPLEMENT
-        )
-        result = render_pipeline_dag(pipeline)
-
-        assert "✓ coder" in result
-        assert "▶ reviewer" in result
-        assert "✗ tester" in result
-
-    def test_phase_with_no_agents(self):
-        """Test that a pending phase with no agents shows no agent info line."""
-        pipeline = create_test_pipeline()
-        result = render_pipeline_dag(pipeline, include_header=False)
-
-        # Pending phases should not have agent info lines
-        assert "coder" not in result
-        assert "reviewer" not in result
-        assert "agent" not in result
-
-    def test_phase_agents_ascii_mode(self):
-        """Test agent symbols use ASCII equivalents when use_ascii=True."""
-        phases = {
-            "implement": PhaseExecution(
-                phase=PipelinePhase.IMPLEMENT,
-                status=PipelineStatus.RUNNING,
-                agents=[
-                    AgentExecution(
-                        role=AgentRole.CODER,
-                        status=AgentExecutionStatus.COMPLETE,
-                    ),
-                    AgentExecution(
-                        role=AgentRole.REVIEWER,
-                        status=AgentExecutionStatus.RUNNING,
-                    ),
-                ],
-            )
-        }
-        pipeline = create_test_pipeline(
-            phases=phases, current_phase=PipelinePhase.IMPLEMENT
-        )
-        result = render_pipeline_dag(pipeline, use_ascii=True)
-
-        assert "+ coder" in result
-        assert "> reviewer" in result
+        assert "2 container(s)" in result
 
 
 class TestRenderCompactStatus:
@@ -470,24 +378,8 @@ class TestGenerateStatusReport:
         assert "progress" in report["visualization"]
 
     def test_phases_contains_all_phases(self):
-        """Test that phases dict includes all pipeline phases with correct data types."""
-        phases = {
-            "implement": PhaseExecution(
-                phase=PipelinePhase.IMPLEMENT,
-                status=PipelineStatus.RUNNING,
-                agents=[
-                    AgentExecution(
-                        role=AgentRole.CODER,
-                        status=AgentExecutionStatus.COMPLETE,
-                    ),
-                    AgentExecution(
-                        role=AgentRole.REVIEWER,
-                        status=AgentExecutionStatus.RUNNING,
-                    ),
-                ],
-            )
-        }
-        pipeline = create_test_pipeline(phases=phases)
+        """Test that phases dict includes all pipeline phases."""
+        pipeline = create_test_pipeline()
         report = generate_status_report(pipeline)
 
         for phase in PHASE_ORDER:
@@ -497,19 +389,6 @@ class TestGenerateStatusReport:
             assert "review_cycles" in phase_data
             assert "containers" in phase_data
             assert "agents" in phase_data
-            # Agents should be a list
-            assert isinstance(phase_data["agents"], list)
-
-        # Verify agent details for the phase with agents
-        impl_agents = report["phases"]["implement"]["agents"]
-        assert len(impl_agents) == 2
-        assert impl_agents[0]["role"] == "coder"
-        assert impl_agents[0]["status"] == "complete"
-        assert impl_agents[1]["role"] == "reviewer"
-        assert impl_agents[1]["status"] == "running"
-
-        # Phases without agents should have empty list
-        assert report["phases"]["refine"]["agents"] == []
 
     def test_ascii_mode_propagates(self):
         """Test that ASCII mode affects visualizations."""

@@ -750,6 +750,7 @@ class TestOrchestratorMode:
         """Default orchestrator mode is None (not in orchestrator mode)."""
         monkeypatch.delenv("EGG_ORCHESTRATOR_MODE", raising=False)
         monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+        monkeypatch.delenv("EGG_ORCHESTRATOR_URL", raising=False)
 
         config = entrypoint.Config()
         assert config.is_orchestrator_mode is False
@@ -768,16 +769,14 @@ class TestOrchestratorMode:
 
 
 class TestRunInteractiveSubprocess:
-    """Tests for run_interactive using subprocess.Popen() with stderr capture."""
+    """Tests for run_interactive using subprocess.run()."""
 
-    @patch("subprocess.Popen")
-    def test_run_interactive_captures_stderr(self, mock_popen, monkeypatch, tmp_path):
-        """run_interactive captures stderr to log file while passing through."""
-        mock_process = MagicMock()
-        mock_process.returncode = 0
-        mock_process.stderr.readline.return_value = b""
-        mock_popen.return_value = mock_process
+    @patch("subprocess.run")
+    def test_run_interactive_explicit_streams(self, mock_run, monkeypatch):
+        """run_interactive passes explicit stdin/stdout/stderr."""
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
 
+        # Set up minimal config
         monkeypatch.setenv("RUNTIME_UID", "1000")
         monkeypatch.setenv("RUNTIME_GID", "1000")
 
@@ -790,17 +789,16 @@ class TestRunInteractiveSubprocess:
                 exit_code = entrypoint.run_interactive(config, logger)
 
         assert exit_code == 0
-        # Verify Popen was called with stderr=PIPE for capture
-        call_kwargs = mock_popen.call_args[1]
-        assert call_kwargs["stderr"] == subprocess.PIPE
+        # Verify explicit stream arguments were passed
+        call_kwargs = mock_run.call_args[1]
+        assert "stdin" in call_kwargs
+        assert "stdout" in call_kwargs
+        assert "stderr" in call_kwargs
 
-    @patch("subprocess.Popen")
-    def test_run_interactive_returns_exit_code(self, mock_popen, monkeypatch):
+    @patch("subprocess.run")
+    def test_run_interactive_returns_exit_code(self, mock_run, monkeypatch):
         """run_interactive returns subprocess exit code."""
-        mock_process = MagicMock()
-        mock_process.returncode = 42
-        mock_process.stderr.readline.return_value = b""
-        mock_popen.return_value = mock_process
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=42)
 
         monkeypatch.setenv("RUNTIME_UID", "1000")
         monkeypatch.setenv("RUNTIME_GID", "1000")
@@ -817,15 +815,12 @@ class TestRunInteractiveSubprocess:
 
 
 class TestRunExecSubprocess:
-    """Tests for run_exec using subprocess.Popen() with stderr capture."""
+    """Tests for run_exec using subprocess.run()."""
 
-    @patch("subprocess.Popen")
-    def test_run_exec_captures_stderr(self, mock_popen, monkeypatch):
-        """run_exec captures stderr to log file while passing through."""
-        mock_process = MagicMock()
-        mock_process.returncode = 0
-        mock_process.stderr.readline.return_value = b""
-        mock_popen.return_value = mock_process
+    @patch("subprocess.run")
+    def test_run_exec_explicit_streams(self, mock_run, monkeypatch):
+        """run_exec passes explicit stdin/stdout/stderr."""
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
 
         monkeypatch.setenv("RUNTIME_UID", "1000")
         monkeypatch.setenv("RUNTIME_GID", "1000")
@@ -836,16 +831,15 @@ class TestRunExecSubprocess:
         exit_code = entrypoint.run_exec(config, logger, ["echo", "test"])
 
         assert exit_code == 0
-        call_kwargs = mock_popen.call_args[1]
-        assert call_kwargs["stderr"] == subprocess.PIPE
+        call_kwargs = mock_run.call_args[1]
+        assert "stdin" in call_kwargs
+        assert "stdout" in call_kwargs
+        assert "stderr" in call_kwargs
 
-    @patch("subprocess.Popen")
-    def test_run_exec_returns_exit_code(self, mock_popen, monkeypatch):
+    @patch("subprocess.run")
+    def test_run_exec_returns_exit_code(self, mock_run, monkeypatch):
         """run_exec returns subprocess exit code."""
-        mock_process = MagicMock()
-        mock_process.returncode = 1
-        mock_process.stderr.readline.return_value = b""
-        mock_popen.return_value = mock_process
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1)
 
         monkeypatch.setenv("RUNTIME_UID", "1000")
         monkeypatch.setenv("RUNTIME_GID", "1000")

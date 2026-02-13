@@ -8,11 +8,12 @@ to prevent cascade failures.
 import sys
 import threading
 import time
-from datetime import datetime, timedelta
+from collections.abc import Callable
+from datetime import datetime
 from enum import StrEnum
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -203,7 +204,7 @@ class RetryConfig:
         Returns:
             Delay in seconds
         """
-        delay = self.base_delay * (self.exponential_base ** attempt)
+        delay = self.base_delay * (self.exponential_base**attempt)
         delay = min(delay, self.max_delay)
 
         # Add jitter
@@ -236,9 +237,7 @@ def with_retry(
         def wrapper(*args: Any, **kwargs: Any) -> T:
             # Check circuit breaker
             if circuit_breaker and not circuit_breaker.allow_request():
-                raise CircuitBreakerError(
-                    f"Circuit breaker {circuit_breaker.name} is open"
-                )
+                raise CircuitBreakerError(f"Circuit breaker {circuit_breaker.name} is open")
 
             last_error: Exception | None = None
 
@@ -356,9 +355,7 @@ async def retry_async(
 
     # Check circuit breaker
     if circuit_breaker and not circuit_breaker.allow_request():
-        raise CircuitBreakerError(
-            f"Circuit breaker {circuit_breaker.name} is open"
-        )
+        raise CircuitBreakerError(f"Circuit breaker {circuit_breaker.name} is open")
 
     last_error: Exception | None = None
 

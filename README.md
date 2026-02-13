@@ -24,7 +24,7 @@ egg takes a GitHub issue through a phased pipeline where the agent cannot skip s
 3. **Implement** — Agent creates a draft PR and implements tasks. CI runs, automated review provides line-level feedback. Re-implementation cycles continue until all checks pass.
 4. **Merge** — Draft PR is marked ready. Only a human can merge via GitHub UI.
 
-The pipeline state lives in a JSON contract (`.egg-state/contracts/{identifier}.json`) committed to the feature branch, giving full auditability of every phase transition. For issue-mode pipelines, `{identifier}` is the issue number; for local-mode pipelines, it's the pipeline ID.
+The pipeline state lives in a JSON contract (`.egg-state/contracts/{issue}.json`) committed to the feature branch, giving full auditability of every phase transition.
 
 ## The Gateway
 
@@ -241,19 +241,6 @@ For production/advanced deployments using Docker Compose:
 | `bin/egg-deploy status` | Show container status and health |
 | `bin/egg-deploy logs` | Follow gateway logs |
 | `bin/egg-deploy build` | Rebuild Docker images |
-
-### egg-status CLI
-
-For monitoring all active SDLC pipelines in real-time:
-
-| Command | Description |
-|---------|-------------|
-| `bin/egg-status` | Stream real-time status for all active pipelines |
-| `bin/egg-status --once` | Show current snapshot and exit |
-| `bin/egg-status --all` | Include completed/failed pipelines |
-| `bin/egg-status --verbose` | Show full DAG instead of compact status |
-| `bin/egg-status --ascii` | Use ASCII-only characters (no Unicode) |
-| `bin/egg-status --port <port>` | Specify orchestrator port (default: 9849) |
 
 ### Flags
 

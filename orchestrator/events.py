@@ -7,12 +7,13 @@ enabling webhooks, plugins, and monitoring integrations.
 
 import sys
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Callable
-from queue import Queue, Empty
+from queue import Empty, Queue
+from typing import Any
 
 # Add shared directory to path
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -31,7 +32,7 @@ except ImportError:
 logger = get_logger("orchestrator.events")
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     """Types of pipeline events."""
 
     # Pipeline lifecycle

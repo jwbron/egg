@@ -38,7 +38,7 @@ from docker_client import (
     InvalidContainerIdError,
     get_docker_client,
 )
-from models import AgentRole, ContainerStatus
+from models import AgentRole
 from sandbox_template import SandboxTemplate, create_sandbox_config
 
 logger = get_logger("orchestrator.containers")

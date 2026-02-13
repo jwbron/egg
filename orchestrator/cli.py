@@ -49,27 +49,6 @@ logger = get_logger("orchestrator.cli")
 
 def cmd_serve(args: argparse.Namespace) -> int:
     """Start the orchestrator API server."""
-    # Safety check: refuse to run as root to prevent permission issues.
-    # When the orchestrator runs as root, git refs are created with root:root
-    # ownership (e.g. refs/heads/egg/), which breaks git operations on the
-    # host with 'permission denied' errors.  The entrypoint should drop
-    # privileges via gosu before reaching here.
-    if os.getuid() == 0:
-        print(
-            "ERROR: orchestrator must not run as root.\n"
-            "\n"
-            "Running as root causes git refs to be created with root:root ownership,\n"
-            "which breaks git operations on the host with 'permission denied' errors.\n"
-            "\n"
-            "Ensure HOST_UID and HOST_GID are set so the entrypoint drops\n"
-            "privileges via gosu before starting the orchestrator.\n"
-            "\n"
-            "If .git/refs already has root-owned files, fix with:\n"
-            "  sudo chown -R $(id -u):$(id -g) ~/repos/*/.git/refs",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
     from api import app
 
     host = args.host

@@ -7,9 +7,10 @@ with dependency tracking and result collection.
 
 import sys
 import threading
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -27,7 +28,6 @@ except ImportError:
 
 from dispatch import PipelineDispatcher, create_dispatcher
 from docker_client import get_docker_client
-from events import EventType, emit_event
 from models import (
     AgentExecution,
     AgentExecutionStatus,
@@ -35,7 +35,6 @@ from models import (
     ContainerInfo,
     ContainerStatus,
     Pipeline,
-    PipelineStatus,
 )
 from sandbox_template import SandboxTemplate, create_sandbox_config
 from state_store import get_state_store
@@ -170,18 +169,6 @@ class MultiAgentExecutor:
                     wave=wave.wave_number,
                 )
 
-                emit_event(
-                    EventType.AGENT_STARTED,
-                    self.pipeline.id,
-                    data={
-                        "role": role.value,
-                        "container_id": info.container_id[:12],
-                        "wave": wave.wave_number,
-                        "phase": self.pipeline.current_phase.value,
-                        "status": "running",
-                    },
-                )
-
             except Exception as e:
                 logger.error(
                     "Failed to spawn agent",
@@ -237,20 +224,6 @@ class MultiAgentExecutor:
                 role=role.value,
                 success=success,
                 commit=commit,
-            )
-
-            event_type = EventType.AGENT_COMPLETED if success else EventType.AGENT_FAILED
-            emit_event(
-                event_type,
-                self.pipeline.id,
-                data={
-                    "role": role.value,
-                    "success": success,
-                    "commit": commit,
-                    "phase": self.pipeline.current_phase.value,
-                    "status": "complete" if success else "failed",
-                    "error": error,
-                },
             )
 
             return execution

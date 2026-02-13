@@ -111,14 +111,6 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
         help="Rebuild compose images before starting (use with --compose)",
     )
 
-    # SDLC pipeline with token-gated approvals
-    parser.add_argument(
-        "--sdlc",
-        type=int,
-        metavar="ISSUE",
-        help="Start SDLC pipeline with token-gated approvals for the given issue number",
-    )
-
     # Private mode arguments (mutually exclusive)
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
@@ -219,7 +211,7 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
         return 0
 
     # Normal run
-    if not run_claude(repo_mode=repo_mode, sdlc_issue=args.sdlc):
+    if not run_claude(repo_mode=repo_mode):
         return 1
 
     return 0
@@ -312,12 +304,6 @@ def gha_exec() -> int:
     issue_number = os.environ.get("EGG_ISSUE_NUMBER")
     if issue_number:
         extra_env["EGG_ISSUE_NUMBER"] = issue_number
-
-    # Pass commit SHA so the gh wrapper can pin the review marker to the
-    # commit that was actually checked out, avoiding races with new pushes
-    commit_sha = os.environ.get("EGG_COMMIT_SHA")
-    if commit_sha:
-        extra_env["EGG_COMMIT_SHA"] = commit_sha
 
     # Pass agent role for gateway authorization (e.g., reviewer role)
     agent_role = os.environ.get("EGG_AGENT_ROLE")

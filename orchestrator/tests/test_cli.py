@@ -8,7 +8,6 @@ from threading import Thread
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from cli import create_parser, main
 
 
@@ -99,27 +98,6 @@ class TestMainNoArgs:
         """Test pipelines with no subcommand shows help."""
         with pytest.raises(SystemExit):
             main(["pipelines"])
-
-
-class TestRootGuard:
-    """Tests for root user safety check."""
-
-    def test_serve_refuses_to_run_as_root(self, capsys):
-        """Orchestrator must refuse to start as root to prevent root-owned git refs."""
-        with patch("os.getuid", return_value=0):
-            with pytest.raises(SystemExit) as exc_info:
-                main(["serve"])
-            assert exc_info.value.code == 1
-            captured = capsys.readouterr()
-            assert "must not run as root" in captured.err
-
-    def test_serve_runs_as_non_root(self):
-        """Orchestrator starts normally when not root."""
-        with patch("os.getuid", return_value=1000):
-            with patch.dict("sys.modules", {"api": MagicMock()}):
-                with patch("waitress.serve"):
-                    result = main(["serve"])
-                    assert result == 0
 
 
 class MockHealthHandler(BaseHTTPRequestHandler):

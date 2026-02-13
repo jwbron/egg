@@ -108,13 +108,6 @@ if [[ -n "${EGG_BOT_NAME:-}" ]]; then
   export EGG_BOT_NAME
 fi
 
-# Pass through EGG_COMMIT_SHA if set (used by gh wrapper for review markers
-# to pin the marker to the commit that was actually reviewed, avoiding races
-# with commits pushed during the review)
-if [[ -n "${EGG_COMMIT_SHA:-}" ]]; then
-  export EGG_COMMIT_SHA
-fi
-
 # Add egg_lib and shared modules to Python path
 export PYTHONPATH="${SCRIPT_DIR}/../sandbox:${SCRIPT_DIR}/../shared${PYTHONPATH:+:$PYTHONPATH}"
 

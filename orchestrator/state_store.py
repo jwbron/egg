@@ -127,12 +127,8 @@ class StateStore:
 
     def _ensure_worktree(self) -> Path:
         """Create or validate the persistent state worktree."""
-        # Clean up stale admin dir for THIS worktree only (e.g., from crashes).
-        # IMPORTANT: Do NOT use `git worktree prune` — the orchestrator cannot
-        # see the gateway's worktree paths (different bind mounts), so prune
-        # would incorrectly remove admin dirs for active gateway worktrees,
-        # breaking all container git operations.
-        self._remove_stale_admin_dir()
+        # Clean up any stale worktree entries first (e.g., from crashes)
+        self._run_git("worktree", "prune", check=False)
 
         wt = self._worktree_dir
 
@@ -141,9 +137,9 @@ class StateStore:
             result = self._run_git("rev-parse", "--is-inside-work-tree", cwd=wt, check=False)
             if result.returncode == 0:
                 return wt
-            # Stale/broken — remove and recreate
+            # Stale/broken — prune and recreate
             shutil.rmtree(wt, ignore_errors=True)
-            self._remove_stale_admin_dir()
+            self._run_git("worktree", "prune", check=False)
 
         wt.parent.mkdir(parents=True, exist_ok=True)
 
@@ -169,44 +165,10 @@ class StateStore:
                 # Catch both GitOperationError (git command failures) and OSError
                 # (filesystem errors during file cleanup like permission denied).
                 shutil.rmtree(wt, ignore_errors=True)
-                self._remove_stale_admin_dir()
+                self._run_git("worktree", "prune", check=False)
                 raise
 
         return wt
-
-    def _remove_stale_admin_dir(self) -> None:
-        """Remove the git admin dir for the state worktree if it's stale.
-
-        When the state worktree directory is gone but its admin dir still
-        exists under ``{repo}/.git/worktrees/``, ``git worktree add`` will
-        refuse to recreate it.  This method finds and removes only the
-        admin dir that belongs to this state worktree — without touching
-        admin dirs for other worktrees (e.g., gateway-managed container
-        worktrees).
-        """
-        worktrees_dir = self.repo_path / ".git" / "worktrees"
-        if not worktrees_dir.exists():
-            return
-
-        wt = self._worktree_dir
-        expected_gitdir = str(wt / ".git")
-
-        for entry in worktrees_dir.iterdir():
-            if not entry.is_dir():
-                continue
-            gitdir_file = entry / "gitdir"
-            if not gitdir_file.exists():
-                continue
-            try:
-                gitdir_content = gitdir_file.read_text().strip()
-                if gitdir_content.rstrip("/") == expected_gitdir.rstrip("/"):
-                    # This admin dir belongs to our state worktree
-                    if not wt.exists():
-                        # Worktree dir is gone — admin dir is stale
-                        shutil.rmtree(entry, ignore_errors=True)
-                    return
-            except OSError:
-                continue
 
     def _state_branch_exists(self) -> bool:
         """Check if the state branch exists locally."""

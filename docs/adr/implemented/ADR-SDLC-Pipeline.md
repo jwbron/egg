@@ -70,7 +70,7 @@ This architecture does **not** protect against:
 │        ▼                  ▼                  ▼                  ▼       │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │                    Contract State                               │    │
-│  │  .egg-state/contracts/{identifier}.json                         │    │
+│  │  .egg-state/contracts/{issue}.json                              │    │
 │  │  - Current phase                                                │    │
 │  │  - Phases with tasks                                            │    │
 │  │  - Task status and commits                                      │    │
@@ -86,7 +86,7 @@ This architecture does **not** protect against:
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │  Contract API                                                   │    │
 │  │  POST /api/v1/contract/mutate                                   │    │
-│  │  GET /api/v1/contract/{issue_number}                              │    │
+│  │  GET /api/v1/contract/{issue}                                   │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                              │                                          │
 │                              ▼                                          │
@@ -198,7 +198,7 @@ In addition to formal HITL decisions, a simpler phase approval mechanism exists 
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/v1/contract/{issue_number}` | GET | Retrieve contract state |
+| `/api/v1/contract/{issue}` | GET | Retrieve contract state |
 | `/api/v1/contract/mutate` | POST | Apply mutation with role enforcement |
 | `/api/v1/contract/validate` | POST | Validate mutation without applying |
 | `/api/v1/phase/advance` | POST | Advance to next phase |

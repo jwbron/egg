@@ -8,9 +8,9 @@ escalation to human notification channels.
 import sys
 import threading
 import time
-from datetime import datetime, timedelta
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -143,10 +143,7 @@ class DecisionTimeoutMonitor:
         timeout = decision.timeout_seconds
 
         should_timeout = elapsed >= timeout
-        should_warn = (
-            not should_timeout
-            and elapsed >= timeout * self.warning_threshold_percent
-        )
+        should_warn = not should_timeout and elapsed >= timeout * self.warning_threshold_percent
 
         return should_warn, should_timeout
 
@@ -181,9 +178,10 @@ class DecisionTimeoutMonitor:
                     # Issue warning (only once per decision)
                     self._warned_decisions.add(decision_key)
 
-                    remaining = decision.timeout_seconds - (
-                        datetime.utcnow() - decision.created_at
-                    ).total_seconds()
+                    remaining = (
+                        decision.timeout_seconds
+                        - (datetime.utcnow() - decision.created_at).total_seconds()
+                    )
 
                     logger.warning(
                         "Decision approaching timeout",
@@ -254,6 +252,7 @@ def create_notification_handler(
     Returns:
         Escalation handler function
     """
+
     def handler(pipeline_id: str, decision: HITLDecision) -> None:
         message = (
             f"Decision timeout in pipeline {pipeline_id}:\n"
@@ -297,6 +296,7 @@ def create_slack_handler(
     Returns:
         Escalation handler function
     """
+
     def handler(pipeline_id: str, decision: HITLDecision) -> None:
         try:
             import requests

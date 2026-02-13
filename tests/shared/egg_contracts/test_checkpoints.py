@@ -1,37 +1,38 @@
 """Tests for checkpoint models and utilities."""
 
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-import tempfile
-import json
 
 import pytest
-
+from egg_contracts.checkpoint_loader import (
+    CheckpointLoadError,
+    add_checkpoint_to_index,
+    generate_checkpoint_id,
+    generate_checkpoint_id_from_commit,
+    get_checkpoint_path,
+    list_checkpoints,
+    load_checkpoint,
+    save_checkpoint,
+)
 from egg_contracts.checkpoints import (
+    AgentType,
     Checkpoint,
     CheckpointIndex,
+    CheckpointIndexV2,
     CheckpointSummary,
+    CheckpointSummaryV2,
+    CheckpointV2,
     FileOperation,
     FileOperationType,
     Message,
     MessageRole,
     SessionMetadata,
+    SessionStatus,
     TokenUsage,
     ToolCall,
     Transcript,
-)
-from egg_contracts.checkpoint_loader import (
-    CheckpointLoadError,
-    CheckpointSaveError,
-    generate_checkpoint_id,
-    generate_checkpoint_id_from_commit,
-    get_checkpoint_filename,
-    get_checkpoint_path,
-    load_checkpoint,
-    save_checkpoint,
-    add_checkpoint_to_index,
-    load_checkpoint_index,
-    list_checkpoints,
+    TriggerType,
 )
 
 
@@ -580,3 +581,452 @@ class TestCheckpointLoader:
             # With limit
             limited = list_checkpoints(tmppath, limit=2)
             assert len(limited) == 2
+
+
+# ==============================================================================
+# V2 Model Tests
+# ==============================================================================
+
+
+class TestTriggerType:
+    """Tests for TriggerType enum."""
+
+    def test_enum_values(self):
+        """Test TriggerType enum has expected values."""
+        assert TriggerType.COMMIT == "commit"
+        assert TriggerType.SESSION_END == "session_end"
+
+    def test_serialization(self):
+        """Test TriggerType values can be used as strings."""
+        assert TriggerType("commit") == TriggerType.COMMIT
+        assert TriggerType("session_end") == TriggerType.SESSION_END
+
+    def test_invalid_value(self):
+        """Test invalid TriggerType raises ValueError."""
+        with pytest.raises(ValueError):
+            TriggerType("invalid")
+
+
+class TestSessionStatus:
+    """Tests for SessionStatus enum."""
+
+    def test_enum_values(self):
+        """Test SessionStatus enum has expected values."""
+        assert SessionStatus.COMPLETED == "completed"
+        assert SessionStatus.EXPIRED == "expired"
+        assert SessionStatus.FAILED == "failed"
+
+    def test_serialization(self):
+        """Test SessionStatus values can be used as strings."""
+        assert SessionStatus("completed") == SessionStatus.COMPLETED
+        assert SessionStatus("expired") == SessionStatus.EXPIRED
+        assert SessionStatus("failed") == SessionStatus.FAILED
+
+    def test_invalid_value(self):
+        """Test invalid SessionStatus raises ValueError."""
+        with pytest.raises(ValueError):
+            SessionStatus("cancelled")
+
+
+class TestAgentType:
+    """Tests for AgentType enum."""
+
+    def test_enum_values(self):
+        """Test AgentType enum has expected values."""
+        assert AgentType.CODER == "coder"
+        assert AgentType.TESTER == "tester"
+        assert AgentType.DOCUMENTER == "documenter"
+        assert AgentType.INTEGRATOR == "integrator"
+        assert AgentType.REVIEWER == "reviewer"
+        assert AgentType.UNKNOWN == "unknown"
+
+    def test_serialization(self):
+        """Test AgentType values can be used as strings."""
+        for agent_type in AgentType:
+            assert AgentType(agent_type.value) == agent_type
+
+
+class TestCheckpointV2:
+    """Tests for CheckpointV2 model."""
+
+    def _make_session_metadata(self, now=None):
+        """Create a SessionMetadata for testing."""
+        if now is None:
+            now = datetime.now(UTC)
+        return SessionMetadata(session_id="test-session", started_at=now)
+
+    def test_minimal_commit_checkpoint(self):
+        """Test creating a minimal commit-triggered checkpoint."""
+        now = datetime.now(UTC)
+        session = self._make_session_metadata(now)
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha="abc1234567890",
+            session_id="container-123",
+            session=session,
+            created_at=now,
+            session_started_at=now,
+        )
+        assert checkpoint.trigger_type == TriggerType.COMMIT
+        assert checkpoint.commit_sha == "abc1234567890"
+        assert checkpoint.session_status is None
+        assert checkpoint.schemaVersion == "2.0"
+
+    def test_session_end_checkpoint_without_commit(self):
+        """Test creating a session-end checkpoint without commit_sha."""
+        now = datetime.now(UTC)
+        session = self._make_session_metadata(now)
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.COMPLETED,
+            session_id="container-456",
+            session=session,
+            created_at=now,
+            session_started_at=now,
+        )
+        assert checkpoint.trigger_type == TriggerType.SESSION_END
+        assert checkpoint.commit_sha is None
+        assert checkpoint.session_status == SessionStatus.COMPLETED
+
+    def test_full_checkpoint(self):
+        """Test creating a full v2 checkpoint with all fields."""
+        now = datetime.now(UTC)
+        session = SessionMetadata(
+            session_id="test-session",
+            started_at=now,
+            agent_role="coder",
+            container_id="container-789",
+        )
+        transcript = Transcript(
+            messages=[Message(role=MessageRole.USER, content="Hello", timestamp=now)],
+            message_count=1,
+        )
+        token_usage = TokenUsage(input_tokens=1000, output_tokens=500, total_tokens=1500)
+        tool_calls = [ToolCall(name="Bash", parameters={"command": "ls"}, timestamp=now)]
+        files_touched = [FileOperation(path="src/main.py", operation=FileOperationType.READ)]
+
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha="abc1234567890",
+            push_sha="def4567890abc",
+            branch="egg/feature-123",
+            session_id="container-789",
+            issue_number=530,
+            pr_number=42,
+            agent_type=AgentType.CODER,
+            pipeline_phase="implement",
+            session=session,
+            transcript=transcript,
+            files_touched=files_touched,
+            tool_calls=tool_calls,
+            token_usage=token_usage,
+            created_at=now,
+            session_started_at=now,
+            session_ended_at=now + timedelta(hours=1),
+        )
+
+        assert checkpoint.issue_number == 530
+        assert checkpoint.pr_number == 42
+        assert checkpoint.agent_type == AgentType.CODER
+        assert checkpoint.pipeline_phase == "implement"
+        assert checkpoint.session_ended_at is not None
+
+    def test_optional_commit_sha_for_session_end(self):
+        """Test that commit_sha is truly optional for session-end checkpoints."""
+        now = datetime.now(UTC)
+        session = self._make_session_metadata(now)
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.EXPIRED,
+            session_id="container-expired",
+            session=session,
+            created_at=now,
+            session_started_at=now,
+        )
+        assert checkpoint.commit_sha is None
+        assert checkpoint.push_sha is None
+
+    def test_session_id_required(self):
+        """Test that session_id is required."""
+        now = datetime.now(UTC)
+        session = self._make_session_metadata(now)
+        with pytest.raises(ValueError):
+            CheckpointV2(
+                id="ckpt-abc123def456",
+                trigger_type=TriggerType.COMMIT,
+                commit_sha="abc1234",
+                # session_id missing
+                session=session,
+                created_at=now,
+                session_started_at=now,
+            )
+
+    def test_trigger_type_required(self):
+        """Test that trigger_type is required."""
+        now = datetime.now(UTC)
+        session = self._make_session_metadata(now)
+        with pytest.raises(ValueError):
+            CheckpointV2(
+                id="ckpt-abc123def456",
+                # trigger_type missing
+                session_id="container-123",
+                session=session,
+                created_at=now,
+                session_started_at=now,
+            )
+
+    def test_pipeline_phase_validation(self):
+        """Test pipeline_phase validates against allowed values."""
+        now = datetime.now(UTC)
+        session = self._make_session_metadata(now)
+
+        # Valid phases
+        for phase in ("refine", "plan", "implement", "pr"):
+            cp = CheckpointV2(
+                id="ckpt-abc123def456",
+                trigger_type=TriggerType.COMMIT,
+                commit_sha="abc1234",
+                session_id="container-123",
+                session=session,
+                created_at=now,
+                session_started_at=now,
+                pipeline_phase=phase,
+            )
+            assert cp.pipeline_phase == phase
+
+        # Invalid phase
+        with pytest.raises(ValueError):
+            CheckpointV2(
+                id="ckpt-abc123def456",
+                trigger_type=TriggerType.COMMIT,
+                commit_sha="abc1234",
+                session_id="container-123",
+                session=session,
+                created_at=now,
+                session_started_at=now,
+                pipeline_phase="deploy",
+            )
+
+    def test_checkpoint_id_validation(self):
+        """Test checkpoint ID pattern validation."""
+        now = datetime.now(UTC)
+        session = self._make_session_metadata(now)
+
+        with pytest.raises(ValueError):
+            CheckpointV2(
+                id="invalid-id",
+                trigger_type=TriggerType.COMMIT,
+                commit_sha="abc1234",
+                session_id="container-123",
+                session=session,
+                created_at=now,
+                session_started_at=now,
+            )
+
+    def test_empty_commit_sha_becomes_none(self):
+        """Test that empty string commit_sha is converted to None."""
+        now = datetime.now(UTC)
+        session = self._make_session_metadata(now)
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.COMPLETED,
+            commit_sha="",
+            session_id="container-123",
+            session=session,
+            created_at=now,
+            session_started_at=now,
+        )
+        assert checkpoint.commit_sha is None
+
+
+class TestCheckpointSummaryV2:
+    """Tests for CheckpointSummaryV2 model."""
+
+    def test_from_checkpoint(self):
+        """Test creating summary from a full v2 checkpoint."""
+        now = datetime.now(UTC)
+        session = SessionMetadata(
+            session_id="test-session",
+            started_at=now,
+            agent_role="coder",
+        )
+        transcript = Transcript(message_count=5)
+        token_usage = TokenUsage(total_tokens=1500)
+
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha="abc1234567890",
+            session_id="container-123",
+            issue_number=42,
+            pr_number=10,
+            branch="egg/test",
+            agent_type=AgentType.CODER,
+            pipeline_phase="implement",
+            session=session,
+            transcript=transcript,
+            tool_calls=[
+                ToolCall(name="Bash", parameters={}, timestamp=now),
+                ToolCall(name="Read", parameters={}, timestamp=now),
+            ],
+            token_usage=token_usage,
+            created_at=now,
+            session_started_at=now,
+        )
+
+        summary = CheckpointSummaryV2.from_checkpoint(checkpoint)
+
+        assert summary.id == checkpoint.id
+        assert summary.trigger_type == TriggerType.COMMIT
+        assert summary.session_status is None
+        assert summary.session_id == "container-123"
+        assert summary.commit_sha == "abc1234567890"
+        assert summary.issue_number == 42
+        assert summary.pr_number == 10
+        assert summary.branch == "egg/test"
+        assert summary.agent_type == AgentType.CODER
+        assert summary.pipeline_phase == "implement"
+        assert summary.message_count == 5
+        assert summary.tool_call_count == 2
+        assert summary.total_tokens == 1500
+
+    def test_from_session_end_checkpoint(self):
+        """Test creating summary from session-end checkpoint."""
+        now = datetime.now(UTC)
+        session = SessionMetadata(session_id="test-session", started_at=now)
+
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.FAILED,
+            session_id="container-456",
+            session=session,
+            created_at=now,
+            session_started_at=now,
+        )
+
+        summary = CheckpointSummaryV2.from_checkpoint(checkpoint)
+
+        assert summary.trigger_type == TriggerType.SESSION_END
+        assert summary.session_status == SessionStatus.FAILED
+        assert summary.commit_sha is None
+        assert summary.message_count == 0
+        assert summary.tool_call_count == 0
+        assert summary.total_tokens == 0
+
+
+class TestCheckpointIndexV2:
+    """Tests for CheckpointIndexV2 model."""
+
+    def _make_summary(self, **kwargs):
+        """Create a CheckpointSummaryV2 for testing."""
+        defaults = {
+            "id": "ckpt-abc123def456",
+            "trigger_type": TriggerType.COMMIT,
+            "session_id": "session-1",
+            "created_at": datetime.now(UTC),
+        }
+        defaults.update(kwargs)
+        return CheckpointSummaryV2(**defaults)
+
+    def test_empty_index(self):
+        """Test empty v2 index."""
+        now = datetime.now(UTC)
+        index = CheckpointIndexV2(last_updated=now)
+        assert len(index.checkpoints) == 0
+        assert index.by_session == {}
+        assert index.by_issue == {}
+        assert index.by_commit == {}
+
+    def test_get_by_session(self):
+        """Test get_by_session lookup."""
+        now = datetime.now(UTC)
+        index = CheckpointIndexV2(
+            last_updated=now,
+            by_session={"session-1": ["ckpt-aa00000001", "ckpt-aa00000002"]},
+        )
+        assert index.get_by_session("session-1") == ["ckpt-aa00000001", "ckpt-aa00000002"]
+        assert index.get_by_session("nonexistent") == []
+
+    def test_get_by_issue(self):
+        """Test get_by_issue lookup."""
+        now = datetime.now(UTC)
+        index = CheckpointIndexV2(
+            last_updated=now,
+            by_issue={"42": ["ckpt-aa00000001"]},
+        )
+        assert index.get_by_issue(42) == ["ckpt-aa00000001"]
+        assert index.get_by_issue(999) == []
+
+    def test_get_by_pr(self):
+        """Test get_by_pr lookup."""
+        now = datetime.now(UTC)
+        index = CheckpointIndexV2(
+            last_updated=now,
+            by_pr={"10": ["ckpt-aa00000001", "ckpt-bb00000002"]},
+        )
+        assert index.get_by_pr(10) == ["ckpt-aa00000001", "ckpt-bb00000002"]
+        assert index.get_by_pr(999) == []
+
+    def test_get_by_commit(self):
+        """Test get_by_commit lookup (1:1 mapping)."""
+        now = datetime.now(UTC)
+        index = CheckpointIndexV2(
+            last_updated=now,
+            by_commit={"abc1234567890": "ckpt-aa00000001"},
+        )
+        assert index.get_by_commit("abc1234567890") == "ckpt-aa00000001"
+        assert index.get_by_commit("nonexistent") is None
+
+    def test_get_by_agent_type(self):
+        """Test get_by_agent_type lookup."""
+        now = datetime.now(UTC)
+        index = CheckpointIndexV2(
+            last_updated=now,
+            by_agent_type={"coder": ["ckpt-aa00000001"], "tester": ["ckpt-bb00000002"]},
+        )
+        assert index.get_by_agent_type(AgentType.CODER) == ["ckpt-aa00000001"]
+        assert index.get_by_agent_type(AgentType.TESTER) == ["ckpt-bb00000002"]
+        assert index.get_by_agent_type(AgentType.UNKNOWN) == []
+
+    def test_get_by_phase(self):
+        """Test get_by_phase lookup."""
+        now = datetime.now(UTC)
+        index = CheckpointIndexV2(
+            last_updated=now,
+            by_phase={"implement": ["ckpt-aa00000001"]},
+        )
+        assert index.get_by_phase("implement") == ["ckpt-aa00000001"]
+        assert index.get_by_phase("plan") == []
+
+    def test_get_by_trigger(self):
+        """Test get_by_trigger lookup."""
+        now = datetime.now(UTC)
+        index = CheckpointIndexV2(
+            last_updated=now,
+            by_trigger={
+                "commit": ["ckpt-aa00000001"],
+                "session_end": ["ckpt-bb00000002"],
+            },
+        )
+        assert index.get_by_trigger(TriggerType.COMMIT) == ["ckpt-aa00000001"]
+        assert index.get_by_trigger(TriggerType.SESSION_END) == ["ckpt-bb00000002"]
+
+    def test_get_by_status(self):
+        """Test get_by_status lookup."""
+        now = datetime.now(UTC)
+        index = CheckpointIndexV2(
+            last_updated=now,
+            by_status={
+                "completed": ["ckpt-aa00000001"],
+                "failed": ["ckpt-bb00000002"],
+            },
+        )
+        assert index.get_by_status(SessionStatus.COMPLETED) == ["ckpt-aa00000001"]
+        assert index.get_by_status(SessionStatus.FAILED) == ["ckpt-bb00000002"]
+        assert index.get_by_status(SessionStatus.EXPIRED) == []

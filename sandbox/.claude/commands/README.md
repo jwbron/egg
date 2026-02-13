@@ -16,19 +16,6 @@ Initialize and start an SDLC pipeline for an issue.
 
 **File**: `sdlc.md`
 
-### /onboarding-docs
-Generate comprehensive documentation for an entire repository.
-
-**Usage**: `/onboarding-docs [<owner/repo>]`
-
-**What it does**:
-- Asks for the target repository (if not provided)
-- Surveys the repo structure, languages, configs, and existing docs
-- Builds a documentation prompt and feeds it to the SDLC pipeline
-- Streams live progress as documentation is generated
-
-**File**: `onboarding-docs.md`
-
 ### /show-metrics
 Generate a monitoring report showing recent agent activity.
 
@@ -116,4 +103,4 @@ Claude Code will follow these instructions when users invoke the slash command s
 
 ---
 
-**Last Updated**: 2026-02-13
+**Last Updated**: 2026-02-11

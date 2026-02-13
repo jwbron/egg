@@ -128,9 +128,7 @@ Without it, the system falls back to posting reviews as comments (self-review mo
    - PR is from the same repository (not a fork — bot can't push to forks)
    - PR author is the bot (unless manually triggered)
    - PR doesn't have `[skip-review]` marker
-   - Review requires action (filtered at job level to prevent runner allocation):
-     - Non-approval reviews (request-changes, comment) always trigger
-     - Approvals trigger only if they include `<!-- has-suggestions -->` marker
+   - Review is not an approval (filtered at job level to prevent runner allocation)
    - Iteration count is below the limit (default: 3 rounds)
 
 2. **Wait for all reviewers** — Polls GitHub check runs for all `egg-reviewer-*` jobs
@@ -175,8 +173,6 @@ The agent addresses all actionable review feedback:
 | **Fix** | Correctness issues, security concerns, logic errors, missing error handling, resource leaks, breaking changes, pattern violations |
 | **Respond (do not fix)** | Disagreement with feedback — agent posts a reply explaining reasoning instead of making the change |
 | **Skip** | Pure style suggestions that linters handle, subjective preferences without technical justification |
-
-**Note:** Reviewers can include non-blocking suggestions in approval reviews by adding `<!-- has-suggestions -->` anywhere in the review body. This marker signals that the approval includes suggestions the agent should address, triggering the feedback workflow even though the review state is "approved".
 
 ### Security
 
@@ -388,20 +384,13 @@ needs updating, and creates a PR if so.
 3. **Impact assessment** — Checks if documentation needs updating based on the nature
    of changes. Focuses on new features, new files, and breaking changes.
 4. **Structural doc check** — Reads `docs/development/STRUCTURE.md`,
-   `docs/architecture/README.md`, `docs/index.md`, and `README.md` to check if they
-   cover new components or features. For README.md, validates CLI Reference tables
-   against `sandbox/egg_lib/cli.py`, enforcement tables against `gateway/phase_filter.py`,
-   and deployment instructions.
-5. **High-risk cross-reference** — Automatically detects changes to specific components
-   and provides targeted instructions for cross-referencing docs against source code.
-   For example, changes to `cli.py` trigger README CLI Reference validation, changes
-   to gateway enforcement trigger enforcement table validation.
-6. **Related doc discovery** — Extracts domain-specific terms from changed file paths
-   and commit subjects, then searches both `docs/` and root-level markdown files for
-   references to those terms. This catches guides and ADRs that discuss the same
-   feature area as the code change (e.g., `docs/guides/sdlc-pipeline.md` when SDLC
-   code changes).
-7. **PR creation** — If updates are needed, creates a PR with the documentation changes.
+   `docs/architecture/README.md`, and `docs/index.md` to check if they cover new
+   components or features.
+5. **Related doc discovery** — Extracts domain-specific terms from changed file paths
+   and commit subjects, then searches all docs for files that reference those terms.
+   This catches guides and ADRs that discuss the same feature area as the code change
+   (e.g., `docs/guides/sdlc-pipeline.md` when SDLC code changes).
+6. **PR creation** — If updates are needed, creates a PR with the documentation changes.
    PRs are tagged with `[doc-updater]` to prevent re-triggering.
 
 ### When Docs Get Updated
@@ -425,77 +414,6 @@ and architecture docs.
 
 - `commit_sha` — Analyze changes from this specific commit (defaults to HEAD~1)
 - `dry_run` — Analyze only, don't create PR
-
-## Documentation Onboarding
-
-**Script:** [`action/build-onboarding-doc-prompt.sh`](../../action/build-onboarding-doc-prompt.sh)
-**Slash command:** `/onboarding-docs` ([`sandbox/.claude/commands/onboarding-docs.md`](../../sandbox/.claude/commands/onboarding-docs.md))
-
-Complementary to the incremental doc-updater, the onboarding capability generates comprehensive documentation for an entire repository from scratch. This is useful for bootstrapping documentation on existing codebases or creating complete documentation sets for new projects.
-
-### How It Works
-
-Unlike the doc-updater (which reacts to individual commits), onboarding is a one-time or periodic "bootstrap" that documents an entire codebase:
-
-1. **Repository discovery** — Scans the repository to understand structure:
-   - Directory tree (depth 3)
-   - Language distribution by file extension
-   - Configuration and build files
-   - Entry points (main files, CLIs)
-   - Existing documentation and READMEs
-
-2. **Prompt generation** — Builds a comprehensive prompt instructing Claude to:
-   - Survey the codebase systematically
-   - Plan the documentation structure
-   - Write structured docs (index.md, STRUCTURE.md, architecture/README.md, component READMEs, guides)
-   - Incorporate existing documentation rather than replacing it
-   - Cross-reference and validate all links
-
-3. **SDLC execution** — The generated prompt is fed into the SDLC pipeline via the orchestrator, running the documentation task through the standard refine-plan-implement cycle.
-
-### Usage via Slash Command
-
-Inside the sandbox:
-
-```
-/onboarding-docs [owner/repo]
-```
-
-The command will:
-- Ask for the repository if not provided
-- Clone the repository if needed
-- Run the prompt builder
-- Create and start an SDLC pipeline
-- Stream live progress via `egg-pipeline-watch`
-
-### Scope Limiting
-
-Use environment variables to limit scope for large repositories:
-
-- `DRY_RUN=true` — Analyze only, describe what docs would be created
-- `INCLUDE_PATTERN="gateway/**"` — Only document files matching this glob
-- `EXCLUDE_DIRS="legacy,tmp"` — Additional directories to skip
-
-### Output Structure
-
-The onboarding process creates the same documentation structure that the incremental doc-updater maintains:
-
-```
-docs/
-├── index.md                      # Master navigation index
-├── architecture/
-│   └── README.md                 # System design, components, data flow
-├── development/
-│   └── STRUCTURE.md              # Directory layout and conventions
-├── guides/
-│   ├── quickstart.md             # Getting started
-│   ├── deployment.md             # Deployment options
-│   └── <topic>.md                # Additional guides
-└── adr/
-    └── README.md                 # ADR index
-
-<component>/README.md             # Per-component READMEs
-```
 
 ## Custom Linters
 

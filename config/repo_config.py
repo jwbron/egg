@@ -299,49 +299,6 @@ def should_disable_auto_fix(repo: str) -> bool:
     return get_repo_setting(repo, "disable_auto_fix", False)
 
 
-try:
-    from egg_config.validators import validate_checks
-except ImportError:
-
-    def validate_checks(checks: list) -> list[dict[str, str]]:  # type: ignore[misc]
-        """Validate and normalize a list of check command entries.
-
-        Filters out malformed entries and coerces values to strings.
-
-        Args:
-            checks: Raw list of check entries (e.g. from YAML or JSON).
-
-        Returns:
-            List of {"name": "...", "command": "..."} dicts with only
-            valid entries retained.
-        """
-        if not isinstance(checks, list):
-            return []
-        return [
-            {"name": str(c["name"]), "command": str(c["command"])}
-            for c in checks
-            if isinstance(c, dict) and "name" in c and "command" in c
-        ]
-
-
-def get_repo_checks(repo: str) -> list[dict[str, str]]:
-    """Get configured check commands for a repository.
-
-    These are the commands to run during the SDLC pipeline implement phase
-    checker step. Each check has a "name" (display label) and "command"
-    (shell command to execute). They run sequentially.
-
-    Args:
-        repo: Repository in "owner/repo" format
-
-    Returns:
-        List of {"name": "...", "command": "..."} dicts,
-        or empty list if no checks configured.
-    """
-    checks = get_repo_setting(repo, "checks", [])
-    return validate_checks(checks)
-
-
 def get_auth_mode(repo: str) -> str:
     """
     Get the authentication mode for a repository.

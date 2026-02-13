@@ -1,14 +1,12 @@
 """Tests for the sensitive data redactor."""
 
-import pytest
-
 from egg_contracts.redactor import (
+    REDACTED_PLACEHOLDER,
     Redactor,
     RedactorConfig,
-    redact_text,
-    redact_dict,
     redact_command,
-    REDACTED_PLACEHOLDER,
+    redact_dict,
+    redact_text,
 )
 
 

@@ -385,11 +385,6 @@ class WorktreeManager:
         For /path/to/worktrees/{id}/{repo}, git creates .git/worktrees/{repo}.
         If multiple worktrees have the same basename, git appends a number.
 
-        IMPORTANT: Always verifies the admin dir's gitdir file points to the
-        correct worktree path.  Multiple worktrees can share the same basename
-        (e.g., interactive container and pipeline both have ``egg``), so we
-        must check the gitdir content — not just the directory name.
-
         Args:
             main_repo: Path to main repository
             worktree_path: Path to worktree working directory
@@ -397,33 +392,25 @@ class WorktreeManager:
         Returns:
             Path to worktree admin directory
         """
-        worktrees_dir = main_repo / ".git" / "worktrees"
         basename = worktree_path.name
-        default_git_dir = worktrees_dir / basename
+        git_dir = main_repo / ".git" / "worktrees" / basename
 
-        # Scan all admin dirs and verify via gitdir file content.
-        # Multiple worktrees can share the same basename (e.g., "egg",
-        # "egg1", "egg2"), so we must match by the full worktree path
-        # recorded in the gitdir file — not just by directory name.
+        if git_dir.exists():
+            return git_dir
+
+        # Check for numbered variants
+        worktrees_dir = main_repo / ".git" / "worktrees"
         if worktrees_dir.exists():
             for entry in worktrees_dir.iterdir():
-                if not entry.name.startswith(basename):
-                    continue
-                gitdir_file = entry / "gitdir"
-                if gitdir_file.exists():
-                    try:
+                if entry.name.startswith(basename):
+                    # Verify this is the right worktree by checking gitdir file
+                    gitdir_file = entry / "gitdir"
+                    if gitdir_file.exists():
                         gitdir_content = gitdir_file.read_text().strip()
-                        # The gitdir file contains the path to the worktree's
-                        # .git *file* (e.g., /path/to/worktree/.git), so we
-                        # must compare against worktree_path/.git — not the
-                        # bare worktree directory.
-                        expected = str(worktree_path / ".git")
-                        if gitdir_content.rstrip("/") == expected.rstrip("/"):
+                        if str(worktree_path) in gitdir_content:
                             return entry
-                    except OSError:
-                        continue
 
-        return default_git_dir  # Return expected path even if not found
+        return git_dir  # Return expected path even if not found
 
     def remove_worktree(
         self,
@@ -490,10 +477,6 @@ class WorktreeManager:
 
         # Remove the worktree
         if main_repo.exists():
-            # Find the admin dir BEFORE removal so we can clean it up
-            # manually if `git worktree remove` fails.
-            admin_dir = self._find_worktree_git_dir(main_repo, worktree_path)
-
             remove_result = subprocess.run(
                 git_cmd("worktree", "remove", str(worktree_path), "--force"),
                 cwd=main_repo,
@@ -503,30 +486,22 @@ class WorktreeManager:
             )
 
             if remove_result.returncode != 0:
-                # `git worktree remove` failed — clean up manually.
-                # Remove the worktree directory first, then surgically
-                # remove only this worktree's admin dir.  Avoids calling
-                # `git worktree prune` which can accidentally remove
-                # admin dirs for OTHER containers' worktrees if their
-                # paths are temporarily inaccessible (e.g., Docker mount
-                # race conditions during container lifecycle changes).
+                # Try forceful directory removal
                 logger.warning(
-                    "Git worktree remove failed, cleaning up manually",
+                    "Git worktree remove failed, using shutil",
                     container_id=container_id,
                     repo=repo_name,
                     stderr=remove_result.stderr,
                 )
                 shutil.rmtree(worktree_path, ignore_errors=True)
 
-                # Remove the specific admin dir for this worktree
-                if admin_dir.exists():
-                    shutil.rmtree(admin_dir, ignore_errors=True)
-                    logger.info(
-                        "Removed worktree admin dir",
-                        admin_dir=str(admin_dir),
-                        container_id=container_id,
-                        repo=repo_name,
-                    )
+            # Prune worktree references
+            subprocess.run(
+                git_cmd("worktree", "prune"),
+                cwd=main_repo,
+                capture_output=True,
+                check=False,
+            )
 
             # Delete the branch if requested
             if delete_branch:
@@ -655,15 +630,23 @@ class WorktreeManager:
 
         return worktrees
 
-    def cleanup_orphaned_worktrees(self, active_containers: set[str]) -> int:
+    def cleanup_orphaned_worktrees(
+        self,
+        active_containers: set[str],
+        session_manager: Any | None = None,
+    ) -> int:
         """
         Remove worktrees for containers that no longer exist.
 
         Called on gateway startup and periodically to clean up orphaned worktrees
         from crashed containers.
 
+        For orphaned containers with active sessions, captures a session-end
+        checkpoint with FAILED status before cleaning up transcript buffers.
+
         Args:
             active_containers: Set of currently active container IDs
+            session_manager: Optional SessionManager for session-end checkpoints
 
         Returns:
             Number of worktrees removed
@@ -687,6 +670,21 @@ class WorktreeManager:
                 "Cleaning up orphaned worktrees",
                 container_id=container_id,
             )
+
+            # Capture session-end checkpoint for crashed container
+            if session_manager is not None:
+                try:
+                    session = session_manager.get_session_by_container(container_id)
+                    if session:
+                        from session_manager import _capture_and_cleanup_session
+
+                        _capture_and_cleanup_session(session, "failed")
+                except Exception as e:
+                    logger.warning(
+                        "Failed to capture checkpoint for orphaned container",
+                        container_id=container_id,
+                        error=str(e),
+                    )
 
             # Remove each worktree
             for worktree in list(container_dir.iterdir()):
@@ -762,7 +760,10 @@ def get_active_docker_containers() -> set[str]:
     return set()
 
 
-def startup_cleanup(active_containers: set[str] | None = None) -> int:
+def startup_cleanup(
+    active_containers: set[str] | None = None,
+    session_manager: Any | None = None,
+) -> int:
     """
     Clean up orphaned worktrees on gateway startup.
 
@@ -774,6 +775,7 @@ def startup_cleanup(active_containers: set[str] | None = None) -> int:
             preserved. Pass an empty set when no containers are active. When
             None, falls back to querying Docker (which may not be available
             inside the gateway container).
+        session_manager: Optional SessionManager for session-end checkpoints
 
     Returns:
         Number of orphaned worktrees removed
@@ -787,7 +789,7 @@ def startup_cleanup(active_containers: set[str] | None = None) -> int:
         active_containers=len(active_containers),
     )
 
-    removed = manager.cleanup_orphaned_worktrees(active_containers)
+    removed = manager.cleanup_orphaned_worktrees(active_containers, session_manager)
 
     if removed > 0:
         logger.info(f"Cleaned up {removed} orphaned worktree(s)")

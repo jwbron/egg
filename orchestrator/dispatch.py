@@ -27,25 +27,22 @@ except ImportError:
 from egg_contracts import load_contract, save_contract
 from egg_contracts.agent_roles import AgentRole as ContractAgentRole
 from egg_contracts.orchestrator import (
-    AgentResult,
     DispatchDecision,
-    Orchestrator as ContractOrchestrator,
     collect_handoff_data,
     create_orchestrator,
     format_dispatch_for_workflow,
-    get_dispatch_for_contract,
     save_agent_output,
 )
-
+from egg_contracts.orchestrator import (
+    Orchestrator as ContractOrchestrator,
+)
 from models import (
     AgentExecution,
     AgentExecutionStatus,
     AgentRole,
     Pipeline,
-    PipelinePhase,
-    PipelineStatus,
 )
-from state_store import StateStore, get_state_store
+from state_store import get_state_store
 
 logger = get_logger("orchestrator.dispatch")
 
@@ -68,15 +65,14 @@ def map_contract_role_to_agent_role(contract_role: ContractAgentRole) -> AgentRo
     return mapping[contract_role]
 
 
-def map_agent_role_to_contract_role(agent_role: AgentRole) -> ContractAgentRole | None:
+def map_agent_role_to_contract_role(agent_role: AgentRole) -> ContractAgentRole:
     """Map orchestrator AgentRole to egg_contracts AgentRole.
 
     Args:
         agent_role: Role from orchestrator
 
     Returns:
-        Corresponding egg_contracts AgentRole, or None if no mapping exists
-        (e.g. REVIEWER, CHECKER roles don't interact with contracts)
+        Corresponding egg_contracts AgentRole
     """
     mapping = {
         AgentRole.CODER: ContractAgentRole.CODER,
@@ -84,7 +80,7 @@ def map_agent_role_to_contract_role(agent_role: AgentRole) -> ContractAgentRole 
         AgentRole.DOCUMENTER: ContractAgentRole.DOCUMENTER,
         AgentRole.INTEGRATOR: ContractAgentRole.INTEGRATOR,
     }
-    return mapping.get(agent_role)
+    return mapping[agent_role]
 
 
 class PipelineDispatcher:
@@ -106,21 +102,10 @@ class PipelineDispatcher:
         self._contract_orchestrator: ContractOrchestrator | None = None
 
     @property
-    def contract_key(self) -> int | str:
-        """Return the contract identifier for this pipeline.
-
-        Issue-mode pipelines use issue_number; local-mode pipelines use
-        the pipeline ID (e.g. ``local-47601d1d``).
-        """
-        if self.pipeline.issue_number is not None:
-            return self.pipeline.issue_number
-        return self.pipeline.id
-
-    @property
     def contract_orchestrator(self) -> ContractOrchestrator:
         """Get or create the contract orchestrator."""
         if self._contract_orchestrator is None:
-            contract = load_contract(self.contract_key, self.repo_path)
+            contract = load_contract(self.pipeline.issue_number, self.repo_path)
             self._contract_orchestrator = create_orchestrator(contract)
         return self._contract_orchestrator
 
@@ -139,10 +124,7 @@ class PipelineDispatcher:
             List of AgentRole values
         """
         decision = self.get_next_dispatch()
-        return [
-            map_contract_role_to_agent_role(role)
-            for role in decision.agents_to_run
-        ]
+        return [map_contract_role_to_agent_role(role) for role in decision.agents_to_run]
 
     def is_complete(self) -> bool:
         """Check if all agents have completed.
@@ -172,8 +154,7 @@ class PipelineDispatcher:
             AgentExecution with updated state
         """
         contract_role = map_agent_role_to_contract_role(role)
-        if contract_role is not None:
-            self.contract_orchestrator.start_agent(contract_role)
+        self.contract_orchestrator.start_agent(contract_role)
 
         return AgentExecution(
             role=role,
@@ -198,19 +179,15 @@ class PipelineDispatcher:
             AgentExecution with updated state
         """
         contract_role = map_agent_role_to_contract_role(role)
-        if contract_role is not None:
-            self.contract_orchestrator.complete_agent(
-                contract_role,
-                commit=commit,
-                outputs=outputs,
-            )
+        self.contract_orchestrator.complete_agent(
+            contract_role,
+            commit=commit,
+            outputs=outputs,
+        )
 
-            # Save outputs if provided — only for contract-mapped roles (CODER,
-            # TESTER, DOCUMENTER, INTEGRATOR). REVIEWER and CHECKER roles don't
-            # have contract counterparts; their verdicts are stored in the
-            # AgentExecution record returned below, not as contract outputs.
-            if outputs:
-                save_agent_output(self.repo_path, contract_role, outputs)
+        # Save outputs if provided
+        if outputs:
+            save_agent_output(self.repo_path, contract_role, outputs)
 
         return AgentExecution(
             role=role,
@@ -231,8 +208,7 @@ class PipelineDispatcher:
             AgentExecution with updated state
         """
         contract_role = map_agent_role_to_contract_role(role)
-        if contract_role is not None:
-            self.contract_orchestrator.fail_agent(contract_role, error)
+        self.contract_orchestrator.fail_agent(contract_role, error)
 
         return AgentExecution(
             role=role,
@@ -253,8 +229,6 @@ class PipelineDispatcher:
             Combined handoff data
         """
         contract_role = map_agent_role_to_contract_role(role)
-        if contract_role is None:
-            return {}
         return collect_handoff_data(self.repo_path, contract_role)
 
     def save_contract(self) -> None:

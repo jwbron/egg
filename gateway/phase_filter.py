@@ -628,7 +628,9 @@ class PhaseFilter:
 
         restrictions = self._phase_file_restrictions.get(phase)
         if not restrictions:
-            return FileRestrictionResult.allow(f"No phase file restrictions for phase: {phase.value}")
+            return FileRestrictionResult.allow(
+                f"No phase file restrictions for phase: {phase.value}"
+            )
 
         blocked_files: list[str] = []
         blocked_reasons: list[str] = []

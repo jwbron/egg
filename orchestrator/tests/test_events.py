@@ -4,10 +4,8 @@ Tests for the event system.
 
 import time
 from datetime import datetime
-from unittest.mock import MagicMock
 
 import pytest
-
 from events import (
     Event,
     EventBus,
@@ -235,6 +233,7 @@ class TestEmitEventFunction:
         """Test emit_event function."""
         # Reset singleton
         import events
+
         events._event_bus = None
 
         received_events = []

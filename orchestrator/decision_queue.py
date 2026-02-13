@@ -8,10 +8,10 @@ timeout handling, and resolution.
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
-from uuid import uuid4
+from typing import Any
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -183,12 +183,8 @@ class DecisionQueue:
         Returns:
             List of pending decisions
         """
-        with self._lock:
-            pipeline = self._load_pipeline()
-            return [
-                d for d in pipeline.decisions
-                if d.status == DecisionStatus.PENDING
-            ]
+        pipeline = self._load_pipeline()
+        return [d for d in pipeline.decisions if d.status == DecisionStatus.PENDING]
 
     def get_decision(self, decision_id: str) -> HITLDecision:
         """Get a specific decision.
@@ -202,11 +198,10 @@ class DecisionQueue:
         Raises:
             DecisionNotFoundError: If decision not found
         """
-        with self._lock:
-            pipeline = self._load_pipeline()
-            for decision in pipeline.decisions:
-                if decision.id == decision_id:
-                    return decision
+        pipeline = self._load_pipeline()
+        for decision in pipeline.decisions:
+            if decision.id == decision_id:
+                return decision
         raise DecisionNotFoundError(f"Decision {decision_id} not found")
 
     def resolve_decision(
@@ -306,9 +301,7 @@ class DecisionQueue:
                 if decision.status != DecisionStatus.PENDING:
                     continue
 
-                timeout_at = decision.created_at + timedelta(
-                    seconds=decision.timeout_seconds
-                )
+                timeout_at = decision.created_at + timedelta(seconds=decision.timeout_seconds)
                 if now > timeout_at:
                     decision.status = DecisionStatus.TIMEOUT
                     decision.resolved_at = now
@@ -359,9 +352,7 @@ class DecisionQueue:
             if decision.status == DecisionStatus.RESOLVED:
                 return decision
             elif decision.status in (DecisionStatus.TIMEOUT, DecisionStatus.CANCELLED):
-                raise DecisionTimeoutError(
-                    f"Decision {decision_id} was {decision.status.value}"
-                )
+                raise DecisionTimeoutError(f"Decision {decision_id} was {decision.status.value}")
 
             time.sleep(poll_interval)
 

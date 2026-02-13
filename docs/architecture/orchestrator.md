@@ -38,31 +38,6 @@ This differs from agent worktrees (managed by the gateway for agent isolation). 
 
 See `orchestrator/state_store.py` for implementation details.
 
-## Per-Pipeline Worktrees
-
-The orchestrator reads pipeline artifacts (verdict files, draft documents, check results) from per-pipeline worktrees created by the gateway. These worktrees isolate work for each pipeline and are separate from both the orchestrator's state worktree and the main repository working directory.
-
-**Architecture:**
-- Gateway creates worktrees at `/home/egg/.egg-worktrees/{pipeline-id}/{repo-name}/`
-- Agent containers mount these worktrees and write artifacts to them
-- Orchestrator mounts `/home/egg/.egg-worktrees` and reads artifacts from pipeline-specific paths
-- Worktree paths are resolved dynamically based on pipeline ID and repository
-
-**Key artifact files in worktrees:**
-- `.egg-state/contracts/{identifier}.json` — Contract state (issue number for issue-mode, pipeline ID for local-mode)
-- `.egg-state/drafts/{identifier}-analysis.md` — Draft for `refine` phase (special-cased to `analysis`)
-- `.egg-state/drafts/{identifier}-{phase}.md` — Draft for other phases (e.g., `plan`). No draft for `implement` phase.
-- `.egg-state/reviews/{identifier}-{phase}-{reviewer_type}-review.json` — Review verdict files
-- `.egg-state/checks/implement-results.json` — Check results from the `implement` phase
-
-**Volume mounts:**
-- Orchestrator: Bind mount from `${HOST_HOME}/.egg-worktrees` to `/home/egg/.egg-worktrees` (read container-written artifacts)
-- Integration tests: Named volume `worktrees` (no host filesystem in CI)
-
-This architecture ensures the orchestrator reads artifacts from the correct isolated workspace rather than the main repository, preventing cross-contamination between pipelines.
-
-See `orchestrator/routes/pipelines.py:WORKTREE_BASE_DIR` and `gateway/worktree_manager.py` for implementation details.
-
 ## Deployment Modes
 
 egg supports three deployment modes, each suited to different use cases:
@@ -204,9 +179,6 @@ Fixed IPs:
 **Orchestrator (`/api/v1/`)**
 - `GET /health` - Health check
 - `GET/POST /pipelines` - Pipeline CRUD
-- `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII)
-- `GET /pipelines/{id}/stream` - Real-time SSE stream for single pipeline events and visualization
-- `GET /pipelines/stream` - Unified SSE stream for all active pipelines (supports `?ascii=true`, `?active_only=false`, `?full_dag=true`)
 - `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error)
 - `GET /pipelines/{id}/decisions` - HITL decision queue
 

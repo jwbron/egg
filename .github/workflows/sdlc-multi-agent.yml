@@ -133,7 +133,7 @@ jobs:
         id: dispatch
         run: |
           set -euo pipefail
-          export CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
+          CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
           if [[ ! -f "$CONTRACT_PATH" ]]; then
             echo "::error::Contract not found at ${CONTRACT_PATH}"
