@@ -55,6 +55,10 @@ except ImportError:
 
 logger = get_logger("orchestrator.pipelines")
 
+# Base directory where the gateway creates per-pipeline worktrees.
+# Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
+WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
+
 # Network constants for sandbox container URLs
 try:
     from egg_config import (
@@ -1692,11 +1696,20 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     # Derive the orchestrator-accessible worktree path.
                     # Reviewer containers write verdict/draft/check files into
                     # the worktree, so the orchestrator must read from there.
-                    for name in wt_result.worktrees:
-                        candidate = Path(f"/home/egg/.egg-worktrees/{worktree_id}/{name}")
+                    # Match against pipeline.repo explicitly to avoid picking
+                    # the wrong repo in multi-repo pipelines.
+                    repo_short = pipeline.repo.split("/")[-1] if pipeline.repo else None
+                    if repo_short and repo_short in wt_result.worktrees:
+                        candidate = WORKTREE_BASE_DIR / worktree_id / repo_short
                         if candidate.exists():
                             worktree_repo_path = candidate
-                            break
+                    else:
+                        # Fallback: take the first existing worktree path
+                        for name in wt_result.worktrees:
+                            candidate = WORKTREE_BASE_DIR / worktree_id / name
+                            if candidate.exists():
+                                worktree_repo_path = candidate
+                                break
 
                     logger.info(
                         "Worktrees created for pipeline",
@@ -1768,11 +1781,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     mode=pipeline_mode,
                 )
             except Exception as contract_err:
-                logger.warning(
-                    "Failed to create contract in worktree, continuing without contract",
+                logger.error(
+                    "Failed to create contract in worktree",
                     pipeline_id=pipeline_id,
                     error=str(contract_err),
                 )
+                pipeline.status = PipelineStatus.FAILED
+                pipeline.error = f"Failed to create contract: {contract_err}"
+                store.save_pipeline(pipeline)
+                return
 
         while True:
             pipeline = store.load_pipeline(pipeline_id)
@@ -2207,7 +2224,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 message=f"Phase {current_phase.value} completed",
             )
 
-            # After plan phase: populate contract with task structure
+            # After plan phase: populate contract with task structure.
+            # NOTE: worktree_repo_path is used for both draft reads and
+            # contract load/save inside _populate_contract_from_plan.
+            # The contract was created at worktree_repo_path above, so
+            # both operations must use the same path.
             if current_phase.value == "plan":
                 _populate_contract_from_plan(
                     worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
