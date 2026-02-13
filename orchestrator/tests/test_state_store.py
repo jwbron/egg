@@ -591,3 +591,88 @@ class TestUnbornBranchEdgeCases:
 
         sha = state_store._commit_state(pipeline)
         assert sha == expected_sha
+
+
+class TestDecisionPersistenceRegression:
+    """Regression tests for HITL decision persistence.
+
+    Reproduces the bug where saving a stale pipeline object after
+    queue_decision() overwrites the newly persisted decision, causing
+    "Decision decision-1 not found" errors during phase transitions.
+    """
+
+    def test_stale_pipeline_save_overwrites_decision(self, state_store):
+        """Saving a pre-queue_decision pipeline must not erase the decision.
+
+        This is the exact sequence that caused the issue-530 pipeline failure:
+        1. Load pipeline (decisions=[])
+        2. queue_decision() saves pipeline with decision-1
+        3. Save the stale pipeline object from step 1 → decision lost
+        """
+        from unittest.mock import patch
+
+        from decision_queue import DecisionQueue
+
+        # Create a pipeline
+        pipeline = state_store.create_pipeline(
+            issue_number=530,
+            repo="owner/repo",
+            branch="egg/issue-530",
+        )
+        assert len(pipeline.decisions) == 0
+
+        # Patch get_state_store so DecisionQueue uses the test's mocked store
+        with patch("decision_queue.get_state_store", return_value=state_store):
+            dq = DecisionQueue("issue-530", state_store.repo_path)
+            decision = dq.queue_decision(
+                question="Approve refine phase?",
+                options=["approve"],
+            )
+            assert decision.id == "decision-1"
+
+        # Verify decision was persisted
+        reloaded = state_store.load_pipeline("issue-530")
+        assert len(reloaded.decisions) == 1
+
+        # BUG scenario: save the stale object (from before queue_decision)
+        pipeline.status = PipelineStatus.AWAITING_HUMAN
+        state_store.save_pipeline(pipeline)
+
+        # The stale save overwrites the decision
+        final = state_store.load_pipeline("issue-530")
+        assert len(final.decisions) == 0, (
+            "Stale save erased decision — callers must reload after queue_decision()"
+        )
+
+    def test_reload_after_queue_decision_preserves_decision(self, state_store):
+        """Reloading pipeline after queue_decision() preserves the decision.
+
+        This is the fix: reload from the store after queue_decision()
+        before saving status changes.
+        """
+        from unittest.mock import patch
+
+        from decision_queue import DecisionQueue
+
+        state_store.create_pipeline(
+            issue_number=531,
+            repo="owner/repo",
+            branch="egg/issue-531",
+        )
+
+        with patch("decision_queue.get_state_store", return_value=state_store):
+            dq = DecisionQueue("issue-531", state_store.repo_path)
+            dq.queue_decision(
+                question="Approve refine phase?",
+                options=["approve"],
+            )
+
+        # Fix: reload pipeline after queue_decision before saving status
+        pipeline = state_store.load_pipeline("issue-531")
+        pipeline.status = PipelineStatus.AWAITING_HUMAN
+        state_store.save_pipeline(pipeline)
+
+        final = state_store.load_pipeline("issue-531")
+        assert len(final.decisions) == 1
+        assert final.decisions[0].id == "decision-1"
+        assert final.status == PipelineStatus.AWAITING_HUMAN

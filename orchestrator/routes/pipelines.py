@@ -2154,6 +2154,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             phase_execution = pipeline.get_phase_execution(current_phase)
             phase_execution.status = PipelineStatus.COMPLETE
             phase_execution.completed_at = datetime.utcnow()
+            store.save_pipeline(pipeline)  # Persist phase completion before HITL gate
 
             # Report phase completion to collaborator
             report_pipeline_status(
@@ -2189,6 +2190,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     timeout_seconds=pipeline.config.decision_timeout,
                 )
 
+                # Reload pipeline to pick up the decision persisted by queue_decision(),
+                # otherwise the stale local object overwrites it with an empty decisions list.
+                pipeline = store.load_pipeline(pipeline_id)
                 pipeline.status = PipelineStatus.AWAITING_HUMAN
                 store.save_pipeline(pipeline)
 
