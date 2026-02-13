@@ -130,11 +130,13 @@ When `pending_decisions > 0`, the `data` object includes an additional `pending_
 }
 ```
 
-**CLI tool**: Use `egg-pipeline-watch <pipeline_id>` to monitor pipeline progress in the terminal. The tool polls the status endpoint every 10 seconds and displays status changes.
+**CLI tools**:
+- `egg-pipeline-watch <pipeline_id>` — Monitor a single pipeline via polling (updates every 10 seconds)
+- `egg-status` — Monitor all active pipelines via unified SSE stream (real-time updates)
 
 **3. Real-time Streaming (Deprecated)**: `GET /api/v1/pipelines/<pipeline_id>/stream`
 
-> **Deprecated**: Prefer the polling endpoint above. The `egg-pipeline-watch` CLI tool has been switched to polling as of #621. The SSE endpoint remains available but may be removed in a future release.
+> **Deprecated**: Prefer the polling endpoint above for single-pipeline monitoring. The `egg-pipeline-watch` CLI tool has been switched to polling as of #621. The per-pipeline SSE endpoint remains available but may be removed in a future release.
 
 Returns a Server-Sent Events (SSE) stream for real-time pipeline updates.
 
@@ -152,6 +154,22 @@ Returns a Server-Sent Events (SSE) stream for real-time pipeline updates.
 - `error`: Error occurred
 
 Each event includes the current visualization data and pipeline status. The stream automatically closes when the pipeline reaches a terminal state or after 1 hour.
+
+**4. Unified Streaming (All Pipelines)**: `GET /api/v1/pipelines/stream`
+
+Returns a Server-Sent Events (SSE) stream for real-time updates across all active pipelines. Unlike the per-pipeline stream, terminal events for individual pipelines do not end the stream.
+
+**Query parameters**:
+- `ascii`: Use ASCII-only characters (`true` or `false`, default: `false`)
+- `active_only`: Only include active pipelines in snapshot (`true` or `false`, default: `true`)
+- `full_dag`: Include full DAG visualization instead of compact status (`true` or `false`, default: `false`)
+
+**Event types**:
+- `snapshot`: Initial state of all active pipelines
+- `pipeline.*`, `phase.*`, `agent.*`, `decision.*`: Events for individual pipelines
+- `done`: Stream is ending (timeout after 1 hour)
+
+**CLI tool**: Use `egg-status` to monitor all pipelines in a live dashboard. Runs on the host and connects to the orchestrator's unified stream endpoint.
 
 **Example JSON response** (`format=full`):
 ```json

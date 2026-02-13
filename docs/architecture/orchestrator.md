@@ -205,7 +205,8 @@ Fixed IPs:
 - `GET /health` - Health check
 - `GET/POST /pipelines` - Pipeline CRUD
 - `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII)
-- `GET /pipelines/{id}/stream` - Real-time SSE stream for pipeline events and visualization
+- `GET /pipelines/{id}/stream` - Real-time SSE stream for single pipeline events and visualization
+- `GET /pipelines/stream` - Unified SSE stream for all active pipelines (supports `?ascii=true`, `?active_only=false`, `?full_dag=true`)
 - `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error)
 - `GET /pipelines/{id}/decisions` - HITL decision queue
 - `POST /sdlc-tokens/generate` - Generate approval tokens for SDLC pipeline (requires launcher secret auth)

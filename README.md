@@ -243,6 +243,19 @@ For production/advanced deployments using Docker Compose:
 | `bin/egg-deploy logs` | Follow gateway logs |
 | `bin/egg-deploy build` | Rebuild Docker images |
 
+### egg-status CLI
+
+For monitoring all active SDLC pipelines in real-time:
+
+| Command | Description |
+|---------|-------------|
+| `bin/egg-status` | Stream real-time status for all active pipelines |
+| `bin/egg-status --once` | Show current snapshot and exit |
+| `bin/egg-status --all` | Include completed/failed pipelines |
+| `bin/egg-status --verbose` | Show full DAG instead of compact status |
+| `bin/egg-status --ascii` | Use ASCII-only characters (no Unicode) |
+| `bin/egg-status --port <port>` | Specify orchestrator port (default: 9849) |
+
 ### Flags
 
 | Flag | Description |
