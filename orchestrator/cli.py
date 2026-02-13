@@ -21,7 +21,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
 
 # Add shared directory to path
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -29,7 +28,7 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 try:
-    from egg_logging import get_logger, configure_logging
+    from egg_logging import configure_logging, get_logger
 except ImportError:
     import logging
 
@@ -80,8 +79,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 def cmd_health(args: argparse.Namespace) -> int:
     """Check orchestrator health."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     host = args.host or "localhost"
     port = args.port or ORCHESTRATOR_PORT
@@ -176,7 +175,7 @@ def cmd_pipelines_create(args: argparse.Namespace) -> int:
 
 def cmd_pipelines_status(args: argparse.Namespace) -> int:
     """Get pipeline status."""
-    from state_store import get_state_store, PipelineNotFoundError
+    from state_store import PipelineNotFoundError, get_state_store
 
     repo_path = Path(args.repo_path) if args.repo_path else Path.cwd()
     store = get_state_store(repo_path)
@@ -215,7 +214,7 @@ def cmd_pipelines_status(args: argparse.Namespace) -> int:
 
 def cmd_pipelines_delete(args: argparse.Namespace) -> int:
     """Delete a pipeline."""
-    from state_store import get_state_store, PipelineNotFoundError
+    from state_store import PipelineNotFoundError, get_state_store
 
     repo_path = Path(args.repo_path) if args.repo_path else Path.cwd()
     store = get_state_store(repo_path)

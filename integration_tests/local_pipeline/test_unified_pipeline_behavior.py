@@ -14,8 +14,6 @@ Key behaviors tested:
 """
 
 import json
-import random
-import subprocess
 import time
 from pathlib import Path
 
@@ -269,7 +267,6 @@ class TestCheckpointBranchBypass:
         """Verify checkpoint branch constant is used consistently."""
         # This is a structural test - the constant should be defined
         # in gateway.py and should be "egg/checkpoints/v1"
-        expected_branch = "egg/checkpoints/v1"
 
         # Read gateway.py to verify the constant
         gateway_path = (

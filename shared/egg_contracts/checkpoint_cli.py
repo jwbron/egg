@@ -28,13 +28,10 @@ from pathlib import Path
 from typing import Any
 
 from .checkpoint_loader import (
-    CheckpointLoadError,
     list_checkpoints,
-    load_checkpoint,
     load_checkpoint_by_commit,
-    load_checkpoint_index,
 )
-from .checkpoints import Checkpoint, CheckpointIndex
+from .checkpoints import Checkpoint
 
 # Checkpoint branch name
 CHECKPOINT_BRANCH = "egg/checkpoints/v1"

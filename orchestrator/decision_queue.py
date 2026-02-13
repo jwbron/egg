@@ -8,10 +8,10 @@ timeout handling, and resolution.
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
-from uuid import uuid4
+from typing import Any
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent / "shared"

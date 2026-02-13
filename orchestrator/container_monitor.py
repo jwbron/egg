@@ -8,9 +8,10 @@ Detects unhealthy/exited containers and triggers appropriate actions.
 import sys
 import threading
 import time
-from datetime import datetime, timedelta
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -26,7 +27,7 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from docker_client import DockerClient, ContainerNotFoundError, get_docker_client
+from docker_client import ContainerNotFoundError, DockerClient, get_docker_client
 from models import ContainerInfo, ContainerStatus
 
 logger = get_logger("orchestrator.monitor")

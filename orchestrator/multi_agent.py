@@ -7,9 +7,10 @@ with dependency tracking and result collection.
 
 import sys
 import threading
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -34,7 +35,6 @@ from models import (
     ContainerInfo,
     ContainerStatus,
     Pipeline,
-    PipelineStatus,
 )
 from sandbox_template import SandboxTemplate, create_sandbox_config
 from state_store import get_state_store

@@ -8,9 +8,9 @@ escalation to human notification channels.
 import sys
 import threading
 import time
-from datetime import datetime, timedelta
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent / "shared"

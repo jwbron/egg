@@ -252,7 +252,7 @@ class TestCaptureAndStoreCheckpointsForPush:
 
         import checkpoint_handler
 
-        checkpoints = checkpoint_handler.capture_and_store_checkpoints_for_push(
+        checkpoint_handler.capture_and_store_checkpoints_for_push(
             repo_path="/repo",
             old_sha="0" * 40,
             new_sha=commit2,
@@ -338,7 +338,7 @@ class TestCaptureAndStoreCheckpointsForPush:
             mock_thread_instance = MagicMock()
             mock_thread.return_value = mock_thread_instance
 
-            checkpoints = checkpoint_handler.capture_and_store_checkpoints_for_push(
+            checkpoint_handler.capture_and_store_checkpoints_for_push(
                 repo_path="/repo",
                 old_sha="0" * 40,
                 new_sha=commit1,

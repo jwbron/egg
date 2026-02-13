@@ -750,6 +750,7 @@ class TestOrchestratorMode:
         """Default orchestrator mode is None (not in orchestrator mode)."""
         monkeypatch.delenv("EGG_ORCHESTRATOR_MODE", raising=False)
         monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+        monkeypatch.delenv("EGG_ORCHESTRATOR_URL", raising=False)
 
         config = entrypoint.Config()
         assert config.is_orchestrator_mode is False

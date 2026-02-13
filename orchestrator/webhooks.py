@@ -9,11 +9,10 @@ Provides webhook endpoints for:
 
 import hashlib
 import hmac
-import json
 import sys
-from datetime import datetime
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from flask import Blueprint, Response, jsonify, request
 

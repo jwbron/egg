@@ -196,7 +196,7 @@ class Session:
         return result
 
     @classmethod
-    def from_persistence(cls, data: dict[str, Any]) -> "Session":
+    def from_persistence(cls, data: dict[str, Any]) -> Session:
         """Create Session from persisted data (no raw token)."""
         return cls(
             session_token=None,  # Raw token not persisted

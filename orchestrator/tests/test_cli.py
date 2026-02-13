@@ -4,13 +4,10 @@ Tests for egg-orchestrator CLI.
 
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from io import StringIO
-from pathlib import Path
 from threading import Thread
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from cli import create_parser, main
 
 
