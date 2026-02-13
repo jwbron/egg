@@ -45,14 +45,15 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 **Architecture:**
 - Gateway creates worktrees at `/home/egg/.egg-worktrees/{pipeline-id}/{repo-name}/`
 - Agent containers mount these worktrees and write artifacts to them
-- Orchestrator mounts `/home/egg/.egg-worktrees` (read-only) and reads artifacts from pipeline-specific paths
+- Orchestrator mounts `/home/egg/.egg-worktrees` and reads artifacts from pipeline-specific paths
 - Worktree paths are resolved dynamically based on pipeline ID and repository
 
 **Key files read from worktrees:**
 - `.egg-state/contracts/{issue}.json` — Contract state
-- `.egg-state/drafts/{issue}-{analysis|plan}.md` — Phase draft documents
-- `.egg-state/reviews/{issue}-{phase}-{reviewer}.json` — Review verdict files
-- `.egg-state/checks/*.json` — Check results
+- `.egg-state/drafts/{issue}-analysis.md` — Draft for `refine` phase (special-cased to `analysis`)
+- `.egg-state/drafts/{issue}-{phase}.md` — Draft for other phases (e.g., `plan`). No draft for `implement` phase.
+- `.egg-state/reviews/{issue}-{phase}-{reviewer_type}-review.json` — Review verdict files
+- `.egg-state/checks/implement-results.json` — Check results from the `implement` phase
 
 **Volume mounts:**
 - Orchestrator: Bind mount from `${HOST_HOME}/.egg-worktrees` to `/home/egg/.egg-worktrees` (read container-written artifacts)
