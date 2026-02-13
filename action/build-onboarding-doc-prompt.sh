@@ -28,17 +28,16 @@ set -euo pipefail
 # Directories to always exclude from scanning
 DEFAULT_EXCLUDE="node_modules,.git,__pycache__,dist,build,.egg-state,venv,.venv,.mypy_cache,.pytest_cache,.ruff_cache,.tox,vendor,coverage,.next,.nuxt"
 
-build_find_excludes() {
-    # Build an array of -not -path exclusion args from DEFAULT_EXCLUDE + EXCLUDE_DIRS.
-    # Validates directory names to prevent injection. Results stored in FIND_EXCLUDES array.
-    FIND_EXCLUDES=()
+get_exclude_dirs() {
+    # Yields validated directory names from DEFAULT_EXCLUDE + EXCLUDE_DIRS, one per line.
+    # Trims whitespace and rejects names that don't match the whitelist pattern.
     IFS=',' read -ra DIRS <<< "${DEFAULT_EXCLUDE},${EXCLUDE_DIRS:-}"
     for dir in "${DIRS[@]}"; do
         dir="${dir#"${dir%%[![:space:]]*}"}"   # trim leading whitespace
         dir="${dir%"${dir##*[![:space:]]}"}"   # trim trailing whitespace
         if [[ -n "$dir" ]]; then
             if [[ "$dir" =~ ^[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$ ]]; then
-                FIND_EXCLUDES+=("-not" "-path" "./${dir}/*")
+                echo "$dir"
             else
                 echo "Warning: skipping invalid exclude dir: $dir" >&2
             fi
@@ -46,22 +45,24 @@ build_find_excludes() {
     done
 }
 
+build_find_excludes() {
+    # Build an array of -not -path exclusion args for use with find starting from ".".
+    # Results stored in FIND_EXCLUDES array.
+    FIND_EXCLUDES=()
+    local dir
+    while IFS= read -r dir; do
+        FIND_EXCLUDES+=("-not" "-path" "./${dir}/*")
+    done < <(get_exclude_dirs)
+}
+
 get_directory_tree() {
     local depth="${1:-3}"
     local -a find_args=("." "-maxdepth" "$depth")
 
-    IFS=',' read -ra DIRS <<< "${DEFAULT_EXCLUDE},${EXCLUDE_DIRS:-}"
-    for dir in "${DIRS[@]}"; do
-        dir="${dir#"${dir%%[![:space:]]*}"}"   # trim leading whitespace
-        dir="${dir%"${dir##*[![:space:]]}"}"   # trim trailing whitespace
-        if [[ -n "$dir" ]]; then
-            if [[ "$dir" =~ ^[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$ ]]; then
-                find_args+=("-path" "./${dir}" "-prune" "-o")
-            else
-                echo "Warning: skipping invalid exclude dir: $dir" >&2
-            fi
-        fi
-    done
+    local dir
+    while IFS= read -r dir; do
+        find_args+=("-path" "./${dir}" "-prune" "-o")
+    done < <(get_exclude_dirs)
 
     find_args+=("-type" "d" "-print")
     find "${find_args[@]}" 2>/dev/null | sort | head -200
@@ -121,18 +122,29 @@ find_config_files() {
 }
 
 count_source_files() {
-    # Count files per top-level directory to show project scale
-    build_find_excludes
+    # Count files per top-level directory to show project scale.
+    # Uses -name based pruning so exclusions work regardless of find start path.
+    local -a prune_args=()
+    local dir
+    local first=true
+    while IFS= read -r dir; do
+        local basename="${dir##*/}"
+        if [[ "$first" == true ]]; then
+            first=false
+        else
+            prune_args+=("-o")
+        fi
+        prune_args+=("-name" "$basename")
+    done < <(get_exclude_dirs)
+
     for dir in */; do
         [[ -d "$dir" ]] || continue
-        [[ "$dir" == "node_modules/" ]] && continue
-        [[ "$dir" == ".git/" ]] && continue
-        [[ "$dir" == "__pycache__/" ]] && continue
-        [[ "$dir" == "vendor/" ]] && continue
         local count
-        count=$(find "$dir" -type f \
-            "${FIND_EXCLUDES[@]}" \
-            2>/dev/null | wc -l)
+        if [[ ${#prune_args[@]} -gt 0 ]]; then
+            count=$(find "$dir" \( "${prune_args[@]}" \) -prune -o -type f -print 2>/dev/null | wc -l)
+        else
+            count=$(find "$dir" -type f 2>/dev/null | wc -l)
+        fi
         echo "  ${dir} — ${count} files"
     done 2>/dev/null
 }
@@ -448,7 +460,7 @@ contents. Do NOT create any branches, commits, or PRs."
 
     # Write prompt to temp file
     local prompt_file="${RUNNER_TEMP:-/tmp}/onboarding-doc-prompt.txt"
-    echo "$prompt" > "$prompt_file"
+    printf '%s\n' "$prompt" > "$prompt_file"
 
     # Use sonnet for the main work (good balance of capability and speed).
     # For very large repos, consider opus for higher quality.
