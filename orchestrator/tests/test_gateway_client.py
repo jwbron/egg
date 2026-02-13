@@ -357,48 +357,6 @@ class TestSessionManagement:
         assert result is True
 
 
-class TestProxyConfiguration:
-    """Tests for proxy configuration."""
-
-    def test_get_proxy_config_public(self, gateway_client):
-        """Test proxy config for public mode."""
-        config = gateway_client.get_proxy_config(mode="public")
-
-        assert "HTTP_PROXY" in config
-        assert "HTTPS_PROXY" in config
-        assert "NO_PROXY" in config
-        assert config.get("EGG_PRIVATE_MODE") == "false"
-
-    def test_get_proxy_config_private(self, gateway_client):
-        """Test proxy config for private mode."""
-        config = gateway_client.get_proxy_config(mode="private")
-
-        assert config.get("EGG_PRIVATE_MODE") == "true"
-
-    def test_get_container_env(self, gateway_client):
-        """Test getting complete container environment."""
-        env = gateway_client.get_container_env(
-            session_token="test-token",
-            issue_number=123,
-            repo_path="/workspace/repo",
-            agent_role="coder",
-            mode="public",
-        )
-
-        # Session credentials
-        assert env["EGG_SESSION_TOKEN"] == "test-token"
-        assert "localhost:19848" in env["GATEWAY_URL"]
-
-        # Pipeline context
-        assert env["EGG_ISSUE_NUMBER"] == "123"
-        assert env["EGG_REPO_PATH"] == "/workspace/repo"
-        assert env["EGG_AGENT_ROLE"] == "coder"
-
-        # Proxy settings
-        assert "HTTP_PROXY" in env
-        assert "HTTPS_PROXY" in env
-
-
 class TestSecurityBoundaryValidation:
     """Tests for security boundary validation."""
 

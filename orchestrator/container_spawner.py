@@ -2,9 +2,10 @@
 Container spawner with integrated gateway session management.
 
 Provides high-level container spawning that:
-- Creates Docker containers
+- Creates Docker containers using the shared config builder
 - Registers sessions with gateway
-- Injects proper environment configuration
+- Injects proper environment configuration (GATEWAY_URL, proxy, DNS, etc.)
+- Adds .git shadow mounts and --add-host / extra_hosts for gateway hostname
 - Cleans up sessions on container removal
 """
 
@@ -30,16 +31,29 @@ except ImportError:
 try:
     from egg_config import (
         EGG_CONTAINER_IP,
+        GATEWAY_CONTAINER_NAME,
+        GATEWAY_EXTERNAL_IP,
+        GATEWAY_ISOLATED_IP,
+        GATEWAY_PORT,
+    )
+    from egg_config import (
+        EGG_EXTERNAL_NETWORK as _DEFAULT_EXTERNAL_NETWORK,
     )
     from egg_config import (
         EGG_ISOLATED_NETWORK as _DEFAULT_ISOLATED_NETWORK,
     )
 except ImportError:
     _DEFAULT_ISOLATED_NETWORK = "egg-isolated"
+    _DEFAULT_EXTERNAL_NETWORK = "egg-external"
     EGG_CONTAINER_IP = "172.32.0.10"
+    GATEWAY_CONTAINER_NAME = "egg-gateway"
+    GATEWAY_PORT = 9848
+    GATEWAY_ISOLATED_IP = "172.32.0.2"
+    GATEWAY_EXTERNAL_IP = "172.33.0.2"
 
 # Allow override via environment for test stacks with non-standard network names
 EGG_ISOLATED_NETWORK = os.environ.get("EGG_ISOLATED_NETWORK", _DEFAULT_ISOLATED_NETWORK)
+EGG_EXTERNAL_NETWORK = os.environ.get("EGG_EXTERNAL_NETWORK", _DEFAULT_EXTERNAL_NETWORK)
 
 from docker_client import (
     ContainerNotFoundError,
@@ -47,6 +61,13 @@ from docker_client import (
     DockerClient,
     DockerClientError,
     get_docker_client,
+)
+from egg_container import (
+    ContainerNetworkConfig,
+    MountSpec,
+    build_sandbox_config,
+    git_shadow_mounts,
+    to_dockerpy_kwargs,
 )
 from gateway_client import (
     GatewayClient,
@@ -75,10 +96,11 @@ class ContainerSpawner:
 
     Handles the full lifecycle:
     1. Validate gateway health
-    2. Create Docker container
-    3. Register gateway session
-    4. Start container with proper environment
-    5. Clean up session on container removal
+    2. Register gateway session
+    3. Build container config using shared builder
+    4. Create Docker container via docker-py
+    5. Start container
+    6. Clean up session on container removal
     """
 
     DEFAULT_SANDBOX_IMAGE = os.environ.get("EGG_SANDBOX_IMAGE", "egg:latest")
@@ -112,37 +134,77 @@ class ContainerSpawner:
             self._gateway = get_gateway_client()
         return self._gateway
 
+    def _build_network_config(self, mode: str) -> ContainerNetworkConfig:
+        """Build ContainerNetworkConfig for the given gateway mode.
+
+        Args:
+            mode: Gateway mode (public, private, or local)
+
+        Returns:
+            ContainerNetworkConfig with correct network, IPs, and repo_mode.
+        """
+        if mode == "private":
+            return ContainerNetworkConfig(
+                network_name=EGG_ISOLATED_NETWORK,
+                gateway_hostname=GATEWAY_CONTAINER_NAME,
+                gateway_ip=GATEWAY_ISOLATED_IP,
+                gateway_port=GATEWAY_PORT,
+                repo_mode="private",
+            )
+        elif mode == "local":
+            # Local mode: isolated network but no proxy/DNS lockdown
+            return ContainerNetworkConfig(
+                network_name=EGG_ISOLATED_NETWORK,
+                gateway_hostname=GATEWAY_CONTAINER_NAME,
+                gateway_ip=GATEWAY_ISOLATED_IP,
+                gateway_port=GATEWAY_PORT,
+                repo_mode="public",
+            )
+        else:  # "public"
+            return ContainerNetworkConfig(
+                network_name=EGG_EXTERNAL_NETWORK,
+                gateway_hostname=GATEWAY_CONTAINER_NAME,
+                gateway_ip=GATEWAY_EXTERNAL_IP,
+                gateway_port=GATEWAY_PORT,
+                repo_mode="public",
+            )
+
     def spawn_agent_container(
         self,
         pipeline_id: str,
         agent_role: AgentRole,
         issue_number: int | None = None,
-        repo_path: str = "/home/egg/repos",
-        repo_mount: str | None = None,
+        repo_volumes: dict[str, str] | None = None,
         mode: str = "public",
         image: str | None = None,
         extra_env: dict[str, str] | None = None,
-        extra_volumes: dict[str, dict[str, str]] | None = None,
         wait_for_gateway: bool = True,
         repos: list[str] | None = None,
         phase: str | None = None,
         command: list[str] | None = None,
+        certs_volume: str | None = None,
     ) -> SpawnedContainer:
         """Spawn a container for an agent.
+
+        Uses the shared ``build_sandbox_config()`` to ensure the container
+        gets the same GATEWAY_URL, proxy, DNS, and .git shadow configuration
+        as CLI-launched containers.
 
         Args:
             pipeline_id: Pipeline ID (e.g., "issue-496" or "local-a1b2c3d4")
             agent_role: Agent role
             issue_number: GitHub issue number (optional for local pipelines)
-            repo_path: Repository path inside container
-            repo_mount: Host path to mount as repository (optional)
+            repo_volumes: Mapping of repo_name -> host_path for volume mounts.
+                Each entry is mounted at /home/egg/repos/<name> and gets a
+                .git shadow mount to force git operations through the gateway.
             mode: Gateway mode (public, private, or local)
             image: Docker image (default: egg-sandbox:latest)
             extra_env: Additional environment variables
-            extra_volumes: Additional volume mounts
             wait_for_gateway: Wait for gateway health before spawning
             repos: List of repositories in owner/name format for gateway session
             phase: SDLC pipeline phase for gateway session
+            command: Command to execute in the container
+            certs_volume: Docker named volume for gateway CA certs
 
         Returns:
             SpawnedContainer with container and session info
@@ -171,37 +233,45 @@ class ContainerSpawner:
         if issue_number is not None:
             labels["egg.issue.number"] = str(issue_number)
 
-        # Prepare volumes
-        volumes: dict[str, dict[str, str]] = {}
-        if repo_mount:
-            volumes[repo_mount] = {"bind": repo_path, "mode": "rw"}
-        if extra_volumes:
-            volumes.update(extra_volumes)
+        # Build mounts: repo volumes + .git shadows + certs
+        mounts: list[MountSpec] = []
+        if repo_volumes:
+            for name, host_path in repo_volumes.items():
+                mounts.append(
+                    MountSpec(
+                        mount_type="bind",
+                        source=host_path,
+                        destination=f"/home/egg/repos/{name}",
+                    )
+                )
+            # Shadow .git in each mounted repo to force gateway git operations.
+            # Orchestrator can't stat host paths, so assume_worktree=True (/dev/null bind).
+            mounts.extend(git_shadow_mounts(repo_volumes, assume_worktree=True))
+        if certs_volume:
+            mounts.append(
+                MountSpec(
+                    mount_type="volume",
+                    source=certs_volume,
+                    destination="/shared/certs",
+                    readonly=True,
+                )
+            )
+
+        # Build network config from mode
+        net_config = self._build_network_config(mode)
 
         session_info = None
         container = None
+        host_uid = int(os.environ.get("HOST_UID", 1000))
+        host_gid = int(os.environ.get("HOST_GID", 1000))
 
         try:
-            # Build base environment first
-            env = {
-                "EGG_REPO_PATH": repo_path,
-                "EGG_AGENT_ROLE": agent_role.value,
-            }
-            if issue_number is not None:
-                env["EGG_ISSUE_NUMBER"] = str(issue_number)
-
-            # Add extra environment
-            if extra_env:
-                env.update(extra_env)
-
-            # Register gateway session so the container gets a session token
-            # and proxy config.  Even local-mode containers need a session:
-            # the sandbox git/gh wrappers require EGG_SESSION_TOKEN, and the
-            # gateway enforces local-mode restrictions (push blocking) at the
-            # session level.
+            # Register gateway session so the container gets a session token.
+            # Even local-mode containers need a session: the sandbox git/gh
+            # wrappers require EGG_SESSION_TOKEN, and the gateway enforces
+            # local-mode restrictions (push blocking) at the session level.
+            session_token = None
             try:
-                host_uid = int(os.environ.get("HOST_UID", 1000))
-                host_gid = int(os.environ.get("HOST_GID", 1000))
                 session_info = self.gateway.register_session(
                     container_id=container_name,
                     container_ip=EGG_CONTAINER_IP,
@@ -211,23 +281,12 @@ class ContainerSpawner:
                     gid=host_gid,
                     phase=phase,
                 )
-
-                # Get environment with session token and proxy config
-                gateway_env = self.gateway.get_container_env(
-                    session_token=session_info.session_token,
-                    issue_number=issue_number,
-                    repo_path=repo_path,
-                    agent_role=agent_role.value,
-                    mode=mode,
-                )
-
-                # Add gateway environment to container env BEFORE creation
-                env.update(gateway_env)
+                session_token = session_info.session_token
 
                 logger.info(
                     "Pre-registered gateway session",
                     container_name=container_name,
-                    session_token=session_info.session_token[:12] + "...",
+                    session_token=session_token[:12] + "...",
                 )
 
             except GatewayError as e:
@@ -239,17 +298,40 @@ class ContainerSpawner:
                 # Continue without session - container can still run
                 # but won't have gateway access
 
-            # Create the container with full environment including gateway config
-            container = self.docker.create_container(
-                name=container_name,
+            # Build spawner-specific env vars that override the shared defaults.
+            # CONTAINER_ID must match the worktree container_id so the gateway
+            # git proxy can map /home/egg/repos/<name> to the correct worktree
+            # at /home/egg/.egg-worktrees/<id>/<name>.
+            spawner_env: dict[str, str] = {
+                "CONTAINER_ID": pipeline_id,
+                "EGG_REPO_PATH": "/home/egg/repos",
+                "EGG_AGENT_ROLE": agent_role.value,
+            }
+            if issue_number is not None:
+                spawner_env["EGG_ISSUE_NUMBER"] = str(issue_number)
+            # Caller's extra_env overrides spawner defaults
+            if extra_env:
+                spawner_env.update(extra_env)
+
+            # Build the unified container config using the shared builder.
+            # This sets GATEWAY_URL (hostname-based), proxy vars, DNS lockdown,
+            # extra_hosts for gateway hostname, etc.
+            config = build_sandbox_config(
+                container_name=container_name,
                 image=image or self.DEFAULT_SANDBOX_IMAGE,
-                network=EGG_ISOLATED_NETWORK,
-                environment=env,
+                network=net_config,
+                session_token=session_token,
+                runtime_uid=host_uid,
+                runtime_gid=host_gid,
+                extra_env=spawner_env,
+                mounts=mounts,
                 labels=labels,
-                volumes=volumes if volumes else None,
                 command=command,
-                security_opt=["label=disable"],
             )
+
+            # Convert to docker-py kwargs and create the container
+            kwargs = to_dockerpy_kwargs(config)
+            container = self.docker.create_container(**kwargs)
 
             logger.info(
                 "Container created",
@@ -260,6 +342,26 @@ class ContainerSpawner:
 
             # Start the container
             container = self.docker.start_container(container.container_id)
+
+            # Update gateway session with actual container IP
+            if session_token:
+                try:
+                    actual_ip = self._get_container_ip(container.container_id)
+                    self.gateway.update_session(
+                        session_token=session_token,
+                        container_ip=actual_ip,
+                    )
+                    logger.info(
+                        "Updated session with actual container IP",
+                        container_id=container.container_id[:12],
+                        actual_ip=actual_ip,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to update session IP",
+                        container_id=container.container_id[:12],
+                        error=str(e),
+                    )
 
             logger.info(
                 "Agent container spawned",
@@ -274,7 +376,7 @@ class ContainerSpawner:
                 session_info=session_info,
                 agent_role=agent_role,
                 pipeline_id=pipeline_id,
-                environment=env,
+                environment=config.environment,
             )
 
         except DockerClientError as e:
@@ -425,10 +527,11 @@ class ContainerSpawner:
             container = self.docker.client.containers.get(container_id)
             networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
 
-            if EGG_ISOLATED_NETWORK in networks:
-                ip = networks[EGG_ISOLATED_NETWORK].get("IPAddress")
-                if ip:
-                    return ip
+            for net_name in (EGG_ISOLATED_NETWORK, EGG_EXTERNAL_NETWORK):
+                if net_name in networks:
+                    ip = networks[net_name].get("IPAddress")
+                    if ip:
+                        return ip
 
         except Exception:
             pass

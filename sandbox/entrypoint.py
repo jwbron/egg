@@ -25,12 +25,17 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
+
 from typing import Any, ClassVar
 
 from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT
+
+# Well-known path for subprocess stderr capture (read by signal_orchestrator_completion)
+_SUBPROCESS_STDERR_LOG = Path("/tmp/egg-subprocess-stderr.log")
 
 # =============================================================================
 # Startup Timing (Debug)
@@ -893,8 +898,16 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
     parsed = urlparse(gateway_url)
     gateway_host = parsed.hostname or "egg-gateway"
 
-    # Detect network mode: private mode has HTTPS_PROXY set, public mode doesn't
-    is_private_mode = proxy_url is not None
+    # Detect network mode from EGG_PRIVATE_MODE env var (set by orchestrator/gateway)
+    # Fallback: if EGG_PRIVATE_MODE is not set, assume private when proxy is configured
+    private_mode_env = os.environ.get("EGG_PRIVATE_MODE", "").lower()
+    if private_mode_env in ("true", "1"):
+        is_private_mode = True
+    elif private_mode_env in ("false", "0"):
+        is_private_mode = False
+    else:
+        # Legacy fallback: infer from proxy presence
+        is_private_mode = proxy_url is not None
     if is_private_mode:
         logger.info("Network mode: PRIVATE (lockdown, proxy filtering)")
     else:
@@ -1229,11 +1242,15 @@ def signal_orchestrator_completion(
             )
             signal_type = "complete"
         else:
-            # Failure - signal error
+            # Failure - signal error with stderr context for debugging
+            error_msg = error_message or f"Container exited with code {exit_code}"
+            stderr_tail = _read_subprocess_stderr_tail(20)
+            if stderr_tail:
+                error_msg += f"\n--- subprocess stderr (last 20 lines) ---\n{stderr_tail}"
             response = client.signal_error(
                 pipeline_id=config.pipeline_id,
                 agent_role=config.agent_role,
-                error=error_message or f"Container exited with code {exit_code}",
+                error=error_msg,
                 recoverable=False,
             )
             signal_type = "error"
@@ -1271,16 +1288,108 @@ def cleanup_on_exit(config: Config, logger: Logger, exit_code: int = 0) -> None:
 # =============================================================================
 
 
+def _tee_stderr_to_file(
+    process: subprocess.Popen,
+    log_path: Path,
+    max_lines: int = 500,
+) -> None:
+    """Tee subprocess stderr to both sys.stderr and a bounded log file.
+
+    Runs in a background thread. Reads from process.stderr (PIPE) and
+    writes each line to the container's stderr in real time.  Only the
+    last *max_lines* lines are kept in memory and flushed to *log_path*
+    when the stream ends, preventing unbounded file growth.
+    """
+    from collections import deque
+
+    try:
+        stderr_out = getattr(sys.stderr, "buffer", sys.stderr)
+        ring: deque[bytes] = deque(maxlen=max_lines)
+        while True:
+            line = process.stderr.readline()
+            if not line:
+                break
+            stderr_out.write(line)
+            stderr_out.flush()
+            ring.append(line)
+        # Write the bounded tail to disk for _read_subprocess_stderr_tail()
+        with open(log_path, "wb") as log_file:
+            for saved_line in ring:
+                log_file.write(saved_line)
+    except Exception as exc:
+        # Best-effort diagnostic — log so failures aren't completely silent.
+        try:
+            print(
+                f"[DEBUG] _tee_stderr_to_file failed: {exc}",
+                file=sys.stderr,
+            )
+            sys.stderr.flush()
+        except Exception:
+            pass
+
+
+def _run_with_stderr_capture(
+    cmd: list[str],
+    env: dict[str, str],
+    logger: Logger,
+) -> int:
+    """Run a subprocess, capturing stderr to a log file while passing it through.
+
+    Returns the subprocess exit code. Stderr is tee'd to both the container's
+    stderr (for docker logs) and _SUBPROCESS_STDERR_LOG (for error signals).
+    """
+    process = subprocess.Popen(
+        cmd,
+        env=env,
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        stderr=subprocess.PIPE,
+    )
+
+    tee_thread = threading.Thread(
+        target=_tee_stderr_to_file,
+        args=(process, _SUBPROCESS_STDERR_LOG),
+        daemon=True,
+    )
+    tee_thread.start()
+    process.wait()
+    tee_thread.join(timeout=5)
+
+    exit_code = process.returncode
+
+    if exit_code != 0:
+        # Log error with subprocess stderr context so it's visible in docker logs
+        stderr_tail = _read_subprocess_stderr_tail(30)
+        if stderr_tail:
+            logger.error(f"Subprocess failed (exit code {exit_code}). Last stderr:\n{stderr_tail}")
+        else:
+            logger.error(f"Subprocess failed (exit code {exit_code}) with no stderr output")
+
+    return exit_code
+
+
+def _read_subprocess_stderr_tail(max_lines: int = 20) -> str:
+    """Read the last N lines from the subprocess stderr log, if it exists."""
+    try:
+        if _SUBPROCESS_STDERR_LOG.exists():
+            content = _SUBPROCESS_STDERR_LOG.read_text(errors="replace").strip()
+            if content:
+                lines = content.splitlines()[-max_lines:]
+                return "\n".join(lines)
+    except Exception:
+        pass
+    return ""
+
+
 def run_interactive(config: Config, logger: Logger) -> int:
     """Launch interactive Claude Code session.
 
-    Uses subprocess.run() to maintain control after process exits,
+    Uses subprocess.Popen() to maintain control after process exits,
     enabling completion signaling back to orchestrator.
 
     Returns:
         Exit code from the subprocess
     """
-    import subprocess
 
     # Change to repos directory
     if config.repos_dir.exists():
@@ -1309,10 +1418,9 @@ def run_interactive(config: Config, logger: Logger) -> int:
     # Print timing summary right before launching LLM
     _startup_timer.print_summary()
 
-    # Launch via gosu using subprocess.run() to maintain control after exit
-    # This allows completion signaling back to orchestrator
-    # Explicit stdin/stdout/stderr ensures consistent TTY behavior after switch from os.execvpe()
-    result = subprocess.run(
+    # Launch via gosu, capturing stderr to log file for error reporting
+    # This allows us to include stderr context in orchestrator error signals
+    return _run_with_stderr_capture(
         [
             "gosu",
             f"{config.runtime_uid}:{config.runtime_gid}",
@@ -1321,38 +1429,30 @@ def run_interactive(config: Config, logger: Logger) -> int:
             "from llm import run_interactive; run_interactive()",
         ],
         env=env,
-        stdin=sys.stdin,
-        stdout=sys.stdout,
-        stderr=sys.stderr,
+        logger=logger,
     )
-    return result.returncode
 
 
 def run_exec(config: Config, logger: Logger, args: list[str]) -> int:
     """Run a command in exec mode.
 
-    Uses subprocess.run() to maintain control after process exits,
+    Uses subprocess.Popen() to maintain control after process exits,
     enabling completion signaling back to orchestrator.
 
     Returns:
         Exit code from the subprocess
     """
-    import subprocess
-
     env = os.environ.copy()
 
     # Print timing summary before exec
     _startup_timer.print_summary()
 
-    # Explicit stdin/stdout/stderr ensures consistent TTY behavior after switch from os.execvpe()
-    result = subprocess.run(
+    # Launch via gosu, capturing stderr to log file for error reporting
+    return _run_with_stderr_capture(
         ["gosu", f"{config.runtime_uid}:{config.runtime_gid}"] + args,
         env=env,
-        stdin=sys.stdin,
-        stdout=sys.stdout,
-        stderr=sys.stderr,
+        logger=logger,
     )
-    return result.returncode
 
 
 # =============================================================================
