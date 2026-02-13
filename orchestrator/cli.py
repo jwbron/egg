@@ -21,7 +21,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
 
 # Add shared directory to path
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -29,7 +28,7 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 try:
-    from egg_logging import get_logger, configure_logging
+    from egg_logging import configure_logging, get_logger
 except ImportError:
     import logging
 
@@ -38,6 +37,7 @@ except ImportError:
 
     def configure_logging(**kwargs) -> None:
         logging.basicConfig(level=logging.INFO)
+
 
 try:
     from egg_config import ORCHESTRATOR_PORT
@@ -49,6 +49,27 @@ logger = get_logger("orchestrator.cli")
 
 def cmd_serve(args: argparse.Namespace) -> int:
     """Start the orchestrator API server."""
+    # Safety check: refuse to run as root to prevent permission issues.
+    # When the orchestrator runs as root, git refs are created with root:root
+    # ownership (e.g. refs/heads/egg/), which breaks git operations on the
+    # host with 'permission denied' errors.  The entrypoint should drop
+    # privileges via gosu before reaching here.
+    if os.getuid() == 0:
+        print(
+            "ERROR: orchestrator must not run as root.\n"
+            "\n"
+            "Running as root causes git refs to be created with root:root ownership,\n"
+            "which breaks git operations on the host with 'permission denied' errors.\n"
+            "\n"
+            "Ensure HOST_UID and HOST_GID are set so the entrypoint drops\n"
+            "privileges via gosu before starting the orchestrator.\n"
+            "\n"
+            "If .git/refs already has root-owned files, fix with:\n"
+            "  sudo chown -R $(id -u):$(id -g) ~/repos/*/.git/refs",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     from api import app
 
     host = args.host
@@ -73,6 +94,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     else:
         # Use waitress for production
         from waitress import serve
+
         serve(app, host=host, port=port)
 
     return 0
@@ -80,8 +102,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 def cmd_health(args: argparse.Namespace) -> int:
     """Check orchestrator health."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     host = args.host or "localhost"
     port = args.port or ORCHESTRATOR_PORT
@@ -136,7 +158,9 @@ def cmd_pipelines_list(args: argparse.Namespace) -> int:
                 print(f"  {pid}")
                 print(f"    Status: {pipeline.status.value}")
                 print(f"    Issue: #{pipeline.issue_number}")
-                print(f"    Phase: {pipeline.current_phase.value if pipeline.current_phase else 'none'}")
+                print(
+                    f"    Phase: {pipeline.current_phase.value if pipeline.current_phase else 'none'}"
+                )
                 print()
             except Exception as e:
                 print(f"  {pid} (error loading: {e})")
@@ -176,7 +200,7 @@ def cmd_pipelines_create(args: argparse.Namespace) -> int:
 
 def cmd_pipelines_status(args: argparse.Namespace) -> int:
     """Get pipeline status."""
-    from state_store import get_state_store, PipelineNotFoundError
+    from state_store import PipelineNotFoundError, get_state_store
 
     repo_path = Path(args.repo_path) if args.repo_path else Path.cwd()
     store = get_state_store(repo_path)
@@ -215,7 +239,7 @@ def cmd_pipelines_status(args: argparse.Namespace) -> int:
 
 def cmd_pipelines_delete(args: argparse.Namespace) -> int:
     """Delete a pipeline."""
-    from state_store import get_state_store, PipelineNotFoundError
+    from state_store import PipelineNotFoundError, get_state_store
 
     repo_path = Path(args.repo_path) if args.repo_path else Path.cwd()
     store = get_state_store(repo_path)
@@ -241,13 +265,18 @@ def cmd_gateway_status(args: argparse.Namespace) -> int:
     health = client.check_health()
 
     if args.json:
-        print(json.dumps({
-            "healthy": health.healthy,
-            "status": health.status,
-            "version": health.version,
-            "uptime_seconds": health.uptime_seconds,
-            "error": health.error,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "healthy": health.healthy,
+                    "status": health.status,
+                    "version": health.version,
+                    "uptime_seconds": health.uptime_seconds,
+                    "error": health.error,
+                },
+                indent=2,
+            )
+        )
     else:
         print(f"Gateway Status: {health.status}")
         if health.version:
