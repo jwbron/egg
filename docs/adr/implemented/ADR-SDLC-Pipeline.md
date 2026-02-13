@@ -70,7 +70,7 @@ This architecture does **not** protect against:
 │        ▼                  ▼                  ▼                  ▼       │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │                    Contract State                               │    │
-│  │  .egg-state/contracts/{issue}.json                              │    │
+│  │  .egg-state/contracts/{identifier}.json                         │    │
 │  │  - Current phase                                                │    │
 │  │  - Phases with tasks                                            │    │
 │  │  - Task status and commits                                      │    │

@@ -20,7 +20,7 @@ Agents cannot be trusted to self-police via prompts alone. The pipeline enforces
 
 ### 2. Contract-as-Code
 
-All pipeline state is stored in JSON contracts at `.egg-state/contracts/{issue-number}.json` and committed to the feature branch (not main). This provides:
+All pipeline state is stored in JSON contracts at `.egg-state/contracts/{identifier}.json` and committed to the feature branch (not main), where `{identifier}` is the issue number for issue-mode pipelines or the pipeline ID for local-mode pipelines. This provides:
 
 - Auditable history of all state changes
 - Recovery from failures without losing progress
@@ -660,7 +660,7 @@ Tasks are automatically extracted from the plan document and populated into the 
 The `action/populate-contract-tasks.py` script:
 1. Fetches the plan comment from the GitHub issue
 2. Parses task markers and PR metadata using `shared/egg_contracts/plan_parser.py`
-3. Writes phases, tasks, and PR metadata into `.egg-state/contracts/{issue-number}.json`
+3. Writes phases, tasks, and PR metadata into `.egg-state/contracts/{identifier}.json`
 4. Validates the contract against the JSON schema
 5. Commits the updated contract to the feature branch
 
