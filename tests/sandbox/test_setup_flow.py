@@ -8,8 +8,10 @@ sandbox_path = Path(__file__).parent.parent.parent / "sandbox"
 sys.path.insert(0, str(sandbox_path))
 
 from egg_lib.setup_flow import (
+    _configure_repo_checks,
     _create_general_config,
     _create_launcher_secret,
+    _create_repositories_config,
     _get_template_path,
     _read_secrets_env,
     _write_secrets_env,
@@ -352,3 +354,124 @@ class TestSetup:
                                     ):
                                         result = setup()
                                         assert result is False
+
+
+class TestConfigureRepoChecks:
+    """Tests for _configure_repo_checks."""
+
+    def test_skips_when_gate_declined(self):
+        """Returns empty dict when user declines the top-level gate prompt."""
+        with patch("builtins.input", return_value="no"):
+            result = _configure_repo_checks(["user/repo1", "user/repo2"])
+            assert result == {}
+
+    def test_skips_when_user_declines_per_repo(self):
+        """Returns empty dict when user passes gate but declines per repo."""
+        # "yes" for the gate, "no" for each repo
+        inputs = iter(["yes", "no", "no"])
+        with patch("builtins.input", side_effect=inputs):
+            result = _configure_repo_checks(["user/repo1", "user/repo2"])
+            assert result == {}
+
+    def test_configures_checks_for_single_repo(self):
+        """Stores checks when user configures a repo."""
+        # "yes" for gate, "yes" for repo1, checks, "" to finish, "no" for repo2
+        inputs = iter(["yes", "yes", "lint", "make lint", "test", "make test", "", "no"])
+        with patch("builtins.input", side_effect=inputs):
+            result = _configure_repo_checks(["user/repo1", "user/repo2"])
+            assert "user/repo1" in result
+            assert result["user/repo1"]["checks"] == [
+                {"name": "lint", "command": "make lint"},
+                {"name": "test", "command": "make test"},
+            ]
+            assert "user/repo2" not in result
+
+    def test_configures_checks_for_multiple_repos(self):
+        """Stores checks for multiple repos."""
+        inputs = iter(
+            [
+                "yes",  # gate
+                "yes",  # repo1
+                "lint",
+                "npm run lint",
+                "",  # repo1 done
+                "yes",  # repo2
+                "test",
+                "pytest",
+                "",  # repo2 done
+            ]
+        )
+        with patch("builtins.input", side_effect=inputs):
+            result = _configure_repo_checks(["user/repo1", "user/repo2"])
+            assert len(result) == 2
+            assert result["user/repo1"]["checks"] == [
+                {"name": "lint", "command": "npm run lint"},
+            ]
+            assert result["user/repo2"]["checks"] == [
+                {"name": "test", "command": "pytest"},
+            ]
+
+    def test_skips_check_with_empty_command(self):
+        """Skips a check entry when no command is provided."""
+        inputs = iter(["yes", "yes", "lint", "", "test", "make test", ""])
+        with patch("builtins.input", side_effect=inputs):
+            result = _configure_repo_checks(["user/repo1"])
+            checks = result["user/repo1"]["checks"]
+            assert len(checks) == 1
+            assert checks[0]["name"] == "test"
+
+    def test_no_entry_when_all_checks_skipped(self):
+        """No repo_settings entry when user starts but adds no valid checks."""
+        inputs = iter(["yes", "yes", "lint", "", ""])
+        with patch("builtins.input", side_effect=inputs):
+            result = _configure_repo_checks(["user/repo1"])
+            assert result == {}
+
+    def test_empty_repo_list(self):
+        """Returns empty dict for empty writable repos list."""
+        result = _configure_repo_checks([])
+        assert result == {}
+
+
+class TestCreateRepositoriesConfigWithChecks:
+    """Integration test for _create_repositories_config with check commands."""
+
+    def test_generated_yaml_contains_repo_settings_with_checks(self, tmp_path):
+        """Verifies that the generated repositories.yaml includes repo_settings
+        with configured check commands."""
+        import yaml
+
+        inputs = iter(
+            [
+                "testuser",  # GitHub username
+                "/dev/null",  # local repo path (will fail validation, that's fine)
+                "",  # end local repos
+                "testuser/my-app",  # writable repo
+                "",  # end writable repos
+                "mybot",  # bot name
+                "egg",  # branch prefix
+                "yes",  # gate: configure SDLC check commands?
+                "yes",  # configure checks for testuser/my-app?
+                "lint",  # check name
+                "make lint",  # check command
+                "test",  # check name
+                "make test",  # check command
+                "",  # done adding checks
+            ]
+        )
+        with patch("egg_lib.setup_flow.Config") as mock_config:
+            mock_config.USER_CONFIG_DIR = tmp_path
+            with patch("builtins.input", side_effect=inputs):
+                result = _create_repositories_config()
+
+        assert result is True
+        config_file = tmp_path / "repositories.yaml"
+        assert config_file.exists()
+
+        config = yaml.safe_load(config_file.read_text())
+        assert "repo_settings" in config
+        assert "testuser/my-app" in config["repo_settings"]
+        checks = config["repo_settings"]["testuser/my-app"]["checks"]
+        assert len(checks) == 2
+        assert checks[0] == {"name": "lint", "command": "make lint"}
+        assert checks[1] == {"name": "test", "command": "make test"}

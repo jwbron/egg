@@ -15,10 +15,11 @@ WORKDIR /app
 COPY orchestrator/*.py ./
 COPY orchestrator/routes/ ./routes/
 
-# Copy shared modules (egg_logging, egg_config, egg_contracts)
+# Copy shared modules (egg_logging, egg_config, egg_contracts, egg_container)
 COPY shared/egg_logging/ ./egg_logging/
 COPY shared/egg_config/ ./egg_config/
 COPY shared/egg_contracts/ ./egg_contracts/
+COPY shared/egg_container/ ./egg_container/
 
 # Install dependencies
 COPY orchestrator/requirements.txt ./requirements.txt

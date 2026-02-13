@@ -157,6 +157,7 @@ jobs:
           COMMENT_USER: ${{ github.event.comment.user.login }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           IS_PR: ${{ github.event.issue.pull_request != null }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           # Helper function to check if user matches bot or reviewer
           is_review_bot() {
@@ -166,21 +167,42 @@ jobs:
             return 1
           }
 
+          # Helper: check if the PR was authored by our bot
+          is_bot_authored_pr() {
+            [[ "$PR_AUTHOR" == "$BOT_USERNAME" || "$PR_AUTHOR" == "${BOT_USERNAME}[bot]" ]]
+          }
+
           # For pull_request_review events
           if [[ "$EVENT_NAME" == "pull_request_review" ]]; then
+            # Case 1: Automated review (bot/reviewer with marker)
+            # Trigger unless it's a clean approve (no suggestions)
             if is_review_bot "$REVIEW_USER" && \
-               [[ "$REVIEW_BODY" == *"egg-automated-review"* && \
-                  "$REVIEW_STATE" != "approved" ]]; then
+               [[ "$REVIEW_BODY" == *"egg-automated-review"* ]] && \
+               [[ "$REVIEW_STATE" != "approved" || "$REVIEW_BODY" == *"verdict=approve-with-suggestions"* ]]; then
+              echo "should_run=true" >> "$GITHUB_OUTPUT"
+            # Case 2: Human review on bot-authored PR
+            # Trigger for non-approvals (changes_requested, commented)
+            # Note: Human approvals with suggestions won't trigger because humans
+            # don't add the verdict=approve-with-suggestions marker. This is an
+            # accepted limitation - non-blocking suggestions in human approvals
+            # are considered optional and don't require automated follow-up.
+            elif ! is_review_bot "$REVIEW_USER" && is_bot_authored_pr && \
+               [[ "$REVIEW_STATE" != "approved" ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
             else
               echo "should_run=false" >> "$GITHUB_OUTPUT"
             fi
           # For issue_comment events (self-review as comment - legacy, less common with reviewer account)
           elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
+            # Extract verdict using regex to distinguish approve from approve-with-suggestions
+            comment_verdict=""
+            if [[ "$COMMENT_BODY" =~ verdict=([a-z-]+) ]]; then
+              comment_verdict="${BASH_REMATCH[1]}"
+            fi
             if is_review_bot "$COMMENT_USER" && \
                [[ "$IS_PR" == "true" && \
                   "$COMMENT_BODY" == *"egg-automated-review"* && \
-                  "$COMMENT_BODY" != *"verdict=approve"* ]]; then
+                  "$comment_verdict" != "approve" ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
             else
               echo "should_run=false" >> "$GITHUB_OUTPUT"

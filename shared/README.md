@@ -63,14 +63,29 @@ branch = get_default_branch("/path/to/repo")  # Returns "main", "master", etc.
 
 ### egg_container
 
-Shared container-launch command builder used by production launchers and tests.
+Shared container-launch config builder that unifies container configuration for both CLI and orchestrator.
 
-- `build_sandbox_docker_cmd()` — Pure function that constructs the `docker run` argument list
-- `ContainerNetworkConfig` — Dataclass for network parameters (network name, gateway hostname/IP, port, repo mode)
+**Core functions:**
+- `build_sandbox_config()` — Framework-agnostic config builder that produces `SandboxContainerConfig`
+- `build_sandbox_docker_cmd()` — Converts config to `docker run` command args (used by CLI)
+- `to_dockerpy_kwargs()` — Converts config to docker-py SDK kwargs (used by orchestrator)
+- `git_shadow_mounts()` — Generates .git shadow mounts to prevent local git operations
+
+**Data classes:**
+- `SandboxContainerConfig` — Framework-agnostic container configuration
+- `MountSpec` — Specification for a single container mount (bind, tmpfs, volume)
+- `ContainerNetworkConfig` — Network parameters (network name, gateway hostname/IP, port, repo mode)
 
 ```python
-from egg_container import build_sandbox_docker_cmd, ContainerNetworkConfig
+from egg_container import (
+    build_sandbox_config,
+    build_sandbox_docker_cmd,
+    to_dockerpy_kwargs,
+    git_shadow_mounts,
+    ContainerNetworkConfig,
+)
 
+# Build framework-agnostic config
 net_config = ContainerNetworkConfig(
     network_name="egg-isolated",
     gateway_hostname="egg-gateway",
@@ -78,7 +93,25 @@ net_config = ContainerNetworkConfig(
     gateway_port=9848,
     repo_mode="public",
 )
-cmd = build_sandbox_docker_cmd(net_config, ...)
+config = build_sandbox_config(
+    container_name="egg-sandbox",
+    image="egg-sandbox:latest",
+    network=net_config,
+)
+
+# CLI path: convert to docker run command
+cmd = build_sandbox_docker_cmd(
+    container_name="egg-sandbox",
+    image="egg-sandbox:latest",
+    network=net_config,
+)
+
+# Orchestrator path: convert to docker-py kwargs
+kwargs = to_dockerpy_kwargs(config)
+client.containers.run(**kwargs)
+
+# Generate .git shadow mounts
+mounts = git_shadow_mounts({"egg": "/home/user/repos/egg"})
 ```
 
 ### egg_orchestrator

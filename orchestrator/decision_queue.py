@@ -183,8 +183,12 @@ class DecisionQueue:
         Returns:
             List of pending decisions
         """
-        pipeline = self._load_pipeline()
-        return [d for d in pipeline.decisions if d.status == DecisionStatus.PENDING]
+        with self._lock:
+            pipeline = self._load_pipeline()
+            return [
+                d for d in pipeline.decisions
+                if d.status == DecisionStatus.PENDING
+            ]
 
     def get_decision(self, decision_id: str) -> HITLDecision:
         """Get a specific decision.
@@ -198,10 +202,11 @@ class DecisionQueue:
         Raises:
             DecisionNotFoundError: If decision not found
         """
-        pipeline = self._load_pipeline()
-        for decision in pipeline.decisions:
-            if decision.id == decision_id:
-                return decision
+        with self._lock:
+            pipeline = self._load_pipeline()
+            for decision in pipeline.decisions:
+                if decision.id == decision_id:
+                    return decision
         raise DecisionNotFoundError(f"Decision {decision_id} not found")
 
     def resolve_decision(

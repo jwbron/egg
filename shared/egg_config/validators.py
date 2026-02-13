@@ -160,6 +160,29 @@ def validate_non_empty(value: str | None, field_name: str) -> tuple[bool, str | 
     return True, None
 
 
+def validate_checks(checks: list) -> list[dict[str, str]]:
+    """Validate and normalize a list of check command entries.
+
+    Filters out malformed entries and coerces values to strings.
+    Used by config, orchestrator, and compose to validate check
+    definitions from YAML config or JSON env vars.
+
+    Args:
+        checks: Raw list of check entries (e.g. from YAML or JSON).
+
+    Returns:
+        List of {"name": "...", "command": "..."} dicts with only
+        valid entries retained.
+    """
+    if not isinstance(checks, list):
+        return []
+    return [
+        {"name": str(c["name"]), "command": str(c["command"])}
+        for c in checks
+        if isinstance(c, dict) and "name" in c and "command" in c
+    ]
+
+
 def validate_port(port: int | str) -> tuple[bool, str | None]:
     """Validate a port number.
 

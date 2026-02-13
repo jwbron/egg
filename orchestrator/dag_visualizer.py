@@ -16,7 +16,9 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 from models import (
+    AgentExecution,
     AgentExecutionStatus,
+    AgentRole,
     ContainerStatus,
     Pipeline,
     PipelinePhase,
@@ -66,6 +68,21 @@ def _get_status_symbol(status: PipelineStatus, use_ascii: bool = False) -> str:
     return symbols.get(status, "?")
 
 
+# Mapping from AgentExecutionStatus to PipelineStatus for symbol lookup
+_AGENT_STATUS_TO_PIPELINE_STATUS = {
+    AgentExecutionStatus.COMPLETE: PipelineStatus.COMPLETE,
+    AgentExecutionStatus.RUNNING: PipelineStatus.RUNNING,
+    AgentExecutionStatus.FAILED: PipelineStatus.FAILED,
+    AgentExecutionStatus.PENDING: PipelineStatus.PENDING,
+}
+
+
+def _get_agent_status_symbol(status: AgentExecutionStatus, use_ascii: bool = False) -> str:
+    """Get display symbol for an agent execution status."""
+    pipeline_status = _AGENT_STATUS_TO_PIPELINE_STATUS.get(status, PipelineStatus.PENDING)
+    return _get_status_symbol(pipeline_status, use_ascii)
+
+
 def _format_duration(started_at: datetime | None, ended_at: datetime | None = None) -> str:
     """Format duration between two timestamps."""
     if not started_at:
@@ -92,8 +109,7 @@ def _render_phase_box(
     status: PipelineStatus,
     review_cycles: int,
     is_current: bool,
-    containers_count: int = 0,
-    agents_count: int = 0,
+    agents: list[AgentExecution] | None = None,
     duration: str = "",
     use_ascii: bool = False,
 ) -> list[str]:
@@ -112,15 +128,27 @@ def _render_phase_box(
     # Current phase indicator
     current_marker = ">>>" if is_current else "   "
 
-    # Build optional info line
-    info_line = ""
-    if containers_count > 0 or agents_count > 0:
-        info_parts = []
-        if containers_count > 0:
-            info_parts.append(f"{containers_count} container(s)")
-        if agents_count > 0:
-            info_parts.append(f"{agents_count} agent(s)")
-        info_line = "   " + ", ".join(info_parts)
+    # Build optional agent info lines
+    agent_lines: list[str] = []
+    if agents:
+        # Sort agents by AgentRole enum order for consistent display
+        role_order = list(AgentRole)
+        sorted_agents = sorted(agents, key=lambda a: role_order.index(a.role))
+
+        # Build space-separated "{symbol} {role}" entries
+        entries = []
+        for agent in sorted_agents:
+            agent_symbol = _get_agent_status_symbol(agent.status, use_ascii)
+            entries.append(f"{agent_symbol} {agent.role.value}")
+
+        # Wrap to multiple lines if 4+ agents (2-3 per line)
+        if len(entries) <= 3:
+            agent_lines.append("   " + "  ".join(entries))
+        else:
+            per_line = 3
+            for i in range(0, len(entries), per_line):
+                chunk = entries[i : i + per_line]
+                agent_lines.append("   " + "  ".join(chunk))
 
     # Build duration line
     dur_line = f"   [{duration}]" if duration else ""
@@ -130,8 +158,8 @@ def _render_phase_box(
     name_line_content = f" {symbol} {name}"
     status_line_content = f"   {status_text}"
     content_widths = [len(name_line_content), len(status_line_content), 12]
-    if info_line:
-        content_widths.append(len(info_line))
+    for al in agent_lines:
+        content_widths.append(len(al))
     if dur_line:
         content_widths.append(len(dur_line))
     content_width = max(content_widths)
@@ -155,9 +183,9 @@ def _render_phase_box(
     # Status line
     lines.append(f"    {border_v}{status_line_content:<{box_width - 2}}{border_v}")
 
-    # Optional container/agent info
-    if info_line:
-        lines.append(f"    {border_v}{info_line:<{box_width - 2}}{border_v}")
+    # Optional agent info lines
+    for al in agent_lines:
+        lines.append(f"    {border_v}{al:<{box_width - 2}}{border_v}")
 
     # Duration if available
     if dur_line:
@@ -214,14 +242,12 @@ def render_pipeline_dag(
         if phase_exec:
             status = phase_exec.status
             review_cycles = phase_exec.review_cycles
-            containers_count = len(phase_exec.containers)
-            agents_count = len(phase_exec.agents)
+            agents = phase_exec.agents
             duration = _format_duration(phase_exec.started_at, phase_exec.completed_at)
         else:
             status = PipelineStatus.PENDING
             review_cycles = 0
-            containers_count = 0
-            agents_count = 0
+            agents = []
             duration = ""
 
         is_current = pipeline.current_phase == phase
@@ -232,8 +258,7 @@ def render_pipeline_dag(
             status=status,
             review_cycles=review_cycles,
             is_current=is_current,
-            containers_count=containers_count,
-            agents_count=agents_count,
+            agents=agents,
             duration=duration,
             use_ascii=use_ascii,
         )
@@ -307,16 +332,7 @@ def render_phase_detail(
         lines.append("")
         lines.append(f"Agents ({len(phase_exec.agents)}):")
         for agent in phase_exec.agents:
-            a_status = _get_status_symbol(
-                PipelineStatus.COMPLETE
-                if agent.status == AgentExecutionStatus.COMPLETE
-                else PipelineStatus.RUNNING
-                if agent.status == AgentExecutionStatus.RUNNING
-                else PipelineStatus.FAILED
-                if agent.status == AgentExecutionStatus.FAILED
-                else PipelineStatus.PENDING,
-                use_ascii,
-            )
+            a_status = _get_agent_status_symbol(agent.status, use_ascii)
             lines.append(f"  {a_status} {agent.role.value}")
             if agent.commit:
                 lines.append(f"      Commit: {agent.commit[:8]}")
@@ -435,9 +451,12 @@ def generate_status_report(
                     else 0
                 ),
                 "agents": (
-                    len(pipeline.phases[phase.value].agents)
+                    [
+                        {"role": a.role.value, "status": a.status.value}
+                        for a in pipeline.phases[phase.value].agents
+                    ]
                     if phase.value in pipeline.phases
-                    else 0
+                    else []
                 ),
             }
             for phase in PHASE_ORDER

@@ -6,7 +6,7 @@ This document describes the directory structure conventions for egg.
 
 ```
 egg/
-├── bin/                    # CLI entry points
+├── bin/                    # CLI entry points (egg, egg-deploy, egg-status)
 ├── config/                 # Central configuration (repos, secrets template)
 ├── docs/                   # Cross-cutting documentation
 ├── gateway/                # Gateway sidecar (trusted container)
@@ -93,8 +93,10 @@ orchestrator/
 ├── multi_agent.py          # Multi-agent orchestration
 ├── resilience.py           # Retry and error recovery
 ├── sandbox_template.py     # Sandbox container template
+├── sse.py                  # Server-Sent Events streaming for pipeline visualization
 ├── state_store.py          # Git-backed pipeline state
 ├── status_reporter.py      # Real-time status reporter for collaborators
+├── unified_sse.py          # Unified SSE stream for all pipelines
 ├── webhooks.py             # GitHub webhook handlers
 ├── routes/                 # API route handlers
 │   ├── containers.py       # Container management endpoints
@@ -126,6 +128,7 @@ sandbox/
 │   ├── gh
 │   ├── egg-contract        # Symlink to contract_cli.py
 │   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
+│   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
 │   ├── contract_cli.py     # SDLC contract CLI implementation
@@ -144,7 +147,10 @@ sandbox/
 ```
 shared/
 ├── egg_config/             # Configuration utilities
-│   └── constants.py        # Centralized constants (ports, networks, container names)
+│   ├── constants.py        # Centralized constants (ports, networks, container names)
+│   └── validators.py       # Validation functions (URLs, emails, tokens, check commands)
+├── egg_container/          # Shared container-launch config builder
+│   └── __init__.py         # build_sandbox_config(), build_sandbox_docker_cmd(), git_shadow_mounts(), to_dockerpy_kwargs()
 ├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration, checkpoints
 │   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig, AgentExecutionModel
 │   ├── phase_defaults.py   # Default check configurations per SDLC phase

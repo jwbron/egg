@@ -117,6 +117,9 @@ services:
       # Host repo map for sandbox volume mounts (Docker socket sees host paths)
       # JSON mapping of repo_name -> host_path, auto-generated from repositories.yaml
       - EGG_HOST_REPO_MAP=${EGG_HOST_REPO_MAP:-{}}
+      # Per-repo check commands for SDLC pipeline implement phase
+      # JSON mapping of owner/repo -> [{name, command}, ...], from repositories.yaml
+      - EGG_REPO_CHECKS=${EGG_REPO_CHECKS:-{}}
       # Sandbox image for spawned containers
       - EGG_SANDBOX_IMAGE=${EGG_SANDBOX_IMAGE:-egg:latest}
       # Launcher secret for gateway session registration
@@ -129,6 +132,8 @@ services:
       - state:/home/egg/.egg-state
       # Docker socket for container management
       - /var/run/docker.sock:/var/run/docker.sock
+      # Worktrees directory (read container-written artifacts: verdicts, drafts, checks)
+      - ${HOST_HOME:-/home/egg}/.egg-worktrees:/home/egg/.egg-worktrees
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:9849/api/v1/health"]
       interval: 10s

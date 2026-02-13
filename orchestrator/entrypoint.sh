@@ -52,8 +52,24 @@ if [ "$ORCHESTRATOR_DEBUG" = "true" ]; then
 fi
 
 # Drop privileges to match host user so volume mounts are accessible
-if [ "$(id -u)" = "0" ]; then
-    # Ensure the target UID has a passwd entry pointing to /home/egg
+if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; then
+    # Validate HOST_UID is a real non-root user.  Running as root creates
+    # git refs with root:root ownership, breaking host git operations.
+    if [ "$HOST_UID" = "0" ]; then
+        echo "ERROR: HOST_UID must not be 0 (root)." >&2
+        echo "Set HOST_UID/HOST_GID to your host user: id -u / id -g" >&2
+        exit 1
+    fi
+
+    echo "Dropping privileges to UID=$HOST_UID GID=$HOST_GID"
+    # Defense-in-depth fallback: the passwd entry created below is the primary
+    # mechanism that makes gosu resolve HOME=/home/egg, but we export it here
+    # too in case the useradd/passwd lookup fails for any reason.
+    export HOME=/home/egg
+
+    # Ensure the target UID has a passwd entry pointing to /home/egg.
+    # Without this, gosu defaults HOME="/" for unknown UIDs, causing
+    # git config and Path.home() to fail with Permission denied on /.gitconfig.
     if ! getent passwd "$HOST_UID" > /dev/null 2>&1; then
         getent group "$HOST_GID" > /dev/null 2>&1 || groupadd -g "$HOST_GID" egghost 2>/dev/null || true
         useradd -u "$HOST_UID" -g "$HOST_GID" -d /home/egg -s /bin/bash -M -N egghost 2>/dev/null || true
@@ -105,7 +121,14 @@ if [ "$(id -u)" = "0" ]; then
     gosu "$HOST_UID:$HOST_GID" git config --global user.email "egg@localhost"
 
     exec gosu "$HOST_UID:$HOST_GID" python -u cli.py $CMD_ARGS
+elif [ "$(id -u)" = "0" ]; then
+    # Running as root without HOST_UID/HOST_GID — refuse to continue.
+    # This would create root-owned git refs that break host git operations.
+    echo "ERROR: running as root but HOST_UID/HOST_GID are not set." >&2
+    echo "Cannot drop privileges. Set HOST_UID and HOST_GID in docker-compose.yml." >&2
+    exit 1
 else
+    # Already running as non-root (e.g. docker run --user), no gosu needed.
     git config --global user.name "egg-orchestrator"
     git config --global user.email "egg@localhost"
 

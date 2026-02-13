@@ -1,0 +1,383 @@
+#!/usr/bin/env python3
+"""
+Watch pipeline progress via SSE stream.
+
+Connects to the orchestrator's SSE endpoint and renders the DAG
+visualization in the terminal with real-time in-place updates.
+
+Usage:
+    egg-pipeline-watch <pipeline_id> [--ascii] [--compact] [--once]
+
+Options:
+    --ascii     Use ASCII-only characters (no Unicode box drawing)
+    --compact   Show compact single-line status instead of full DAG
+    --once      Show current state and exit (no streaming)
+"""
+
+import argparse
+import json
+import os
+import re
+import signal
+import sys
+from http.client import HTTPConnection
+from urllib.parse import urlparse
+
+# ANSI escape codes
+RESET = "\033[0m"
+DIM = "\033[2m"
+BOLD = "\033[1m"
+GREEN = "\033[32m"
+RED = "\033[31m"
+YELLOW = "\033[33m"
+CYAN = "\033[36m"
+
+# Whether stdout is a real terminal (vs piped/captured by Claude Code)
+IS_TTY = sys.stdout.isatty()
+
+# Regex to strip ANSI escape sequences
+_ANSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
+
+# Status → ANSI color mapping (used by format_status_line and render_event_info)
+STATUS_COLORS = {
+    "running": CYAN,
+    "complete": GREEN,
+    "failed": RED,
+    "pending": DIM,
+    "awaiting_human": YELLOW,
+    "cancelled": RED,
+}
+
+
+def _is_inside_container() -> bool:
+    """Detect whether we're running inside a Docker container."""
+    if os.environ.get("EGG_CONTAINER"):
+        return True
+    try:
+        return os.path.exists("/.dockerenv")
+    except OSError:
+        return False
+
+
+def get_orchestrator_url() -> str:
+    """Get the orchestrator base URL from environment or auto-detect.
+
+    Priority:
+    1. EGG_ORCHESTRATOR_URL env var (explicit override)
+    2. http://egg-orchestrator:9849 (inside container, hostname resolves)
+    3. http://localhost:9849 (host machine, port mapped via docker-compose)
+    """
+    env_url = os.environ.get("EGG_ORCHESTRATOR_URL")
+    if env_url:
+        return env_url
+
+    if _is_inside_container():
+        return "http://egg-orchestrator:9849"
+
+    return "http://localhost:9849"
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from text."""
+    return _ANSI_RE.sub("", text)
+
+
+def _write(text: str, file=None) -> None:
+    """Write text, stripping ANSI codes if not a TTY."""
+    file = file or sys.stdout
+    if not file.isatty():
+        text = strip_ansi(text)
+    file.write(text)
+    file.flush()
+
+
+def _clear_screen() -> None:
+    """Clear the terminal screen and move cursor to top."""
+    if IS_TTY:
+        sys.stdout.write("\033[2J\033[H")
+        sys.stdout.flush()
+
+
+def format_status_line(pipeline_id: str, data: dict) -> str:
+    """Format a single-line status display."""
+    status = data.get("status", "unknown")
+    phase = data.get("current_phase", "unknown")
+    pending = data.get("pending_decisions", 0)
+    updated = data.get("timestamp", "")
+
+    color = STATUS_COLORS.get(status, "")
+
+    time_part = ""
+    if updated:
+        time_part = updated.split("T")[-1].rstrip("Z")[:8]
+
+    line = f"{BOLD}{pipeline_id}{RESET}  {color}{status}{RESET}  phase={phase}"
+    if pending:
+        line += f"  {YELLOW}({pending} pending decision{'s' if pending != 1 else ''}){RESET}"
+    if time_part:
+        line += f"  {DIM}{time_part}{RESET}"
+
+    return line
+
+
+def render_header(pipeline_id: str, event_type: str | None = None) -> str:
+    """Render a header line above the DAG."""
+    lines = []
+    lines.append(f"{BOLD}Pipeline Watch: {pipeline_id}{RESET}")
+    if event_type:
+        lines.append(f"{DIM}Last event: {event_type}{RESET}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_event_info(data: dict) -> str:
+    """Render event metadata below the DAG."""
+    lines = []
+
+    status = data.get("status", "")
+    phase = data.get("current_phase", "")
+    event_type = data.get("event_type", "")
+    timestamp = data.get("timestamp", "")
+
+    color = STATUS_COLORS.get(status, "")
+
+    lines.append("")
+    lines.append(f"  Status: {color}{status}{RESET}  |  Phase: {phase}")
+    if timestamp:
+        time_part = timestamp.split("T")[-1].rstrip("Z")[:8]
+        lines.append(f"  {DIM}Updated: {time_part}  Event: {event_type}{RESET}")
+
+    return "\n".join(lines)
+
+
+def display_visualization(data: dict, compact: bool = False) -> None:
+    """Display the DAG visualization with in-place update."""
+    _clear_screen()
+
+    pipeline_id = data.get("pipeline_id", "unknown")
+    event_type = data.get("event_type", "")
+
+    if compact:
+        output = format_status_line(pipeline_id, data)
+        _write(output + "\n")
+        return
+
+    output = render_header(pipeline_id, event_type)
+
+    viz = data.get("visualization", {})
+    dag = viz.get("dag", "")
+    if dag:
+        output += dag
+    else:
+        output += "  Waiting for visualization data..."
+
+    output += render_event_info(data)
+    output += f"\n\n{DIM}Press Ctrl+C to stop watching{RESET}\n"
+
+    _write(output)
+
+
+def display_done(data: dict, last_status: str | None = None) -> None:
+    """Display final message when stream ends."""
+    reason = data.get("reason", "unknown")
+    pipeline_id = data.get("pipeline_id", "")
+
+    if reason == "timeout":
+        msg = f"{YELLOW}Connection timed out. Re-run to reconnect.{RESET}"
+    elif reason in ("completed", "already_terminal"):
+        if last_status in ("failed", "cancelled"):
+            color = RED
+            verb = "failed" if last_status == "failed" else "was cancelled"
+            msg = f"{color}Pipeline {pipeline_id} {verb}.{RESET}"
+        else:
+            msg = f"{GREEN}Pipeline {pipeline_id} completed.{RESET}"
+    else:
+        msg = f"Stream ended: {reason}"
+
+    _write(f"\n{msg}\n")
+
+
+def display_error(data: dict) -> None:
+    """Display an error message."""
+    error = data.get("error", "Unknown error")
+    _write(f"{RED}Error: {error}{RESET}\n", file=sys.stderr)
+
+
+def parse_sse_stream(response):
+    """Parse an SSE stream from an HTTP response.
+
+    Yields (event_type, data_dict) tuples.
+    """
+    event_type = None
+    data_lines = []
+
+    # Iterate directly on HTTPResponse, which inherits from
+    # io.BufferedIOBase — __iter__ (from IOBase) calls readline() repeatedly.
+    for raw_line in response:
+        line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+
+        if line.startswith("event: "):
+            event_type = line[7:]
+        elif line.startswith("data: "):
+            data_lines.append(line[6:])
+        elif line.startswith(":"):
+            # Comment (heartbeat) - ignore
+            pass
+        elif line == "":
+            # Blank line = end of event
+            if data_lines:
+                raw = "\n".join(data_lines)
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    data = {"raw": raw}
+                yield (event_type or "message", data)
+            event_type = None
+            data_lines = []
+
+
+def watch_pipeline(
+    pipeline_id: str,
+    use_ascii: bool = False,
+    compact: bool = False,
+    once: bool = False,
+) -> int:
+    """Connect to SSE stream and display visualization.
+
+    Args:
+        pipeline_id: Pipeline to watch
+        use_ascii: Use ASCII-only characters
+        compact: Show compact view
+        once: Show current state and exit
+
+    Returns:
+        Exit code (0 = success, 1 = error)
+    """
+    base_url = get_orchestrator_url()
+    parsed = urlparse(base_url)
+    host = parsed.hostname or "egg-orchestrator"
+    port = parsed.port or 9849
+
+    path = f"/api/v1/pipelines/{pipeline_id}/stream"
+    params = []
+    if use_ascii:
+        params.append("ascii=true")
+    if params:
+        path += "?" + "&".join(params)
+
+    conn = None
+    try:
+        conn = HTTPConnection(host, port, timeout=120)
+        conn.request(
+            "GET",
+            path,
+            headers={
+                "Accept": "text/event-stream",
+                "Cache-Control": "no-cache",
+            },
+        )
+        response = conn.getresponse()
+
+        if response.status != 200:
+            body = response.read().decode("utf-8", errors="replace")
+            try:
+                err = json.loads(body)
+                msg = err.get("message", body)
+            except json.JSONDecodeError:
+                msg = body
+            _write(f"{RED}Error ({response.status}): {msg}{RESET}\n", file=sys.stderr)
+            return 1
+
+        last_status = None
+        last_pending = 0
+        for event_type, data in parse_sse_stream(response):
+            if event_type == "error":
+                display_error(data)
+                return 1
+
+            if event_type == "done":
+                display_done(data, last_status=last_status)
+                return 1 if last_status in ("failed", "cancelled") else 0
+
+            last_status = data.get("status", last_status)
+            if "pending_decisions" in data:
+                last_pending = data["pending_decisions"]
+            elif last_pending:
+                data["pending_decisions"] = last_pending
+            display_visualization(data, compact=compact)
+
+            if once:
+                return 0
+
+    except KeyboardInterrupt:
+        _write(f"\n{DIM}Stopped watching.{RESET}\n")
+        return 0
+    except TimeoutError:
+        _write(
+            f"{YELLOW}No data from server for 120s. "
+            f"Reconnect with: egg-pipeline-watch {pipeline_id}{RESET}\n",
+            file=sys.stderr,
+        )
+        return 1
+    except ConnectionRefusedError:
+        _write(
+            f"{RED}Cannot connect to orchestrator at {base_url}\n"
+            f"Is the orchestrator running?{RESET}\n",
+            file=sys.stderr,
+        )
+        return 1
+    except Exception as e:
+        _write(f"{RED}Connection error: {e}{RESET}\n", file=sys.stderr)
+        return 1
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    return 0
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Watch SDLC pipeline progress in real-time",
+        prog="egg-pipeline-watch",
+    )
+    parser.add_argument(
+        "pipeline_id",
+        help="Pipeline ID to watch (e.g., issue-123, local-abc123)",
+    )
+    parser.add_argument(
+        "--ascii",
+        action="store_true",
+        help="Use ASCII-only characters (no Unicode box drawing)",
+    )
+    parser.add_argument(
+        "--compact",
+        action="store_true",
+        help="Show compact single-line status",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Show current state and exit (no streaming)",
+    )
+
+    args = parser.parse_args()
+
+    # Handle SIGPIPE gracefully
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
+    sys.exit(
+        watch_pipeline(
+            pipeline_id=args.pipeline_id,
+            use_ascii=args.ascii,
+            compact=args.compact,
+            once=args.once,
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

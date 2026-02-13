@@ -20,7 +20,7 @@ Agents cannot be trusted to self-police via prompts alone. The pipeline enforces
 
 ### 2. Contract-as-Code
 
-All pipeline state is stored in JSON contracts at `.egg-state/contracts/{issue-number}.json` and committed to the feature branch (not main). This provides:
+All pipeline state is stored in JSON contracts at `.egg-state/contracts/{identifier}.json` and committed to the feature branch (not main), where `{identifier}` is the issue number for issue-mode pipelines or the pipeline ID for local-mode pipelines. This provides:
 
 - Auditable history of all state changes
 - Recovery from failures without losing progress
@@ -71,9 +71,11 @@ The pipeline pauses for human approval at phase transitions. Decisions use check
 
 ### Pipeline Status Visualization
 
-The orchestrator provides real-time pipeline status visualization through the visualization API endpoint. This allows monitoring pipeline progress and phase status.
+The orchestrator provides pipeline status visualization through the following endpoints:
 
-**Endpoint**: `GET /api/v1/pipelines/<pipeline_id>/visualization`
+**1. Static Visualization**: `GET /api/v1/pipelines/<pipeline_id>/visualization`
+
+Returns a snapshot of the current pipeline state.
 
 **Query parameters**:
 - `format`: Output format - `full` (default), `compact`, `text`, or `json`
@@ -86,6 +88,87 @@ The orchestrator provides real-time pipeline status visualization through the vi
 3. **`text`**: Plain text DAG visualization
 4. **`json`**: Structured JSON report with phase details
 
+**2. Status Polling**: `GET /api/v1/pipelines/<pipeline_id>/status`
+
+Returns the current pipeline status for polling-based monitoring.
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Status retrieved",
+  "data": {
+    "id": "issue-123",
+    "status": "running",
+    "current_phase": "implement",
+    "pending_decisions": 0,
+    "updated_at": "2026-02-12T10:30:00Z"
+  }
+}
+```
+
+When `pending_decisions > 0`, the `data` object includes an additional `pending_decision` field with the first pending decision's details, so consumers don't need a second round-trip to fetch it:
+
+```json
+{
+  "success": true,
+  "message": "Status retrieved",
+  "data": {
+    "id": "issue-123",
+    "status": "running",
+    "current_phase": "implement",
+    "pending_decisions": 1,
+    "updated_at": "2026-02-12T10:30:00Z",
+    "pending_decision": {
+      "id": "decision-1",
+      "question": "How should we proceed?",
+      "context": "Additional context for the decision",
+      "options": ["Option A", "Option B"],
+      "created_at": "2026-02-12T11:00:00Z"
+    }
+  }
+}
+```
+
+**CLI tools**:
+- `egg-pipeline-watch <pipeline_id>` — Monitor a single pipeline via SSE stream (real-time DAG visualization)
+- `egg-status` — Monitor all active pipelines via unified SSE stream (real-time updates)
+
+**3. Real-time Streaming**: `GET /api/v1/pipelines/<pipeline_id>/stream`
+
+Returns a Server-Sent Events (SSE) stream for real-time pipeline updates.
+
+**Query parameters**:
+- `ascii`: Use ASCII-only characters (`true` or `false`, default: `false`)
+
+**Event types**:
+- `snapshot`: Initial pipeline state with full DAG visualization
+- `pipeline.*`: Pipeline lifecycle events (created, started, completed, failed, cancelled)
+- `phase.*`: Phase transition events (started, completed, failed)
+- `agent.*`: Agent lifecycle events (started, completed, failed, timeout)
+- `decision.*`: HITL decision events (created, resolved, timeout)
+- `container.*`: Container lifecycle events (spawned, stopped, removed) — *planned; not yet emitted via SSE*
+- `done`: Stream ending (pipeline terminal state or timeout)
+- `error`: Error occurred
+
+Each event includes the current visualization data and pipeline status. The stream automatically closes when the pipeline reaches a terminal state or after 1 hour.
+
+**4. Unified Streaming (All Pipelines)**: `GET /api/v1/pipelines/stream`
+
+Returns a Server-Sent Events (SSE) stream for real-time updates across all active pipelines. Unlike the per-pipeline stream, terminal events for individual pipelines do not end the stream.
+
+**Query parameters**:
+- `ascii`: Use ASCII-only characters (`true` or `false`, default: `false`)
+- `active_only`: Only include active pipelines in snapshot (`true` or `false`, default: `true`)
+- `full_dag`: Include full DAG visualization instead of compact status (`true` or `false`, default: `false`)
+
+**Event types**:
+- `snapshot`: Initial state of all active pipelines
+- `pipeline.*`, `phase.*`, `agent.*`, `decision.*`: Events for individual pipelines
+- `done`: Stream is ending (timeout after 1 hour)
+
+**CLI tool**: Use `egg-status` to monitor all pipelines in a live dashboard. Runs on the host and connects to the orchestrator's unified stream endpoint.
+
 **Example JSON response** (`format=full`):
 ```json
 {
@@ -96,15 +179,15 @@ The orchestrator provides real-time pipeline status visualization through the vi
     "status": "running",
     "current_phase": "implement",
     "visualization": {
-      "dag": ">>> ╔══════════════╗\n    │ ▶ Implement │\n    │   running   │\n    ╚══════════════╝",
+      "dag": ">>> ╔══════════════════════╗\n    │ ▶ Implement          │\n    │   running            │\n    │   ✓ coder  ▶ reviewer│\n    ╚══════════════════════╝",
       "compact": "✓Refine → ✓Plan → [▶Implement] → ○PR",
       "progress": "[███████████░░░░░░░░░] 60%"
     },
     "phases": {
-      "refine": {"status": "complete", "review_cycles": 2, "containers": 1, "agents": 1},
-      "plan": {"status": "complete", "review_cycles": 1, "containers": 1, "agents": 1},
-      "implement": {"status": "running", "review_cycles": 0, "containers": 1, "agents": 1},
-      "pr": {"status": "pending", "review_cycles": 0, "containers": 0, "agents": 0}
+      "refine": {"status": "complete", "review_cycles": 2, "containers": 1, "agents": [{"role": "coder", "status": "complete"}]},
+      "plan": {"status": "complete", "review_cycles": 1, "containers": 1, "agents": [{"role": "coder", "status": "complete"}]},
+      "implement": {"status": "running", "review_cycles": 0, "containers": 2, "agents": [{"role": "coder", "status": "complete"}, {"role": "reviewer", "status": "running"}]},
+      "pr": {"status": "pending", "review_cycles": 0, "containers": 0, "agents": []}
     },
     "pending_decisions": 0,
     "updated_at": "2026-02-12T10:30:00Z"
@@ -205,7 +288,7 @@ Multi-agent orchestration is triggered via `.github/workflows/sdlc-multi-agent.y
 
 The refine and plan phases include an automated internal review step before human approval. All reviews happen internally without posting to the issue until approval:
 
-1. **Producer agent runs** — The refine/plan agent writes its output to `.egg-state/drafts/{issue}-{analysis|plan}.md`
+1. **Producer agent runs** — The refine/plan agent writes its output to `.egg-state/drafts/{identifier}-{analysis|plan}.md`
 2. **Reviewer agents run in parallel** — Each reviewer reads the draft and writes verdict to its own file
 3. **Verdicts aggregated** — If any reviewer needs revision, the aggregate verdict is `needs_revision`
 4. **If approved** — The final draft is posted to the issue with an approval checkbox for human review
@@ -216,19 +299,19 @@ The refine and plan phases include an automated internal review step before huma
 **File Structure:**
 ```
 .egg-state/
-├── contracts/{issue}.json      # Contract state
+├── contracts/{identifier}.json      # Contract state
 ├── drafts/
-│   ├── {issue}-analysis.md     # Refine phase draft
-│   └── {issue}-plan.md         # Plan phase draft
+│   ├── {identifier}-analysis.md     # Refine phase draft
+│   └── {identifier}-plan.md         # Plan phase draft
 └── reviews/
-    ├── {issue}-refine-review.json       # Unified review verdict
-    ├── {issue}-refine-agent-design.json # Agent-design review verdict
-    ├── {issue}-plan-review.json         # Unified review verdict
-    ├── {issue}-plan-agent-design.json   # Agent-design review verdict
-    ├── {issue}-implement-review.json    # Unified review verdict
-    ├── {issue}-implement-agent-design.json
-    ├── {issue}-implement-contract.json
-    └── {issue}-implement-code.json
+    ├── {identifier}-refine-review.json       # Unified review verdict
+    ├── {identifier}-refine-agent-design.json # Agent-design review verdict
+    ├── {identifier}-plan-review.json         # Unified review verdict
+    ├── {identifier}-plan-agent-design.json   # Agent-design review verdict
+    ├── {identifier}-implement-review.json    # Unified review verdict
+    ├── {identifier}-implement-agent-design.json
+    ├── {identifier}-implement-contract.json
+    └── {identifier}-implement-code.json
 ```
 
 **Review Verdict JSON Schema:**
@@ -634,7 +717,7 @@ When a phase is complete and ready for human approval, agents post a comment usi
 
 Tasks are automatically extracted from the plan document and populated into the contract during the plan phase, after the plan document is validated.
 
-The `action/populate-contract-tasks.py` script:
+The `action/populate-contract-tasks.py` script (issue-mode only):
 1. Fetches the plan comment from the GitHub issue
 2. Parses task markers and PR metadata using `shared/egg_contracts/plan_parser.py`
 3. Writes phases, tasks, and PR metadata into `.egg-state/contracts/{issue-number}.json`
@@ -683,6 +766,27 @@ python .github/scripts/checks/run_check.py lint .egg-state/contracts/123.json --
 ```
 
 The script loads the contract, runs the check, and outputs JSON with the result.
+
+### Per-Repository Check Commands
+
+For local orchestrator mode, you can configure explicit check commands per repository in `~/.config/egg/repositories.yaml`:
+
+```yaml
+repo_settings:
+  your-org/web-app:
+    checks:
+      - name: lint
+        command: npm run lint
+      - name: test
+        command: npm test
+```
+
+When configured, the implement phase checker agent runs these commands sequentially instead of auto-discovering test/lint commands. This is useful when:
+- Auto-discovery doesn't find the right commands
+- You want to run checks in a specific order
+- You need to run custom validation scripts
+
+If not configured, the checker falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.). See [Configuration](../../config/README.md#per-repo-check-commands) for setup details.
 
 ### Built-in Checks
 

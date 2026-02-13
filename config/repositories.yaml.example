@@ -73,13 +73,28 @@ readable_repos:
 #   - auth_mode: Authentication mode for this repo
 #     "bot" (default): Use GitHub App bot identity
 #     "user": Use personal access token with user identity
+#   - checks: List of check commands for the SDLC pipeline implement phase
+#     Each entry has "name" (display label) and "command" (shell command)
+#     These run sequentially during the checker step
 repo_settings:
   # Example:
   # YOUR_USERNAME/egg:
   #   restrict_to_configured_users: true
   #   disable_auto_fix: true
+  #   checks:
+  #     - name: lint
+  #       command: make lint
+  #     - name: test
+  #       command: make test
   # some-org/external-repo:
   #   auth_mode: user  # Use personal identity for this repo
+  #   checks:
+  #     - name: install
+  #       command: npm install
+  #     - name: lint
+  #       command: npm run lint
+  #     - name: test
+  #       command: npm test
 
 # User mode configuration (optional)
 # When auth_mode is set to "user" for a repo, operations will be

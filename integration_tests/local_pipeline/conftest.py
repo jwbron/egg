@@ -50,6 +50,11 @@ writable_repos:
 repo_settings:
   test-owner/test-repo:
     auth_mode: bot
+    checks:
+      - name: lint
+        command: "echo 'lint ok'"
+      - name: test
+        command: "echo 'test ok'"
 
 user_mode:
   github_user: test-user
@@ -200,6 +205,14 @@ def local_pipeline_stack() -> Generator[LocalPipelineStack, None, None]:
         "EGG_LAUNCHER_SECRET": launcher_secret,
         "EGG_CONFIG_DIR": config_dir,
         "EGG_HOST_REPO_MAP": json.dumps({repo_name: repos_dir}),
+        "EGG_REPO_CHECKS": json.dumps(
+            {
+                "test-owner/test-repo": [
+                    {"name": "lint", "command": "echo 'lint ok'"},
+                    {"name": "test", "command": "echo 'test ok'"},
+                ]
+            }
+        ),
         "HOST_UID": str(os.getuid()),
         "HOST_GID": str(os.getgid()),
         "GATEWAY_PORT": "0",

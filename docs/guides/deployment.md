@@ -70,7 +70,7 @@ egg --public
    # Set your user identity and home directory
    HOST_UID=$(id -u)
    HOST_GID=$(id -g)
-   HOST_HOME=$HOME  # REQUIRED for worktree bind mounts
+   HOST_HOME=$HOME  # REQUIRED: orchestrator mounts $HOST_HOME/.egg-worktrees to read pipeline artifacts
    ```
 
 3. **Create repositories.yaml:**
@@ -294,6 +294,28 @@ The Docker Compose configuration includes automatic health checks with:
 1. Check HOST_UID/HOST_GID match your user: `id -u && id -g`
 2. Ensure repositories directory is accessible
 3. Check SELinux/AppArmor if on Linux
+
+### Orchestrator refuses to start as root
+
+If the orchestrator exits on startup with a root-related error, `HOST_UID` and `HOST_GID` are either not set or set to 0. You may see one of:
+
+- `ERROR: running as root but HOST_UID/HOST_GID are not set.` — entrypoint cannot drop privileges
+- `ERROR: HOST_UID must not be 0 (root).` — HOST_UID is explicitly set to 0
+- `ERROR: orchestrator must not run as root.` — Python process is still running as root
+
+The orchestrator requires these environment variables to drop privileges before starting. Running as root would create git artifacts with root:root ownership, breaking host git operations.
+
+Fix:
+```bash
+# In your .env file (or hardcode the output of id -u / id -g)
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+```
+
+If `.git` directories already have root-owned files:
+```bash
+sudo chown -R $(id -u):$(id -g) ~/repos/*/.git
+```
 
 ## Security Considerations
 
