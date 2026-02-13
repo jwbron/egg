@@ -128,7 +128,9 @@ Without it, the system falls back to posting reviews as comments (self-review mo
    - PR is from the same repository (not a fork — bot can't push to forks)
    - PR author is the bot (unless manually triggered)
    - PR doesn't have `[skip-review]` marker
-   - Review is not an approval (filtered at job level to prevent runner allocation)
+   - Review requires action (filtered at job level to prevent runner allocation):
+     - Non-approval reviews (request-changes, comment) always trigger
+     - Approvals trigger only if they include `<!-- has-suggestions -->` marker
    - Iteration count is below the limit (default: 3 rounds)
 
 2. **Wait for all reviewers** — Polls GitHub check runs for all `egg-reviewer-*` jobs
@@ -173,6 +175,8 @@ The agent addresses all actionable review feedback:
 | **Fix** | Correctness issues, security concerns, logic errors, missing error handling, resource leaks, breaking changes, pattern violations |
 | **Respond (do not fix)** | Disagreement with feedback — agent posts a reply explaining reasoning instead of making the change |
 | **Skip** | Pure style suggestions that linters handle, subjective preferences without technical justification |
+
+**Note:** Reviewers can include non-blocking suggestions in approval reviews by adding `<!-- has-suggestions -->` anywhere in the review body. This marker signals that the approval includes suggestions the agent should address, triggering the feedback workflow even though the review state is "approved".
 
 ### Security
 
