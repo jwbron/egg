@@ -5,7 +5,7 @@
   "branch": "egg/issue-582",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -18,9 +18,9 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-02-13T02:18:51.566778",
-      "completed_at": null,
+      "completed_at": "2026-02-13T02:19:03.518423",
       "containers": [
         {
           "container_id": "1f5504cf8a996c632f2273ca30e798b5b50a52cda0deba5dedb36444594828fd",
@@ -48,13 +48,13 @@
       ],
       "review_cycles": 0,
       "artifacts": {},
-      "error": null
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-13T02:19:03.307223449Z     Status: healthy\n2026-02-13T02:19:03.307251865Z     GitHub token valid: True\n2026-02-13T02:19:03.307265032Z     Auth configured: True\n2026-02-13T02:19:03.307276282Z ✓ Gateway ready! (public mode - direct internet access)\n2026-02-13T02:19:03.307286240Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-13T02:19:03.307295990Z   Credentials injected by gateway (not in container)\n2026-02-13T02:19:03.307305490Z ⚠ Failed to signal orchestrator: OrchestratorError: Failed to connect to orchestrator: timed out\n2026-02-13T02:19:03.307315699Z \n2026-02-13T02:19:03.307324282Z Cleaning up on container exit...\n2026-02-13T02:19:03.307333282Z ✓ Cleanup complete"
     }
   },
   "decisions": [],
   "created_at": "2026-02-13T02:18:47.131997",
-  "updated_at": "2026-02-13T02:19:03.482351",
+  "updated_at": "2026-02-13T02:19:03.518627",
   "contract_synced": true,
-  "error": null,
-  "version": 7
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-13T02:19:03.307223449Z     Status: healthy\n2026-02-13T02:19:03.307251865Z     GitHub token valid: True\n2026-02-13T02:19:03.307265032Z     Auth configured: True\n2026-02-13T02:19:03.307276282Z ✓ Gateway ready! (public mode - direct internet access)\n2026-02-13T02:19:03.307286240Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-13T02:19:03.307295990Z   Credentials injected by gateway (not in container)\n2026-02-13T02:19:03.307305490Z ⚠ Failed to signal orchestrator: OrchestratorError: Failed to connect to orchestrator: timed out\n2026-02-13T02:19:03.307315699Z \n2026-02-13T02:19:03.307324282Z Cleaning up on container exit...\n2026-02-13T02:19:03.307333282Z ✓ Cleanup complete",
+  "version": 8
 }
