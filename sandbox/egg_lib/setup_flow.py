@@ -277,6 +277,60 @@ def _create_launcher_secret() -> None:
         info("Generated launcher secret for gateway authentication")
 
 
+def _configure_repo_checks(writable_repos: list[str]) -> dict:
+    """Prompt for per-repo check commands (test/lint) for the SDLC pipeline.
+
+    For each writable repo, asks whether the user wants to configure explicit
+    check commands.  When configured, the SDLC pipeline checker step runs
+    these commands instead of auto-discovering them.
+
+    Args:
+        writable_repos: List of repos in "owner/repo" format.
+
+    Returns:
+        A ``repo_settings`` dict suitable for writing to repositories.yaml.
+        Only repos with configured checks will have entries.
+    """
+    print()
+    info("Per-repository check commands (optional):")
+    print("  The SDLC pipeline runs test/lint checks after implementing changes.")
+    print("  By default it auto-discovers commands (Makefile, package.json, etc.).")
+    print("  You can configure explicit commands per repo instead.")
+    print()
+
+    repo_settings: dict = {}
+
+    for repo in writable_repos:
+        response = input(f"Configure check commands for {repo}? (yes/no) [no]: ").strip().lower()
+        if response != "yes":
+            continue
+
+        print(f"  Enter check commands for {repo}.")
+        print("  Each check has a name (e.g. 'lint') and a shell command (e.g. 'make lint').")
+        print("  Press Enter on empty name when done.")
+        print()
+
+        checks: list[dict[str, str]] = []
+        while True:
+            name = input("  Check name (or Enter to finish): ").strip()
+            if not name:
+                break
+            command = input(f"  Command for '{name}': ").strip()
+            if not command:
+                warn(f"  No command provided for '{name}'. Skipping.")
+                continue
+            checks.append({"name": name, "command": command})
+            success(f"  Added check: {name} -> {command}")
+
+        if checks:
+            repo_settings[repo] = {"checks": checks}
+            success(f"Configured {len(checks)} check(s) for {repo}")
+        else:
+            info(f"  No checks configured for {repo} (will use auto-discovery)")
+
+    return repo_settings
+
+
 def _create_repositories_config() -> bool:
     """Create repositories.yaml interactively."""
     config_file = Config.USER_CONFIG_DIR / "repositories.yaml"
@@ -370,18 +424,22 @@ def _create_repositories_config() -> bool:
     print()
     branch_prefix = input(f"Branch prefix [{bot_name}]: ").strip().lower() or bot_name
 
+    # Configure per-repo check commands
+    effective_writable = writable_repos if writable_repos else [f"{github_username}/egg"]
+    repo_settings = _configure_repo_checks(effective_writable)
+
     # Build config
     config = {
         "github_username": github_username,
         "bot_username": bot_name,
-        "writable_repos": writable_repos if writable_repos else [f"{github_username}/egg"],
+        "writable_repos": effective_writable,
         "default_reviewer": github_username,
         "github_sync": {
             "sync_all_prs": True,
             "sync_interval_minutes": 5,
         },
         "readable_repos": [],
-        "repo_settings": {},
+        "repo_settings": repo_settings,
         "user_mode": {},
         "local_repos": {
             "paths": local_repo_paths,

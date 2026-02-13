@@ -8,6 +8,7 @@ sandbox_path = Path(__file__).parent.parent.parent / "sandbox"
 sys.path.insert(0, str(sandbox_path))
 
 from egg_lib.setup_flow import (
+    _configure_repo_checks,
     _create_general_config,
     _create_launcher_secret,
     _get_template_path,
@@ -352,3 +353,70 @@ class TestSetup:
                                     ):
                                         result = setup()
                                         assert result is False
+
+
+class TestConfigureRepoChecks:
+    """Tests for _configure_repo_checks."""
+
+    def test_skips_when_user_declines(self):
+        """Returns empty dict when user declines for all repos."""
+        with patch("builtins.input", return_value="no"):
+            result = _configure_repo_checks(["user/repo1", "user/repo2"])
+            assert result == {}
+
+    def test_configures_checks_for_single_repo(self):
+        """Stores checks when user configures a repo."""
+        inputs = iter(["yes", "lint", "make lint", "test", "make test", "", "no"])
+        with patch("builtins.input", side_effect=inputs):
+            result = _configure_repo_checks(["user/repo1", "user/repo2"])
+            assert "user/repo1" in result
+            assert result["user/repo1"]["checks"] == [
+                {"name": "lint", "command": "make lint"},
+                {"name": "test", "command": "make test"},
+            ]
+            assert "user/repo2" not in result
+
+    def test_configures_checks_for_multiple_repos(self):
+        """Stores checks for multiple repos."""
+        inputs = iter(
+            [
+                "yes",
+                "lint",
+                "npm run lint",
+                "",  # repo1
+                "yes",
+                "test",
+                "pytest",
+                "",  # repo2
+            ]
+        )
+        with patch("builtins.input", side_effect=inputs):
+            result = _configure_repo_checks(["user/repo1", "user/repo2"])
+            assert len(result) == 2
+            assert result["user/repo1"]["checks"] == [
+                {"name": "lint", "command": "npm run lint"},
+            ]
+            assert result["user/repo2"]["checks"] == [
+                {"name": "test", "command": "pytest"},
+            ]
+
+    def test_skips_check_with_empty_command(self):
+        """Skips a check entry when no command is provided."""
+        inputs = iter(["yes", "lint", "", "test", "make test", ""])
+        with patch("builtins.input", side_effect=inputs):
+            result = _configure_repo_checks(["user/repo1"])
+            checks = result["user/repo1"]["checks"]
+            assert len(checks) == 1
+            assert checks[0]["name"] == "test"
+
+    def test_no_entry_when_all_checks_skipped(self):
+        """No repo_settings entry when user starts but adds no valid checks."""
+        inputs = iter(["yes", "lint", "", ""])
+        with patch("builtins.input", side_effect=inputs):
+            result = _configure_repo_checks(["user/repo1"])
+            assert result == {}
+
+    def test_empty_repo_list(self):
+        """Returns empty dict for empty writable repos list."""
+        result = _configure_repo_checks([])
+        assert result == {}
