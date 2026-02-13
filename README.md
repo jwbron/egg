@@ -228,7 +228,6 @@ Additional inputs include `prompt-file` (for large prompts), `bot-app-id`/`bot-a
 | `egg --compose` | Start gateway via Docker Compose |
 | `egg --compose --down` | Stop the Docker Compose stack (gateway + orchestrator) |
 | `egg --compose --build` | Rebuild compose images before starting |
-| `egg --sdlc <issue>` | Start SDLC pipeline with token-gated approvals for the given issue number |
 
 ### egg-deploy CLI
 
@@ -268,7 +267,6 @@ For monitoring all active SDLC pipelines in real-time:
 | `--exec <cmd>` | Execute command in new ephemeral container |
 | `--timeout <min>` | Timeout for --exec commands (default: 30) |
 | `--auth <method>` | Anthropic auth method for --exec: `oauth-token` (default) or `api-key` |
-| `--sdlc <issue>` | Start SDLC pipeline with token-gated approvals for the given issue number |
 | `--rebuild` | Force rebuild Docker image |
 | `--time` | Show startup timing breakdown for debugging |
 | `-v, --verbose` | Show detailed output instead of progress bar |
