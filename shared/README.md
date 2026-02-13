@@ -95,13 +95,16 @@ net_config = ContainerNetworkConfig(
 )
 config = build_sandbox_config(
     container_name="egg-sandbox",
+    image="egg-sandbox:latest",
     network=net_config,
-    repo_volumes={"egg": "/home/user/repos/egg"},
-    container_id="abc123",
 )
 
 # CLI path: convert to docker run command
-cmd = build_sandbox_docker_cmd(net_config, ...)
+cmd = build_sandbox_docker_cmd(
+    container_name="egg-sandbox",
+    image="egg-sandbox:latest",
+    network=net_config,
+)
 
 # Orchestrator path: convert to docker-py kwargs
 kwargs = to_dockerpy_kwargs(config)
