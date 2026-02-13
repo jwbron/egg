@@ -71,7 +71,7 @@ The pipeline pauses for human approval at phase transitions. Decisions use check
 
 ### Pipeline Status Visualization
 
-The orchestrator provides pipeline status visualization through two endpoints:
+The orchestrator provides pipeline status visualization through the following endpoints:
 
 **1. Static Visualization**: `GET /api/v1/pipelines/<pipeline_id>/visualization`
 
@@ -96,6 +96,7 @@ Returns the current pipeline status for polling-based monitoring.
 ```json
 {
   "success": true,
+  "message": "Status retrieved",
   "data": {
     "id": "issue-123",
     "status": "running",
