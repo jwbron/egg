@@ -855,6 +855,8 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
         "code-standards.md",
         "test-workflow.md",
         "pr-descriptions.md",
+        "contract.md",
+        "orchestrator.md",
     ]
 
     if not (rules_dir / "mission.md").exists():
