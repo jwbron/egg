@@ -42,7 +42,7 @@ Agent role can be omitted when `EGG_AGENT_ROLE` is set.
 
 | Variable | Purpose |
 |----------|---------|
-| `EGG_ORCHESTRATOR_URL` | Orchestrator URL (default: `http://172.32.0.3:9849`) |
+| `EGG_ORCHESTRATOR_URL` | Orchestrator URL (default: `http://egg-orchestrator:9849`) |
 | `EGG_PIPELINE_ID` | Current pipeline ID (auto-set in orchestrated mode) |
 | `EGG_AGENT_ROLE` | Current agent role (auto-set in orchestrated mode) |
 | `EGG_ISSUE_NUMBER` | Current issue number |

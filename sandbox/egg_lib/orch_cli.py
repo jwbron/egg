@@ -452,7 +452,7 @@ def cmd_pipeline_delete(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Signal commands (using OrchestratorClient where available)
+# Signal commands
 # ---------------------------------------------------------------------------
 
 
@@ -467,15 +467,8 @@ def _require_role(args: argparse.Namespace) -> str:
 
 def cmd_signal_complete(args: argparse.Namespace) -> int:
     """Signal agent completion."""
-    pid_raw = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
-    if not pid_raw:
-        print(
-            "Error: pipeline_id required. Provide as argument or set EGG_PIPELINE_ID.",
-            file=sys.stderr,
-        )
-        return 1
+    pid = require_pipeline_id(args)
     role = _require_role(args)
-    pid = validate_id(pid_raw, "pipeline_id")
     data: dict[str, Any] = {
         "signal_type": "complete",
         "agent_role": role,
@@ -500,15 +493,8 @@ def cmd_signal_complete(args: argparse.Namespace) -> int:
 
 def cmd_signal_progress(args: argparse.Namespace) -> int:
     """Signal progress update."""
-    pid_raw = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
-    if not pid_raw:
-        print(
-            "Error: pipeline_id required. Provide as argument or set EGG_PIPELINE_ID.",
-            file=sys.stderr,
-        )
-        return 1
+    pid = require_pipeline_id(args)
     role = _require_role(args)
-    pid = validate_id(pid_raw, "pipeline_id")
     data: dict[str, Any] = {
         "signal_type": "progress",
         "agent_role": role,
@@ -534,15 +520,8 @@ def cmd_signal_progress(args: argparse.Namespace) -> int:
 
 def cmd_signal_error(args: argparse.Namespace) -> int:
     """Signal an error."""
-    pid_raw = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
-    if not pid_raw:
-        print(
-            "Error: pipeline_id required. Provide as argument or set EGG_PIPELINE_ID.",
-            file=sys.stderr,
-        )
-        return 1
+    pid = require_pipeline_id(args)
     role = _require_role(args)
-    pid = validate_id(pid_raw, "pipeline_id")
     data: dict[str, Any] = {
         "signal_type": "error",
         "agent_role": role,
@@ -565,15 +544,8 @@ def cmd_signal_error(args: argparse.Namespace) -> int:
 
 def cmd_signal_heartbeat(args: argparse.Namespace) -> int:
     """Send heartbeat."""
-    pid_raw = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
-    if not pid_raw:
-        print(
-            "Error: pipeline_id required. Provide as argument or set EGG_PIPELINE_ID.",
-            file=sys.stderr,
-        )
-        return 1
+    pid = require_pipeline_id(args)
     role = _require_role(args)
-    pid = validate_id(pid_raw, "pipeline_id")
     data: dict[str, Any] = {
         "signal_type": "heartbeat",
         "agent_role": role,
