@@ -707,6 +707,27 @@ python .github/scripts/checks/run_check.py lint .egg-state/contracts/123.json --
 
 The script loads the contract, runs the check, and outputs JSON with the result.
 
+### Per-Repository Check Commands
+
+For local orchestrator mode, you can configure explicit check commands per repository in `~/.config/egg/repositories.yaml`:
+
+```yaml
+repo_settings:
+  your-org/web-app:
+    checks:
+      - name: lint
+        command: npm run lint
+      - name: test
+        command: npm test
+```
+
+When configured, the implement phase checker agent runs these commands sequentially instead of auto-discovering test/lint commands. This is useful when:
+- Auto-discovery doesn't find the right commands
+- You want to run checks in a specific order
+- You need to run custom validation scripts
+
+If not configured, the checker falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.). See [Configuration](../../config/README.md#per-repo-check-commands) for setup details.
+
 ### Built-in Checks
 
 | Check | ID | Purpose | Fixable |

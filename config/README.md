@@ -103,6 +103,7 @@ This file controls:
 - Default reviewer for PRs
 - GitHub sync configuration
 - Docker container extra packages
+- Per-repo check commands for SDLC pipeline
 
 **Usage:**
 - Python: `from config.repo_config import get_writable_repos, is_writable_repo`
@@ -111,6 +112,34 @@ This file controls:
 **To add a new repo with write access:**
 1. Edit `~/.config/egg/repositories.yaml` and add to `writable_repos` list
 2. Reload github-sync service: `systemctl --user daemon-reload && systemctl --user restart github-sync.timer`
+
+### Per-Repo Check Commands
+
+The `repo_settings` section supports configuring explicit check commands for the SDLC pipeline implement phase. When configured, the checker agent runs these commands instead of auto-discovering test/lint commands.
+
+**Example:**
+```yaml
+repo_settings:
+  your-org/web-app:
+    checks:
+      - name: lint
+        command: npm run lint
+      - name: test
+        command: npm test
+      - name: build
+        command: npm run build
+```
+
+Each check has:
+- `name`: Display label (e.g., "lint", "test", "integration")
+- `command`: Shell command to execute
+
+Checks run sequentially during the implement phase checker step. If not configured, the checker falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.).
+
+**Configuration:**
+- Setup flow: Run `./setup.py` and answer "yes" to "Configure SDLC check commands?"
+- Manual: Edit `~/.config/egg/repositories.yaml` and add `checks` under `repo_settings.{repo}`
+- Runtime: The gateway injects repo checks via the `EGG_REPO_CHECKS` environment variable (JSON-encoded)
 
 ## context-filters.yaml
 
