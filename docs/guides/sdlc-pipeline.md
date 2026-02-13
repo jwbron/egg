@@ -119,7 +119,7 @@ Each event includes the current visualization data and pipeline status. The stre
     "status": "running",
     "current_phase": "implement",
     "visualization": {
-      "dag": ">>> ╔══════════════╗\n    │ ▶ Implement │\n    │   running   │\n    │   ✓ coder  ▶ reviewer  │\n    ╚══════════════╝",
+      "dag": ">>> ╔══════════════════════╗\n    │ ▶ Implement          │\n    │   running            │\n    │   ✓ coder  ▶ reviewer│\n    ╚══════════════════════╝",
       "compact": "✓Refine → ✓Plan → [▶Implement] → ○PR",
       "progress": "[███████████░░░░░░░░░] 60%"
     },
