@@ -362,7 +362,7 @@ def create_pipeline() -> tuple[Response, int]:
                 )
             except Exception as contract_err:
                 # Clean up the pipeline we just created
-                store.delete_pipeline(pipeline.id, commit=False)
+                store.delete_pipeline(pipeline.id)
                 logger.error(
                     "Failed to create contract for local pipeline",
                     pipeline_id=pipeline.id,
@@ -433,7 +433,7 @@ def create_pipeline() -> tuple[Response, int]:
             )
         except Exception as contract_err:
             # Clean up the pipeline we just created
-            store.delete_pipeline(pipeline.id, commit=False)
+            store.delete_pipeline(pipeline.id)
             logger.error(
                 "Failed to create contract for issue pipeline",
                 pipeline_id=pipeline.id,
@@ -1302,7 +1302,7 @@ def _spawn_and_wait(
     Args:
         repo_volumes: Mapping of repo_name -> host_path for volume mounts.
             Each entry is mounted at /home/egg/repos/<name> in the container,
-            with .git shadowed by tmpfs to force gateway git operations.
+            with .git shadowed by /dev/null bind mounts to force gateway git operations.
         certs_volume: Docker named volume for gateway CA certs (mounted at
             /shared/certs read-only). If None, certs are not mounted.
 

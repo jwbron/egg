@@ -245,7 +245,7 @@ class ContainerSpawner:
                     )
                 )
             # Shadow .git in each mounted repo to force gateway git operations.
-            # Orchestrator can't stat host paths, so assume_worktree=True (tmpfs).
+            # Orchestrator can't stat host paths, so assume_worktree=True (/dev/null bind).
             mounts.extend(git_shadow_mounts(repo_volumes, assume_worktree=True))
         if certs_volume:
             mounts.append(

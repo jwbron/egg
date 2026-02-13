@@ -194,7 +194,10 @@ class PipelineDispatcher:
                 outputs=outputs,
             )
 
-            # Save outputs if provided
+            # Save outputs if provided — only for contract-mapped roles (CODER,
+            # TESTER, DOCUMENTER, INTEGRATOR). REVIEWER and CHECKER roles don't
+            # have contract counterparts; their verdicts are stored in the
+            # AgentExecution record returned below, not as contract outputs.
             if outputs:
                 save_agent_output(self.repo_path, contract_role, outputs)
 
