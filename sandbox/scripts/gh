@@ -663,6 +663,10 @@ print(json.dumps({'args': ['pr', 'view', sys.argv[2], '--repo', sys.argv[1], '--
     # This marker is hidden in rendered markdown but can be parsed by workflows
     # Note: verdict preserves the original intent even if downgraded for self-review
     local verdict="${original_review_type:-${review_type:-comment}}"
+    # Promote approve → approve-with-suggestions when reviewer signals suggestions
+    if [[ "$verdict" == "approve" && "$body" == *"<!-- has-suggestions -->"* ]]; then
+        verdict="approve-with-suggestions"
+    fi
     local marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} verdict=${verdict} -->"
     if [ -n "$body" ]; then
         body="${body}

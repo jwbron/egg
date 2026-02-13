@@ -793,6 +793,81 @@ class TestReviewMarkerFormat:
         match = re.search(marker_regex, mixedcase_marker)
         assert match is None, "Mixed case verdicts should not match the regex"
 
+    def test_approve_with_suggestions_marker(self):
+        """approve-with-suggestions verdict should produce a valid marker matching the regex."""
+        import re
+
+        marker = self._generate_marker("approve-with-suggestions")
+        assert (
+            marker
+            == "<!-- egg-automated-review bot=egg commit=abc123 verdict=approve-with-suggestions -->"
+        )
+
+        # Verify it matches the workflow regex
+        marker_regex = r"verdict=([a-z-]+)"
+        match = re.search(marker_regex, marker)
+        assert match is not None
+        assert match.group(1) == "approve-with-suggestions"
+
+
+class TestHasSuggestionsVerdictPromotion:
+    """Test that approve + <!-- has-suggestions --> promotes verdict to approve-with-suggestions.
+
+    When a reviewer approves with non-blocking suggestions, they include
+    `<!-- has-suggestions -->` in the review body. The gh wrapper detects
+    this and promotes the verdict from 'approve' to 'approve-with-suggestions'
+    so the feedback-addressing workflow can trigger.
+    """
+
+    # Bash snippet that reproduces the verdict promotion logic from handle_pr_review
+    VERDICT_PROMOTION = textwrap.dedent("""\
+        body="$1"
+        review_type="$2"
+        verdict="${review_type:-comment}"
+
+        # Promote approve → approve-with-suggestions when reviewer signals suggestions
+        if [[ "$verdict" == "approve" && "$body" == *"<!-- has-suggestions -->"* ]]; then
+            verdict="approve-with-suggestions"
+        fi
+
+        echo "$verdict"
+    """)
+
+    def _run_promotion(self, body: str, review_type: str) -> str:
+        """Run the verdict promotion logic and return the resulting verdict."""
+        result = subprocess.run(
+            ["bash", "-c", self.VERDICT_PROMOTION, "_", body, review_type],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        return result.stdout.strip()
+
+    def test_promote_approve_with_has_suggestions(self):
+        """Approve with <!-- has-suggestions --> should become approve-with-suggestions."""
+        body = "LGTM with minor suggestions.\n\n<!-- has-suggestions -->"
+        verdict = self._run_promotion(body, "approve")
+        assert verdict == "approve-with-suggestions"
+
+    def test_no_promote_without_marker(self):
+        """Approve without <!-- has-suggestions --> should stay approve."""
+        body = "LGTM! No issues found."
+        verdict = self._run_promotion(body, "approve")
+        assert verdict == "approve"
+
+    def test_no_promote_request_changes(self):
+        """request-changes should not be affected by <!-- has-suggestions --> marker."""
+        body = "Needs fixes.\n\n<!-- has-suggestions -->"
+        verdict = self._run_promotion(body, "request-changes")
+        assert verdict == "request-changes"
+
+    def test_no_promote_comment(self):
+        """comment should not be affected by <!-- has-suggestions --> marker."""
+        body = "Some notes.\n\n<!-- has-suggestions -->"
+        verdict = self._run_promotion(body, "comment")
+        assert verdict == "comment"
+
 
 class TestIssueCommentHandler:
     """Test handle_issue_comment JSON escaping, --body, and --body-file support.
