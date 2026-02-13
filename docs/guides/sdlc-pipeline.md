@@ -97,10 +97,11 @@ Returns a Server-Sent Events (SSE) stream for real-time pipeline updates.
 
 **Event types**:
 - `snapshot`: Initial pipeline state with full DAG visualization
-- `pipeline.*`: Pipeline lifecycle events (started, completed, failed, cancelled)
-- `phase.*`: Phase transition events
-- `agent.*`: Agent lifecycle events (started, completed, failed)
-- `decision.*`: HITL decision events
+- `pipeline.*`: Pipeline lifecycle events (created, started, completed, failed, cancelled)
+- `phase.*`: Phase transition events (started, completed, failed)
+- `agent.*`: Agent lifecycle events (started, completed, failed, timeout)
+- `decision.*`: HITL decision events (created, resolved, timeout)
+- `container.*`: Container lifecycle events (spawned, stopped, removed)
 - `done`: Stream ending (pipeline terminal state or timeout)
 - `error`: Error occurred
 
