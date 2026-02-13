@@ -101,16 +101,16 @@
       "options": [
         "approve"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-13T08:06:58.761135",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-02-13T08:19:36.364195",
+      "resolution": "approve",
       "timeout_seconds": 3600
     }
   ],
   "created_at": "2026-02-13T07:58:28.711991",
-  "updated_at": "2026-02-13T08:06:58.796429",
+  "updated_at": "2026-02-13T08:19:36.368969",
   "contract_synced": true,
   "error": null,
-  "version": 14
+  "version": 15
 }
