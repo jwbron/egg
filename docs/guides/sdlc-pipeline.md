@@ -101,7 +101,7 @@ Returns a Server-Sent Events (SSE) stream for real-time pipeline updates.
 - `phase.*`: Phase transition events (started, completed, failed)
 - `agent.*`: Agent lifecycle events (started, completed, failed, timeout)
 - `decision.*`: HITL decision events (created, resolved, timeout)
-- `container.*`: Container lifecycle events (spawned, stopped, removed)
+- `container.*`: Container lifecycle events (spawned, stopped, removed) — *planned; not yet emitted via SSE*
 - `done`: Stream ending (pipeline terminal state or timeout)
 - `error`: Error occurred
 
