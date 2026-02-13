@@ -24,7 +24,7 @@ egg takes a GitHub issue through a phased pipeline where the agent cannot skip s
 3. **Implement** — Agent creates a draft PR and implements tasks. CI runs, automated review provides line-level feedback. Re-implementation cycles continue until all checks pass.
 4. **Merge** — Draft PR is marked ready. Only a human can merge via GitHub UI.
 
-The pipeline state lives in a JSON contract (`.egg-state/contracts/{issue}.json`) committed to the feature branch, giving full auditability of every phase transition.
+The pipeline state lives in a JSON contract (`.egg-state/contracts/{identifier}.json`) committed to the feature branch, giving full auditability of every phase transition. For issue-mode pipelines, `{identifier}` is the issue number; for local-mode pipelines, it's the pipeline ID.
 
 ## The Gateway
 

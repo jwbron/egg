@@ -20,7 +20,7 @@ Agents cannot be trusted to self-police via prompts alone. The pipeline enforces
 
 ### 2. Contract-as-Code
 
-All pipeline state is stored in JSON contracts at `.egg-state/contracts/{issue-number}.json` and committed to the feature branch (not main). This provides:
+All pipeline state is stored in JSON contracts at `.egg-state/contracts/{identifier}.json` and committed to the feature branch (not main), where `{identifier}` is the issue number for issue-mode pipelines or the pipeline ID for local-mode pipelines. This provides:
 
 - Auditable history of all state changes
 - Recovery from failures without losing progress
@@ -272,7 +272,7 @@ Multi-agent orchestration is triggered via `.github/workflows/sdlc-multi-agent.y
 
 The refine and plan phases include an automated internal review step before human approval. All reviews happen internally without posting to the issue until approval:
 
-1. **Producer agent runs** — The refine/plan agent writes its output to `.egg-state/drafts/{issue}-{analysis|plan}.md`
+1. **Producer agent runs** — The refine/plan agent writes its output to `.egg-state/drafts/{identifier}-{analysis|plan}.md`
 2. **Reviewer agents run in parallel** — Each reviewer reads the draft and writes verdict to its own file
 3. **Verdicts aggregated** — If any reviewer needs revision, the aggregate verdict is `needs_revision`
 4. **If approved** — The final draft is posted to the issue with an approval checkbox for human review
@@ -283,19 +283,19 @@ The refine and plan phases include an automated internal review step before huma
 **File Structure:**
 ```
 .egg-state/
-├── contracts/{issue}.json      # Contract state
+├── contracts/{identifier}.json      # Contract state
 ├── drafts/
-│   ├── {issue}-analysis.md     # Refine phase draft
-│   └── {issue}-plan.md         # Plan phase draft
+│   ├── {identifier}-analysis.md     # Refine phase draft
+│   └── {identifier}-plan.md         # Plan phase draft
 └── reviews/
-    ├── {issue}-refine-review.json       # Unified review verdict
-    ├── {issue}-refine-agent-design.json # Agent-design review verdict
-    ├── {issue}-plan-review.json         # Unified review verdict
-    ├── {issue}-plan-agent-design.json   # Agent-design review verdict
-    ├── {issue}-implement-review.json    # Unified review verdict
-    ├── {issue}-implement-agent-design.json
-    ├── {issue}-implement-contract.json
-    └── {issue}-implement-code.json
+    ├── {identifier}-refine-review.json       # Unified review verdict
+    ├── {identifier}-refine-agent-design.json # Agent-design review verdict
+    ├── {identifier}-plan-review.json         # Unified review verdict
+    ├── {identifier}-plan-agent-design.json   # Agent-design review verdict
+    ├── {identifier}-implement-review.json    # Unified review verdict
+    ├── {identifier}-implement-agent-design.json
+    ├── {identifier}-implement-contract.json
+    └── {identifier}-implement-code.json
 ```
 
 **Review Verdict JSON Schema:**
@@ -701,7 +701,7 @@ When a phase is complete and ready for human approval, agents post a comment usi
 
 Tasks are automatically extracted from the plan document and populated into the contract during the plan phase, after the plan document is validated.
 
-The `action/populate-contract-tasks.py` script:
+The `action/populate-contract-tasks.py` script (issue-mode only):
 1. Fetches the plan comment from the GitHub issue
 2. Parses task markers and PR metadata using `shared/egg_contracts/plan_parser.py`
 3. Writes phases, tasks, and PR metadata into `.egg-state/contracts/{issue-number}.json`
