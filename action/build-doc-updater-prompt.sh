@@ -219,6 +219,9 @@ build_prompt() {
 
     changed_files=$(get_changed_files)
     commit_messages=$(get_commit_messages)
+    local diff_stats
+    local new_files
+    local related_docs
     diff_stats=$(get_diff_stats)
     new_files=$(get_new_files)
     related_docs=$(find_related_docs)
