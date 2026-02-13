@@ -1,0 +1,15 @@
+{
+  "all_passed": false,
+  "checks": [
+    {
+      "name": "pytest",
+      "passed": false,
+      "output": "3145 passed, 3 failed, 81 skipped in 12.92s. Failures: (1) test_config_orchestrator_mode_default - Config.is_orchestrator_mode returns True in sandbox environment instead of expected False. (2) test_is_orchestrator_mode_false - is_orchestrator_mode() returns True due to EGG_ORCHESTRATOR_MODE env var being set in sandbox. (3) test_get_orchestrator_url_not_set - get_orchestrator_url() returns 'http://172.32.0.3:9849' instead of None because EGG_ORCHESTRATOR_URL is set in sandbox. All 3 failures are environment-dependent (orchestrator env vars set in sandbox container) and not caused by code changes."
+    },
+    {
+      "name": "ruff",
+      "passed": true,
+      "output": "All checks passed!"
+    }
+  ]
+}
