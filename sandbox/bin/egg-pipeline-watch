@@ -19,6 +19,7 @@ import json
 import os
 import re
 import signal
+import socket
 import sys
 import time
 from http.client import HTTPConnection
@@ -49,9 +50,31 @@ DEFAULT_INTERVAL = 10
 MAX_CONSECUTIVE_ERRORS = 3
 
 
+def _is_inside_container() -> bool:
+    """Detect whether we're running inside a Docker container."""
+    try:
+        socket.getaddrinfo("egg-orchestrator", None)
+        return True
+    except socket.gaierror:
+        return False
+
+
 def get_orchestrator_url() -> str:
-    """Get the orchestrator base URL from environment."""
-    return os.environ.get("EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849")
+    """Get the orchestrator base URL from environment or auto-detect.
+
+    Priority:
+    1. EGG_ORCHESTRATOR_URL env var (explicit override)
+    2. http://egg-orchestrator:9849 (inside container, hostname resolves)
+    3. http://localhost:9849 (host machine, port mapped via docker-compose)
+    """
+    env_url = os.environ.get("EGG_ORCHESTRATOR_URL")
+    if env_url:
+        return env_url
+
+    if _is_inside_container():
+        return "http://egg-orchestrator:9849"
+
+    return "http://localhost:9849"
 
 
 def strip_ansi(text: str) -> str:
