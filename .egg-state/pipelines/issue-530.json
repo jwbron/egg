@@ -91,6 +91,17 @@
       "review_cycles": 0,
       "artifacts": {},
       "error": null
+    },
+    "plan": {
+      "phase": "plan",
+      "status": "running",
+      "started_at": "2026-02-13T08:19:39.419596",
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "artifacts": {},
+      "error": null
     }
   },
   "decisions": [
@@ -109,8 +120,8 @@
     }
   ],
   "created_at": "2026-02-13T07:58:28.711991",
-  "updated_at": "2026-02-13T08:19:39.403363",
+  "updated_at": "2026-02-13T08:19:39.419760",
   "contract_synced": true,
   "error": null,
-  "version": 17
+  "version": 18
 }
