@@ -987,38 +987,6 @@ To set up SDLC labels in a repository:
 
 This script is idempotent and safe to run multiple times.
 
-### Token-Gated Approvals
-
-The SDLC pipeline supports token-gated approvals to prevent agents from self-approving phase transitions. When enabled, phase approvals require a human-provided secret token that is never visible to the agent.
-
-**Starting a token-gated pipeline**:
-```bash
-egg --sdlc 123
-```
-
-On startup, the system generates two 3-word tokens (e.g., `APPLE-HORSE-RIVER`) and displays them to the human before launching the agent. These tokens are required to approve the refine and plan phases.
-
-**How it works**:
-
-1. **Token generation**: The entrypoint calls the orchestrator's `/api/v1/sdlc-tokens/generate` endpoint (requires launcher secret authentication)
-2. **Token display**: Tokens are displayed in the terminal before the agent starts
-3. **Hook installation**: A UserPromptSubmit hook (`sdlc-approve.sh`) is installed as root-owned (0555) to intercept `!approve <phase>` commands
-4. **Token entry**: When the agent types `!approve refine`, the hook prompts the human (via `/dev/tty`) for the token
-5. **Validation**: The token is sent to the orchestrator's `/api/v1/sdlc-tokens/approve` endpoint with SHA-256 hashing and timing-safe comparison
-6. **Auto-resolution**: On successful validation, pending HITL decisions for that phase are auto-resolved
-
-**Security properties**:
-
-- Tokens are never visible to the agent (displayed before launch, entered via `/dev/tty`)
-- Hook script is root-owned (agent runs as `egg` user, cannot modify)
-- Watchdog thread monitors for hook removal and re-adds if necessary
-- Launcher secret authentication prevents agents from calling privileged endpoints
-- Server-side validation with timing-safe comparison prevents timing side-channel attacks
-
-**Failure recovery**:
-
-If the orchestrator restarts while a pipeline is token-gated, in-memory tokens are lost but the persistent `sdlc_token_gated` flag remains set. Use the `/api/v1/sdlc-tokens/reset` endpoint (requires launcher secret auth) to clear the token gate and allow the pipeline to proceed.
-
 ### Triggering the Pipeline
 
 **Via label** (recommended):
@@ -1029,11 +997,6 @@ gh issue edit 123 --add-label "sdlc:refine"
 **Via workflow dispatch**:
 ```bash
 gh workflow run sdlc-pipeline.yml -f issue_number=123 -f starting_phase=refine
-```
-
-**With token-gated approvals** (local mode only):
-```bash
-egg --sdlc 123
 ```
 
 ### Contract CLI Commands
