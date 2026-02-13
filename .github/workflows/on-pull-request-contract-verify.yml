@@ -12,10 +12,6 @@ on:
         required: true
         type: number
 
-concurrency:
-  group: egg-contract-verification-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
-  cancel-in-progress: true
-
 jobs:
   # Validate required configuration
   validate-config:
