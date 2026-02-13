@@ -137,7 +137,7 @@ count_source_files() {
             prune_args+=("-o")
         fi
         if [[ "$dir" == */* ]]; then
-            prune_args+=("-path" "*/${dir}")
+            prune_args+=("-path" "*/${dir}" "-o" "-path" "${dir}")
         else
             prune_args+=("-name" "$dir")
             excluded_basenames["$dir"]=1
