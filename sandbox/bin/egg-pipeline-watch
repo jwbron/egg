@@ -185,9 +185,6 @@ def watch_pipeline(
                 _write(line + "\n")
                 last_line = line
 
-            if once:
-                return 0
-
             if status in TERMINAL_STATUSES:
                 if status == "complete":
                     _write(f"{GREEN}Pipeline {pipeline_id} completed.{RESET}\n")
@@ -196,6 +193,9 @@ def watch_pipeline(
                 elif status == "cancelled":
                     _write(f"{RED}Pipeline {pipeline_id} cancelled.{RESET}\n")
                 return 0 if status == "complete" else 1
+
+            if once:
+                return 0
 
             time.sleep(interval)
         except KeyboardInterrupt:
