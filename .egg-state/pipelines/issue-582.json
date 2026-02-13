@@ -5,7 +5,7 @@
   "branch": "egg/issue-582",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -18,9 +18,9 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-02-13T02:46:50.174622",
-      "completed_at": null,
+      "completed_at": "2026-02-13T02:46:52.147802",
       "containers": [
         {
           "container_id": "a873c2f37b6d5a1543e3b824a2bd0dccdf2a0d57d63af80cecaedc246d0d29c3",
@@ -48,13 +48,13 @@
       ],
       "review_cycles": 0,
       "artifacts": {},
-      "error": null
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-13T02:46:52.007860242Z     Status: healthy\n2026-02-13T02:46:52.007866617Z     GitHub token valid: True\n2026-02-13T02:46:52.007869867Z     Auth configured: True\n2026-02-13T02:46:52.007872784Z ✓ Gateway ready! (public mode - direct internet access)\n2026-02-13T02:46:52.007875325Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-13T02:46:52.007878034Z   Credentials injected by gateway (not in container)\n2026-02-13T02:46:52.007880450Z Signaled error to orchestrator\n2026-02-13T02:46:52.007882742Z \n2026-02-13T02:46:52.007885242Z Cleaning up on container exit...\n2026-02-13T02:46:52.007887575Z ✓ Cleanup complete"
     }
   },
   "decisions": [],
   "created_at": "2026-02-13T02:46:45.794652",
-  "updated_at": "2026-02-13T02:46:52.130787",
+  "updated_at": "2026-02-13T02:46:52.147951",
   "contract_synced": true,
-  "error": null,
-  "version": 7
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-13T02:46:52.007860242Z     Status: healthy\n2026-02-13T02:46:52.007866617Z     GitHub token valid: True\n2026-02-13T02:46:52.007869867Z     Auth configured: True\n2026-02-13T02:46:52.007872784Z ✓ Gateway ready! (public mode - direct internet access)\n2026-02-13T02:46:52.007875325Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-13T02:46:52.007878034Z   Credentials injected by gateway (not in container)\n2026-02-13T02:46:52.007880450Z Signaled error to orchestrator\n2026-02-13T02:46:52.007882742Z \n2026-02-13T02:46:52.007885242Z Cleaning up on container exit...\n2026-02-13T02:46:52.007887575Z ✓ Cleanup complete",
+  "version": 8
 }
