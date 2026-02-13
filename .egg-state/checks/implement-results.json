@@ -1,0 +1,15 @@
+{
+  "all_passed": false,
+  "checks": [
+    {
+      "name": "pytest",
+      "passed": false,
+      "output": "3 failed, 3114 passed, 81 skipped in 13.79s. Failures are pre-existing environment-related issues (orchestrator mode detection tests fail because they run inside an active orchestrator environment): test_config_orchestrator_mode_default, test_is_orchestrator_mode_false, test_get_orchestrator_url_not_set"
+    },
+    {
+      "name": "ruff",
+      "passed": false,
+      "output": "Found 73 errors (68 fixable). Pre-existing issues: unused imports (F401) and unsorted import blocks (I001) in test files (test_checkpoints.py, test_redactor.py, etc.)"
+    }
+  ]
+}
