@@ -633,3 +633,147 @@ def _append_to_index(index_dict: dict[str, list[str]], key: str, value: str) -> 
         index_dict[key] = []
     if value not in index_dict[key]:
         index_dict[key].append(value)
+
+
+def load_checkpoint_by_id_v2(
+    checkpoint_id: str,
+    checkpoints_dir: Path,
+) -> CheckpointV2 | None:
+    """
+    Load a v2 checkpoint by its ID.
+
+    Args:
+        checkpoint_id: The checkpoint ID (e.g., ckpt-abc123def456)
+        checkpoints_dir: Directory containing checkpoint files
+
+    Returns:
+        The CheckpointV2 if found, None otherwise
+    """
+    checkpoint_path = get_checkpoint_path(checkpoints_dir, checkpoint_id)
+    if not checkpoint_path.exists():
+        return None
+    try:
+        return load_checkpoint_v2(checkpoint_path)
+    except CheckpointLoadError:
+        return None
+
+
+def load_checkpoint_by_commit_v2(
+    commit_sha: str,
+    checkpoints_dir: Path,
+    index_path: Path,
+) -> CheckpointV2 | None:
+    """
+    Load a v2 checkpoint by commit SHA using the v2 index.
+
+    Args:
+        commit_sha: The commit SHA to find
+        checkpoints_dir: Directory containing checkpoint files
+        index_path: Path to the v2 index file
+
+    Returns:
+        The CheckpointV2 if found, None otherwise
+    """
+    try:
+        index = load_checkpoint_index_v2(index_path)
+    except CheckpointLoadError:
+        return None
+
+    checkpoint_id = index.get_by_commit(commit_sha)
+    if not checkpoint_id:
+        return None
+
+    return load_checkpoint_by_id_v2(checkpoint_id, checkpoints_dir)
+
+
+def list_checkpoints_v2(
+    checkpoints_dir: Path,
+    index_path: Path,
+    issue_number: int | None = None,
+    pr_number: int | None = None,
+    branch: str | None = None,
+    session_id: str | None = None,
+    trigger_type: str | None = None,
+    session_status: str | None = None,
+    agent_type: str | None = None,
+    pipeline_phase: str | None = None,
+    limit: int | None = None,
+) -> list[CheckpointSummaryV2]:
+    """
+    List v2 checkpoint summaries using the index, with multi-dimensional filtering.
+
+    Uses the v2 index for fast lookups. Filters are intersected (AND logic).
+
+    Args:
+        checkpoints_dir: Directory containing checkpoint files (unused, kept for API symmetry)
+        index_path: Path to the v2 index file
+        issue_number: Filter by issue number
+        pr_number: Filter by PR number
+        branch: Filter by branch name
+        session_id: Filter by session ID
+        trigger_type: Filter by trigger type value
+        session_status: Filter by session status value
+        agent_type: Filter by agent type value
+        pipeline_phase: Filter by pipeline phase
+        limit: Maximum number of results
+
+    Returns:
+        List of CheckpointSummaryV2, sorted by created_at descending
+    """
+    try:
+        index = load_checkpoint_index_v2(index_path)
+    except CheckpointLoadError:
+        return []
+
+    if not index.checkpoints:
+        return []
+
+    # Build set of matching checkpoint IDs using index lookups
+    # Start with None (meaning "all") and intersect with each filter
+    matching_ids: set[str] | None = None
+
+    def _intersect(ids: list[str]) -> None:
+        nonlocal matching_ids
+        id_set = set(ids)
+        if matching_ids is None:
+            matching_ids = id_set
+        else:
+            matching_ids &= id_set
+
+    if issue_number is not None:
+        _intersect(index.get_by_issue(issue_number))
+
+    if pr_number is not None:
+        _intersect(index.get_by_pr(pr_number))
+
+    if session_id is not None:
+        _intersect(index.get_by_session(session_id))
+
+    if trigger_type is not None:
+        _intersect(index.by_trigger.get(trigger_type, []))
+
+    if session_status is not None:
+        _intersect(index.by_status.get(session_status, []))
+
+    if agent_type is not None:
+        _intersect(index.by_agent_type.get(agent_type, []))
+
+    if pipeline_phase is not None:
+        _intersect(index.by_phase.get(pipeline_phase, []))
+
+    # Filter summaries
+    results = []
+    for summary in index.checkpoints:
+        if matching_ids is not None and summary.id not in matching_ids:
+            continue
+        if branch is not None and summary.branch != branch:
+            continue
+        results.append(summary)
+
+    # Sort by created_at descending
+    results.sort(key=lambda cp: cp.created_at, reverse=True)
+
+    if limit is not None:
+        results = results[:limit]
+
+    return results

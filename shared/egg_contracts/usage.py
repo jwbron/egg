@@ -3,7 +3,7 @@ Pydantic models for token usage aggregates.
 
 These models define the data structures for tracking token usage across
 multiple dimensions: session, issue, workflow, and PR. Usage aggregates
-are pre-computed JSON files stored in the egg/checkpoints/v1 orphaned
+are pre-computed JSON files stored in the egg/checkpoints/v2 orphaned
 branch alongside checkpoint data.
 
 Architecture:

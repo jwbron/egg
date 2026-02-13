@@ -9,6 +9,10 @@ from egg_contracts.checkpoint_loader import (
     CheckpointLoadError,
     add_checkpoint_to_index_v2,
     generate_checkpoint_id_v2,
+    get_checkpoint_path,
+    list_checkpoints_v2,
+    load_checkpoint_by_commit_v2,
+    load_checkpoint_by_id_v2,
     load_checkpoint_index_v2,
     load_checkpoint_v2,
     save_checkpoint_index_v2,
@@ -447,3 +451,237 @@ class TestAddCheckpointToIndexV2:
             # Each session has exactly 1 checkpoint
             for i in range(1, 5):
                 assert len(index.get_by_session(f"session-{i}")) == 1
+
+
+def _save_checkpoint_at_path(checkpoint: CheckpointV2, checkpoints_dir: Path) -> Path:
+    """Save a checkpoint to the correct path under checkpoints_dir."""
+    path = get_checkpoint_path(checkpoints_dir, checkpoint.id)
+    save_checkpoint_v2(checkpoint, path)
+    return path
+
+
+class TestLoadCheckpointByIdV2:
+    """Tests for load_checkpoint_by_id_v2 function."""
+
+    def test_load_existing(self):
+        """Test loading a checkpoint by its ID."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir = Path(tmpdir) / "checkpoints"
+            cp = _make_v2_checkpoint(checkpoint_id="ckpt-aa00000001")
+            _save_checkpoint_at_path(cp, checkpoints_dir)
+
+            loaded = load_checkpoint_by_id_v2("ckpt-aa00000001", checkpoints_dir)
+            assert loaded is not None
+            assert loaded.id == "ckpt-aa00000001"
+
+    def test_load_nonexistent_returns_none(self):
+        """Test loading a non-existent checkpoint ID returns None."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir = Path(tmpdir) / "checkpoints"
+            result = load_checkpoint_by_id_v2("ckpt-zz99999999", checkpoints_dir)
+            assert result is None
+
+
+class TestLoadCheckpointByCommitV2:
+    """Tests for load_checkpoint_by_commit_v2 function."""
+
+    def test_load_by_commit(self):
+        """Test loading a checkpoint by commit SHA using the v2 index."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir = Path(tmpdir) / "checkpoints"
+            index_path = Path(tmpdir) / "index.json"
+
+            cp = _make_v2_checkpoint(
+                checkpoint_id="ckpt-aa00000001",
+                commit_sha="abc1234567890",
+            )
+            _save_checkpoint_at_path(cp, checkpoints_dir)
+            add_checkpoint_to_index_v2(cp, index_path)
+
+            loaded = load_checkpoint_by_commit_v2("abc1234567890", checkpoints_dir, index_path)
+            assert loaded is not None
+            assert loaded.commit_sha == "abc1234567890"
+
+    def test_commit_not_found_returns_none(self):
+        """Test that a missing commit SHA returns None."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir = Path(tmpdir) / "checkpoints"
+            index_path = Path(tmpdir) / "index.json"
+
+            result = load_checkpoint_by_commit_v2("deadbeef", checkpoints_dir, index_path)
+            assert result is None
+
+    def test_index_missing_returns_none(self):
+        """Test that a missing index file returns None gracefully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = load_checkpoint_by_commit_v2(
+                "abc1234", Path(tmpdir) / "checkpoints", Path(tmpdir) / "no-index.json"
+            )
+            assert result is None
+
+
+class TestListCheckpointsV2:
+    """Tests for list_checkpoints_v2 function."""
+
+    def _build_index(self, tmpdir: str) -> tuple[Path, Path]:
+        """Build an index with 4 checkpoints for testing filters."""
+        checkpoints_dir = Path(tmpdir) / "checkpoints"
+        index_path = Path(tmpdir) / "index.json"
+        now = datetime.now(UTC)
+
+        checkpoints = [
+            _make_v2_checkpoint(
+                checkpoint_id="ckpt-aa00000001",
+                session_id="session-1",
+                commit_sha="aaa1234567890",
+                issue_number=42,
+                pr_number=10,
+                agent_type=AgentType.CODER,
+                pipeline_phase="implement",
+                branch="egg/feature",
+                now=now,
+            ),
+            _make_v2_checkpoint(
+                checkpoint_id="ckpt-bb00000002",
+                session_id="session-2",
+                commit_sha="bbb1234567890",
+                issue_number=42,
+                agent_type=AgentType.TESTER,
+                pipeline_phase="implement",
+                branch="egg/feature",
+                now=now + timedelta(seconds=1),
+            ),
+            _make_v2_checkpoint(
+                checkpoint_id="ckpt-cc00000003",
+                session_id="session-3",
+                commit_sha="ccc1234567890",
+                issue_number=99,
+                agent_type=AgentType.CODER,
+                pipeline_phase="plan",
+                branch="egg/other",
+                now=now + timedelta(seconds=2),
+            ),
+            _make_v2_checkpoint(
+                checkpoint_id="ckpt-dd00000004",
+                session_id="session-4",
+                trigger_type=TriggerType.SESSION_END,
+                session_status=SessionStatus.FAILED,
+                commit_sha=None,
+                issue_number=42,
+                agent_type=AgentType.CODER,
+                now=now + timedelta(seconds=3),
+            ),
+        ]
+
+        for cp in checkpoints:
+            _save_checkpoint_at_path(cp, checkpoints_dir)
+            add_checkpoint_to_index_v2(cp, index_path)
+
+        return checkpoints_dir, index_path
+
+    def test_list_all(self):
+        """Test listing all checkpoints without filters."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            results = list_checkpoints_v2(checkpoints_dir, index_path)
+            assert len(results) == 4
+
+    def test_list_sorted_descending(self):
+        """Test results are sorted by created_at descending."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            results = list_checkpoints_v2(checkpoints_dir, index_path)
+            # Most recent first
+            assert results[0].id == "ckpt-dd00000004"
+            assert results[-1].id == "ckpt-aa00000001"
+
+    def test_filter_by_issue(self):
+        """Test filtering by issue number."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            results = list_checkpoints_v2(checkpoints_dir, index_path, issue_number=42)
+            assert len(results) == 3
+            assert all(s.issue_number == 42 for s in results)
+
+    def test_filter_by_agent_type(self):
+        """Test filtering by agent type."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            results = list_checkpoints_v2(checkpoints_dir, index_path, agent_type="coder")
+            assert len(results) == 3
+
+    def test_filter_by_trigger_type(self):
+        """Test filtering by trigger type."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            results = list_checkpoints_v2(checkpoints_dir, index_path, trigger_type="session_end")
+            assert len(results) == 1
+            assert results[0].id == "ckpt-dd00000004"
+
+    def test_filter_by_status(self):
+        """Test filtering by session status."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            results = list_checkpoints_v2(checkpoints_dir, index_path, session_status="failed")
+            assert len(results) == 1
+            assert results[0].session_status == SessionStatus.FAILED
+
+    def test_filter_by_session_id(self):
+        """Test filtering by session ID."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            results = list_checkpoints_v2(checkpoints_dir, index_path, session_id="session-1")
+            assert len(results) == 1
+            assert results[0].id == "ckpt-aa00000001"
+
+    def test_filter_by_branch(self):
+        """Test filtering by branch name."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            results = list_checkpoints_v2(checkpoints_dir, index_path, branch="egg/feature")
+            assert len(results) == 2
+
+    def test_filter_by_phase(self):
+        """Test filtering by pipeline phase."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            results = list_checkpoints_v2(checkpoints_dir, index_path, pipeline_phase="implement")
+            assert len(results) == 2
+
+    def test_filter_by_pr(self):
+        """Test filtering by PR number."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            results = list_checkpoints_v2(checkpoints_dir, index_path, pr_number=10)
+            assert len(results) == 1
+            assert results[0].id == "ckpt-aa00000001"
+
+    def test_intersect_multiple_filters(self):
+        """Test that multiple filters are intersected (AND logic)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            # Issue 42 AND coder agent
+            results = list_checkpoints_v2(
+                checkpoints_dir, index_path, issue_number=42, agent_type="coder"
+            )
+            assert len(results) == 2  # ckpt-aa00000001 and ckpt-dd00000004
+
+    def test_limit(self):
+        """Test limiting results."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            results = list_checkpoints_v2(checkpoints_dir, index_path, limit=2)
+            assert len(results) == 2
+
+    def test_empty_index(self):
+        """Test listing from an empty/missing index."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            results = list_checkpoints_v2(Path(tmpdir) / "checkpoints", Path(tmpdir) / "index.json")
+            assert results == []
+
+    def test_no_match_returns_empty(self):
+        """Test that unmatched filters return empty list."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            results = list_checkpoints_v2(checkpoints_dir, index_path, issue_number=999)
+            assert results == []

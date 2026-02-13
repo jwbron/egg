@@ -3,7 +3,7 @@
 Usage CLI for querying token usage across sessions, issues, workflows, and PRs.
 
 This CLI provides commands to query and display token usage aggregates that
-are stored in the egg/checkpoints/v1 branch alongside checkpoint data.
+are stored in the egg/checkpoints/v2 branch alongside checkpoint data.
 
 Commands:
     egg-usage summary                           Show overall usage summary
@@ -42,7 +42,7 @@ from .usage_loader import (
 )
 
 # Checkpoint branch name
-CHECKPOINT_BRANCH = "egg/checkpoints/v1"
+CHECKPOINT_BRANCH = "egg/checkpoints/v2"
 
 
 def get_repo_path() -> str:
