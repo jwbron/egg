@@ -1,292 +1,312 @@
-# Analysis: Checkpoint v2 with Rich Querying
-
-> Issue: #530 | Phase: refine
+# Analysis: Checkpoint v2 — Capture All Sessions with Rich Querying (#530)
 
 ## Problem Statement
 
-The current v1 checkpoint system only captures session context when agents push commits to GitHub. This creates significant gaps in session traceability:
+The v1 checkpoint system only captures session context when agents push commits
+to GitHub. This creates two gaps in session traceability:
 
-1. **Post-push context loss**: Any agent reasoning, tool calls, or decisions made after the final push are never captured
-2. **No-push sessions generate zero checkpoints**: Sessions that don't produce code changes (review bots, research tasks, sessions that error before completion) leave no trace
+1. **Post-push context loss.** Agent reasoning, tool calls, and decisions made
+   after the final push are never captured. The checkpoint reflects the session
+   state at push time, not at session end.
 
-The goal is to build a v2 checkpoint system that captures every session regardless of push activity, enables rich querying across multiple dimensions, and provides clear semantics distinguishing commit-linked vs session-end checkpoints.
+2. **No-push sessions have zero checkpoints.** Sessions that don't produce code
+   changes — review bots, research tasks, documentation-only work, sessions
+   that error before completion — leave no trace in the checkpoint system.
 
-## Current Behavior
+The result: there is no way to query what an agent did during sessions that
+didn't push, and even for sessions that did push, the final reasoning context
+is lost.
 
-The v1 checkpoint system (`gateway/checkpoint_handler.py:capture_and_store_checkpoints_for_push`) creates checkpoints only on successful git push operations:
+## Current Architecture
 
-1. **Trigger point**: `gateway/gateway.py:857-876` - checkpoint creation fires after successful push
-2. **Per-commit granularity**: One checkpoint per commit in a multi-commit push, all sharing the same transcript
-3. **Storage**: Orphan branch `egg/checkpoints/v1` with index at root and checkpoints sharded by ID prefix
-4. **Async storage**: Push doesn't block on checkpoint storage (background thread)
+### Checkpoint Models (`shared/egg_contracts/checkpoints.py`)
 
-Key components:
-- `shared/egg_contracts/checkpoints.py`: Defines `Checkpoint`, `CheckpointSummary`, `CheckpointIndex` models
-- `shared/egg_contracts/checkpoint_loader.py`: Atomic save/load with deterministic ID generation
-- `gateway/checkpoint_handler.py`: `CheckpointHandler` class with `capture_checkpoint()` and `store_checkpoint()`
-- `gateway/session_manager.py`: Session lifecycle with 24-hour TTL, `delete_session()` calls `_cleanup_transcript_buffer()`
-- `gateway/worktree_manager.py`: `cleanup_orphaned_worktrees()` removes worktrees for inactive containers
+The v1 schema defines:
 
-Current deletion paths where checkpoints could be captured but aren't:
-1. `SessionManager.delete_session()` - graceful deletion
-2. `SessionManager.delete_session_by_container()` - container-based deletion
-3. `SessionManager.prune_expired_sessions()` - TTL expiration
-4. `WorktreeManager.cleanup_orphaned_worktrees()` - orphan detection on gateway startup
+- **`Checkpoint`** (line 131): Full session context tied to a commit. `commit_sha`
+  is *required* — every checkpoint must reference a commit. Key fields: `id`,
+  `commit_sha`, `session` (SessionMetadata), `transcript`, `files_touched`,
+  `tool_calls`, `token_usage`, `issue_number`, `pr_number`, `pipeline_phase`,
+  `branch`, `push_sha`, `created_at`.
+
+- **`SessionMetadata`** (line 39): Session info including `session_id`,
+  `container_id`, `agent_role`, `started_at`. Also defines `ended_at` and
+  `duration_seconds` fields — but these are **never populated** in v1.
+
+- **`CheckpointSummary`** (line 215): Lightweight index entry. Also requires
+  `commit_sha`.
+
+- **`CheckpointIndex`** (line 252): Root-level index with flat list of
+  summaries and three lookup methods: `get_by_commit()`, `get_by_issue()`,
+  `get_by_branch()`. All lookups are O(n) linear scans.
+
+### Checkpoint Capture (`gateway/checkpoint_handler.py`)
+
+- **Single trigger point**: Checkpoints are only created on successful git push
+  (`capture_and_store_checkpoints_for_push`, line 747).
+
+- **Per-commit granularity**: One checkpoint per commit in multi-commit pushes,
+  all sharing the same transcript buffer content.
+
+- **Transcript source**: API proxy buffer at `/tmp/egg-transcripts/{container_id}.jsonl`,
+  written by `transcript_buffer.py` during Anthropic API proxying.
+
+- **Metadata resolution**: `issue_number`, `pr_number`, and `pipeline_phase`
+  are resolved from environment variables (`EGG_ISSUE_NUMBER`, `EGG_PR_NUMBER`,
+  `EGG_PIPELINE_PHASE`) at capture time (lines 330-349).
+
+- **Storage**: Checkpoints are stored on orphan branch `egg/checkpoints/v1` via
+  a temporary git worktree. Each checkpoint is JSON in a sharded directory
+  (`checkpoints/{2-char prefix}/ckpt-{id}.json`), plus an `index.json` at root.
+  Storage is async (background thread) to avoid blocking the push response.
+
+- **ID generation**: `generate_checkpoint_id_from_commit()` uses SHA-256 of
+  `{commit_sha}:{session_id}:{timestamp}` — deterministic but requires a
+  commit SHA.
+
+### Session Lifecycle (`gateway/session_manager.py`)
+
+The `Session` dataclass (line 94) tracks: `session_token`, `session_token_hash`,
+`container_id`, `container_ip`, `mode`, `created_at`, `last_seen`, `expires_at`,
+`agent_role`, `phase`. Notably, it does **not** store `issue_number` or
+`pr_number`.
+
+Four deletion paths exist where session-end checkpoints should be captured:
+
+1. **`delete_session(token)`** (line 597): Deletes by token. Does *not* call
+   `_cleanup_transcript_buffer()` or capture any checkpoint.
+
+2. **`delete_session_by_container(container_id)`** (line 629): Deletes by
+   container ID. Calls `_cleanup_transcript_buffer()` which destroys the
+   transcript data. No checkpoint captured.
+
+3. **`prune_expired_sessions()`** (line 665): Removes all expired sessions
+   (24-hour TTL). Calls `_cleanup_transcript_buffer()` per session. No
+   checkpoint captured.
+
+4. **`cleanup_orphaned_worktrees(active_containers)`** in `worktree_manager.py`
+   (line 658): Removes worktrees for crashed containers. Receives only a set
+   of active container IDs — has no access to Session objects or transcript
+   buffers.
+
+### Transcript Size Limits (`shared/egg_contracts/transcript_extractor.py`)
+
+Size limits are defined as function parameter defaults:
+- `max_content_length = 10,000` chars (message content)
+- `max_param_length = 1,000` chars (tool parameters)
+- `max_result_length = 500` chars (tool result summaries)
+- `MAX_TRANSCRIPT_SIZE = 1,000,000` bytes (1MB, in `checkpoint_handler.py:104`)
 
 ## Constraints
 
-**Technical constraints**:
-- Checkpoint storage must remain atomic (temp file + rename pattern)
-- Transcript buffer cleanup happens immediately after session deletion - checkpoint capture must occur first
-- `cleanup_orphaned_worktrees()` receives only a set of active container IDs, not full session objects
-- Gateway may crash between session deletion and checkpoint storage (async risk)
-- Index file is updated on every checkpoint write (concurrent write concern for high-volume scenarios)
-
-**Schema constraints**:
-- v2 schema must be distinct from v1 (`egg/checkpoints/v2` branch)
-- No migration required - v1 and v2 can coexist during transition
+**Schema constraints:**
+- v2 schema must live on a separate branch (`egg/checkpoints/v2`) — no
+  migration needed, v1 remains untouched
 - `commit_sha` must become optional for session-end checkpoints
+- v2 models must coexist with v1 models in the same Python module
 
-**Operational constraints**:
-- Checkpoint capture should not significantly delay session cleanup
-- Failed/crashed sessions may have incomplete transcripts
-- Session metadata (issue_number, pr_number) must be available at capture time
+**Session metadata gap:**
+- `Session` does not store `issue_number` or `pr_number`
+- Environment variables (`EGG_ISSUE_NUMBER`, etc.) are set in the agent
+  container, not the gateway process — they may not be accessible when
+  capturing session-end checkpoints from the gateway side
+- Orphan cleanup has even less context: only container IDs, no Session objects
 
-## Options Considered
+**Transcript buffer lifecycle:**
+- Buffer is destroyed by `_cleanup_transcript_buffer()` during session deletion
+- Session-end checkpoint capture must read the buffer *before* cleanup
+- For crashed containers, the buffer may be incomplete or already cleaned up
 
-### Option A: Store Session Metadata at Registration
+**Concurrency:**
+- Index file is updated per checkpoint write (atomic temp+rename pattern)
+- With session-end checkpoints increasing volume, concurrent writes become
+  more likely but remain safe due to single-threaded index updates within
+  each `store_checkpoint` call
 
-**Approach**: Capture issue/PR numbers during session registration (`register_session()`) and store them in the Session object. This ensures metadata is always available for session-end checkpoints.
+**Performance:**
+- Checkpoint storage involves git operations (worktree create, commit, push,
+  worktree remove) — adds latency to session deletion if synchronous
+- Current push checkpoints use async storage (background thread) to avoid
+  blocking
 
-**Pros**:
-- Guarantees metadata availability at any capture point
-- Simple lookup - metadata already in Session object
-- Works for all deletion paths (graceful, TTL, crash)
-- No need to parse transcripts or environment variables at capture time
+## Implementation Approaches
 
-**Cons**:
-- Requires API change to `register_session()` to accept issue/PR numbers
-- Existing sessions without metadata will have null linkage
-- Slight increase in Session object size
+### Session Metadata Propagation
 
-### Option B: Parse Metadata from Transcript Buffer
+#### Option A: Store Metadata at Registration (Recommended)
 
-**Approach**: Extract issue/PR numbers from transcript content at checkpoint capture time by analyzing tool calls or message content.
+Add optional `issue_number` and `pr_number` fields to the `Session` dataclass.
+Populate them during `register_session()`. At checkpoint capture time, read
+from the Session object. Fall back to environment variables if Session lacks
+the fields (backward compatibility with existing sessions).
 
-**Pros**:
-- No Session model changes required
-- Works with existing session registration flow
-- Can potentially extract richer context
+**Pros:** Reliable metadata at all capture points. Simple lookup. Works for
+all deletion paths including orphan cleanup (if Session is retrieved before
+deletion).
 
-**Cons**:
-- Unreliable - depends on transcript format and content
-- Performance overhead parsing potentially large transcripts
-- May fail for sessions with truncated or missing transcripts
-- Crashed sessions likely have incomplete data
+**Cons:** Requires `register_session()` API change. Existing sessions lack
+these fields until re-registered.
 
-### Option C: Accept Partial Linkage
+#### Option B: Parse from Transcript Buffer
 
-**Approach**: Session-end checkpoints may lack issue/PR linkage. Use commit-linked checkpoints for workflow correlation and accept that session-end checkpoints provide agent activity without full context.
+Extract issue/PR numbers from transcript content at capture time.
 
-**Pros**:
-- No changes to session registration
-- Simplest implementation
-- Session-end checkpoints still capture agent activity
+**Pros:** No Session model changes.
 
-**Cons**:
-- Cannot query session-end checkpoints by issue/PR
-- Workflow correlation incomplete for no-push sessions
-- Defeats purpose of rich querying for failed/research sessions
+**Cons:** Unreliable — depends on transcript format. Fails for crashed/empty
+sessions. Performance overhead for large transcripts.
 
-### Option D: Hybrid - Registration with Environment Fallback
+#### Option C: Accept Partial Linkage
 
-**Approach**: Store metadata at registration when available, fall back to environment variables (`EGG_ISSUE_NUMBER`, `EGG_PR_NUMBER`) at capture time if Session lacks it.
+Session-end checkpoints may lack issue/PR linkage. Rely on commit-linked
+checkpoints for workflow correlation.
 
-**Pros**:
-- Best of both worlds - uses available data
-- Backward compatible with existing sessions
-- Graceful degradation for edge cases
+**Pros:** Simplest implementation.
 
-**Cons**:
-- More complex implementation
-- Environment may not be accessible for orphan cleanup path
-- Two code paths to maintain
+**Cons:** Defeats the purpose of rich querying for no-push sessions. Cannot
+query failed/research sessions by issue.
 
----
+### Checkpoint Timing
 
-### Timing Option 1: Synchronous Capture
+#### Option A: Synchronous Capture
 
-**Approach**: Block session deletion until checkpoint is fully captured and stored.
+Block session deletion until checkpoint is captured and stored.
 
-**Pros**:
-- Guarantees checkpoint capture before cleanup
-- Simple control flow
-- No race conditions
+**Pros:** Guarantees capture. Simple control flow.
 
-**Cons**:
-- Increases deletion latency (checkpoint storage involves git operations)
-- If storage fails, deletion may be blocked or need retry logic
-- Gateway restart during storage leaves session in inconsistent state
+**Cons:** Adds git operation latency (~5-15s) to every session deletion.
+Storage failure blocks deletion.
 
-### Timing Option 2: Async with Buffer Preservation
+#### Option B: Async with Buffer Preservation (Recommended)
 
-**Approach**: Start async checkpoint capture, delay transcript buffer deletion until capture completes.
+Start async checkpoint capture. Defer transcript buffer cleanup until capture
+signals completion or times out (30 seconds).
 
-**Pros**:
-- Non-blocking for API response
-- Transcript data guaranteed available during capture
-- Can retry on failure
+**Pros:** Non-blocking for the API caller. Buffer guaranteed available during
+capture. Graceful degradation on timeout.
 
-**Cons**:
-- More complex lifecycle management
-- Need coordination mechanism (semaphore/event)
-- Buffer cleanup timing becomes dependent on async task
+**Cons:** More complex lifecycle coordination. Need event/semaphore mechanism.
 
-### Timing Option 3: Fire-and-Forget
+#### Option C: Fire-and-Forget
 
-**Approach**: Start async capture and immediately proceed with cleanup.
+Start async capture, immediately proceed with cleanup.
 
-**Pros**:
-- Simplest implementation
-- No latency impact
-- Matches current async pattern for push checkpoints
+**Pros:** Simplest. No latency impact.
 
-**Cons**:
-- Race condition: buffer may be deleted before capture reads it
-- Gateway crash loses checkpoint
-- No guarantee of capture success
+**Cons:** Race condition — buffer may be deleted before capture reads it.
+No guarantee of success.
 
----
+### Crash Checkpoint Completeness
 
-### Crash Handling Option 1: Status Only
+#### Option A: Status Field Only
 
-**Approach**: Mark crashed sessions with `session_status=FAILED` only.
+Mark crashed sessions with `session_status=FAILED`.
 
-**Pros**:
-- Simple - status field conveys the information
-- No additional fields needed
+**Pros:** Simple. Status conveys the key information.
 
-**Cons**:
-- No indication of transcript completeness
+**Cons:** No indication of transcript completeness.
 
-### Crash Handling Option 2: Truncation Reason Field
+#### Option B: Both Status and Truncation Reason (Recommended)
 
-**Approach**: Add `truncated_reason` field indicating why transcript may be incomplete.
+Use `session_status=FAILED` and set `truncated_reason="container_crash"` on the
+Transcript when applicable.
 
-**Pros**:
-- Explicit about data quality
-- Can differentiate crash truncation from size truncation
+**Pros:** Maximum clarity. Status indicates terminal state, truncation
+indicates data quality. Supports analytics on crash rates vs data completeness.
+Leverages existing `Transcript.truncated` and `truncation_reason` fields.
 
-**Cons**:
-- Overlaps with existing `Transcript.truncated` and `truncation_reason`
-- May be redundant with status
+**Cons:** Slightly redundant — but serves different query patterns.
 
-### Crash Handling Option 3: Both Status and Truncation
+### Index Strategy
 
-**Approach**: Use `session_status=FAILED` and add `truncated_reason="container_crash"` when applicable.
+#### Option A: Per-Checkpoint Index Update (Recommended)
 
-**Pros**:
-- Maximum clarity for consumers
-- Status indicates terminal state, truncation indicates data quality
-- Supports analytics on crash rates and data completeness
+Keep the current approach: update the index atomically on every checkpoint write.
+Add secondary index dictionaries for O(1) lookups.
 
-**Cons**:
-- Slightly redundant information
+**Pros:** Strong consistency. Simple mental model. Current volume is low enough
+that contention is not a concern.
 
-## Recommended Approach
+**Cons:** May need revisiting at high scale.
 
-**Session Metadata**: **Option D (Hybrid - Registration with Environment Fallback)**
+#### Option B: Batched/Eventual Consistency
 
-Rationale: This provides the best data quality while maintaining backward compatibility. The registration path should be updated to accept optional `issue_number` and `pr_number` parameters, storing them in the Session object. At checkpoint capture time, use Session metadata if available, otherwise fall back to environment variables. This handles:
-- New sessions: metadata stored at registration
-- Existing sessions: environment fallback works
-- Orphan cleanup: may lack metadata, but checkpoint still captured
+Buffer index updates and flush periodically.
 
-**Checkpoint Timing**: **Option 2 (Async with Buffer Preservation)**
+**Pros:** Reduced write contention.
 
-Rationale: This balances performance with reliability. The transcript buffer is the critical data source - we must not delete it before checkpoint capture reads it. Implementation:
-1. Session deletion initiates async checkpoint capture
-2. Buffer deletion is deferred until capture signals completion
-3. Capture timeout (30s) ensures cleanup isn't blocked indefinitely
-4. On timeout, proceed with cleanup and log warning
+**Cons:** Stale index between flushes. More complex. Premature optimization
+for current scale.
 
-This matches the issue proposal's recommendation and provides strong guarantees without blocking the deletion API.
+## Recommendation
 
-**Crash Handling**: **Option 3 (Both Status and Truncation)**
+**Session metadata**: Option A — store at registration with environment
+variable fallback. This provides reliable linkage for all capture paths.
 
-Rationale: The `session_status=FAILED` clearly indicates the session didn't complete normally, while `truncated_reason="container_crash"` (or similar) on the Transcript provides explicit data quality information. Consumers can:
-- Query failed sessions via `by_status` index
-- Understand data completeness from transcript metadata
-- Distinguish crash truncation from size-based truncation
+**Checkpoint timing**: Option B — async with 30-second buffer preservation
+timeout. Balances reliability with performance.
 
-## Implementation Summary
+**Crash handling**: Option B — both status and truncation reason. Maximizes
+clarity for downstream consumers.
 
-Based on the analysis, the implementation should:
+**Index strategy**: Option A — per-checkpoint updates with secondary indices.
+Current scale does not warrant batching complexity.
 
-1. **Add v2 models** to `shared/egg_contracts/checkpoints.py`:
-   - `TriggerType`, `SessionStatus`, `AgentType` enums
-   - `CheckpointV2` with optional `commit_sha`, required `trigger_type` and `session_id`
-   - `CheckpointSummaryV2` and `CheckpointIndexV2` with secondary indices
+The overall approach is a breaking change (v2 branch, no dual-write). The v1
+branch remains readable but no new checkpoints are written to it. This matches
+the owner's stated preference for switching straight to v2.
 
-2. **Add v2 loader functions** to `shared/egg_contracts/checkpoint_loader.py`:
-   - `save_checkpoint_v2()`, `load_checkpoint_v2()`
-   - Multi-index update logic for `by_session`, `by_issue`, `by_pr`, etc.
+## Files to Modify
 
-3. **Extend Session model** in `gateway/session_manager.py`:
-   - Add optional `issue_number` and `pr_number` fields
-   - Update `register_session()` to accept these parameters
+| File | Changes |
+|------|---------|
+| `shared/egg_contracts/checkpoints.py` | Add `TriggerType`, `SessionStatus`, `AgentType` enums. Add `CheckpointV2`, `CheckpointSummaryV2`, `CheckpointIndexV2` models with optional `commit_sha`, required `trigger_type`/`session_id`, secondary index dicts |
+| `shared/egg_contracts/checkpoint_loader.py` | Add `generate_checkpoint_id_v2()` (no commit required), `save_checkpoint_v2()`, `load_checkpoint_v2()`, `load_checkpoint_index_v2()`, `add_checkpoint_to_index_v2()` with multi-index updates |
+| `gateway/session_manager.py` | Add `issue_number`/`pr_number` to `Session` dataclass and persistence. Update `register_session()`. Refactor `_cleanup_transcript_buffer()` to await async capture. Hook `delete_session()`, `delete_session_by_container()`, `prune_expired_sessions()` to capture session-end checkpoints |
+| `gateway/checkpoint_handler.py` | Add `capture_session_end_checkpoint()`. Add `store_checkpoint_v2()` for `egg/checkpoints/v2` branch. Update `capture_checkpoint()` to produce v2 format. Update `CHECKPOINT_BRANCH` constant. Increase `MAX_TRANSCRIPT_SIZE` to 3MB |
+| `gateway/worktree_manager.py` | Add session lookup before `cleanup_orphaned_worktrees()`. Capture `FAILED` checkpoints for orphaned containers |
+| `shared/egg_contracts/transcript_extractor.py` | Increase `max_content_length` to 25,000, `max_param_length` to 2,500, `max_result_length` to 1,500 |
 
-4. **Add session-end capture** to `gateway/checkpoint_handler.py`:
-   - `capture_session_end_checkpoint()` function
-   - Use v2 branch `egg/checkpoints/v2`
-   - Async capture with buffer preservation
+## Testing Strategy
 
-5. **Hook deletion paths** in `gateway/session_manager.py`:
-   - `delete_session()`: capture with `status=COMPLETED`
-   - `prune_expired_sessions()`: capture with `status=EXPIRED`
+**Unit tests:**
+- v2 model validation (CheckpointV2 with/without commit_sha, TriggerType/SessionStatus enums)
+- v2 loader functions (save/load, index updates with secondary indices)
+- Session metadata persistence with new fields, backward compatibility
 
-6. **Hook orphan cleanup** in `gateway/worktree_manager.py`:
-   - `cleanup_orphaned_worktrees()`: capture with `status=FAILED`
-   - Challenge: need session lookup by container_id
+**Integration tests:**
+- Session deletion triggers checkpoint capture with `COMPLETED` status
+- TTL expiration triggers checkpoint with `EXPIRED` status
+- Orphan cleanup triggers checkpoint with `FAILED` status and truncation reason
+- Push triggers v2 checkpoint with `COMMIT` trigger type
+- Multi-index queries return correct results across all dimensions
+- Async capture with 30s timeout: buffer preserved until capture completes
+- Buffer cleanup blocked until async capture finishes or times out
+
+**Existing test commands:**
+- `PYTHONPATH=shared pytest shared/egg_contracts/tests/`
+- `PYTHONPATH=gateway:shared pytest gateway/tests/`
 
 ## Open Questions
 
-### HITL Decision Required: Checkpoint Capture Timeout
+### 1. Orphan Session Lookup
 
-When using async capture with buffer preservation, how long should we wait before timing out and proceeding with cleanup?
+`cleanup_orphaned_worktrees()` receives only container IDs, not Session objects.
+To capture checkpoints for crashed sessions, we need to look up Session metadata
+by container_id. The `get_session_by_container()` method exists but returns
+`None` for already-deleted sessions. The recommended approach is to capture
+checkpoint *before* session deletion in each path, ensuring the Session object
+is still available. For orphan cleanup specifically, the worktree manager should
+be given a reference to the session manager to look up sessions before cleanup.
 
-- [ ] **15 seconds** - Aggressive timeout, minimizes deletion latency
-- [ ] **30 seconds** - Balanced approach (recommended)
-- [ ] **60 seconds** - Conservative, maximizes capture success
-- [ ] **No timeout** - Always wait for completion (may block indefinitely)
-- [ ] Other (explain in reply)
+### 2. Retention Policy
 
-### HITL Decision Required: v1 Deprecation Strategy
+No TTL for v2 checkpoints initially. Pruning can be added later if storage
+grows. The git branch format makes it easy to rewrite history or drop old
+checkpoints.
 
-How should we handle the transition from v1 to v2 checkpoints?
+### 3. Transcript Size for Session-End Checkpoints
 
-- [ ] **Write to both v1 and v2** during transition, deprecate v1 after 30 days
-- [ ] **Write only to v2 immediately** (breaking change, but cleaner)
-- [ ] **Feature flag** to switch between v1 and v2 per-deployment
-- [ ] Other (explain in reply)
-
-### HITL Decision Required: Index Update Strategy for High Volume
-
-The current index is updated on every checkpoint write. With session-end checkpoints, volume increases. How should we handle this?
-
-- [ ] **Keep current approach** - index updated per checkpoint (simple, may have contention)
-- [ ] **Batch index updates** - update index every N checkpoints or every M seconds
-- [ ] **Eventual consistency** - separate index rebuild job, tolerate stale index briefly
-- [ ] Other (explain in reply)
-
-### Open-Ended Questions
-
-1. **Retention policy**: Should v2 checkpoints have a TTL or retention policy, or should they accumulate indefinitely like v1?
-
-2. **Orphan session lookup**: `cleanup_orphaned_worktrees()` receives only container IDs. To capture checkpoints for crashed sessions, we need to look up Session by container_id. The current `get_session_by_container()` method exists but returns None for already-deleted sessions. Should we add a separate lookup before worktree cleanup, or restructure the cleanup flow?
-
-3. **Transcript size limits**: Should session-end checkpoints have different size limits than commit checkpoints, given they represent potentially longer sessions?
-
----
-
-*Authored-by: egg*
+Session-end checkpoints may represent longer sessions than commit checkpoints.
+The proposed increase from 1MB to 3MB for `MAX_TRANSCRIPT_SIZE` and 2.5x
+increases to content/parameter/result limits should accommodate this.
