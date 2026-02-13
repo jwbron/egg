@@ -463,7 +463,9 @@ class TestPrReviewMarker:
     # This tests the marker construction without needing a real gateway
     MARKER_GENERATION = textwrap.dedent("""\
         # Simulate the marker generation from handle_pr_review
-        commit_sha="${1:-abc123def456}"
+        # EGG_COMMIT_SHA takes precedence over the positional arg (API-queried SHA)
+        # to avoid races when a commit is pushed during the review.
+        commit_sha="${EGG_COMMIT_SHA:-${1:-abc123def456}}"
         bot_name="${EGG_BOT_NAME:-egg}"
         body="${2:-}"
         review_type="${3:-comment}"
@@ -522,6 +524,35 @@ ${marker}"
             output
             == "<!-- egg-automated-review bot=james-in-a-box commit=abc123 verdict=comment -->"
         )
+
+    def test_env_commit_sha_takes_precedence(self):
+        """EGG_COMMIT_SHA env var should override the positional arg (API-queried SHA).
+
+        This prevents a race condition where a commit pushed during a review
+        causes the marker to reference a commit whose code was never reviewed.
+        """
+        env = os.environ.copy()
+        env["EGG_COMMIT_SHA"] = "env_sha_pinned_111"
+
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                self.MARKER_GENERATION,
+                "_",
+                "api_sha_stale_222",  # positional arg (would come from API)
+                "",  # body
+                "comment",  # review_type
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        output = result.stdout.rstrip("\n")
+        assert "commit=env_sha_pinned_111" in output
+        assert "api_sha_stale_222" not in output
 
     def test_marker_with_multiline_body(self):
         """Marker should work with multiline review body."""
