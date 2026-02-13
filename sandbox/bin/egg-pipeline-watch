@@ -23,7 +23,6 @@ import sys
 from http.client import HTTPConnection
 from urllib.parse import urlparse
 
-
 # ANSI escape codes
 CLEAR_SCREEN = "\033[2J"
 MOVE_HOME = "\033[H"
@@ -39,7 +38,7 @@ CYAN = "\033[36m"
 IS_TTY = sys.stdout.isatty()
 
 # Regex to strip ANSI escape sequences
-_ANSI_RE = re.compile(r"\033\[[0-9;]*[A-Za-z]")
+_ANSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
 
 
 def get_orchestrator_url() -> str:
@@ -147,7 +146,7 @@ def display_visualization(data: dict, compact: bool = False) -> None:
 def _write(text: str, file=None) -> None:
     """Write text, stripping ANSI codes if not a TTY."""
     file = file or sys.stdout
-    if not IS_TTY:
+    if not file.isatty():
         text = strip_ansi(text)
     file.write(text)
     file.flush()
