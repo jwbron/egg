@@ -299,25 +299,29 @@ def should_disable_auto_fix(repo: str) -> bool:
     return get_repo_setting(repo, "disable_auto_fix", False)
 
 
-def validate_checks(checks: list) -> list[dict[str, str]]:
-    """Validate and normalize a list of check command entries.
+try:
+    from egg_config.validators import validate_checks
+except ImportError:
 
-    Filters out malformed entries and coerces values to strings.
+    def validate_checks(checks: list) -> list[dict[str, str]]:  # type: ignore[misc]
+        """Validate and normalize a list of check command entries.
 
-    Args:
-        checks: Raw list of check entries (e.g. from YAML or JSON).
+        Filters out malformed entries and coerces values to strings.
 
-    Returns:
-        List of {"name": "...", "command": "..."} dicts with only
-        valid entries retained.
-    """
-    if not isinstance(checks, list):
-        return []
-    return [
-        {"name": str(c["name"]), "command": str(c["command"])}
-        for c in checks
-        if isinstance(c, dict) and "name" in c and "command" in c
-    ]
+        Args:
+            checks: Raw list of check entries (e.g. from YAML or JSON).
+
+        Returns:
+            List of {"name": "...", "command": "..."} dicts with only
+            valid entries retained.
+        """
+        if not isinstance(checks, list):
+            return []
+        return [
+            {"name": str(c["name"]), "command": str(c["command"])}
+            for c in checks
+            if isinstance(c, dict) and "name" in c and "command" in c
+        ]
 
 
 def get_repo_checks(repo: str) -> list[dict[str, str]]:

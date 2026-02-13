@@ -142,8 +142,7 @@ def _generate_env_file(compose_file: Path) -> bool:
         # Build per-repo checks map for the orchestrator
         try:
             import yaml
-
-            from config.repo_config import validate_checks
+            from egg_config.validators import validate_checks
 
             with config_file.open() as f:
                 cfg = yaml.safe_load(f) or {}

@@ -62,10 +62,20 @@ try:
         ORCHESTRATOR_ISOLATED_IP,
         ORCHESTRATOR_PORT,
     )
+    from egg_config.validators import validate_checks
 except ImportError:
     ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"
     ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"
     ORCHESTRATOR_PORT = 9849
+
+    def validate_checks(checks: list) -> list[dict[str, str]]:  # type: ignore[misc]
+        if not isinstance(checks, list):
+            return []
+        return [
+            {"name": str(c["name"]), "command": str(c["command"])}
+            for c in checks
+            if isinstance(c, dict) and "name" in c and "command" in c
+        ]
 
 pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
 
@@ -2009,11 +2019,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         for cfg_repo, cfg_checks in all_repo_checks.items():
                             if cfg_repo.lower() == repo_lower:
                                 if isinstance(cfg_checks, list):
-                                    repo_checks = [
-                                        {"name": str(c["name"]), "command": str(c["command"])}
-                                        for c in cfg_checks
-                                        if isinstance(c, dict) and "name" in c and "command" in c
-                                    ]
+                                    repo_checks = validate_checks(cfg_checks) or None
                                 break
 
                     max_autofix = 3
