@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
@@ -96,6 +96,14 @@ try:
     _DAG_VISUALIZER_AVAILABLE = True
 except ImportError:
     _DAG_VISUALIZER_AVAILABLE = False
+
+# Import SSE streaming support
+try:
+    from sse import create_sse_stream
+
+    _SSE_AVAILABLE = True
+except ImportError:
+    _SSE_AVAILABLE = False
 
 
 def make_error_response(
@@ -2447,3 +2455,67 @@ def get_pipeline_visualization(pipeline_id: str) -> tuple[Response, int]:
             f"Pipeline {pipeline_id} not found",
             status_code=404,
         )
+
+
+@pipelines_bp.route("/<pipeline_id>/stream", methods=["GET"])
+def stream_pipeline(pipeline_id: str) -> Response:
+    """
+    Stream pipeline events via Server-Sent Events (SSE).
+
+    Provides real-time updates for pipeline state changes including
+    phase transitions, agent lifecycle, and DAG visualization.
+
+    URL params:
+        pipeline_id: Pipeline ID
+
+    Query params:
+        ascii: Use ASCII-only characters (default: false)
+
+    Response:
+        text/event-stream with the following event types:
+        - snapshot: Initial pipeline state
+        - pipeline.*: Pipeline lifecycle events
+        - phase.*: Phase transition events
+        - agent.*: Agent lifecycle events
+        - decision.*: HITL decision events
+        - done: Stream is ending (terminal state or timeout)
+        - error: An error occurred
+
+    The stream automatically closes when the pipeline reaches a
+    terminal state (completed, failed, cancelled) or after the
+    maximum connection time (1 hour).
+    """
+    if not _SSE_AVAILABLE:
+        return make_error_response(
+            "SSE streaming module not available",
+            status_code=500,
+        )
+
+    use_ascii = request.args.get("ascii", "false").lower() == "true"
+
+    # Validate pipeline exists before starting stream
+    repo_path = get_repo_path()
+    try:
+        _resolve_pipeline(pipeline_id, repo_path)
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found",
+            status_code=404,
+        )
+
+    return Response(
+        stream_with_context(
+            create_sse_stream(pipeline_id, repo_path=repo_path, use_ascii=use_ascii)
+        ),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

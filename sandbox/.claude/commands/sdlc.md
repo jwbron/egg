@@ -72,25 +72,19 @@ curl -s -X POST http://egg-orchestrator:9849/api/v1/pipelines/issue-<issue_numbe
   -H "Content-Type: application/json" -d '{}' | jq .
 ```
 
-#### Report Status
+#### Stream Live Progress
 
-Display the pipeline status and provide monitoring commands.
+After starting the pipeline, **immediately** run the pipeline watcher to stream real-time DAG visualization:
 
-**Example response:**
+```bash
+egg-pipeline-watch issue-<issue_number>
 ```
-# SDLC Pipeline Initialized
 
-Pipeline: issue-496
-Repository: anthropics/egg
-Branch: egg/issue-496
-Status: running
+This connects to the orchestrator's SSE endpoint and displays the DAG visualization with live updates as phases progress. The watcher exits automatically when the pipeline completes, fails, or is cancelled.
 
-The orchestrator is now running the pipeline. Containers will be spawned
-for each phase (refine → plan → implement → pr).
-
-Monitor progress:
-- `egg-contract show --issue 496`
-- `curl http://egg-orchestrator:9849/api/v1/pipelines/issue-496 | jq .`
+If the terminal does not support Unicode, use:
+```bash
+egg-pipeline-watch issue-<issue_number> --ascii
 ```
 
 ---
@@ -129,28 +123,15 @@ curl -s -X POST "http://egg-orchestrator:9849/api/v1/pipelines/<pipeline_id>/sta
   -H "Content-Type: application/json" -d '{}' | jq .
 ```
 
-#### Report Status
+#### Stream Live Progress
 
-**Example response:**
+After starting the pipeline, **immediately** run the pipeline watcher to stream real-time DAG visualization:
+
+```bash
+egg-pipeline-watch <pipeline_id>
 ```
-# Local SDLC Pipeline Started
 
-Pipeline: local-a1b2c3d4
-Mode: local (no GitHub interaction)
-Status: running
-
-The orchestrator is now running the pipeline. Containers will be spawned
-for each phase (refine → plan → implement).
-
-Local pipelines skip the PR phase. When the pipeline completes, you can
-push and create a PR manually:
-
-  git push origin <branch>
-  gh pr create --title "..." --body "..."
-
-Monitor progress:
-  curl http://egg-orchestrator:9849/api/v1/pipelines/<pipeline_id> | jq .
-```
+This streams live updates as the pipeline progresses through each phase. The watcher exits automatically when the pipeline reaches a terminal state.
 
 ## Error Handling
 
