@@ -179,7 +179,7 @@ def api_request(
     if headers:
         req_headers.update(headers)
 
-    body = json.dumps(data).encode() if data else None
+    body = json.dumps(data).encode() if data is not None else None
 
     try:
         request = Request(url, data=body, headers=req_headers, method=method)
@@ -243,7 +243,7 @@ def gateway_request(
     headers: dict[str, str] = {}
     token = get_session_token()
     if token:
-        headers["X-Egg-Session-Token"] = token
+        headers["Authorization"] = f"Bearer {token}"
     return api_request_or_exit(get_gateway_url(), endpoint, method, data, timeout, headers)
 
 
@@ -263,15 +263,6 @@ def require_pipeline_id(args: argparse.Namespace) -> str:
         sys.exit(1)
     return validate_id(pid, "pipeline_id")
 
-
-def _get_orch_client():
-    """Get an OrchestratorClient instance for signal commands."""
-    try:
-        from egg_orchestrator.client import OrchestratorClient
-
-        return OrchestratorClient()
-    except ImportError:
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -488,31 +479,6 @@ def cmd_signal_complete(args: argparse.Namespace) -> int:
         )
         return 1
     role = _require_role(args)
-
-    client = _get_orch_client()
-    if client:
-        try:
-            from egg_orchestrator.client import OrchestratorError
-
-            response = client.signal_complete(
-                pipeline_id=pid_raw,
-                agent_role=role,
-                commit=args.commit,
-                files_changed=args.files,
-            )
-            if args.json:
-                print_json({"success": response.success, "message": response.message})
-                return 0
-            if response.success:
-                print(f"Signaled complete for {role}")
-                return 0
-            print(f"Error: {response.message}", file=sys.stderr)
-            return 1
-        except OrchestratorError as e:
-            print(f"Error: {e.message}", file=sys.stderr)
-            return 1
-
-    # Fallback to direct HTTP
     pid = validate_id(pid_raw, "pipeline_id")
     data: dict[str, Any] = {
         "signal_type": "complete",
@@ -546,32 +512,6 @@ def cmd_signal_progress(args: argparse.Namespace) -> int:
         )
         return 1
     role = _require_role(args)
-
-    client = _get_orch_client()
-    if client:
-        try:
-            from egg_orchestrator.client import OrchestratorError
-
-            response = client.signal_progress(
-                pipeline_id=pid_raw,
-                agent_role=role,
-                progress_percent=args.percent,
-                current_task=args.task or "",
-                message=args.message or "",
-            )
-            if args.json:
-                print_json({"success": response.success, "message": response.message})
-                return 0
-            if response.success:
-                print(f"Progress: {args.percent}%")
-                return 0
-            print(f"Error: {response.message}", file=sys.stderr)
-            return 1
-        except OrchestratorError as e:
-            print(f"Error: {e.message}", file=sys.stderr)
-            return 1
-
-    # Fallback to direct HTTP
     pid = validate_id(pid_raw, "pipeline_id")
     data: dict[str, Any] = {
         "signal_type": "progress",
@@ -606,31 +546,6 @@ def cmd_signal_error(args: argparse.Namespace) -> int:
         )
         return 1
     role = _require_role(args)
-
-    client = _get_orch_client()
-    if client:
-        try:
-            from egg_orchestrator.client import OrchestratorError
-
-            response = client.signal_error(
-                pipeline_id=pid_raw,
-                agent_role=role,
-                error=args.error,
-                recoverable=args.recoverable,
-            )
-            if args.json:
-                print_json({"success": response.success, "message": response.message})
-                return 0
-            if response.success:
-                print(f"Signaled error for {role}")
-                return 0
-            print(f"Error: {response.message}", file=sys.stderr)
-            return 1
-        except OrchestratorError as e:
-            print(f"Error: {e.message}", file=sys.stderr)
-            return 1
-
-    # Fallback to direct HTTP
     pid = validate_id(pid_raw, "pipeline_id")
     data: dict[str, Any] = {
         "signal_type": "error",
@@ -662,29 +577,6 @@ def cmd_signal_heartbeat(args: argparse.Namespace) -> int:
         )
         return 1
     role = _require_role(args)
-
-    client = _get_orch_client()
-    if client:
-        try:
-            from egg_orchestrator.client import OrchestratorError
-
-            response = client.signal_heartbeat(
-                pipeline_id=pid_raw,
-                agent_role=role,
-            )
-            if args.json:
-                print_json({"success": response.success, "message": response.message})
-                return 0
-            if response.success:
-                print("Heartbeat sent")
-                return 0
-            print(f"Error: {response.message}", file=sys.stderr)
-            return 1
-        except OrchestratorError as e:
-            print(f"Error: {e.message}", file=sys.stderr)
-            return 1
-
-    # Fallback to direct HTTP
     pid = validate_id(pid_raw, "pipeline_id")
     data: dict[str, Any] = {
         "signal_type": "heartbeat",
@@ -740,7 +632,8 @@ def cmd_phase_advance(args: argparse.Namespace) -> int:
         return 0
 
     if result.get("success"):
-        new_phase = result.get("data", {}).get("phase", "?")
+        phase_data = result.get("data", {})
+        new_phase = phase_data.get("current_phase", phase_data.get("phase", "?"))
         print(f"Advanced to phase: {new_phase}")
         return 0
     print(f"Error: {result.get('message')}", file=sys.stderr)
@@ -1066,17 +959,19 @@ def cmd_gateway_permissions(args: argparse.Namespace) -> int:
         return 0
 
     data = result.get("data", result)
-    allowed = data.get("allowed", [])
-    blocked = data.get("blocked", [])
+    allowed = data.get("allowed_operations", data.get("allowed", []))
+    blocked = data.get("blocked_operations", data.get("blocked", []))
 
     if allowed:
         print("Allowed:")
         for op in allowed:
-            print(f"  + {op}")
+            desc = op.get("description", op) if isinstance(op, dict) else op
+            print(f"  + {desc}")
     if blocked:
         print("Blocked:")
         for op in blocked:
-            print(f"  - {op}")
+            desc = op.get("description", op) if isinstance(op, dict) else op
+            print(f"  - {desc}")
     return 0
 
 
