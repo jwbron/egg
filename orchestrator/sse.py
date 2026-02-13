@@ -270,8 +270,9 @@ def get_sse_manager() -> SSEClientManager:
     if _sse_manager is None:
         with _sse_manager_lock:
             if _sse_manager is None:
-                _sse_manager = SSEClientManager()
-                _sse_manager.subscribe_to_events()
+                manager = SSEClientManager()
+                manager.subscribe_to_events()
+                _sse_manager = manager
     return _sse_manager
 
 

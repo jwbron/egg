@@ -144,32 +144,29 @@ def parse_sse_stream(response):
     event_type = None
     data_lines = []
 
-    # Use a buffered line reader for efficiency and correct UTF-8 handling
-    rfile = response.makefile("rb")
-    try:
-        for raw_line in rfile:
-            line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+    # Iterate directly on HTTPResponse, which inherits __iter__ from
+    # io.IOBase (calls readline() repeatedly) for buffered line reading.
+    for raw_line in response:
+        line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
 
-            if line.startswith("event: "):
-                event_type = line[7:]
-            elif line.startswith("data: "):
-                data_lines.append(line[6:])
-            elif line.startswith(":"):
-                # Comment (heartbeat) - ignore
-                pass
-            elif line == "":
-                # Blank line = end of event
-                if data_lines:
-                    raw = "\n".join(data_lines)
-                    try:
-                        data = json.loads(raw)
-                    except json.JSONDecodeError:
-                        data = {"raw": raw}
-                    yield (event_type or "message", data)
-                event_type = None
-                data_lines = []
-    finally:
-        rfile.close()
+        if line.startswith("event: "):
+            event_type = line[7:]
+        elif line.startswith("data: "):
+            data_lines.append(line[6:])
+        elif line.startswith(":"):
+            # Comment (heartbeat) - ignore
+            pass
+        elif line == "":
+            # Blank line = end of event
+            if data_lines:
+                raw = "\n".join(data_lines)
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    data = {"raw": raw}
+                yield (event_type or "message", data)
+            event_type = None
+            data_lines = []
 
 
 def watch_pipeline(
