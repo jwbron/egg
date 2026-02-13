@@ -93,6 +93,7 @@ orchestrator/
 ├── multi_agent.py          # Multi-agent orchestration
 ├── resilience.py           # Retry and error recovery
 ├── sandbox_template.py     # Sandbox container template
+├── sse.py                  # Server-Sent Events streaming for pipeline visualization
 ├── state_store.py          # Git-backed pipeline state
 ├── status_reporter.py      # Real-time status reporter for collaborators
 ├── webhooks.py             # GitHub webhook handlers
@@ -126,6 +127,7 @@ sandbox/
 │   ├── gh
 │   ├── egg-contract        # Symlink to contract_cli.py
 │   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
+│   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
 │   ├── contract_cli.py     # SDLC contract CLI implementation

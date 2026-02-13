@@ -71,9 +71,11 @@ The pipeline pauses for human approval at phase transitions. Decisions use check
 
 ### Pipeline Status Visualization
 
-The orchestrator provides real-time pipeline status visualization through the visualization API endpoint. This allows monitoring pipeline progress and phase status.
+The orchestrator provides pipeline status visualization through two endpoints:
 
-**Endpoint**: `GET /api/v1/pipelines/<pipeline_id>/visualization`
+**1. Static Visualization**: `GET /api/v1/pipelines/<pipeline_id>/visualization`
+
+Returns a snapshot of the current pipeline state.
 
 **Query parameters**:
 - `format`: Output format - `full` (default), `compact`, `text`, or `json`
@@ -85,6 +87,27 @@ The orchestrator provides real-time pipeline status visualization through the vi
 2. **`compact`**: Single-line phase status with symbols
 3. **`text`**: Plain text DAG visualization
 4. **`json`**: Structured JSON report with phase details
+
+**2. Real-time Streaming**: `GET /api/v1/pipelines/<pipeline_id>/stream`
+
+Returns a Server-Sent Events (SSE) stream for real-time pipeline updates.
+
+**Query parameters**:
+- `ascii`: Use ASCII-only characters (`true` or `false`, default: `false`)
+
+**Event types**:
+- `snapshot`: Initial pipeline state with full DAG visualization
+- `pipeline.*`: Pipeline lifecycle events (created, started, completed, failed, cancelled)
+- `phase.*`: Phase transition events (started, completed, failed)
+- `agent.*`: Agent lifecycle events (started, completed, failed, timeout)
+- `decision.*`: HITL decision events (created, resolved, timeout)
+- `container.*`: Container lifecycle events (spawned, stopped, removed) — *planned; not yet emitted via SSE*
+- `done`: Stream ending (pipeline terminal state or timeout)
+- `error`: Error occurred
+
+Each event includes the current visualization data and pipeline status. The stream automatically closes when the pipeline reaches a terminal state or after 1 hour.
+
+**CLI tool**: Use `egg-pipeline-watch <pipeline_id>` to view real-time progress in the terminal with auto-updating DAG visualization.
 
 **Example JSON response** (`format=full`):
 ```json
