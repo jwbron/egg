@@ -38,6 +38,16 @@ IS_TTY = sys.stdout.isatty()
 # Regex to strip ANSI escape sequences
 _ANSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
 
+# Status → ANSI color mapping (used by format_status_line and render_event_info)
+STATUS_COLORS = {
+    "running": CYAN,
+    "complete": GREEN,
+    "failed": RED,
+    "pending": DIM,
+    "awaiting_human": YELLOW,
+    "cancelled": RED,
+}
+
 
 def _is_inside_container() -> bool:
     """Detect whether we're running inside a Docker container."""
@@ -95,15 +105,7 @@ def format_status_line(pipeline_id: str, data: dict) -> str:
     pending = data.get("pending_decisions", 0)
     updated = data.get("timestamp", "")
 
-    status_colors = {
-        "running": CYAN,
-        "complete": GREEN,
-        "failed": RED,
-        "pending": DIM,
-        "awaiting_human": YELLOW,
-        "cancelled": RED,
-    }
-    color = status_colors.get(status, "")
+    color = STATUS_COLORS.get(status, "")
 
     time_part = ""
     if updated:
@@ -137,15 +139,7 @@ def render_event_info(data: dict) -> str:
     event_type = data.get("event_type", "")
     timestamp = data.get("timestamp", "")
 
-    status_colors = {
-        "running": CYAN,
-        "complete": GREEN,
-        "failed": RED,
-        "pending": DIM,
-        "awaiting_human": YELLOW,
-        "cancelled": RED,
-    }
-    color = status_colors.get(status, "")
+    color = STATUS_COLORS.get(status, "")
 
     lines.append("")
     lines.append(f"  Status: {color}{status}{RESET}  |  Phase: {phase}")
@@ -267,7 +261,7 @@ def watch_pipeline(
 
     conn = None
     try:
-        conn = HTTPConnection(host, port, timeout=60)
+        conn = HTTPConnection(host, port, timeout=120)
         conn.request(
             "GET",
             path,
@@ -288,6 +282,8 @@ def watch_pipeline(
             _write(f"{RED}Error ({response.status}): {msg}{RESET}\n", file=sys.stderr)
             return 1
 
+        last_status = None
+        last_pending = 0
         for event_type, data in parse_sse_stream(response):
             if event_type == "error":
                 display_error(data)
@@ -295,8 +291,13 @@ def watch_pipeline(
 
             if event_type == "done":
                 display_done(data)
-                return 0
+                return 1 if last_status in ("failed", "cancelled") else 0
 
+            last_status = data.get("status", last_status)
+            if "pending_decisions" in data:
+                last_pending = data["pending_decisions"]
+            elif last_pending:
+                data["pending_decisions"] = last_pending
             display_visualization(data, compact=compact)
 
             if once:
@@ -305,6 +306,13 @@ def watch_pipeline(
     except KeyboardInterrupt:
         _write(f"\n{DIM}Stopped watching.{RESET}\n")
         return 0
+    except TimeoutError:
+        _write(
+            f"{YELLOW}No data from server for 120s. "
+            f"Reconnect with: egg-pipeline-watch {pipeline_id}{RESET}\n",
+            file=sys.stderr,
+        )
+        return 1
     except ConnectionRefusedError:
         _write(
             f"{RED}Cannot connect to orchestrator at {base_url}\n"
