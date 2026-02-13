@@ -5,7 +5,7 @@
   "branch": "egg/issue-546",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "pr",
   "config": {
     "auto_create_pr": true,
@@ -729,9 +729,9 @@
     },
     "pr": {
       "phase": "pr",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-02-13T09:45:32.367339",
-      "completed_at": null,
+      "completed_at": "2026-02-13T09:45:35.203770",
       "containers": [
         {
           "container_id": "9ae0070fd880af92ee7e04493c9f370e522b252f7527a9d9b778fc4a4753a762",
@@ -759,7 +759,7 @@
       ],
       "review_cycles": 0,
       "artifacts": {},
-      "error": null
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-13T09:45:34.951130682Z     Status: healthy\n2026-02-13T09:45:34.951139765Z     GitHub token valid: True\n2026-02-13T09:45:34.951148848Z     Auth configured: True\n2026-02-13T09:45:34.951159182Z ✓ Gateway ready! (public mode - direct internet access)\n2026-02-13T09:45:34.951169057Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-13T09:45:34.951178932Z   Credentials injected by gateway (not in container)\n2026-02-13T09:45:34.951188349Z ⚠ Failed to signal orchestrator: OrchestratorError(500): Failed to record error: Contract for 546 not found at /home/egg/repos/egg/.egg-state/contracts/546.json\n2026-02-13T09:45:34.951197390Z \n2026-02-13T09:45:34.951204765Z Cleaning up on container exit...\n2026-02-13T09:45:34.951212307Z ✓ Cleanup complete"
     }
   },
   "decisions": [
@@ -791,8 +791,8 @@
     }
   ],
   "created_at": "2026-02-13T07:58:25.701052",
-  "updated_at": "2026-02-13T09:45:35.166118",
+  "updated_at": "2026-02-13T09:45:35.203934",
   "contract_synced": true,
-  "error": null,
-  "version": 90
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-13T09:45:34.951130682Z     Status: healthy\n2026-02-13T09:45:34.951139765Z     GitHub token valid: True\n2026-02-13T09:45:34.951148848Z     Auth configured: True\n2026-02-13T09:45:34.951159182Z ✓ Gateway ready! (public mode - direct internet access)\n2026-02-13T09:45:34.951169057Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-13T09:45:34.951178932Z   Credentials injected by gateway (not in container)\n2026-02-13T09:45:34.951188349Z ⚠ Failed to signal orchestrator: OrchestratorError(500): Failed to record error: Contract for 546 not found at /home/egg/repos/egg/.egg-state/contracts/546.json\n2026-02-13T09:45:34.951197390Z \n2026-02-13T09:45:34.951204765Z Cleaning up on container exit...\n2026-02-13T09:45:34.951212307Z ✓ Cleanup complete",
+  "version": 91
 }
