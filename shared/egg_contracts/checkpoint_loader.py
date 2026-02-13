@@ -14,12 +14,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .checkpoints import (
+    AgentType,
     Checkpoint,
     CheckpointIndex,
     CheckpointIndexV2,
     CheckpointSummary,
     CheckpointSummaryV2,
     CheckpointV2,
+    SessionStatus,
+    TriggerType,
 )
 
 
@@ -750,16 +753,16 @@ def list_checkpoints_v2(
         _intersect(index.get_by_session(session_id))
 
     if trigger_type is not None:
-        _intersect(index.by_trigger.get(trigger_type, []))
+        _intersect(index.get_by_trigger(TriggerType(trigger_type)))
 
     if session_status is not None:
-        _intersect(index.by_status.get(session_status, []))
+        _intersect(index.get_by_status(SessionStatus(session_status)))
 
     if agent_type is not None:
-        _intersect(index.by_agent_type.get(agent_type, []))
+        _intersect(index.get_by_agent_type(AgentType(agent_type)))
 
     if pipeline_phase is not None:
-        _intersect(index.by_phase.get(pipeline_phase, []))
+        _intersect(index.get_by_phase(pipeline_phase))
 
     # Filter summaries
     results = []

@@ -626,7 +626,7 @@ def _update_pr_usage(
 
 def _update_usage_index(
     base_dir: Path,
-    checkpoint: Checkpoint,
+    checkpoint: Checkpoint | CheckpointV2,
     token_counts: TokenCounts,
     now: datetime,
 ) -> None:

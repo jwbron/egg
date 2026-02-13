@@ -685,3 +685,44 @@ class TestListCheckpointsV2:
             checkpoints_dir, index_path = self._build_index(tmpdir)
             results = list_checkpoints_v2(checkpoints_dir, index_path, issue_number=999)
             assert results == []
+
+    def test_invalid_trigger_type_raises(self):
+        """Test that an invalid trigger_type value raises ValueError."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            with pytest.raises(ValueError):
+                list_checkpoints_v2(checkpoints_dir, index_path, trigger_type="bogus")
+
+    def test_invalid_session_status_raises(self):
+        """Test that an invalid session_status value raises ValueError."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            with pytest.raises(ValueError):
+                list_checkpoints_v2(checkpoints_dir, index_path, session_status="bogus")
+
+    def test_invalid_agent_type_raises(self):
+        """Test that an invalid agent_type value raises ValueError."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir, index_path = self._build_index(tmpdir)
+            with pytest.raises(ValueError):
+                list_checkpoints_v2(checkpoints_dir, index_path, agent_type="bogus")
+
+
+class TestLoadCheckpointByIdV2EdgeCases:
+    """Tests for edge cases in load_checkpoint_by_id_v2."""
+
+    def test_malformed_ckpt_id_returns_none(self):
+        """Test that a malformed ckpt- ID returns None rather than crashing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir = Path(tmpdir) / "checkpoints"
+            checkpoints_dir.mkdir()
+            result = load_checkpoint_by_id_v2("ckpt-garbage-not-hex", checkpoints_dir)
+            assert result is None
+
+    def test_empty_ckpt_id_returns_none(self):
+        """Test that 'ckpt-' alone returns None."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir = Path(tmpdir) / "checkpoints"
+            checkpoints_dir.mkdir()
+            result = load_checkpoint_by_id_v2("ckpt-", checkpoints_dir)
+            assert result is None
