@@ -496,26 +496,95 @@ class TestFindWorktreeGitDir:
         assert result == main_repo / ".git" / "worktrees" / "egg"
 
     def test_no_false_match_without_git_suffix(self, tmp_path):
-        """Gitdir content without /.git suffix should not match (guards against regression)."""
+        """Gitdir content without /.git suffix should not match (guards against regression).
+
+        This test verifies that a malformed gitdir (missing the /.git suffix) does
+        NOT produce a match. We set up two admin dirs:
+        - "egg" with WRONG content (missing /.git suffix) — should NOT match
+        - "egg1" with CORRECT content (includes /.git suffix) — should match
+
+        If the comparison incorrectly matched without /.git, we'd get "egg" back.
+        The fix ensures we get "egg1" (the correct admin dir).
+        """
         main_repo = tmp_path / "repo"
         worktrees_dir = main_repo / ".git" / "worktrees"
 
         worktree_path = tmp_path / "worktrees" / "container" / "egg"
 
-        admin_dir = worktrees_dir / "egg"
-        admin_dir.mkdir(parents=True)
-        # Simulate a malformed gitdir file that has the worktree path WITHOUT /.git
-        (admin_dir / "gitdir").write_text(str(worktree_path) + "\n")
+        # Admin dir "egg" has MALFORMED gitdir content (missing /.git suffix)
+        admin_dir_wrong = worktrees_dir / "egg"
+        admin_dir_wrong.mkdir(parents=True)
+        (admin_dir_wrong / "gitdir").write_text(str(worktree_path) + "\n")
+
+        # Admin dir "egg1" has CORRECT gitdir content (includes /.git suffix)
+        admin_dir_correct = worktrees_dir / "egg1"
+        admin_dir_correct.mkdir(parents=True)
+        (admin_dir_correct / "gitdir").write_text(str(worktree_path / ".git") + "\n")
 
         manager = WorktreeManager(
             worktree_base=tmp_path / "worktrees",
             repos_base=tmp_path,
         )
 
-        # Should NOT match — gitdir content doesn't end with /.git
+        # The malformed "egg" admin dir should NOT match; the correct "egg1" should
         result = manager._find_worktree_git_dir(main_repo, worktree_path)
-        # Falls through to default since the content doesn't match the expected format
-        assert result == admin_dir  # happens to be the default here
+        assert result == admin_dir_correct, (
+            f"Expected correct admin dir 'egg1', got '{result.name}'. "
+            "The fix ensures gitdir content must include /.git suffix to match."
+        )
+
+
+    def test_original_bug_comparison_without_git_suffix(self, tmp_path):
+        """Demonstrate why comparing against worktree_path (not worktree_path/.git) was wrong.
+
+        This test simulates the original bug from PR #589's broken fix:
+        - The gitdir file contains /path/to/worktree/.git (with /.git suffix)
+        - The old comparison checked: gitdir_content == str(worktree_path)
+        - Since "/path/.git" != "/path", the match NEVER succeeded
+        - Every lookup fell through to default_git_dir, causing collisions
+
+        The fix compares against str(worktree_path / ".git") so it matches correctly.
+        """
+        main_repo = tmp_path / "repo"
+        worktrees_dir = main_repo / ".git" / "worktrees"
+
+        # Set up two worktrees with same basename (the collision scenario)
+        interactive_wt = tmp_path / "worktrees" / "interactive" / "egg"
+        pipeline_wt = tmp_path / "worktrees" / "pipeline" / "egg"
+
+        # Admin dirs with CORRECT gitdir content (as git actually writes it)
+        admin_interactive = worktrees_dir / "egg"
+        admin_interactive.mkdir(parents=True)
+        (admin_interactive / "gitdir").write_text(str(interactive_wt / ".git") + "\n")
+
+        admin_pipeline = worktrees_dir / "egg1"
+        admin_pipeline.mkdir(parents=True)
+        (admin_pipeline / "gitdir").write_text(str(pipeline_wt / ".git") + "\n")
+
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path,
+        )
+
+        # Simulate OLD (buggy) comparison: gitdir_content == str(worktree_path)
+        # This would NEVER match because gitdir contains ".../.git" but we compared to "..."
+        gitdir_content = (admin_pipeline / "gitdir").read_text().strip()
+        old_buggy_comparison = gitdir_content == str(pipeline_wt)
+        assert not old_buggy_comparison, (
+            "Old comparison should NOT match (gitdir has /.git suffix, worktree_path doesn't)"
+        )
+
+        # NEW (fixed) comparison: gitdir_content == str(worktree_path / ".git")
+        new_fixed_comparison = gitdir_content == str(pipeline_wt / ".git")
+        assert new_fixed_comparison, (
+            "New comparison SHOULD match (both have /.git suffix)"
+        )
+
+        # Verify the actual function returns the correct admin dir
+        result = manager._find_worktree_git_dir(main_repo, pipeline_wt)
+        assert result == admin_pipeline, (
+            f"Expected 'egg1' for pipeline worktree, got '{result.name}'"
+        )
 
 
 if __name__ == "__main__":
