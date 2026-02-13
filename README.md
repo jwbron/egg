@@ -222,6 +222,17 @@ For monitoring all active SDLC pipelines in real-time:
 | `bin/egg-status --ascii` | Use ASCII-only characters (no Unicode) |
 | `bin/egg-status --port <port>` | Specify orchestrator port (default: 9849) |
 
+### egg-pipeline-watch CLI
+
+For watching a specific pipeline's progress with DAG visualization:
+
+| Command | Description |
+|---------|-------------|
+| `bin/egg-pipeline-watch <pipeline-id>` | Stream DAG visualization for a specific pipeline |
+| `bin/egg-pipeline-watch <pipeline-id> --compact` | Show compact single-line status instead of full DAG |
+| `bin/egg-pipeline-watch <pipeline-id> --once` | Show current state and exit (no streaming) |
+| `bin/egg-pipeline-watch <pipeline-id> --ascii` | Use ASCII-only characters (no Unicode) |
+
 ### Flags
 
 | Flag | Description |
