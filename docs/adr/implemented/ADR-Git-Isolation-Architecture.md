@@ -10,6 +10,8 @@
 
 This document describes how we safely allow multiple AI agent containers to work on the same git repositories simultaneously, without risking cross-contamination or unauthorized access.
 
+**Scope:** This ADR focuses on **agent isolation** (gateway-managed worktrees for sandbox containers). The orchestrator also uses git worktrees for pipeline state persistence, but that is a separate concern managed independently. See [Orchestrator Architecture](../../architecture/orchestrator.md#pipeline-state-persistence) for details on orchestrator state storage.
+
 **The core security guarantee**: An AI agent can only see and modify its own isolated workspace. It cannot access other agents' work, cannot directly push to remote repositories, and cannot see credentials. All git operations that touch the network or affect shared state go through a trusted gateway that enforces access policies.
 
 **Key properties:**
@@ -45,7 +47,7 @@ This document focuses on the specific challenge of **multi-agent git isolation**
 | Agent pushes malicious code directly to main | Gateway blocks direct pushes to protected branches; PRs require human review |
 | Agent discovers or exfiltrates credentials | Credentials only exist in gateway; container never sees them |
 | Agent modifies git config to bypass security | Container has no access to git metadata; config is gateway-controlled |
-| Agent escapes via git hooks or filters | No hooks/filters in container; only gateway executes git commands |
+| Agent escapes via git hooks or filters | Hooks universally disabled via `core.hooksPath=/dev/null` in gateway and orchestrator; filters mitigated in containers by metadata isolation (no `.gitattributes` processing); gateway protected by branch ownership policy (agents cannot push to main) and required human review of all commits |
 | Crashed container corrupts shared state | Gateway cleans up orphaned workspaces on startup |
 
 ### Explicit Non-Goals
@@ -283,7 +285,7 @@ The gateway blocks dangerous flags across all operations:
 | `--exec`, `-c` | Command injection via config/scripts |
 | `--upload-pack`, `--receive-pack` | Arbitrary command execution on fetch/push |
 | `--config`, `-c` | Runtime config override |
-| `--no-verify` | Skip hooks (defense in depth) |
+| `--no-verify` | Blocked in agent-facing API (hooks already disabled via `core.hooksPath=/dev/null`) |
 | `--git-dir`, `--work-tree` | Path traversal outside sandbox |
 
 ### Flag Validation
@@ -304,6 +306,21 @@ Each operation has an explicit allowlist of permitted flags. Unknown flags are r
     ],
 }
 ```
+
+### Git Hook Protection
+
+**Defense-in-depth**: The gateway and orchestrator universally disable all git hooks when executing git commands on user repositories via `core.hooksPath=/dev/null`. This prevents hook-based attacks where malicious repositories execute arbitrary code in the trusted gateway/orchestrator environment.
+
+**Implementation**:
+- **Gateway checkpoint handler** (`gateway/checkpoint_handler.py`): All git commands include `-c core.hooksPath=/dev/null`
+- **Orchestrator state store** (`orchestrator/state_store.py`): All git commands include `-c core.hooksPath=/dev/null`
+- **Usage CLI** (`shared/egg_contracts/usage_cli.py`): All git commands include `-c core.hooksPath=/dev/null`
+
+**Rationale**: Pre-commit hooks, commit-msg hooks, and other git hooks can execute arbitrary code when git commands are run. Even though hooks shouldn't affect the checkpoint branch or internal state branches, allowing them to execute in the gateway or orchestrator would violate the security boundary - user repository code must never run in trusted contexts.
+
+**Additional hardening**: The `--no-verify` flag is also blocked in the agent-facing API as an additional safeguard, though hooks are already disabled globally.
+
+See issue #58 for context on hook-based attacks and the security implications.
 
 ---
 

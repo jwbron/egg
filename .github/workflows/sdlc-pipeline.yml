@@ -216,7 +216,7 @@ jobs:
       - name: Setup pipeline
         id: setup
         env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER_INPUT: ${{ needs.resolve-inputs.outputs.issue_number }}
           STARTING_PHASE: ${{ needs.resolve-inputs.outputs.starting_phase }}
           EVENT_SENDER: ${{ github.event.sender.login }}

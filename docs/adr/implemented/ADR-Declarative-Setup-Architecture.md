@@ -284,16 +284,21 @@ Users can enable/disable all services, or manage individual services:
   - All optional component setup
 - **Success criteria:** Full parity with existing setup.sh functionality
 
-**Phase 5: Integration and Migration** ✓ COMPLETED
+**Phase 5: Integration and Migration** — PARTIALLY COMPLETED
 - **Goal:** Integrate with egg command and handle migration
-- **Components:**
-  - ✓ Update `egg` script to delegate to setup.py
-  - ✓ Migration from legacy config locations (API keys migrated to secrets.env)
-  - ✓ Deprecation warnings for old config paths
+- **Completed:**
+  - ✓ `egg --setup` triggers interactive setup flow (`sandbox/egg_lib/setup_flow.py`)
+  - ✓ `secrets.env` and `config.yaml` creation via interactive wizard
   - ✓ **Delete `setup.sh`** - Removed old bash setup script entirely
   - ✓ Documentation updates (README.md updated)
-- **Success criteria:** `egg --setup` works, existing configs migrate cleanly, setup.sh is removed
-- **Completion date:** December 16, 2025
+- **Deferred (not implemented):**
+  - `setup.py` as standalone entry point (setup is integrated into `egg_lib/setup_flow.py` instead)
+  - `config/setup/` modular setup package (cli.py, config_manager.py, prompts.py, services.py, docker.py)
+  - `config/host_config.py` and `HostConfig` class
+  - Service management flags (`--enable-services`, `--disable-services`)
+  - Individual service enable/disable (`--enable slack-notifier`, etc.)
+- **Success criteria (met):** `egg --setup` works, existing configs migrate cleanly, setup.sh is removed
+- **Completion date:** December 16, 2025 (partial)
 
 ### File Structure
 

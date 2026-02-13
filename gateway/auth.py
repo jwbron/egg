@@ -138,6 +138,7 @@ def require_session_auth(f: F) -> F:
         # Set session context from validation result
         g.session = result.session
         g.session_mode = result.session.mode if result.session else None
+        g.session_phase = result.session.phase if result.session else None
 
         return f(*args, **kwargs)
 

@@ -1,0 +1,7 @@
+{
+  "reviewer": "agent-design",
+  "verdict": "approved",
+  "summary": "No agent-mode design anti-patterns found. Prompts are objective-oriented, not rigidly procedural. Agents fetch their own context (drafts, diffs, test commands) rather than having large content pre-baked into prompts. Structured JSON output (review verdicts, check results) is consumed programmatically by the orchestrator for control flow decisions, not presented to humans. Phase restrictions in prompts are informational supplements to gateway-enforced sandbox constraints, not the sole enforcement mechanism. The _populate_contract_from_plan() regex extraction of markdown headers is a minor post-processing pattern but is best-effort and non-blocking.",
+  "feedback": "",
+  "timestamp": "2026-02-12T07:15:00Z"
+}

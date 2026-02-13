@@ -11,6 +11,7 @@ egg/
 ├── docs/                   # Cross-cutting documentation
 ├── gateway/                # Gateway sidecar (trusted container)
 ├── integration_tests/      # Integration tests (require Docker)
+├── orchestrator/           # SDLC pipeline orchestrator (local execution)
 ├── sandbox/                # Sandbox container (untrusted, runs the LLM agent)
 ├── scripts/                # Validation and lint scripts
 ├── shared/                 # Shared Python libraries (used by gateway + sandbox)
@@ -27,8 +28,9 @@ egg/
 | `config/` | Repository config, secrets template | Host |
 | `gateway/` | Gateway sidecar: policy enforcement, credential injection, proxying | Gateway container |
 | `integration_tests/` | Integration tests requiring Docker and real containers | CI / local |
+| `orchestrator/` | SDLC pipeline orchestrator: state management, container lifecycle, HITL queue | Orchestrator container |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
-| `shared/` | Shared libraries: logging, config, git utilities, centralized constants | Both containers |
+| `shared/` | Shared libraries: logging, config, git utilities, centralized constants | All containers |
 | `scripts/` | CI/lint scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement) | CI / local |
 | `tests/` | Test suite | CI / local |
 
@@ -40,8 +42,8 @@ The gateway sidecar holds credentials and enforces policies:
 gateway/
 ├── gateway.py              # Main HTTP server
 ├── git_client.py           # Git operation handler
-├── github_client.py        # GitHub API handler
-├── policy.py               # Branch ownership, push policies
+├── github_client.py        # GitHub API handler (supports bot/user/reviewer modes)
+├── policy.py               # Branch ownership, push policies, reviewer identity management
 ├── fork_policy.py          # Fork access policies
 ├── private_repo_policy.py  # Private/public repo access
 ├── phase_filter.py         # Phase-based operation filtering, file restrictions
@@ -50,7 +52,7 @@ gateway/
 ├── phase_api.py            # Phase API endpoints
 ├── contract_api.py         # Contract API endpoints
 ├── auth.py                 # Session authentication
-├── token_refresher.py      # GitHub App token management
+├── token_refresher.py      # GitHub App token management (bot and optional reviewer)
 ├── anthropic_credentials.py # API key injection for Claude
 ├── checkpoint_handler.py   # Per-commit checkpoint capture
 ├── transcript_buffer.py    # API proxy transcript capture buffer
@@ -66,6 +68,47 @@ gateway/
 ├── squid.conf              # Proxy config (private mode)
 ├── scripts/                # Gateway helper scripts
 └── tests/                  # Gateway tests
+```
+
+## Orchestrator Structure
+
+The orchestrator manages local SDLC pipeline execution. It creates isolated git worktrees for each pipeline via the gateway's worktree API and mounts them into sandbox containers:
+
+```
+orchestrator/
+├── api.py                  # REST API server (Flask)
+├── cli.py                  # CLI for pipeline management
+├── container_spawner.py    # Sandbox container lifecycle
+├── container_monitor.py    # Container health monitoring
+├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
+├── decision_queue.py       # HITL decision queue
+├── decision_timeout.py     # Decision timeout handling
+├── dispatch.py             # Agent dispatch logic
+├── docker_client.py        # Docker API client
+├── events.py               # Event bus for pipeline events
+├── gateway_client.py       # Gateway API client (sessions, worktrees, config)
+├── handoffs.py             # Agent handoff data management
+├── metrics.py              # Pipeline metrics and telemetry
+├── models.py               # Pydantic models for pipelines
+├── multi_agent.py          # Multi-agent orchestration
+├── resilience.py           # Retry and error recovery
+├── sandbox_template.py     # Sandbox container template
+├── sse.py                  # Server-Sent Events streaming for pipeline visualization
+├── state_store.py          # Git-backed pipeline state
+├── status_reporter.py      # Real-time status reporter for collaborators
+├── webhooks.py             # GitHub webhook handlers
+├── routes/                 # API route handlers
+│   ├── containers.py       # Container management endpoints
+│   ├── decisions.py        # HITL decision endpoints
+│   ├── health.py           # Health check endpoints
+│   ├── metrics.py          # Metrics endpoints
+│   ├── phases.py           # Phase management endpoints
+│   ├── pipelines.py        # Pipeline CRUD and visualization endpoints
+│   └── signals.py          # Signal handling endpoints
+├── Dockerfile              # Orchestrator container image
+├── entrypoint.sh           # Container entry point
+├── requirements.txt        # Python dependencies
+└── tests/                  # Orchestrator tests
 ```
 
 ## Sandbox Structure
@@ -84,6 +127,7 @@ sandbox/
 │   ├── gh
 │   ├── egg-contract        # Symlink to contract_cli.py
 │   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
+│   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
 │   ├── contract_cli.py     # SDLC contract CLI implementation
@@ -103,6 +147,8 @@ sandbox/
 shared/
 ├── egg_config/             # Configuration utilities
 │   └── constants.py        # Centralized constants (ports, networks, container names)
+├── egg_container/          # Shared container-launch config builder
+│   └── __init__.py         # build_sandbox_config(), build_sandbox_docker_cmd(), git_shadow_mounts(), to_dockerpy_kwargs()
 ├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration, checkpoints
 │   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig, AgentExecutionModel
 │   ├── phase_defaults.py   # Default check configurations per SDLC phase
@@ -114,9 +160,17 @@ shared/
 │   ├── checkpoints.py      # Checkpoint data models
 │   ├── checkpoint_loader.py # Checkpoint storage and retrieval
 │   ├── checkpoint_cli.py   # Checkpoint browsing CLI
-│   └── transcript_extractor.py # API transcript extraction
+│   ├── transcript_extractor.py # API transcript extraction
+│   └── redactor.py         # Sensitive data redaction for checkpoints
 ├── egg_git/                # Git utilities
-└── egg_logging/            # Structured logging
+├── egg_logging/            # Structured logging
+└── egg_orchestrator/       # Orchestrator integration layer
+    ├── __init__.py         # Public API exports
+    ├── client.py           # OrchestratorClient for API communication
+    ├── constants.py        # Orchestrator configuration constants (ports, IPs, endpoints, environment variable names)
+    ├── detection.py        # Orchestrator mode detection utilities
+    ├── py.typed            # PEP 561 type marker
+    └── types.py            # Typed data classes and enums for signals and responses
 ```
 
 ## Integration Tests Structure
@@ -139,6 +193,19 @@ integration_tests/
 ├── test_policy_enforcement.py     # Policy enforcement tests
 ├── test_rate_limiting.py          # Rate limiting tests
 ├── test_stack_lifecycle.py        # Container lifecycle tests
+├── local_pipeline/                # Local orchestrator integration tests
+│   ├── conftest.py                # Local pipeline test fixtures
+│   ├── docker-compose.yml         # Orchestrator test environment
+│   ├── helpers.py                 # Shared API helper functions for tests
+│   ├── mock-sandbox/              # Mock sandbox for testing
+│   ├── test_api_validation.py     # API input validation tests
+│   ├── test_concurrent_pipelines.py  # Concurrent pipeline execution tests
+│   ├── test_error_recovery.py     # Error recovery scenario tests
+│   ├── test_hitl_edge_cases.py    # HITL decision edge case tests
+│   ├── test_local_pipeline.py     # Orchestrator pipeline tests
+│   ├── test_signals.py            # Signal handling tests
+│   ├── test_unified_pipeline_behavior.py  # Unified local/issue mode behavior tests
+│   └── test_worktree_integration.py  # Worktree lifecycle and pipeline isolation tests
 └── sdlc/                          # SDLC pipeline integration tests
     ├── conftest.py                # SDLC test fixtures
     ├── test_happy_path.py         # Full pipeline success flow
@@ -161,7 +228,10 @@ tests/
 │   └── egg_contracts/
 │       ├── test_models.py         # Contract model tests including check models
 │       ├── test_phase_defaults.py # Phase default configuration tests
-│       └── test_agent_recovery.py # Agent recovery and circuit breaker tests
+│       ├── test_agent_recovery.py # Agent recovery and circuit breaker tests
+│       ├── test_checkpoints.py    # Checkpoint model tests
+│       ├── test_redactor.py       # Redactor tests for sensitive data masking
+│       └── test_transcript_extractor.py # Transcript extraction tests
 └── workflows/                     # Workflow integration tests
     ├── __init__.py
     └── test_hitl_integration.py   # HITL decision format verification
@@ -190,7 +260,7 @@ action/
 ├── contract-state.sh                       # Contract state management utility
 ├── populate-contract-tasks.py              # Populates contract tasks from plan document
 ├── autofixer-conventions.md                # Guidelines for autofixer behavior
-├── conflict-conventions.md                 # Guidelines for conflict resolution via rebase
+├── conflict-conventions.md                 # Guidelines for conflict resolution via merge commits
 ├── review-conventions.md                   # Guidelines for review communication
 └── README.md
 ```

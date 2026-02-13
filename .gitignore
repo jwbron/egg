@@ -36,8 +36,12 @@ secrets.yaml
 *.swp
 *.swo
 
+# Orchestrator pipeline state (committed to egg/pipeline-state branch, not main)
+.egg-state/pipelines/
+
 # Docker
 .docker/
+docker-compose.override.yml
 
 # OS
 .DS_Store

@@ -1,0 +1,823 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 496,
+    "title": "Create a dedicated orchestration system for the sdlc pipeline",
+    "url": "https://github.com/jwbron/egg/issues/496"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Dockerfile builds successfully, produces runnable image",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] State model supports all SDLC phases, agent executions, HITL decisions; unit tests pass",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] State reads/writes to .egg-state/pipelines/{id}.json on work branch; survives restart",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] /api/v1/health returns 200; /api/v1/pipelines CRUD endpoints respond",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-1-5] docker compose up starts orchestrator alongside gateway; health checks pass",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-1] Can create, start, stop, remove sandbox containers programmatically",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-2] Spawned sandboxes have correct network, volume, and environment configuration",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-3] Orchestrator detects unhealthy/exited containers; removes orphaned containers",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-4] POST /api/v1/pipelines/{id}/spawn creates sandbox; DELETE removes it",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-2-5] Failed spawns retry up to 3 times with backoff; circuit breaker prevents loops",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-1] Dispatch logic works with new state model; existing tests pass",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-2] POST /api/v1/pipelines/{id}/phase advances phases with validation",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-3-3] Orchestrator spawns multiple sandbox containers for parallel agent waves",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-3-4] Agent outputs collected; handoff data passed to dependent agents",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-3-5] Sandbox calls POST /api/v1/pipelines/{id}/signal on completion",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-4-1] POST /api/v1/pipelines/{id}/decisions queues; GET returns pending",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-4-2] HITL sandbox receives pending decisions and displays to human",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-4-3] POST /api/v1/pipelines/{id}/decisions/{id}/resolve updates state",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-4-4] Decisions older than timeout trigger notification",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-4-5] /sdlc command initializes pipeline and starts orchestration",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-5-1] POST /api/v1/orchestrator/callback forwards phase completion",
+      "verified": false
+    },
+    {
+      "id": "ac-22",
+      "description": "[TASK-5-2] Orchestrator requests session tokens from gateway for spawned sandboxes",
+      "verified": false
+    },
+    {
+      "id": "ac-23",
+      "description": "[TASK-5-3] Spawned sandboxes have ORCHESTRATOR_URL environment variable",
+      "verified": false
+    },
+    {
+      "id": "ac-24",
+      "description": "[TASK-5-4] Gateway health reports orchestrator connectivity",
+      "verified": false
+    },
+    {
+      "id": "ac-25",
+      "description": "[TASK-6-1] egg-deploy up starts gateway + orchestrator; status shows both",
+      "verified": false
+    },
+    {
+      "id": "ac-26",
+      "description": "[TASK-6-2] ORCHESTRATOR_PORT, ORCHESTRATOR_CONTAINER_NAME defined",
+      "verified": false
+    },
+    {
+      "id": "ac-27",
+      "description": "[TASK-6-3] sandbox/egg_lib/orchestrator_client.py provides typed API client",
+      "verified": false
+    },
+    {
+      "id": "ac-28",
+      "description": "[TASK-6-4] Sandbox detects orchestrator mode and reports completion on exit",
+      "verified": false
+    },
+    {
+      "id": "ac-29",
+      "description": "[TASK-6-5] egg_orchestrator package available in containers",
+      "verified": false
+    },
+    {
+      "id": "ac-30",
+      "description": "[TASK-7-1] POST /api/v1/webhooks/github can receive GitHub events",
+      "verified": false
+    },
+    {
+      "id": "ac-31",
+      "description": "[TASK-7-2] Webhook and API endpoints support bearer token authentication",
+      "verified": false
+    },
+    {
+      "id": "ac-32",
+      "description": "[TASK-7-3] Sandbox can use remote orchestrator via environment variable",
+      "verified": false
+    },
+    {
+      "id": "ac-33",
+      "description": "[TASK-7-4] Architecture docs describe local, remote-single, distributed modes",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Core Infrastructure",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create orchestrator directory structure and Dockerfile",
+          "status": "pending",
+          "acceptance_criteria": "Dockerfile builds successfully, produces runnable image",
+          "files_affected": [
+            "orchestrator/Dockerfile",
+            "orchestrator/__init__.py",
+            "orchestrator/requirements.txt"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Define pipeline state model with Pydantic",
+          "status": "pending",
+          "acceptance_criteria": "State model supports all SDLC phases, agent executions, HITL decisions; unit tests pass",
+          "files_affected": [
+            "orchestrator/models.py",
+            "orchestrator/tests/test_models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Implement git-backed state persistence",
+          "status": "pending",
+          "acceptance_criteria": "State reads/writes to .egg-state/pipelines/{id}.json on work branch; survives restart",
+          "files_affected": [
+            "orchestrator/state_store.py",
+            "orchestrator/tests/test_state_store.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Create Flask REST API skeleton with health endpoint",
+          "status": "pending",
+          "acceptance_criteria": "/api/v1/health returns 200; /api/v1/pipelines CRUD endpoints respond",
+          "files_affected": [
+            "orchestrator/api.py",
+            "orchestrator/routes/health.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add orchestrator to docker-compose.yml",
+          "status": "pending",
+          "acceptance_criteria": "docker compose up starts orchestrator alongside gateway; health checks pass",
+          "files_affected": [
+            "docker-compose.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Container Lifecycle Management",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Implement Docker API client for container operations",
+          "status": "pending",
+          "acceptance_criteria": "Can create, start, stop, remove sandbox containers programmatically",
+          "files_affected": [
+            "orchestrator/docker_client.py",
+            "orchestrator/tests/test_docker_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Create sandbox container template configuration",
+          "status": "pending",
+          "acceptance_criteria": "Spawned sandboxes have correct network, volume, and environment configuration",
+          "files_affected": [
+            "orchestrator/sandbox_template.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Implement container health monitoring and cleanup",
+          "status": "pending",
+          "acceptance_criteria": "Orchestrator detects unhealthy/exited containers; removes orphaned containers",
+          "files_affected": [
+            "orchestrator/container_monitor.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Add container lifecycle endpoints to REST API",
+          "status": "pending",
+          "acceptance_criteria": "POST /api/v1/pipelines/{id}/spawn creates sandbox; DELETE removes it",
+          "files_affected": [
+            "orchestrator/routes/containers.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "Implement retry logic with circuit breaker",
+          "status": "pending",
+          "acceptance_criteria": "Failed spawns retry up to 3 times with backoff; circuit breaker prevents loops",
+          "files_affected": [
+            "orchestrator/resilience.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Pipeline Orchestration Logic",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Integrate existing Orchestrator class from egg_contracts",
+          "status": "pending",
+          "acceptance_criteria": "Dispatch logic works with new state model; existing tests pass",
+          "files_affected": [
+            "orchestrator/dispatch.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Implement phase transition endpoints",
+          "status": "pending",
+          "acceptance_criteria": "POST /api/v1/pipelines/{id}/phase advances phases with validation",
+          "files_affected": [
+            "orchestrator/routes/phases.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add multi-agent parallel execution support",
+          "status": "pending",
+          "acceptance_criteria": "Orchestrator spawns multiple sandbox containers for parallel agent waves",
+          "files_affected": [
+            "orchestrator/multi_agent.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Implement agent result collection and handoffs",
+          "status": "pending",
+          "acceptance_criteria": "Agent outputs collected; handoff data passed to dependent agents",
+          "files_affected": [
+            "orchestrator/handoffs.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-5",
+          "description": "Create notification endpoint for sandbox callbacks",
+          "status": "pending",
+          "acceptance_criteria": "Sandbox calls POST /api/v1/pipelines/{id}/signal on completion",
+          "files_affected": [
+            "orchestrator/routes/signals.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "HITL Integration",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Implement decision queue and polling mechanism",
+          "status": "pending",
+          "acceptance_criteria": "POST /api/v1/pipelines/{id}/decisions queues; GET returns pending",
+          "files_affected": [
+            "orchestrator/decision_queue.py",
+            "orchestrator/routes/decisions.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Create HITL sandbox mode for Claude sessions",
+          "status": "pending",
+          "acceptance_criteria": "HITL sandbox receives pending decisions and displays to human",
+          "files_affected": [
+            "sandbox/egg_lib/hitl_mode.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Implement decision resolution endpoints",
+          "status": "pending",
+          "acceptance_criteria": "POST /api/v1/pipelines/{id}/decisions/{id}/resolve updates state",
+          "files_affected": [
+            "orchestrator/routes/decisions.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Add timeout and escalation for stale decisions",
+          "status": "pending",
+          "acceptance_criteria": "Decisions older than timeout trigger notification",
+          "files_affected": [
+            "orchestrator/decision_timeout.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-5",
+          "description": "Create /sdlc skill for Claude Code",
+          "status": "pending",
+          "acceptance_criteria": "/sdlc command initializes pipeline and starts orchestration",
+          "files_affected": [
+            "sandbox/.claude/commands/sdlc.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Gateway Integration",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Add orchestrator callback endpoint to gateway",
+          "status": "pending",
+          "acceptance_criteria": "POST /api/v1/orchestrator/callback forwards phase completion",
+          "files_affected": [
+            "gateway/orchestrator_api.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Implement session token coordination",
+          "status": "pending",
+          "acceptance_criteria": "Orchestrator requests session tokens from gateway for spawned sandboxes",
+          "files_affected": [
+            "orchestrator/session_coordinator.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Add orchestrator URL to sandbox environment injection",
+          "status": "pending",
+          "acceptance_criteria": "Spawned sandboxes have ORCHESTRATOR_URL environment variable",
+          "files_affected": [
+            "orchestrator/sandbox_template.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-4",
+          "description": "Update gateway health check to include orchestrator status",
+          "status": "pending",
+          "acceptance_criteria": "Gateway health reports orchestrator connectivity",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "CLI and Deployment",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Update bin/egg-deploy for orchestrator lifecycle",
+          "status": "pending",
+          "acceptance_criteria": "egg-deploy up starts gateway + orchestrator; status shows both",
+          "files_affected": [
+            "bin/egg-deploy"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-2",
+          "description": "Add orchestrator constants to egg_config",
+          "status": "pending",
+          "acceptance_criteria": "ORCHESTRATOR_PORT, ORCHESTRATOR_CONTAINER_NAME defined",
+          "files_affected": [
+            "shared/egg_config/constants.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-3",
+          "description": "Create orchestrator client library for sandbox",
+          "status": "pending",
+          "acceptance_criteria": "sandbox/egg_lib/orchestrator_client.py provides typed API client",
+          "files_affected": [
+            "sandbox/egg_lib/orchestrator_client.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-4",
+          "description": "Update sandbox entrypoint for orchestrator mode",
+          "status": "pending",
+          "acceptance_criteria": "Sandbox detects orchestrator mode and reports completion on exit",
+          "files_affected": [
+            "sandbox/entrypoint.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-5",
+          "description": "Add orchestrator to shared module installation",
+          "status": "pending",
+          "acceptance_criteria": "egg_orchestrator package available in containers",
+          "files_affected": [
+            "shared/egg_orchestrator/__init__.py",
+            "shared/setup.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-7",
+      "name": "Webhook and Future Extensibility",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-7-1",
+          "description": "Implement webhook receiver endpoint",
+          "status": "pending",
+          "acceptance_criteria": "POST /api/v1/webhooks/github can receive GitHub events",
+          "files_affected": [
+            "orchestrator/routes/webhooks.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-2",
+          "description": "Add authentication mechanism for remote access",
+          "status": "pending",
+          "acceptance_criteria": "Webhook and API endpoints support bearer token authentication",
+          "files_affected": [
+            "orchestrator/auth.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-3",
+          "description": "Create configuration for remote orchestrator URL",
+          "status": "pending",
+          "acceptance_criteria": "Sandbox can use remote orchestrator via environment variable",
+          "files_affected": [
+            "shared/egg_config/configs/orchestrator.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-4",
+          "description": "Document deployment modes",
+          "status": "pending",
+          "acceptance_criteria": "Architecture docs describe local, remote-single, distributed modes",
+          "files_affected": [
+            "docs/architecture/orchestrator.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 2,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-10T22:10:39Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-11T03:15:45Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-11T03:23:48Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-11T03:41:17Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-11T04:17:28Z",
+      "actor": "system",
+      "role": "system",
+      "action": "update",
+      "field_path": "autofix_attempts",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Autofix attempt completed with result: false"
+    }
+  ],
+  "phase_configs": {
+    "refine": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "plan": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "implement": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "PR_REVIEW"
+    }
+  },
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "refine_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "plan_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Add egg-orchestrator for local SDLC pipeline execution",
+    "description": "Introduces egg-orchestrator, a new Docker container service that manages the\nfull SDLC pipeline lifecycle locally, replacing GitHub Actions orchestration.\n\nThe orchestrator stores state in git (consistent with contracts), manages\nsandbox container lifecycle via Docker API, supports multi-agent parallel\nexecution, and integrates HITL decisions through Claude Code sessions.\n\nIssue: #496"
+  },
+  "autofix_attempts": 1
+}

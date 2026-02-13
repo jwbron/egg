@@ -55,6 +55,8 @@ The gateway sidecar is the **trusted** component that holds credentials and vali
 
 The gateway enforces phase-specific operation restrictions based on the current SDLC pipeline phase. This prevents operations like pushing code during planning or creating PRs during implementation.
 
+**Implementation**: Each session tracks the current SDLC phase via the `phase` field. The phase is set during session creation from the `EGG_PIPELINE_PHASE` environment variable and can be updated via the `PATCH /api/v1/sessions/{token}/phase` endpoint. When operations like `gh pr create` are invoked, the gateway checks the session's phase against the allowed operations in `.egg/phase-permissions.json` and returns HTTP 403 if the operation is blocked.
+
 **Phase permissions** (configured in `.egg/phase-permissions.json`):
 
 ### File-Level Access Restrictions
@@ -101,6 +103,20 @@ Phase transitions require specific roles (human, reviewer, implementer) as defin
 
 ## API Endpoints
 
+### Session Management
+
+```
+POST /api/v1/sessions/create
+  Request: {container_id, container_ip, mode, repos[], uid?, gid?, phase?}
+  Auth: Bearer {launcher_secret}
+  Description: Create a new session with optional SDLC phase tracking
+
+PATCH /api/v1/sessions/<session_token>/phase
+  Request: {phase: "refine"|"plan"|"implement"|"pr"}
+  Auth: Bearer {launcher_secret}
+  Description: Update the SDLC pipeline phase for a session
+```
+
 ### Git Operations
 
 ```
@@ -136,6 +152,9 @@ POST /api/v1/gh/pr/close
 POST /api/v1/gh/execute
   Request: {args[], require_auth}
   Policy: filtered passthrough for read operations
+  Note: For 'gh pr review' commands, automatically switches to reviewer
+        token if available (separate GitHub App identity for posting
+        approve/request-changes on bot-authored PRs)
 ```
 
 ### Phase Operations
@@ -194,6 +213,79 @@ GET /api/v1/contract/exists/<issue_number>
 
 Role is determined from workflow context (session metadata), not request body, preventing privilege escalation.
 
+### Worktree Operations
+
+```
+POST /api/v1/worktree/create
+  Request: {repo_path, branch, base_branch?}
+  Policy: session_auth
+  Description: Create a new git worktree for isolated development
+
+POST /api/v1/worktree/delete
+  Request: {worktree_path}
+  Policy: session_auth
+  Description: Delete a worktree
+
+GET /api/v1/worktree/list
+  Policy: session_auth
+  Description: List active worktrees
+```
+
+### Session Management (Extended)
+
+```
+DELETE /api/v1/sessions/<session_token>
+  Auth: Bearer {launcher_secret}
+  Description: Delete a session
+
+DELETE /api/v1/sessions/by-container/<container_id>
+  Auth: Bearer {launcher_secret}
+  Description: Delete sessions for a specific container
+
+GET /api/v1/sessions/<session_token>
+  Auth: Bearer {launcher_secret}
+  Description: Get session details
+
+POST /api/v1/sessions/<session_token>/heartbeat
+  Auth: Bearer {launcher_secret}
+  Description: Send session heartbeat
+
+PATCH /api/v1/sessions/<session_token>
+  Auth: Bearer {launcher_secret}
+  Description: Update session metadata
+
+GET /api/v1/sessions
+  Auth: Bearer {launcher_secret}
+  Description: List all active sessions
+```
+
+### Repository Operations
+
+```
+GET /api/v1/repos/visibility
+  Policy: session_auth
+  Description: Get repository visibility information (public/private)
+```
+
+### Git Execute
+
+```
+POST /api/v1/git/execute
+  Request: {args[], repo_path?}
+  Policy: session_auth
+  Description: Execute arbitrary git commands (read operations)
+```
+
+### Anthropic Proxy
+
+```
+POST /v1/messages
+  Description: Proxy for Anthropic messages API with credential injection
+
+POST /v1/messages/count_tokens
+  Description: Proxy for Anthropic token counting API
+```
+
 ### Health
 
 ```
@@ -226,6 +318,9 @@ gateway/
 ├── rate_limiter.py         # Rate limiting
 ├── config_validator.py     # Configuration validation
 ├── error_messages.py       # Error message formatting
+├── agent_restrictions.py   # Agent role-based file access restrictions
+├── checkpoint_handler.py   # Session checkpoint handling
+├── transcript_buffer.py    # Transcript buffering for agent sessions
 ├── Dockerfile              # Gateway container image
 ├── entrypoint.sh           # Gateway startup script
 ├── squid.conf              # Squid proxy config (private mode)
@@ -239,6 +334,7 @@ gateway/
 │   ├── test_policy.py
 │   ├── test_private_repo_policy.py
 │   ├── test_proxy_security.py
+│   ├── test_proxy_monitor.py
 │   ├── test_rate_limiter.py
 │   ├── test_repo_parser.py
 │   ├── test_repo_visibility.py
@@ -249,6 +345,13 @@ gateway/
 │   ├── test_phase_transition.py
 │   ├── test_phase_api.py
 │   ├── test_contract_api.py
+│   ├── test_checkpoint_handler.py
+│   ├── test_concurrency.py
+│   ├── test_config_validator.py
+│   ├── test_edge_cases.py
+│   ├── test_error_paths.py
+│   ├── test_fork_policy.py
+│   ├── test_transcript_buffer.py
 │   ├── integration_test.sh
 │   └── README-integration.md
 └── README.md               # This file
@@ -262,7 +365,7 @@ gateway/
 
 3. **Phase-based filtering**: Operations are filtered based on the current SDLC pipeline phase. Configuration is loaded from `.egg/phase-permissions.json` with schema validation. This prevents incidents like pushing code during planning phases.
 
-4. **Token source**: In-memory token refresh via `token_refresher.py`. Tokens are refreshed automatically 15 minutes before expiry.
+4. **Token source**: In-memory token refresh via `token_refresher.py`. Tokens are refreshed automatically 15 minutes before expiry. The gateway supports an optional reviewer token (separate GitHub App) for posting approve/request-changes reviews on bot-authored PRs—GitHub blocks self-approval, so a second identity is required for full review capabilities.
 
 5. **Dual network modes**: Squid proxy controls outbound access. Private mode restricts to Anthropic API only; public mode allows all traffic.
 

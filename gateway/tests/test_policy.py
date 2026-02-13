@@ -18,6 +18,8 @@ from policy import (
     extract_repo_from_remote,
     get_bot_branch_prefixes,
     get_bot_identities,
+    get_reviewer_identities,
+    is_reviewer_configured,
 )
 
 # Save a reference to the policy module at import time.
@@ -1070,3 +1072,150 @@ class TestPRCreatePolicy:
         assert not result.allowed
         assert result.details is not None
         assert "hint" in result.details
+
+    def test_pr_create_blocked_reviewer_mode(self, policy_engine):
+        """PR creation is blocked in reviewer mode."""
+        result = policy_engine.check_pr_create_allowed("owner/repo", auth_mode="reviewer")
+        assert not result.allowed
+        assert "reviewer mode" in result.reason.lower()
+        assert result.details is not None
+        assert result.details.get("auth_mode") == "reviewer"
+
+
+class TestReviewerIdentities:
+    """Tests for reviewer bot identity checking."""
+
+    def test_reviewer_not_configured_returns_empty(self, monkeypatch):
+        """When GATEWAY_REVIEWER_BOT_NAME is not set, returns empty set."""
+        _reset_bot_config_caches()
+        monkeypatch.delenv("GATEWAY_REVIEWER_BOT_NAME", raising=False)
+        identities = get_reviewer_identities()
+        assert identities == frozenset()
+        # Restore cache state
+        _reset_bot_config_caches()
+
+    def test_reviewer_configured_returns_variants(self, monkeypatch):
+        """When GATEWAY_REVIEWER_BOT_NAME is set, returns identity variants."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_REVIEWER_BOT_NAME", "egg-reviewer")
+        identities = get_reviewer_identities()
+        assert "egg-reviewer" in identities
+        assert "egg-reviewer[bot]" in identities
+        assert "app/egg-reviewer" in identities
+        assert "apps/egg-reviewer" in identities
+        # Restore cache state
+        monkeypatch.delenv("GATEWAY_REVIEWER_BOT_NAME", raising=False)
+        _reset_bot_config_caches()
+
+    def test_is_reviewer_configured_false(self, monkeypatch):
+        """is_reviewer_configured returns False when not set."""
+        monkeypatch.delenv("GATEWAY_REVIEWER_BOT_NAME", raising=False)
+        assert not is_reviewer_configured()
+
+    def test_is_reviewer_configured_true(self, monkeypatch):
+        """is_reviewer_configured returns True when set."""
+        monkeypatch.setenv("GATEWAY_REVIEWER_BOT_NAME", "egg-reviewer")
+        assert is_reviewer_configured()
+        monkeypatch.delenv("GATEWAY_REVIEWER_BOT_NAME", raising=False)
+
+
+class TestReviewerModePolicy:
+    """Tests for reviewer mode policy restrictions."""
+
+    @pytest.fixture
+    def mock_github_client(self):
+        """Create a mock GitHub client."""
+        return MagicMock()
+
+    @pytest.fixture
+    def policy_engine(self, mock_github_client):
+        """Create a policy engine with mocked GitHub client."""
+        return PolicyEngine(github_client=mock_github_client)
+
+    def test_branch_push_blocked_reviewer_mode(self, policy_engine):
+        """Push to any branch is blocked in reviewer mode."""
+        result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="reviewer")
+        assert not result.allowed
+        assert "reviewer mode" in result.reason.lower()
+        assert result.details is not None
+        assert result.details.get("auth_mode") == "reviewer"
+
+    def test_branch_push_blocked_reviewer_mode_even_bot_prefix(self, policy_engine):
+        """Push to bot-prefixed branch is still blocked in reviewer mode."""
+        result = policy_engine.check_branch_ownership("owner/repo", "egg-feature", auth_mode="reviewer")
+        assert not result.allowed
+        assert "reviewer mode" in result.reason.lower()
+
+    def test_pr_create_blocked_reviewer_mode(self, policy_engine):
+        """PR creation is blocked in reviewer mode."""
+        result = policy_engine.check_pr_create_allowed("owner/repo", auth_mode="reviewer")
+        assert not result.allowed
+        assert "reviewer mode" in result.reason.lower()
+
+    def test_pr_review_allowed_reviewer_mode(self, policy_engine, mock_github_client):
+        """PR review is allowed in reviewer mode."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "egg"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_review_allowed("owner/repo", 123, auth_mode="reviewer")
+        assert result.allowed
+        assert result.details is not None
+        assert result.details.get("auth_mode") == "reviewer"
+
+    def test_pr_review_allowed_bot_mode(self, policy_engine, mock_github_client):
+        """PR review is allowed in bot mode too."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "human"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_review_allowed("owner/repo", 123, auth_mode="bot")
+        assert result.allowed
+
+    def test_pr_review_denied_pr_not_found(self, policy_engine, mock_github_client):
+        """PR review is denied if PR not found."""
+        mock_github_client.get_pr_info.return_value = None
+
+        result = policy_engine.check_pr_review_allowed("owner/repo", 999, auth_mode="reviewer")
+        assert not result.allowed
+        assert "not found" in result.reason.lower()
+
+    def test_is_reviewer_author_true(self, policy_engine, monkeypatch):
+        """_is_reviewer_author returns True for reviewer identity."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_REVIEWER_BOT_NAME", "egg-reviewer")
+
+        assert policy_engine._is_reviewer_author("egg-reviewer")
+        assert policy_engine._is_reviewer_author("egg-reviewer[bot]")
+        assert policy_engine._is_reviewer_author({"login": "egg-reviewer"})
+
+        monkeypatch.delenv("GATEWAY_REVIEWER_BOT_NAME", raising=False)
+        _reset_bot_config_caches()
+
+    def test_is_reviewer_author_false(self, policy_engine, monkeypatch):
+        """_is_reviewer_author returns False for non-reviewer identity."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_REVIEWER_BOT_NAME", "egg-reviewer")
+
+        assert not policy_engine._is_reviewer_author("egg")
+        assert not policy_engine._is_reviewer_author("human")
+        assert not policy_engine._is_reviewer_author({"login": "egg"})
+
+        monkeypatch.delenv("GATEWAY_REVIEWER_BOT_NAME", raising=False)
+        _reset_bot_config_caches()
+
+    def test_is_reviewer_author_false_when_not_configured(self, policy_engine, monkeypatch):
+        """_is_reviewer_author returns False when reviewer not configured."""
+        _reset_bot_config_caches()
+        monkeypatch.delenv("GATEWAY_REVIEWER_BOT_NAME", raising=False)
+
+        assert not policy_engine._is_reviewer_author("egg-reviewer")
+        assert not policy_engine._is_reviewer_author("anything")
+
+        _reset_bot_config_caches()

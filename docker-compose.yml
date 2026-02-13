@@ -47,6 +47,9 @@ services:
       - HOST_UID=${HOST_UID:-1000}
       - HOST_GID=${HOST_GID:-1000}
       - HOST_HOME=${HOST_HOME:-/home/egg}
+      # Credentials (read from mounted secrets volume)
+      - EGG_SECRETS_PATH=/secrets/secrets.env
+      - EGG_CONFIG_DIR=/secrets
       # GitHub authentication
       - GITHUB_USER_TOKEN=${GITHUB_USER_TOKEN:-}
       - BOT_GITHUB_TOKEN=${BOT_GITHUB_TOKEN:-}
@@ -62,10 +65,14 @@ services:
       - ${EGG_CONFIG_DIR:-.}/repositories.yaml:/config/repositories.yaml:ro
       # Secrets directory (contains secrets.env, github-app.pem, launcher-secret)
       - ${EGG_CONFIG_DIR:-.}:/secrets:ro
-      # Repositories directory (RW for worktree operations)
-      - ${EGG_REPOS_DIR:-./repos}:/home/egg/repos
+      # Per-repo mounts are added via docker-compose.override.yml (auto-generated)
       # Worktrees directory (per-container isolated worktrees)
-      - worktrees:/home/egg/.egg-worktrees
+      # IMPORTANT: This is a bind mount (not named volume) so host paths from
+      # translate_to_host_path() resolve correctly when used as Docker mount sources.
+      # If upgrading from a previous version using the egg-worktrees named volume,
+      # migrate any uncommitted worktree data before removing the old volume:
+      #   docker volume rm egg-worktrees
+      - ${HOST_HOME:-/home/egg}/.egg-worktrees:/home/egg/.egg-worktrees
       # State directory (session persistence)
       - state:/home/egg/.egg-state
       # Shared certs (gateway writes CA cert for sandbox SSL trust)
@@ -80,6 +87,61 @@ services:
     security_opt:
       - label=disable
 
+  orchestrator:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    image: ${EGG_ORCHESTRATOR_IMAGE:-egg-orchestrator:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-egg}-orchestrator
+    networks:
+      egg-isolated:
+        ipv4_address: 172.32.0.3
+      egg-external:
+        ipv4_address: 172.33.0.3
+    ports:
+      # Orchestrator API - used by sandbox for pipeline state management
+      - "${ORCHESTRATOR_API_PORT:-9849}:9849"
+    environment:
+      # Core configuration
+      - ORCHESTRATOR_PORT=9849
+      - EGG_REPO_PATH=/home/egg/repos
+      # Gateway connection (for session coordination)
+      - GATEWAY_URL=http://172.32.0.2:9848
+      # Docker socket for container management
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      # Host info for container spawning
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
+      # Host home for worktree path translation (must match gateway's HOST_HOME)
+      - HOST_HOME=${HOST_HOME:-/home/egg}
+      # Host repo map for sandbox volume mounts (Docker socket sees host paths)
+      # JSON mapping of repo_name -> host_path, auto-generated from repositories.yaml
+      - EGG_HOST_REPO_MAP=${EGG_HOST_REPO_MAP:-{}}
+      # Sandbox image for spawned containers
+      - EGG_SANDBOX_IMAGE=${EGG_SANDBOX_IMAGE:-egg:latest}
+      # Launcher secret for gateway session registration
+      - EGG_LAUNCHER_SECRET=${EGG_LAUNCHER_SECRET}
+      # Compose project name for resolving named volumes (certs, worktrees)
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-egg}
+    volumes:
+      # Per-repo mounts are added via docker-compose.override.yml (auto-generated)
+      # State directory (shared with gateway)
+      - state:/home/egg/.egg-state
+      # Docker socket for container management
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9849/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    security_opt:
+      - label=disable
+    depends_on:
+      gateway:
+        condition: service_healthy
+
   # Sandbox service template - not started by compose directly
   # Use egg --compose or bin/egg-deploy to start sandboxes with proper config
   # This is here as documentation and for potential future use
@@ -93,8 +155,6 @@ services:
   #     - sandbox  # Not started unless explicitly requested
 
 volumes:
-  worktrees:
-    name: ${COMPOSE_PROJECT_NAME:-egg}-worktrees
   state:
     name: ${COMPOSE_PROJECT_NAME:-egg}-state
   certs:

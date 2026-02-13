@@ -34,7 +34,8 @@ All persistent user configuration is consolidated under `~/.config/egg/`:
 ├── github-token       # GitHub token (dedicated file)
 ├── github-app-id      # GitHub App ID (if using App auth)
 ├── github-app-installation-id  # GitHub App Installation ID
-├── github-app.pem     # GitHub App private key
+├── github-app.pem     # GitHub App private key (bot identity)
+├── reviewer-app.pem   # Reviewer GitHub App private key (optional, for separate reviewer bot)
 └── repositories.yaml  # Repository access configuration (created by setup.py)
 ```
 
@@ -57,36 +58,12 @@ This directory respects `$XDG_CACHE_HOME` if set.
 
 **Note**: Previously this was `~/.egg/`. The egg script auto-migrates on first run.
 
-**Migration from legacy locations:**
-Run manual migration if you have existing configs:
-```bash
-python3 config/host_config.py --migrate
-```
-
-This migrates from:
-- `~/.config/egg-notifier/config.json` → `~/.config/egg/`
-- `~/.config/context-sync/.env` → `~/.config/egg/secrets.env`
-
-**Usage:**
-```python
-from config.host_config import HostConfig
-
-config = HostConfig()
-slack_token = config.get_secret('SLACK_TOKEN')
-slack_channel = config.get('slack_channel')
-```
-
-**CLI:**
-```bash
-python config/host_config.py                   # Show config status
-python config/host_config.py --list            # Show non-secret config
-python config/host_config.py --list-secrets    # Show secret keys (values hidden)
-python config/host_config.py --migrate         # Migrate from legacy locations
-```
-
 **Templates:**
-- `config/host-config.template.yaml` - Non-secret settings template
 - `config/secrets.template.env` - Secrets template
+
+**In-repo modules:**
+- `config/repo_config.py` - Repository access configuration loader
+- `config/repositories.yaml.example` - Example repository configuration
 
 ### GitHub Tokens
 
@@ -98,6 +75,17 @@ Egg supports separate tokens for writable and readable repositories:
 | `GITHUB_READONLY_TOKEN` | Separate PAT for read-only repos (optional, falls back to `GITHUB_TOKEN`) |
 
 Using a separate read-only token provides security benefits. GitHub App setup is covered in `./setup.py` and the ADRs.
+
+### Reviewer GitHub App (Optional)
+
+For workflows that post code reviews, a separate reviewer GitHub App can be configured to enable approve/request-changes capabilities on bot-authored PRs (GitHub blocks self-reviews). Reviewer credentials are stored separately from the bot credentials:
+
+| File | Purpose |
+|------|---------|
+| `secrets.env` | Contains `REVIEWER_APP_ID` and `REVIEWER_APP_INSTALLATION_ID` |
+| `reviewer-app.pem` | Reviewer GitHub App private key (PEM format, multiline) |
+
+The gateway's token refresher reads reviewer credentials from these files, following the same pattern as bot credentials. See the [GitHub Automation Guide](../docs/guides/github-automation.md#separate-reviewer-bot-recommended) for setup details.
 
 ## repositories.yaml (Source of Truth for Repo Access)
 

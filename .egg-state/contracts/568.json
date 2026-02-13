@@ -1,0 +1,1005 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 568,
+    "title": "Improve orchestration integration tests",
+    "url": "https://github.com/jwbron/egg/issues/568"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Mock sandbox sleeps for SLOW_PHASE_DURATION seconds when keyword present",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Mock sandbox exits code 1 only when phase matches specified phase",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] First reviewer approves, second returns needs_revision",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Mock sandbox writes heartbeat signals but never exits",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-1-5] Mock sandbox writes partial draft then exits code 1",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-1] File created with proper integration test markers",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-2] Both pipelines complete without cross-contamination",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-3] Each contract contains only its own pipeline_id",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-4] Draft files prefixed with pipeline_id, no shared content",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-2-5] All three complete successfully within extended timeout",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-2-6] 5 rapid creates result in 5 unique IDs with no collisions",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-1] File created with proper integration test markers",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-3-2] Pipeline fails; partial draft preserved for debugging",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-3-3] Pipeline fails on specified phase; earlier phases complete",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-3-4] Pipeline fails with timeout error when container exceeds timeout",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-3-5] Pipeline reports error on malformed contract JSON",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-3-6] No orphaned egg-sandbox containers after failure",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-3-7] DELETE returns appropriate status; container stopped",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-4-1] File created with proper integration test markers",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-4-2] Pipeline transitions to cancelled on rejection",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-4-3] Custom input recorded; pipeline continues appropriately",
+      "verified": false
+    },
+    {
+      "id": "ac-22",
+      "description": "[TASK-4-4] Pipeline transitions to timeout state when not resolved",
+      "verified": false
+    },
+    {
+      "id": "ac-23",
+      "description": "[TASK-4-5] API returns 404; pipeline state unchanged",
+      "verified": false
+    },
+    {
+      "id": "ac-24",
+      "description": "[TASK-4-6] API returns 409; pipeline state unchanged",
+      "verified": false
+    },
+    {
+      "id": "ac-25",
+      "description": "[TASK-4-7] One succeeds, other returns 409; no state corruption",
+      "verified": false
+    },
+    {
+      "id": "ac-26",
+      "description": "[TASK-5-1] File created with proper integration test markers",
+      "verified": false
+    },
+    {
+      "id": "ac-27",
+      "description": "[TASK-5-2] Container stays alive beyond default timeout with heartbeats",
+      "verified": false
+    },
+    {
+      "id": "ac-28",
+      "description": "[TASK-5-3] Progress signals reflected in GET /status endpoint",
+      "verified": false
+    },
+    {
+      "id": "ac-29",
+      "description": "[TASK-5-4] Critical error signal causes immediate pipeline failure",
+      "verified": false
+    },
+    {
+      "id": "ac-30",
+      "description": "[TASK-5-5] API returns 404; no state changes",
+      "verified": false
+    },
+    {
+      "id": "ac-31",
+      "description": "[TASK-5-6] Excessive signals rate-limited; pipeline unaffected",
+      "verified": false
+    },
+    {
+      "id": "ac-32",
+      "description": "[TASK-6-1] File created with proper integration test markers",
+      "verified": false
+    },
+    {
+      "id": "ac-33",
+      "description": "[TASK-6-2] Returns 400 with clear error about valid modes",
+      "verified": false
+    },
+    {
+      "id": "ac-34",
+      "description": "[TASK-6-3] Returns 400 with field-specific validation errors",
+      "verified": false
+    },
+    {
+      "id": "ac-35",
+      "description": "[TASK-6-4] Returns 404 with appropriate message",
+      "verified": false
+    },
+    {
+      "id": "ac-36",
+      "description": "[TASK-6-5] Returns 404; idempotent behavior",
+      "verified": false
+    },
+    {
+      "id": "ac-37",
+      "description": "[TASK-6-6] Returns 400; config not modified",
+      "verified": false
+    },
+    {
+      "id": "ac-38",
+      "description": "[TASK-6-7] Correct page size; pagination metadata accurate",
+      "verified": false
+    },
+    {
+      "id": "ac-39",
+      "description": "[TASK-7-1] Tests added to test_local_pipeline.py under new class",
+      "verified": false
+    },
+    {
+      "id": "ac-40",
+      "description": "[TASK-7-2] Pipeline handles mixed verdicts per policy",
+      "verified": false
+    },
+    {
+      "id": "ac-41",
+      "description": "[TASK-7-3] Any needs_revision triggers circuit breaker immediately",
+      "verified": false
+    },
+    {
+      "id": "ac-42",
+      "description": "[TASK-7-4] review_cycles count matches actual iterations",
+      "verified": false
+    },
+    {
+      "id": "ac-43",
+      "description": "[TASK-7-5] Concurrent pipelines have distinct verdict paths",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Mock Sandbox Enhancement",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add SLOW_PHASE support for configurable phase delays",
+          "status": "pending",
+          "acceptance_criteria": "Mock sandbox sleeps for SLOW_PHASE_DURATION seconds when keyword present",
+          "files_affected": [
+            "integration_tests/local_pipeline/mock-sandbox/phase-runner.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add FAIL_ON_PHASE for targeted phase failures",
+          "status": "pending",
+          "acceptance_criteria": "Mock sandbox exits code 1 only when phase matches specified phase",
+          "files_affected": [
+            "integration_tests/local_pipeline/mock-sandbox/phase-runner.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add REVIEWER_MIXED_VERDICT for reviewer disagreement simulation",
+          "status": "pending",
+          "acceptance_criteria": "First reviewer approves, second returns needs_revision",
+          "files_affected": [
+            "integration_tests/local_pipeline/mock-sandbox/phase-runner.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add HEARTBEAT_ONLY mode for hang simulation",
+          "status": "pending",
+          "acceptance_criteria": "Mock sandbox writes heartbeat signals but never exits",
+          "files_affected": [
+            "integration_tests/local_pipeline/mock-sandbox/phase-runner.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add PARTIAL_FAILURE for mid-phase failure simulation",
+          "status": "pending",
+          "acceptance_criteria": "Mock sandbox writes partial draft then exits code 1",
+          "files_affected": [
+            "integration_tests/local_pipeline/mock-sandbox/phase-runner.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Concurrent Pipeline Tests",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create test_concurrent_pipelines.py with fixtures",
+          "status": "pending",
+          "acceptance_criteria": "File created with proper integration test markers",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_concurrent_pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Test two pipelines running simultaneously",
+          "status": "pending",
+          "acceptance_criteria": "Both pipelines complete without cross-contamination",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_concurrent_pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Test pipeline ID isolation in contract files",
+          "status": "pending",
+          "acceptance_criteria": "Each contract contains only its own pipeline_id",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_concurrent_pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Test concurrent pipelines have isolated draft files",
+          "status": "pending",
+          "acceptance_criteria": "Draft files prefixed with pipeline_id, no shared content",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_concurrent_pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "Test three concurrent pipelines",
+          "status": "pending",
+          "acceptance_criteria": "All three complete successfully within extended timeout",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_concurrent_pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-6",
+          "description": "Test concurrent pipeline creation race condition",
+          "status": "pending",
+          "acceptance_criteria": "5 rapid creates result in 5 unique IDs with no collisions",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_concurrent_pipelines.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Error Recovery Tests",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Create test_error_recovery.py with fixtures",
+          "status": "pending",
+          "acceptance_criteria": "File created with proper integration test markers",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_error_recovery.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Test partial phase failure",
+          "status": "pending",
+          "acceptance_criteria": "Pipeline fails; partial draft preserved for debugging",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_error_recovery.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Test phase failure mid-execution with FAIL_ON_PHASE",
+          "status": "pending",
+          "acceptance_criteria": "Pipeline fails on specified phase; earlier phases complete",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_error_recovery.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Test container timeout handling",
+          "status": "pending",
+          "acceptance_criteria": "Pipeline fails with timeout error when container exceeds timeout",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_error_recovery.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-5",
+          "description": "Test state file corruption detection",
+          "status": "pending",
+          "acceptance_criteria": "Pipeline reports error on malformed contract JSON",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_error_recovery.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-6",
+          "description": "Test orphaned container cleanup on failure",
+          "status": "pending",
+          "acceptance_criteria": "No orphaned egg-sandbox containers after failure",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_error_recovery.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-7",
+          "description": "Test pipeline deletion during running state",
+          "status": "pending",
+          "acceptance_criteria": "DELETE returns appropriate status; container stopped",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_error_recovery.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "HITL Decision Edge Cases",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Create test_hitl_edge_cases.py with fixtures",
+          "status": "pending",
+          "acceptance_criteria": "File created with proper integration test markers",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_hitl_edge_cases.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Test decision rejection flow",
+          "status": "pending",
+          "acceptance_criteria": "Pipeline transitions to cancelled on rejection",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_hitl_edge_cases.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Test custom Other option with free-text input",
+          "status": "pending",
+          "acceptance_criteria": "Custom input recorded; pipeline continues appropriately",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_hitl_edge_cases.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Test decision timeout with short configurable timeout",
+          "status": "pending",
+          "acceptance_criteria": "Pipeline transitions to timeout state when not resolved",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_hitl_edge_cases.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-5",
+          "description": "Test invalid decision resolution",
+          "status": "pending",
+          "acceptance_criteria": "API returns 404; pipeline state unchanged",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_hitl_edge_cases.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-6",
+          "description": "Test resolving already-resolved decision",
+          "status": "pending",
+          "acceptance_criteria": "API returns 409; pipeline state unchanged",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_hitl_edge_cases.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-7",
+          "description": "Test concurrent decision resolution race condition",
+          "status": "pending",
+          "acceptance_criteria": "One succeeds, other returns 409; no state corruption",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_hitl_edge_cases.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Signal Handling Tests",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Create test_signals.py with fixtures",
+          "status": "pending",
+          "acceptance_criteria": "File created with proper integration test markers",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_signals.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Test heartbeat signal extends container timeout",
+          "status": "pending",
+          "acceptance_criteria": "Container stays alive beyond default timeout with heartbeats",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_signals.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Test progress signal updates pipeline status",
+          "status": "pending",
+          "acceptance_criteria": "Progress signals reflected in GET /status endpoint",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_signals.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-4",
+          "description": "Test error signal triggers pipeline failure",
+          "status": "pending",
+          "acceptance_criteria": "Critical error signal causes immediate pipeline failure",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_signals.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-5",
+          "description": "Test signal from invalid/unknown container",
+          "status": "pending",
+          "acceptance_criteria": "API returns 404; no state changes",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_signals.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-6",
+          "description": "Test signal API rate limiting",
+          "status": "pending",
+          "acceptance_criteria": "Excessive signals rate-limited; pipeline unaffected",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_signals.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "API Validation Tests",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Create test_api_validation.py with fixtures",
+          "status": "pending",
+          "acceptance_criteria": "File created with proper integration test markers",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_api_validation.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-2",
+          "description": "Test POST /pipelines with invalid mode",
+          "status": "pending",
+          "acceptance_criteria": "Returns 400 with clear error about valid modes",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_api_validation.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-3",
+          "description": "Test POST /pipelines with missing required fields",
+          "status": "pending",
+          "acceptance_criteria": "Returns 400 with field-specific validation errors",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_api_validation.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-4",
+          "description": "Test GET /pipelines/{id} with non-existent ID",
+          "status": "pending",
+          "acceptance_criteria": "Returns 404 with appropriate message",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_api_validation.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-5",
+          "description": "Test DELETE /pipelines/{id} with non-existent ID",
+          "status": "pending",
+          "acceptance_criteria": "Returns 404; idempotent behavior",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_api_validation.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-6",
+          "description": "Test PATCH /pipelines/{id} with invalid config values",
+          "status": "pending",
+          "acceptance_criteria": "Returns 400; config not modified",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_api_validation.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-7",
+          "description": "Test pagination for GET /pipelines list endpoint",
+          "status": "pending",
+          "acceptance_criteria": "Correct page size; pagination metadata accurate",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_api_validation.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-7",
+      "name": "Review Cycle Edge Cases",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-7-1",
+          "description": "Add reviewer disagreement tests to existing test file",
+          "status": "pending",
+          "acceptance_criteria": "Tests added to test_local_pipeline.py under new class",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_local_pipeline.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-2",
+          "description": "Test multi-reviewer with mixed verdicts",
+          "status": "pending",
+          "acceptance_criteria": "Pipeline handles mixed verdicts per policy",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_local_pipeline.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-3",
+          "description": "Test revision cycle with max_review_cycles=0",
+          "status": "pending",
+          "acceptance_criteria": "Any needs_revision triggers circuit breaker immediately",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_local_pipeline.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-4",
+          "description": "Test review cycle counter accuracy",
+          "status": "pending",
+          "acceptance_criteria": "review_cycles count matches actual iterations",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_local_pipeline.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-7-5",
+          "description": "Test reviewer verdict file path isolation",
+          "status": "pending",
+          "acceptance_criteria": "Concurrent pipelines have distinct verdict paths",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_local_pipeline.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 2,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-12T17:49:16Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-12T18:46:00Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-12T18:57:20Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-12T19:09:43Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-12T19:25:35Z",
+      "actor": "system",
+      "role": "system",
+      "action": "update",
+      "field_path": "autofix_attempts",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Autofix attempt completed with result: false"
+    }
+  ],
+  "autofix_attempts": 1,
+  "max_autofix_attempts": 3,
+  "phase_configs": {
+    "refine": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "plan": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "implement": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "PR_REVIEW"
+    }
+  },
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "refine_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "plan_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Expand local orchestration integration test coverage",
+    "description": "Significantly improves integration test coverage for local orchestration workflows\nby adding 25-35 new tests covering concurrent pipelines, error recovery, HITL edge\ncases, signal handling, API validation, and review cycles.\n\nEnhances the mock sandbox to support additional failure modes needed for thorough\ntesting. All tests use short configurable timeouts for timeout-related scenarios.\n\nCloses #568"
+  }
+}

@@ -16,7 +16,7 @@ for how to call egg's workflows from your own repositories.
 | [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
 | [@mention Response](#mention-response) | Bot mention in issues/PR comments | Runs arbitrary tasks requested by authorized users |
 | [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
-| [Conflict Resolver](#conflict-resolver) | Push to main / every 2 hours / manual | Resolves merge conflicts via rebase |
+| [Conflict Resolver](#conflict-resolver) | SDLC pipeline / push to main / schedule / manual | Resolves merge conflicts via merge commits |
 | [Self-Improvement](#self-improvement) | Nightly schedule (2 AM UTC) | Analyzes all runs for issues, creates tracking issues |
 | [Doc Updater](#doc-updater) | Push to main | Checks if code changes require documentation updates |
 
@@ -106,8 +106,20 @@ PR opened → review → address feedback → re-review → ... → approval or 
 
 The workflow runs on:
 - `pull_request_review` — Formal reviews posted via `gh pr review`
-- `issue_comment` — Self-reviews posted as comments (GitHub blocks bots from reviewing their own PRs via the Reviews API)
+- `issue_comment` — Legacy self-reviews posted as comments (deprecated — use a separate reviewer bot instead, see below)
 - `workflow_dispatch` — Manual trigger with PR number (bypasses filters for debugging)
+
+### Separate Reviewer Bot (Recommended)
+
+By default, the bot cannot approve or request changes on its own PRs (GitHub blocks this).
+To enable full review capabilities, configure a separate reviewer GitHub App:
+
+1. Create a second GitHub App (e.g., `egg-reviewer`) with `pull_requests: write` permission
+2. Install it on your repositories
+3. Add secrets: `REVIEWER_APP_ID`, `REVIEWER_APP_PRIVATE_KEY`, `REVIEWER_APP_INSTALLATION_ID`
+
+When configured, reviews use the reviewer account, enabling approve/request-changes on bot PRs.
+Without it, the system falls back to posting reviews as comments (self-review mode).
 
 ### How It Works
 
@@ -116,7 +128,9 @@ The workflow runs on:
    - PR is from the same repository (not a fork — bot can't push to forks)
    - PR author is the bot (unless manually triggered)
    - PR doesn't have `[skip-review]` marker
-   - Review is not an approval (filtered at job level to prevent runner allocation)
+   - Review requires action (filtered at job level to prevent runner allocation):
+     - Non-approval reviews (request-changes, comment) always trigger
+     - Approvals trigger only if they include `<!-- has-suggestions -->` marker
    - Iteration count is below the limit (default: 3 rounds)
 
 2. **Wait for all reviewers** — Polls GitHub check runs for all `egg-reviewer-*` jobs
@@ -161,6 +175,8 @@ The agent addresses all actionable review feedback:
 | **Fix** | Correctness issues, security concerns, logic errors, missing error handling, resource leaks, breaking changes, pattern violations |
 | **Respond (do not fix)** | Disagreement with feedback — agent posts a reply explaining reasoning instead of making the change |
 | **Skip** | Pure style suggestions that linters handle, subjective preferences without technical justification |
+
+**Note:** Reviewers can include non-blocking suggestions in approval reviews by adding `<!-- has-suggestions -->` anywhere in the review body. This marker signals that the approval includes suggestions the agent should address, triggering the feedback workflow even though the review state is "approved".
 
 ### Security
 
@@ -271,31 +287,31 @@ The agent follows these rules (customizable via `.egg/autofixer-rules.md`):
 
 **Workflow:** [`.github/workflows/on-merge-conflict.yml`](../../.github/workflows/on-merge-conflict.yml)
 
-Triggers on push to main (when conflicts are actually introduced) to detect PRs with merge conflicts and resolve them via rebase. A scheduled run every 2 hours provides a safety net for cases where the push-triggered run fails or GitHub's mergeable state computation takes longer than expected. Also supports `workflow_dispatch` for manual triggering on a specific PR.
+Resolves merge conflicts on PRs via merge commits. Can be triggered automatically by the SDLC pipeline, on push to main, via schedule, or manually with `workflow_dispatch`.
+
+### Trigger Modes
+
+1. **SDLC pipeline integration** — When the SDLC pipeline attempts to merge `origin/main` into an issue branch and encounters conflicts, it triggers this workflow via `workflow_dispatch` with the PR number and waits synchronously for resolution. If successful, the pipeline pulls the resolved changes and continues. If resolution fails, the pipeline exits with an error.
+
+2. **Push-triggered detection** — When code is pushed to main, waits 60 seconds for GitHub to recompute mergeable state, then queries all open PRs to find conflicts. Concurrent pushes are deduplicated via a concurrency group with cancel-in-progress.
+
+3. **Scheduled fallback** — Runs every 2 hours as a safety net for PRs that develop conflicts outside of main branch updates or where the push-triggered run failed.
+
+4. **Manual dispatch** — Supports `workflow_dispatch` for manual triggering on a specific PR.
 
 ### How It Works
 
-1. **Push-triggered detection** — When code is pushed to main, waits 60 seconds for GitHub to
-   recompute mergeable state, then queries all open PRs to find conflicts. Concurrent pushes
-   are deduplicated via a concurrency group with cancel-in-progress.
-2. **Scheduled fallback** — Runs every 2 hours as a safety net for PRs that develop conflicts
-   outside of main branch updates or where the push-triggered run failed.
-3. **Conflict detection** — Queries all open PRs and checks their `mergeable_state`. PRs with
-   a "dirty" state (indicating conflicts) are queued for resolution. Fork PRs are skipped
-   since the bot cannot push to forks.
-4. **Skip check** — Skips PRs with `[skip-conflict-fix]` in the title.
-5. **Comment cleanup** — Minimizes previous conflict resolution comments to reduce clutter.
-6. **Acknowledgment** — Posts a comment indicating conflict resolution has started.
-7. **Trusted prompt build** — Builds the conflict prompt from `main` using
-   `build-conflict-prompt.sh`, which includes the base branch name for rebase.
-8. **Resolution** — The agent:
-   - Fetches the base branch and starts a rebase
+1. **Conflict detection** — Queries open PRs and checks their `mergeable_state`. PRs with a "dirty" state (indicating conflicts) are queued for resolution. Fork PRs are skipped since the bot cannot push to forks. When triggered by the SDLC pipeline with a specific PR number, only that PR is processed.
+2. **Skip check** — Skips PRs with `[skip-conflict-fix]` in the title.
+3. **Comment cleanup** — Minimizes previous conflict resolution comments to reduce clutter.
+4. **Acknowledgment** — Posts a comment indicating conflict resolution has started.
+5. **Trusted prompt build** — Builds the conflict prompt from `main` using `build-conflict-prompt.sh`, which includes the base branch name for merging.
+6. **Resolution** — The agent:
+   - Fetches the base branch and starts a merge
    - Resolves each conflict based on conflict resolution rules
    - Runs local checks to verify the resolution
-   - Pushes with `--force-with-lease` if successful
-9. **Escalation** — If conflicts require human judgment (semantic conflicts, security code,
-   database migrations), the agent aborts the rebase and posts a comment explaining which
-   files need review and why.
+   - Pushes the merge commit if successful
+7. **Escalation** — If conflicts require human judgment (semantic conflicts, security code, database migrations), the agent aborts the merge and posts a comment explaining which files need review and why.
 
 ### Resolution Strategy
 

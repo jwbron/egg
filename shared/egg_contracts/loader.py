@@ -26,27 +26,27 @@ DEFAULT_CONTRACTS_DIR = ".egg-state/contracts"
 class ContractNotFoundError(Exception):
     """Raised when a contract doesn't exist."""
 
-    def __init__(self, issue_number: int, path: Path) -> None:
-        self.issue_number = issue_number
+    def __init__(self, identifier: int | str, path: Path) -> None:
+        self.identifier = identifier
         self.path = path
-        super().__init__(f"Contract for issue #{issue_number} not found at {path}")
+        super().__init__(f"Contract for {identifier} not found at {path}")
 
 
 class ContractValidationError(Exception):
     """Raised when a contract fails validation."""
 
-    def __init__(self, issue_number: int, errors: list[str]) -> None:
-        self.issue_number = issue_number
+    def __init__(self, identifier: int | str, errors: list[str]) -> None:
+        self.identifier = identifier
         self.errors = errors
-        super().__init__(f"Contract for issue #{issue_number} is invalid: {'; '.join(errors)}")
+        super().__init__(f"Contract for {identifier} is invalid: {'; '.join(errors)}")
 
 
-def get_contract_path(issue_number: int, repo_root: Path | None = None) -> Path:
+def get_contract_path(identifier: int | str, repo_root: Path | None = None) -> Path:
     """
     Get the path to a contract file.
 
     Args:
-        issue_number: The GitHub issue number
+        identifier: Issue number (int) or pipeline ID (str)
         repo_root: Optional repository root path. Defaults to current directory.
 
     Returns:
@@ -54,15 +54,15 @@ def get_contract_path(issue_number: int, repo_root: Path | None = None) -> Path:
     """
     if repo_root is None:
         repo_root = Path.cwd()
-    return repo_root / DEFAULT_CONTRACTS_DIR / f"{issue_number}.json"
+    return repo_root / DEFAULT_CONTRACTS_DIR / f"{identifier}.json"
 
 
-def load_contract(issue_number: int, repo_root: Path | None = None) -> Contract:
+def load_contract(identifier: int | str, repo_root: Path | None = None) -> Contract:
     """
     Load a contract from disk.
 
     Args:
-        issue_number: The GitHub issue number
+        identifier: Issue number (int) or pipeline ID (str)
         repo_root: Optional repository root path
 
     Returns:
@@ -72,19 +72,19 @@ def load_contract(issue_number: int, repo_root: Path | None = None) -> Contract:
         ContractNotFoundError: If the contract doesn't exist
         ContractValidationError: If the contract is invalid
     """
-    path = get_contract_path(issue_number, repo_root)
+    path = get_contract_path(identifier, repo_root)
 
     if not path.exists():
-        raise ContractNotFoundError(issue_number, path)
+        raise ContractNotFoundError(identifier, path)
 
     try:
         with open(path) as f:
             data = json.load(f)
         return Contract.model_validate(data)
     except json.JSONDecodeError as e:
-        raise ContractValidationError(issue_number, [f"Invalid JSON: {e}"]) from e
+        raise ContractValidationError(identifier, [f"Invalid JSON: {e}"]) from e
     except Exception as e:
-        raise ContractValidationError(issue_number, [str(e)]) from e
+        raise ContractValidationError(identifier, [str(e)]) from e
 
 
 def save_contract(contract: Contract, repo_root: Path | None = None) -> Path:
@@ -101,7 +101,7 @@ def save_contract(contract: Contract, repo_root: Path | None = None) -> Path:
     Returns:
         Path where the contract was saved
     """
-    path = get_contract_path(contract.issue.number, repo_root)
+    path = get_contract_path(contract.contract_key, repo_root)
 
     # Ensure directory exists
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -127,18 +127,18 @@ def save_contract(contract: Contract, repo_root: Path | None = None) -> Path:
     return path
 
 
-def contract_exists(issue_number: int, repo_root: Path | None = None) -> bool:
+def contract_exists(identifier: int | str, repo_root: Path | None = None) -> bool:
     """
     Check if a contract exists.
 
     Args:
-        issue_number: The GitHub issue number
+        identifier: Issue number (int) or pipeline ID (str)
         repo_root: Optional repository root path
 
     Returns:
         True if the contract exists
     """
-    path = get_contract_path(issue_number, repo_root)
+    path = get_contract_path(identifier, repo_root)
     return path.exists()
 
 
@@ -175,8 +175,37 @@ def create_contract(
     return contract
 
 
+def create_local_contract(
+    pipeline_id: str,
+    title: str,
+    repo_root: Path | None = None,
+    initial_phase: PipelinePhase = PipelinePhase.REFINE,
+) -> Contract:
+    """
+    Create a new contract for a local-mode pipeline.
+
+    Args:
+        pipeline_id: Pipeline ID (e.g., "local-a1b2c3d4")
+        title: Task description (typically first 100 chars of prompt)
+        repo_root: Optional repository root path
+        initial_phase: Initial pipeline phase
+
+    Returns:
+        The newly created Contract
+    """
+    contract = Contract(
+        pipeline_id=pipeline_id,
+        current_phase=initial_phase,
+        # Use a minimal IssueInfo stand-in for compatibility — no real issue
+        issue=None,
+    )
+
+    save_contract(contract, repo_root)
+    return contract
+
+
 def load_contract_from_branch(
-    issue_number: int,
+    identifier: int | str,
     repo_path: Path,
     branch: str | None = None,
 ) -> Contract:
@@ -187,7 +216,7 @@ def load_contract_from_branch(
     agent's working branch rather than the current checkout.
 
     Args:
-        issue_number: The GitHub issue number
+        identifier: Issue number (int) or pipeline ID (str)
         repo_path: Path to the repository
         branch: Optional branch name. If None, uses current checkout.
 
@@ -199,12 +228,12 @@ def load_contract_from_branch(
         the file contents from that branch.
     """
     if branch is None:
-        return load_contract(issue_number, repo_path)
+        return load_contract(identifier, repo_path)
 
     # Read file from specific branch using git show
     import subprocess
 
-    contract_rel_path = f"{DEFAULT_CONTRACTS_DIR}/{issue_number}.json"
+    contract_rel_path = f"{DEFAULT_CONTRACTS_DIR}/{identifier}.json"
 
     try:
         result = subprocess.run(
@@ -217,20 +246,20 @@ def load_contract_from_branch(
         data = json.loads(result.stdout)
         return Contract.model_validate(data)
     except subprocess.CalledProcessError as e:
-        raise ContractNotFoundError(issue_number, repo_path / contract_rel_path) from e
+        raise ContractNotFoundError(identifier, repo_path / contract_rel_path) from e
     except json.JSONDecodeError as e:
-        raise ContractValidationError(issue_number, [f"Invalid JSON: {e}"]) from e
+        raise ContractValidationError(identifier, [f"Invalid JSON: {e}"]) from e
 
 
-def list_contracts(repo_root: Path | None = None) -> list[int]:
+def list_contracts(repo_root: Path | None = None) -> list[int | str]:
     """
-    List all contract issue numbers in the repository.
+    List all contract identifiers in the repository.
 
     Args:
         repo_root: Optional repository root path
 
     Returns:
-        List of issue numbers with contracts
+        List of identifiers (int for issue contracts, str for local pipeline contracts)
     """
     if repo_root is None:
         repo_root = Path.cwd()
@@ -239,29 +268,29 @@ def list_contracts(repo_root: Path | None = None) -> list[int]:
     if not contracts_dir.exists():
         return []
 
-    issue_numbers = []
+    identifiers: list[int | str] = []
     for path in contracts_dir.glob("*.json"):
         try:
-            issue_num = int(path.stem)
-            issue_numbers.append(issue_num)
+            identifiers.append(int(path.stem))
         except ValueError:
-            continue
+            # Non-numeric filenames are local pipeline IDs
+            identifiers.append(path.stem)
 
-    return sorted(issue_numbers)
+    return sorted(identifiers, key=str)
 
 
-def delete_contract(issue_number: int, repo_root: Path | None = None) -> bool:
+def delete_contract(identifier: int | str, repo_root: Path | None = None) -> bool:
     """
     Delete a contract from disk.
 
     Args:
-        issue_number: The GitHub issue number
+        identifier: Issue number (int) or pipeline ID (str)
         repo_root: Optional repository root path
 
     Returns:
         True if the contract was deleted, False if it didn't exist
     """
-    path = get_contract_path(issue_number, repo_root)
+    path = get_contract_path(identifier, repo_root)
 
     if path.exists():
         path.unlink()

@@ -67,9 +67,10 @@ egg --public
    # Set your GitHub token
    GITHUB_USER_TOKEN=ghp_xxxxx
 
-   # Set your user identity
+   # Set your user identity and home directory
    HOST_UID=$(id -u)
    HOST_GID=$(id -g)
+   HOST_HOME=$HOME  # REQUIRED for worktree bind mounts
    ```
 
 3. **Create repositories.yaml:**
@@ -104,6 +105,7 @@ sandbox (172.32.0.x) ──┐
                        │         │
                        │         ▼
                        │    gateway (172.32.0.2)
+                       │    orchestrator (172.32.0.3)
                        │         │
                        └─────────┼──▶ egg-external
                                  │         │
@@ -114,6 +116,7 @@ sandbox (172.32.0.x) ──┐
 - **egg-isolated**: Internal network with no external route
 - **egg-external**: Standard bridge network with internet access
 - **Gateway**: Dual-homed, acts as the only egress point for sandboxes
+- **Orchestrator**: Dual-homed, manages SDLC pipelines and spawns sandbox containers
 
 ## CLI with Docker Compose Gateway
 

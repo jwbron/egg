@@ -69,6 +69,86 @@ The pipeline pauses for human approval at phase transitions. Decisions use check
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Pipeline Status Visualization
+
+The orchestrator provides pipeline status visualization through two endpoints:
+
+**1. Static Visualization**: `GET /api/v1/pipelines/<pipeline_id>/visualization`
+
+Returns a snapshot of the current pipeline state.
+
+**Query parameters**:
+- `format`: Output format - `full` (default), `compact`, `text`, or `json`
+- `ascii`: Use ASCII-only characters (`true` or `false`, default: `false`)
+
+**Response formats**:
+
+1. **`full` (default)**: Returns JSON with full DAG visualization, compact status, and progress bar
+2. **`compact`**: Single-line phase status with symbols
+3. **`text`**: Plain text DAG visualization
+4. **`json`**: Structured JSON report with phase details
+
+**2. Real-time Streaming**: `GET /api/v1/pipelines/<pipeline_id>/stream`
+
+Returns a Server-Sent Events (SSE) stream for real-time pipeline updates.
+
+**Query parameters**:
+- `ascii`: Use ASCII-only characters (`true` or `false`, default: `false`)
+
+**Event types**:
+- `snapshot`: Initial pipeline state with full DAG visualization
+- `pipeline.*`: Pipeline lifecycle events (created, started, completed, failed, cancelled)
+- `phase.*`: Phase transition events (started, completed, failed)
+- `agent.*`: Agent lifecycle events (started, completed, failed, timeout)
+- `decision.*`: HITL decision events (created, resolved, timeout)
+- `container.*`: Container lifecycle events (spawned, stopped, removed) — *planned; not yet emitted via SSE*
+- `done`: Stream ending (pipeline terminal state or timeout)
+- `error`: Error occurred
+
+Each event includes the current visualization data and pipeline status. The stream automatically closes when the pipeline reaches a terminal state or after 1 hour.
+
+**CLI tool**: Use `egg-pipeline-watch <pipeline_id>` to view real-time progress in the terminal with auto-updating DAG visualization.
+
+**Example JSON response** (`format=full`):
+```json
+{
+  "success": true,
+  "message": "Visualization generated",
+  "data": {
+    "pipeline_id": "issue-123",
+    "status": "running",
+    "current_phase": "implement",
+    "visualization": {
+      "dag": ">>> ╔══════════════╗\n    │ ▶ Implement │\n    │   running   │\n    ╚══════════════╝",
+      "compact": "✓Refine → ✓Plan → [▶Implement] → ○PR",
+      "progress": "[███████████░░░░░░░░░] 60%"
+    },
+    "phases": {
+      "refine": {"status": "complete", "review_cycles": 2, "containers": 1, "agents": 1},
+      "plan": {"status": "complete", "review_cycles": 1, "containers": 1, "agents": 1},
+      "implement": {"status": "running", "review_cycles": 0, "containers": 1, "agents": 1},
+      "pr": {"status": "pending", "review_cycles": 0, "containers": 0, "agents": 0}
+    },
+    "pending_decisions": 0,
+    "updated_at": "2026-02-12T10:30:00Z"
+  }
+}
+```
+
+**Status symbols**:
+- `○` - Pending (not started)
+- `▶` - Running
+- `⏸` - Awaiting human decision
+- `✓` - Complete
+- `✗` - Failed
+- `⊘` - Cancelled
+
+**Use cases**:
+- Monitor pipeline progress from external tools
+- Display real-time status in CI dashboards
+- Poll for phase completion
+- Debug stuck pipelines
+
 ### Phases
 
 | Phase | Purpose | Allowed Operations | Exit Requires |
@@ -117,9 +197,9 @@ The contract tracks per-reviewer verdicts for debugging:
 }
 ```
 
-### Multi-Agent Orchestration (Experimental)
+### Multi-Agent Orchestration
 
-The implement phase supports multi-agent orchestration, where specialized agents (Coder, Tester, Documenter, Integrator) execute in parallel waves based on dependencies. This is an experimental alternative to the standard single-agent work loop.
+The implement phase supports multi-agent orchestration, where specialized agents (Coder, Tester, Documenter, Integrator) execute in parallel waves based on dependencies. Multi-agent orchestration is enabled by default; single-agent execution can be selected by explicitly disabling it in the contract's `multi_agent_config`.
 
 **Agent Roles:**
 
@@ -201,13 +281,21 @@ The refine and plan phases include an automated internal review step before huma
 
 ### Phase-Based Operation Filtering
 
-Each phase has a defined set of permitted operations. The gateway blocks all other operations:
+Each phase has a defined set of permitted operations. The gateway blocks all other operations via session-based phase tracking:
 
+**How it works:**
+1. The SDLC pipeline sets `EGG_PIPELINE_PHASE` environment variable when starting agent containers
+2. The runtime passes this phase to the gateway during session creation
+3. The gateway stores the phase in the session state
+4. When operations like `gh pr create` are invoked, the gateway checks the session's phase
+5. If the operation is not allowed for that phase (per `.egg/phase-permissions.json`), the gateway returns HTTP 403
+
+**Phase restrictions:**
 - **Refine/Plan phases**: Cannot `git push` or `gh pr create`—prevents code changes before plan approval
-- **Implement phase**: Can `git push` to the branch; draft PR is created automatically by the pipeline
-- **PR phase**: Can update the PR; human must merge
+- **Implement phase**: Can `git push` to the branch; draft PR is created automatically by the pipeline (not by agent)
+- **PR phase**: Can `gh pr create/edit` and `git push`; human must merge
 
-This prevents incidents where agents push code during planning or manually create PRs before implementation is complete.
+This structural enforcement prevents incidents where agents push code during planning or manually create PRs before implementation is complete.
 
 ## Contract System
 
@@ -298,17 +386,36 @@ This field can only be modified by role 'reviewer'.
 
 ## Implementation Workflow
 
+### Keeping Branches Up-to-Date
+
+The SDLC pipeline automatically merges the latest main branch into the issue branch before starting work in each phase. This prevents agents from working on stale code that conflicts with recent changes.
+
+**Merge Process:**
+
+1. **Check if merge needed** — The pipeline uses `git merge-base --is-ancestor` to check if main has commits not in the issue branch
+2. **Perform merge** — If needed, merges `origin/main` into the issue branch with `--no-edit`
+3. **Push merge commit** — Pushes the merge commit so reviewers and subsequent steps see an up-to-date branch
+4. **Automatic conflict resolution** — If merge conflicts occur:
+   - Aborts the conflicted merge
+   - Looks up the PR number for the branch
+   - Triggers the `on-merge-conflict.yml` workflow
+   - Waits for conflict resolution to complete
+   - Pulls the resolved changes and continues
+   - Fails if no PR exists (required for `workflow_dispatch` targeting) or conflict resolution fails
+
+This ensures agents always work with the latest codebase and conflicts are resolved before work begins, not at PR finalization time.
+
 ### Implement and PR-Based Review
 
 The implement phase uses PR-based automated code review:
 
-1. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
-2. **Draft PR created** — After implementation succeeds, a draft PR is created automatically with commit messages in the description
-3. **CI and review checks** — The pipeline waits for all GitHub check runs (linting, tests, and PR review) to complete
-4. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
-5. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
-6. **Merge conflict check** — Before finalization, the pipeline checks if the PR has conflicts with the base branch. If conflicts exist, the PR remains as draft and the pipeline exits; conflicts must be resolved and the pipeline re-run
-7. **PR finalization** — Once all checks pass, review approves, and no merge conflicts exist, the draft PR is marked ready for human merge
+1. **Main branch merge** — Before starting work, merges latest main into the issue branch (see above)
+2. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
+3. **Draft PR created** — After implementation succeeds, a draft PR is created automatically with commit messages in the description
+4. **CI and review checks** — The pipeline waits for all GitHub check runs (linting, tests, and PR review) to complete
+5. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
+6. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
+7. **PR finalization** — Once all checks pass and review approves, the draft PR is marked ready for human merge
 8. **Issue closure** — When the PR is merged, the original issue is automatically closed (the PR body includes `Closes #<issue>`)
 
 This approach provides:
@@ -316,6 +423,7 @@ This approach provides:
 - Integration with existing PR review workflows
 - Human visibility into every implementation cycle
 - CI/test validation before review
+- Automatic resolution of merge conflicts before work begins
 
 ### Context Window Isolation
 
@@ -352,7 +460,9 @@ Wave 3:  [Integrator]      ─── Final validation
 
 ### Enabling Multi-Agent Mode
 
-Multi-agent mode is enabled via the contract's `multi_agent_config`:
+Multi-agent mode is **enabled by default**. When `multi_agent_config` is absent from the contract, or when `multi_agent_config.enabled` is not specified, the system defaults to multi-agent orchestration.
+
+To explicitly configure multi-agent mode, use the contract's `multi_agent_config`:
 
 ```json
 {
@@ -360,6 +470,16 @@ Multi-agent mode is enabled via the contract's `multi_agent_config`:
     "enabled": true,
     "roles_enabled": ["coder", "tester", "documenter", "integrator"],
     "parallel_execution": true
+  }
+}
+```
+
+To disable multi-agent mode and use single-agent execution:
+
+```json
+{
+  "multi_agent_config": {
+    "enabled": false
   }
 }
 ```
@@ -727,8 +847,6 @@ The `autofix_attempts` counter resets to 0 when:
 | `action/build-tester-prompt.sh` | Tester agent prompt builder |
 | `action/build-documenter-prompt.sh` | Documenter agent prompt builder |
 | `action/build-integrator-prompt.sh` | Integrator agent prompt builder |
-| `action/build-refine-review-prompt.sh` | Reviewer prompt for refine phase analysis |
-| `action/build-plan-review-prompt.sh` | Reviewer prompt for plan phase output |
 | `action/build-unified-review-prompt.sh` | Unified review prompt builder for all SDLC phases |
 | `action/build-agent-mode-design-review-prompt-workloop.sh` | Agent-mode design review for work loop |
 | `action/build-contract-verification-prompt-workloop.sh` | Contract verification review for work loop |

@@ -172,6 +172,9 @@ class Checkpoint(BaseModel):
         pattern=r"^[a-f0-9]{7,40}$",
         description="The tip commit SHA of the push",
     )
+    pr_number: int | None = Field(
+        default=None, ge=1, description="GitHub PR number if associated"
+    )
 
     @field_validator("pipeline_phase")
     @classmethod
@@ -219,6 +222,7 @@ class CheckpointSummary(BaseModel):
     session_id: str = Field(..., description="Session ID")
     agent_role: str | None = Field(default=None, description="Agent role")
     issue_number: int | None = Field(default=None, ge=1, description="GitHub issue number")
+    pr_number: int | None = Field(default=None, ge=1, description="GitHub PR number")
     branch: str | None = Field(default=None, description="Git branch")
     pipeline_phase: str | None = Field(default=None, description="Pipeline phase")
     created_at: datetime = Field(..., description="When checkpoint was created")
@@ -235,6 +239,7 @@ class CheckpointSummary(BaseModel):
             session_id=checkpoint.session.session_id,
             agent_role=checkpoint.session.agent_role,
             issue_number=checkpoint.issue_number,
+            pr_number=checkpoint.pr_number,
             branch=checkpoint.branch,
             pipeline_phase=checkpoint.pipeline_phase,
             created_at=checkpoint.created_at,

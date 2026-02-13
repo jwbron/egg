@@ -43,36 +43,49 @@ class TestContractNotFoundError:
     """Tests for ContractNotFoundError exception."""
 
     def test_attributes(self):
-        """Test that issue_number and path are stored."""
+        """Test that identifier and path are stored."""
         path = Path("/repo/.egg-state/contracts/99.json")
         err = ContractNotFoundError(99, path)
-        assert err.issue_number == 99
+        assert err.identifier == 99
         assert err.path == path
 
     def test_message_format(self):
-        """Test the error message contains issue number and path."""
+        """Test the error message contains identifier and path."""
         path = Path("/repo/.egg-state/contracts/5.json")
         err = ContractNotFoundError(5, path)
-        assert "#5" in str(err)
+        assert "5" in str(err)
         assert str(path) in str(err)
+
+    def test_string_identifier(self):
+        """Test that string identifiers (local pipelines) work."""
+        path = Path("/repo/.egg-state/contracts/local-abc.json")
+        err = ContractNotFoundError("local-abc", path)
+        assert err.identifier == "local-abc"
+        assert "local-abc" in str(err)
 
 
 class TestContractValidationError:
     """Tests for ContractValidationError exception."""
 
     def test_attributes(self):
-        """Test that issue_number and errors are stored."""
+        """Test that identifier and errors are stored."""
         err = ContractValidationError(10, ["bad field", "missing value"])
-        assert err.issue_number == 10
+        assert err.identifier == 10
         assert err.errors == ["bad field", "missing value"]
 
     def test_message_format(self):
-        """Test the error message contains issue number and joined errors."""
+        """Test the error message contains identifier and joined errors."""
         err = ContractValidationError(10, ["error A", "error B"])
         msg = str(err)
-        assert "#10" in msg
+        assert "10" in msg
         assert "error A" in msg
         assert "error B" in msg
+
+    def test_string_identifier(self):
+        """Test that string identifiers (local pipelines) work."""
+        err = ContractValidationError("local-xyz", ["bad field"])
+        assert err.identifier == "local-xyz"
+        assert "local-xyz" in str(err)
 
 
 class TestGetContractPath:
@@ -118,7 +131,7 @@ class TestLoadContract:
         """Test that loading a missing contract raises ContractNotFoundError."""
         with pytest.raises(ContractNotFoundError) as exc_info:
             load_contract(999, repo_root=tmp_path)
-        assert exc_info.value.issue_number == 999
+        assert exc_info.value.identifier == 999
 
     def test_load_invalid_json_raises(self, tmp_path):
         """Test that invalid JSON raises ContractValidationError."""
@@ -129,7 +142,7 @@ class TestLoadContract:
 
         with pytest.raises(ContractValidationError) as exc_info:
             load_contract(42, repo_root=tmp_path)
-        assert exc_info.value.issue_number == 42
+        assert exc_info.value.identifier == 42
         assert any("Invalid JSON" in e for e in exc_info.value.errors)
 
     def test_load_validation_error_raises(self, tmp_path):
@@ -142,7 +155,7 @@ class TestLoadContract:
 
         with pytest.raises(ContractValidationError) as exc_info:
             load_contract(42, repo_root=tmp_path)
-        assert exc_info.value.issue_number == 42
+        assert exc_info.value.identifier == 42
 
 
 class TestSaveContract:
@@ -306,7 +319,7 @@ class TestLoadContractFromBranch:
         ):
             with pytest.raises(ContractNotFoundError) as exc_info:
                 load_contract_from_branch(42, tmp_path, branch="nonexistent")
-            assert exc_info.value.issue_number == 42
+            assert exc_info.value.identifier == 42
 
     def test_invalid_json_from_branch_raises_validation_error(self, tmp_path):
         """Test that invalid JSON from git show raises ContractValidationError."""
@@ -316,7 +329,7 @@ class TestLoadContractFromBranch:
         with patch("subprocess.run", return_value=mock_result):
             with pytest.raises(ContractValidationError) as exc_info:
                 load_contract_from_branch(42, tmp_path, branch="bad-branch")
-            assert exc_info.value.issue_number == 42
+            assert exc_info.value.identifier == 42
             assert any("Invalid JSON" in e for e in exc_info.value.errors)
 
 
@@ -336,28 +349,31 @@ class TestListContracts:
         assert result == []
 
     def test_lists_contract_numbers_sorted(self, tmp_path):
-        """Test that contracts are listed as sorted issue numbers."""
+        """Test that contracts are listed as sorted identifiers."""
         create_contract(100, "Issue 100", "https://example.com/100", repo_root=tmp_path)
         create_contract(5, "Issue 5", "https://example.com/5", repo_root=tmp_path)
         create_contract(42, "Issue 42", "https://example.com/42", repo_root=tmp_path)
 
         result = list_contracts(repo_root=tmp_path)
-        assert result == [5, 42, 100]
+        # Sorted by string representation: "100", "42", "5"
+        assert result == [100, 42, 5]
 
-    def test_skips_non_numeric_filenames(self, tmp_path):
-        """Test that non-numeric JSON files are ignored."""
+    def test_includes_non_numeric_filenames(self, tmp_path):
+        """Test that non-numeric JSON files are returned as string identifiers."""
         contracts_dir = tmp_path / ".egg-state" / "contracts"
         contracts_dir.mkdir(parents=True)
 
-        # Create a valid contract
+        # Create a valid issue contract
         create_contract(10, "Issue 10", "https://example.com/10", repo_root=tmp_path)
 
-        # Create non-numeric JSON files that should be skipped
-        (contracts_dir / "notes.json").write_text("{}")
-        (contracts_dir / "README.json").write_text("{}")
+        # Create non-numeric JSON files (local pipeline contracts)
+        (contracts_dir / "local-abc.json").write_text("{}")
+        (contracts_dir / "local-xyz.json").write_text("{}")
 
         result = list_contracts(repo_root=tmp_path)
-        assert result == [10]
+        assert 10 in result
+        assert "local-abc" in result
+        assert "local-xyz" in result
 
 
 class TestDeleteContract:

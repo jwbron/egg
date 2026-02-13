@@ -25,12 +25,17 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
+
 from typing import Any, ClassVar
 
 from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT
+
+# Well-known path for subprocess stderr capture (read by signal_orchestrator_completion)
+_SUBPROCESS_STDERR_LOG = Path("/tmp/egg-subprocess-stderr.log")
 
 # =============================================================================
 # Startup Timing (Debug)
@@ -186,6 +191,31 @@ class Config:
     runtime_gid: int = field(default_factory=lambda: int(os.environ.get("RUNTIME_GID", "1000")))
     quiet: bool = field(default_factory=lambda: os.environ.get("EGG_QUIET", "0") == "1")
     debug: bool = field(default_factory=lambda: os.environ.get("EGG_DEBUG", "0") == "1")
+
+    # Orchestrator mode configuration
+    # These are set when the sandbox is spawned by an orchestrator
+    orchestrator_mode: str = field(
+        default_factory=lambda: os.environ.get("EGG_ORCHESTRATOR_MODE", "local")
+    )
+    orchestrator_url: str | None = field(
+        default_factory=lambda: os.environ.get("EGG_ORCHESTRATOR_URL")
+    )
+    pipeline_id: str | None = field(default_factory=lambda: os.environ.get("EGG_PIPELINE_ID"))
+    agent_role: str | None = field(default_factory=lambda: os.environ.get("EGG_AGENT_ROLE"))
+
+    @property
+    def is_orchestrator_mode(self) -> bool:
+        """Check if running in orchestrator-managed mode (vs interactive)."""
+        # Explicit mode setting
+        if self.orchestrator_mode in ("remote-single", "distributed"):
+            return True
+        # Implicit detection from pipeline context
+        if self.pipeline_id:
+            return True
+        # Implicit detection from orchestrator URL
+        if self.orchestrator_url:
+            return True
+        return False
 
     # LLM configuration
     # Auth method: "api_key" (default) or "oauth"
@@ -382,6 +412,36 @@ def setup_user(config: Config, logger: Logger) -> None:
             logger.info(f"  chown completed in {elapsed:.1f}s")
 
 
+def setup_repo_permissions(config: Config, logger: Logger) -> None:
+    """Ensure repo bind-mount points are writable by the egg user.
+
+    Docker bind mounts preserve host ownership, so repo directories may
+    be root-owned inside the container.  This must run regardless of
+    whether the egg user's UID was adjusted (setup_user only chowns when
+    UID/GID change, but the mounts are always root-owned).
+
+    Only chown the top-level repo directories (not recursive) — repo file
+    contents are managed by git/gateway worktree operations.
+    """
+    repos_dir = config.repos_dir
+    if not repos_dir.exists():
+        return
+
+    try:
+        os.chown(repos_dir, config.runtime_uid, config.runtime_gid)
+    except OSError:
+        pass  # May be read-only
+
+    for repo_dir in repos_dir.iterdir():
+        if repo_dir.is_dir():
+            try:
+                os.chown(repo_dir, config.runtime_uid, config.runtime_gid)
+            except OSError:
+                pass  # Tolerate read-only mounts (e.g. .git tmpfs)
+
+    logger.success("Repo mount permissions verified")
+
+
 # NOTE: PostgreSQL and Redis service startup removed for now.
 # If needed in the future, add a setup_services() function here that starts them:
 #   service postgresql start
@@ -559,11 +619,25 @@ def setup_worktrees(config: Config, logger: Logger) -> bool:
         logger.warn("Repos workspace not found - check mount configuration")
         return True
 
-    # Count repos for logging
+    # Count repos and validate working trees
     repo_count = 0
     for repo_dir in config.repos_dir.iterdir():
         if repo_dir.is_dir():
             repo_count += 1
+            # Check if working tree is populated (should have more than just .git)
+            visible_files = [f for f in repo_dir.iterdir() if f.name != ".git"]
+            if not visible_files:
+                logger.warn(f"Working tree empty for {repo_dir.name}, re-populating via gateway")
+                result = subprocess.run(
+                    ["git", "-C", str(repo_dir), "checkout", "HEAD", "--", "."],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if result.returncode == 0:
+                    logger.success(f"Re-populated working tree for {repo_dir.name}")
+                else:
+                    logger.error(f"Failed to re-populate {repo_dir.name}: {result.stderr}")
 
     if repo_count > 0:
         logger.success(f"Repos mounted: {repo_count} repo(s) (gateway-managed worktrees)")
@@ -824,8 +898,16 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
     parsed = urlparse(gateway_url)
     gateway_host = parsed.hostname or "egg-gateway"
 
-    # Detect network mode: private mode has HTTPS_PROXY set, public mode doesn't
-    is_private_mode = proxy_url is not None
+    # Detect network mode from EGG_PRIVATE_MODE env var (set by orchestrator/gateway)
+    # Fallback: if EGG_PRIVATE_MODE is not set, assume private when proxy is configured
+    private_mode_env = os.environ.get("EGG_PRIVATE_MODE", "").lower()
+    if private_mode_env in ("true", "1"):
+        is_private_mode = True
+    elif private_mode_env in ("false", "0"):
+        is_private_mode = False
+    else:
+        # Legacy fallback: infer from proxy presence
+        is_private_mode = proxy_url is not None
     if is_private_mode:
         logger.info("Network mode: PRIVATE (lockdown, proxy filtering)")
     else:
@@ -1119,13 +1201,82 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
 # =============================================================================
 
 
-def cleanup_on_exit(config: Config, logger: Logger) -> None:
+def signal_orchestrator_completion(
+    config: Config,
+    logger: Logger,
+    exit_code: int = 0,
+    error_message: str | None = None,
+) -> None:
+    """Signal completion to orchestrator if running in orchestrator mode.
+
+    Uses the OrchestratorClient from egg_orchestrator package for consistency
+    with other orchestrator communication.
+
+    Args:
+        config: Container configuration
+        logger: Logger instance
+        exit_code: Process exit code (0 = success)
+        error_message: Optional error message if failed
+    """
+    if not config.is_orchestrator_mode:
+        return
+
+    if not config.orchestrator_url or not config.pipeline_id:
+        logger.warn("Orchestrator mode enabled but missing URL or pipeline_id")
+        return
+
+    if not config.agent_role:
+        logger.warn("Orchestrator mode enabled but missing agent_role")
+        return
+
+    try:
+        from egg_orchestrator import OrchestratorClient
+
+        client = OrchestratorClient(orchestrator_url=config.orchestrator_url)
+
+        if exit_code == 0:
+            # Success - signal completion
+            response = client.signal_complete(
+                pipeline_id=config.pipeline_id,
+                agent_role=config.agent_role,
+            )
+            signal_type = "complete"
+        else:
+            # Failure - signal error with stderr context for debugging
+            error_msg = error_message or f"Container exited with code {exit_code}"
+            stderr_tail = _read_subprocess_stderr_tail(20)
+            if stderr_tail:
+                error_msg += f"\n--- subprocess stderr (last 20 lines) ---\n{stderr_tail}"
+            response = client.signal_error(
+                pipeline_id=config.pipeline_id,
+                agent_role=config.agent_role,
+                error=error_msg,
+                recoverable=False,
+            )
+            signal_type = "error"
+
+        if response.success:
+            logger.info(f"Signaled {signal_type} to orchestrator")
+        else:
+            logger.warn(f"Orchestrator signal failed: {response.message}")
+
+    except Exception as e:
+        # Don't fail the exit process if signaling fails
+        logger.warn(f"Failed to signal orchestrator: {e}")
+
+
+def cleanup_on_exit(config: Config, logger: Logger, exit_code: int = 0) -> None:
     """Cleanup handler for container shutdown.
 
     In the gateway-managed worktree architecture, the container doesn't
     have access to git metadata, so there's minimal cleanup needed.
     The gateway handles worktree cleanup when containers exit.
+
+    If running in orchestrator mode, signals completion/error to orchestrator.
     """
+    # Signal completion to orchestrator if in orchestrator mode
+    signal_orchestrator_completion(config, logger, exit_code)
+
     if not config.quiet:
         print("")
         print("Cleaning up on container exit...")
@@ -1137,8 +1288,109 @@ def cleanup_on_exit(config: Config, logger: Logger) -> None:
 # =============================================================================
 
 
-def run_interactive(config: Config, logger: Logger) -> None:
-    """Launch interactive Claude Code session."""
+def _tee_stderr_to_file(
+    process: subprocess.Popen,
+    log_path: Path,
+    max_lines: int = 500,
+) -> None:
+    """Tee subprocess stderr to both sys.stderr and a bounded log file.
+
+    Runs in a background thread. Reads from process.stderr (PIPE) and
+    writes each line to the container's stderr in real time.  Only the
+    last *max_lines* lines are kept in memory and flushed to *log_path*
+    when the stream ends, preventing unbounded file growth.
+    """
+    from collections import deque
+
+    try:
+        stderr_out = getattr(sys.stderr, "buffer", sys.stderr)
+        ring: deque[bytes] = deque(maxlen=max_lines)
+        while True:
+            line = process.stderr.readline()
+            if not line:
+                break
+            stderr_out.write(line)
+            stderr_out.flush()
+            ring.append(line)
+        # Write the bounded tail to disk for _read_subprocess_stderr_tail()
+        with open(log_path, "wb") as log_file:
+            for saved_line in ring:
+                log_file.write(saved_line)
+    except Exception as exc:
+        # Best-effort diagnostic — log so failures aren't completely silent.
+        try:
+            print(
+                f"[DEBUG] _tee_stderr_to_file failed: {exc}",
+                file=sys.stderr,
+            )
+            sys.stderr.flush()
+        except Exception:
+            pass
+
+
+def _run_with_stderr_capture(
+    cmd: list[str],
+    env: dict[str, str],
+    logger: Logger,
+) -> int:
+    """Run a subprocess, capturing stderr to a log file while passing it through.
+
+    Returns the subprocess exit code. Stderr is tee'd to both the container's
+    stderr (for docker logs) and _SUBPROCESS_STDERR_LOG (for error signals).
+    """
+    process = subprocess.Popen(
+        cmd,
+        env=env,
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        stderr=subprocess.PIPE,
+    )
+
+    tee_thread = threading.Thread(
+        target=_tee_stderr_to_file,
+        args=(process, _SUBPROCESS_STDERR_LOG),
+        daemon=True,
+    )
+    tee_thread.start()
+    process.wait()
+    tee_thread.join(timeout=5)
+
+    exit_code = process.returncode
+
+    if exit_code != 0:
+        # Log error with subprocess stderr context so it's visible in docker logs
+        stderr_tail = _read_subprocess_stderr_tail(30)
+        if stderr_tail:
+            logger.error(f"Subprocess failed (exit code {exit_code}). Last stderr:\n{stderr_tail}")
+        else:
+            logger.error(f"Subprocess failed (exit code {exit_code}) with no stderr output")
+
+    return exit_code
+
+
+def _read_subprocess_stderr_tail(max_lines: int = 20) -> str:
+    """Read the last N lines from the subprocess stderr log, if it exists."""
+    try:
+        if _SUBPROCESS_STDERR_LOG.exists():
+            content = _SUBPROCESS_STDERR_LOG.read_text(errors="replace").strip()
+            if content:
+                lines = content.splitlines()[-max_lines:]
+                return "\n".join(lines)
+    except Exception:
+        pass
+    return ""
+
+
+def run_interactive(config: Config, logger: Logger) -> int:
+    """Launch interactive Claude Code session.
+
+    Uses subprocess.Popen() to maintain control after process exits,
+    enabling completion signaling back to orchestrator.
+
+    Returns:
+        Exit code from the subprocess
+    """
+
     # Change to repos directory
     if config.repos_dir.exists():
         os.chdir(config.repos_dir)
@@ -1166,9 +1418,9 @@ def run_interactive(config: Config, logger: Logger) -> None:
     # Print timing summary right before launching LLM
     _startup_timer.print_summary()
 
-    # Launch via gosu
-    os.execvpe(
-        "gosu",
+    # Launch via gosu, capturing stderr to log file for error reporting
+    # This allows us to include stderr context in orchestrator error signals
+    return _run_with_stderr_capture(
         [
             "gosu",
             f"{config.runtime_uid}:{config.runtime_gid}",
@@ -1176,21 +1428,30 @@ def run_interactive(config: Config, logger: Logger) -> None:
             "-c",
             "from llm import run_interactive; run_interactive()",
         ],
-        env,
+        env=env,
+        logger=logger,
     )
 
 
-def run_exec(config: Config, logger: Logger, args: list[str]) -> None:
-    """Run a command in exec mode."""
+def run_exec(config: Config, logger: Logger, args: list[str]) -> int:
+    """Run a command in exec mode.
+
+    Uses subprocess.Popen() to maintain control after process exits,
+    enabling completion signaling back to orchestrator.
+
+    Returns:
+        Exit code from the subprocess
+    """
     env = os.environ.copy()
 
     # Print timing summary before exec
     _startup_timer.print_summary()
 
-    os.execvpe(
-        "gosu",
+    # Launch via gosu, capturing stderr to log file for error reporting
+    return _run_with_stderr_capture(
         ["gosu", f"{config.runtime_uid}:{config.runtime_gid}"] + args,
-        env,
+        env=env,
+        logger=logger,
     )
 
 
@@ -1207,10 +1468,25 @@ def main() -> None:
     if config.debug:
         logger.phase_start("entrypoint_init")
 
+    # Log orchestrator mode if enabled
+    if config.is_orchestrator_mode:
+        logger.info(
+            f"Running in orchestrator mode: {config.orchestrator_mode}, "
+            f"pipeline={config.pipeline_id}, role={config.agent_role}"
+        )
+
+    # Track subprocess completion state for signal handling
+    # If SIGTERM arrives before subprocess completes, we signal interrupted (128+signum)
+    # If it arrives after, the subprocess already signaled its exit code
+    subprocess_completed = [False]  # Use list to allow modification from nested function
+
     # Register cleanup handler
     def signal_handler(signum: int, frame: Any) -> None:
-        cleanup_on_exit(config, logger)
-        sys.exit(0)
+        # If subprocess hasn't completed, this is an interruption - use signal-based exit code
+        # SIGTERM = 128+15=143, SIGINT = 128+2=130
+        if not subprocess_completed[0]:
+            cleanup_on_exit(config, logger, exit_code=128 + signum)
+        sys.exit(128 + signum)
 
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
@@ -1219,6 +1495,9 @@ def main() -> None:
     # Debug logging goes to stderr for capture even on container hang
     with timed_phase("setup_user", logger):
         setup_user(config, logger)
+
+    with timed_phase("setup_repo_permissions", logger):
+        setup_repo_permissions(config, logger)
 
     with timed_phase("setup_environment", logger):
         setup_environment(config)
@@ -1262,9 +1541,18 @@ def main() -> None:
 
     # Run appropriate mode (timing summary is printed inside each mode)
     if len(sys.argv) == 1:
-        run_interactive(config, logger)
+        exit_code = run_interactive(config, logger)
     else:
-        run_exec(config, logger, sys.argv[1:])
+        exit_code = run_exec(config, logger, sys.argv[1:])
+
+    # Mark subprocess as completed - signal handler should not override exit code now
+    subprocess_completed[0] = True
+
+    # Signal completion to orchestrator (if in orchestrator mode)
+    # This runs after subprocess exits, thanks to subprocess.run() instead of os.execvpe()
+    cleanup_on_exit(config, logger, exit_code)
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

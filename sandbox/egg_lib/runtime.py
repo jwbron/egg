@@ -27,12 +27,15 @@ from egg_container import (
     LIFECYCLE_FLAGS_INDEX,
     ContainerNetworkConfig,
     build_sandbox_docker_cmd,
+    git_shadow_mounts,
+    mount_spec_to_cli_args,
 )
 
 # Import statusbar for quiet mode
 from statusbar import status, status_finish
 
 from .auth import get_anthropic_api_key, get_anthropic_auth_method
+from .compose import ensure_compose_services
 from .config import (
     GATEWAY_PORT,
     get_local_repos,
@@ -51,7 +54,6 @@ from .gateway import (
     create_worktrees,
     delete_session,
     delete_worktrees,
-    start_gateway_container,
 )
 from .output import error, get_quiet_mode, info, warn
 from .setup_flow import add_standard_mounts
@@ -311,27 +313,15 @@ def _setup_repo_mounts(
             if not quiet:
                 print(f"  • ~/repos/{repo_name} (direct mount)")
 
-        # Shadow .git to prevent local git operations
-        # This forces all git operations through the gateway
-        # In worktrees, .git is a FILE (not directory) containing "gitdir: ..."
-        # For directories: use tmpfs mount
-        # For files: use bind mount of /dev/null
+        # Shadow .git using shared helper to prevent local git operations.
+        # The helper checks whether .git is a file (worktree) or directory
+        # and chooses the appropriate mount type (/dev/null bind or tmpfs).
         if use_gateway_worktrees and repo_name in worktrees:
-            # Worktree: .git is a file
-            git_path = Path(worktrees[repo_name]) / ".git"
-            if git_path.exists() and git_path.is_file():
-                mount_args.extend(
-                    [
-                        "--mount",
-                        f"type=bind,source=/dev/null,destination={container_path}/.git,readonly",
-                    ]
-                )
-            else:
-                # Fallback to tmpfs if it's somehow a directory
-                mount_args.extend(["--mount", f"type=tmpfs,destination={container_path}/.git"])
+            host_path = worktrees[repo_name]
         else:
-            # Direct mount: .git is a directory
-            mount_args.extend(["--mount", f"type=tmpfs,destination={container_path}/.git"])
+            host_path = str(repo_path)
+        for shadow in git_shadow_mounts({repo_name: host_path}):
+            mount_args.extend(mount_spec_to_cli_args(shadow))
 
         repos[repo_name] = repo_path
 
@@ -383,6 +373,7 @@ def _setup_session_repos(
     mode: str,
     mount_args: list[str],
     quiet: bool = False,
+    phase: str | None = None,
 ) -> tuple[str | None, dict[str, Path], list[str]]:
     """Configure repository mounts using session-based visibility filtering.
 
@@ -398,6 +389,7 @@ def _setup_session_repos(
         mode: Repository visibility mode ("private" or "public")
         mount_args: List to append mount arguments to
         quiet: Suppress output
+        phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
 
     Returns:
         Tuple of (session_token, repos_dict, filtered_repos)
@@ -440,6 +432,7 @@ def _setup_session_repos(
         repos=repo_list,
         uid=os.getuid(),
         gid=os.getgid(),
+        phase=phase,
     )
 
     if errors and not quiet:
@@ -469,17 +462,9 @@ def _setup_session_repos(
         if not quiet:
             print(f"  * ~/repos/{repo_name} (session-filtered worktree)")
 
-        # Shadow .git to prevent local git operations
-        git_path = Path(worktree_path) / ".git"
-        if git_path.exists() and git_path.is_file():
-            mount_args.extend(
-                [
-                    "--mount",
-                    f"type=bind,source=/dev/null,destination={container_path}/.git,readonly",
-                ]
-            )
-        else:
-            mount_args.extend(["--mount", f"type=tmpfs,destination={container_path}/.git"])
+        # Shadow .git using shared helper to prevent local git operations
+        for shadow in git_shadow_mounts({repo_name: worktree_path}):
+            mount_args.extend(mount_spec_to_cli_args(shadow))
 
         # Track repo path for cleanup
         for local_repo in local_repos:
@@ -536,12 +521,12 @@ def run_claude(repo_mode: str | None = None) -> bool:
             error("Docker build failed")
             return False
 
-    # Start gateway sidecar container (if not already running)
+    # Start gateway + orchestrator via Docker Compose (if not already running)
     with _host_timer.phase("start_gateway"):
         if quiet:
-            status("Starting gateway sidecar...")
-        if not start_gateway_container():
-            error("Failed to start gateway sidecar")
+            status("Starting services...")
+        if not ensure_compose_services():
+            error("Failed to start services (gateway + orchestrator)")
             return False
 
     # Generate unique container ID
@@ -585,12 +570,15 @@ def run_claude(repo_mode: str | None = None) -> bool:
             info(f"Pre-allocated IP: {container_ip}")
 
         # Use session-based repo setup with visibility filtering
+        # Pass pipeline phase from environment for phase-based operation filtering
+        pipeline_phase = os.environ.get("EGG_PIPELINE_PHASE")
         session_token, repos, _filtered_repos = _setup_session_repos(
             container_id=container_id,
             container_ip=container_ip,
             mode=repo_mode,
             mount_args=mount_args,
             quiet=quiet,
+            phase=pipeline_phase,
         )
 
         if not session_token:
@@ -795,10 +783,13 @@ def exec_in_new_container(
         error("Docker build failed")
         return False
 
-    # Start gateway sidecar container (if not already running)
-    if not start_gateway_container():
-        error("Failed to start gateway sidecar")
-        return False
+    # Start gateway + orchestrator via Docker Compose (if not already running).
+    # Skip in ephemeral mode (GHA) — gha_exec() starts the gateway directly
+    # and the orchestrator image is not available in CI.
+    if not ctx.ephemeral:
+        if not ensure_compose_services():
+            error("Failed to start services (gateway + orchestrator)")
+            return False
 
     # Generate unique container ID for this exec
     container_id = f"egg-exec-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
@@ -846,12 +837,15 @@ def exec_in_new_container(
         info(f"Pre-allocated IP: {container_ip}")
 
         # Use session-based repo setup with visibility filtering
+        # Pass pipeline phase from environment for phase-based operation filtering
+        pipeline_phase = os.environ.get("EGG_PIPELINE_PHASE")
         session_token, repos, _filtered_repos = _setup_session_repos(
             container_id=container_id,
             container_ip=container_ip,
             mode=repo_mode,
             mount_args=mount_args,
             quiet=False,
+            phase=pipeline_phase,
         )
 
         if not session_token:

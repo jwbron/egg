@@ -378,7 +378,7 @@ jobs:
 
       - name: Merge latest main into issue branch
         env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.resolve-inputs.outputs.pr_number }}
         run: |
           set -euo pipefail
@@ -515,18 +515,20 @@ jobs:
           CONTRACT_PATH=".egg-state/contracts/${ISSUE_NUMBER}.json"
 
           # Check if contract has multi-agent configuration enabled
+          # Default to true when multi_agent_config is absent, matching
+          # Contract.is_multi_agent_enabled() in shared/egg_contracts/models.py
           if [[ -f "$CONTRACT_PATH" ]]; then
-            MULTI_AGENT=$(jq -r '.multi_agent_config.enabled // false' "$CONTRACT_PATH" 2>/dev/null || echo "false")
+            MULTI_AGENT=$(jq -r 'if .multi_agent_config == null then true elif .multi_agent_config.enabled == null then true else .multi_agent_config.enabled end' "$CONTRACT_PATH" 2>/dev/null || echo "true")
             echo "enabled=${MULTI_AGENT}" >> "$GITHUB_OUTPUT"
           else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Trigger multi-agent workflow (if enabled)
         id: multi-agent
         if: env.PHASE == 'implement' && steps.check-multi-agent.outputs.enabled == 'true'
         env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -832,7 +834,7 @@ jobs:
         id: fix
         if: steps.check-limit.outputs.exceeded != 'true'
         env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -1037,7 +1039,7 @@ jobs:
           steps.fix.outputs.no_pr == 'true' &&
           steps.check-limit.outputs.exceeded != 'true'
         env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           MAX_REVIEW_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_review_cycles }}
           MAX_TOTAL_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_total_cycles }}
           WORKFLOW_OWNER_ENV: ${{ needs.resolve-inputs.outputs.workflow_owner }}
@@ -1177,16 +1179,9 @@ jobs:
       BRANCH_NAME: ${{ needs.resolve-inputs.outputs.branch_name }}
 
     steps:
-      - name: Generate bot token
-        id: bot-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-
       - name: Re-dispatch work loop in checks-only mode
         env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           MAX_REVIEW_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_review_cycles }}
           MAX_TOTAL_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_total_cycles }}
           WORKFLOW_OWNER_ENV: ${{ needs.resolve-inputs.outputs.workflow_owner }}
@@ -1824,7 +1819,7 @@ jobs:
       - name: Redispatch for revision
         if: steps.route.outputs.should_redispatch == 'true' && steps.update-contract.outputs.circuit_breaker_triggered != 'true'
         env:
-          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           MAX_REVIEW_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_review_cycles }}
           MAX_TOTAL_CYCLES_ENV: ${{ needs.resolve-inputs.outputs.max_total_cycles }}
           WORKFLOW_OWNER_ENV: ${{ needs.resolve-inputs.outputs.workflow_owner }}

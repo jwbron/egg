@@ -225,11 +225,12 @@ class TestFilterOperationFunction:
 class TestIsOperationBlockedFunction:
     """Tests for the convenience is_operation_blocked function."""
 
-    def test_blocked_during_refine(self):
-        """Git push is blocked during refine phase."""
+    def test_push_allowed_during_refine(self):
+        """Git push is allowed during refine phase (issue #543 change)."""
+        # Previously blocked, now allowed with file restrictions
         phase_filter._filter = None
 
-        assert is_operation_blocked("refine", "git", "push origin main") is True
+        assert is_operation_blocked("refine", "git", "push origin main") is False
 
     def test_allowed_during_implement(self):
         """Git push is allowed during implement phase."""
@@ -257,11 +258,11 @@ class TestDefaultPermissions:
         yield
         phase_filter._filter = None
 
-    def test_refine_phase_blocks_push(self):
-        """Refine phase blocks git push."""
+    def test_refine_phase_allows_push(self):
+        """Refine phase allows git push (with file restrictions applied separately)."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
         result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GIT, "push origin main")
-        assert result.allowed is False
+        assert result.allowed is True
 
     def test_refine_phase_blocks_pr_create(self):
         """Refine phase blocks PR creation."""
@@ -269,11 +270,11 @@ class TestDefaultPermissions:
         result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GH, "pr create")
         assert result.allowed is False
 
-    def test_plan_phase_blocks_push(self):
-        """Plan phase blocks git push."""
+    def test_plan_phase_allows_push(self):
+        """Plan phase allows git push (with file restrictions applied separately)."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
         result = pf.filter_operation(PipelinePhase.PLAN, OperationType.GIT, "push origin main")
-        assert result.allowed is False
+        assert result.allowed is True
 
     def test_implement_phase_allows_push(self):
         """Implement phase allows git push."""
@@ -725,3 +726,301 @@ class TestCheckFileRestrictionsFunction:
         )
 
         assert result.allowed is True
+
+
+class TestPhaseFileRestrictions:
+    """Tests for phase-based file restrictions (issue #543)."""
+
+    def setup_method(self):
+        """Reset the global filter instance before each test."""
+        import phase_filter
+
+        phase_filter._filter = None
+
+    def teardown_method(self):
+        """Reset after each test."""
+        import phase_filter
+
+        phase_filter._filter = None
+
+    def test_refine_phase_allows_contracts(self):
+        """Refine phase should allow .egg-state/contracts/ files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "refine",
+            [".egg-state/contracts/123.json"],
+        )
+
+        assert result.allowed is True
+
+    def test_refine_phase_allows_analysis_drafts(self):
+        """Refine phase should allow analysis draft files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "refine",
+            [".egg-state/drafts/local-abc-analysis.md"],
+        )
+
+        assert result.allowed is True
+
+    def test_refine_phase_allows_checkpoints(self):
+        """Refine phase should allow checkpoint files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "refine",
+            [".egg-state/checkpoints/commit-abc123.json"],
+        )
+
+        assert result.allowed is True
+
+    def test_refine_phase_blocks_code_files(self):
+        """Refine phase should block code files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "refine",
+            ["src/main.py", "README.md"],
+        )
+
+        assert result.allowed is False
+
+    def test_plan_phase_allows_plan_drafts(self):
+        """Plan phase should allow plan draft files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "plan",
+            [".egg-state/drafts/local-abc-plan.md"],
+        )
+
+        assert result.allowed is True
+
+    def test_plan_phase_blocks_analysis_drafts(self):
+        """Plan phase should block analysis draft files (not plan)."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "plan",
+            [".egg-state/drafts/local-abc-analysis.md"],
+        )
+
+        # Plan phase only allows *plan* drafts, not *analysis*
+        assert result.allowed is False
+
+    def test_implement_phase_allows_code(self):
+        """Implement phase should allow code files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "implement",
+            ["src/main.py", "tests/test_main.py", "README.md"],
+        )
+
+        assert result.allowed is True
+
+    def test_implement_phase_blocks_contracts(self):
+        """Implement phase should block contract files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "implement",
+            [".egg-state/contracts/123.json"],
+        )
+
+        assert result.allowed is False
+
+    def test_implement_phase_blocks_drafts(self):
+        """Implement phase should block draft files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "implement",
+            [".egg-state/drafts/plan.md"],
+        )
+
+        assert result.allowed is False
+
+    def test_implement_phase_allows_checkpoints(self):
+        """Implement phase should allow checkpoint files (not in blocked list)."""
+        from phase_filter import check_phase_file_restrictions
+
+        # Checkpoints are allowed because they don't match any blocked pattern
+        result = check_phase_file_restrictions(
+            "implement",
+            [".egg-state/checkpoints/commit-abc123.json"],
+        )
+
+        assert result.allowed is True
+
+    def test_pr_phase_allows_everything(self):
+        """PR phase should allow all files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "pr",
+            [
+                "src/main.py",
+                ".egg-state/contracts/123.json",
+                ".egg-state/drafts/plan.md",
+                "README.md",
+            ],
+        )
+
+        assert result.allowed is True
+
+    def test_mixed_files_partial_block(self):
+        """When some files are blocked, result indicates blocked files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "implement",
+            [
+                "src/main.py",  # allowed
+                ".egg-state/contracts/123.json",  # blocked
+                "tests/test_main.py",  # allowed
+            ],
+        )
+
+        assert result.allowed is False
+        assert ".egg-state/contracts/123.json" in result.blocked_files
+        assert "src/main.py" not in result.blocked_files
+
+    def test_unknown_phase_blocks_by_default(self):
+        """Unknown phase strings block files by default (fail-closed security)."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "unknown_phase",
+            ["src/main.py"],
+        )
+
+        # Unknown phases block by default for security (fail-closed)
+        assert result.allowed is False
+        assert "unknown" in result.message.lower()
+        assert "src/main.py" in result.blocked_files
+
+    def test_empty_files_list_allowed(self):
+        """Empty files list should be allowed."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "implement",
+            [],
+        )
+
+        assert result.allowed is True
+
+    def test_path_escape_blocked(self):
+        """Paths that escape the repository should be blocked."""
+        from phase_filter import check_phase_file_restrictions
+
+        # Path traversal attempt
+        result = check_phase_file_restrictions(
+            "implement",
+            [".egg-state/contracts/../../../etc/passwd"],
+        )
+        assert result.allowed is False
+        assert "escapes repository" in result.message.lower() or result.blocked_files
+
+        # Direct parent reference
+        result = check_phase_file_restrictions(
+            "implement",
+            ["../outside_repo.txt"],
+        )
+        assert result.allowed is False
+
+        # Absolute path
+        result = check_phase_file_restrictions(
+            "implement",
+            ["/etc/passwd"],
+        )
+        assert result.allowed is False
+
+    def test_phasefilerestriction_from_dict(self):
+        """PhaseFileRestriction.from_dict should parse correctly."""
+        from phase_filter import PhaseFileRestriction
+
+        data = {
+            "allowed_patterns": [".egg-state/contracts/*", ".egg-state/checkpoints/*"],
+            "blocked_patterns": [".egg-state/pipelines/*"],
+            "description": "Test restriction",
+        }
+
+        restriction = PhaseFileRestriction.from_dict(data)
+
+        assert restriction.allowed_patterns == [
+            ".egg-state/contracts/*",
+            ".egg-state/checkpoints/*",
+        ]
+        assert restriction.blocked_patterns == [".egg-state/pipelines/*"]
+        assert restriction.description == "Test restriction"
+
+    def test_phasefilerestriction_is_file_allowed_blocked_priority(self):
+        """Blocked patterns take priority over allowed patterns."""
+        from phase_filter import PhaseFileRestriction
+
+        restriction = PhaseFileRestriction(
+            allowed_patterns=[".egg-state/*"],
+            blocked_patterns=[".egg-state/secrets/*"],
+        )
+
+        allowed, _ = restriction.is_file_allowed(".egg-state/contracts/123.json")
+        assert allowed is True
+
+        blocked, _ = restriction.is_file_allowed(".egg-state/secrets/token.txt")
+        assert blocked is False
+
+    def test_phasefilerestriction_wildcard_allow_all(self):
+        """Special '*' pattern allows all files."""
+        from phase_filter import PhaseFileRestriction
+
+        restriction = PhaseFileRestriction(
+            allowed_patterns=["*"],
+        )
+
+        allowed, _ = restriction.is_file_allowed("anything/goes/here.py")
+        assert allowed is True
+
+    def test_path_traversal_normalized_and_blocked(self):
+        """Path traversal attempts are normalized and correctly blocked."""
+        from phase_filter import check_phase_file_restrictions
+
+        # Path traversal attempt: foo/../.egg-state/contracts/123.json
+        # Should normalize to .egg-state/contracts/123.json and be blocked
+        result = check_phase_file_restrictions(
+            "implement",
+            ["foo/../.egg-state/contracts/123.json"],
+        )
+
+        assert result.allowed is False
+        assert any(".egg-state/contracts" in f for f in result.blocked_files)
+
+    def test_path_traversal_multiple_levels_blocked(self):
+        """Multiple levels of path traversal are normalized and blocked."""
+        from phase_filter import check_phase_file_restrictions
+
+        # Multiple traversal: a/b/c/../../../.egg-state/drafts/plan.md
+        result = check_phase_file_restrictions(
+            "implement",
+            ["a/b/c/../../../.egg-state/drafts/plan.md"],
+        )
+
+        assert result.allowed is False
+
+    def test_path_traversal_mixed_with_valid_files(self):
+        """Path traversal blocked even when mixed with valid files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "implement",
+            [
+                "src/main.py",  # Valid
+                "foo/../.egg-state/pipelines/state.json",  # Traversal to blocked path
+            ],
+        )
+
+        assert result.allowed is False
+        assert len(result.blocked_files) == 1

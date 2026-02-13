@@ -30,12 +30,14 @@ gateway/tests/            # Gateway-specific tests (~13 files)
 ├── test_session_manager.py # Session management
 └── ...                   # Additional gateway modules
 
-integration_tests/        # Docker-based integration tests (~11 files)
+integration_tests/        # Docker-based integration tests (~16 files)
 ├── conftest.py           # EggStack fixture, Docker helpers
 ├── docker-compose.yml    # Test stack definition
 ├── test_network_isolation.py
 ├── test_credential_security.py
 ├── test_policy_enforcement.py
+├── local_pipeline/       # Local orchestrator integration tests
+│   └── ...               # API validation, concurrency, error recovery, HITL, signals, worktree
 └── ...
 ```
 
@@ -132,6 +134,12 @@ integration_tests/        # Docker-based integration tests (~11 files)
    - Create → heartbeat → delete flow
    - Session timeout behavior
    - Stale session cleanup
+
+5. **Worktree lifecycle functional tests** (implemented in `integration_tests/local_pipeline/test_worktree_integration.py`)
+   - Worktree creation, ownership, and writability validation
+   - Pipeline container worktree sharing and isolation
+   - Cleanup on pipeline completion and failure
+   - Edge cases (empty worktrees, root-owned worktrees, Docker pre-created .git dirs)
 
 #### Test Infrastructure Additions
 
@@ -334,6 +342,16 @@ tests/
 
 gateway/tests/           # Gateway-specific tests (keep separate)
 integration_tests/       # Full E2E tests (existing)
+├── local_pipeline/      # Local orchestrator integration tests
+│   ├── helpers.py       # Shared API helpers
+│   ├── test_api_validation.py
+│   ├── test_concurrent_pipelines.py
+│   ├── test_error_recovery.py
+│   ├── test_hitl_edge_cases.py
+│   ├── test_local_pipeline.py
+│   ├── test_signals.py
+│   ├── test_unified_pipeline_behavior.py
+│   └── test_worktree_integration.py
 ```
 
 ---

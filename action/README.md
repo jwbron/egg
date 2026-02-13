@@ -12,6 +12,8 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
 |------|---------|
 | `action.yml` | Action metadata, inputs, outputs |
 | `entrypoint.sh` | Main entry point that orchestrates container setup and execution |
+| `generate-config.sh` | Generates runtime configuration from action inputs |
+| **Prompt Builders** | |
 | `build-mention-prompt.sh` | Builds structured prompts from GitHub @mention events |
 | `build-review-prompt.sh` | Builds prompts for PR review workflows |
 | `build-feedback-prompt.sh` | Builds prompts for addressing review feedback workflows |
@@ -19,9 +21,25 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
 | `build-agent-mode-design-review-prompt.sh` | Builds prompts for agent-mode design reviews |
 | `build-doc-updater-prompt.sh` | Builds prompts for documentation update workflows |
 | `build-sdlc-prompt.sh` | Builds phase-specific prompts for SDLC pipeline workflows |
+| `build-unified-review-prompt.sh` | Unified review prompt builder for all SDLC phases |
+| `build-conflict-prompt.sh` | Builds prompts for merge conflict resolution |
+| `build-contract-verification-prompt.sh` | Builds prompts for contract verification reviews |
+| **Role-Specific Prompt Builders** | |
+| `build-coder-prompt.sh` | Coder agent prompt builder |
+| `build-tester-prompt.sh` | Tester agent prompt builder |
+| `build-documenter-prompt.sh` | Documenter agent prompt builder |
+| `build-integrator-prompt.sh` | Integrator agent prompt builder |
+| **Work Loop Review Prompt Builders** | |
+| `build-agent-mode-design-review-prompt-workloop.sh` | Agent-mode design review for work loop |
+| `build-contract-verification-prompt-workloop.sh` | Contract verification review for work loop |
+| `build-code-review-prompt-workloop.sh` | Code review for work loop |
+| **Utilities** | |
 | `contract-state.sh` | Contract state management utility for SDLC pipeline |
 | `populate-contract-tasks.py` | Populates contract tasks from plan document (runs before implement phase) |
-| `generate-config.sh` | Generates runtime configuration from action inputs |
+| **Convention Documents** | |
+| `review-conventions.md` | Code review conventions and guidelines |
+| `autofixer-conventions.md` | Autofixer workflow conventions |
+| `conflict-conventions.md` | Merge conflict resolution conventions |
 
 ## Quick Start
 
@@ -30,6 +48,10 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
   with:
     prompt: "Fix the failing tests"
     anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+    # Optional: enable separate reviewer bot for PR reviews
+    # reviewer-app-id: ${{ secrets.REVIEWER_APP_ID }}
+    # reviewer-app-private-key: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
+    # reviewer-app-installation-id: ${{ secrets.REVIEWER_APP_INSTALLATION_ID }}
 ```
 
 > **Note:** Use `@main` until the first release (v0.1.0) creates the `@v0` tag.

@@ -79,6 +79,12 @@ from egg_contracts.transcript_extractor import (
     extract_transcript_from_proxy_buffer,
     get_proxy_buffer_path,
 )
+from egg_contracts.usage_loader import (
+    USAGE_TRACKING_ENABLED,
+    UsageLoadError,
+    UsageSaveError,
+    update_usage_from_checkpoint,
+)
 from egg_logging import get_logger
 
 try:
@@ -333,6 +339,15 @@ class CheckpointHandler:
             if pipeline_phase is None:
                 pipeline_phase = os.environ.get("EGG_PIPELINE_PHASE")
 
+            # Get PR number from environment if available
+            pr_number: int | None = None
+            pr_str = os.environ.get("EGG_PR_NUMBER")
+            if pr_str:
+                try:
+                    pr_number = int(pr_str)
+                except ValueError:
+                    pass
+
             # Generate checkpoint ID
             checkpoint_id = generate_checkpoint_id_from_commit(
                 commit_sha, session_metadata.session_id
@@ -352,6 +367,7 @@ class CheckpointHandler:
                 branch=branch,
                 created_at=datetime.now(UTC),
                 push_sha=push_sha or commit_sha,
+                pr_number=pr_number,
             )
 
             logger.info(
@@ -528,13 +544,14 @@ class CheckpointHandler:
                         ["add", str(checkpoint_path.relative_to(temp_path)), INDEX_FILE],
                     )
 
-                    # Commit
+                    # Commit (--no-verify skips pre-commit hooks which are
+                    # irrelevant for the checkpoint branch)
                     commit_msg = (
                         f"Add checkpoint {checkpoint.id} for commit {checkpoint.commit_sha[:7]}"
                     )
                     self._run_git(
                         str(temp_path),
-                        ["commit", "-m", commit_msg],
+                        ["commit", "--no-verify", "-m", commit_msg],
                     )
 
                     # Push (use longer timeout for large transcripts)
@@ -549,6 +566,22 @@ class CheckpointHandler:
                         checkpoint_id=checkpoint.id,
                         branch=CHECKPOINT_BRANCH,
                     )
+
+                    # Update usage aggregates (graceful degradation on failure)
+                    if USAGE_TRACKING_ENABLED:
+                        try:
+                            update_usage_from_checkpoint(temp_path, checkpoint)
+                            logger.debug(
+                                "Usage aggregates updated",
+                                checkpoint_id=checkpoint.id,
+                            )
+                        except (UsageLoadError, UsageSaveError) as e:
+                            # Log but don't fail - usage update is non-critical
+                            logger.warning(
+                                "Failed to update usage aggregates",
+                                error=str(e),
+                                checkpoint_id=checkpoint.id,
+                            )
 
                     return True
 
@@ -599,7 +632,11 @@ class CheckpointHandler:
             env["GIT_USERNAME"] = "x-access-token"
             env["GIT_PASSWORD"] = self._github_token
 
-        cmd = ["git"] + args
+        # SECURITY: Disable all git hooks. The checkpoint handler runs git commands
+        # internally for bookkeeping (storing checkpoints to the egg/checkpoints/v1 branch).
+        # Hooks from user repos must not execute in the gateway's trusted environment.
+        # See issue #58 for context on hook-based attacks.
+        cmd = ["git", "-c", "core.hooksPath=/dev/null"] + args
 
         result = subprocess.run(
             cmd,

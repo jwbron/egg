@@ -81,7 +81,12 @@ try:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
-    from .phase_filter import check_file_restrictions
+    from .phase_filter import (
+        OperationType,
+        check_file_restrictions,
+        check_phase_file_restrictions,
+        filter_operation,
+    )
     from .policy import (
         extract_branch_from_refspec,
         extract_repo_from_remote,
@@ -101,7 +106,7 @@ try:
         validate_session_for_request,
     )
     from .transcript_buffer import get_transcript_buffer
-    from .worktree_manager import WorktreeManager, startup_cleanup
+    from .worktree_manager import WorktreeManager, get_active_docker_containers, startup_cleanup
 except ImportError:
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from checkpoint_handler import (  # type: ignore[no-redef, import-not-found]
@@ -130,7 +135,12 @@ except ImportError:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
-    from phase_filter import check_file_restrictions  # type: ignore[no-redef, import-not-found]
+    from phase_filter import (  # type: ignore[no-redef, import-not-found]
+        OperationType,
+        check_file_restrictions,
+        check_phase_file_restrictions,
+        filter_operation,
+    )
     from policy import (  # type: ignore[no-redef, import-not-found]
         extract_branch_from_refspec,
         extract_repo_from_remote,
@@ -152,6 +162,7 @@ except ImportError:
     from transcript_buffer import get_transcript_buffer  # type: ignore[no-redef, import-not-found]
     from worktree_manager import (  # type: ignore[no-redef, import-not-found]
         WorktreeManager,
+        get_active_docker_containers,
         startup_cleanup,
     )
 
@@ -385,6 +396,39 @@ def audit_log(
         logger.warning(f"Audit: {event_type}", **log_data)
 
 
+def _check_orchestrator_connectivity() -> dict[str, Any]:
+    """Check orchestrator connectivity if configured.
+
+    Returns:
+        Dictionary with orchestrator status. Contains {"configured": False}
+        if orchestrator URL is not set, otherwise includes reachability info.
+    """
+    orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL")
+    if not orchestrator_url:
+        return {"configured": False}
+
+    try:
+        # Use a short timeout for health checks
+        import urllib.request
+
+        health_url = f"{orchestrator_url}/api/v1/health"
+        req = urllib.request.Request(health_url, method="GET")
+        with urllib.request.urlopen(req, timeout=2) as response:
+            data = json.loads(response.read().decode())
+            return {
+                "configured": True,
+                "reachable": True,
+                "url": orchestrator_url,
+                "status": data.get("status", "unknown"),
+            }
+    except Exception as e:
+        return {
+            "configured": True,
+            "reachable": False,
+            "error": str(e),
+        }
+
+
 @app.route("/api/v1/health", methods=["GET"])
 def health_check() -> Response:
     """Health check endpoint (no auth required)."""
@@ -402,20 +446,27 @@ def health_check() -> Response:
     session_manager = get_session_manager()
     active_sessions = len(session_manager.list_sessions())
 
+    # Check orchestrator connectivity (if configured)
+    orchestrator_status = _check_orchestrator_connectivity()
+
     # Gateway always runs with locked Squid.
     # Per-container mode is enforced at container start via network selection.
     # - Private containers: isolated network + proxy (locked to api.anthropic.com)
     # - Public containers: external network + direct internet (no proxy)
-    return jsonify(
-        {
-            "status": "healthy" if (token_valid and launcher_secret_configured) else "degraded",
-            "github_token_valid": token_valid,
-            "auth_configured": launcher_secret_configured,
-            "active_sessions": active_sessions,
-            "service": "gateway",
-            "client_ip": request.remote_addr,
-        }
-    )
+    response_data: dict[str, Any] = {
+        "status": "healthy" if (token_valid and launcher_secret_configured) else "degraded",
+        "github_token_valid": token_valid,
+        "auth_configured": launcher_secret_configured,
+        "active_sessions": active_sessions,
+        "service": "gateway",
+        "client_ip": request.remote_addr,
+    }
+
+    # Include orchestrator status if configured
+    if orchestrator_status.get("configured"):
+        response_data["orchestrator"] = orchestrator_status
+
+    return jsonify(response_data)
 
 
 @app.route("/api/v1/git/push", methods=["POST"])
@@ -508,6 +559,12 @@ def git_push() -> tuple[Response, int] | Response:
     # Check Private Repo Mode policy (if enabled)
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
+    session_phase = getattr(g, "session_phase", None)
+
+    # Checkpoint branch bypass: pushes to the checkpoint branch always succeed
+    # regardless of session mode or phase (checkpoints can be created at any time)
+    CHECKPOINT_BRANCH = "egg/checkpoints/v1"
+    is_checkpoint_push = branch == CHECKPOINT_BRANCH
 
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -568,6 +625,7 @@ def git_push() -> tuple[Response, int] | Response:
     # blocked because SYSTEM never makes git pushes - it only initializes contracts
     # via the contract API. The gateway itself runs without a role context.
     session_role = None
+    changed_files = None  # May be populated by role check, reused by phase check
     if hasattr(g, "session") and g.session:
         session_role = getattr(g.session, "agent_role", None)
 
@@ -622,6 +680,66 @@ def git_push() -> tuple[Response, int] | Response:
                     "blocked_files": restriction_result.blocked_files,
                     "blocked_reason": restriction_result.blocked_reason,
                     "hint": "Use egg-contract CLI commands to update contract state.",
+                },
+            )
+
+    # SECURITY: Check phase-based file restrictions for local mode sessions.
+    # This replaces the blanket local-mode push block with granular phase-based
+    # restrictions. Each phase has specific allowed/blocked file patterns:
+    # - refine/plan: Can only push .egg-state/ files (contracts, drafts, checkpoints)
+    # - implement: Can push code but not .egg-state/ (except checkpoints)
+    # - pr: Can push everything
+    #
+    # Checkpoint branch pushes always bypass this check (see is_checkpoint_push above).
+    if session_phase and not is_checkpoint_push:
+        # Get the list of files being pushed (reuse if already fetched for role check)
+        if changed_files is None:
+            changed_files, check_error = get_changed_files_in_push(exec_path, remote, branch)
+            if check_error:
+                audit_log(
+                    "push_denied_file_check_failed",
+                    "git_push",
+                    success=False,
+                    details={
+                        "repo": repo,
+                        "branch": branch,
+                        "phase": session_phase,
+                        "error": check_error,
+                    },
+                )
+                return make_error(
+                    f"Push denied: Could not verify file changes for phase check: {check_error}",
+                    status_code=500,
+                    details={
+                        "phase": session_phase,
+                        "error": check_error,
+                        "hint": "This is a security precaution. Try again or contact support.",
+                    },
+                )
+
+        # Check phase-based file restrictions
+        phase_result = check_phase_file_restrictions(session_phase, changed_files)
+        if not phase_result.allowed:
+            audit_log(
+                "push_denied_phase_restrictions",
+                "git_push",
+                success=False,
+                details={
+                    "repo": repo,
+                    "branch": branch,
+                    "phase": session_phase,
+                    "blocked_files": phase_result.blocked_files,
+                    "blocked_reason": phase_result.blocked_reason,
+                },
+            )
+            return make_error(
+                f"Push denied: {phase_result.message}",
+                status_code=403,
+                details={
+                    "phase": session_phase,
+                    "blocked_files": phase_result.blocked_files,
+                    "blocked_reason": phase_result.blocked_reason,
+                    "hint": f"Phase '{session_phase}' has file restrictions. Check allowed patterns.",
                 },
             )
 
@@ -1270,6 +1388,65 @@ def gh_pr_create() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
+    # Block PR creation in local SDLC mode
+    if session_mode == "local":
+        audit_log(
+            "pr_create_blocked_local_mode",
+            "gh_pr_create",
+            success=False,
+            details={"repo": repo, "reason": "PR creation blocked in local SDLC mode"},
+        )
+        return make_error(
+            "Operation blocked in local SDLC mode. Create PR manually when the pipeline completes.",
+            status_code=403,
+            details={"session_mode": "local"},
+        )
+
+    # Get session phase from request context (set by @require_session_auth decorator)
+    session_phase = getattr(g, "session_phase", None)
+
+    # Check phase restrictions (if session has a phase set)
+    if session_phase:
+        try:
+            phase_result = filter_operation(
+                phase=session_phase,
+                operation_type=OperationType.GH,
+                command="pr create",
+            )
+            if not phase_result.allowed:
+                audit_log(
+                    "pr_create_blocked_phase",
+                    "gh_pr_create",
+                    success=False,
+                    details={
+                        "repo": repo,
+                        "phase": session_phase,
+                        "reason": phase_result.blocked_reason,
+                    },
+                )
+                return make_error(
+                    phase_result.message,
+                    status_code=403,
+                    details={
+                        "phase": session_phase,
+                        "blocked_reason": phase_result.blocked_reason,
+                    },
+                )
+        except ValueError as e:
+            # Invalid phase value - log warning and allow (backward compat)
+            logger.warning(
+                "Invalid session phase value",
+                phase=session_phase,
+                error=str(e),
+            )
+    else:
+        # No phase set - allow by default for backward compatibility
+        # Log a warning to track sessions without phase
+        logger.debug(
+            "PR create request from session without phase (backward compat)",
+            repo=repo,
+        )
+
     # Check Private Repo Mode policy (if enabled)
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -1412,6 +1589,20 @@ def gh_pr_comment() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
+    # Block PR comment in local SDLC mode
+    if session_mode == "local":
+        audit_log(
+            "pr_comment_blocked_local_mode",
+            "gh_pr_comment",
+            success=False,
+            details={"repo": repo, "reason": "PR comment blocked in local SDLC mode"},
+        )
+        return make_error(
+            "Operation blocked in local SDLC mode. Interact with PRs manually when the pipeline completes.",
+            status_code=403,
+            details={"session_mode": "local"},
+        )
+
     # Check Private Repo Mode policy (if enabled)
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -1530,6 +1721,20 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
+    # Block PR edit in local SDLC mode
+    if session_mode == "local":
+        audit_log(
+            "pr_edit_blocked_local_mode",
+            "gh_pr_edit",
+            success=False,
+            details={"repo": repo, "reason": "PR edit blocked in local SDLC mode"},
+        )
+        return make_error(
+            "Operation blocked in local SDLC mode. Edit PRs manually when the pipeline completes.",
+            status_code=403,
+            details={"session_mode": "local"},
+        )
+
     # Check Private Repo Mode policy (if enabled)
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -1638,6 +1843,20 @@ def gh_pr_close() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
+    # Block PR close in local SDLC mode
+    if session_mode == "local":
+        audit_log(
+            "pr_close_blocked_local_mode",
+            "gh_pr_close",
+            success=False,
+            details={"repo": repo, "reason": "PR close blocked in local SDLC mode"},
+        )
+        return make_error(
+            "Operation blocked in local SDLC mode. Close PRs manually when the pipeline completes.",
+            status_code=403,
+            details={"session_mode": "local"},
+        )
+
     # Check Private Repo Mode policy (if enabled)
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -1740,6 +1959,20 @@ def gh_execute() -> tuple[Response, int] | Response:
 
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
+
+    # Block all gh commands in local SDLC mode
+    if session_mode == "local":
+        audit_log(
+            "gh_command_blocked_local_mode",
+            "gh_execute",
+            success=False,
+            details={"args": args, "reason": "gh commands blocked in local SDLC mode"},
+        )
+        return make_error(
+            "Operation blocked in local SDLC mode. Run gh commands manually when the pipeline completes.",
+            status_code=403,
+            details={"session_mode": "local"},
+        )
 
     # Check for commands blocked entirely in private mode (too broad to filter by repo)
     if session_mode == "private" and args and args[0] in GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE:
@@ -1877,6 +2110,33 @@ def gh_execute() -> tuple[Response, int] | Response:
                     status_code=403,
                     details=priv_result.to_dict(),
                 )
+
+    # Use reviewer token for PR reviews when available. This allows the
+    # reviewer bot (a separate GitHub App) to post approve/request-changes
+    # on PRs authored by the main bot — something the bot can't do on its own PRs.
+    # This applies to both bot and user modes since the reviewer token is a
+    # separate identity specifically for reviews.
+    # Note: args may have "--repo owner/repo" prepended, so we check if "pr" and "review"
+    # appear in sequence anywhere in the args (not just at positions 0 and 1).
+    def is_pr_review_command(cmd_args: list[str]) -> bool:
+        for i in range(len(cmd_args) - 1):
+            if cmd_args[i] == "pr" and cmd_args[i + 1] == "review":
+                return True
+        return False
+
+    if is_pr_review_command(args) and auth_mode in ("bot", "user"):
+        try:
+            from token_refresher import is_reviewer_token_available
+
+            if is_reviewer_token_available():
+                auth_mode = "reviewer"
+                logger.info("Using reviewer token for pr review command")
+            else:
+                logger.debug(
+                    "Reviewer token not available, using %s token for pr review", auth_mode
+                )
+        except ImportError:
+            pass
 
     # Execute the command
     github = get_github_client(mode=auth_mode)
@@ -2241,14 +2501,15 @@ def session_create() -> tuple[Response, int] | Response:
     repos = data.get("repos", [])
     uid = data.get("uid")
     gid = data.get("gid")
+    phase = data.get("phase")  # Optional SDLC pipeline phase
 
     # Validate required fields
     if not container_id:
         return make_error("Missing container_id")
     if not container_ip:
         return make_error("Missing container_ip")
-    if mode not in ("private", "public"):
-        return make_error("Invalid mode: must be 'private' or 'public'")
+    if mode not in ("private", "public", "local"):
+        return make_error("Invalid mode: must be 'private', 'public', or 'local'")
     if not repos:
         return make_error("Missing repos list")
 
@@ -2257,6 +2518,12 @@ def session_create() -> tuple[Response, int] | Response:
         return make_error("Invalid uid: must be a non-negative integer")
     if gid is not None and (not isinstance(gid, int) or gid < 0):
         return make_error("Invalid gid: must be a non-negative integer")
+
+    # Validate phase if provided
+    if phase is not None and phase not in VALID_PIPELINE_PHASES:
+        return make_error(
+            f"Invalid phase: {phase}. Must be one of: {', '.join(sorted(VALID_PIPELINE_PHASES))}"
+        )
 
     # Step 1: Query visibility for all repos
     repo_visibilities = {}
@@ -2353,6 +2620,7 @@ def session_create() -> tuple[Response, int] | Response:
         container_id=container_id,
         container_ip=container_ip,
         mode=mode,
+        phase=phase,
     )
 
     audit_log(
@@ -2363,6 +2631,7 @@ def session_create() -> tuple[Response, int] | Response:
             "container_id": container_id,
             "container_ip": container_ip,
             "mode": mode,
+            "phase": phase,
             "filtered_repos": filtered_repos,
             "worktree_count": len(worktrees),
             "worktree_errors": worktree_errors if worktree_errors else None,
@@ -2444,6 +2713,35 @@ def session_delete(session_token: str) -> tuple[Response, int] | Response:
     return make_success("Session deleted")
 
 
+@app.route("/api/v1/sessions/by-container/<container_id>", methods=["DELETE"])
+@require_launcher_auth
+def session_delete_by_container(container_id: str) -> tuple[Response, int] | Response:
+    """
+    Delete a session by container ID.
+
+    Used by the orchestrator for cleanup when the session token is not available.
+
+    Args:
+        container_id: The container ID whose session to delete
+
+    Auth: Bearer {launcher_secret}
+    """
+    session_manager = get_session_manager()
+    deleted = session_manager.delete_session_by_container(container_id)
+
+    if not deleted:
+        return make_error("Session not found for container", status_code=404)
+
+    audit_log(
+        "session_deleted",
+        "session_delete_by_container",
+        success=True,
+        details={"container_id": container_id},
+    )
+
+    return make_success("Session deleted")
+
+
 @app.route("/api/v1/sessions/<session_token>", methods=["GET"])
 @require_launcher_auth
 def session_get(session_token: str) -> tuple[Response, int] | Response:
@@ -2519,6 +2817,120 @@ def session_heartbeat(session_token: str) -> tuple[Response, int] | Response:
             "expires_at": result.session.expires_at.isoformat() if result.session else None,
         },
     )
+
+
+@app.route("/api/v1/sessions/<session_token>", methods=["PATCH"])
+@require_launcher_auth
+def session_update(session_token: str) -> tuple[Response, int] | Response:
+    """
+    Update session container binding (container_id and/or container_ip).
+
+    Used by the orchestrator to bind a session to the real container
+    after pre-registering with a placeholder ID before container creation.
+
+    Request body:
+        {
+            "container_id": "abc123...",  # Optional
+            "container_ip": "172.32.0.10"  # Optional
+        }
+
+    At least one of container_id or container_ip must be provided.
+
+    Args:
+        session_token: The session token to update
+
+    Auth: Bearer {launcher_secret}
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    container_id = data.get("container_id")
+    container_ip = data.get("container_ip")
+
+    if not container_id and not container_ip:
+        return make_error("Must provide container_id and/or container_ip")
+
+    session_manager = get_session_manager()
+    success = session_manager.update_session(
+        session_token,
+        container_id=container_id,
+        container_ip=container_ip,
+    )
+
+    if not success:
+        return make_error("Session not found or expired", status_code=404)
+
+    audit_log(
+        "session_container_updated",
+        "session_update",
+        success=True,
+        details={
+            "container_id": container_id,
+            "container_ip": container_ip,
+        },
+    )
+
+    return make_success(
+        "Session updated",
+        {
+            "container_id": container_id,
+            "container_ip": container_ip,
+        },
+    )
+
+
+# Valid SDLC pipeline phases
+VALID_PIPELINE_PHASES = frozenset({"refine", "plan", "implement", "pr"})
+
+
+@app.route("/api/v1/sessions/<session_token>/phase", methods=["PATCH"])
+@require_launcher_auth
+def session_update_phase(session_token: str) -> tuple[Response, int] | Response:
+    """
+    Update the SDLC pipeline phase for a session.
+
+    This endpoint allows the launcher/workflow to update the phase as
+    the pipeline progresses. Phase restrictions are enforced by the
+    gateway for operations like PR creation.
+
+    Request body:
+        {
+            "phase": "refine"|"plan"|"implement"|"pr"
+        }
+
+    Args:
+        session_token: The session token to update
+
+    Auth: Bearer {launcher_secret}
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    phase = data.get("phase")
+    if not phase:
+        return make_error("Missing phase")
+
+    if phase not in VALID_PIPELINE_PHASES:
+        return make_error(
+            f"Invalid phase: {phase}. Must be one of: {', '.join(sorted(VALID_PIPELINE_PHASES))}"
+        )
+
+    session_manager = get_session_manager()
+    success = session_manager.update_phase(session_token, phase)
+
+    if not success:
+        return make_error("Session not found or expired", status_code=404)
+
+    audit_log(
+        "session_phase_updated",
+        "session_update_phase",
+        success=True,
+        details={"phase": phase},
+    )
+
+    return make_success("Phase updated", {"phase": phase})
 
 
 @app.route("/api/v1/repos/visibility", methods=["GET"])
@@ -3263,6 +3675,21 @@ def main() -> None:
     except Exception as e:
         logger.error("Token refresher initialization failed", error=str(e))
 
+    # Initialize reviewer token refresher (optional — for posting reviews with
+    # approve/request-changes using a separate GitHub App identity)
+    try:
+        from token_refresher import initialize_reviewer_token_refresher
+
+        reviewer_refresher = initialize_reviewer_token_refresher()
+        if reviewer_refresher:
+            logger.info("Reviewer token refresher initialized")
+        else:
+            logger.debug("Reviewer token refresher not configured (optional)")
+    except ImportError:
+        pass  # Already logged above
+    except Exception as e:
+        logger.warning("Reviewer token refresher initialization failed", error=str(e))
+
     # Validate user mode config if configured
     github = get_github_client()
     is_valid, validation_msg = github.validate_user_mode_config()
@@ -3292,6 +3719,14 @@ def main() -> None:
             )
     except Exception as e:
         logger.warning("Startup session cleanup failed", error=str(e))
+
+    # Also check Docker directly as safety net — sessions may be
+    # pruned but containers still running.
+    try:
+        docker_containers = get_active_docker_containers()
+        active_container_ids |= docker_containers
+    except Exception as e:
+        logger.warning("Could not query Docker containers", error=str(e))
 
     # Clean up orphaned worktrees from crashed containers
     try:

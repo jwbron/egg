@@ -25,6 +25,13 @@ EGG_CONTAINER_IP = "172.32.0.10"  # Fixed IP for egg container in isolated netwo
 GATEWAY_ISOLATED_IP = "172.32.0.2"  # Gateway IP in isolated network
 GATEWAY_EXTERNAL_IP = "172.33.0.2"  # Gateway IP in external network
 
+# Orchestrator container constants
+ORCHESTRATOR_CONTAINER_NAME = "egg-orchestrator"
+ORCHESTRATOR_IMAGE_NAME = "egg-orchestrator"
+ORCHESTRATOR_PORT = 9849
+ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"  # Orchestrator IP in isolated network
+ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"  # Orchestrator IP in external network
+
 # Test constants - use these in unit tests to avoid coupling to production values
 # Using a clearly fake port (1234) makes it obvious when tests accidentally
 # connect to real services
@@ -43,6 +50,11 @@ __all__ = [
     "GATEWAY_ISOLATED_IP",
     "GATEWAY_PORT",
     "GATEWAY_PROXY_PORT",
+    "ORCHESTRATOR_CONTAINER_NAME",
+    "ORCHESTRATOR_EXTERNAL_IP",
+    "ORCHESTRATOR_IMAGE_NAME",
+    "ORCHESTRATOR_ISOLATED_IP",
+    "ORCHESTRATOR_PORT",
     "TEST_GATEWAY_PORT",
     "TEST_GATEWAY_PROXY_PORT",
 ]
