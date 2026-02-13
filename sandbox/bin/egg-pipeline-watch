@@ -2,15 +2,16 @@
 """
 Watch pipeline progress via polling.
 
-Polls the orchestrator's status endpoint and renders a compact
-status line in the terminal.
+Polls the orchestrator's visualization endpoint and renders the
+DAG view in the terminal, refreshing on each poll.
 
 Usage:
-    egg-pipeline-watch <pipeline_id> [--interval SECONDS] [--once]
+    egg-pipeline-watch <pipeline_id> [--interval SECONDS] [--once] [--compact]
 
 Options:
     --interval  Polling interval in seconds (default: 10)
     --once      Show current state and exit (no polling)
+    --compact   Show compact one-line status instead of DAG
 """
 
 import argparse
@@ -67,33 +68,22 @@ def _write(text: str, file=None) -> None:
     file.flush()
 
 
-def fetch_status(host: str, port: int, pipeline_id: str) -> dict | None:
-    """Fetch pipeline status from the orchestrator.
+def _clear_screen() -> None:
+    """Clear the terminal screen and move cursor to top."""
+    if IS_TTY:
+        sys.stdout.write("\033[2J\033[H")
+        sys.stdout.flush()
 
-    Returns the status data dict, or None on error.
-    """
-    path = f"/api/v1/pipelines/{pipeline_id}/status"
+
+def _http_get(host: str, port: int, path: str) -> tuple[int, str] | None:
+    """Make an HTTP GET request. Returns (status_code, body) or None on error."""
     try:
         conn = HTTPConnection(host, port, timeout=10)
         conn.request("GET", path)
         response = conn.getresponse()
         body = response.read().decode("utf-8", errors="replace")
         conn.close()
-
-        if response.status != 200:
-            try:
-                err = json.loads(body)
-                msg = err.get("message", body)
-            except json.JSONDecodeError:
-                msg = body
-            _write(f"{RED}Error ({response.status}): {msg}{RESET}\n", file=sys.stderr)
-            return None
-
-        try:
-            return json.loads(body)
-        except json.JSONDecodeError:
-            _write(f"{RED}Invalid JSON in response{RESET}\n", file=sys.stderr)
-            return None
+        return response.status, body
     except ConnectionRefusedError:
         _write(
             f"{RED}Cannot connect to orchestrator at {host}:{port}\n"
@@ -104,6 +94,44 @@ def fetch_status(host: str, port: int, pipeline_id: str) -> dict | None:
     except Exception as e:
         _write(f"{RED}Connection error: {e}{RESET}\n", file=sys.stderr)
         return None
+
+
+def fetch_status(host: str, port: int, pipeline_id: str) -> dict | None:
+    """Fetch pipeline status from the orchestrator."""
+    path = f"/api/v1/pipelines/{pipeline_id}/status"
+    result = _http_get(host, port, path)
+    if result is None:
+        return None
+
+    status_code, body = result
+    if status_code != 200:
+        try:
+            err = json.loads(body)
+            msg = err.get("message", body)
+        except json.JSONDecodeError:
+            msg = body
+        _write(f"{RED}Error ({status_code}): {msg}{RESET}\n", file=sys.stderr)
+        return None
+
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        _write(f"{RED}Invalid JSON in response{RESET}\n", file=sys.stderr)
+        return None
+
+
+def fetch_visualization(host: str, port: int, pipeline_id: str) -> str | None:
+    """Fetch pipeline DAG visualization as plain text."""
+    path = f"/api/v1/pipelines/{pipeline_id}/visualization?format=text"
+    result = _http_get(host, port, path)
+    if result is None:
+        return None
+
+    status_code, body = result
+    if status_code != 200:
+        return None
+
+    return body
 
 
 def format_status_line(pipeline_id: str, data: dict) -> str:
@@ -140,6 +168,7 @@ def watch_pipeline(
     pipeline_id: str,
     interval: int = DEFAULT_INTERVAL,
     once: bool = False,
+    compact: bool = False,
 ) -> int:
     """Poll pipeline status and display updates.
 
@@ -147,6 +176,7 @@ def watch_pipeline(
         pipeline_id: Pipeline to watch
         interval: Polling interval in seconds
         once: Show current state and exit
+        compact: Show compact one-line status instead of DAG
 
     Returns:
         Exit code (0 = success, 1 = error)
@@ -158,11 +188,12 @@ def watch_pipeline(
 
     interval = max(interval, 1)
 
-    last_line = None
+    last_output = None
     consecutive_errors = 0
 
     while True:
         try:
+            # Always fetch status for state tracking
             result = fetch_status(host, port, pipeline_id)
             if result is None:
                 consecutive_errors += 1
@@ -178,20 +209,37 @@ def watch_pipeline(
 
             data = result.get("data", result)
             status = data.get("status", "unknown")
-            line = format_status_line(pipeline_id, data)
 
-            # Only print if status changed (or first time)
-            if line != last_line:
-                _write(line + "\n")
-                last_line = line
+            if compact:
+                # Compact mode: single status line (original behavior)
+                output = format_status_line(pipeline_id, data)
+                if output != last_output:
+                    _write(output + "\n")
+                    last_output = output
+            else:
+                # DAG mode: fetch full visualization
+                dag = fetch_visualization(host, port, pipeline_id)
+                if dag:
+                    output = dag.rstrip()
+                    if output != last_output:
+                        if IS_TTY and last_output is not None:
+                            _clear_screen()
+                        _write(output + "\n")
+                        last_output = output
+                else:
+                    # Fall back to compact if visualization unavailable
+                    output = format_status_line(pipeline_id, data)
+                    if output != last_output:
+                        _write(output + "\n")
+                        last_output = output
 
             if status in TERMINAL_STATUSES:
                 if status == "complete":
-                    _write(f"{GREEN}Pipeline {pipeline_id} completed.{RESET}\n")
+                    _write(f"\n{GREEN}Pipeline {pipeline_id} completed.{RESET}\n")
                 elif status == "failed":
-                    _write(f"{RED}Pipeline {pipeline_id} failed.{RESET}\n")
+                    _write(f"\n{RED}Pipeline {pipeline_id} failed.{RESET}\n")
                 elif status == "cancelled":
-                    _write(f"{RED}Pipeline {pipeline_id} cancelled.{RESET}\n")
+                    _write(f"\n{RED}Pipeline {pipeline_id} cancelled.{RESET}\n")
                 return 0 if status == "complete" else 1
 
             if once:
@@ -223,6 +271,11 @@ def main() -> None:
         action="store_true",
         help="Show current state and exit (no polling)",
     )
+    parser.add_argument(
+        "--compact",
+        action="store_true",
+        help="Show compact one-line status instead of DAG visualization",
+    )
 
     args = parser.parse_args()
 
@@ -234,6 +287,7 @@ def main() -> None:
             pipeline_id=args.pipeline_id,
             interval=args.interval,
             once=args.once,
+            compact=args.compact,
         )
     )
 
