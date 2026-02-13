@@ -44,6 +44,9 @@ TERMINAL_STATUSES = {"complete", "failed", "cancelled"}
 # Default polling interval
 DEFAULT_INTERVAL = 10
 
+# Number of consecutive fetch errors before giving up
+MAX_CONSECUTIVE_ERRORS = 3
+
 
 def get_orchestrator_url() -> str:
     """Get the orchestrator base URL from environment."""
@@ -86,7 +89,11 @@ def fetch_status(host: str, port: int, pipeline_id: str) -> dict | None:
             _write(f"{RED}Error ({response.status}): {msg}{RESET}\n", file=sys.stderr)
             return None
 
-        return json.loads(body)
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError:
+            _write(f"{RED}Invalid JSON in response{RESET}\n", file=sys.stderr)
+            return None
     except ConnectionRefusedError:
         _write(
             f"{RED}Cannot connect to orchestrator at {host}:{port}\n"
@@ -149,35 +156,47 @@ def watch_pipeline(
     host = parsed.hostname or "egg-orchestrator"
     port = parsed.port or 9849
 
+    interval = max(interval, 1)
+
     last_line = None
+    consecutive_errors = 0
 
     while True:
-        result = fetch_status(host, port, pipeline_id)
-        if result is None:
-            return 1
-
-        data = result.get("data", result)
-        status = data.get("status", "unknown")
-        line = format_status_line(pipeline_id, data)
-
-        # Only print if status changed (or first time)
-        if line != last_line:
-            _write(line + "\n")
-            last_line = line
-
-        if once:
-            return 0
-
-        if status in TERMINAL_STATUSES:
-            if status == "complete":
-                _write(f"{GREEN}Pipeline {pipeline_id} completed.{RESET}\n")
-            elif status == "failed":
-                _write(f"{RED}Pipeline {pipeline_id} failed.{RESET}\n")
-            elif status == "cancelled":
-                _write(f"{RED}Pipeline {pipeline_id} cancelled.{RESET}\n")
-            return 0 if status == "complete" else 1
-
         try:
+            result = fetch_status(host, port, pipeline_id)
+            if result is None:
+                consecutive_errors += 1
+                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                    _write(
+                        f"{RED}Giving up after {MAX_CONSECUTIVE_ERRORS} consecutive errors.{RESET}\n",
+                        file=sys.stderr,
+                    )
+                    return 1
+                time.sleep(interval)
+                continue
+            consecutive_errors = 0
+
+            data = result.get("data", result)
+            status = data.get("status", "unknown")
+            line = format_status_line(pipeline_id, data)
+
+            # Only print if status changed (or first time)
+            if line != last_line:
+                _write(line + "\n")
+                last_line = line
+
+            if once:
+                return 0
+
+            if status in TERMINAL_STATUSES:
+                if status == "complete":
+                    _write(f"{GREEN}Pipeline {pipeline_id} completed.{RESET}\n")
+                elif status == "failed":
+                    _write(f"{RED}Pipeline {pipeline_id} failed.{RESET}\n")
+                elif status == "cancelled":
+                    _write(f"{RED}Pipeline {pipeline_id} cancelled.{RESET}\n")
+                return 0 if status == "complete" else 1
+
             time.sleep(interval)
         except KeyboardInterrupt:
             _write(f"\n{DIM}Stopped watching.{RESET}\n")
