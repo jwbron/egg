@@ -48,7 +48,7 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 - Orchestrator mounts `/home/egg/.egg-worktrees` and reads artifacts from pipeline-specific paths
 - Worktree paths are resolved dynamically based on pipeline ID and repository
 
-**Key files read from worktrees:**
+**Key artifact files in worktrees:**
 - `.egg-state/contracts/{issue}.json` — Contract state
 - `.egg-state/drafts/{issue}-analysis.md` — Draft for `refine` phase (special-cased to `analysis`)
 - `.egg-state/drafts/{issue}-{phase}.md` — Draft for other phases (e.g., `plan`). No draft for `implement` phase.
