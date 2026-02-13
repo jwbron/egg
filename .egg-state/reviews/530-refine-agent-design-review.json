@@ -1,0 +1,7 @@
+{
+  "reviewer": "agent-design",
+  "verdict": "approved",
+  "summary": "No agent-mode design anti-patterns found. The analysis provides targeted code references (file:line) without embedding large diffs. Output is Markdown for human consumption, not forced JSON. The YAML task block is consumed by the pipeline orchestrator for state tracking, not a post-processing pipeline taking actions the agent could take directly. Tasks are goal-oriented with acceptance criteria rather than micromanaged step-by-step procedures. No prompt-level security — merge blocking and branch ownership are enforced by the gateway sidecar.",
+  "feedback": "",
+  "timestamp": "2026-02-13T18:20:00Z"
+}
