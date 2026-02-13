@@ -93,10 +93,24 @@
       "error": null
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "The refine phase has completed. Please review the analysis and approve to continue.",
+      "context": "(Draft file not found: .egg-state/drafts/596-analysis.md)",
+      "options": [
+        "approve"
+      ],
+      "status": "pending",
+      "created_at": "2026-02-13T06:11:18.476978",
+      "resolved_at": null,
+      "resolution": null,
+      "timeout_seconds": 3600
+    }
+  ],
   "created_at": "2026-02-13T06:04:41.593587",
-  "updated_at": "2026-02-13T06:11:18.463759",
+  "updated_at": "2026-02-13T06:11:18.479426",
   "contract_synced": true,
   "error": null,
-  "version": 12
+  "version": 13
 }
