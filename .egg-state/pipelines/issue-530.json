@@ -5,7 +5,7 @@
   "branch": "egg/issue-530",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "awaiting_human",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -198,8 +198,8 @@
     }
   ],
   "created_at": "2026-02-13T07:58:28.711991",
-  "updated_at": "2026-02-13T08:29:34.851921",
+  "updated_at": "2026-02-13T08:29:34.863636",
   "contract_synced": true,
   "error": null,
-  "version": 26
+  "version": 27
 }
