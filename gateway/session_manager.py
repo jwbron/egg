@@ -117,6 +117,12 @@ def _capture_and_cleanup_session(
         # Always clean up the buffer after checkpoint capture
         _cleanup_transcript_buffer(session.container_id)
 
+        # Remove from dedup set to prevent unbounded growth.
+        # The session is fully processed (checkpoint captured, buffer cleaned up)
+        # and no future code path will call this for the same container.
+        with _captured_containers_lock:
+            _captured_containers.discard(session.container_id)
+
 
 # Session configuration
 DEFAULT_SESSION_TTL_HOURS = 24
@@ -798,12 +804,21 @@ class SessionManager:
 
             for t, token_hash, session in threads:
                 t.join(timeout=35)  # 30s capture timeout + 5s buffer
-                logger.info(
-                    "Session expired and pruned",
-                    event_type="session_expired",
-                    session_token_hash=token_hash[:16],
-                    container_id=session.container_id,
-                )
+                if t.is_alive():
+                    logger.warning(
+                        "Session expired, checkpoint capture still in progress",
+                        event_type="session_expired",
+                        session_token_hash=token_hash[:16],
+                        container_id=session.container_id,
+                        capture_timed_out=True,
+                    )
+                else:
+                    logger.info(
+                        "Session expired and pruned",
+                        event_type="session_expired",
+                        session_token_hash=token_hash[:16],
+                        container_id=session.container_id,
+                    )
 
         return len(expired_sessions)
 
