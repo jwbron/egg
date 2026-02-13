@@ -177,17 +177,23 @@ def display_visualization(data: dict, compact: bool = False) -> None:
     _write(output)
 
 
-def display_done(data: dict) -> None:
+def display_done(data: dict, last_status: str | None = None) -> None:
     """Display final message when stream ends."""
     reason = data.get("reason", "unknown")
     pipeline_id = data.get("pipeline_id", "")
 
-    reason_messages = {
-        "completed": f"{GREEN}Pipeline {pipeline_id} reached terminal state.{RESET}",
-        "already_terminal": f"{DIM}Pipeline {pipeline_id} already finished.{RESET}",
-        "timeout": f"{YELLOW}Connection timed out. Re-run to reconnect.{RESET}",
-    }
-    msg = reason_messages.get(reason, f"Stream ended: {reason}")
+    if reason == "timeout":
+        msg = f"{YELLOW}Connection timed out. Re-run to reconnect.{RESET}"
+    elif reason in ("completed", "already_terminal"):
+        if last_status in ("failed", "cancelled"):
+            color = RED
+            verb = "failed" if last_status == "failed" else "was cancelled"
+            msg = f"{color}Pipeline {pipeline_id} {verb}.{RESET}"
+        else:
+            msg = f"{GREEN}Pipeline {pipeline_id} completed.{RESET}"
+    else:
+        msg = f"Stream ended: {reason}"
+
     _write(f"\n{msg}\n")
 
 
@@ -290,7 +296,7 @@ def watch_pipeline(
                 return 1
 
             if event_type == "done":
-                display_done(data)
+                display_done(data, last_status=last_status)
                 return 1 if last_status in ("failed", "cancelled") else 0
 
             last_status = data.get("status", last_status)
