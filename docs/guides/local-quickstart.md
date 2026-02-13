@@ -182,6 +182,12 @@ egg --exec "make test"     # run a command in an ephemeral container
 
 **Permission denied on repos**: The gateway and orchestrator need to run as your host UID. This is handled automatically via `HOST_UID`/`HOST_GID` in the entrypoint scripts. If issues persist, rebuild with `egg --compose --build`.
 
+**Orchestrator won't start ("must not run as root")**: The orchestrator has a safety check that refuses to run as root, preventing git refs from being created with root ownership. This error means `HOST_UID`/`HOST_GID` are not set in your environment. The `egg` CLI sets these automatically; if running via Docker Compose directly, ensure your `.env` file includes:
+```bash
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+```
+
 **Token refresher warnings**: If you see "No valid token available from token refresher", this means no GitHub App is configured. This is expected in PAT-only mode — ensure `auth_mode: user` is set for your repos so the gateway uses your PAT.
 
 **Orchestrator git errors**: The orchestrator stores pipeline state in git. `EGG_REPO_PATH` can be either a single git repository or a parent directory containing multiple repositories (the orchestrator will scan subdirectories automatically).

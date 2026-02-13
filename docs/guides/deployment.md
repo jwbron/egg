@@ -295,6 +295,22 @@ The Docker Compose configuration includes automatic health checks with:
 2. Ensure repositories directory is accessible
 3. Check SELinux/AppArmor if on Linux
 
+### Orchestrator refuses to start as root
+
+If you see "ERROR: orchestrator must not run as root", this means HOST_UID and HOST_GID are not set or HOST_UID=0. The orchestrator requires these environment variables to drop privileges before starting. Running as root would create git refs with root:root ownership, breaking host git operations.
+
+Fix:
+```bash
+# In your .env file
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+```
+
+If refs are already root-owned:
+```bash
+sudo chown -R $(id -u):$(id -g) ~/repos/*/.git/refs
+```
+
 ## Security Considerations
 
 ### Credentials
