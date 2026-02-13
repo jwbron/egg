@@ -1998,17 +1998,22 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # 2. Checker + autofix loop (implement phase only)
                 if current_phase.value == "implement":
                     # Look up configured check commands for this repo
-                    _repo_checks: list[dict] | None = None
+                    repo_checks: list[dict] | None = None
                     if pipeline.repo:
                         try:
-                            _all_repo_checks = json.loads(os.environ.get("EGG_REPO_CHECKS", "{}"))
+                            all_repo_checks = json.loads(os.environ.get("EGG_REPO_CHECKS", "{}"))
                         except json.JSONDecodeError:
-                            _all_repo_checks = {}
+                            all_repo_checks = {}
                         # Case-insensitive lookup
-                        _repo_lower = pipeline.repo.lower()
-                        for _cfg_repo, _cfg_checks in _all_repo_checks.items():
-                            if _cfg_repo.lower() == _repo_lower:
-                                _repo_checks = _cfg_checks
+                        repo_lower = pipeline.repo.lower()
+                        for cfg_repo, cfg_checks in all_repo_checks.items():
+                            if cfg_repo.lower() == repo_lower:
+                                if isinstance(cfg_checks, list):
+                                    repo_checks = [
+                                        {"name": str(c["name"]), "command": str(c["command"])}
+                                        for c in cfg_checks
+                                        if isinstance(c, dict) and "name" in c and "command" in c
+                                    ]
                                 break
 
                     max_autofix = 3
@@ -2023,7 +2028,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id,
                             pipeline_mode,
                             repo=pipeline.repo,
-                            repo_checks=_repo_checks,
+                            repo_checks=repo_checks,
                         )
                         checker_command = [
                             "claude",

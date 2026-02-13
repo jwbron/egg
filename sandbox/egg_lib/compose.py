@@ -143,17 +143,15 @@ def _generate_env_file(compose_file: Path) -> bool:
         try:
             import yaml
 
+            from config.repo_config import validate_checks
+
             with config_file.open() as f:
                 cfg = yaml.safe_load(f) or {}
             repo_checks: dict[str, list[dict[str, str]]] = {}
             for repo_name, settings in (cfg.get("repo_settings") or {}).items():
                 checks = settings.get("checks") if isinstance(settings, dict) else None
                 if checks and isinstance(checks, list):
-                    valid = [
-                        {"name": str(c["name"]), "command": str(c["command"])}
-                        for c in checks
-                        if isinstance(c, dict) and "name" in c and "command" in c
-                    ]
+                    valid = validate_checks(checks)
                     if valid:
                         repo_checks[repo_name] = valid
             env_vars["EGG_REPO_CHECKS"] = json.dumps(repo_checks)
