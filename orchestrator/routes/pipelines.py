@@ -2154,6 +2154,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             phase_execution = pipeline.get_phase_execution(current_phase)
             phase_execution.status = PipelineStatus.COMPLETE
             phase_execution.completed_at = datetime.utcnow()
+            store.save_pipeline(pipeline)  # Persist phase completion before HITL gate
 
             # Report phase completion to collaborator
             report_pipeline_status(
