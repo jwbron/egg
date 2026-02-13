@@ -2516,6 +2516,5 @@ def stream_pipeline(pipeline_id: str) -> Response:
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
         },
     )
