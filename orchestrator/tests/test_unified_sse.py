@@ -577,9 +577,11 @@ class TestCreateUnifiedSSEStream:
             assert "phase.started" in event_str
             # Verify enrichment functions were called with use_ascii
             mock_compact.assert_called()
-            _, kwargs = mock_compact.call_args
-            assert kwargs.get("use_ascii") is True
+            _, compact_kwargs = mock_compact.call_args
+            assert compact_kwargs.get("use_ascii") is True
             mock_progress.assert_called()
+            _, progress_kwargs = mock_progress.call_args
+            assert progress_kwargs.get("use_ascii") is True
 
     def test_stream_enriches_full_dag_in_single_load(self):
         """Test that full_dag enrichment uses a single state store load."""

@@ -121,7 +121,7 @@ class UnifiedSSEManager:
             "event_type": event.event_type.value,
             "pipeline_id": event.pipeline_id,
             "timestamp": event.timestamp.isoformat() + "Z",
-            "data": event.data,
+            "data": dict(event.data),
             "is_terminal": is_terminal,
         }
 
