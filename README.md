@@ -4,6 +4,8 @@ A structurally enforced SDLC pipeline for autonomous LLM agents — turning task
 
 > *Inspired by Andy Weir's short story "The Egg" — a contained environment where development happens before emerging into the world. The agent works inside the egg; when ready, it "hatches" via human review and merge.*
 
+**Note**: this project is currently under heavy development. The core workflow is functional, but continually being refined and refactored. Expect breakages and changing behavior for the forseeable future.
+
 ## How It Works
 
 Run `egg` to start an interactive session, then use the `/sdlc` skill to launch a multi-agent pipeline. The agent cannot skip steps, self-approve work, or bypass review — these constraints are enforced by the gateway infrastructure, not by prompts.
