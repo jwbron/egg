@@ -1316,8 +1316,16 @@ def _tee_stderr_to_file(
         with open(log_path, "wb") as log_file:
             for saved_line in ring:
                 log_file.write(saved_line)
-    except Exception:
-        pass
+    except Exception as exc:
+        # Best-effort diagnostic — log so failures aren't completely silent.
+        try:
+            print(
+                f"[DEBUG] _tee_stderr_to_file failed: {exc}",
+                file=sys.stderr,
+            )
+            sys.stderr.flush()
+        except Exception:
+            pass
 
 
 def _run_with_stderr_capture(

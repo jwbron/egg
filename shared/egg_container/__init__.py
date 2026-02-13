@@ -288,6 +288,14 @@ def to_dockerpy_kwargs(config: SandboxContainerConfig) -> dict:
         kwargs["dns"] = list(config.dns)
     if config.command:
         kwargs["command"] = list(config.command)
+    if config.container_ip:
+        kwargs["networking_config"] = {
+            "EndpointsConfig": {
+                config.network.network_name: {
+                    "IPAMConfig": {"IPv4Address": config.container_ip},
+                },
+            },
+        }
 
     return kwargs
 

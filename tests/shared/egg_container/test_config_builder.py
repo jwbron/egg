@@ -416,6 +416,32 @@ class TestToDockerpyKwargs:
         kwargs = to_dockerpy_kwargs(config)
         assert kwargs["environment"]["GATEWAY_URL"] == "http://gw:9848"
 
+    def test_container_ip_produces_networking_config(self):
+        config = build_sandbox_config(
+            container_name="c",
+            image="img",
+            network=_public_config(),
+            container_ip="172.20.0.5",
+        )
+        kwargs = to_dockerpy_kwargs(config)
+        expected = {
+            "EndpointsConfig": {
+                "egg-external": {
+                    "IPAMConfig": {"IPv4Address": "172.20.0.5"},
+                },
+            },
+        }
+        assert kwargs["networking_config"] == expected
+
+    def test_no_container_ip_omits_networking_config(self):
+        config = build_sandbox_config(
+            container_name="c",
+            image="img",
+            network=_public_config(),
+        )
+        kwargs = to_dockerpy_kwargs(config)
+        assert "networking_config" not in kwargs
+
 
 class TestGitShadowMounts:
     """Tests for git_shadow_mounts()."""
