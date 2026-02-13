@@ -122,7 +122,7 @@ def extract_session_metadata_from_proxy_buffer(
 
 def extract_messages_from_proxy_buffer(
     entries: list[dict[str, Any]],
-    max_content_length: int = 10000,
+    max_content_length: int = 25000,
 ) -> list[Message]:
     """
     Extract messages from proxy buffer entries.
@@ -203,8 +203,8 @@ def extract_messages_from_proxy_buffer(
 
 def extract_tool_calls_from_proxy_buffer(
     entries: list[dict[str, Any]],
-    max_param_length: int = 1000,
-    max_result_length: int = 500,
+    max_param_length: int = 2500,
+    max_result_length: int = 1500,
 ) -> tuple[list[ToolCall], list[FileOperation]]:
     """
     Extract tool calls and file operations from proxy buffer entries.
@@ -376,9 +376,9 @@ def extract_token_usage_from_proxy_buffer(entries: list[dict[str, Any]]) -> Toke
 def extract_transcript_from_proxy_buffer(
     buffer_path: Path,
     container_id: str | None = None,
-    max_content_length: int = 10000,
-    max_param_length: int = 1000,
-    max_result_length: int = 500,
+    max_content_length: int = 25000,
+    max_param_length: int = 2500,
+    max_result_length: int = 1500,
 ) -> tuple[SessionMetadata, Transcript, list[ToolCall], list[FileOperation], TokenUsage]:
     """
     Extract full transcript data from a proxy buffer file.

@@ -203,7 +203,7 @@ class TestCaptureAndStoreCheckpointsForPush:
             )
 
         mock_handler.capture_checkpoint.side_effect = create_checkpoint
-        mock_handler.store_checkpoint.return_value = True
+        mock_handler.store_checkpoint_v2.return_value = True
 
         import checkpoint_handler
 
@@ -218,7 +218,7 @@ class TestCaptureAndStoreCheckpointsForPush:
         # Should have 3 checkpoints
         assert len(checkpoints) == 3
         assert mock_handler.capture_checkpoint.call_count == 3
-        assert mock_handler.store_checkpoint.call_count == 3
+        assert mock_handler.store_checkpoint_v2.call_count == 3
 
     @patch("checkpoint_handler.get_commits_in_push")
     @patch("checkpoint_handler.get_checkpoint_handler")
@@ -249,7 +249,7 @@ class TestCaptureAndStoreCheckpointsForPush:
 
         mock_handler = MagicMock()
         mock_handler.capture_checkpoint.side_effect = capture_and_record
-        mock_handler.store_checkpoint.return_value = True
+        mock_handler.store_checkpoint_v2.return_value = True
         mock_get_handler.return_value = mock_handler
 
         import checkpoint_handler
@@ -297,7 +297,7 @@ class TestCaptureAndStoreCheckpointsForPush:
 
         mock_handler = MagicMock()
         mock_handler.capture_checkpoint.side_effect = capture_with_failure
-        mock_handler.store_checkpoint.return_value = True
+        mock_handler.store_checkpoint_v2.return_value = True
         mock_get_handler.return_value = mock_handler
 
         import checkpoint_handler
@@ -313,7 +313,7 @@ class TestCaptureAndStoreCheckpointsForPush:
         # Should have 2 checkpoints (first and third succeeded)
         assert len(checkpoints) == 2
         assert call_count[0] == 3
-        assert mock_handler.store_checkpoint.call_count == 2
+        assert mock_handler.store_checkpoint_v2.call_count == 2
 
     @patch("checkpoint_handler.get_commits_in_push")
     @patch("checkpoint_handler.get_checkpoint_handler")
@@ -353,7 +353,7 @@ class TestCaptureAndStoreCheckpointsForPush:
             mock_thread_instance.start.assert_called_once()
 
             # store_checkpoint should NOT have been called directly (it's in the thread)
-            mock_handler.store_checkpoint.assert_not_called()
+            mock_handler.store_checkpoint_v2.assert_not_called()
 
     @patch("checkpoint_handler.get_commits_in_push")
     @patch("checkpoint_handler.get_checkpoint_handler")
@@ -384,7 +384,7 @@ class TestCaptureAndStoreCheckpointsForPush:
 
         mock_handler = MagicMock()
         mock_handler.capture_checkpoint.side_effect = sometimes_returns_none
-        mock_handler.store_checkpoint.return_value = True
+        mock_handler.store_checkpoint_v2.return_value = True
         mock_get_handler.return_value = mock_handler
 
         import checkpoint_handler
