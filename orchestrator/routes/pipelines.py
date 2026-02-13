@@ -130,12 +130,14 @@ def make_success_response(
 
 
 def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pipeline]:
-    """Load a pipeline, scanning repo subdirectories if needed.
+    """Load a pipeline, resolving the correct repo subdirectory.
 
-    When ``base_path`` is a parent directory containing multiple repos
-    (i.e. it has no ``.git``), and the pipeline is not found at the base
-    level, iterate over immediate subdirectories that are git repos and
-    try to load the pipeline from each.
+    The StateStore uses a global shared worktree, so it can find any
+    pipeline regardless of which ``repo_path`` is used.  When
+    ``base_path`` is a parent directory (no ``.git``), we resolve the
+    correct repo subdirectory using the pipeline's ``repo`` field so
+    that ``store.repo_path`` points to the actual git repository
+    (needed for reading draft files, verdict files, contracts, etc.).
 
     Returns:
         (store, pipeline) tuple
@@ -148,22 +150,46 @@ def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pi
     try:
         store = get_state_store(base_path)
         pipeline = store.load_pipeline(pipeline_id)
-        return store, pipeline
     except PipelineNotFoundError:
-        pass
+        # If base_path is not itself a git repo, scan subdirectories
+        store = None
+        pipeline = None
+        if not (base_path / ".git").exists():
+            for child in sorted(base_path.iterdir()):
+                if child.is_dir() and (child / ".git").exists():
+                    try:
+                        store = get_state_store(child)
+                        pipeline = store.load_pipeline(pipeline_id)
+                        return store, pipeline
+                    except (PipelineNotFoundError, StateStoreError):
+                        continue
+        raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found") from None
 
-    # If base_path is not itself a git repo, scan subdirectories
+    # The global worktree means the pipeline is always found at base_path,
+    # even when base_path is a parent directory (e.g. /home/egg/repos/).
+    # Resolve to the correct repo subdirectory using the pipeline's repo field.
+    # NOTE: The pipeline was loaded from the original store, but both stores
+    # share the same underlying worktree state — only repo_path differs.
     if not (base_path / ".git").exists():
-        for child in sorted(base_path.iterdir()):
-            if child.is_dir() and (child / ".git").exists():
-                try:
-                    store = get_state_store(child)
-                    pipeline = store.load_pipeline(pipeline_id)
-                    return store, pipeline
-                except (PipelineNotFoundError, StateStoreError):
-                    continue
+        if pipeline.repo:
+            repo_name = pipeline.repo.split("/")[-1]
+            candidate = base_path / repo_name
+            if candidate.exists() and (candidate / ".git").exists():
+                store = get_state_store(candidate)
+            else:
+                logger.warning(
+                    "Repo subdirectory not found for pipeline",
+                    pipeline_id=pipeline_id,
+                    repo=pipeline.repo,
+                    candidate=str(candidate),
+                )
+        else:
+            logger.warning(
+                "Pipeline has no repo field, cannot resolve subdirectory",
+                pipeline_id=pipeline_id,
+            )
 
-    raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found")
+    return store, pipeline
 
 
 def _collect_all_pipelines(base_path: Path) -> list:
@@ -1539,12 +1565,17 @@ def _read_check_results(repo_path: Path) -> dict | None:
         return None
 
 
-def _populate_contract_from_plan(repo_path: Path, pipeline_id: str) -> None:
+def _populate_contract_from_plan(
+    repo_path: Path,
+    pipeline_id: str,
+    pipeline_mode: str = "local",
+    issue_number: int | None = None,
+) -> None:
     """Read the plan draft and populate the contract with tasks.
 
     Lightweight version of action/populate-contract-tasks.py.
-    Reads .egg-state/drafts/plan.md, extracts task structure from
-    markdown headers, and writes tasks + acceptance criteria to the contract.
+    Reads the plan draft, extracts task structure from markdown headers,
+    and writes tasks + acceptance criteria to the contract.
     """
     try:
         from egg_contracts.loader import load_contract, save_contract
@@ -1552,13 +1583,33 @@ def _populate_contract_from_plan(repo_path: Path, pipeline_id: str) -> None:
         logger.warning("egg_contracts not available, skipping contract population")
         return
 
-    plan_path = repo_path / ".egg-state/drafts/plan.md"
+    # Guard against issue-mode pipelines missing issue_number — _get_draft_path
+    # would produce a path containing literal "None" (e.g. .egg-state/drafts/None-plan.md).
+    if pipeline_mode != "local" and not issue_number:
+        logger.warning(
+            "Issue-mode pipeline missing issue_number, skipping contract population",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    # Resolve draft path based on pipeline mode
+    draft_rel = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
+    if not draft_rel:
+        logger.warning("No draft path for plan phase", pipeline_id=pipeline_id)
+        return
+
+    plan_path = repo_path / draft_rel
     if not plan_path.exists():
         logger.warning("Plan draft not found, skipping contract population", path=str(plan_path))
         return
 
+    # For issue mode, use issue number as the contract identifier
+    contract_id: int | str = pipeline_id
+    if pipeline_mode != "local" and issue_number:
+        contract_id = issue_number
+
     try:
-        contract = load_contract(pipeline_id, repo_path)
+        contract = load_contract(contract_id, repo_path)
     except Exception:
         logger.warning(
             "Contract not found for pipeline, skipping population", pipeline_id=pipeline_id
@@ -2164,8 +2215,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             )
 
             # After plan phase: populate contract with task structure
-            if current_phase.value == "plan" and pipeline_mode == "local":
-                _populate_contract_from_plan(repo_path, pipeline_id)
+            if current_phase.value == "plan":
+                _populate_contract_from_plan(
+                    repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+                )
 
             # --- HITL gate: pause for human approval ---
             if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:
