@@ -44,16 +44,12 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 try:
     from egg_config.constants import (
-        GATEWAY_ISOLATED_IP,
         GATEWAY_PORT,
-        ORCHESTRATOR_ISOLATED_IP,
         ORCHESTRATOR_PORT,
     )
 except ImportError:
     ORCHESTRATOR_PORT = 9849
-    ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"
     GATEWAY_PORT = 9848
-    GATEWAY_ISOLATED_IP = "172.32.0.2"
 
 # Validation pattern for IDs used in URL path segments
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_\-\.]+$")
