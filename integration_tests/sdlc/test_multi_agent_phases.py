@@ -10,7 +10,6 @@ Tests the extended multi-agent orchestration covering:
 """
 
 from egg_contracts import (
-    AgentExecutionStatus,
     AgentRole,
     AgentRoleType,
     Contract,
@@ -31,7 +30,6 @@ from egg_contracts.dependency_graph import (
     compute_execution_plan,
 )
 from egg_contracts.orchestration import (
-    can_agent_run,
     get_runnable_agents,
     initialize_orchestration,
 )
@@ -112,7 +110,7 @@ class TestGetRolesForPhase:
         """Invalid phase raises ValueError."""
         try:
             get_roles_for_phase("invalid")
-            assert False, "Should have raised ValueError"
+            raise AssertionError("Should have raised ValueError")
         except ValueError as e:
             assert "invalid" in str(e)
 

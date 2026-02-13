@@ -1744,7 +1744,6 @@ def _run_multi_agent_phase(
     Returns:
         (success, error_message) tuple
     """
-    from egg_contracts.agent_roles import AgentRole as ContractAgentRole
     from egg_contracts.agent_roles import get_roles_for_phase
     from egg_contracts.dependency_graph import build_dependency_graph
 
@@ -1874,7 +1873,7 @@ def _run_multi_agent_phase(
                     wave_results[role.value] = (-1, str(e))
             else:
                 # Multiple agents — spawn in parallel threads
-                def _run_agent(r_val, c_role, env, cmd):
+                def _run_agent(r_val, c_role, env, cmd, _results=wave_results):
                     try:
                         ec, logs = _spawn_and_wait(
                             spawner=spawner,
@@ -1890,9 +1889,9 @@ def _run_multi_agent_phase(
                             store=store,
                             certs_volume=certs_volume,
                         )
-                        wave_results[r_val] = (ec, logs)
+                        _results[r_val] = (ec, logs)
                     except ContainerSpawnError as e:
-                        wave_results[r_val] = (-1, str(e))
+                        _results[r_val] = (-1, str(e))
 
                 t = threading.Thread(
                     target=_run_agent,
@@ -2193,7 +2192,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     sandbox_env=sandbox_env,
                     store=store,
                     certs_volume=certs_volume,
-                    worktree_repo_path=worktree_repo_path,
+                    worktree_repo_path=repo_path,
                     pipeline_mode=pipeline_mode,
                 )
 
@@ -2247,7 +2246,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 pipeline.issue_number,
                                 pipeline_id,
                             )
-                            verdict_path = worktree_repo_path / verdict_rel
+                            verdict_path = repo_path / verdict_rel
                             if verdict_path.exists():
                                 try:
                                     verdict_path.unlink()
@@ -2307,7 +2306,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 continue
 
                             all_verdicts[reviewer_type] = _read_review_verdict(
-                                worktree_repo_path,
+                                repo_path,
                                 current_phase.value,
                                 reviewer_type=reviewer_type,
                                 pipeline_mode=pipeline_mode,
@@ -2352,13 +2351,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 )
 
                 if current_phase.value == "plan":
-                    _populate_contract_from_plan(
-                        worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
-                    )
+                    _populate_contract_from_plan(repo_path, pipeline_id)
 
                 if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:
                     draft_content = _read_phase_draft(
-                        worktree_repo_path,
+                        repo_path,
                         current_phase.value,
                         pipeline_mode,
                         pipeline.issue_number,

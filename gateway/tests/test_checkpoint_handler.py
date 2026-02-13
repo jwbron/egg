@@ -2,15 +2,11 @@
 
 import subprocess
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch, call
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 # Import from conftest-loaded modules
 from checkpoint_handler import (
     get_commits_in_push,
-    capture_and_store_checkpoints_for_push,
-    CheckpointHandler,
 )
 
 
@@ -254,7 +250,7 @@ class TestCaptureAndStoreCheckpointsForPush:
 
         import checkpoint_handler
 
-        checkpoints = checkpoint_handler.capture_and_store_checkpoints_for_push(
+        checkpoint_handler.capture_and_store_checkpoints_for_push(
             repo_path="/repo",
             old_sha="0" * 40,
             new_sha=commit2,
@@ -340,7 +336,7 @@ class TestCaptureAndStoreCheckpointsForPush:
             mock_thread_instance = MagicMock()
             mock_thread.return_value = mock_thread_instance
 
-            checkpoints = checkpoint_handler.capture_and_store_checkpoints_for_push(
+            checkpoint_handler.capture_and_store_checkpoints_for_push(
                 repo_path="/repo",
                 old_sha="0" * 40,
                 new_sha=commit1,

@@ -1,21 +1,14 @@
 """Tests for transcript_buffer module - API traffic capture."""
 
-import json
-import tempfile
 import threading
-import time
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import patch
 
 from transcript_buffer import (
+    MAX_MESSAGE_CONTENT_LENGTH,
     TranscriptBuffer,
-    get_transcript_buffer,
     cleanup_transcript_buffer,
     get_buffer_path,
-    MAX_BUFFER_SIZE,
-    MAX_MESSAGE_CONTENT_LENGTH,
+    get_transcript_buffer,
 )
 
 

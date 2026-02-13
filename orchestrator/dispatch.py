@@ -27,25 +27,22 @@ except ImportError:
 from egg_contracts import load_contract, save_contract
 from egg_contracts.agent_roles import AgentRole as ContractAgentRole
 from egg_contracts.orchestrator import (
-    AgentResult,
     DispatchDecision,
-    Orchestrator as ContractOrchestrator,
     collect_handoff_data,
     create_orchestrator,
     format_dispatch_for_workflow,
-    get_dispatch_for_contract,
     save_agent_output,
 )
-
+from egg_contracts.orchestrator import (
+    Orchestrator as ContractOrchestrator,
+)
 from models import (
     AgentExecution,
     AgentExecutionStatus,
     AgentRole,
     Pipeline,
-    PipelinePhase,
-    PipelineStatus,
 )
-from state_store import StateStore, get_state_store
+from state_store import get_state_store
 
 logger = get_logger("orchestrator.dispatch")
 
