@@ -2189,6 +2189,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     timeout_seconds=pipeline.config.decision_timeout,
                 )
 
+                # Reload pipeline to pick up the decision persisted by queue_decision(),
+                # otherwise the stale local object overwrites it with an empty decisions list.
+                pipeline = store.load_pipeline(pipeline_id)
                 pipeline.status = PipelineStatus.AWAITING_HUMAN
                 store.save_pipeline(pipeline)
 
