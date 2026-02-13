@@ -49,9 +49,16 @@ from .agent_recovery import (
 )
 from .agent_roles import (
     AGENT_ROLES,
+    ARCHITECT_ROLE,
     CODER_ROLE,
     DOCUMENTER_ROLE,
     INTEGRATOR_ROLE,
+    REVIEWER_AGENT_DESIGN_ROLE,
+    REVIEWER_CODE_ROLE,
+    REVIEWER_CONTRACT_ROLE,
+    REVIEWER_UNIFIED_ROLE,
+    RISK_ANALYST_ROLE,
+    TASK_PLANNER_ROLE,
     TESTER_ROLE,
     AgentExecution,
     AgentRole,
@@ -60,9 +67,13 @@ from .agent_roles import (
     FileAccessPattern,
     can_run_in_parallel,
     create_execution_for_role,
+    detect_write_overlaps,
     get_all_roles,
+    get_reviewer_roles,
     get_role_definition,
     get_role_dependencies,
+    get_roles_for_phase,
+    is_reviewer_role,
 )
 from .audit import (
     create_audit_entry,

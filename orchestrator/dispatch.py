@@ -64,6 +64,9 @@ def map_contract_role_to_agent_role(contract_role: ContractAgentRole) -> AgentRo
         ContractAgentRole.TESTER: AgentRole.TESTER,
         ContractAgentRole.DOCUMENTER: AgentRole.DOCUMENTER,
         ContractAgentRole.INTEGRATOR: AgentRole.INTEGRATOR,
+        ContractAgentRole.ARCHITECT: AgentRole.ARCHITECT,
+        ContractAgentRole.TASK_PLANNER: AgentRole.TASK_PLANNER,
+        ContractAgentRole.RISK_ANALYST: AgentRole.RISK_ANALYST,
     }
     return mapping[contract_role]
 
@@ -83,6 +86,9 @@ def map_agent_role_to_contract_role(agent_role: AgentRole) -> ContractAgentRole 
         AgentRole.TESTER: ContractAgentRole.TESTER,
         AgentRole.DOCUMENTER: ContractAgentRole.DOCUMENTER,
         AgentRole.INTEGRATOR: ContractAgentRole.INTEGRATOR,
+        AgentRole.ARCHITECT: ContractAgentRole.ARCHITECT,
+        AgentRole.TASK_PLANNER: ContractAgentRole.TASK_PLANNER,
+        AgentRole.RISK_ANALYST: ContractAgentRole.RISK_ANALYST,
     }
     return mapping.get(agent_role)
 
@@ -267,6 +273,60 @@ class PipelineDispatcher:
         """
         decision = self.get_next_dispatch()
         return format_dispatch_for_workflow(decision)
+
+    def aggregate_reviewer_verdicts(
+        self, reviewer_results: dict[str, dict[str, Any]]
+    ) -> tuple[str, str]:
+        """Aggregate verdicts from multiple reviewer agents.
+
+        Implements the aggregation logic: any reviewer verdict of
+        'needs_revision' triggers a re-run of worker agents.
+
+        Args:
+            reviewer_results: Dict mapping reviewer role -> outputs dict
+                Each outputs dict should contain 'verdict' and optionally 'feedback'
+
+        Returns:
+            (overall_verdict, combined_feedback) tuple
+        """
+        needs_revision = False
+        feedback_parts = []
+
+        for role, outputs in reviewer_results.items():
+            verdict = outputs.get("verdict", "approved")
+            feedback = outputs.get("feedback", "")
+
+            if verdict == "needs_revision":
+                needs_revision = True
+                if feedback:
+                    feedback_parts.append(f"[{role}] {feedback}")
+
+        if needs_revision:
+            return "needs_revision", "\n\n".join(feedback_parts)
+        return "approved", ""
+
+    def is_multi_agent_enabled_for_phase(self, phase: str) -> bool:
+        """Check if multi-agent is enabled for a specific phase.
+
+        Considers per-phase overrides from the contract's MultiAgentConfig.
+
+        Args:
+            phase: Phase name
+
+        Returns:
+            True if multi-agent is enabled for this phase
+        """
+        contract = load_contract(self.pipeline.issue_number, self.repo_path)
+        if contract.multi_agent_config is None:
+            return True
+        config = contract.multi_agent_config
+        if not config.enabled:
+            return False
+        # Check per-phase override
+        override = config.phase_overrides.get(phase)
+        if override is not None:
+            return override
+        return True
 
 
 def create_dispatcher(pipeline: Pipeline, repo_path: Path | str) -> PipelineDispatcher:

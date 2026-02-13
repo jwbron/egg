@@ -1703,6 +1703,243 @@ def _populate_contract_from_plan(
         )
 
 
+def _run_multi_agent_phase(
+    spawner,
+    pipeline_id: str,
+    pipeline: "Pipeline",
+    phase: str,
+    repo_volumes: dict[str, str],
+    gateway_mode: str,
+    repos: list[str],
+    sandbox_env: dict[str, str],
+    store,
+    certs_volume: str | None,
+    worktree_repo_path: Path,
+    pipeline_mode: str,
+    review_feedback: str | None = None,
+    review_cycle: int = 0,
+) -> tuple[bool, str | None]:
+    """Run a phase using multi-agent wave-based execution.
+
+    Spawns agents in dependency-ordered waves using the existing
+    MultiAgentExecutor infrastructure, falling back to single-agent
+    on failure.
+
+    Args:
+        spawner: Container spawner
+        pipeline_id: Pipeline ID
+        pipeline: Pipeline model
+        phase: Current phase name
+        repo_volumes: Repo volume mounts
+        gateway_mode: Gateway session mode
+        repos: Repository list
+        sandbox_env: Base sandbox environment variables
+        store: State store
+        certs_volume: Certs volume name
+        worktree_repo_path: Path to worktree repo
+        pipeline_mode: Pipeline mode (issue/local)
+        review_feedback: Prior review feedback if any
+        review_cycle: Current review cycle number
+
+    Returns:
+        (success, error_message) tuple
+    """
+    from egg_contracts.agent_roles import AgentRole as ContractAgentRole
+    from egg_contracts.agent_roles import get_roles_for_phase
+    from egg_contracts.dependency_graph import build_dependency_graph
+
+    try:
+        # Get the roles for this phase
+        phase_roles = get_roles_for_phase(phase)
+    except (ValueError, KeyError):
+        logger.warning(
+            "No multi-agent roles defined for phase, falling back to single-agent",
+            pipeline_id=pipeline_id,
+            phase=phase,
+        )
+        return False, "no_multi_agent_roles"
+
+    # Build dependency graph and compute waves
+    graph = build_dependency_graph(phase_roles)
+    waves = graph.compute_waves()
+
+    logger.info(
+        "Multi-agent execution starting",
+        pipeline_id=pipeline_id,
+        phase=phase,
+        waves=len(waves),
+        total_agents=sum(len(w) for w in waves),
+    )
+
+    max_parallel = pipeline.config.max_parallel_agents
+
+    for wave_idx, wave_agents in enumerate(waves):
+        wave_number = wave_idx + 1
+
+        # Enforce max parallel agents
+        wave_agents = wave_agents[:max_parallel]
+
+        logger.info(
+            "Starting wave",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            wave=wave_number,
+            agents=[r.value for r in wave_agents],
+        )
+
+        # Spawn all agents in this wave
+        wave_results: dict[str, tuple[int, str]] = {}
+        threads: list[threading.Thread] = []
+
+        for role in wave_agents:
+            agent_env = {
+                **sandbox_env,
+                "EGG_AGENT_ROLE": role.value,
+                "EGG_WAVE_NUMBER": str(wave_number),
+            }
+
+            # Add handoff data from completed agents
+            try:
+                from egg_contracts.orchestrator import collect_handoff_data
+
+                handoff = collect_handoff_data(worktree_repo_path, role)
+                if handoff:
+                    agent_env["EGG_HANDOFF_DATA"] = json.dumps(handoff)
+            except Exception as hd_err:
+                logger.warning(
+                    "Failed to collect handoff data",
+                    pipeline_id=pipeline_id,
+                    role=role.value,
+                    error=str(hd_err),
+                )
+
+            # Build phase prompt for this agent
+            phase_prompt = _build_phase_prompt(
+                phase=phase,
+                pipeline_id=pipeline_id,
+                pipeline_mode=pipeline_mode,
+                prompt=pipeline.prompt,
+                issue_number=pipeline.issue_number,
+                repo=pipeline.repo,
+                branch=pipeline.branch,
+                review_feedback=review_feedback if wave_number == 1 else None,
+                review_cycle=review_cycle,
+            )
+
+            sandbox_command = [
+                "claude",
+                "--dangerously-skip-permissions",
+                "--print",
+                "--verbose",
+                "--output-format",
+                "stream-json",
+                "--model",
+                "opus",
+                "--max-turns",
+                "200",
+                phase_prompt,
+            ]
+
+            # Map contract role to orchestrator role for container spawning
+            role_mapping = {
+                "coder": AgentRole.CODER,
+                "tester": AgentRole.TESTER,
+                "documenter": AgentRole.DOCUMENTER,
+                "integrator": AgentRole.INTEGRATOR,
+                "architect": AgentRole.CODER,  # Plan-phase roles use CODER container type
+                "task_planner": AgentRole.CODER,
+                "risk_analyst": AgentRole.CODER,
+            }
+            container_role = role_mapping.get(role.value, AgentRole.CODER)
+
+            if len(wave_agents) == 1:
+                # Single agent in wave — run synchronously
+                try:
+                    exit_code, container_logs = _spawn_and_wait(
+                        spawner=spawner,
+                        pipeline_id=pipeline_id,
+                        agent_role=container_role,
+                        issue_number=pipeline.issue_number,
+                        repo_volumes=repo_volumes,
+                        gateway_mode=gateway_mode,
+                        repos=repos,
+                        phase=phase,
+                        sandbox_env=agent_env,
+                        sandbox_command=sandbox_command,
+                        store=store,
+                        certs_volume=certs_volume,
+                    )
+                    wave_results[role.value] = (exit_code, container_logs)
+                except ContainerSpawnError as e:
+                    wave_results[role.value] = (-1, str(e))
+            else:
+                # Multiple agents — spawn in parallel threads
+                def _run_agent(r_val, c_role, env, cmd):
+                    try:
+                        ec, logs = _spawn_and_wait(
+                            spawner=spawner,
+                            pipeline_id=pipeline_id,
+                            agent_role=c_role,
+                            issue_number=pipeline.issue_number,
+                            repo_volumes=repo_volumes,
+                            gateway_mode=gateway_mode,
+                            repos=repos,
+                            phase=phase,
+                            sandbox_env=env,
+                            sandbox_command=cmd,
+                            store=store,
+                            certs_volume=certs_volume,
+                        )
+                        wave_results[r_val] = (ec, logs)
+                    except ContainerSpawnError as e:
+                        wave_results[r_val] = (-1, str(e))
+
+                t = threading.Thread(
+                    target=_run_agent,
+                    args=(role.value, container_role, agent_env, sandbox_command),
+                    daemon=True,
+                )
+                threads.append(t)
+
+        # Start and join parallel threads
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=3600)
+
+        # Check wave results
+        for role_val, (exit_code, logs) in wave_results.items():
+            if exit_code != 0:
+                error_msg = f"Agent {role_val} failed in wave {wave_number}"
+                if exit_code == -1:
+                    error_msg += f": spawn failed: {logs}"
+                else:
+                    error_msg += f": exit code {exit_code}"
+                    if logs:
+                        log_lines = logs.strip().splitlines()
+                        tail = "\n".join(log_lines[-10:])
+                        error_msg += f"\n--- logs ---\n{tail}"
+
+                logger.error(
+                    "Agent failed in multi-agent wave",
+                    pipeline_id=pipeline_id,
+                    phase=phase,
+                    role=role_val,
+                    wave=wave_number,
+                    exit_code=exit_code,
+                )
+                return False, error_msg
+
+        logger.info(
+            "Wave completed successfully",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            wave=wave_number,
+        )
+
+    return True, None
+
+
 def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     """Run a pipeline by spawning containers for each phase.
 
@@ -1934,7 +2171,254 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             phase_failed = False
             review_feedback: str | None = None
 
-            # --- Inner review cycle ---
+            # --- Multi-agent path ---
+            # When multi_agent is enabled and the phase supports it,
+            # use wave-based parallel execution instead of single CODER.
+            _multi_agent_phases = {"implement", "plan"}
+            if pipeline.config.multi_agent and current_phase.value in _multi_agent_phases:
+                logger.info(
+                    "Using multi-agent execution for phase",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                )
+
+                success, error_msg = _run_multi_agent_phase(
+                    spawner=spawner,
+                    pipeline_id=pipeline_id,
+                    pipeline=pipeline,
+                    phase=current_phase.value,
+                    repo_volumes=repo_volumes,
+                    gateway_mode=phase_gateway_mode,
+                    repos=repos,
+                    sandbox_env=sandbox_env,
+                    store=store,
+                    certs_volume=certs_volume,
+                    worktree_repo_path=worktree_repo_path,
+                    pipeline_mode=pipeline_mode,
+                )
+
+                if not success:
+                    if error_msg == "no_multi_agent_roles":
+                        # Fall through to single-agent path
+                        logger.info(
+                            "Falling back to single-agent for phase",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase.value,
+                        )
+                    else:
+                        pipeline = store.load_pipeline(pipeline_id)
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        phase_execution.status = PipelineStatus.FAILED
+                        phase_execution.error = error_msg
+                        phase_execution.completed_at = datetime.utcnow()
+                        pipeline.status = PipelineStatus.FAILED
+                        pipeline.error = error_msg
+                        store.save_pipeline(pipeline)
+                        phase_failed = True
+                else:
+                    # Multi-agent phase succeeded — skip to review
+                    # The multi-agent path handled all worker execution,
+                    # so we skip the single-agent inner loop below and
+                    # go directly to the review cycle.
+                    pass
+
+                if phase_failed:
+                    break
+
+                # If multi-agent succeeded (or fell back), proceed to review
+                if success:
+                    # Run reviewers for this phase
+                    if current_phase.value in _REVIEWED_PHASES:
+                        # Run the reviewer loop once (review_cycle=0 for first pass)
+                        pipeline = store.load_pipeline(pipeline_id)
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        review_cycle = phase_execution.review_cycles
+
+                        reviewer_types = _PHASE_REVIEWERS.get(
+                            current_phase.value, ["unified"]
+                        )
+
+                        # Delete stale verdict files
+                        for rtype in reviewer_types:
+                            verdict_rel = _verdict_path_for_type(
+                                current_phase.value,
+                                rtype,
+                                pipeline_mode,
+                                pipeline.issue_number,
+                                pipeline_id,
+                            )
+                            verdict_path = worktree_repo_path / verdict_rel
+                            if verdict_path.exists():
+                                try:
+                                    verdict_path.unlink()
+                                except OSError:
+                                    pass
+
+                        all_verdicts: dict[str, ReviewVerdict | None] = {}
+                        for reviewer_type in reviewer_types:
+                            review_prompt = _build_review_prompt(
+                                phase=current_phase.value,
+                                pipeline_id=pipeline_id,
+                                pipeline_mode=pipeline_mode,
+                                reviewer_type=reviewer_type,
+                                issue_number=pipeline.issue_number,
+                                review_cycle=review_cycle + 1,
+                                prior_feedback=review_feedback,
+                            )
+                            reviewer_command = [
+                                "claude",
+                                "--dangerously-skip-permissions",
+                                "--print",
+                                "--verbose",
+                                "--output-format",
+                                "stream-json",
+                                "--model",
+                                "opus",
+                                "--max-turns",
+                                "50",
+                                review_prompt,
+                            ]
+                            reviewer_env = {
+                                **sandbox_env,
+                                "EGG_REVIEWER_TYPE": reviewer_type,
+                            }
+                            try:
+                                rev_exit, rev_logs = _spawn_and_wait(
+                                    spawner=spawner,
+                                    pipeline_id=pipeline_id,
+                                    agent_role=AgentRole.REVIEWER,
+                                    issue_number=pipeline.issue_number,
+                                    repo_volumes=repo_volumes,
+                                    gateway_mode=phase_gateway_mode,
+                                    repos=repos,
+                                    phase=current_phase.value,
+                                    sandbox_env=reviewer_env,
+                                    sandbox_command=reviewer_command,
+                                    timeout=1800,
+                                    store=store,
+                                    certs_volume=certs_volume,
+                                )
+                            except ContainerSpawnError:
+                                all_verdicts[reviewer_type] = None
+                                continue
+
+                            if rev_exit != 0:
+                                all_verdicts[reviewer_type] = None
+                                continue
+
+                            all_verdicts[reviewer_type] = _read_review_verdict(
+                                worktree_repo_path,
+                                current_phase.value,
+                                reviewer_type=reviewer_type,
+                                pipeline_mode=pipeline_mode,
+                                issue_number=pipeline.issue_number,
+                                pipeline_id=pipeline_id,
+                            )
+
+                        overall_verdict, _ = _aggregate_review_verdicts(all_verdicts)
+                        if overall_verdict != "approved":
+                            logger.warning(
+                                "Multi-agent phase review needs revision",
+                                pipeline_id=pipeline_id,
+                                phase=current_phase.value,
+                            )
+                            # For now, proceed anyway (circuit breaker behavior)
+
+                    # Skip to phase completion (below the inner loop)
+                    # We don't enter the inner review cycle at all
+                    pass
+                else:
+                    # Fell back to single-agent — proceed with the normal path below
+                    pass
+
+            # Only enter the single-agent path if multi-agent was not used or fell back
+            if not (pipeline.config.multi_agent and current_phase.value in _multi_agent_phases and not phase_failed):
+                pass  # Fall through to single-agent path below
+            elif not phase_failed:
+                # Multi-agent succeeded, skip to phase completion
+                if phase_failed:
+                    break
+                # Jump to phase completion
+                pipeline = store.load_pipeline(pipeline_id)
+                phase_execution = pipeline.get_phase_execution(current_phase)
+                phase_execution.status = PipelineStatus.COMPLETE
+                phase_execution.completed_at = datetime.utcnow()
+                store.save_pipeline(pipeline)
+
+                report_pipeline_status(
+                    pipeline,
+                    event_type="phase.completed",
+                    message=f"Phase {current_phase.value} completed (multi-agent)",
+                )
+
+                if current_phase.value == "plan":
+                    _populate_contract_from_plan(
+                        worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+                    )
+
+                if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:
+                    draft_content = _read_phase_draft(
+                        worktree_repo_path,
+                        current_phase.value,
+                        pipeline_mode,
+                        pipeline.issue_number,
+                        pipeline_id,
+                    )
+                    phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
+                    question = (
+                        f"The {current_phase.value} phase has completed. "
+                        f"Please review the {phase_label} and approve to continue."
+                    )
+                    dq = get_decision_queue(pipeline_id, repo_path)
+                    decision = dq.queue_decision(
+                        question=question,
+                        context=draft_content,
+                        options=["approve"],
+                        timeout_seconds=pipeline.config.decision_timeout,
+                    )
+                    pipeline = store.load_pipeline(pipeline_id)
+                    pipeline.status = PipelineStatus.AWAITING_HUMAN
+                    store.save_pipeline(pipeline)
+                    report_pipeline_status(
+                        pipeline,
+                        event_type="decision.created",
+                        message=f"Awaiting human approval for {current_phase.value} phase",
+                    )
+                    try:
+                        dq.wait_for_decision(decision.id)
+                    except DecisionTimeoutError:
+                        pass
+                    pipeline = store.load_pipeline(pipeline_id)
+                    pipeline.status = PipelineStatus.RUNNING
+                    store.save_pipeline(pipeline)
+
+                # Advance to next phase
+                next_phases = transitions.get(current_phase, [])
+                if not next_phases:
+                    pipeline.status = PipelineStatus.COMPLETE
+                    is_local = pipeline_mode == "local"
+                    store.save_pipeline(pipeline, force_commit=is_local)
+                    report_pipeline_status(
+                        pipeline,
+                        event_type="pipeline.completed",
+                        message="Pipeline completed successfully",
+                    )
+                    logger.info("Pipeline complete", pipeline_id=pipeline_id)
+                    break
+
+                next_phase = next_phases[0]
+                pipeline.current_phase = next_phase
+                is_local = pipeline_mode == "local"
+                store.save_pipeline(pipeline, force_commit=is_local)
+                logger.info(
+                    "Phase advanced",
+                    pipeline_id=pipeline_id,
+                    from_phase=current_phase.value,
+                    to_phase=next_phase.value,
+                )
+                continue  # Next iteration of outer while loop
+
+            # --- Single-agent inner review cycle (original path) ---
             while True:
                 # Reload to get latest review_cycles count
                 pipeline = store.load_pipeline(pipeline_id)

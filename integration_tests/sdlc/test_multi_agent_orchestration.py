@@ -12,6 +12,7 @@ from egg_contracts import (
     IssueInfo,
     MultiAgentConfig,
 )
+from egg_contracts.agent_roles import get_roles_for_phase
 from egg_contracts.dependency_graph import (
     build_dependency_graph,
     compute_execution_plan,
@@ -27,13 +28,16 @@ from egg_contracts.orchestrator import (
     get_dispatch_for_contract,
 )
 
+# Implement-phase roles for backward-compatible tests
+_IMPLEMENT_ROLES = get_roles_for_phase("implement")
+
 
 class TestDependencyGraph:
     """Tests for dependency graph construction and analysis."""
 
     def test_build_graph_all_roles(self):
-        """Build graph includes all agent roles."""
-        graph = build_dependency_graph()
+        """Build graph includes all implement-phase agent roles."""
+        graph = build_dependency_graph(_IMPLEMENT_ROLES)
         assert len(graph.nodes) == 4
         assert AgentRole.CODER in graph.nodes
         assert AgentRole.TESTER in graph.nodes
@@ -49,13 +53,13 @@ class TestDependencyGraph:
         assert AgentRole.DOCUMENTER not in graph.nodes
 
     def test_no_cycles(self):
-        """Default configuration has no cycles."""
-        graph = build_dependency_graph()
+        """Implement-phase configuration has no cycles."""
+        graph = build_dependency_graph(_IMPLEMENT_ROLES)
         assert not graph.has_cycle()
 
     def test_topological_sort(self):
         """Topological sort respects dependencies."""
-        graph = build_dependency_graph()
+        graph = build_dependency_graph(_IMPLEMENT_ROLES)
         sorted_roles = graph.topological_sort()
 
         # Coder must come before tester and documenter
@@ -70,7 +74,7 @@ class TestDependencyGraph:
 
     def test_compute_waves(self):
         """Compute waves groups agents correctly."""
-        graph = build_dependency_graph()
+        graph = build_dependency_graph(_IMPLEMENT_ROLES)
         waves = graph.compute_waves()
 
         # Wave 1: coder
@@ -86,7 +90,7 @@ class TestDependencyGraph:
 
     def test_execution_plan(self):
         """Execution plan has correct structure."""
-        plan = compute_execution_plan()
+        plan = compute_execution_plan(_IMPLEMENT_ROLES)
 
         assert len(plan) == 3
         assert plan.total_agents == 4
@@ -109,22 +113,30 @@ class TestOrchestrationState:
     """Tests for orchestration state management."""
 
     def _create_test_contract(self) -> Contract:
-        """Create a test contract."""
+        """Create a test contract with implement-phase roles."""
         return Contract(
             issue=IssueInfo(
                 number=123,
                 title="Test Issue",
                 url="https://github.com/test/repo/issues/123",
-            )
+            ),
+            multi_agent_config=MultiAgentConfig(
+                roles_enabled=[
+                    AgentRoleType.CODER,
+                    AgentRoleType.TESTER,
+                    AgentRoleType.DOCUMENTER,
+                    AgentRoleType.INTEGRATOR,
+                ]
+            ),
         )
 
     def test_initialize_orchestration(self):
-        """Initialize creates pending executions for all roles."""
+        """Initialize creates pending executions for implement-phase roles."""
         contract = self._create_test_contract()
         state = initialize_orchestration(contract)
 
         assert len(state.executions) == 4
-        for role in AgentRole:
+        for role in _IMPLEMENT_ROLES:
             assert role in state.executions
             assert state.executions[role].status == AgentExecutionStatus.PENDING
 
@@ -200,7 +212,7 @@ class TestOrchestrationState:
 
         assert not state.all_complete()
 
-        for role in AgentRole:
+        for role in _IMPLEMENT_ROLES:
             state.mark_complete(role)
 
         assert state.all_complete()
@@ -221,13 +233,21 @@ class TestRunnableAgents:
     """Tests for determining which agents can run."""
 
     def _create_test_contract(self) -> Contract:
-        """Create a test contract."""
+        """Create a test contract with implement-phase roles."""
         return Contract(
             issue=IssueInfo(
                 number=123,
                 title="Test Issue",
                 url="https://github.com/test/repo/issues/123",
-            )
+            ),
+            multi_agent_config=MultiAgentConfig(
+                roles_enabled=[
+                    AgentRoleType.CODER,
+                    AgentRoleType.TESTER,
+                    AgentRoleType.DOCUMENTER,
+                    AgentRoleType.INTEGRATOR,
+                ]
+            ),
         )
 
     def test_initial_runnable(self):
@@ -277,13 +297,21 @@ class TestOrchestrator:
     """Tests for the main Orchestrator class."""
 
     def _create_test_contract(self) -> Contract:
-        """Create a test contract."""
+        """Create a test contract with implement-phase roles."""
         return Contract(
             issue=IssueInfo(
                 number=123,
                 title="Test Issue",
                 url="https://github.com/test/repo/issues/123",
-            )
+            ),
+            multi_agent_config=MultiAgentConfig(
+                roles_enabled=[
+                    AgentRoleType.CODER,
+                    AgentRoleType.TESTER,
+                    AgentRoleType.DOCUMENTER,
+                    AgentRoleType.INTEGRATOR,
+                ]
+            ),
         )
 
     def test_create_orchestrator(self):
@@ -325,7 +353,7 @@ class TestOrchestrator:
         contract = self._create_test_contract()
         orch = create_orchestrator(contract)
 
-        for role in AgentRole:
+        for role in _IMPLEMENT_ROLES:
             orch.complete_agent(role)
 
         decision = orch.get_next_dispatch()
@@ -408,7 +436,15 @@ class TestConvenienceFunctions:
                 number=123,
                 title="Test Issue",
                 url="https://github.com/test/repo/issues/123",
-            )
+            ),
+            multi_agent_config=MultiAgentConfig(
+                roles_enabled=[
+                    AgentRoleType.CODER,
+                    AgentRoleType.TESTER,
+                    AgentRoleType.DOCUMENTER,
+                    AgentRoleType.INTEGRATOR,
+                ]
+            ),
         )
 
         decision = get_dispatch_for_contract(contract)
@@ -422,7 +458,15 @@ class TestConvenienceFunctions:
                 number=123,
                 title="Test Issue",
                 url="https://github.com/test/repo/issues/123",
-            )
+            ),
+            multi_agent_config=MultiAgentConfig(
+                roles_enabled=[
+                    AgentRoleType.CODER,
+                    AgentRoleType.TESTER,
+                    AgentRoleType.DOCUMENTER,
+                    AgentRoleType.INTEGRATOR,
+                ]
+            ),
         )
         state = initialize_orchestration(contract)
 

@@ -354,11 +354,13 @@ class MultiAgentExecutor:
     def execute_all_waves(
         self,
         on_wave_complete: Callable[[AgentWave], None] | None = None,
+        max_retries: int = 2,
     ) -> list[AgentWave]:
         """Execute all waves until completion or failure.
 
         Args:
             on_wave_complete: Optional callback after each wave
+            max_retries: Maximum retries for transient agent failures
 
         Returns:
             List of completed waves
@@ -374,6 +376,27 @@ class MultiAgentExecutor:
                 on_wave_complete(completed)
 
             if completed.has_failures:
+                # Check if failures are retryable (non-conflict transient failures)
+                retryable = []
+                for role, result in completed.results.items():
+                    if result.status == AgentExecutionStatus.FAILED:
+                        if result.retry_count < max_retries and not getattr(
+                            result, "conflicts", None
+                        ):
+                            retryable.append(role)
+
+                if retryable:
+                    logger.info(
+                        "Retrying failed agents",
+                        pipeline_id=self.pipeline.id,
+                        wave=completed.wave_number,
+                        retryable=[r.value for r in retryable],
+                    )
+                    # Reset retryable agents and let next iteration pick them up
+                    for role in retryable:
+                        self.dispatcher.start_agent(role)
+                    continue
+
                 logger.error(
                     "Wave failed, stopping execution",
                     pipeline_id=self.pipeline.id,
@@ -385,6 +408,76 @@ class MultiAgentExecutor:
         self.dispatcher.save_contract()
 
         return self.completed_waves
+
+    def execute_with_revision_cycle(
+        self,
+        max_review_cycles: int = 3,
+        on_wave_complete: Callable[[AgentWave], None] | None = None,
+    ) -> tuple[list[AgentWave], str]:
+        """Execute all waves with revision cycle support.
+
+        When reviewers produce a 'needs_revision' verdict, worker agents
+        are reset to PENDING and re-dispatched in a new wave sequence.
+
+        Args:
+            max_review_cycles: Maximum revision cycles before forced completion
+            on_wave_complete: Optional callback after each wave
+
+        Returns:
+            (completed_waves, final_verdict) tuple
+        """
+        final_verdict = "approved"
+
+        for cycle in range(max_review_cycles):
+            logger.info(
+                "Starting revision cycle",
+                pipeline_id=self.pipeline.id,
+                cycle=cycle + 1,
+                max_cycles=max_review_cycles,
+            )
+
+            waves = self.execute_all_waves(on_wave_complete=on_wave_complete)
+
+            # Check for failures
+            if any(w.has_failures for w in waves):
+                final_verdict = "failed"
+                break
+
+            # Check reviewer verdicts from the last wave
+            last_wave = waves[-1] if waves else None
+            if last_wave:
+                reviewer_results = {}
+                for role, result in last_wave.results.items():
+                    if hasattr(result, "outputs") and result.outputs:
+                        reviewer_results[role.value] = result.outputs
+
+                if reviewer_results:
+                    verdict, feedback = self.dispatcher.aggregate_reviewer_verdicts(
+                        reviewer_results
+                    )
+                    if verdict == "needs_revision":
+                        if cycle + 1 < max_review_cycles:
+                            logger.info(
+                                "Reviewers request revision",
+                                pipeline_id=self.pipeline.id,
+                                cycle=cycle + 1,
+                                feedback_preview=feedback[:200],
+                            )
+                            final_verdict = "needs_revision"
+                            # Reset will happen on next cycle
+                            continue
+                        else:
+                            logger.warning(
+                                "Max review cycles reached, forcing completion",
+                                pipeline_id=self.pipeline.id,
+                                cycles=cycle + 1,
+                            )
+                            final_verdict = "approved"  # Circuit breaker
+
+            final_verdict = "approved"
+            break
+
+        return self.completed_waves, final_verdict
 
     def get_execution_status(self) -> dict[str, Any]:
         """Get current execution status.

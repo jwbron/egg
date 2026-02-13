@@ -216,11 +216,14 @@ class OrchestrationState:
         return [h for h in self.handoffs if role in h.target_agents]
 
     def get_pending_roles(self) -> list[AgentRole]:
-        """Get all roles that are pending execution."""
+        """Get all roles that are pending execution.
+
+        Only considers roles that have been initialized in this orchestration
+        state (via self.executions), not all possible AgentRole values.
+        """
         pending = []
-        for role in AgentRole:
-            execution = self.executions.get(role)
-            if execution is None or execution.status == AgentExecutionStatus.PENDING:
+        for role, execution in self.executions.items():
+            if execution.status == AgentExecutionStatus.PENDING:
                 pending.append(role)
         return pending
 
@@ -348,7 +351,8 @@ def get_runnable_agents(state: OrchestrationState) -> list[AgentRole]:
     """Get all agents that can currently run.
 
     Returns agents that are pending and have all dependencies satisfied.
-    These agents can be run in parallel.
+    These agents can be run in parallel. Only considers roles that exist
+    in the orchestration state.
 
     Args:
         state: Current orchestration state
@@ -357,7 +361,7 @@ def get_runnable_agents(state: OrchestrationState) -> list[AgentRole]:
         List of roles that can run now
     """
     runnable = []
-    for role in AgentRole:
+    for role in state.executions:
         if can_agent_run(role, state):
             runnable.append(role)
     return runnable
