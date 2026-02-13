@@ -297,18 +297,24 @@ The Docker Compose configuration includes automatic health checks with:
 
 ### Orchestrator refuses to start as root
 
-If you see "ERROR: orchestrator must not run as root", this means HOST_UID and HOST_GID are not set or HOST_UID=0. The orchestrator requires these environment variables to drop privileges before starting. Running as root would create git refs with root:root ownership, breaking host git operations.
+If the orchestrator exits on startup with a root-related error, `HOST_UID` and `HOST_GID` are either not set or set to 0. You may see one of:
+
+- `ERROR: running as root but HOST_UID/HOST_GID are not set.` — entrypoint cannot drop privileges
+- `ERROR: HOST_UID must not be 0 (root).` — HOST_UID is explicitly set to 0
+- `ERROR: orchestrator must not run as root.` — Python process is still running as root
+
+The orchestrator requires these environment variables to drop privileges before starting. Running as root would create git artifacts with root:root ownership, breaking host git operations.
 
 Fix:
 ```bash
-# In your .env file
+# In your .env file (or hardcode the output of id -u / id -g)
 HOST_UID=$(id -u)
 HOST_GID=$(id -g)
 ```
 
-If refs are already root-owned:
+If `.git` directories already have root-owned files:
 ```bash
-sudo chown -R $(id -u):$(id -g) ~/repos/*/.git/refs
+sudo chown -R $(id -u):$(id -g) ~/repos/*/.git
 ```
 
 ## Security Considerations
