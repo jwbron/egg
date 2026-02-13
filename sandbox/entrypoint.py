@@ -30,11 +30,12 @@ from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Well-known path for subprocess stderr capture (read by signal_orchestrator_completion)
-_SUBPROCESS_STDERR_LOG = Path("/tmp/egg-subprocess-stderr.log")
 from typing import Any, ClassVar
 
 from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT
+
+# Well-known path for subprocess stderr capture (read by signal_orchestrator_completion)
+_SUBPROCESS_STDERR_LOG = Path("/tmp/egg-subprocess-stderr.log")
 
 # =============================================================================
 # Startup Timing (Debug)
@@ -1287,24 +1288,34 @@ def cleanup_on_exit(config: Config, logger: Logger, exit_code: int = 0) -> None:
 # =============================================================================
 
 
-def _tee_stderr_to_file(process: subprocess.Popen, log_path: Path) -> None:
-    """Tee subprocess stderr to both sys.stderr and a log file.
+def _tee_stderr_to_file(
+    process: subprocess.Popen,
+    log_path: Path,
+    max_lines: int = 500,
+) -> None:
+    """Tee subprocess stderr to both sys.stderr and a bounded log file.
 
     Runs in a background thread. Reads from process.stderr (PIPE) and
-    writes each line to both the container's stderr and a log file so
-    we can include stderr context in error signals.
+    writes each line to the container's stderr in real time.  Only the
+    last *max_lines* lines are kept in memory and flushed to *log_path*
+    when the stream ends, preventing unbounded file growth.
     """
+    from collections import deque
+
     try:
         stderr_out = getattr(sys.stderr, "buffer", sys.stderr)
+        ring: deque[bytes] = deque(maxlen=max_lines)
+        while True:
+            line = process.stderr.readline()
+            if not line:
+                break
+            stderr_out.write(line)
+            stderr_out.flush()
+            ring.append(line)
+        # Write the bounded tail to disk for _read_subprocess_stderr_tail()
         with open(log_path, "wb") as log_file:
-            while True:
-                line = process.stderr.readline()
-                if not line:
-                    break
-                stderr_out.write(line)
-                stderr_out.flush()
-                log_file.write(line)
-                log_file.flush()
+            for saved_line in ring:
+                log_file.write(saved_line)
     except Exception:
         pass
 

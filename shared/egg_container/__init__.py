@@ -81,9 +81,10 @@ def git_shadow_mounts(
     Args:
         repo_volumes: Mapping of repo_name -> host_path.
         container_base: Base path in container for repos.
-        assume_worktree: If True, always use tmpfs (orchestrator can't stat
-            host paths from inside its own container). If False, check whether
-            .git is a file (worktree) or directory and choose the mount type.
+        assume_worktree: If True, always use /dev/null bind mounts
+            (file-over-file) because the orchestrator can't stat host paths
+            and repos are always gateway-created worktrees (.git is a file).
+            If False, inspect the actual .git path to choose the mount type.
 
     Returns:
         List of MountSpec for .git shadow mounts.
@@ -129,6 +130,9 @@ def mount_spec_to_cli_args(mount: MountSpec) -> list[str]:
 
     Returns:
         List of CLI arguments (e.g., ``["--mount", "type=bind,..."]``).
+
+    Raises:
+        ValueError: For unsupported mount types.
     """
     if mount.mount_type == "bind" and mount.source is not None:
         parts = f"type=bind,source={mount.source},destination={mount.destination}"
@@ -137,7 +141,15 @@ def mount_spec_to_cli_args(mount: MountSpec) -> list[str]:
         return ["--mount", parts]
     elif mount.mount_type == "tmpfs":
         return ["--mount", f"type=tmpfs,destination={mount.destination}"]
-    return []
+    elif mount.mount_type == "volume" and mount.source is not None:
+        parts = f"type=volume,source={mount.source},destination={mount.destination}"
+        if mount.readonly:
+            parts += ",readonly"
+        return ["--mount", parts]
+    elif mount.mount_type == "bind" and mount.source is None:
+        return []
+    else:
+        raise ValueError(f"Unsupported mount type: {mount.mount_type!r}")
 
 
 def build_sandbox_config(
@@ -201,6 +213,7 @@ def build_sandbox_config(
         no_proxy = f"localhost,127.0.0.1,{network.gateway_hostname}"
         dns = ("0.0.0.0",)
         env["PRIVATE_MODE"] = "true"
+        env["EGG_PRIVATE_MODE"] = "true"
         env["HTTP_PROXY"] = proxy
         env["HTTPS_PROXY"] = proxy
         env["http_proxy"] = proxy
@@ -209,6 +222,7 @@ def build_sandbox_config(
         env["no_proxy"] = no_proxy
     else:
         env["PRIVATE_MODE"] = "false"
+        env["EGG_PRIVATE_MODE"] = "false"
 
     # Caller-specific extras (applied last so they can override defaults)
     if extra_env:

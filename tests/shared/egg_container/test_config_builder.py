@@ -166,6 +166,7 @@ class TestBuildSandboxConfigPrivateMode:
             network=_private_config(),
         )
         assert config.environment["PRIVATE_MODE"] == "true"
+        assert config.environment["EGG_PRIVATE_MODE"] == "true"
 
     def test_dns_lockdown(self):
         config = build_sandbox_config(
@@ -206,6 +207,7 @@ class TestBuildSandboxConfigPublicMode:
             network=_public_config(),
         )
         assert config.environment["PRIVATE_MODE"] == "false"
+        assert config.environment["EGG_PRIVATE_MODE"] == "false"
 
     def test_no_dns_lockdown(self):
         config = build_sandbox_config(
@@ -525,3 +527,32 @@ class TestMountSpecToCliArgs:
         mount = MountSpec(mount_type="bind", source=None, destination="/path")
         args = mount_spec_to_cli_args(mount)
         assert args == []
+
+    def test_volume_mount(self):
+        mount = MountSpec(
+            mount_type="volume",
+            source="egg-certs",
+            destination="/shared/certs",
+            readonly=True,
+        )
+        args = mount_spec_to_cli_args(mount)
+        assert args == [
+            "--mount",
+            "type=volume,source=egg-certs,destination=/shared/certs,readonly",
+        ]
+
+    def test_volume_mount_readwrite(self):
+        mount = MountSpec(
+            mount_type="volume",
+            source="data-vol",
+            destination="/data",
+        )
+        args = mount_spec_to_cli_args(mount)
+        assert args == ["--mount", "type=volume,source=data-vol,destination=/data"]
+
+    def test_unsupported_mount_type_raises(self):
+        import pytest
+
+        mount = MountSpec(mount_type="nfs", source="server:/export", destination="/mnt")
+        with pytest.raises(ValueError, match="Unsupported mount type"):
+            mount_spec_to_cli_args(mount)

@@ -262,6 +262,8 @@ class ContainerSpawner:
 
         session_info = None
         container = None
+        host_uid = int(os.environ.get("HOST_UID", 1000))
+        host_gid = int(os.environ.get("HOST_GID", 1000))
 
         try:
             # Register gateway session so the container gets a session token.
@@ -270,8 +272,6 @@ class ContainerSpawner:
             # local-mode restrictions (push blocking) at the session level.
             session_token = None
             try:
-                host_uid = int(os.environ.get("HOST_UID", 1000))
-                host_gid = int(os.environ.get("HOST_GID", 1000))
                 session_info = self.gateway.register_session(
                     container_id=container_name,
                     container_ip=EGG_CONTAINER_IP,
@@ -302,8 +302,6 @@ class ContainerSpawner:
             # CONTAINER_ID must match the worktree container_id so the gateway
             # git proxy can map /home/egg/repos/<name> to the correct worktree
             # at /home/egg/.egg-worktrees/<id>/<name>.
-            host_uid = int(os.environ.get("HOST_UID", 1000))
-            host_gid = int(os.environ.get("HOST_GID", 1000))
             spawner_env: dict[str, str] = {
                 "CONTAINER_ID": pipeline_id,
                 "EGG_REPO_PATH": "/home/egg/repos",
