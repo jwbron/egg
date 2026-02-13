@@ -343,6 +343,26 @@ class ContainerSpawner:
             # Start the container
             container = self.docker.start_container(container.container_id)
 
+            # Update gateway session with actual container IP
+            if session_token:
+                try:
+                    actual_ip = self._get_container_ip(container.container_id)
+                    self.gateway.update_session(
+                        session_token=session_token,
+                        container_ip=actual_ip,
+                    )
+                    logger.info(
+                        "Updated session with actual container IP",
+                        container_id=container.container_id[:12],
+                        actual_ip=actual_ip,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to update session IP",
+                        container_id=container.container_id[:12],
+                        error=str(e),
+                    )
+
             logger.info(
                 "Agent container spawned",
                 container_id=container.container_id[:12],

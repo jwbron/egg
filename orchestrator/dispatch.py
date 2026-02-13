@@ -68,14 +68,15 @@ def map_contract_role_to_agent_role(contract_role: ContractAgentRole) -> AgentRo
     return mapping[contract_role]
 
 
-def map_agent_role_to_contract_role(agent_role: AgentRole) -> ContractAgentRole:
+def map_agent_role_to_contract_role(agent_role: AgentRole) -> ContractAgentRole | None:
     """Map orchestrator AgentRole to egg_contracts AgentRole.
 
     Args:
         agent_role: Role from orchestrator
 
     Returns:
-        Corresponding egg_contracts AgentRole
+        Corresponding egg_contracts AgentRole, or None if no mapping exists
+        (e.g. REVIEWER, CHECKER roles don't interact with contracts)
     """
     mapping = {
         AgentRole.CODER: ContractAgentRole.CODER,
@@ -83,7 +84,7 @@ def map_agent_role_to_contract_role(agent_role: AgentRole) -> ContractAgentRole:
         AgentRole.DOCUMENTER: ContractAgentRole.DOCUMENTER,
         AgentRole.INTEGRATOR: ContractAgentRole.INTEGRATOR,
     }
-    return mapping[agent_role]
+    return mapping.get(agent_role)
 
 
 class PipelineDispatcher:
@@ -160,7 +161,8 @@ class PipelineDispatcher:
             AgentExecution with updated state
         """
         contract_role = map_agent_role_to_contract_role(role)
-        self.contract_orchestrator.start_agent(contract_role)
+        if contract_role is not None:
+            self.contract_orchestrator.start_agent(contract_role)
 
         return AgentExecution(
             role=role,
@@ -185,15 +187,16 @@ class PipelineDispatcher:
             AgentExecution with updated state
         """
         contract_role = map_agent_role_to_contract_role(role)
-        self.contract_orchestrator.complete_agent(
-            contract_role,
-            commit=commit,
-            outputs=outputs,
-        )
+        if contract_role is not None:
+            self.contract_orchestrator.complete_agent(
+                contract_role,
+                commit=commit,
+                outputs=outputs,
+            )
 
-        # Save outputs if provided
-        if outputs:
-            save_agent_output(self.repo_path, contract_role, outputs)
+            # Save outputs if provided
+            if outputs:
+                save_agent_output(self.repo_path, contract_role, outputs)
 
         return AgentExecution(
             role=role,
@@ -214,7 +217,8 @@ class PipelineDispatcher:
             AgentExecution with updated state
         """
         contract_role = map_agent_role_to_contract_role(role)
-        self.contract_orchestrator.fail_agent(contract_role, error)
+        if contract_role is not None:
+            self.contract_orchestrator.fail_agent(contract_role, error)
 
         return AgentExecution(
             role=role,
@@ -235,6 +239,8 @@ class PipelineDispatcher:
             Combined handoff data
         """
         contract_role = map_agent_role_to_contract_role(role)
+        if contract_role is None:
+            return {}
         return collect_handoff_data(self.repo_path, contract_role)
 
     def save_contract(self) -> None:
