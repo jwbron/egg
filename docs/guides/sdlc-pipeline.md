@@ -119,15 +119,15 @@ Each event includes the current visualization data and pipeline status. The stre
     "status": "running",
     "current_phase": "implement",
     "visualization": {
-      "dag": ">>> ╔══════════════╗\n    │ ▶ Implement │\n    │   running   │\n    ╚══════════════╝",
+      "dag": ">>> ╔══════════════╗\n    │ ▶ Implement │\n    │   running   │\n    │   ✓ coder  ▶ reviewer  │\n    ╚══════════════╝",
       "compact": "✓Refine → ✓Plan → [▶Implement] → ○PR",
       "progress": "[███████████░░░░░░░░░] 60%"
     },
     "phases": {
-      "refine": {"status": "complete", "review_cycles": 2, "containers": 1, "agents": 1},
-      "plan": {"status": "complete", "review_cycles": 1, "containers": 1, "agents": 1},
-      "implement": {"status": "running", "review_cycles": 0, "containers": 1, "agents": 1},
-      "pr": {"status": "pending", "review_cycles": 0, "containers": 0, "agents": 0}
+      "refine": {"status": "complete", "review_cycles": 2, "containers": 1, "agents": [{"role": "coder", "status": "complete"}]},
+      "plan": {"status": "complete", "review_cycles": 1, "containers": 1, "agents": [{"role": "coder", "status": "complete"}]},
+      "implement": {"status": "running", "review_cycles": 0, "containers": 2, "agents": [{"role": "coder", "status": "complete"}, {"role": "reviewer", "status": "running"}]},
+      "pr": {"status": "pending", "review_cycles": 0, "containers": 0, "agents": []}
     },
     "pending_decisions": 0,
     "updated_at": "2026-02-12T10:30:00Z"
