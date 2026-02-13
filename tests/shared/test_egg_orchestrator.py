@@ -191,6 +191,7 @@ class TestOrchestratorDetection:
         """Test detection when not in orchestrator mode."""
         monkeypatch.delenv("EGG_ORCHESTRATOR_MODE", raising=False)
         monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+        monkeypatch.delenv("EGG_ORCHESTRATOR_URL", raising=False)
         assert is_orchestrator_mode() is False
 
     def test_is_orchestrator_mode_true(self, monkeypatch):
@@ -203,6 +204,7 @@ class TestOrchestratorDetection:
         """Test URL detection when not in orchestrator mode."""
         monkeypatch.delenv("EGG_ORCHESTRATOR_URL", raising=False)
         monkeypatch.delenv("EGG_ORCHESTRATOR_MODE", raising=False)
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
         assert get_orchestrator_url() is None
 
     def test_get_orchestrator_url_explicit(self, monkeypatch):
