@@ -2,14 +2,19 @@
   "all_passed": false,
   "checks": [
     {
-      "name": "lint",
+      "name": "ruff-check",
+      "passed": true,
+      "output": "All checks passed!"
+    },
+    {
+      "name": "ruff-format",
       "passed": false,
-      "output": "ruff found 65 errors (61 auto-fixable). Issues include: unused imports (F401), unsorted import blocks (I001), unused local variables (F841), quoted type annotations that can be removed (UP037), and deprecated typing imports (UP035). Affected files span gateway/, orchestrator/, tests/, shared/, and integration_tests/."
+      "output": "29 files would be reformatted, 311 files already formatted. Formatting issues in gateway/, orchestrator/, shared/, tests/ directories."
     },
     {
       "name": "pytest",
       "passed": false,
-      "output": "3096 passed, 3 failed, 81 skipped in 15.14s. 3 failures are environment-related (orchestrator mode detection): test_config_orchestrator_mode_default, test_is_orchestrator_mode_false, and test_get_orchestrator_url_not_set all fail because the test environment has ORCHESTRATOR_MODE/ORCHESTRATOR_URL env vars set, causing is_orchestrator_mode() to return True instead of False."
+      "output": "4123 passed, 3 failed, 81 skipped, 2 errors in 39.39s. Failures: 3 tests in gateway/tests/test_session_manager.py (TestSessionEndCheckpointCapture - _capture_and_cleanup_session not called). Errors: 2 tests in gateway/tests/test_worktree_manager.py (TestWorktreeManagerDockerGitDir - git init failed in sandbox environment)."
     }
   ]
 }
