@@ -5,7 +5,7 @@
   "branch": "egg/issue-507",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "complete",
   "current_phase": "pr",
   "config": {
     "auto_create_pr": true,
@@ -309,9 +309,9 @@
     },
     "pr": {
       "phase": "pr",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-02-13T05:15:33.581500",
-      "completed_at": null,
+      "completed_at": "2026-02-13T05:16:48.600040",
       "containers": [
         {
           "container_id": "9af40232df93f547364c7562bfc87cec7b96f47ebd2ad03c96b8ea7833fc5c4d",
@@ -371,8 +371,8 @@
     }
   ],
   "created_at": "2026-02-13T04:41:13.532468",
-  "updated_at": "2026-02-13T05:16:48.552069",
+  "updated_at": "2026-02-13T05:16:48.600492",
   "contract_synced": true,
   "error": null,
-  "version": 45
+  "version": 46
 }
