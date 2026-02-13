@@ -86,7 +86,7 @@ This architecture does **not** protect against:
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │  Contract API                                                   │    │
 │  │  POST /api/v1/contract/mutate                                   │    │
-│  │  GET /api/v1/contract/{issue}                                   │    │
+│  │  GET /api/v1/contract/{identifier}                               │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                              │                                          │
 │                              ▼                                          │
@@ -223,7 +223,7 @@ If the orchestrator restarts while a pipeline is token-gated, in-memory tokens a
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/v1/contract/{issue}` | GET | Retrieve contract state |
+| `/api/v1/contract/{identifier}` | GET | Retrieve contract state |
 | `/api/v1/contract/mutate` | POST | Apply mutation with role enforcement |
 | `/api/v1/contract/validate` | POST | Validate mutation without applying |
 | `/api/v1/phase/advance` | POST | Advance to next phase |

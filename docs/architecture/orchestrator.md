@@ -50,9 +50,9 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 
 **Key artifact files in worktrees:**
 - `.egg-state/contracts/{identifier}.json` — Contract state (issue number for issue-mode, pipeline ID for local-mode)
-- `.egg-state/drafts/{issue}-analysis.md` — Draft for `refine` phase (special-cased to `analysis`)
-- `.egg-state/drafts/{issue}-{phase}.md` — Draft for other phases (e.g., `plan`). No draft for `implement` phase.
-- `.egg-state/reviews/{issue}-{phase}-{reviewer_type}-review.json` — Review verdict files
+- `.egg-state/drafts/{identifier}-analysis.md` — Draft for `refine` phase (special-cased to `analysis`)
+- `.egg-state/drafts/{identifier}-{phase}.md` — Draft for other phases (e.g., `plan`). No draft for `implement` phase.
+- `.egg-state/reviews/{identifier}-{phase}-{reviewer_type}-review.json` — Review verdict files
 - `.egg-state/checks/implement-results.json` — Check results from the `implement` phase
 
 **Volume mounts:**
