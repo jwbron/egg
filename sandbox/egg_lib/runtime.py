@@ -783,10 +783,13 @@ def exec_in_new_container(
         error("Docker build failed")
         return False
 
-    # Start gateway + orchestrator via Docker Compose (if not already running)
-    if not ensure_compose_services():
-        error("Failed to start services (gateway + orchestrator)")
-        return False
+    # Start gateway + orchestrator via Docker Compose (if not already running).
+    # Skip in ephemeral mode (GHA) — gha_exec() starts the gateway directly
+    # and the orchestrator image is not available in CI.
+    if not ctx.ephemeral:
+        if not ensure_compose_services():
+            error("Failed to start services (gateway + orchestrator)")
+            return False
 
     # Generate unique container ID for this exec
     container_id = f"egg-exec-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
