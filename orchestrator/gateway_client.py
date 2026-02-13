@@ -34,21 +34,13 @@ except ImportError:
 
 try:
     from egg_config import (
-        EGG_ISOLATED_NETWORK,
         GATEWAY_CONTAINER_NAME,
-        GATEWAY_EXTERNAL_IP,
-        GATEWAY_ISOLATED_IP,
         GATEWAY_PORT,
-        GATEWAY_PROXY_PORT,
     )
 except ImportError:
     # Fallback defaults
     GATEWAY_CONTAINER_NAME = "egg-gateway"
     GATEWAY_PORT = 9848
-    GATEWAY_PROXY_PORT = 3129
-    GATEWAY_ISOLATED_IP = "172.32.0.2"
-    GATEWAY_EXTERNAL_IP = "172.33.0.2"
-    EGG_ISOLATED_NETWORK = "egg-isolated"
 
 logger = get_logger("orchestrator.gateway_client")
 
@@ -421,47 +413,6 @@ class GatewayClient:
             )
             return False
 
-    def get_proxy_config(self, mode: str = "public") -> dict[str, str]:
-        """Get proxy configuration for a container.
-
-        Returns environment variables that should be set in spawned
-        containers to route traffic through the gateway proxy.
-
-        Args:
-            mode: Repository visibility mode (public, private, or local)
-
-        Returns:
-            Dictionary of environment variables
-        """
-        # Use the correct gateway IP for the container's network:
-        # - private/local: containers on egg-isolated (172.32.0.x)
-        # - public: containers on egg-external (172.33.0.x)
-        if mode in ("private", "local"):
-            gateway_ip = GATEWAY_ISOLATED_IP
-        else:
-            gateway_ip = GATEWAY_EXTERNAL_IP
-
-        proxy_url = f"http://{gateway_ip}:{GATEWAY_PROXY_PORT}"
-
-        # Base proxy configuration
-        config = {
-            "HTTP_PROXY": proxy_url,
-            "HTTPS_PROXY": proxy_url,
-            "http_proxy": proxy_url,
-            "https_proxy": proxy_url,
-            # Don't proxy internal network traffic
-            "NO_PROXY": f"localhost,127.0.0.1,{gateway_ip},.local",
-            "no_proxy": f"localhost,127.0.0.1,{gateway_ip},.local",
-        }
-
-        # Mode-specific settings
-        if mode == "private":
-            config["EGG_PRIVATE_MODE"] = "true"
-        else:
-            config["EGG_PRIVATE_MODE"] = "false"
-
-        return config
-
     def create_worktrees(
         self,
         container_id: str,
@@ -561,43 +512,6 @@ class GatewayClient:
             raise
         except Exception as e:
             raise GatewayError(f"Failed to delete worktrees: {e}") from e
-
-    def get_container_env(
-        self,
-        session_token: str,
-        issue_number: int,
-        repo_path: str,
-        agent_role: str | None = None,
-        mode: str = "public",
-    ) -> dict[str, str]:
-        """Get complete environment configuration for a container.
-
-        Combines session credentials, proxy settings, and pipeline context.
-
-        Args:
-            session_token: Gateway session token
-            issue_number: Pipeline issue number
-            repo_path: Repository path inside container
-            agent_role: Agent role for contract operations
-            mode: Repository visibility mode
-
-        Returns:
-            Dictionary of environment variables
-        """
-        env = self.get_proxy_config(mode)
-
-        # Session credentials
-        env["EGG_SESSION_TOKEN"] = session_token
-        env["GATEWAY_URL"] = self.base_url
-
-        # Pipeline context
-        env["EGG_ISSUE_NUMBER"] = str(issue_number)
-        env["EGG_REPO_PATH"] = repo_path
-
-        if agent_role:
-            env["EGG_AGENT_ROLE"] = agent_role
-
-        return env
 
 
 class GatewayError(Exception):

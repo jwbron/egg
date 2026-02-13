@@ -66,17 +66,6 @@ def mock_gateway_client():
         expires_at=datetime.utcnow() + timedelta(hours=24),
     )
 
-    # Default environment
-    mock.get_container_env.return_value = {
-        "EGG_SESSION_TOKEN": "test-token-12345",
-        "GATEWAY_URL": "http://egg-gateway:9848",
-        "EGG_ISSUE_NUMBER": "123",
-        "EGG_REPO_PATH": "/workspace/repo",
-        "EGG_AGENT_ROLE": "coder",
-        "HTTP_PROXY": "http://172.32.0.2:3129",
-        "HTTPS_PROXY": "http://172.32.0.2:3129",
-    }
-
     return mock
 
 
@@ -119,7 +108,6 @@ class TestSpawnAgentContainer:
             pipeline_id="issue-123",
             agent_role=AgentRole.CODER,
             issue_number=123,
-            repo_path="/workspace/repo",
             mode="public",
         )
 
@@ -142,7 +130,6 @@ class TestSpawnAgentContainer:
             pipeline_id="issue-123",
             agent_role=AgentRole.TESTER,
             issue_number=123,
-            repo_path="/workspace/repo",
             image="custom-sandbox:v2",
         )
 
@@ -152,21 +139,21 @@ class TestSpawnAgentContainer:
         last_call = calls[-1]
         assert last_call.kwargs.get("image") == "custom-sandbox:v2"
 
-    def test_spawn_with_repo_mount(self, spawner, mock_docker_client):
-        """Test spawning with repository mount."""
+    def test_spawn_with_repo_volumes(self, spawner, mock_docker_client):
+        """Test spawning with repository volumes."""
         spawner.spawn_agent_container(
             pipeline_id="issue-123",
             agent_role=AgentRole.CODER,
             issue_number=123,
-            repo_path="/workspace/repo",
-            repo_mount="/host/path/to/repo",
+            repo_volumes={"my-repo": "/host/path/to/repo"},
         )
 
-        # Check that volume was configured
+        # Check that volume was configured via mounts list
         calls = mock_docker_client.create_container.call_args_list
         last_call = calls[-1]
-        volumes = last_call.kwargs.get("volumes", {})
-        assert "/host/path/to/repo" in volumes
+        mounts = last_call.kwargs.get("mounts", [])
+        repo_mounts = [m for m in mounts if m.get("Source") == "/host/path/to/repo"]
+        assert len(repo_mounts) == 1
 
     def test_spawn_with_extra_env(self, spawner, mock_docker_client, mock_gateway_client):
         """Test spawning with extra environment variables."""
@@ -174,7 +161,6 @@ class TestSpawnAgentContainer:
             pipeline_id="issue-123",
             agent_role=AgentRole.CODER,
             issue_number=123,
-            repo_path="/workspace/repo",
             extra_env={"CUSTOM_VAR": "custom_value"},
         )
 
@@ -187,7 +173,6 @@ class TestSpawnAgentContainer:
             pipeline_id="issue-123",
             agent_role=AgentRole.CODER,
             issue_number=123,
-            repo_path="/workspace/repo",
             mode="private",
         )
 
@@ -209,7 +194,6 @@ class TestSpawnAgentContainer:
                 pipeline_id="issue-123",
                 agent_role=AgentRole.CODER,
                 issue_number=123,
-                repo_path="/workspace/repo",
             )
 
         assert "not healthy" in str(exc_info.value).lower()
@@ -226,7 +210,6 @@ class TestSpawnAgentContainer:
             pipeline_id="issue-123",
             agent_role=AgentRole.CODER,
             issue_number=123,
-            repo_path="/workspace/repo",
             wait_for_gateway=False,
         )
 
@@ -247,7 +230,6 @@ class TestSpawnAgentContainer:
             pipeline_id="issue-123",
             agent_role=AgentRole.CODER,
             issue_number=123,
-            repo_path="/workspace/repo",
         )
 
         assert result.session_info is None
@@ -259,7 +241,6 @@ class TestSpawnAgentContainer:
             pipeline_id="issue-456",
             agent_role=AgentRole.DOCUMENTER,
             issue_number=456,
-            repo_path="/workspace/repo",
         )
 
         calls = mock_docker_client.create_container.call_args_list
@@ -466,7 +447,6 @@ class TestContainerEnvironmentAtCreation:
             pipeline_id="issue-123",
             agent_role=AgentRole.CODER,
             issue_number=123,
-            repo_path="/workspace/repo",
             mode="public",
         )
 
@@ -482,12 +462,11 @@ class TestContainerEnvironmentAtCreation:
     def test_spawn_includes_gateway_url_in_container_env(
         self, spawner, mock_docker_client, mock_gateway_client
     ):
-        """Test that GATEWAY_URL is passed to create_container."""
+        """Test that GATEWAY_URL uses hostname, not raw IP."""
         spawner.spawn_agent_container(
             pipeline_id="issue-123",
             agent_role=AgentRole.CODER,
             issue_number=123,
-            repo_path="/workspace/repo",
         )
 
         create_call = mock_docker_client.create_container.call_args
@@ -496,27 +475,42 @@ class TestContainerEnvironmentAtCreation:
         assert "GATEWAY_URL" in container_env, (
             "Gateway URL must be included in container environment at creation time"
         )
+        # GATEWAY_URL should be hostname-based (from shared config builder)
+        assert "egg-gateway" in container_env["GATEWAY_URL"]
 
-    def test_spawn_includes_proxy_config_in_container_env(
+    def test_spawn_private_mode_includes_proxy_config(
         self, spawner, mock_docker_client, mock_gateway_client
     ):
-        """Test that proxy configuration is passed to create_container."""
+        """Test that proxy configuration is set for private mode containers."""
         spawner.spawn_agent_container(
             pipeline_id="issue-123",
             agent_role=AgentRole.CODER,
             issue_number=123,
-            repo_path="/workspace/repo",
+            mode="private",
         )
 
         create_call = mock_docker_client.create_container.call_args
         container_env = create_call.kwargs.get("environment", {})
 
-        assert "HTTP_PROXY" in container_env, (
-            "HTTP_PROXY must be included in container environment at creation time"
+        assert "HTTP_PROXY" in container_env, "HTTP_PROXY must be included for private mode"
+        assert "HTTPS_PROXY" in container_env, "HTTPS_PROXY must be included for private mode"
+
+    def test_spawn_public_mode_no_proxy_config(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Test that proxy configuration is NOT set for public mode containers."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+            mode="public",
         )
-        assert "HTTPS_PROXY" in container_env, (
-            "HTTPS_PROXY must be included in container environment at creation time"
-        )
+
+        create_call = mock_docker_client.create_container.call_args
+        container_env = create_call.kwargs.get("environment", {})
+
+        assert "HTTP_PROXY" not in container_env
+        assert "HTTPS_PROXY" not in container_env
 
     def test_spawn_passes_repos_and_phase_to_register_session(
         self, spawner, mock_docker_client, mock_gateway_client
@@ -526,7 +520,6 @@ class TestContainerEnvironmentAtCreation:
             pipeline_id="issue-123",
             agent_role=AgentRole.CODER,
             issue_number=123,
-            repo_path="/workspace/repo",
             repos=["test-owner/test-repo"],
             phase="refine",
         )
@@ -536,6 +529,43 @@ class TestContainerEnvironmentAtCreation:
         register_call = mock_gateway_client.register_session.call_args
         assert register_call.kwargs.get("repos") == ["test-owner/test-repo"]
         assert register_call.kwargs.get("phase") == "refine"
+
+    def test_spawn_includes_extra_hosts_for_gateway(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Test that extra_hosts maps gateway hostname to IP."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+        )
+
+        create_call = mock_docker_client.create_container.call_args
+        extra_hosts = create_call.kwargs.get("extra_hosts", {})
+
+        assert "egg-gateway" in extra_hosts, (
+            "extra_hosts must include gateway hostname for DNS resolution"
+        )
+
+    def test_spawn_with_repo_volumes_adds_git_shadows(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Test that .git shadow mounts are added for repo volumes."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+            repo_volumes={"my-repo": "/host/repos/my-repo"},
+        )
+
+        create_call = mock_docker_client.create_container.call_args
+        mounts = create_call.kwargs.get("mounts", [])
+
+        # .git shadow uses /dev/null bind mount (file-over-file for worktrees)
+        git_shadow = [m for m in mounts if m["Target"] == "/home/egg/repos/my-repo/.git"]
+        assert len(git_shadow) == 1, ".git shadow mount must be added for each repo volume"
+        assert git_shadow[0]["Source"] == "/dev/null"
+        assert git_shadow[0]["ReadOnly"] is True
 
 
 class TestSingletonSpawner:

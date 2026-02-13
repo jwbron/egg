@@ -27,6 +27,8 @@ from egg_container import (
     LIFECYCLE_FLAGS_INDEX,
     ContainerNetworkConfig,
     build_sandbox_docker_cmd,
+    git_shadow_mounts,
+    mount_spec_to_cli_args,
 )
 
 # Import statusbar for quiet mode
@@ -311,27 +313,15 @@ def _setup_repo_mounts(
             if not quiet:
                 print(f"  • ~/repos/{repo_name} (direct mount)")
 
-        # Shadow .git to prevent local git operations
-        # This forces all git operations through the gateway
-        # In worktrees, .git is a FILE (not directory) containing "gitdir: ..."
-        # For directories: use tmpfs mount
-        # For files: use bind mount of /dev/null
+        # Shadow .git using shared helper to prevent local git operations.
+        # The helper checks whether .git is a file (worktree) or directory
+        # and chooses the appropriate mount type (/dev/null bind or tmpfs).
         if use_gateway_worktrees and repo_name in worktrees:
-            # Worktree: .git is a file
-            git_path = Path(worktrees[repo_name]) / ".git"
-            if git_path.exists() and git_path.is_file():
-                mount_args.extend(
-                    [
-                        "--mount",
-                        f"type=bind,source=/dev/null,destination={container_path}/.git,readonly",
-                    ]
-                )
-            else:
-                # Fallback to tmpfs if it's somehow a directory
-                mount_args.extend(["--mount", f"type=tmpfs,destination={container_path}/.git"])
+            host_path = worktrees[repo_name]
         else:
-            # Direct mount: .git is a directory
-            mount_args.extend(["--mount", f"type=tmpfs,destination={container_path}/.git"])
+            host_path = str(repo_path)
+        for shadow in git_shadow_mounts({repo_name: host_path}):
+            mount_args.extend(mount_spec_to_cli_args(shadow))
 
         repos[repo_name] = repo_path
 
@@ -472,17 +462,9 @@ def _setup_session_repos(
         if not quiet:
             print(f"  * ~/repos/{repo_name} (session-filtered worktree)")
 
-        # Shadow .git to prevent local git operations
-        git_path = Path(worktree_path) / ".git"
-        if git_path.exists() and git_path.is_file():
-            mount_args.extend(
-                [
-                    "--mount",
-                    f"type=bind,source=/dev/null,destination={container_path}/.git,readonly",
-                ]
-            )
-        else:
-            mount_args.extend(["--mount", f"type=tmpfs,destination={container_path}/.git"])
+        # Shadow .git using shared helper to prevent local git operations
+        for shadow in git_shadow_mounts({repo_name: worktree_path}):
+            mount_args.extend(mount_spec_to_cli_args(shadow))
 
         # Track repo path for cleanup
         for local_repo in local_repos:

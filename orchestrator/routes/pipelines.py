@@ -58,17 +58,11 @@ logger = get_logger("orchestrator.pipelines")
 # Network constants for sandbox container URLs
 try:
     from egg_config import (
-        GATEWAY_EXTERNAL_IP,
-        GATEWAY_ISOLATED_IP,
-        GATEWAY_PORT,
         ORCHESTRATOR_EXTERNAL_IP,
         ORCHESTRATOR_ISOLATED_IP,
         ORCHESTRATOR_PORT,
     )
 except ImportError:
-    GATEWAY_ISOLATED_IP = "172.32.0.2"
-    GATEWAY_EXTERNAL_IP = "172.33.0.2"
-    GATEWAY_PORT = 9848
     ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"
     ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"
     ORCHESTRATOR_PORT = 9849
@@ -1301,9 +1295,14 @@ def _spawn_and_wait(
     If ``store`` is provided, the container is recorded in the phase execution
     state so that the status endpoint can report it while it runs.
 
+    The container is launched via the shared ``build_sandbox_config()`` path,
+    which handles GATEWAY_URL, proxy vars, DNS lockdown, extra_hosts, and
+    .git shadow mounts automatically.
+
     Args:
         repo_volumes: Mapping of repo_name -> host_path for volume mounts.
-            Each entry is mounted at /home/egg/repos/<name> in the container.
+            Each entry is mounted at /home/egg/repos/<name> in the container,
+            with .git shadowed by tmpfs to force gateway git operations.
         certs_volume: Docker named volume for gateway CA certs (mounted at
             /shared/certs read-only). If None, certs are not mounted.
 
@@ -1311,15 +1310,6 @@ def _spawn_and_wait(
         (exit_code, container_logs) — logs are captured before cleanup on failure.
     """
     from models import ContainerInfo, ContainerStatus, PipelinePhase
-
-    # Build per-repo volume mounts for the spawned container
-    extra_volumes: dict[str, dict[str, str]] = {}
-    for name, host_path in repo_volumes.items():
-        extra_volumes[host_path] = {"bind": f"/home/egg/repos/{name}", "mode": "rw"}
-
-    # Mount the gateway CA certs volume so the sandbox trusts the proxy
-    if certs_volume:
-        extra_volumes[certs_volume] = {"bind": "/shared/certs", "mode": "ro"}
 
     spawned = spawner.spawn_agent_container(
         pipeline_id=pipeline_id,
@@ -1331,7 +1321,8 @@ def _spawn_and_wait(
         phase=phase,
         extra_env=sandbox_env,
         command=sandbox_command,
-        extra_volumes=extra_volumes if extra_volumes else None,
+        repo_volumes=repo_volumes,
+        certs_volume=certs_volume,
     )
 
     # Record container and agent in phase execution state
@@ -1758,26 +1749,20 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 )
 
             # Common sandbox environment for all containers in this phase.
-            # Use network-appropriate IPs: containers on egg-isolated use
-            # 172.32.0.x, containers on egg-external use 172.33.0.x.
+            # GATEWAY_URL, RUNTIME_UID/GID, proxy vars, DNS lockdown, and
+            # extra_hosts are now handled by the shared build_sandbox_config()
+            # inside spawn_agent_container().  Only pipeline-specific vars go here.
             if gateway_mode in ("private", "local"):
-                gateway_ip = GATEWAY_ISOLATED_IP
                 orchestrator_ip = ORCHESTRATOR_ISOLATED_IP
             else:
-                gateway_ip = GATEWAY_EXTERNAL_IP
                 orchestrator_ip = ORCHESTRATOR_EXTERNAL_IP
-            gateway_url = f"http://{gateway_ip}:{GATEWAY_PORT}"
             orchestrator_url = f"http://{orchestrator_ip}:{ORCHESTRATOR_PORT}"
             sandbox_env: dict[str, str] = {
                 "EGG_PIPELINE_ID": pipeline_id,
                 "EGG_PIPELINE_PHASE": current_phase.value,
                 "EGG_PIPELINE_MODE": pipeline_mode,
-                "GATEWAY_URL": gateway_url,
-                "EGG_GATEWAY_URL": gateway_url,
                 "EGG_ORCHESTRATOR_URL": orchestrator_url,
                 "EGG_ORCHESTRATOR_MODE": "distributed",
-                "RUNTIME_UID": os.environ.get("HOST_UID", "1000"),
-                "RUNTIME_GID": os.environ.get("HOST_GID", "1000"),
             }
             if pipeline.prompt:
                 sandbox_env["EGG_PIPELINE_PROMPT"] = pipeline.prompt
