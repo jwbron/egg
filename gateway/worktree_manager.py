@@ -655,15 +655,23 @@ class WorktreeManager:
 
         return worktrees
 
-    def cleanup_orphaned_worktrees(self, active_containers: set[str]) -> int:
+    def cleanup_orphaned_worktrees(
+        self,
+        active_containers: set[str],
+        session_manager: Any | None = None,
+    ) -> int:
         """
         Remove worktrees for containers that no longer exist.
 
         Called on gateway startup and periodically to clean up orphaned worktrees
         from crashed containers.
 
+        For orphaned containers with active sessions, captures a session-end
+        checkpoint with FAILED status before cleaning up transcript buffers.
+
         Args:
             active_containers: Set of currently active container IDs
+            session_manager: Optional SessionManager for session-end checkpoints
 
         Returns:
             Number of worktrees removed
@@ -687,6 +695,21 @@ class WorktreeManager:
                 "Cleaning up orphaned worktrees",
                 container_id=container_id,
             )
+
+            # Capture session-end checkpoint for crashed container
+            if session_manager is not None:
+                try:
+                    session = session_manager.get_session_by_container(container_id)
+                    if session:
+                        from session_manager import _capture_and_cleanup_session
+
+                        _capture_and_cleanup_session(session, "failed")
+                except Exception as e:
+                    logger.warning(
+                        "Failed to capture checkpoint for orphaned container",
+                        container_id=container_id,
+                        error=str(e),
+                    )
 
             # Remove each worktree
             for worktree in list(container_dir.iterdir()):
@@ -762,7 +785,10 @@ def get_active_docker_containers() -> set[str]:
     return set()
 
 
-def startup_cleanup(active_containers: set[str] | None = None) -> int:
+def startup_cleanup(
+    active_containers: set[str] | None = None,
+    session_manager: Any | None = None,
+) -> int:
     """
     Clean up orphaned worktrees on gateway startup.
 
@@ -774,6 +800,7 @@ def startup_cleanup(active_containers: set[str] | None = None) -> int:
             preserved. Pass an empty set when no containers are active. When
             None, falls back to querying Docker (which may not be available
             inside the gateway container).
+        session_manager: Optional SessionManager for session-end checkpoints
 
     Returns:
         Number of orphaned worktrees removed
@@ -787,7 +814,7 @@ def startup_cleanup(active_containers: set[str] | None = None) -> int:
         active_containers=len(active_containers),
     )
 
-    removed = manager.cleanup_orphaned_worktrees(active_containers)
+    removed = manager.cleanup_orphaned_worktrees(active_containers, session_manager)
 
     if removed > 0:
         logger.info(f"Cleaned up {removed} orphaned worktree(s)")

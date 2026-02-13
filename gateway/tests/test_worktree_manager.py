@@ -268,7 +268,7 @@ class TestStartupCleanup:
 
             removed = startup_cleanup(active_containers={"active-container"})
             assert removed == 1
-            mock_instance.cleanup_orphaned_worktrees.assert_called_once_with({"active-container"})
+            mock_instance.cleanup_orphaned_worktrees.assert_called_once_with({"active-container"}, None)
 
     def test_with_none_uses_docker(self):
         """Falls back to querying Docker when active_containers is None."""

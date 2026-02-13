@@ -13,7 +13,14 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .checkpoints import Checkpoint, CheckpointIndex, CheckpointSummary
+from .checkpoints import (
+    Checkpoint,
+    CheckpointIndex,
+    CheckpointIndexV2,
+    CheckpointSummary,
+    CheckpointSummaryV2,
+    CheckpointV2,
+)
 
 
 class CheckpointLoadError(Exception):
@@ -398,3 +405,233 @@ def list_checkpoints(
         checkpoints = checkpoints[:limit]
 
     return checkpoints
+
+
+# ==============================================================================
+# Checkpoint v2 Loader Functions
+#
+# V2 checkpoints support session-end triggers (no commit_sha required) and
+# multi-dimensional indexing. Stored on the egg/checkpoints/v2 branch.
+# ==============================================================================
+
+
+def generate_checkpoint_id_v2(
+    session_id: str,
+    timestamp: datetime | None = None,
+) -> str:
+    """
+    Generate a deterministic checkpoint ID for session-end checkpoints.
+
+    Unlike commit-based IDs, these are derived from session_id + timestamp
+    since no commit_sha is available.
+
+    Args:
+        session_id: The session/container ID
+        timestamp: Optional timestamp for uniqueness (defaults to now)
+
+    Returns:
+        A checkpoint ID in the format ckpt-{16 hex chars}
+    """
+    if timestamp is None:
+        timestamp = datetime.now(UTC)
+    content = f"session:{session_id}:{timestamp.isoformat()}"
+    hash_bytes = hashlib.sha256(content.encode()).digest()[:8]
+    hex_str = hash_bytes.hex()
+    return f"ckpt-{hex_str}"
+
+
+def save_checkpoint_v2(checkpoint: CheckpointV2, path: Path) -> None:
+    """
+    Save a v2 checkpoint to a JSON file atomically.
+
+    Uses the same temp file + rename pattern as v1 for crash safety.
+
+    Args:
+        checkpoint: The v2 checkpoint to save
+        path: Path to save the checkpoint to
+
+    Raises:
+        CheckpointSaveError: If the checkpoint cannot be saved
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        data = checkpoint.model_dump(mode="json")
+        json_str = json.dumps(data, indent=2, sort_keys=True)
+
+        fd, temp_path = tempfile.mkstemp(
+            suffix=".tmp", prefix=".checkpoint_", dir=path.parent
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(json_str)
+                f.flush()
+                os.fsync(f.fileno())
+
+            os.chmod(temp_path, 0o644)
+            os.rename(temp_path, path)
+        except Exception:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            raise
+
+    except Exception as e:
+        msg = f"Error saving v2 checkpoint to {path}: {e}"
+        raise CheckpointSaveError(msg) from e
+
+
+def load_checkpoint_v2(path: Path) -> CheckpointV2:
+    """
+    Load a v2 checkpoint from a JSON file.
+
+    Args:
+        path: Path to the checkpoint JSON file
+
+    Returns:
+        The loaded CheckpointV2
+
+    Raises:
+        CheckpointLoadError: If the file cannot be loaded or parsed
+    """
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return CheckpointV2.model_validate(data)
+    except FileNotFoundError as e:
+        msg = f"V2 checkpoint file not found: {path}"
+        raise CheckpointLoadError(msg) from e
+    except json.JSONDecodeError as e:
+        msg = f"Invalid JSON in v2 checkpoint file {path}: {e}"
+        raise CheckpointLoadError(msg) from e
+    except Exception as e:
+        msg = f"Error loading v2 checkpoint from {path}: {e}"
+        raise CheckpointLoadError(msg) from e
+
+
+def load_checkpoint_index_v2(path: Path) -> CheckpointIndexV2:
+    """
+    Load the v2 checkpoint index from a JSON file.
+
+    Returns an empty index if the file doesn't exist.
+
+    Args:
+        path: Path to the index JSON file
+
+    Returns:
+        The loaded CheckpointIndexV2
+    """
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return CheckpointIndexV2.model_validate(data)
+    except FileNotFoundError:
+        return CheckpointIndexV2(last_updated=datetime.now(UTC))
+    except json.JSONDecodeError as e:
+        msg = f"Invalid JSON in v2 index file {path}: {e}"
+        raise CheckpointLoadError(msg) from e
+    except Exception as e:
+        msg = f"Error loading v2 checkpoint index from {path}: {e}"
+        raise CheckpointLoadError(msg) from e
+
+
+def save_checkpoint_index_v2(index: CheckpointIndexV2, path: Path) -> None:
+    """
+    Save the v2 checkpoint index to a JSON file atomically.
+
+    Args:
+        index: The v2 checkpoint index to save
+        path: Path to save the index to
+
+    Raises:
+        CheckpointSaveError: If the index cannot be saved
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        data = index.model_dump(mode="json")
+        json_str = json.dumps(data, indent=2, sort_keys=True)
+
+        fd, temp_path = tempfile.mkstemp(suffix=".tmp", prefix=".index_", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(json_str)
+                f.flush()
+                os.fsync(f.fileno())
+
+            os.chmod(temp_path, 0o644)
+            os.rename(temp_path, path)
+        except Exception:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            raise
+
+    except Exception as e:
+        msg = f"Error saving v2 checkpoint index to {path}: {e}"
+        raise CheckpointSaveError(msg) from e
+
+
+def add_checkpoint_to_index_v2(
+    checkpoint: CheckpointV2,
+    index_path: Path,
+) -> CheckpointIndexV2:
+    """
+    Add a v2 checkpoint to the index with multi-dimensional index updates.
+
+    Updates the primary checkpoint list and all secondary indices atomically.
+    Deduplicates by checkpoint ID.
+
+    Args:
+        checkpoint: The v2 checkpoint to add
+        index_path: Path to the index file
+
+    Returns:
+        The updated CheckpointIndexV2
+
+    Raises:
+        CheckpointSaveError: If the index cannot be saved
+    """
+    index = load_checkpoint_index_v2(index_path)
+
+    # Deduplicate by checkpoint ID
+    existing_ids = {cp.id for cp in index.checkpoints}
+    if checkpoint.id in existing_ids:
+        return index
+
+    # Create summary and add to primary list
+    summary = CheckpointSummaryV2.from_checkpoint(checkpoint)
+    index.checkpoints.append(summary)
+
+    # Update secondary indices
+    _append_to_index(index.by_session, checkpoint.session_id, checkpoint.id)
+    _append_to_index(index.by_trigger, checkpoint.trigger_type.value, checkpoint.id)
+
+    if checkpoint.issue_number is not None:
+        _append_to_index(index.by_issue, str(checkpoint.issue_number), checkpoint.id)
+
+    if checkpoint.pr_number is not None:
+        _append_to_index(index.by_pr, str(checkpoint.pr_number), checkpoint.id)
+
+    if checkpoint.commit_sha is not None:
+        index.by_commit[checkpoint.commit_sha] = checkpoint.id
+
+    _append_to_index(index.by_agent_type, checkpoint.agent_type.value, checkpoint.id)
+
+    if checkpoint.pipeline_phase is not None:
+        _append_to_index(index.by_phase, checkpoint.pipeline_phase, checkpoint.id)
+
+    if checkpoint.session_status is not None:
+        _append_to_index(index.by_status, checkpoint.session_status.value, checkpoint.id)
+
+    index.last_updated = datetime.now(UTC)
+
+    save_checkpoint_index_v2(index, index_path)
+
+    return index
+
+
+def _append_to_index(index_dict: dict[str, list[str]], key: str, value: str) -> None:
+    """Append value to index dict list, deduplicating."""
+    if key not in index_dict:
+        index_dict[key] = []
+    if value not in index_dict[key]:
+        index_dict[key].append(value)
