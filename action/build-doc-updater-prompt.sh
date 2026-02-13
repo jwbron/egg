@@ -205,7 +205,7 @@ build_high_risk_instructions() {
         instructions+="- **Orchestration section**: Check the Multi-Agent Orchestration section in \`README.md\` against files in \`orchestrator/\`.\n"
     fi
 
-    echo -e "$instructions"
+    printf '%b' "$instructions"
 }
 
 # ---------------------------------------------------------------------------
@@ -222,6 +222,19 @@ build_prompt() {
     diff_stats=$(get_diff_stats)
     new_files=$(get_new_files)
     related_docs=$(find_related_docs)
+
+    # If no code files changed, skip
+    if [[ -z "$changed_files" ]]; then
+        echo "No code files changed (only docs/markdown), skipping doc-updater"
+        # Create a minimal prompt that exits immediately
+        local prompt_file="${RUNNER_TEMP:-/tmp}/doc-updater-prompt.txt"
+        echo "No code files changed since ${base_commit}. Nothing to do." > "$prompt_file"
+        {
+            echo "prompt_file=${prompt_file}"
+            echo "model=haiku"
+        } >> "${GITHUB_OUTPUT:-/dev/null}"
+        return
+    fi
 
     # Detect high-risk file patterns that need specific doc cross-references
     local high_risk_flags high_risk_instructions high_risk_step
@@ -243,19 +256,6 @@ HRSTEP
     - If they differ, update the doc to match the source"
     else
         high_risk_step=""
-    fi
-
-    # If no code files changed, skip
-    if [[ -z "$changed_files" ]]; then
-        echo "No code files changed (only docs/markdown), skipping doc-updater"
-        # Create a minimal prompt that exits immediately
-        local prompt_file="${RUNNER_TEMP:-/tmp}/doc-updater-prompt.txt"
-        echo "No code files changed since ${base_commit}. Nothing to do." > "$prompt_file"
-        {
-            echo "prompt_file=${prompt_file}"
-            echo "model=haiku"
-        } >> "${GITHUB_OUTPUT:-/dev/null}"
-        return
     fi
 
     local prompt
