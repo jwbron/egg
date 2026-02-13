@@ -426,6 +426,77 @@ and architecture docs.
 - `commit_sha` — Analyze changes from this specific commit (defaults to HEAD~1)
 - `dry_run` — Analyze only, don't create PR
 
+## Documentation Onboarding
+
+**Script:** [`action/build-onboarding-doc-prompt.sh`](../../action/build-onboarding-doc-prompt.sh)
+**Slash command:** `/onboarding-docs` ([`sandbox/.claude/commands/onboarding-docs.md`](../../sandbox/.claude/commands/onboarding-docs.md))
+
+Complementary to the incremental doc-updater, the onboarding capability generates comprehensive documentation for an entire repository from scratch. This is useful for bootstrapping documentation on existing codebases or creating complete documentation sets for new projects.
+
+### How It Works
+
+Unlike the doc-updater (which reacts to individual commits), onboarding is a one-time or periodic "bootstrap" that documents an entire codebase:
+
+1. **Repository discovery** — Scans the repository to understand structure:
+   - Directory tree (depth 3)
+   - Language distribution by file extension
+   - Configuration and build files
+   - Entry points (main files, CLIs)
+   - Existing documentation and READMEs
+
+2. **Prompt generation** — Builds a comprehensive prompt instructing Claude to:
+   - Survey the codebase systematically
+   - Plan the documentation structure
+   - Write structured docs (index.md, STRUCTURE.md, architecture/README.md, component READMEs, guides)
+   - Incorporate existing documentation rather than replacing it
+   - Cross-reference and validate all links
+
+3. **SDLC execution** — The generated prompt is fed into the SDLC pipeline via the orchestrator, running the documentation task through the standard refine-plan-implement cycle.
+
+### Usage via Slash Command
+
+Inside the sandbox:
+
+```
+/onboarding-docs [owner/repo]
+```
+
+The command will:
+- Ask for the repository if not provided
+- Clone the repository if needed
+- Run the prompt builder
+- Create and start an SDLC pipeline
+- Stream live progress via `egg-pipeline-watch`
+
+### Scope Limiting
+
+Use environment variables to limit scope for large repositories:
+
+- `DRY_RUN=true` — Analyze only, describe what docs would be created
+- `INCLUDE_PATTERN="gateway/**"` — Only document files matching this glob
+- `EXCLUDE_DIRS="legacy,tmp"` — Additional directories to skip
+
+### Output Structure
+
+The onboarding process creates the same documentation structure that the incremental doc-updater maintains:
+
+```
+docs/
+├── index.md                      # Master navigation index
+├── architecture/
+│   └── README.md                 # System design, components, data flow
+├── development/
+│   └── STRUCTURE.md              # Directory layout and conventions
+├── guides/
+│   ├── quickstart.md             # Getting started
+│   ├── deployment.md             # Deployment options
+│   └── <topic>.md                # Additional guides
+└── adr/
+    └── README.md                 # ADR index
+
+<component>/README.md             # Per-component READMEs
+```
+
 ## Custom Linters
 
 egg includes project-specific safety checks in `scripts/` that run as part of CI:
