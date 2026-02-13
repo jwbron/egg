@@ -62,11 +62,14 @@ try:
         ORCHESTRATOR_ISOLATED_IP,
         ORCHESTRATOR_PORT,
     )
-    from egg_config.validators import validate_checks
 except ImportError:
     ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"
     ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"
     ORCHESTRATOR_PORT = 9849
+
+try:
+    from egg_config.validators import validate_checks
+except ImportError:
 
     def validate_checks(checks: list) -> list[dict[str, str]]:  # type: ignore[misc]
         if not isinstance(checks, list):
