@@ -93,11 +93,15 @@ def validate_id(value: str, name: str) -> str:
 
 
 def get_orchestrator_url() -> str:
-    """Get the orchestrator base URL."""
+    """Get the orchestrator base URL.
+
+    Uses hostname instead of IP so the CLI works from both egg-isolated
+    and egg-external Docker networks.
+    """
     url = os.environ.get("EGG_ORCHESTRATOR_URL")
     if url:
         return url.rstrip("/")
-    return f"http://{ORCHESTRATOR_ISOLATED_IP}:{ORCHESTRATOR_PORT}"
+    return f"http://egg-orchestrator:{ORCHESTRATOR_PORT}"
 
 
 def get_gateway_url() -> str:
@@ -366,7 +370,7 @@ def cmd_pipeline_list(args: argparse.Namespace) -> int:
     for p in pipelines:
         status = p.get("status", "unknown")
         phase = p.get("current_phase", "?")
-        pid = p.get("pipeline_id", "?")
+        pid = p.get("id", p.get("pipeline_id", "?"))
         repo = p.get("repo", "?")
         print(f"  {pid}  {status:<12}  phase={phase:<12}  repo={repo}")
 
@@ -383,8 +387,8 @@ def cmd_pipeline_get(args: argparse.Namespace) -> int:
         print_json(result)
         return 0
 
-    data = result.get("data", result)
-    print(f"Pipeline: {data.get('pipeline_id')}")
+    data = result.get("data", {}).get("pipeline", result.get("data", result))
+    print(f"Pipeline: {data.get('id', data.get('pipeline_id'))}")
     print(f"Status:   {data.get('status')}")
     print(f"Phase:    {data.get('current_phase')}")
     print(f"Repo:     {data.get('repo')}")
@@ -417,8 +421,8 @@ def cmd_pipeline_create(args: argparse.Namespace) -> int:
         print_json(result)
         return 0
 
-    pipeline_data = result.get("data", {})
-    pid = pipeline_data.get("pipeline_id", "unknown")
+    pipeline_data = result.get("data", {}).get("pipeline", result.get("data", {}))
+    pid = pipeline_data.get("id", pipeline_data.get("pipeline_id", "unknown"))
     print(f"Created pipeline: {pid}")
     return 0
 
@@ -725,7 +729,7 @@ def cmd_phase_get(args: argparse.Namespace) -> int:
 def cmd_phase_advance(args: argparse.Namespace) -> int:
     """Advance pipeline to next phase."""
     pid = require_pipeline_id(args)
-    data: dict[str, Any] = {}
+    data: dict[str, Any] = {"target_phase": args.target_phase}
     if args.reason:
         data["reason"] = args.reason
 
@@ -828,7 +832,8 @@ def cmd_decision_create(args: argparse.Namespace) -> int:
         return 0
 
     if result.get("success"):
-        did = result.get("data", {}).get("decision_id", "?")
+        dec_data = result.get("data", {}).get("decision", result.get("data", {}))
+        did = dec_data.get("id", dec_data.get("decision_id", "?"))
         print(f"Created decision: {did}")
         print(f"Question: {args.question}")
         return 0
@@ -948,7 +953,7 @@ def cmd_container_get(args: argparse.Namespace) -> int:
         print_json(result)
         return 0
 
-    data = result.get("data", result)
+    data = result.get("data", {}).get("container", result.get("data", result))
     print(f"Container: {data.get('container_id')}")
     print(f"Role:      {data.get('agent_role')}")
     print(f"Status:    {data.get('status')}")
@@ -1229,6 +1234,12 @@ def create_parser() -> argparse.ArgumentParser:
     # phase advance
     ph_advance = phase_sub.add_parser("advance", help="Advance to next phase")
     ph_advance.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    ph_advance.add_argument(
+        "--target-phase",
+        required=True,
+        choices=["refine", "plan", "implement", "pr"],
+        help="Target phase to advance to",
+    )
     ph_advance.add_argument("--reason", help="Reason for advancement")
     _add_json_flag(ph_advance)
     ph_advance.set_defaults(func=cmd_phase_advance)
