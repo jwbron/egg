@@ -111,3 +111,52 @@ def resolve_repo_path_for_pipeline(pipeline_id: str, base_path: Path) -> Path:
         )
 
     return base_path
+
+
+# Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
+_WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
+
+
+def resolve_worktree_path(pipeline_id: str, repo_path: Path) -> Path:
+    """Resolve the worktree repo path for a pipeline.
+
+    Contracts and other container-written files live in per-pipeline
+    worktrees at ``/home/egg/.egg-worktrees/<pipeline_id>/<repo>/``.
+    This helper checks for a worktree and returns it when present,
+    falling back to ``repo_path`` otherwise (e.g. when worktrees have
+    already been cleaned up or were never created).
+
+    Args:
+        pipeline_id: Pipeline ID (e.g. ``issue-546``)
+        repo_path: Main repo path (e.g. ``/home/egg/repos/egg``)
+
+    Returns:
+        Worktree path if it exists, otherwise ``repo_path``
+    """
+    wt_pipeline_dir = _WORKTREE_BASE_DIR / pipeline_id
+    if not wt_pipeline_dir.is_dir():
+        return repo_path
+
+    # Match by repo directory name (last component of repo_path)
+    repo_name = repo_path.name
+    candidate = wt_pipeline_dir / repo_name
+    if candidate.is_dir():
+        return candidate
+
+    # Fallback: take the first existing subdirectory.
+    # iterdir() order is non-deterministic; log a warning so operators
+    # can detect when the heuristic fires (e.g. after a repo rename).
+    try:
+        for entry in wt_pipeline_dir.iterdir():
+            if entry.is_dir():
+                logger.warning(
+                    "Worktree repo name mismatch, using fallback",
+                    pipeline_id=pipeline_id,
+                    expected_repo=repo_name,
+                    fallback_path=str(entry),
+                )
+                return entry
+    except OSError:
+        pass
+
+    return repo_path

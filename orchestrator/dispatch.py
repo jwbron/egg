@@ -106,10 +106,21 @@ class PipelineDispatcher:
         self._contract_orchestrator: ContractOrchestrator | None = None
 
     @property
+    def contract_key(self) -> int | str:
+        """Return the contract identifier for this pipeline.
+
+        Issue-mode pipelines use issue_number; local-mode pipelines use
+        the pipeline ID (e.g. ``local-47601d1d``).
+        """
+        if self.pipeline.issue_number is not None:
+            return self.pipeline.issue_number
+        return self.pipeline.id
+
+    @property
     def contract_orchestrator(self) -> ContractOrchestrator:
         """Get or create the contract orchestrator."""
         if self._contract_orchestrator is None:
-            contract = load_contract(self.pipeline.issue_number, self.repo_path)
+            contract = load_contract(self.contract_key, self.repo_path)
             self._contract_orchestrator = create_orchestrator(contract)
         return self._contract_orchestrator
 
