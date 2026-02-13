@@ -475,6 +475,21 @@ class TestRenderPhaseDetail:
         assert "failed" in result
         assert "Error: Container failed to start" in result
 
+    def test_awaiting_human_phase_shows_awaiting_approval(self):
+        """Test detail view shows 'awaiting approval' for AWAITING_HUMAN status."""
+        phases = {
+            "refine": PhaseExecution(
+                phase=PipelinePhase.REFINE,
+                status=PipelineStatus.AWAITING_HUMAN,
+            ),
+        }
+        pipeline = create_test_pipeline(phases=phases)
+        result = render_phase_detail(pipeline, PipelinePhase.REFINE)
+
+        assert "⏸" in result
+        assert "awaiting approval" in result
+        assert "awaiting_human" not in result
+
 
 class TestGenerateStatusReport:
     """Tests for generate_status_report function."""
