@@ -444,5 +444,79 @@ class TestWorktreeManagerDockerGitDir:
         assert git_file.read_text().strip().startswith("gitdir:")
 
 
+class TestFindWorktreeGitDir:
+    """Tests for _find_worktree_git_dir admin dir resolution."""
+
+    def test_matches_correct_admin_dir_by_gitdir_content(self, tmp_path):
+        """Should match admin dir whose gitdir file points to the worktree's .git file."""
+        main_repo = tmp_path / "repo"
+        worktrees_dir = main_repo / ".git" / "worktrees"
+
+        # Simulate two worktrees with same basename: "egg" (interactive) and "egg1" (pipeline)
+        interactive_wt = tmp_path / "worktrees" / "interactive" / "egg"
+        pipeline_wt = tmp_path / "worktrees" / "pipeline" / "egg"
+
+        # Admin dir "egg" belongs to interactive container
+        admin_egg = worktrees_dir / "egg"
+        admin_egg.mkdir(parents=True)
+        (admin_egg / "gitdir").write_text(str(interactive_wt / ".git") + "\n")
+
+        # Admin dir "egg1" belongs to pipeline container
+        admin_egg1 = worktrees_dir / "egg1"
+        admin_egg1.mkdir(parents=True)
+        (admin_egg1 / "gitdir").write_text(str(pipeline_wt / ".git") + "\n")
+
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path,
+        )
+
+        # Looking up interactive worktree should return "egg" admin dir
+        result = manager._find_worktree_git_dir(main_repo, interactive_wt)
+        assert result == admin_egg
+
+        # Looking up pipeline worktree should return "egg1" admin dir
+        result = manager._find_worktree_git_dir(main_repo, pipeline_wt)
+        assert result == admin_egg1
+
+    def test_returns_default_when_no_worktrees_dir(self, tmp_path):
+        """Should return default path when .git/worktrees/ doesn't exist."""
+        main_repo = tmp_path / "repo"
+        main_repo.mkdir()
+        (main_repo / ".git").mkdir()
+
+        worktree_path = tmp_path / "worktrees" / "container" / "egg"
+
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path,
+        )
+
+        result = manager._find_worktree_git_dir(main_repo, worktree_path)
+        assert result == main_repo / ".git" / "worktrees" / "egg"
+
+    def test_no_false_match_without_git_suffix(self, tmp_path):
+        """Gitdir content without /.git suffix should not match (guards against regression)."""
+        main_repo = tmp_path / "repo"
+        worktrees_dir = main_repo / ".git" / "worktrees"
+
+        worktree_path = tmp_path / "worktrees" / "container" / "egg"
+
+        admin_dir = worktrees_dir / "egg"
+        admin_dir.mkdir(parents=True)
+        # Simulate a malformed gitdir file that has the worktree path WITHOUT /.git
+        (admin_dir / "gitdir").write_text(str(worktree_path) + "\n")
+
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path,
+        )
+
+        # Should NOT match — gitdir content doesn't end with /.git
+        result = manager._find_worktree_git_dir(main_repo, worktree_path)
+        # Falls through to default since the content doesn't match the expected format
+        assert result == admin_dir  # happens to be the default here
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -413,7 +413,12 @@ class WorktreeManager:
                 if gitdir_file.exists():
                     try:
                         gitdir_content = gitdir_file.read_text().strip()
-                        if gitdir_content.rstrip("/") == str(worktree_path).rstrip("/"):
+                        # The gitdir file contains the path to the worktree's
+                        # .git *file* (e.g., /path/to/worktree/.git), so we
+                        # must compare against worktree_path/.git — not the
+                        # bare worktree directory.
+                        expected = str(worktree_path / ".git")
+                        if gitdir_content.rstrip("/") == expected.rstrip("/"):
                             return entry
                     except OSError:
                         continue
