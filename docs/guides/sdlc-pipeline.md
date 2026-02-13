@@ -88,26 +88,22 @@ Returns a snapshot of the current pipeline state.
 3. **`text`**: Plain text DAG visualization
 4. **`json`**: Structured JSON report with phase details
 
-**2. Real-time Streaming**: `GET /api/v1/pipelines/<pipeline_id>/stream`
+**2. Status Polling**: `GET /api/v1/pipelines/<pipeline_id>/status`
 
-Returns a Server-Sent Events (SSE) stream for real-time pipeline updates.
+Returns the current pipeline status for polling-based monitoring.
 
-**Query parameters**:
-- `ascii`: Use ASCII-only characters (`true` or `false`, default: `false`)
+**Response**:
+```json
+{
+  "pipeline_id": "issue-123",
+  "status": "running",
+  "current_phase": "implement",
+  "pending_decisions": 0,
+  "updated_at": "2026-02-12T10:30:00Z"
+}
+```
 
-**Event types**:
-- `snapshot`: Initial pipeline state with full DAG visualization
-- `pipeline.*`: Pipeline lifecycle events (created, started, completed, failed, cancelled)
-- `phase.*`: Phase transition events (started, completed, failed)
-- `agent.*`: Agent lifecycle events (started, completed, failed, timeout)
-- `decision.*`: HITL decision events (created, resolved, timeout)
-- `container.*`: Container lifecycle events (spawned, stopped, removed) — *planned; not yet emitted via SSE*
-- `done`: Stream ending (pipeline terminal state or timeout)
-- `error`: Error occurred
-
-Each event includes the current visualization data and pipeline status. The stream automatically closes when the pipeline reaches a terminal state or after 1 hour.
-
-**CLI tool**: Use `egg-pipeline-watch <pipeline_id>` to view real-time progress in the terminal with auto-updating DAG visualization.
+**CLI tool**: Use `egg-pipeline-watch <pipeline_id>` to monitor pipeline progress in the terminal. The tool polls the status endpoint every 10 seconds and displays status changes.
 
 **Example JSON response** (`format=full`):
 ```json
