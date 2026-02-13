@@ -930,7 +930,7 @@ On startup, the system generates two 3-word tokens (e.g., `APPLE-HORSE-RIVER`) a
 - Hook script is root-owned (agent runs as `egg` user, cannot modify)
 - Watchdog thread monitors for hook removal and re-adds if necessary
 - Launcher secret authentication prevents agents from calling privileged endpoints
-- Server-side validation with timing-safe comparison prevents brute-force attacks
+- Server-side validation with timing-safe comparison prevents timing side-channel attacks
 
 **Failure recovery**:
 

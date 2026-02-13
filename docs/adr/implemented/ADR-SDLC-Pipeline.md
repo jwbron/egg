@@ -209,7 +209,7 @@ For local interactive sessions, token-gated approvals provide an additional secu
 - **Tamper Resistance**: Hook script is root-owned; agent runs as `egg` user and cannot modify it
 - **Watchdog Protection**: Background thread monitors `settings.json` for hook removal and re-adds if necessary
 - **Privileged Endpoint Auth**: `/generate` and `/reset` endpoints require launcher secret authentication, preventing agents from calling them directly
-- **Timing-Safe Validation**: SHA-256 hashing with `secrets.compare_digest` prevents brute-force attacks
+- **Timing-Safe Validation**: SHA-256 hashing with `secrets.compare_digest` prevents timing side-channel attacks
 
 **Failure Recovery:**
 
