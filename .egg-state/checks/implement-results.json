@@ -1,0 +1,15 @@
+{
+  "all_passed": false,
+  "checks": [
+    {
+      "name": "lint",
+      "passed": false,
+      "output": "ruff found 65 errors (61 auto-fixable). Issues include: unused imports (F401), unsorted import blocks (I001), unused local variables (F841), quoted type annotations that can be removed (UP037), and deprecated typing imports (UP035). Affected files span gateway/, orchestrator/, tests/, shared/, and integration_tests/."
+    },
+    {
+      "name": "pytest",
+      "passed": false,
+      "output": "3096 passed, 3 failed, 81 skipped in 15.14s. 3 failures are environment-related (orchestrator mode detection): test_config_orchestrator_mode_default, test_is_orchestrator_mode_false, and test_get_orchestrator_url_not_set all fail because the test environment has ORCHESTRATOR_MODE/ORCHESTRATOR_URL env vars set, causing is_orchestrator_mode() to return True instead of False."
+    }
+  ]
+}
