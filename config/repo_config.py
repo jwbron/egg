@@ -299,6 +299,31 @@ def should_disable_auto_fix(repo: str) -> bool:
     return get_repo_setting(repo, "disable_auto_fix", False)
 
 
+def get_repo_checks(repo: str) -> list[dict[str, str]]:
+    """Get configured check commands for a repository.
+
+    These are the commands to run during the SDLC pipeline implement phase
+    checker step. Each check has a "name" (display label) and "command"
+    (shell command to execute). They run sequentially.
+
+    Args:
+        repo: Repository in "owner/repo" format
+
+    Returns:
+        List of {"name": "...", "command": "..."} dicts,
+        or empty list if no checks configured.
+    """
+    checks = get_repo_setting(repo, "checks", [])
+    if not isinstance(checks, list):
+        return []
+    # Validate each check has name and command
+    return [
+        {"name": str(c["name"]), "command": str(c["command"])}
+        for c in checks
+        if isinstance(c, dict) and "name" in c and "command" in c
+    ]
+
+
 def get_auth_mode(repo: str) -> str:
     """
     Get the authentication mode for a repository.

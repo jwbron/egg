@@ -6,9 +6,15 @@ repositories.yaml configuration.
 """
 
 import os
+import sys
 
 import pytest
 import yaml
+
+# Add project paths so we can import config modules
+_project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 
 class TestGetConfigPath:
@@ -371,3 +377,114 @@ github_username: user_émoji_🎉
 
         config = yaml.safe_load(config_file.read_text())
         assert "user_" in config["github_username"]
+
+
+class TestGetRepoChecks:
+    """Tests for get_repo_checks function."""
+
+    def test_returns_configured_checks(self, temp_dir, monkeypatch):
+        """Test returning configured check commands for a repo."""
+        from config.repo_config import get_repo_checks
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/my-app:\n"
+            "    checks:\n"
+            "      - name: lint\n"
+            "        command: npm run lint\n"
+            "      - name: test\n"
+            "        command: npm test\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        checks = get_repo_checks("testuser/my-app")
+        assert len(checks) == 2
+        assert checks[0] == {"name": "lint", "command": "npm run lint"}
+        assert checks[1] == {"name": "test", "command": "npm test"}
+
+    def test_returns_empty_list_when_no_checks(self, temp_dir, monkeypatch):
+        """Test returning empty list when no checks configured for repo."""
+        from config.repo_config import get_repo_checks
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/my-app:\n"
+            "    restrict_to_configured_users: true\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        checks = get_repo_checks("testuser/my-app")
+        assert checks == []
+
+    def test_returns_empty_list_for_unknown_repo(self, temp_dir, monkeypatch):
+        """Test returning empty list when repo is not in config."""
+        from config.repo_config import get_repo_checks
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/my-app:\n"
+            "    checks:\n"
+            "      - name: lint\n"
+            "        command: npm run lint\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        checks = get_repo_checks("testuser/other-repo")
+        assert checks == []
+
+    def test_case_insensitive_repo_matching(self, temp_dir, monkeypatch):
+        """Test that repo name matching is case insensitive."""
+        from config.repo_config import get_repo_checks
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  TestUser/My-App:\n"
+            "    checks:\n"
+            "      - name: test\n"
+            "        command: make test\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        checks = get_repo_checks("testuser/my-app")
+        assert len(checks) == 1
+        assert checks[0] == {"name": "test", "command": "make test"}
+
+    def test_skips_invalid_check_entries(self, temp_dir, monkeypatch):
+        """Test that malformed check entries are filtered out."""
+        from config.repo_config import get_repo_checks
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/my-app:\n"
+            "    checks:\n"
+            "      - name: valid\n"
+            "        command: make test\n"
+            "      - name: missing-command\n"
+            "      - just-a-string\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        checks = get_repo_checks("testuser/my-app")
+        assert len(checks) == 1
+        assert checks[0]["name"] == "valid"
+
+    def test_returns_empty_for_no_repo_settings(self, temp_dir, monkeypatch):
+        """Test returning empty list when repo_settings section is absent."""
+        from config.repo_config import get_repo_checks
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text("github_username: testuser\n")
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        checks = get_repo_checks("testuser/my-app")
+        assert checks == []

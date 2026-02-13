@@ -131,13 +131,34 @@ def _generate_env_file(compose_file: Path) -> bool:
         if key in secrets_dict:
             env_vars[key] = secrets_dict[key]
 
-    # Git identity from repositories.yaml
+    # Git identity and per-repo checks from repositories.yaml
     if config_file.exists():
         git_name, git_email = _get_user_git_config(config_file)
         if git_name:
             env_vars["EGG_USER_GIT_NAME"] = git_name
         if git_email:
             env_vars["EGG_USER_GIT_EMAIL"] = git_email
+
+        # Build per-repo checks map for the orchestrator
+        try:
+            import yaml
+
+            with config_file.open() as f:
+                cfg = yaml.safe_load(f) or {}
+            repo_checks: dict[str, list[dict[str, str]]] = {}
+            for repo_name, settings in (cfg.get("repo_settings") or {}).items():
+                checks = settings.get("checks") if isinstance(settings, dict) else None
+                if checks and isinstance(checks, list):
+                    valid = [
+                        {"name": str(c["name"]), "command": str(c["command"])}
+                        for c in checks
+                        if isinstance(c, dict) and "name" in c and "command" in c
+                    ]
+                    if valid:
+                        repo_checks[repo_name] = valid
+            env_vars["EGG_REPO_CHECKS"] = json.dumps(repo_checks)
+        except Exception:
+            env_vars["EGG_REPO_CHECKS"] = "{}"
 
     # Write .env file
     env_file = compose_file.parent / ".env"
