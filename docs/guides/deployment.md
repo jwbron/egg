@@ -70,7 +70,7 @@ egg --public
    # Set your user identity and home directory
    HOST_UID=$(id -u)
    HOST_GID=$(id -g)
-   HOST_HOME=$HOME  # REQUIRED for worktree bind mounts
+   HOST_HOME=$HOME  # REQUIRED: orchestrator mounts $HOST_HOME/.egg-worktrees to read pipeline artifacts
    ```
 
 3. **Create repositories.yaml:**

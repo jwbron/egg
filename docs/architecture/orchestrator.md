@@ -38,6 +38,30 @@ This differs from agent worktrees (managed by the gateway for agent isolation). 
 
 See `orchestrator/state_store.py` for implementation details.
 
+## Per-Pipeline Worktrees
+
+The orchestrator reads pipeline artifacts (verdict files, draft documents, check results) from per-pipeline worktrees created by the gateway. These worktrees isolate work for each pipeline and are separate from both the orchestrator's state worktree and the main repository working directory.
+
+**Architecture:**
+- Gateway creates worktrees at `/home/egg/.egg-worktrees/{pipeline-id}/{repo-name}/`
+- Agent containers mount these worktrees and write artifacts to them
+- Orchestrator mounts `/home/egg/.egg-worktrees` (read-only) and reads artifacts from pipeline-specific paths
+- Worktree paths are resolved dynamically based on pipeline ID and repository
+
+**Key files read from worktrees:**
+- `.egg-state/contracts/{issue}.json` — Contract state
+- `.egg-state/drafts/{issue}-{analysis|plan}.md` — Phase draft documents
+- `.egg-state/reviews/{issue}-{phase}-{reviewer}.json` — Review verdict files
+- `.egg-state/checks/*.json` — Check results
+
+**Volume mounts:**
+- Orchestrator: Bind mount from `${HOST_HOME}/.egg-worktrees` to `/home/egg/.egg-worktrees` (read container-written artifacts)
+- Integration tests: Named volume `worktrees` (no host filesystem in CI)
+
+This architecture ensures the orchestrator reads artifacts from the correct isolated workspace rather than the main repository, preventing cross-contamination between pipelines.
+
+See `orchestrator/routes/pipelines.py:WORKTREE_BASE_DIR` and `gateway/worktree_manager.py` for implementation details.
+
 ## Deployment Modes
 
 egg supports three deployment modes, each suited to different use cases:
