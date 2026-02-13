@@ -1,17 +1,17 @@
 # egg
 
-A structurally enforced SDLC pipeline for autonomous LLM agents — turning GitHub issues into reviewed pull requests with mandatory human gates.
+A structurally enforced SDLC pipeline for autonomous LLM agents — turning tasks into reviewed pull requests with mandatory human gates.
 
 > *Inspired by Andy Weir's short story "The Egg" — a contained environment where development happens before emerging into the world. The agent works inside the egg; when ready, it "hatches" via human review and merge.*
 
 ## How It Works
 
-egg takes a GitHub issue through a phased pipeline where the agent cannot skip steps, self-approve work, or bypass review. These constraints are enforced by the gateway infrastructure, not by prompts.
+Run `egg` to start an interactive session, then use the `/sdlc` skill to launch a multi-agent pipeline. The agent cannot skip steps, self-approve work, or bypass review — these constraints are enforced by the gateway infrastructure, not by prompts.
 
 ```
          ┌───────────┐     ┌───────────┐     ┌───────────────┐     ┌──────────┐
          │  REFINE   │────▶│   PLAN    │────▶│  IMPLEMENT    │────▶│  HUMAN   │
-         │  issue    │     │           │     │  + PR review  │     │  MERGE   │
+         │  task     │     │           │     │  + PR review  │     │  MERGE   │
          └─────┬─────┘     └─────┬─────┘     └───────┬───────┘     └────┬─────┘
                │                 │                   │                  │
                ▼                 ▼                   ▼                  ▼
@@ -19,12 +19,16 @@ egg takes a GitHub issue through a phased pipeline where the agent cannot skip s
         (approve plan)  (approve tasks)    (draft PR checks)    (final merge)
 ```
 
-1. **Refine** — Agent analyzes the issue and produces a requirements document. Human approves.
+1. **Refine** — Agent analyzes the task and produces a requirements document. Human approves.
 2. **Plan** — Agent breaks work into tasks with acceptance criteria. Human approves before any code is written.
 3. **Implement** — Agent creates a draft PR and implements tasks. CI runs, automated review provides line-level feedback. Re-implementation cycles continue until all checks pass.
 4. **Merge** — Draft PR is marked ready. Only a human can merge via GitHub UI.
 
-The pipeline state lives in a JSON contract (`.egg-state/contracts/{identifier}.json`) committed to the feature branch, giving full auditability of every phase transition. For issue-mode pipelines, `{identifier}` is the issue number; for local-mode pipelines, it's the pipeline ID.
+The `/sdlc` skill supports two modes:
+- **Issue mode** (`/sdlc 123`): GitHub-issue-driven pipeline with full remote integration
+- **Local mode** (`/sdlc` with no args): Prompt-driven pipeline that runs entirely locally
+
+Both modes create a pipeline in the orchestrator, which spawns sandbox containers to execute each phase as a DAG. Pipeline state lives in a JSON contract (`.egg-state/contracts/{identifier}.json`) committed to the feature branch, giving full auditability of every phase transition.
 
 ## The Gateway
 
@@ -115,46 +119,28 @@ The orchestrator (`orchestrator/`) manages parallel execution of specialized age
 
 Roles are enforced by the gateway — each agent can only perform operations allowed for its role. The orchestrator handles wave-based execution, dependency tracking, container lifecycle, and result collection.
 
-## GitHub Automation
-
-egg includes GitHub Actions workflows that run inside the sandbox via a unified work loop:
-
-| Workflow | Description |
-|----------|-------------|
-| **SDLC Pipeline** | End-to-end issue→PR via unified work loop with structurally enforced review gates |
-| **AI Code Review** | Automatic PR reviews via `reusable-review.yml` |
-| **@mention Response** | Trigger tasks by mentioning egg in issues or PR comments |
-| **Check Autofixer** | Diagnoses and fixes CI failures automatically |
-| **Review Feedback** | Responds to PR review comments and requested changes |
-| **Merge Conflict Resolver** | Detects and resolves merge conflicts on open PRs |
-| **Doc Updater** | Keeps documentation in sync after code changes |
-| **Self-Improvement** | Nightly failure analysis with automatic issue creation |
-
-### Triggering the SDLC Pipeline
+## Starting a Pipeline
 
 ```bash
-# Via label (recommended)
-gh issue edit 123 --add-label "sdlc:refine"
+# Start egg
+egg
 
-# Via workflow dispatch
-gh workflow run sdlc-pipeline.yml -f issue_number=123 -f starting_phase=refine
+# Inside the session, launch the SDLC pipeline:
+/sdlc 123              # Issue mode — drives from GitHub issue #123
+/sdlc                  # Local mode — prompt-driven, no GitHub interaction
 ```
 
 The pipeline creates a draft PR automatically when entering the implement phase. Once all checks pass, the PR is marked ready for human review and merge.
 
-### Human-in-the-Loop Decisions
+### Human-in-the-Loop Checkpoints
 
-When issues arise, humans interact through checkbox-based UI in GitHub comments:
+At each phase boundary, the pipeline pauses for human approval before proceeding. Humans interact through checkbox-based UI in GitHub comments (issue mode) or terminal prompts (local mode):
 
 - **Guidance**: Provide additional context, adjust acceptance criteria, break into subtasks
 - **Override**: Mark complete, skip tasks, cancel pipeline
 - **Manual**: Complete manually, reassign
 
-A 30-second debounce prevents accidental clicks.
-
 ## Quick Start
-
-### Local
 
 ```bash
 # Clone and install
@@ -168,18 +154,13 @@ egg
 
 Running `egg` starts the gateway and sandbox automatically. On first run it will prompt you to configure repositories and credentials via `egg --setup`. By default it launches in public mode (full internet access); use `egg --private` for network-locked private repo mode.
 
+Once inside a session, use `/sdlc` to launch the full pipeline, or work interactively with individual agent modes (`/coder-mode`, `/tester-mode`, etc.).
+
 See the [Local Quickstart Guide](docs/guides/local-quickstart.md) for detailed setup instructions including PAT-based authentication.
-
-### GitHub Actions (SDLC Pipeline)
-
-1. Install the egg GitHub App or configure workflows in your repository
-2. Add the `sdlc:refine` label to an issue
-3. The pipeline begins: refine → plan → implement → ready for merge
-4. Review and merge the PR via GitHub UI
 
 ### Docker Compose (Advanced)
 
-For production deployments or managing the gateway stack separately:
+For managing the gateway stack separately:
 
 ```bash
 # Initialize configuration
@@ -195,23 +176,7 @@ bin/egg-deploy up
 egg --compose
 ```
 
-See the [Deployment Guide](docs/guides/deployment.md) for full production deployment options.
-
-## GitHub Action
-
-egg can run as a GitHub Action for CI/CD automation:
-
-```yaml
-- uses: jwbron/egg@main
-  with:
-    prompt: "Fix the failing tests"
-    anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
-    model: opus           # optional (default: opus)
-    timeout: "30"         # optional, in minutes (default: 30)
-    mode: auto            # optional: public, private, or auto (default: auto)
-```
-
-Additional inputs include `prompt-file` (for large prompts), `bot-app-id`/`bot-app-private-key`/`bot-app-installation-id` (for GitHub App bot identity), and `image-tag` (for pinning Docker image versions). See [GitHub Action documentation](action/README.md) for the full reference.
+See the [Deployment Guide](docs/guides/deployment.md) for deployment options.
 
 ## CLI Reference
 
@@ -303,10 +268,8 @@ For monitoring all active SDLC pipelines in real-time:
 ### Guides
 
 - [Local Quickstart](docs/guides/local-quickstart.md) — Get running locally with PAT authentication
-- [Deployment Guide](docs/guides/deployment.md) — Production deployment options
+- [Deployment Guide](docs/guides/deployment.md) — Deployment options
 - [Deploy Migration](docs/guides/deploy-migration.md) — Migrating from legacy deployments
-- [GitHub Automation Guide](docs/guides/github-automation.md) — Review bots, autofixer, @mention
-- [Reusable Workflows](docs/guides/reusable-workflows.md) — Shared workflow patterns
 - [Agent Development](docs/guides/agent-development.md) — Developing agent strategies
 - [Agent Mode Design](docs/guides/agent-mode-design.md) — When to use constraints vs. freedom
 
@@ -319,21 +282,7 @@ For monitoring all active SDLC pipelines in real-time:
 
 ## Versioning
 
-egg uses [semantic versioning](https://semver.org/) for both Docker images and GitHub Action references.
-
-> **Note:** Use `@main` until the first release (v0.1.0) is published, which will create the `@v0` tag.
-
-### Version Pinning
-
-For stability, pin to a major version:
-```yaml
-uses: jwbron/egg/action@v0  # Receives all v0.x.y updates
-```
-
-For full reproducibility:
-```yaml
-uses: jwbron/egg/action@v0.1.0  # Exact version
-```
+egg uses [semantic versioning](https://semver.org/) for Docker images.
 
 ### Docker Images
 
