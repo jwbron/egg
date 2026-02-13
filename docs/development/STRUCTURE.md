@@ -6,7 +6,7 @@ This document describes the directory structure conventions for egg.
 
 ```
 egg/
-├── bin/                    # CLI entry points
+├── bin/                    # CLI entry points (egg, egg-deploy, egg-status)
 ├── config/                 # Central configuration (repos, secrets template)
 ├── docs/                   # Cross-cutting documentation
 ├── gateway/                # Gateway sidecar (trusted container)
@@ -96,6 +96,7 @@ orchestrator/
 ├── sse.py                  # Server-Sent Events streaming for pipeline visualization
 ├── state_store.py          # Git-backed pipeline state
 ├── status_reporter.py      # Real-time status reporter for collaborators
+├── unified_sse.py          # Unified SSE stream for all pipelines
 ├── webhooks.py             # GitHub webhook handlers
 ├── routes/                 # API route handlers
 │   ├── containers.py       # Container management endpoints
@@ -127,7 +128,7 @@ sandbox/
 │   ├── gh
 │   ├── egg-contract        # Symlink to contract_cli.py
 │   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
-│   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
+│   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via polling
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
 │   ├── contract_cli.py     # SDLC contract CLI implementation
