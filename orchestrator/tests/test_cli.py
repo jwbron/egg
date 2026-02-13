@@ -116,21 +116,10 @@ class TestRootGuard:
     def test_serve_runs_as_non_root(self):
         """Orchestrator starts normally when not root."""
         with patch("os.getuid", return_value=1000):
-            with patch("cli.cmd_serve") as mock_serve:
-                mock_serve.return_value = 0
-                # cmd_serve is called via args.func, so we need to mock at a
-                # lower level — just verify the uid check passes by mocking
-                # the api import that happens after the check.
-                with patch.dict("sys.modules", {"api": MagicMock()}):
-                    from cli import cmd_serve as real_cmd_serve
-
-                    args = MagicMock()
-                    args.host = "0.0.0.0"
-                    args.port = 9849
-                    args.debug = False
-                    with patch.dict("os.environ", {}, clear=False):
-                        with patch("waitress.serve"):
-                            real_cmd_serve(args)
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve"):
+                    result = main(["serve"])
+                    assert result == 0
 
 
 class MockHealthHandler(BaseHTTPRequestHandler):
