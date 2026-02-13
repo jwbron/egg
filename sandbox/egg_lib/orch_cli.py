@@ -55,10 +55,7 @@ except ImportError:
     GATEWAY_PORT = 9848
     GATEWAY_ISOLATED_IP = "172.32.0.2"
 
-# Validation patterns for IDs used in URL path segments
-_UUID_PATTERN = re.compile(
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
+# Validation pattern for IDs used in URL path segments
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_\-\.]+$")
 
 
@@ -284,7 +281,7 @@ def cmd_health(args: argparse.Namespace) -> int:
     errors = 0
 
     # Orchestrator health
-    if not getattr(args, "json", False):
+    if not args.json:
         print("Orchestrator:")
     try:
         result = api_request(get_orchestrator_url(), "/api/v1/health", timeout=5)
@@ -295,7 +292,7 @@ def cmd_health(args: argparse.Namespace) -> int:
             "timestamp": result.get("timestamp"),
             "components": result.get("components", {}),
         }
-        if not getattr(args, "json", False):
+        if not args.json:
             icon = "ok" if status == "healthy" else "UNHEALTHY"
             print(f"  Status: {icon} ({status})")
             if result.get("timestamp"):
@@ -305,15 +302,15 @@ def cmd_health(args: argparse.Namespace) -> int:
                 print(f"  {name}: {state}")
     except ApiError:
         health_data["orchestrator"] = {"status": "unreachable", "reachable": False}
-        if not getattr(args, "json", False):
+        if not args.json:
             print("  Status: UNREACHABLE")
         errors += 1
 
-    if not getattr(args, "json", False):
+    if not args.json:
         print()
 
     # Gateway health
-    if not getattr(args, "json", False):
+    if not args.json:
         print("Gateway:")
     try:
         result = api_request(get_gateway_url(), "/api/v1/health", timeout=5)
@@ -323,16 +320,16 @@ def cmd_health(args: argparse.Namespace) -> int:
             "reachable": True,
             "github_token_valid": valid,
         }
-        if not getattr(args, "json", False):
+        if not args.json:
             print("  Status: ok")
             print(f"  GitHub token valid: {valid}")
     except ApiError:
         health_data["gateway"] = {"status": "unreachable", "reachable": False}
-        if not getattr(args, "json", False):
+        if not args.json:
             print("  Status: UNREACHABLE")
         errors += 1
 
-    if getattr(args, "json", False):
+    if args.json:
         print_json(health_data)
 
     return 1 if errors else 0
@@ -452,7 +449,7 @@ def cmd_pipeline_delete(args: argparse.Namespace) -> int:
     pid = require_pipeline_id(args)
     result = orch_request(f"/api/v1/pipelines/{pid}", method="DELETE")
 
-    if getattr(args, "json", False):
+    if args.json:
         print_json(result)
         return 0
 
@@ -499,7 +496,7 @@ def cmd_signal_complete(args: argparse.Namespace) -> int:
                 commit=args.commit,
                 files_changed=args.files,
             )
-            if getattr(args, "json", False):
+            if args.json:
                 print_json({"success": response.success, "message": response.message})
                 return 0
             if response.success:
@@ -524,7 +521,7 @@ def cmd_signal_complete(args: argparse.Namespace) -> int:
 
     result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
 
-    if getattr(args, "json", False):
+    if args.json:
         print_json(result)
         return 0
 
@@ -558,7 +555,7 @@ def cmd_signal_progress(args: argparse.Namespace) -> int:
                 current_task=args.task or "",
                 message=args.message or "",
             )
-            if getattr(args, "json", False):
+            if args.json:
                 print_json({"success": response.success, "message": response.message})
                 return 0
             if response.success:
@@ -584,7 +581,7 @@ def cmd_signal_progress(args: argparse.Namespace) -> int:
 
     result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
 
-    if getattr(args, "json", False):
+    if args.json:
         print_json(result)
         return 0
 
@@ -617,7 +614,7 @@ def cmd_signal_error(args: argparse.Namespace) -> int:
                 error=args.error,
                 recoverable=args.recoverable,
             )
-            if getattr(args, "json", False):
+            if args.json:
                 print_json({"success": response.success, "message": response.message})
                 return 0
             if response.success:
@@ -640,7 +637,7 @@ def cmd_signal_error(args: argparse.Namespace) -> int:
 
     result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
 
-    if getattr(args, "json", False):
+    if args.json:
         print_json(result)
         return 0
 
@@ -671,7 +668,7 @@ def cmd_signal_heartbeat(args: argparse.Namespace) -> int:
                 pipeline_id=pid_raw,
                 agent_role=role,
             )
-            if getattr(args, "json", False):
+            if args.json:
                 print_json({"success": response.success, "message": response.message})
                 return 0
             if response.success:
@@ -692,7 +689,7 @@ def cmd_signal_heartbeat(args: argparse.Namespace) -> int:
 
     result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
 
-    if getattr(args, "json", False):
+    if args.json:
         print_json(result)
         return 0
 
@@ -751,7 +748,7 @@ def cmd_phase_start(args: argparse.Namespace) -> int:
     pid = require_pipeline_id(args)
     result = orch_request(f"/api/v1/pipelines/{pid}/phase/start", method="POST", data={})
 
-    if getattr(args, "json", False):
+    if args.json:
         print_json(result)
         return 0
 
@@ -771,7 +768,7 @@ def cmd_phase_complete(args: argparse.Namespace) -> int:
 
     result = orch_request(f"/api/v1/pipelines/{pid}/phase/complete", method="POST", data=data)
 
-    if getattr(args, "json", False):
+    if args.json:
         print_json(result)
         return 0
 
@@ -855,7 +852,7 @@ def cmd_decision_resolve(args: argparse.Namespace) -> int:
         data=data,
     )
 
-    if getattr(args, "json", False):
+    if args.json:
         print_json(result)
         return 0
 
@@ -970,7 +967,7 @@ def cmd_container_stop(args: argparse.Namespace) -> int:
         data={},
     )
 
-    if getattr(args, "json", False):
+    if args.json:
         print_json(result)
         return 0
 
@@ -995,7 +992,7 @@ def cmd_container_logs(args: argparse.Namespace) -> int:
 
     result = orch_request(endpoint)
 
-    if getattr(args, "json", False):
+    if args.json:
         print_json(result)
         return 0
 
@@ -1018,13 +1015,13 @@ def cmd_gateway_health(args: argparse.Namespace) -> int:
     try:
         result = api_request(get_gateway_url(), "/api/v1/health", timeout=5)
     except ApiError:
-        if getattr(args, "json", False):
+        if args.json:
             print_json({"status": "unreachable", "reachable": False})
             return 1
         print("Status: UNREACHABLE")
         return 1
 
-    if getattr(args, "json", False):
+    if args.json:
         print_json(result)
         return 0
 
@@ -1095,7 +1092,7 @@ def cmd_env(args: argparse.Namespace) -> int:
         ("EGG_SESSION_TOKEN", "(set)" if get_session_token() else "(not set)"),
     ]
 
-    if getattr(args, "json", False):
+    if args.json:
         env_dict = {}
         for name, value in env_vars:
             env_dict[name] = value
