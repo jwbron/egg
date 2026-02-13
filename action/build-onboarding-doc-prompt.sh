@@ -28,20 +28,43 @@ set -euo pipefail
 # Directories to always exclude from scanning
 DEFAULT_EXCLUDE="node_modules,.git,__pycache__,dist,build,.egg-state,venv,.venv,.mypy_cache,.pytest_cache,.ruff_cache,.tox,vendor,coverage,.next,.nuxt"
 
-get_directory_tree() {
-    local depth="${1:-3}"
-    local exclude_args=""
-
-    # Build exclusion list
+build_find_excludes() {
+    # Build an array of -not -path exclusion args from DEFAULT_EXCLUDE + EXCLUDE_DIRS.
+    # Validates directory names to prevent injection. Results stored in FIND_EXCLUDES array.
+    FIND_EXCLUDES=()
     IFS=',' read -ra DIRS <<< "${DEFAULT_EXCLUDE},${EXCLUDE_DIRS:-}"
     for dir in "${DIRS[@]}"; do
-        dir=$(echo "$dir" | xargs)  # trim whitespace
-        [[ -n "$dir" ]] && exclude_args+=" -path ./${dir} -prune -o"
+        dir="${dir#"${dir%%[![:space:]]*}"}"   # trim leading whitespace
+        dir="${dir%"${dir##*[![:space:]]}"}"   # trim trailing whitespace
+        if [[ -n "$dir" ]]; then
+            if [[ "$dir" =~ ^[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$ ]]; then
+                FIND_EXCLUDES+=("-not" "-path" "./${dir}/*")
+            else
+                echo "Warning: skipping invalid exclude dir: $dir" >&2
+            fi
+        fi
+    done
+}
+
+get_directory_tree() {
+    local depth="${1:-3}"
+    local -a find_args=("." "-maxdepth" "$depth")
+
+    IFS=',' read -ra DIRS <<< "${DEFAULT_EXCLUDE},${EXCLUDE_DIRS:-}"
+    for dir in "${DIRS[@]}"; do
+        dir="${dir#"${dir%%[![:space:]]*}"}"   # trim leading whitespace
+        dir="${dir%"${dir##*[![:space:]]}"}"   # trim trailing whitespace
+        if [[ -n "$dir" ]]; then
+            if [[ "$dir" =~ ^[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$ ]]; then
+                find_args+=("-path" "./${dir}" "-prune" "-o")
+            else
+                echo "Warning: skipping invalid exclude dir: $dir" >&2
+            fi
+        fi
     done
 
-    # shellcheck disable=SC2086
-    eval "find . -maxdepth ${depth} ${exclude_args} -type d -print" 2>/dev/null | \
-        sort | head -200
+    find_args+=("-type" "d" "-print")
+    find "${find_args[@]}" 2>/dev/null | sort | head -200
 }
 
 get_top_level_contents() {
@@ -51,27 +74,16 @@ get_top_level_contents() {
 
 detect_languages() {
     # Detect primary languages by file extension count
-    find . -type f \
-        -not -path './.git/*' \
-        -not -path './node_modules/*' \
-        -not -path './__pycache__/*' \
-        -not -path './dist/*' \
-        -not -path './build/*' \
-        -not -path './vendor/*' \
-        -not -path './.venv/*' \
-        -not -path './venv/*' \
-        2>/dev/null | \
-    sed 's/.*\.//' | sort | uniq -c | sort -rn | head -15
+    build_find_excludes
+    find . -type f "${FIND_EXCLUDES[@]}" 2>/dev/null | \
+    sed -n 's|.*/[^/]*\.\([^./]*\)$|\1|p' | sort | uniq -c | sort -rn | head -15
 }
 
 find_existing_docs() {
     # Find all markdown files that could be documentation
+    build_find_excludes
     find . -name "*.md" -type f \
-        -not -path './.git/*' \
-        -not -path './node_modules/*' \
-        -not -path './__pycache__/*' \
-        -not -path './vendor/*' \
-        -not -path './.egg-state/*' \
+        "${FIND_EXCLUDES[@]}" \
         -not -path './.egg/*' \
         -not -path './CHANGELOG.md' \
         2>/dev/null | sort
@@ -79,15 +91,15 @@ find_existing_docs() {
 
 find_readmes() {
     # Find all README files specifically
+    build_find_excludes
     find . -iname "README*" -type f \
-        -not -path './.git/*' \
-        -not -path './node_modules/*' \
-        -not -path './vendor/*' \
+        "${FIND_EXCLUDES[@]}" \
         2>/dev/null | sort
 }
 
 find_config_files() {
     # Find configuration/build files that reveal project structure
+    build_find_excludes
     find . -maxdepth 2 \( \
         -name "Makefile" -o \
         -name "Dockerfile" -o \
@@ -105,21 +117,21 @@ find_config_files() {
         -name "jest.config*" -o \
         -name "pytest.ini" -o \
         -name "tox.ini" \
-    \) -type f 2>/dev/null | sort
+    \) -type f "${FIND_EXCLUDES[@]}" 2>/dev/null | sort
 }
 
 count_source_files() {
     # Count files per top-level directory to show project scale
+    build_find_excludes
     for dir in */; do
+        [[ -d "$dir" ]] || continue
         [[ "$dir" == "node_modules/" ]] && continue
         [[ "$dir" == ".git/" ]] && continue
         [[ "$dir" == "__pycache__/" ]] && continue
         [[ "$dir" == "vendor/" ]] && continue
         local count
         count=$(find "$dir" -type f \
-            -not -path '*/node_modules/*' \
-            -not -path '*/.git/*' \
-            -not -path '*/__pycache__/*' \
+            "${FIND_EXCLUDES[@]}" \
             2>/dev/null | wc -l)
         echo "  ${dir} — ${count} files"
     done 2>/dev/null
@@ -127,6 +139,7 @@ count_source_files() {
 
 detect_entry_points() {
     # Find likely entry points: main files, CLI scripts, app entrypoints
+    build_find_excludes
     find . -maxdepth 3 \( \
         -name "main.py" -o \
         -name "app.py" -o \
@@ -139,8 +152,7 @@ detect_entry_points() {
         -name "entrypoint.sh" -o \
         -name "manage.py" \
     \) -type f \
-        -not -path './node_modules/*' \
-        -not -path './.git/*' \
+        "${FIND_EXCLUDES[@]}" \
         2>/dev/null | sort
 }
 
@@ -449,8 +461,8 @@ contents. Do NOT create any branches, commits, or PRs."
     } >> "${GITHUB_OUTPUT:-/dev/null}"
 
     echo "Onboarding doc prompt built: ${#prompt} chars, model=${model}"
-    echo "Existing docs found: $(echo "$existing_docs" | grep -c '.' || echo 0) files"
-    echo "Existing READMEs: $(echo "$readmes" | grep -c '.' || echo 0) files"
+    echo "Existing docs found: $(echo "$existing_docs" | grep -c '.' || true) files"
+    echo "Existing READMEs: $(echo "$readmes" | grep -c '.' || true) files"
 }
 
 # ---------------------------------------------------------------------------
