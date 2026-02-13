@@ -490,6 +490,12 @@ ${marker}"
     ) -> str:
         """Run the marker generation logic and return the result."""
         env = os.environ.copy()
+        # Clear env vars that the bash snippet reads so that test
+        # parameters take effect.  Without this, CI environments (where
+        # the workflow sets these vars) would silently override the
+        # commit_sha and bot_name parameters.
+        env.pop("EGG_COMMIT_SHA", None)
+        env.pop("EGG_BOT_NAME", None)
         if bot_name:
             env["EGG_BOT_NAME"] = bot_name
 
