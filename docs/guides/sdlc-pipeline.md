@@ -71,7 +71,7 @@ The pipeline pauses for human approval at phase transitions. Decisions use check
 
 ### Pipeline Status Visualization
 
-The orchestrator provides pipeline status visualization through two endpoints:
+The orchestrator provides pipeline status visualization through the following endpoints:
 
 **1. Static Visualization**: `GET /api/v1/pipelines/<pipeline_id>/visualization`
 
@@ -88,7 +88,53 @@ Returns a snapshot of the current pipeline state.
 3. **`text`**: Plain text DAG visualization
 4. **`json`**: Structured JSON report with phase details
 
-**2. Real-time Streaming**: `GET /api/v1/pipelines/<pipeline_id>/stream`
+**2. Status Polling**: `GET /api/v1/pipelines/<pipeline_id>/status`
+
+Returns the current pipeline status for polling-based monitoring.
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Status retrieved",
+  "data": {
+    "id": "issue-123",
+    "status": "running",
+    "current_phase": "implement",
+    "pending_decisions": 0,
+    "updated_at": "2026-02-12T10:30:00Z"
+  }
+}
+```
+
+When `pending_decisions > 0`, the `data` object includes an additional `pending_decision` field with the first pending decision's details, so consumers don't need a second round-trip to fetch it:
+
+```json
+{
+  "success": true,
+  "message": "Status retrieved",
+  "data": {
+    "id": "issue-123",
+    "status": "running",
+    "current_phase": "implement",
+    "pending_decisions": 1,
+    "updated_at": "2026-02-12T10:30:00Z",
+    "pending_decision": {
+      "id": "decision-1",
+      "question": "How should we proceed?",
+      "context": "Additional context for the decision",
+      "options": ["Option A", "Option B"],
+      "created_at": "2026-02-12T11:00:00Z"
+    }
+  }
+}
+```
+
+**CLI tool**: Use `egg-pipeline-watch <pipeline_id>` to monitor pipeline progress in the terminal. The tool polls the status endpoint every 10 seconds and displays status changes.
+
+**3. Real-time Streaming (Deprecated)**: `GET /api/v1/pipelines/<pipeline_id>/stream`
+
+> **Deprecated**: Prefer the polling endpoint above. The `egg-pipeline-watch` CLI tool has been switched to polling as of #621. The SSE endpoint remains available but may be removed in a future release.
 
 Returns a Server-Sent Events (SSE) stream for real-time pipeline updates.
 
@@ -106,8 +152,6 @@ Returns a Server-Sent Events (SSE) stream for real-time pipeline updates.
 - `error`: Error occurred
 
 Each event includes the current visualization data and pipeline status. The stream automatically closes when the pipeline reaches a terminal state or after 1 hour.
-
-**CLI tool**: Use `egg-pipeline-watch <pipeline_id>` to view real-time progress in the terminal with auto-updating DAG visualization.
 
 **Example JSON response** (`format=full`):
 ```json
