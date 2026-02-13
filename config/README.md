@@ -137,7 +137,7 @@ Each check has:
 Checks run sequentially during the implement phase checker step. If not configured, the checker falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.).
 
 **Configuration:**
-- Setup flow: Run `./setup.py` and answer "yes" to "Configure SDLC check commands?"
+- Setup flow: Run `egg --setup` and answer "yes" to "Configure SDLC check commands?"
 - Manual: Edit `~/.config/egg/repositories.yaml` and add `checks` under `repo_settings.{repo}`
 - Runtime: The gateway injects repo checks via the `EGG_REPO_CHECKS` environment variable (JSON-encoded)
 
