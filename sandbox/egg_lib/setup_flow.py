@@ -291,8 +291,15 @@ def _configure_repo_checks(writable_repos: list[str]) -> dict:
         A ``repo_settings`` dict suitable for writing to repositories.yaml.
         Only repos with configured checks will have entries.
     """
+    if not writable_repos:
+        return {}
+
     print()
-    info("Per-repository check commands (optional):")
+    gate = input("Configure SDLC check commands? (yes/no) [no]: ").strip().lower()
+    if gate != "yes":
+        return {}
+
+    info("Per-repository check commands:")
     print("  The SDLC pipeline runs test/lint checks after implementing changes.")
     print("  By default it auto-discovers commands (Makefile, package.json, etc.).")
     print("  You can configure explicit commands per repo instead.")
