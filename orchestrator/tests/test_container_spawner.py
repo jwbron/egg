@@ -124,6 +124,12 @@ class TestSpawnAgentContainer:
         # Verify gateway registration
         mock_gateway_client.register_session.assert_called()
 
+        # Verify session is updated with actual Docker container ID
+        mock_gateway_client.update_session.assert_called_once()
+        update_call = mock_gateway_client.update_session.call_args
+        assert update_call.kwargs.get("container_id") == "abc123def456"
+        assert update_call.kwargs.get("session_token") == "test-token-12345"
+
     def test_spawn_with_custom_image(self, spawner, mock_docker_client):
         """Test spawning with custom image."""
         spawner.spawn_agent_container(
