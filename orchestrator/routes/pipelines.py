@@ -122,6 +122,14 @@ try:
 except ImportError:
     _SSE_AVAILABLE = False
 
+# Import unified SSE streaming support
+try:
+    from unified_sse import create_unified_sse_stream
+
+    _UNIFIED_SSE_AVAILABLE = True
+except ImportError:
+    _UNIFIED_SSE_AVAILABLE = False
+
 
 def make_error_response(
     message: str,
@@ -2635,6 +2643,58 @@ def get_pipeline_visualization(pipeline_id: str) -> tuple[Response, int]:
             f"Pipeline {pipeline_id} not found",
             status_code=404,
         )
+
+
+@pipelines_bp.route("/stream", methods=["GET"])
+def stream_all_pipelines() -> Response:
+    """
+    Stream unified events for all pipelines via Server-Sent Events (SSE).
+
+    Provides real-time updates for ALL pipeline state changes in a single
+    SSE connection. Unlike the per-pipeline stream, terminal events for
+    individual pipelines do not end the stream.
+
+    Query params:
+        ascii: Use ASCII-only characters (default: false)
+        active_only: Only include active pipelines (default: true)
+        full_dag: Include full DAG visualization (default: false)
+
+    Response:
+        text/event-stream with the following event types:
+        - snapshot: Initial state of all active pipelines
+        - pipeline.*: Pipeline lifecycle events
+        - phase.*: Phase transition events
+        - agent.*: Agent lifecycle events
+        - decision.*: HITL decision events
+        - done: Stream is ending (timeout)
+    """
+    if not _UNIFIED_SSE_AVAILABLE:
+        return make_error_response(
+            "Unified SSE streaming module not available",
+            status_code=500,
+        )
+
+    use_ascii = request.args.get("ascii", "false").lower() == "true"
+    active_only = request.args.get("active_only", "true").lower() == "true"
+    full_dag = request.args.get("full_dag", "false").lower() == "true"
+
+    repo_path = get_repo_path()
+
+    return Response(
+        stream_with_context(
+            create_unified_sse_stream(
+                repo_path=repo_path,
+                use_ascii=use_ascii,
+                active_only=active_only,
+                full_dag=full_dag,
+            )
+        ),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @pipelines_bp.route("/<pipeline_id>/stream", methods=["GET"])
