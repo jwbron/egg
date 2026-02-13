@@ -6,7 +6,7 @@ This CLI provides commands to list, show, and browse checkpoints that capture
 agent session context. Each commit has exactly one checkpoint, enabling precise
 traceability between code changes and agent sessions.
 
-Checkpoints are stored in the egg/checkpoints/v1 branch and are captured
+Checkpoints are stored in the egg/checkpoints/v2 branch and are captured
 per-commit during git push operations. Transcript data is extracted from the
 API proxy buffer, providing stable and format-independent capture.
 
@@ -34,7 +34,7 @@ from .checkpoint_loader import (
 from .checkpoints import Checkpoint
 
 # Checkpoint branch name
-CHECKPOINT_BRANCH = "egg/checkpoints/v1"
+CHECKPOINT_BRANCH = "egg/checkpoints/v2"
 
 
 def get_repo_path() -> str:

@@ -260,10 +260,10 @@ class TestCheckpointBranchBypass:
     def test_checkpoint_branch_constant_defined(self) -> None:
         """Verify checkpoint branch constant is used consistently."""
         # This is a structural test - the constant should be defined
-        # in gateway.py and should be "egg/checkpoints/v1"
+        # in gateway.py and should include "egg/checkpoints/v2"
 
         # Read gateway.py to verify the constant
         gateway_path = Path(__file__).parent.parent.parent / "gateway" / "gateway.py"
         if gateway_path.exists():
             content = gateway_path.read_text()
-            assert 'CHECKPOINT_BRANCH = "egg/checkpoints/v1"' in content
+            assert '"egg/checkpoints/v2"' in content

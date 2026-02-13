@@ -185,10 +185,7 @@ class DecisionQueue:
         """
         with self._lock:
             pipeline = self._load_pipeline()
-            return [
-                d for d in pipeline.decisions
-                if d.status == DecisionStatus.PENDING
-            ]
+            return [d for d in pipeline.decisions if d.status == DecisionStatus.PENDING]
 
     def get_decision(self, decision_id: str) -> HITLDecision:
         """Get a specific decision.

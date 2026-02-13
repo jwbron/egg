@@ -563,8 +563,8 @@ def git_push() -> tuple[Response, int] | Response:
 
     # Checkpoint branch bypass: pushes to the checkpoint branch always succeed
     # regardless of session mode or phase (checkpoints can be created at any time)
-    CHECKPOINT_BRANCH = "egg/checkpoints/v1"
-    is_checkpoint_push = branch == CHECKPOINT_BRANCH
+    CHECKPOINT_BRANCHES = {"egg/checkpoints/v1", "egg/checkpoints/v2"}
+    is_checkpoint_push = branch in CHECKPOINT_BRANCHES
 
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -3730,7 +3730,10 @@ def main() -> None:
 
     # Clean up orphaned worktrees from crashed containers
     try:
-        orphans_removed = startup_cleanup(active_containers=active_container_ids)
+        orphans_removed = startup_cleanup(
+            active_containers=active_container_ids,
+            session_manager=get_session_manager(),
+        )
         if orphans_removed > 0:
             logger.info(f"Startup cleanup removed {orphans_removed} orphaned worktree(s)")
     except Exception as e:

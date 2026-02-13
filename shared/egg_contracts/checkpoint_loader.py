@@ -572,7 +572,10 @@ def add_checkpoint_to_index_v2(
     """
     Add a v2 checkpoint to the index with multi-dimensional index updates.
 
-    Updates the primary checkpoint list and all secondary indices atomically.
+    Updates the primary checkpoint list and all secondary indices. The final
+    file write uses atomic rename, but the read-modify-write cycle is not
+    locked — concurrent callers must coordinate externally (e.g., via git
+    push non-fast-forward rejection) to avoid lost updates.
     Deduplicates by checkpoint ID.
 
     Args:

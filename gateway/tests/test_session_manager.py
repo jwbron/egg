@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 # Import from conftest-loaded module
+import session_manager as session_manager_module
 from session_manager import (
     Session,
     SessionManager,
@@ -1257,6 +1258,11 @@ class TestSessionMetadataFields:
 class TestSessionEndCheckpointCapture:
     """Tests for session-end checkpoint capture during deletion/expiry."""
 
+    @pytest.fixture(autouse=True)
+    def clear_captured_containers(self):
+        """Clear the capture dedup set before each test."""
+        session_manager_module._captured_containers.clear()
+
     @pytest.fixture
     def manager(self, tmp_path):
         """Create a session manager with a temporary persistence file."""
@@ -1272,7 +1278,7 @@ class TestSessionEndCheckpointCapture:
 
         from unittest.mock import patch
 
-        with patch("session_manager._capture_and_cleanup_session") as mock_capture:
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
             result = manager.delete_session(token)
             assert result is True
             mock_capture.assert_called_once()
@@ -1290,7 +1296,7 @@ class TestSessionEndCheckpointCapture:
 
         from unittest.mock import patch
 
-        with patch("session_manager._capture_and_cleanup_session") as mock_capture:
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
             result = manager.delete_session_by_container("test-container")
             assert result is True
             mock_capture.assert_called_once()
@@ -1311,7 +1317,7 @@ class TestSessionEndCheckpointCapture:
 
         from unittest.mock import patch
 
-        with patch("session_manager._capture_and_cleanup_session") as mock_capture:
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
             pruned = manager.prune_expired_sessions()
             assert pruned == 3
             assert mock_capture.call_count == 3
@@ -1323,7 +1329,7 @@ class TestSessionEndCheckpointCapture:
         """delete_session with invalid token doesn't capture checkpoint."""
         from unittest.mock import patch
 
-        with patch("session_manager._capture_and_cleanup_session") as mock_capture:
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
             result = manager.delete_session("nonexistent-token")
             assert result is False
             mock_capture.assert_not_called()
@@ -1332,7 +1338,7 @@ class TestSessionEndCheckpointCapture:
         """delete_session_by_container with invalid container doesn't capture."""
         from unittest.mock import patch
 
-        with patch("session_manager._capture_and_cleanup_session") as mock_capture:
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
             result = manager.delete_session_by_container("nonexistent")
             assert result is False
             mock_capture.assert_not_called()
@@ -1360,7 +1366,9 @@ class TestSessionEndCheckpointCapture:
             result = manager.validate_session(token2)
             assert result.valid
 
-        with patch("session_manager._capture_and_cleanup_session", side_effect=capture_mock):
+        with patch.object(
+            session_manager_module, "_capture_and_cleanup_session", side_effect=capture_mock
+        ):
             result = manager.delete_session_by_container("test-container")
             assert result is True
 
@@ -1382,7 +1390,7 @@ class TestSessionEndCheckpointCapture:
 
         from session_manager import _capture_and_cleanup_session
 
-        with patch("session_manager._cleanup_transcript_buffer") as mock_cleanup:
+        with patch.object(session_manager_module, "_cleanup_transcript_buffer") as mock_cleanup:
             with patch.dict("sys.modules", {"checkpoint_handler": None}):
                 # Should not raise - just log and clean up
                 _capture_and_cleanup_session(session, "completed")
@@ -1407,7 +1415,7 @@ class TestSessionEndCheckpointCapture:
 
         from session_manager import _capture_and_cleanup_session
 
-        with patch("session_manager._cleanup_transcript_buffer") as mock_cleanup:
+        with patch.object(session_manager_module, "_cleanup_transcript_buffer") as mock_cleanup:
             with patch(
                 "checkpoint_handler.capture_session_end_checkpoint",
                 side_effect=RuntimeError("capture failed"),

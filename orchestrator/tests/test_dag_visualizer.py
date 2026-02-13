@@ -235,9 +235,7 @@ class TestRenderPipelineDag:
                 ],
             )
         }
-        pipeline = create_test_pipeline(
-            phases=phases, current_phase=PipelinePhase.IMPLEMENT
-        )
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.IMPLEMENT)
         result = render_pipeline_dag(pipeline)
 
         assert "✓ coder" in result
@@ -272,9 +270,7 @@ class TestRenderPipelineDag:
                 ],
             )
         }
-        pipeline = create_test_pipeline(
-            phases=phases, current_phase=PipelinePhase.IMPLEMENT
-        )
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.IMPLEMENT)
         result = render_pipeline_dag(pipeline, use_ascii=True)
 
         assert "+ coder" in result

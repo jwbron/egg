@@ -710,7 +710,9 @@ def setup_sdlc_tokens(config: Config, logger: Logger) -> None:
             pass
     project_settings.setdefault("hooks", {})
     existing_project_hooks = project_settings["hooks"].get("UserPromptSubmit", [])
-    if not any(h.get("command") == str(hook_dst) for h in existing_project_hooks if isinstance(h, dict)):
+    if not any(
+        h.get("command") == str(hook_dst) for h in existing_project_hooks if isinstance(h, dict)
+    ):
         existing_project_hooks.append({"type": "command", "command": str(hook_dst)})
     project_settings["hooks"]["UserPromptSubmit"] = existing_project_hooks
     project_settings_file.write_text(json.dumps(project_settings, indent=2))
@@ -721,9 +723,11 @@ def setup_sdlc_tokens(config: Config, logger: Logger) -> None:
     claude_md = config.user_home / "CLAUDE.md"
     if claude_md.exists():
         with open(claude_md, "a") as f:
-            f.write(f"\n\n---\n\n## Auto-Start SDLC\n\n"
-                    f"IMMEDIATELY run `/sdlc {sdlc_issue}` as your first action. "
-                    f"Do not wait for user input.\n")
+            f.write(
+                f"\n\n---\n\n## Auto-Start SDLC\n\n"
+                f"IMMEDIATELY run `/sdlc {sdlc_issue}` as your first action. "
+                f"Do not wait for user input.\n"
+            )
     logger.success(f"Auto-start instruction added to CLAUDE.md for issue {sdlc_issue}")
 
     # Start settings watchdog (background thread, runs as root)
@@ -750,9 +754,7 @@ def _start_settings_watchdog(config: Config, logger: Logger, hook_path: str) -> 
 
                 # Check if our hook is present
                 hook_present = any(
-                    h.get("command") == hook_path
-                    for h in user_prompt_hooks
-                    if isinstance(h, dict)
+                    h.get("command") == hook_path for h in user_prompt_hooks if isinstance(h, dict)
                 )
 
                 if not hook_present:

@@ -303,6 +303,7 @@ def create_sse_stream(
     if repo_path is None:
         try:
             from routes import get_repo_path
+
             repo_path = get_repo_path()
         except Exception:
             pass
@@ -371,9 +372,7 @@ def create_sse_stream(
 
             except Empty:
                 # No events — send heartbeat to keep connection alive
-                yield format_sse_comment(
-                    f"heartbeat {datetime.utcnow().isoformat()}Z"
-                )
+                yield format_sse_comment(f"heartbeat {datetime.utcnow().isoformat()}Z")
 
     finally:
         manager.remove_client(pipeline_id, q)

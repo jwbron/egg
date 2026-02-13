@@ -54,6 +54,10 @@ def _cleanup_transcript_buffer(container_id: str) -> None:
         )
 
 
+_captured_containers: set[str] = set()
+_captured_containers_lock = threading.Lock()
+
+
 def _capture_and_cleanup_session(
     session: Session,
     session_status: str,
@@ -62,7 +66,21 @@ def _capture_and_cleanup_session(
 
     Ensures the transcript buffer is preserved until checkpoint capture completes.
     Falls back to immediate cleanup if checkpoint capture is unavailable.
+
+    Uses a per-container deduplication guard to prevent multiple captures from
+    racing code paths (delete_session, cleanup_orphaned_worktrees, prune_expired).
     """
+    # Deduplicate: only capture once per container
+    with _captured_containers_lock:
+        if session.container_id in _captured_containers:
+            logger.debug(
+                "Session-end checkpoint already captured, skipping",
+                container_id=session.container_id,
+                session_status=session_status,
+            )
+            return
+        _captured_containers.add(session.container_id)
+
     try:
         from checkpoint_handler import (
             SESSION_END_CAPTURE_TIMEOUT,
@@ -70,7 +88,11 @@ def _capture_and_cleanup_session(
         )
         from egg_contracts.checkpoints import SessionStatus
 
-        status = SessionStatus(session_status)
+        status = (
+            session_status
+            if isinstance(session_status, SessionStatus)
+            else SessionStatus(session_status)
+        )
         _checkpoint, completion_event = capture_session_end_checkpoint(
             session=session,
             session_status=status,
@@ -761,17 +783,27 @@ class SessionManager:
             if expired_sessions:
                 self._save_to_disk()
 
-        # Capture checkpoints outside the lock to avoid blocking other
-        # session operations during the up-to-30s wait per session
-        for token_hash, session in expired_sessions:
-            _capture_and_cleanup_session(session, "expired")
+        # Capture checkpoints concurrently to avoid blocking N×30s sequentially.
+        # Each capture waits up to 30s for async storage, so we use threads.
+        if expired_sessions:
+            threads = []
+            for token_hash, session in expired_sessions:
+                t = threading.Thread(
+                    target=_capture_and_cleanup_session,
+                    args=(session, "expired"),
+                    daemon=True,
+                )
+                t.start()
+                threads.append((t, token_hash, session))
 
-            logger.info(
-                "Session expired and pruned",
-                event_type="session_expired",
-                session_token_hash=token_hash[:16],
-                container_id=session.container_id,
-            )
+            for t, token_hash, session in threads:
+                t.join(timeout=35)  # 30s capture timeout + 5s buffer
+                logger.info(
+                    "Session expired and pruned",
+                    event_type="session_expired",
+                    session_token_hash=token_hash[:16],
+                    container_id=session.container_id,
+                )
 
         return len(expired_sessions)
 
