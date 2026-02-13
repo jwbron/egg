@@ -182,6 +182,10 @@ jobs:
               echo "should_run=true" >> "$GITHUB_OUTPUT"
             # Case 2: Human review on bot-authored PR
             # Trigger for non-approvals (changes_requested, commented)
+            # Note: Human approvals with suggestions won't trigger because humans
+            # don't add the verdict=approve-with-suggestions marker. This is an
+            # accepted limitation - non-blocking suggestions in human approvals
+            # are considered optional and don't require automated follow-up.
             elif ! is_review_bot "$REVIEW_USER" && is_bot_authored_pr && \
                [[ "$REVIEW_STATE" != "approved" ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
