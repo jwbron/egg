@@ -601,6 +601,176 @@ def setup_anthropic_api(config: Config, logger: Logger) -> None:
     logger.info("  Credentials injected by gateway (not in container)")
 
 
+# =============================================================================
+# SDLC Token-Gated Approvals
+# =============================================================================
+
+
+def setup_sdlc_tokens(config: Config, logger: Logger) -> None:
+    """Generate and display SDLC approval tokens, install hook and watchdog.
+
+    Called when EGG_SDLC_ISSUE is set. This runs as root before dropping to egg user.
+    """
+    sdlc_issue = os.environ.get("EGG_SDLC_ISSUE")
+    if not sdlc_issue:
+        return
+
+    import requests
+
+    pipeline_id = f"issue-{sdlc_issue}"
+    orch_url = os.environ.get(
+        "EGG_ORCHESTRATOR_URL",
+        f"http://egg-orchestrator:{GATEWAY_PORT + 1}",
+    )
+
+    # Generate tokens via orchestrator
+    try:
+        resp = requests.post(
+            f"{orch_url}/api/v1/sdlc-tokens/generate",
+            json={"pipeline_id": pipeline_id},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()["data"]
+    except Exception as e:
+        logger.error(f"Failed to generate SDLC tokens: {e}")
+        logger.error("Continuing without token-gated approvals.")
+        return
+
+    refine_token = data["refine_token"]
+    plan_token = data["plan_token"]
+
+    # Display tokens to human (visible on terminal before Claude starts)
+    print()
+    print("\033[1;33m" + "=" * 51 + "\033[0m")
+    print(f"\033[1;33m  SDLC Approval Tokens for {pipeline_id:<22}\033[0m")
+    print("\033[1;33m" + "=" * 51 + "\033[0m")
+    print()
+    print(f"  Refine: \033[1;32m{refine_token}\033[0m")
+    print(f"  Plan:   \033[1;32m{plan_token}\033[0m")
+    print()
+    print("  Write these down. Claude will NOT see them.")
+    print("\033[1;33m" + "=" * 51 + "\033[0m")
+    print()
+    input("  Press Enter when ready...")
+    print()
+
+    # Write pipeline ID for hook script
+    Path("/tmp/.egg-sdlc-pipeline-id").write_text(pipeline_id)
+    os.chmod("/tmp/.egg-sdlc-pipeline-id", 0o444)
+
+    # Install hook script (root-owned, 0555 — Claude can't modify)
+    hooks_dir = config.claude_dir / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    hook_src = Path("/opt/egg-runtime/sandbox/.claude/hooks/sdlc-approve.sh")
+    hook_dst = hooks_dir / "sdlc-approve.sh"
+    if hook_src.exists():
+        shutil.copy2(hook_src, hook_dst)
+    else:
+        # Fallback: copy from repo if runtime path doesn't exist
+        logger.warn("Hook source not found at /opt/egg-runtime, using inline fallback")
+        return
+    # Set root ownership and read+execute only (Claude runs as egg, can't modify)
+    os.chown(hook_dst, 0, 0)
+    os.chmod(hook_dst, 0o555)
+
+    logger.success(f"SDLC hook installed: {hook_dst} (root-owned, 0555)")
+
+    # Add hook to settings.json
+    settings_file = config.claude_dir / "settings.json"
+    if settings_file.exists():
+        settings = json.loads(settings_file.read_text())
+    else:
+        settings = {}
+
+    settings["hooks"] = settings.get("hooks", {})
+    settings["hooks"]["UserPromptSubmit"] = [
+        {
+            "type": "command",
+            "command": str(hook_dst),
+        }
+    ]
+    settings_file.write_text(json.dumps(settings, indent=2))
+    os.chown(settings_file, config.runtime_uid, config.runtime_gid)
+
+    logger.success("SDLC hook registered in settings.json")
+
+    # Also set in project-level .claude/settings.json for redundancy
+    project_claude_dir = config.repos_dir / ".claude"
+    project_claude_dir.mkdir(parents=True, exist_ok=True)
+    project_settings_file = project_claude_dir / "settings.json"
+    project_settings = {}
+    if project_settings_file.exists():
+        try:
+            project_settings = json.loads(project_settings_file.read_text())
+        except json.JSONDecodeError:
+            pass
+    project_settings["hooks"] = project_settings.get("hooks", {})
+    project_settings["hooks"]["UserPromptSubmit"] = [
+        {
+            "type": "command",
+            "command": str(hook_dst),
+        }
+    ]
+    project_settings_file.write_text(json.dumps(project_settings, indent=2))
+    os.chown(project_settings_file, config.runtime_uid, config.runtime_gid)
+    chown_recursive(project_claude_dir, config.runtime_uid, config.runtime_gid)
+
+    # Append auto-start instruction to CLAUDE.md
+    claude_md = config.user_home / "CLAUDE.md"
+    if claude_md.exists():
+        with open(claude_md, "a") as f:
+            f.write(f"\n\n---\n\n## Auto-Start SDLC\n\n"
+                    f"IMMEDIATELY run `/sdlc {sdlc_issue}` as your first action. "
+                    f"Do not wait for user input.\n")
+    logger.success(f"Auto-start instruction added to CLAUDE.md for issue {sdlc_issue}")
+
+    # Start settings watchdog (background thread, runs as root)
+    _start_settings_watchdog(config, logger, str(hook_dst))
+
+
+def _start_settings_watchdog(config: Config, logger: Logger, hook_path: str) -> None:
+    """Start a background thread that monitors settings.json for hook removal.
+
+    Runs as root — Claude (egg user) cannot kill threads in the parent process.
+    Checks every 5 seconds and re-adds the hook if it's missing.
+    """
+    settings_file = config.claude_dir / "settings.json"
+
+    def watchdog() -> None:
+        while True:
+            time.sleep(5)
+            try:
+                if not settings_file.exists():
+                    continue
+                settings = json.loads(settings_file.read_text())
+                hooks = settings.get("hooks", {})
+                user_prompt_hooks = hooks.get("UserPromptSubmit", [])
+
+                # Check if our hook is present
+                hook_present = any(
+                    h.get("command") == hook_path
+                    for h in user_prompt_hooks
+                    if isinstance(h, dict)
+                )
+
+                if not hook_present:
+                    logger.warn("SDLC hook removed from settings.json — re-adding")
+                    if "hooks" not in settings:
+                        settings["hooks"] = {}
+                    settings["hooks"]["UserPromptSubmit"] = [
+                        {"type": "command", "command": hook_path}
+                    ]
+                    settings_file.write_text(json.dumps(settings, indent=2))
+                    os.chown(settings_file, config.runtime_uid, config.runtime_gid)
+            except Exception:
+                pass  # Don't crash watchdog on transient errors
+
+    thread = threading.Thread(target=watchdog, daemon=True, name="sdlc-settings-watchdog")
+    thread.start()
+    logger.success("SDLC settings watchdog started (background thread)")
+
+
 def setup_worktrees(config: Config, logger: Logger) -> bool:
     """Validate gateway-managed worktree configuration.
 
@@ -1543,6 +1713,10 @@ def main() -> None:
     # Configure Anthropic API to route through gateway
     with timed_phase("setup_anthropic_api", logger):
         setup_anthropic_api(config, logger)
+
+    # Set up SDLC token-gated approvals if requested
+    with timed_phase("setup_sdlc_tokens", logger):
+        setup_sdlc_tokens(config, logger)
 
     # Run appropriate mode (timing summary is printed inside each mode)
     if len(sys.argv) == 1:

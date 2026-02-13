@@ -475,7 +475,7 @@ def _setup_session_repos(
     return session_token, repos, filtered_repos
 
 
-def run_claude(repo_mode: str | None = None) -> bool:
+def run_claude(repo_mode: str | None = None, sdlc_issue: int | None = None) -> bool:
     """Run Claude Code CLI in the sandboxed container (interactive mode).
 
     Args:
@@ -483,6 +483,8 @@ def run_claude(repo_mode: str | None = None) -> bool:
                    - None: Legacy mode (all repos accessible, global env vars)
                    - "private": Only mount private/internal repos
                    - "public": Only mount public repos
+        sdlc_issue: Optional issue number for SDLC pipeline with token-gated approvals.
+                    When set, EGG_SDLC_ISSUE is passed to the container.
 
     Returns:
         True if container ran successfully, False otherwise
@@ -635,6 +637,10 @@ def run_claude(repo_mode: str | None = None) -> bool:
     caller_env["ANTHROPIC_AUTH_METHOD"] = anthropic_auth_method
     if api_key:
         caller_env["ANTHROPIC_API_KEY"] = api_key
+
+    # Pass SDLC issue number for token-gated approvals
+    if sdlc_issue is not None:
+        caller_env["EGG_SDLC_ISSUE"] = str(sdlc_issue)
 
     cmd = build_sandbox_docker_cmd(
         container_name=container_id,
