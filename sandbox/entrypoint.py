@@ -1313,9 +1313,14 @@ def _tee_stderr_to_file(
             stderr_out.flush()
             ring.append(line)
         # Write the bounded tail to disk for _read_subprocess_stderr_tail()
-        with open(log_path, "wb") as log_file:
-            for saved_line in ring:
-                log_file.write(saved_line)
+        # This is best-effort — stderr was already forwarded in real time.
+        # During container shutdown, filesystems may become read-only.
+        try:
+            with open(log_path, "wb") as log_file:
+                for saved_line in ring:
+                    log_file.write(saved_line)
+        except OSError:
+            pass
     except Exception as exc:
         # Best-effort diagnostic — log so failures aren't completely silent.
         try:
