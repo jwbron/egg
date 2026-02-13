@@ -13,12 +13,12 @@ Run `egg` to start an interactive session, then use the `/sdlc` skill to launch 
 ```
          ┌───────────┐     ┌───────────┐     ┌───────────────┐     ┌──────────┐
          │  REFINE   │────▶│   PLAN    │────▶│  IMPLEMENT    │────▶│  HUMAN   │
-         │  task     │     │           │     │  + PR review  │     │  MERGE   │
-         └─────┬─────┘     └─────┬─────┘     └───────┬───────┘     └────┬─────┘
-               │                 │                   │                  │
-               ▼                 ▼                   ▼                  ▼
-          Human gate        Human gate         CI + review          GitHub UI
-        (approve plan)  (approve tasks)    (draft PR checks)    (final merge)
+         │  task     │     │           │     │  + review     │     │  MERGE   │
+         └─────┬─────┘     └─────┬─────┘     └───────────────┘     └────┬─────┘
+               │                 │                                      │
+               ▼                 ▼                                      ▼
+          Human gate        Human gate                             GitHub UI
+        (approve plan)  (approve tasks)                          (final merge)
 ```
 
 1. **Refine** — Agent analyzes the task and produces a requirements document. Human approves.
