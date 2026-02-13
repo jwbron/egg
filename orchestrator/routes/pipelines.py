@@ -168,11 +168,26 @@ def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pi
     # The global worktree means the pipeline is always found at base_path,
     # even when base_path is a parent directory (e.g. /home/egg/repos/).
     # Resolve to the correct repo subdirectory using the pipeline's repo field.
-    if not (base_path / ".git").exists() and pipeline.repo:
-        repo_name = pipeline.repo.split("/")[-1]
-        candidate = base_path / repo_name
-        if candidate.exists() and (candidate / ".git").exists():
-            store = get_state_store(candidate)
+    # NOTE: The pipeline was loaded from the original store, but both stores
+    # share the same underlying worktree state — only repo_path differs.
+    if not (base_path / ".git").exists():
+        if pipeline.repo:
+            repo_name = pipeline.repo.split("/")[-1]
+            candidate = base_path / repo_name
+            if candidate.exists() and (candidate / ".git").exists():
+                store = get_state_store(candidate)
+            else:
+                logger.warning(
+                    "Repo subdirectory not found for pipeline",
+                    pipeline_id=pipeline_id,
+                    repo=pipeline.repo,
+                    candidate=str(candidate),
+                )
+        else:
+            logger.warning(
+                "Pipeline has no repo field, cannot resolve subdirectory",
+                pipeline_id=pipeline_id,
+            )
 
     return store, pipeline
 
@@ -1566,6 +1581,15 @@ def _populate_contract_from_plan(
         from egg_contracts.loader import load_contract, save_contract
     except ImportError:
         logger.warning("egg_contracts not available, skipping contract population")
+        return
+
+    # Guard against issue-mode pipelines missing issue_number — _get_draft_path
+    # would produce a path containing literal "None" (e.g. .egg-state/drafts/None-plan.md).
+    if pipeline_mode != "local" and not issue_number:
+        logger.warning(
+            "Issue-mode pipeline missing issue_number, skipping contract population",
+            pipeline_id=pipeline_id,
+        )
         return
 
     # Resolve draft path based on pipeline mode
