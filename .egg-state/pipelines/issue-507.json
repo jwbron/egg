@@ -15,11 +15,23 @@
     "decision_timeout": 3600,
     "hitl_gates": true
   },
-  "phases": {},
+  "phases": {
+    "refine": {
+      "phase": "refine",
+      "status": "running",
+      "started_at": "2026-02-13T03:35:38.838137",
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "artifacts": {},
+      "error": null
+    }
+  },
   "decisions": [],
   "created_at": "2026-02-13T03:35:35.665383",
-  "updated_at": "2026-02-13T03:35:38.775976",
+  "updated_at": "2026-02-13T03:35:38.838389",
   "contract_synced": true,
   "error": null,
-  "version": 4
+  "version": 5
 }
