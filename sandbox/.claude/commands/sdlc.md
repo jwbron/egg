@@ -72,20 +72,15 @@ curl -s -X POST http://egg-orchestrator:9849/api/v1/pipelines/issue-<issue_numbe
   -H "Content-Type: application/json" -d '{}' | jq .
 ```
 
-#### Stream Live Progress
+#### Watch Progress
 
-After starting the pipeline, **immediately** run the pipeline watcher to stream real-time DAG visualization:
+After starting the pipeline, **immediately** run the pipeline watcher to poll for status updates:
 
 ```bash
 egg-pipeline-watch issue-<issue_number>
 ```
 
-This connects to the orchestrator's SSE endpoint and displays the DAG visualization with live updates as phases progress. The watcher exits automatically when the pipeline completes, fails, or is cancelled.
-
-If the terminal does not support Unicode, use:
-```bash
-egg-pipeline-watch issue-<issue_number> --ascii
-```
+This polls the orchestrator's status endpoint every 10 seconds and prints status changes. The watcher exits automatically when the pipeline completes, fails, or is cancelled.
 
 ---
 
@@ -123,15 +118,15 @@ curl -s -X POST "http://egg-orchestrator:9849/api/v1/pipelines/<pipeline_id>/sta
   -H "Content-Type: application/json" -d '{}' | jq .
 ```
 
-#### Stream Live Progress
+#### Watch Progress
 
-After starting the pipeline, **immediately** run the pipeline watcher to stream real-time DAG visualization:
+After starting the pipeline, **immediately** run the pipeline watcher to poll for status updates:
 
 ```bash
 egg-pipeline-watch <pipeline_id>
 ```
 
-This streams live updates as the pipeline progresses through each phase. The watcher exits automatically when the pipeline reaches a terminal state.
+This polls the orchestrator's status endpoint every 10 seconds and prints status changes. The watcher exits automatically when the pipeline reaches a terminal state.
 
 ## Error Handling
 

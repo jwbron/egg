@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-Watch pipeline progress via SSE stream.
+Watch pipeline progress via polling.
 
-Connects to the orchestrator's SSE endpoint and renders the DAG
-visualization in the terminal with real-time in-place updates.
+Polls the orchestrator's status endpoint and renders a compact
+status line in the terminal.
 
 Usage:
-    egg-pipeline-watch <pipeline_id> [--ascii] [--compact] [--once]
+    egg-pipeline-watch <pipeline_id> [--interval SECONDS] [--once]
 
 Options:
-    --ascii     Use ASCII-only characters (no Unicode box drawing)
-    --compact   Show compact single-line status instead of full DAG
-    --once      Show current state and exit (no streaming)
+    --interval  Polling interval in seconds (default: 10)
+    --once      Show current state and exit (no polling)
 """
 
 import argparse
@@ -20,12 +19,11 @@ import os
 import re
 import signal
 import sys
+import time
 from http.client import HTTPConnection
 from urllib.parse import urlparse
 
 # ANSI escape codes
-CLEAR_SCREEN = "\033[2J"
-MOVE_HOME = "\033[H"
 RESET = "\033[0m"
 DIM = "\033[2m"
 BOLD = "\033[1m"
@@ -40,6 +38,12 @@ IS_TTY = sys.stdout.isatty()
 # Regex to strip ANSI escape sequences
 _ANSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
 
+# Terminal statuses that mean the pipeline is done
+TERMINAL_STATUSES = {"complete", "failed", "cancelled"}
+
+# Default polling interval
+DEFAULT_INTERVAL = 10
+
 
 def get_orchestrator_url() -> str:
     """Get the orchestrator base URL from environment."""
@@ -51,34 +55,57 @@ def strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
-def clear_and_home() -> None:
-    """Move cursor to top-left and clear screen (TTY only)."""
-    if not IS_TTY:
-        return
-    sys.stdout.write(MOVE_HOME + CLEAR_SCREEN)
-    sys.stdout.flush()
+def _write(text: str, file=None) -> None:
+    """Write text, stripping ANSI codes if not a TTY."""
+    file = file or sys.stdout
+    if not file.isatty():
+        text = strip_ansi(text)
+    file.write(text)
+    file.flush()
 
 
-def render_header(pipeline_id: str, event_type: str | None = None) -> str:
-    """Render a header line."""
-    lines = []
-    lines.append(f"{BOLD}Pipeline Watch: {pipeline_id}{RESET}")
-    if event_type:
-        lines.append(f"{DIM}Last event: {event_type}{RESET}")
-    lines.append("")
-    return "\n".join(lines)
+def fetch_status(host: str, port: int, pipeline_id: str) -> dict | None:
+    """Fetch pipeline status from the orchestrator.
+
+    Returns the status data dict, or None on error.
+    """
+    path = f"/api/v1/pipelines/{pipeline_id}/status"
+    try:
+        conn = HTTPConnection(host, port, timeout=10)
+        conn.request("GET", path)
+        response = conn.getresponse()
+        body = response.read().decode("utf-8", errors="replace")
+        conn.close()
+
+        if response.status != 200:
+            try:
+                err = json.loads(body)
+                msg = err.get("message", body)
+            except json.JSONDecodeError:
+                msg = body
+            _write(f"{RED}Error ({response.status}): {msg}{RESET}\n", file=sys.stderr)
+            return None
+
+        return json.loads(body)
+    except ConnectionRefusedError:
+        _write(
+            f"{RED}Cannot connect to orchestrator at {host}:{port}\n"
+            f"Is the orchestrator running?{RESET}\n",
+            file=sys.stderr,
+        )
+        return None
+    except Exception as e:
+        _write(f"{RED}Connection error: {e}{RESET}\n", file=sys.stderr)
+        return None
 
 
-def render_event_info(data: dict) -> str:
-    """Render event metadata below the DAG."""
-    lines = []
+def format_status_line(pipeline_id: str, data: dict) -> str:
+    """Format a single-line status display."""
+    status = data.get("status", "unknown")
+    phase = data.get("current_phase", "unknown")
+    pending = data.get("pending_decisions", 0)
+    updated = data.get("updated_at", "")
 
-    status = data.get("status", "")
-    phase = data.get("current_phase", "")
-    event_type = data.get("event_type", "")
-    timestamp = data.get("timestamp", "")
-
-    # Status with color
     status_colors = {
         "running": CYAN,
         "complete": GREEN,
@@ -89,134 +116,29 @@ def render_event_info(data: dict) -> str:
     }
     color = status_colors.get(status, "")
 
-    lines.append("")
-    lines.append(f"  Status: {color}{status}{RESET}  |  Phase: {phase}")
-    if timestamp:
-        # Show just time portion
-        time_part = timestamp.split("T")[-1].rstrip("Z")[:8]
-        lines.append(f"  {DIM}Updated: {time_part}  Event: {event_type}{RESET}")
+    time_part = ""
+    if updated:
+        time_part = updated.split("T")[-1].rstrip("Z")[:8]
 
-    return "\n".join(lines)
+    line = f"{BOLD}{pipeline_id}{RESET}  {color}{status}{RESET}  phase={phase}"
+    if pending:
+        line += f"  {YELLOW}({pending} pending decision{'s' if pending != 1 else ''}){RESET}"
+    if time_part:
+        line += f"  {DIM}{time_part}{RESET}"
 
-
-# Track last rendered content for deduplication in non-TTY mode
-_last_rendered: str | None = None
-
-
-def display_visualization(data: dict, compact: bool = False) -> None:
-    """Display the DAG visualization with in-place update."""
-    global _last_rendered
-
-    pipeline_id = data.get("pipeline_id", "unknown")
-    event_type = data.get("event_type", "")
-
-    output = render_header(pipeline_id, event_type)
-
-    viz = data.get("visualization", {})
-    if compact:
-        output += viz.get("compact", "No compact view available")
-        output += "\n" + viz.get("progress", "")
-    else:
-        dag = viz.get("dag", "")
-        if dag:
-            output += dag
-        else:
-            output += "  Waiting for visualization data..."
-
-    output += render_event_info(data)
-
-    if IS_TTY:
-        # Interactive terminal: clear and redraw in-place
-        clear_and_home()
-        output += f"\n\n{DIM}Press Ctrl+C to stop watching{RESET}\n"
-        sys.stdout.write(output)
-        sys.stdout.flush()
-    else:
-        # Non-TTY (e.g., Claude Code bash tool): sequential frames,
-        # deduplicated to avoid flooding the output buffer.
-        plain = strip_ansi(output)
-        if plain == _last_rendered:
-            return
-        _last_rendered = plain
-        # Print a separator then the frame without ANSI codes
-        sys.stdout.write("---\n" + plain + "\n")
-        sys.stdout.flush()
-
-
-def _write(text: str, file=None) -> None:
-    """Write text, stripping ANSI codes if not a TTY."""
-    file = file or sys.stdout
-    if not file.isatty():
-        text = strip_ansi(text)
-    file.write(text)
-    file.flush()
-
-
-def display_done(data: dict) -> None:
-    """Display final message when stream ends."""
-    reason = data.get("reason", "unknown")
-    pipeline_id = data.get("pipeline_id", "")
-
-    reason_messages = {
-        "completed": f"{GREEN}Pipeline {pipeline_id} reached terminal state.{RESET}",
-        "already_terminal": f"{DIM}Pipeline {pipeline_id} already finished.{RESET}",
-        "timeout": f"{YELLOW}Connection timed out. Re-run to reconnect.{RESET}",
-    }
-    msg = reason_messages.get(reason, f"Stream ended: {reason}")
-    _write(f"\n{msg}\n")
-
-
-def display_error(data: dict) -> None:
-    """Display an error message."""
-    error = data.get("error", "Unknown error")
-    _write(f"{RED}Error: {error}{RESET}\n", file=sys.stderr)
-
-
-def parse_sse_stream(response):
-    """Parse an SSE stream from an HTTP response.
-
-    Yields (event_type, data_dict) tuples.
-    """
-    event_type = None
-    data_lines = []
-
-    # Iterate directly on HTTPResponse, which inherits from
-    # io.BufferedIOBase — __iter__ (from IOBase) calls readline() repeatedly.
-    for raw_line in response:
-        line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
-
-        if line.startswith("event: "):
-            event_type = line[7:]
-        elif line.startswith("data: "):
-            data_lines.append(line[6:])
-        elif line.startswith(":"):
-            # Comment (heartbeat) - ignore
-            pass
-        elif line == "":
-            # Blank line = end of event
-            if data_lines:
-                raw = "\n".join(data_lines)
-                try:
-                    data = json.loads(raw)
-                except json.JSONDecodeError:
-                    data = {"raw": raw}
-                yield (event_type or "message", data)
-            event_type = None
-            data_lines = []
+    return line
 
 
 def watch_pipeline(
     pipeline_id: str,
-    use_ascii: bool = False,
-    compact: bool = False,
+    interval: int = DEFAULT_INTERVAL,
     once: bool = False,
 ) -> int:
-    """Connect to SSE stream and display visualization.
+    """Poll pipeline status and display updates.
 
     Args:
         pipeline_id: Pipeline to watch
-        use_ascii: Use ASCII-only characters
-        compact: Show compact view
+        interval: Polling interval in seconds
         once: Show current state and exit
 
     Returns:
@@ -227,76 +149,44 @@ def watch_pipeline(
     host = parsed.hostname or "egg-orchestrator"
     port = parsed.port or 9849
 
-    # Build request path
-    path = f"/api/v1/pipelines/{pipeline_id}/stream"
-    params = []
-    if use_ascii:
-        params.append("ascii=true")
-    if params:
-        path += "?" + "&".join(params)
+    last_line = None
 
-    try:
-        conn = HTTPConnection(host, port, timeout=60)
-        conn.request(
-            "GET",
-            path,
-            headers={
-                "Accept": "text/event-stream",
-                "Cache-Control": "no-cache",
-            },
-        )
-        response = conn.getresponse()
-
-        if response.status != 200:
-            body = response.read().decode("utf-8", errors="replace")
-            try:
-                err = json.loads(body)
-                msg = err.get("message", body)
-            except json.JSONDecodeError:
-                msg = body
-            _write(f"{RED}Error ({response.status}): {msg}{RESET}\n", file=sys.stderr)
+    while True:
+        result = fetch_status(host, port, pipeline_id)
+        if result is None:
             return 1
 
-        for event_type, data in parse_sse_stream(response):
-            if event_type == "error":
-                display_error(data)
-                return 1
+        data = result.get("data", result)
+        status = data.get("status", "unknown")
+        line = format_status_line(pipeline_id, data)
 
-            if event_type == "done":
-                display_done(data)
-                return 0
+        # Only print if status changed (or first time)
+        if line != last_line:
+            _write(line + "\n")
+            last_line = line
 
-            # Display the visualization
-            display_visualization(data, compact=compact)
+        if once:
+            return 0
 
-            if once:
-                return 0
+        if status in TERMINAL_STATUSES:
+            if status == "complete":
+                _write(f"{GREEN}Pipeline {pipeline_id} completed.{RESET}\n")
+            elif status == "failed":
+                _write(f"{RED}Pipeline {pipeline_id} failed.{RESET}\n")
+            elif status == "cancelled":
+                _write(f"{RED}Pipeline {pipeline_id} cancelled.{RESET}\n")
+            return 0 if status == "complete" else 1
 
-    except KeyboardInterrupt:
-        _write(f"\n{DIM}Stopped watching.{RESET}\n")
-        return 0
-    except ConnectionRefusedError:
-        _write(
-            f"{RED}Cannot connect to orchestrator at {base_url}\n"
-            f"Is the orchestrator running?{RESET}\n",
-            file=sys.stderr,
-        )
-        return 1
-    except Exception as e:
-        _write(f"{RED}Connection error: {e}{RESET}\n", file=sys.stderr)
-        return 1
-    finally:
         try:
-            conn.close()
-        except Exception:
-            pass
-
-    return 0
+            time.sleep(interval)
+        except KeyboardInterrupt:
+            _write(f"\n{DIM}Stopped watching.{RESET}\n")
+            return 0
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Watch SDLC pipeline progress in real-time",
+        description="Watch SDLC pipeline progress",
         prog="egg-pipeline-watch",
     )
     parser.add_argument(
@@ -304,19 +194,15 @@ def main() -> None:
         help="Pipeline ID to watch (e.g., issue-123, local-abc123)",
     )
     parser.add_argument(
-        "--ascii",
-        action="store_true",
-        help="Use ASCII-only characters (no Unicode box drawing)",
-    )
-    parser.add_argument(
-        "--compact",
-        action="store_true",
-        help="Show compact single-line status",
+        "--interval",
+        type=int,
+        default=DEFAULT_INTERVAL,
+        help=f"Polling interval in seconds (default: {DEFAULT_INTERVAL})",
     )
     parser.add_argument(
         "--once",
         action="store_true",
-        help="Show current state and exit (no streaming)",
+        help="Show current state and exit (no polling)",
     )
 
     args = parser.parse_args()
@@ -327,8 +213,7 @@ def main() -> None:
     sys.exit(
         watch_pipeline(
             pipeline_id=args.pipeline_id,
-            use_ascii=args.ascii,
-            compact=args.compact,
+            interval=args.interval,
             once=args.once,
         )
     )
