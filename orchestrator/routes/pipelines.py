@@ -1699,11 +1699,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     # Match against pipeline.repo explicitly to avoid picking
                     # the wrong repo in multi-repo pipelines.
                     repo_short = pipeline.repo.split("/")[-1] if pipeline.repo else None
+                    matched = False
                     if repo_short and repo_short in wt_result.worktrees:
                         candidate = WORKTREE_BASE_DIR / worktree_id / repo_short
                         if candidate.exists():
                             worktree_repo_path = candidate
-                    else:
+                            matched = True
+                    if not matched:
                         # Fallback: take the first existing worktree path
                         for name in wt_result.worktrees:
                             candidate = WORKTREE_BASE_DIR / worktree_id / name
