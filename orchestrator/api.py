@@ -178,7 +178,7 @@ def main() -> None:
         app.run(host=host, port=port, debug=True)
     else:
         # Use waitress for production
-        serve(app, host=host, port=port)
+        serve(app, host=host, port=port, threads=16)
 
 
 if __name__ == "__main__":
