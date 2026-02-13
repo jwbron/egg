@@ -64,7 +64,11 @@ def make_success_response(
     return jsonify(response), 200
 
 
-from routes import get_repo_path, resolve_repo_path_for_pipeline  # noqa: E402 — shared helper
+from routes import (  # noqa: E402 — shared helper
+    get_repo_path,
+    resolve_repo_path_for_pipeline,
+    resolve_worktree_path,
+)
 
 
 @signals_bp.route("/<pipeline_id>/signal", methods=["POST"])
@@ -156,8 +160,11 @@ def handle_complete_signal(
         store = get_state_store(repo_path)
         pipeline = store.load_pipeline(pipeline_id)
 
+        # Contracts live in per-pipeline worktrees, not the main repo.
+        contract_path = resolve_worktree_path(pipeline_id, repo_path)
+
         # Create dispatcher and record completion
-        dispatcher = create_dispatcher(pipeline, repo_path)
+        dispatcher = create_dispatcher(pipeline, contract_path)
 
         commit = data.get("commit")
         outputs = data.get("handoff_data", {})
@@ -174,7 +181,7 @@ def handle_complete_signal(
                 handoff_data=outputs,
                 metrics=data.get("metrics", {}),
             )
-            save_agent_output(repo_path, output)
+            save_agent_output(contract_path, output)
 
         logger.info(
             "Agent completed",
@@ -280,8 +287,11 @@ def handle_error_signal(
         store = get_state_store(repo_path)
         pipeline = store.load_pipeline(pipeline_id)
 
+        # Contracts live in per-pipeline worktrees, not the main repo.
+        contract_path = resolve_worktree_path(pipeline_id, repo_path)
+
         # Mark agent as failed
-        dispatcher = create_dispatcher(pipeline, repo_path)
+        dispatcher = create_dispatcher(pipeline, contract_path)
         dispatcher.fail_agent(agent_role, error_message)
         dispatcher.save_contract()
 
