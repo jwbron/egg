@@ -156,7 +156,7 @@ count_source_files() {
             count=$(find "$dir" -type f 2>/dev/null | wc -l)
         fi
         echo "  ${dir} — ${count} files"
-    done 2>/dev/null
+    done
 }
 
 detect_entry_points() {
