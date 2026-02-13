@@ -6,7 +6,7 @@
   "mode": "local",
   "prompt": "# Documentation Onboarding Task\n\nGenerate comprehensive, well-indexed documentation for this entire repository.\nProduce the same structured output that the incremental doc-updater maintains,\nbut built from scratch by surveying the full codebase.\n\n\n## Repository Snapshot\n\n**Repository:** jwbron/egg\n\n### Top-level contents\n```\nCHANGELOG.md\nCONTRIBUTING.md\nLICENSE\nMakefile\nREADME.md\nRELEASING.md\naction/\nbin/\nconfig/\ndocker-compose.yml\ndocs/\negg.yaml.example\ngateway/\nintegration_tests/\nmetrics/\norchestrator/\npyproject.toml\npytest.ini\nsandbox/\nscripts/\nsecrets.yaml.example\nshared/\ntests/\nuv.lock\n```\n\n### Directory tree (depth 3)\n```\n.\n./.egg\n./.egg/schemas\n./.github\n./.github/scripts\n./.github/scripts/checks\n./.github/workflows\n./action\n./bin\n./config\n./docs\n./docs/adr\n./docs/adr/implemented\n./docs/adr/in-progress\n./docs/adr/not-implemented\n./docs/architecture\n./docs/development\n./docs/guides\n./docs/templates\n./gateway\n./gateway/scripts\n./gateway/tests\n./integration_tests\n./integration_tests/local_pipeline\n./integration_tests/local_pipeline/mock-sandbox\n./integration_tests/sdlc\n./metrics\n./orchestrator\n./orchestrator/routes\n./orchestrator/tests\n./sandbox\n./sandbox/.claude\n./sandbox/.claude/commands\n./sandbox/.claude/rules\n./sandbox/bin\n./sandbox/egg_lib\n./sandbox/egg_lib/self_improvement\n./sandbox/llm\n./sandbox/llm/claude\n./sandbox/scripts\n./sandbox/tools\n./scripts\n./shared\n./shared/egg_config\n./shared/egg_config/configs\n./shared/egg_container\n./shared/egg_contracts\n./shared/egg_git\n./shared/egg_logging\n./shared/egg_orchestrator\n./tests\n./tests/action\n./tests/config\n./tests/egg_config\n./tests/functional\n./tests/gateway\n./tests/llm\n./tests/llm/claude\n./tests/sandbox\n./tests/scripts\n./tests/security\n./tests/shared\n./tests/shared/egg_container\n./tests/shared/egg_contracts\n./tests/shared/egg_logging\n./tests/tools\n./tests/utils\n./tests/workflows\n```\n\n### File counts per top-level directory\n```\n  action/ — 27 files\n  bin/ — 2 files\n  config/ — 4 files\n  docs/ — 33 files\n  gateway/ — 66 files\n  integration_tests/ — 40 files\n  metrics/ — 1 files\n  orchestrator/ — 45 files\n  sandbox/ — 60 files\n  scripts/ — 10 files\n  shared/ — 56 files\n  tests/ — 104 files\n```\n\n### Language distribution (by file extension)\n```\n    342 py\n     65 md\n     34 sh\n     28 yml\n      7 json\n      4 toml\n      4 example\n      3 yaml\n      2 typed\n      2 txt\n      2 conf\n      1 lock\n      1 ini\n      1 gitignore\n      1 git\n```\n\n### Configuration / build files\n```\n./Makefile\n./docker-compose.yml\n./gateway/Dockerfile\n./integration_tests/docker-compose.yml\n./orchestrator/Dockerfile\n./pyproject.toml\n./pytest.ini\n./sandbox/Dockerfile\n./sandbox/pyproject.toml\n./shared/pyproject.toml\n```\n\n### Entry points detected\n```\n./action/entrypoint.sh\n./gateway/entrypoint.sh\n./orchestrator/cli.py\n./orchestrator/entrypoint.sh\n./sandbox/egg_lib/cli.py\n./shared/egg_config/cli.py\n./shared/egg_logging/cli.py\n```\n\n### Existing documentation files\n```\n./CONTRIBUTING.md\n./README.md\n./RELEASING.md\n./action/README.md\n./action/autofixer-conventions.md\n./action/conflict-conventions.md\n./action/review-conventions.md\n./bin/README.md\n./config/README.md\n./docs/README.md\n./docs/adr/README.md\n./docs/adr/implemented/ADR-Anthropic-API-Credential-Injection.md\n./docs/adr/implemented/ADR-Context-Sync-Strategy-Custom-vs-MCP.md\n./docs/adr/implemented/ADR-Declarative-Setup-Architecture.md\n./docs/adr/implemented/ADR-Gateway-Credential-Injection.md\n./docs/adr/implemented/ADR-Git-Isolation-Architecture.md\n./docs/adr/implemented/ADR-SDLC-Pipeline.md\n./docs/adr/implemented/ADR-Standardized-Logging-Interface.md\n./docs/adr/in-progress/ADR-Autonomous-Software-Engineer.md\n./docs/adr/in-progress/ADR-GitHub-Actions-Support.md\n./docs/adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md\n./docs/adr/not-implemented/ADR-Per-Container-Repository-Mode.md\n./docs/agentic-feedback-loop.md\n./docs/architecture/README.md\n./docs/architecture/orchestrator.md\n./docs/collaboration-effectiveness.md\n./docs/development/STRUCTURE.md\n./docs/development/TEST_COVERAGE_PLAN.md\n./docs/guides/agent-development.md\n./docs/guides/agent-mode-design.md\n./docs/guides/deploy-migration.md\n./docs/guides/deployment.md\n./docs/guides/github-automation.md\n./docs/guides/local-quickstart.md\n./docs/guides/reusable-workflows.md\n./docs/guides/sdlc-pipeline.md\n./docs/hitl-decisions.md\n./docs/index.md\n./docs/templates/analysis.md\n./docs/templates/feedback.md\n./docs/templates/phase-completion.md\n./docs/templates/plan.md\n./gateway/README.md\n./gateway/tests/README-integration.md\n./sandbox/.claude/README.md\n./sandbox/.claude/commands/README.md\n./sandbox/.claude/commands/coder-mode.md\n./sandbox/.claude/commands/documenter-mode.md\n./sandbox/.claude/commands/integrator-mode.md\n./sandbox/.claude/commands/onboarding-docs.md\n./sandbox/.claude/commands/sdlc.md\n./sandbox/.claude/commands/show-metrics.md\n./sandbox/.claude/commands/tester-mode.md\n./sandbox/.claude/rules/README.md\n./sandbox/.claude/rules/code-standards.md\n./sandbox/.claude/rules/contract.md\n./sandbox/.claude/rules/environment.md\n./sandbox/.claude/rules/mission.md\n./sandbox/.claude/rules/pr-descriptions.md\n./sandbox/.claude/rules/test-workflow.md\n./sandbox/README.md\n./shared/README.md\n./shared/egg_config/README.md\n```\n\n### Existing README files\n```\n./README.md\n./action/README.md\n./bin/README.md\n./config/README.md\n./docs/README.md\n./docs/adr/README.md\n./docs/architecture/README.md\n./gateway/README.md\n./gateway/tests/README-integration.md\n./sandbox/.claude/README.md\n./sandbox/.claude/commands/README.md\n./sandbox/.claude/rules/README.md\n./sandbox/README.md\n./shared/README.md\n./shared/egg_config/README.md\n```\n\n## Your Task — Full Documentation Onboarding\n\nWork through the repository systematically, directory by directory, and produce\na complete documentation set. Follow this process:\n\n### Phase 1: Deep Survey\n\nBefore writing any documentation, thoroughly read and understand the codebase.\nFor each top-level directory:\n\n1. Read the directory's existing README (if any) to understand stated purpose.\n2. Read key source files (entry points, main modules, public APIs).\n3. Identify the component's responsibilities, interfaces, and dependencies.\n4. Note any configuration, environment variables, or CLI flags.\n5. Identify test infrastructure (frameworks, config, how to run tests).\n\nAlso examine:\n- CI/CD configuration (GitHub Actions, Makefile targets)\n- Docker setup (Dockerfiles, compose files)\n- Dependency manifests (package.json, pyproject.toml, go.mod, etc.)\n- Any existing ADRs, guides, or design documents\n\n**Context budget:** Don't read every file — focus on entry points, public\ninterfaces, configuration, and existing documentation. Skip generated files,\nlock files, and vendor directories.\n\n### Phase 2: Documentation Plan\n\nAfter surveying, decide on the documentation structure. Use this template as\nyour target layout, adapting to what the repo actually contains:\n\n```\ndocs/\n├── index.md                      # Master navigation index (REQUIRED)\n├── architecture/\n│   └── README.md                 # System design, components, data flow\n├── development/\n│   └── STRUCTURE.md              # Directory layout and conventions\n├── guides/\n│   ├── quickstart.md             # Getting started (setup, first run)\n│   ├── deployment.md             # Deployment options and configuration\n│   └── <topic>.md                # Additional guides as needed\n├── adr/\n│   └── README.md                 # ADR index (if ADRs exist)\n└── <other sections as needed>\n\n<component>/README.md             # Per-component README (in component dir)\n```\n\n**Key principles for the plan:**\n- Don't create docs for the sake of it. Only document what provides value.\n- Consolidate thin topics into broader documents rather than many tiny files.\n- If the repo already has good documentation, update and index it rather than\n  rewriting from scratch.\n- Component READMEs live inside their component directory (not in docs/).\n\n### Phase 3: Write Documentation\n\nCreate each document, following these guidelines:\n\n#### docs/index.md (REQUIRED — create first)\nThe master navigation hub. Structure it like this:\n\n```markdown\n# Documentation Index\n\n> <One-line project description>\n\nThis index helps both humans and LLMs navigate the documentation efficiently.\n\n## Core Documentation\n\n### <Section>\n| Document | Description |\n|----------|-------------|\n| [Name](path) | One-line description |\n\n## Component Documentation\n| Component | Location | Description |\n|-----------|----------|-------------|\n| [Name](path) | `dir/` | One-line description |\n\n## Task-Specific Guides\n| Task Type | Read First | Also Helpful |\n|-----------|------------|--------------|\n| **Task** | [Doc](path) | [Doc](path) |\n\n## Quick Navigation\n**Getting Started:** ...\n**Understanding the System:** ...\n\n---\n*Last updated: <date>*\n```\n\n#### docs/development/STRUCTURE.md\nDocument every top-level directory and its contents:\n- Purpose and responsibilities\n- Key files and what they do\n- Internal structure (sub-directories)\n- Which environment it runs in (if applicable)\n\n#### docs/architecture/README.md\nCover:\n- System overview and high-level design\n- Component relationships and data flow\n- Key design principles / patterns\n- Security model (if applicable)\n- External dependencies and integrations\n\n#### Component READMEs (<component>/README.md)\nFor each major component directory, create or update a README covering:\n- What the component does\n- Key files and their roles\n- How to develop / test the component\n- Configuration and environment variables\n- Interfaces with other components\n\n#### Guides (docs/guides/*.md)\nCreate guides for practical tasks:\n- **quickstart.md**: Clone, install deps, run locally, run tests\n- **deployment.md**: How to deploy (if applicable)\n- Additional guides for complex workflows\n\n#### ADRs (docs/adr/)\nIf the repo has existing ADRs, create an index. Don't invent new ADRs.\n\n### Phase 4: Incorporate Existing Documentation\n\nThis is critical — don't throw away existing docs:\n\n1. **Existing READMEs**: Read them. If accurate, keep them and link from the\n   index. If outdated, update them in place. If they overlap with new docs,\n   consolidate (prefer the component README as the primary source).\n\n2. **Existing docs/ directory**: If one exists, integrate new documentation\n   alongside existing files. Update the index to cover everything.\n\n3. **Inline documentation**: If the repo has good code comments, don't\n   duplicate that information in docs. Reference it instead.\n\n4. **Existing ADRs**: Index them. Don't modify their content (ADRs are\n   immutable records of decisions).\n\n### Phase 5: Cross-Reference and Validate\n\n1. Verify every link in index.md points to a real file.\n2. Ensure every doc file is reachable from index.md.\n3. Check that component READMEs reference architecture docs where relevant.\n4. Verify the STRUCTURE.md matches the actual directory layout.\n\n## Writing Style Guidelines\n\n- **Be concise.** One clear sentence beats three vague ones.\n- **Focus on \"what\" and \"why\"**, not implementation details.\n- **Use tables** for structured information (components, files, configs).\n- **Use code blocks** for commands, file paths, and configuration examples.\n- **Write for someone new to the repo** — explain context, don't assume\n  familiarity.\n- **Match existing style** if the repo already has documentation. Don't impose\n  a different voice or format.\n- **No marketing language.** Describe what the software does factually.\n\n## Output\n\nWhen complete:\n\n1. Create a branch: `egg/onboarding-docs`\n2. Commit all documentation changes\n3. Create a PR with:\n   - Title: `docs: Add comprehensive documentation [doc-updater]`\n   - Body explaining the documentation structure created\n   - List of all files created/updated\n\nIf this is a large repository, prioritize:\n1. index.md (always)\n2. STRUCTURE.md (always)\n3. architecture/README.md (always)\n4. Component READMEs (for major components)\n5. Quickstart guide (if setup steps exist)\n6. Additional guides (if time/context permits)\n\n## Important Notes\n\n- **Do NOT modify source code.** This is a documentation-only task.\n- **Do NOT delete existing documentation** unless it's clearly wrong or\n  superseded. When in doubt, keep it and link to it.\n- **Do NOT document generated files**, lock files, or build artifacts.\n- **Do NOT create placeholder docs** (\"TODO: document this\"). Either document\n  it or skip it.\n- Read files before documenting them — don't guess what code does from\n  filenames alone.",
   "status": "running",
-  "current_phase": "implement",
+  "current_phase": "pr",
   "config": {
     "auto_create_pr": true,
     "multi_agent": true,
@@ -167,6 +167,313 @@
       "review_cycles": 0,
       "artifacts": {},
       "error": null
+    },
+    "implement": {
+      "phase": "implement",
+      "status": "complete",
+      "started_at": "2026-02-13T08:58:02.937472",
+      "completed_at": "2026-02-13T09:33:23.639922",
+      "containers": [
+        {
+          "container_id": "bd8cced7627dbd104ad42ea6eb35c5edc91a424e9478d6ab4a90c12b20c08f9f",
+          "container_name": "egg-sandbox-egg-local-47601d1d-coder",
+          "status": "exited",
+          "started_at": "2026-02-13T08:58:03.972504",
+          "exited_at": "2026-02-13T09:05:41.909832",
+          "exit_code": 0,
+          "agent_role": "coder",
+          "session_token": null
+        },
+        {
+          "container_id": "c0cda4b6d3dbd5d9c17b9802b90e6d30ac6148f0e3f58fb87f4da10f01bf266a",
+          "container_name": "egg-sandbox-egg-local-47601d1d-checker",
+          "status": "exited",
+          "started_at": "2026-02-13T09:05:42.255579",
+          "exited_at": "2026-02-13T09:07:04.321750",
+          "exit_code": 0,
+          "agent_role": "checker",
+          "session_token": null
+        },
+        {
+          "container_id": "076b2bb9e314076dc08b709cb8858e37190c62ed3fbb954b9918ab30fb0d2259",
+          "container_name": "egg-sandbox-egg-local-47601d1d-coder",
+          "status": "exited",
+          "started_at": "2026-02-13T09:07:04.496600",
+          "exited_at": "2026-02-13T09:11:12.037271",
+          "exit_code": 0,
+          "agent_role": "coder",
+          "session_token": null
+        },
+        {
+          "container_id": "3b547ab3c7edac377c4e97639916ea5b930338c0a1125662da38562e52046fb5",
+          "container_name": "egg-sandbox-egg-local-47601d1d-checker",
+          "status": "exited",
+          "started_at": "2026-02-13T09:11:12.799647",
+          "exited_at": "2026-02-13T09:12:36.222471",
+          "exit_code": 0,
+          "agent_role": "checker",
+          "session_token": null
+        },
+        {
+          "container_id": "ae588df034e2a6b6bb9b3ffc47114b613301070e613a98552e7bfb5d46c1fa87",
+          "container_name": "egg-sandbox-egg-local-47601d1d-reviewer",
+          "status": "exited",
+          "started_at": "2026-02-13T09:12:36.356333",
+          "exited_at": "2026-02-13T09:14:34.239818",
+          "exit_code": 0,
+          "agent_role": "reviewer",
+          "session_token": null
+        },
+        {
+          "container_id": "fbe3978086c4b2113c659e4ec29227ee0a508d0c657d4913b499d1536ed02418",
+          "container_name": "egg-sandbox-egg-local-47601d1d-reviewer",
+          "status": "exited",
+          "started_at": "2026-02-13T09:14:34.423163",
+          "exited_at": "2026-02-13T09:15:30.975748",
+          "exit_code": 0,
+          "agent_role": "reviewer",
+          "session_token": null
+        },
+        {
+          "container_id": "44fd99c41cf850cde309958a8726adb04e04ac55de7c3821b96923f3b725de78",
+          "container_name": "egg-sandbox-egg-local-47601d1d-reviewer",
+          "status": "exited",
+          "started_at": "2026-02-13T09:15:31.684482",
+          "exited_at": "2026-02-13T09:17:04.631661",
+          "exit_code": 0,
+          "agent_role": "reviewer",
+          "session_token": null
+        },
+        {
+          "container_id": "1d62c3cee1c1f7766358913ff0b5e1b27cc99dc6243f2d2c6ceb641ce2f8ae41",
+          "container_name": "egg-sandbox-egg-local-47601d1d-reviewer",
+          "status": "exited",
+          "started_at": "2026-02-13T09:17:05.325688",
+          "exited_at": "2026-02-13T09:19:41.908068",
+          "exit_code": 0,
+          "agent_role": "reviewer",
+          "session_token": null
+        },
+        {
+          "container_id": "b01f0f630d0f39a5ddf9bfb97b79b97c22f359ded97cba3399747d4f384b4600",
+          "container_name": "egg-sandbox-egg-local-47601d1d-coder",
+          "status": "exited",
+          "started_at": "2026-02-13T09:19:42.117142",
+          "exited_at": "2026-02-13T09:26:01.572594",
+          "exit_code": 0,
+          "agent_role": "coder",
+          "session_token": null
+        },
+        {
+          "container_id": "6e6710a6f48b9e16c8776a29971296316101e83d8d87b92954d5b7fd40706863",
+          "container_name": "egg-sandbox-egg-local-47601d1d-checker",
+          "status": "exited",
+          "started_at": "2026-02-13T09:26:01.786107",
+          "exited_at": "2026-02-13T09:27:21.415101",
+          "exit_code": 0,
+          "agent_role": "checker",
+          "session_token": null
+        },
+        {
+          "container_id": "3f7116a25eaad6d2b17c3edbebec7bbe820b8967fc7f3f472041242ec8dea9bc",
+          "container_name": "egg-sandbox-egg-local-47601d1d-reviewer",
+          "status": "exited",
+          "started_at": "2026-02-13T09:27:21.554984",
+          "exited_at": "2026-02-13T09:29:24.795308",
+          "exit_code": 0,
+          "agent_role": "reviewer",
+          "session_token": null
+        },
+        {
+          "container_id": "96ddf65e576c8d82f4cbd8d31c2da3489f37eb0891460ead9eec33b33d1d68df",
+          "container_name": "egg-sandbox-egg-local-47601d1d-reviewer",
+          "status": "exited",
+          "started_at": "2026-02-13T09:29:25.674032",
+          "exited_at": "2026-02-13T09:30:21.222167",
+          "exit_code": 0,
+          "agent_role": "reviewer",
+          "session_token": null
+        },
+        {
+          "container_id": "082656401da1a0b04536c9e1294876abe6deeb83945b393f27e78a9f39f2e802",
+          "container_name": "egg-sandbox-egg-local-47601d1d-reviewer",
+          "status": "exited",
+          "started_at": "2026-02-13T09:30:21.419546",
+          "exited_at": "2026-02-13T09:31:52.383903",
+          "exit_code": 0,
+          "agent_role": "reviewer",
+          "session_token": null
+        },
+        {
+          "container_id": "a880a0f03340cd0262987bc8602d51f33c5e6099703bf7526efd1e44ce02602b",
+          "container_name": "egg-sandbox-egg-local-47601d1d-reviewer",
+          "status": "exited",
+          "started_at": "2026-02-13T09:31:52.507807",
+          "exited_at": "2026-02-13T09:33:23.612619",
+          "exit_code": 0,
+          "agent_role": "reviewer",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "coder",
+          "status": "complete",
+          "container_id": "bd8cced7627dbd104ad42ea6eb35c5edc91a424e9478d6ab4a90c12b20c08f9f",
+          "started_at": "2026-02-13T08:58:03.972509",
+          "completed_at": "2026-02-13T09:05:41.909837",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        },
+        {
+          "role": "checker",
+          "status": "complete",
+          "container_id": "c0cda4b6d3dbd5d9c17b9802b90e6d30ac6148f0e3f58fb87f4da10f01bf266a",
+          "started_at": "2026-02-13T09:05:42.255583",
+          "completed_at": "2026-02-13T09:07:04.321752",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        },
+        {
+          "role": "coder",
+          "status": "complete",
+          "container_id": "076b2bb9e314076dc08b709cb8858e37190c62ed3fbb954b9918ab30fb0d2259",
+          "started_at": "2026-02-13T09:07:04.496605",
+          "completed_at": "2026-02-13T09:11:12.037275",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        },
+        {
+          "role": "checker",
+          "status": "complete",
+          "container_id": "3b547ab3c7edac377c4e97639916ea5b930338c0a1125662da38562e52046fb5",
+          "started_at": "2026-02-13T09:11:12.799652",
+          "completed_at": "2026-02-13T09:12:36.222474",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        },
+        {
+          "role": "reviewer",
+          "status": "complete",
+          "container_id": "ae588df034e2a6b6bb9b3ffc47114b613301070e613a98552e7bfb5d46c1fa87",
+          "started_at": "2026-02-13T09:12:36.356338",
+          "completed_at": "2026-02-13T09:14:34.239823",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        },
+        {
+          "role": "reviewer",
+          "status": "complete",
+          "container_id": "fbe3978086c4b2113c659e4ec29227ee0a508d0c657d4913b499d1536ed02418",
+          "started_at": "2026-02-13T09:14:34.423168",
+          "completed_at": "2026-02-13T09:15:30.975750",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        },
+        {
+          "role": "reviewer",
+          "status": "complete",
+          "container_id": "44fd99c41cf850cde309958a8726adb04e04ac55de7c3821b96923f3b725de78",
+          "started_at": "2026-02-13T09:15:31.684488",
+          "completed_at": "2026-02-13T09:17:04.631667",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        },
+        {
+          "role": "reviewer",
+          "status": "complete",
+          "container_id": "1d62c3cee1c1f7766358913ff0b5e1b27cc99dc6243f2d2c6ceb641ce2f8ae41",
+          "started_at": "2026-02-13T09:17:05.325693",
+          "completed_at": "2026-02-13T09:19:41.908071",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        },
+        {
+          "role": "coder",
+          "status": "complete",
+          "container_id": "b01f0f630d0f39a5ddf9bfb97b79b97c22f359ded97cba3399747d4f384b4600",
+          "started_at": "2026-02-13T09:19:42.117153",
+          "completed_at": "2026-02-13T09:26:01.572601",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        },
+        {
+          "role": "checker",
+          "status": "complete",
+          "container_id": "6e6710a6f48b9e16c8776a29971296316101e83d8d87b92954d5b7fd40706863",
+          "started_at": "2026-02-13T09:26:01.786112",
+          "completed_at": "2026-02-13T09:27:21.415103",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        },
+        {
+          "role": "reviewer",
+          "status": "complete",
+          "container_id": "3f7116a25eaad6d2b17c3edbebec7bbe820b8967fc7f3f472041242ec8dea9bc",
+          "started_at": "2026-02-13T09:27:21.554994",
+          "completed_at": "2026-02-13T09:29:24.795314",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        },
+        {
+          "role": "reviewer",
+          "status": "complete",
+          "container_id": "96ddf65e576c8d82f4cbd8d31c2da3489f37eb0891460ead9eec33b33d1d68df",
+          "started_at": "2026-02-13T09:29:25.674037",
+          "completed_at": "2026-02-13T09:30:21.222174",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        },
+        {
+          "role": "reviewer",
+          "status": "complete",
+          "container_id": "082656401da1a0b04536c9e1294876abe6deeb83945b393f27e78a9f39f2e802",
+          "started_at": "2026-02-13T09:30:21.419550",
+          "completed_at": "2026-02-13T09:31:52.383906",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        },
+        {
+          "role": "reviewer",
+          "status": "complete",
+          "container_id": "a880a0f03340cd0262987bc8602d51f33c5e6099703bf7526efd1e44ce02602b",
+          "started_at": "2026-02-13T09:31:52.507812",
+          "completed_at": "2026-02-13T09:33:23.612628",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
+        }
+      ],
+      "review_cycles": 1,
+      "artifacts": {},
+      "error": null
     }
   },
   "decisions": [
@@ -198,8 +505,8 @@
     }
   ],
   "created_at": "2026-02-13T08:39:53.501621",
-  "updated_at": "2026-02-13T08:58:02.911087",
+  "updated_at": "2026-02-13T09:33:23.649598",
   "contract_synced": true,
   "error": null,
-  "version": 30
+  "version": 62
 }
