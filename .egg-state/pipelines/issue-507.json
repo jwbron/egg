@@ -213,6 +213,16 @@
           "exit_code": 0,
           "agent_role": "reviewer",
           "session_token": null
+        },
+        {
+          "container_id": "659d43293747b766618dfa447ec0d30fb8713ecb0442ae3150869100c207550b",
+          "container_name": "egg-sandbox-egg-issue-507-reviewer",
+          "status": "running",
+          "started_at": "2026-02-13T05:10:22.159388",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer",
+          "session_token": null
         }
       ],
       "agents": [
@@ -259,6 +269,17 @@
           "outputs": {},
           "error": null,
           "retry_count": 0
+        },
+        {
+          "role": "reviewer",
+          "status": "running",
+          "container_id": "659d43293747b766618dfa447ec0d30fb8713ecb0442ae3150869100c207550b",
+          "started_at": "2026-02-13T05:10:22.159393",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0
         }
       ],
       "review_cycles": 0,
@@ -295,8 +316,8 @@
     }
   ],
   "created_at": "2026-02-13T04:41:13.532468",
-  "updated_at": "2026-02-13T05:10:21.476359",
+  "updated_at": "2026-02-13T05:10:22.159461",
   "contract_synced": true,
   "error": null,
-  "version": 37
+  "version": 38
 }
