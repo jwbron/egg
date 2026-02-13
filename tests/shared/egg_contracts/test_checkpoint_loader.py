@@ -158,7 +158,9 @@ class TestSaveAndLoadCheckpointV2:
             path = Path(tmpdir) / "checkpoint.json"
             now = datetime.now(UTC)
             session = SessionMetadata(session_id="test", started_at=now)
-            transcript = Transcript(message_count=10, truncated=True, truncation_reason="size limit")
+            transcript = Transcript(
+                message_count=10, truncated=True, truncation_reason="size limit"
+            )
             token_usage = TokenUsage(input_tokens=5000, output_tokens=2000, total_tokens=7000)
 
             checkpoint = CheckpointV2(

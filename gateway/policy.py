@@ -882,7 +882,9 @@ class PolicyEngine:
             },
         )
 
-    def check_pr_review_allowed(self, repo: str, pr_number: int, auth_mode: str = "bot") -> PolicyResult:
+    def check_pr_review_allowed(
+        self, repo: str, pr_number: int, auth_mode: str = "bot"
+    ) -> PolicyResult:
         """
         Check if posting a PR review is allowed.
 

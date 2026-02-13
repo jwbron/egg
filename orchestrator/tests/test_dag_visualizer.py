@@ -185,9 +185,7 @@ class TestRenderPipelineDag:
                 ],
             )
         }
-        pipeline = create_test_pipeline(
-            phases=phases, current_phase=PipelinePhase.IMPLEMENT
-        )
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.IMPLEMENT)
         result = render_pipeline_dag(pipeline)
 
         assert "2 container(s)" in result

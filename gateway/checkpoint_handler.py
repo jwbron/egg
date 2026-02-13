@@ -676,9 +676,7 @@ class CheckpointHandler:
                     self._run_git(str(temp_path), ["rm", "-rf", "."], check=False)
 
                 try:
-                    checkpoint_path = get_checkpoint_path(
-                        temp_path / "checkpoints", checkpoint.id
-                    )
+                    checkpoint_path = get_checkpoint_path(temp_path / "checkpoints", checkpoint.id)
 
                     save_checkpoint_v2(checkpoint, checkpoint_path)
 
@@ -698,7 +696,11 @@ class CheckpointHandler:
                             else "unknown commit"
                         )
                     else:
-                        status = checkpoint.session_status.value if checkpoint.session_status else "unknown"
+                        status = (
+                            checkpoint.session_status.value
+                            if checkpoint.session_status
+                            else "unknown"
+                        )
                         commit_desc = f"session-end ({status})"
 
                     commit_msg = f"Add checkpoint {checkpoint.id} for {commit_desc}"
@@ -857,6 +859,7 @@ def capture_and_store_checkpoint(
         return None
 
     if async_store:
+
         def _store_with_error_handling() -> None:
             try:
                 handler.store_checkpoint_v2(checkpoint, repo_path)
@@ -941,6 +944,7 @@ def capture_and_store_checkpoints_for_push(
         return []
 
     if async_store:
+
         def _store_all_with_error_handling() -> None:
             for cp in checkpoints:
                 try:

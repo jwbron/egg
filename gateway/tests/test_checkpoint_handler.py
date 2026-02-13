@@ -189,7 +189,13 @@ class TestCaptureAndStoreCheckpointsForPush:
 
         # Create mock checkpoints
         def create_checkpoint(
-            repo_path, commit_sha, branch, session=None, issue_number=None, pipeline_phase=None, push_sha=None
+            repo_path,
+            commit_sha,
+            branch,
+            session=None,
+            issue_number=None,
+            pipeline_phase=None,
+            push_sha=None,
         ):
             return Checkpoint(
                 id=f"ckpt-{commit_sha[:12]}",
@@ -233,7 +239,13 @@ class TestCaptureAndStoreCheckpointsForPush:
         captured_push_shas = []
 
         def capture_and_record(
-            repo_path, commit_sha, branch, session=None, issue_number=None, pipeline_phase=None, push_sha=None
+            repo_path,
+            commit_sha,
+            branch,
+            session=None,
+            issue_number=None,
+            pipeline_phase=None,
+            push_sha=None,
         ):
             captured_push_shas.append(push_sha)
             return Checkpoint(
@@ -279,7 +291,13 @@ class TestCaptureAndStoreCheckpointsForPush:
         call_count = [0]
 
         def capture_with_failure(
-            repo_path, commit_sha, branch, session=None, issue_number=None, pipeline_phase=None, push_sha=None
+            repo_path,
+            commit_sha,
+            branch,
+            session=None,
+            issue_number=None,
+            pipeline_phase=None,
+            push_sha=None,
         ):
             call_count[0] += 1
             if call_count[0] == 2:
@@ -366,7 +384,13 @@ class TestCaptureAndStoreCheckpointsForPush:
         call_count = [0]
 
         def sometimes_returns_none(
-            repo_path, commit_sha, branch, session=None, issue_number=None, pipeline_phase=None, push_sha=None
+            repo_path,
+            commit_sha,
+            branch,
+            session=None,
+            issue_number=None,
+            pipeline_phase=None,
+            push_sha=None,
         ):
             call_count[0] += 1
             if call_count[0] == 1:

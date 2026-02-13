@@ -1142,7 +1142,9 @@ class TestReviewerModePolicy:
 
     def test_branch_push_blocked_reviewer_mode_even_bot_prefix(self, policy_engine):
         """Push to bot-prefixed branch is still blocked in reviewer mode."""
-        result = policy_engine.check_branch_ownership("owner/repo", "egg-feature", auth_mode="reviewer")
+        result = policy_engine.check_branch_ownership(
+            "owner/repo", "egg-feature", auth_mode="reviewer"
+        )
         assert not result.allowed
         assert "reviewer mode" in result.reason.lower()
 

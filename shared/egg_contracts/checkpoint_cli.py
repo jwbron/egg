@@ -42,7 +42,9 @@ def get_repo_path() -> str:
     return os.environ.get("EGG_REPO_PATH", str(Path.cwd()))
 
 
-def run_git(args: list[str], cwd: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run_git(
+    args: list[str], cwd: str | None = None, check: bool = True
+) -> subprocess.CompletedProcess[str]:
     """Run a git command."""
     cmd = ["git"] + args
     result = subprocess.run(
@@ -90,6 +92,7 @@ def checkout_checkpoint_branch(repo_path: str) -> Path | None:
         # Cleanup on failure
         if temp_path.exists():
             import shutil
+
             shutil.rmtree(temp_path, ignore_errors=True)
         return None
 
@@ -104,6 +107,7 @@ def cleanup_worktree(repo_path: str, worktree_path: Path) -> None:
     # Also try to remove the directory if worktree remove failed
     if worktree_path.exists():
         import shutil
+
         shutil.rmtree(worktree_path, ignore_errors=True)
 
 

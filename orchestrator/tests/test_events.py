@@ -233,6 +233,7 @@ class TestEmitEventFunction:
         """Test emit_event function."""
         # Reset singleton
         import events
+
         events._event_bus = None
 
         received_events = []

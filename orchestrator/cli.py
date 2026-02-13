@@ -38,6 +38,7 @@ except ImportError:
     def configure_logging(**kwargs) -> None:
         logging.basicConfig(level=logging.INFO)
 
+
 try:
     from egg_config import ORCHESTRATOR_PORT
 except ImportError:
@@ -72,6 +73,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     else:
         # Use waitress for production
         from waitress import serve
+
         serve(app, host=host, port=port)
 
     return 0
@@ -135,7 +137,9 @@ def cmd_pipelines_list(args: argparse.Namespace) -> int:
                 print(f"  {pid}")
                 print(f"    Status: {pipeline.status.value}")
                 print(f"    Issue: #{pipeline.issue_number}")
-                print(f"    Phase: {pipeline.current_phase.value if pipeline.current_phase else 'none'}")
+                print(
+                    f"    Phase: {pipeline.current_phase.value if pipeline.current_phase else 'none'}"
+                )
                 print()
             except Exception as e:
                 print(f"  {pid} (error loading: {e})")
@@ -240,13 +244,18 @@ def cmd_gateway_status(args: argparse.Namespace) -> int:
     health = client.check_health()
 
     if args.json:
-        print(json.dumps({
-            "healthy": health.healthy,
-            "status": health.status,
-            "version": health.version,
-            "uptime_seconds": health.uptime_seconds,
-            "error": health.error,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "healthy": health.healthy,
+                    "status": health.status,
+                    "version": health.version,
+                    "uptime_seconds": health.uptime_seconds,
+                    "error": health.error,
+                },
+                indent=2,
+            )
+        )
     else:
         print(f"Gateway Status: {health.status}")
         if health.version:

@@ -268,7 +268,9 @@ class TestStartupCleanup:
 
             removed = startup_cleanup(active_containers={"active-container"})
             assert removed == 1
-            mock_instance.cleanup_orphaned_worktrees.assert_called_once_with({"active-container"}, None)
+            mock_instance.cleanup_orphaned_worktrees.assert_called_once_with(
+                {"active-container"}, None
+            )
 
     def test_with_none_uses_docker(self):
         """Falls back to querying Docker when active_containers is None."""
@@ -388,7 +390,9 @@ class TestWorktreeManagerDockerGitDir:
         repos_base.mkdir()
         repo_dir = repos_base / "test-repo"
         repo_dir.mkdir()
-        subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, check=True)
+        result = subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, text=True)
+        if result.returncode != 0:
+            pytest.skip(f"git init not available: {result.stderr.strip()}")
         subprocess.run(
             ["git", "commit", "--allow-empty", "-m", "init"],
             cwd=repo_dir,
