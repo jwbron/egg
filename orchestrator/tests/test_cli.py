@@ -4,8 +4,6 @@ Tests for egg-orchestrator CLI.
 
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from io import StringIO
-from pathlib import Path
 from threading import Thread
 from unittest.mock import MagicMock, patch
 
@@ -39,12 +37,16 @@ class TestParserBasics:
 
     def test_serve_with_options(self, parser):
         """Test serve with options."""
-        args = parser.parse_args([
-            "serve",
-            "--host", "127.0.0.1",
-            "--port", "8080",
-            "--debug",
-        ])
+        args = parser.parse_args(
+            [
+                "serve",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8080",
+                "--debug",
+            ]
+        )
         assert args.host == "127.0.0.1"
         assert args.port == 8080
         assert args.debug is True
@@ -62,11 +64,16 @@ class TestParserBasics:
 
     def test_pipelines_create_command(self, parser):
         """Test pipelines create command."""
-        args = parser.parse_args([
-            "pipelines", "create",
-            "--issue", "123",
-            "--repo", "owner/repo",
-        ])
+        args = parser.parse_args(
+            [
+                "pipelines",
+                "create",
+                "--issue",
+                "123",
+                "--repo",
+                "owner/repo",
+            ]
+        )
         assert args.command == "pipelines"
         assert args.pipelines_command == "create"
         assert args.issue == 123
@@ -94,6 +101,27 @@ class TestMainNoArgs:
             main(["pipelines"])
 
 
+class TestRootGuard:
+    """Tests for root user safety check."""
+
+    def test_serve_refuses_to_run_as_root(self, capsys):
+        """Orchestrator must refuse to start as root to prevent root-owned git refs."""
+        with patch("os.getuid", return_value=0):
+            with pytest.raises(SystemExit) as exc_info:
+                main(["serve"])
+            assert exc_info.value.code == 1
+            captured = capsys.readouterr()
+            assert "must not run as root" in captured.err
+
+    def test_serve_runs_as_non_root(self):
+        """Orchestrator starts normally when not root."""
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve"):
+                    result = main(["serve"])
+                    assert result == 0
+
+
 class MockHealthHandler(BaseHTTPRequestHandler):
     """Mock handler for health endpoint."""
 
@@ -105,10 +133,14 @@ class MockHealthHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({
-                "status": "healthy",
-                "version": "0.1.0",
-            }).encode())
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "status": "healthy",
+                        "version": "0.1.0",
+                    }
+                ).encode()
+            )
         else:
             self.send_response(404)
             self.end_headers()
@@ -200,12 +232,18 @@ class TestPipelinesCommands:
         )
         mock_state_store.create_pipeline.return_value = mock_pipeline
 
-        result = main([
-            "pipelines", "create",
-            "--issue", "789",
-            "--repo", "owner/repo",
-            "--repo-path", "/tmp",
-        ])
+        result = main(
+            [
+                "pipelines",
+                "create",
+                "--issue",
+                "789",
+                "--repo",
+                "owner/repo",
+                "--repo-path",
+                "/tmp",
+            ]
+        )
 
         assert result == 0
         captured = capsys.readouterr()
@@ -224,10 +262,15 @@ class TestPipelinesCommands:
         )
         mock_state_store.load_pipeline.return_value = mock_pipeline
 
-        result = main([
-            "pipelines", "status", "issue-123",
-            "--repo-path", "/tmp",
-        ])
+        result = main(
+            [
+                "pipelines",
+                "status",
+                "issue-123",
+                "--repo-path",
+                "/tmp",
+            ]
+        )
 
         assert result == 0
         captured = capsys.readouterr()
@@ -240,10 +283,15 @@ class TestPipelinesCommands:
 
         mock_state_store.load_pipeline.side_effect = PipelineNotFoundError("Not found")
 
-        result = main([
-            "pipelines", "status", "issue-999",
-            "--repo-path", "/tmp",
-        ])
+        result = main(
+            [
+                "pipelines",
+                "status",
+                "issue-999",
+                "--repo-path",
+                "/tmp",
+            ]
+        )
 
         assert result == 1
         captured = capsys.readouterr()
@@ -251,10 +299,15 @@ class TestPipelinesCommands:
 
     def test_pipelines_delete(self, mock_state_store, capsys):
         """Test deleting a pipeline."""
-        result = main([
-            "pipelines", "delete", "issue-123",
-            "--repo-path", "/tmp",
-        ])
+        result = main(
+            [
+                "pipelines",
+                "delete",
+                "issue-123",
+                "--repo-path",
+                "/tmp",
+            ]
+        )
 
         assert result == 0
         mock_state_store.delete_pipeline.assert_called_with("issue-123")
