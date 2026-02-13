@@ -349,6 +349,7 @@ class ContainerSpawner:
                     actual_ip = self._get_container_ip(container.container_id)
                     self.gateway.update_session(
                         session_token=session_token,
+                        container_id=container.container_id,
                         container_ip=actual_ip,
                     )
                     logger.info(
