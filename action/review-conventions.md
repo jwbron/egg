@@ -31,7 +31,7 @@ shell escaping issues. Always write to a file first, then use `--body-file`.
 ## When to Approve vs Request Changes
 
 - **Request changes**: Security vulnerabilities, logic errors, correctness issues, missing error handling, resource leaks, breaking changes, violations of codebase patterns. When in doubt, request changes.
-- **Approve**: No blocking issues found after thorough review. Minor advisory suggestions are fine to include.
+- **Approve**: No blocking issues found after thorough review. Minor advisory suggestions are fine to include. If you include non-blocking suggestions, add `<!-- has-suggestions -->` anywhere in the review body so the feedback-addressing workflow picks them up. The marker is position-independent—it can appear at the beginning, middle, or end of the review body.
 - **Comment**: Non-blocking suggestions, questions, ideas for future improvement.
 
 ## Self-Authored PRs
