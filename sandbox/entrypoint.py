@@ -623,11 +623,16 @@ def setup_sdlc_tokens(config: Config, logger: Logger) -> None:
         f"http://egg-orchestrator:{GATEWAY_PORT + 1}",
     )
 
-    # Generate tokens via orchestrator
+    # Generate tokens via orchestrator (requires launcher secret auth)
+    launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", "")
+    headers = {}
+    if launcher_secret:
+        headers["Authorization"] = f"Bearer {launcher_secret}"
     try:
         resp = requests.post(
             f"{orch_url}/api/v1/sdlc-tokens/generate",
             json={"pipeline_id": pipeline_id},
+            headers=headers,
             timeout=10,
         )
         resp.raise_for_status()
@@ -1583,6 +1588,11 @@ def run_interactive(config: Config, logger: Logger) -> int:
     for proxy_var in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]:
         env.pop(proxy_var, None)
 
+    # Remove launcher secret from Claude's environment — it's a privileged
+    # credential used only by the entrypoint (root) for orchestrator auth.
+    # Leaving it accessible would let Claude bypass SDLC token gating.
+    env.pop("EGG_LAUNCHER_SECRET", None)
+
     logger.info("Launching Claude Code interactive mode...")
 
     # Print timing summary right before launching LLM
@@ -1613,6 +1623,8 @@ def run_exec(config: Config, logger: Logger, args: list[str]) -> int:
         Exit code from the subprocess
     """
     env = os.environ.copy()
+    # Remove launcher secret — privileged credential not for Claude's use
+    env.pop("EGG_LAUNCHER_SECRET", None)
 
     # Print timing summary before exec
     _startup_timer.print_summary()
@@ -1712,6 +1724,10 @@ def main() -> None:
     # Set up SDLC token-gated approvals if requested
     with timed_phase("setup_sdlc_tokens", logger):
         setup_sdlc_tokens(config, logger)
+
+    # Remove launcher secret from process environment before launching Claude.
+    # setup_sdlc_tokens (above) was the last operation that needed it.
+    os.environ.pop("EGG_LAUNCHER_SECRET", None)
 
     # Run appropriate mode (timing summary is printed inside each mode)
     if len(sys.argv) == 1:

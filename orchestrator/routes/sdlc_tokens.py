@@ -5,7 +5,9 @@ Provides token generation and validation for SDLC pipeline phase approvals.
 Tokens are stored in-memory (ephemeral, single-session lifetime).
 """
 
+import functools
 import hashlib
+import os
 import secrets
 import sys
 from pathlib import Path
@@ -37,6 +39,51 @@ from sdlc_wordlist import WORD_LIST
 logger = get_logger("orchestrator.sdlc_tokens")
 
 sdlc_tokens_bp = Blueprint("sdlc_tokens", __name__, url_prefix="/api/v1/sdlc-tokens")
+
+
+def _check_launcher_auth() -> tuple[bool, str]:
+    """Validate the launcher secret from the Authorization header.
+
+    The /generate and /reset endpoints are privileged — only the entrypoint
+    (running as root before Claude starts) should call them. The launcher
+    secret is unavailable to the sandbox egg user, preventing Claude from
+    calling these endpoints directly.
+    """
+    expected = os.environ.get("EGG_LAUNCHER_SECRET", "")
+    if not expected:
+        # If no secret is configured, deny all requests to privileged endpoints.
+        # This prevents accidental exposure in misconfigured deployments.
+        return False, "Launcher secret not configured"
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return False, "Missing or invalid Authorization header"
+
+    provided = auth_header[7:]
+    if secrets.compare_digest(provided, expected):
+        return True, ""
+
+    return False, "Invalid launcher authorization token"
+
+
+def _require_launcher_auth(f: Any) -> Any:
+    """Decorator requiring launcher secret auth on privileged endpoints."""
+
+    @functools.wraps(f)
+    def decorated(*args: Any, **kwargs: Any) -> Any:
+        is_valid, error = _check_launcher_auth()
+        if not is_valid:
+            logger.warning(
+                "SDLC endpoint auth failed",
+                endpoint=request.path,
+                error=error,
+                source_ip=request.remote_addr,
+            )
+            return _make_error(error, status_code=401)
+        return f(*args, **kwargs)
+
+    return decorated
+
 
 # In-memory token store: pipeline_id -> token data
 # Tokens are ephemeral (one session lifetime); orchestrator is a singleton.
@@ -81,8 +128,12 @@ def _make_success(message: str, data: dict[str, Any] | None = None) -> tuple[Res
 
 
 @sdlc_tokens_bp.route("/generate", methods=["POST"])
+@_require_launcher_auth
 def generate_tokens() -> tuple[Response, int]:
     """Generate approval tokens for an SDLC pipeline.
+
+    Requires launcher secret authentication. Only callable by the entrypoint
+    (running as root) — not by Claude in the sandbox.
 
     Request body:
         {"pipeline_id": "issue-596"}
@@ -192,8 +243,12 @@ def approve_phase() -> tuple[Response, int]:
 
 
 @sdlc_tokens_bp.route("/reset", methods=["POST"])
+@_require_launcher_auth
 def reset_token_gate() -> tuple[Response, int]:
     """Clear token-gated state for a pipeline.
+
+    Requires launcher secret authentication. Only callable by privileged
+    callers — not by Claude in the sandbox.
 
     Recovery endpoint for when the orchestrator restarts and in-memory tokens
     are lost while Pipeline.sdlc_token_gated is still True in persistent storage.
@@ -207,13 +262,12 @@ def reset_token_gate() -> tuple[Response, int]:
     if not pipeline_id:
         return _make_error("Missing pipeline_id")
 
-    # Clear in-memory tokens if present
-    _token_store.pop(pipeline_id, None)
-
-    # Clear persistent flag
+    # Clear persistent flag first — if this fails, don't clear in-memory
+    # tokens, since the pipeline would remain gated in persistent storage
+    # while appearing cleared in memory.
     try:
         from routes import get_repo_path
-        from state_store import get_state_store
+        from state_store import PipelineNotFoundError, get_state_store
 
         repo_path = get_repo_path()
         store = get_state_store(repo_path)
@@ -222,8 +276,19 @@ def reset_token_gate() -> tuple[Response, int]:
             pipeline.sdlc_token_gated = False
             store.save_pipeline(pipeline)
             logger.info("Token gate cleared", pipeline_id=pipeline_id)
+    except PipelineNotFoundError:
+        pass  # Pipeline doesn't exist in store — just clear in-memory tokens
     except Exception as e:
-        logger.warning("Failed to clear persistent token gate", pipeline_id=pipeline_id, error=str(e))
+        logger.error(
+            "Failed to clear persistent token gate",
+            pipeline_id=pipeline_id,
+            error=str(e),
+            exc_info=True,
+        )
+        return _make_error("Failed to clear token gate in persistent storage", 503)
+
+    # Only clear in-memory tokens after persistent flag is successfully cleared
+    _token_store.pop(pipeline_id, None)
 
     return _make_success("Token gate cleared", data={"pipeline_id": pipeline_id})
 

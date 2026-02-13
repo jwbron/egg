@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sdlc_wordlist import WORD_LIST
 
+TEST_LAUNCHER_SECRET = "test-launcher-secret-for-sdlc-tokens"
+
 
 class TestWordList:
     """Tests for the SDLC word list."""
@@ -43,6 +45,18 @@ class TestWordList:
             assert word.isalpha(), f"Word '{word}' contains non-alpha characters"
 
 
+@pytest.fixture(autouse=True)
+def _set_launcher_secret(monkeypatch):
+    """Set EGG_LAUNCHER_SECRET for all tests."""
+    monkeypatch.setenv("EGG_LAUNCHER_SECRET", TEST_LAUNCHER_SECRET)
+
+
+@pytest.fixture()
+def auth_headers():
+    """Return Authorization headers with valid launcher secret."""
+    return {"Authorization": f"Bearer {TEST_LAUNCHER_SECRET}"}
+
+
 @pytest.fixture()
 def app():
     """Create a minimal Flask app with just the sdlc_tokens blueprint."""
@@ -64,11 +78,12 @@ def client(app):
 class TestTokenGeneration:
     """Tests for token generation endpoint."""
 
-    def test_generate_returns_two_tokens(self, client):
+    def test_generate_returns_two_tokens(self, client, auth_headers):
         """Generate should return refine and plan tokens."""
         resp = client.post(
             "/api/v1/sdlc-tokens/generate",
             json={"pipeline_id": "issue-100"},
+            headers=auth_headers,
         )
         assert resp.status_code == 200
         data = resp.get_json()
@@ -76,11 +91,12 @@ class TestTokenGeneration:
         assert "refine_token" in data["data"]
         assert "plan_token" in data["data"]
 
-    def test_token_format(self, client):
+    def test_token_format(self, client, auth_headers):
         """Tokens should be WORD-WORD-WORD format, uppercase."""
         resp = client.post(
             "/api/v1/sdlc-tokens/generate",
             json={"pipeline_id": "issue-101"},
+            headers=auth_headers,
         )
         data = resp.get_json()["data"]
         for key in ("refine_token", "plan_token"):
@@ -91,32 +107,36 @@ class TestTokenGeneration:
             for part in parts:
                 assert part in WORD_LIST
 
-    def test_tokens_are_different(self, client):
+    def test_tokens_are_different(self, client, auth_headers):
         """Refine and plan tokens should be different."""
         resp = client.post(
             "/api/v1/sdlc-tokens/generate",
             json={"pipeline_id": "issue-102"},
+            headers=auth_headers,
         )
         data = resp.get_json()["data"]
         assert data["refine_token"] != data["plan_token"]
 
-    def test_generate_missing_pipeline_id(self, client):
+    def test_generate_missing_pipeline_id(self, client, auth_headers):
         """Generate without pipeline_id should return 400."""
         resp = client.post(
             "/api/v1/sdlc-tokens/generate",
             json={},
+            headers=auth_headers,
         )
         assert resp.status_code == 400
 
-    def test_generate_duplicate_pipeline(self, client):
+    def test_generate_duplicate_pipeline(self, client, auth_headers):
         """Generating tokens twice for same pipeline should return 409."""
         client.post(
             "/api/v1/sdlc-tokens/generate",
             json={"pipeline_id": "issue-103"},
+            headers=auth_headers,
         )
         resp = client.post(
             "/api/v1/sdlc-tokens/generate",
             json={"pipeline_id": "issue-103"},
+            headers=auth_headers,
         )
         assert resp.status_code == 409
 
@@ -125,11 +145,12 @@ class TestTokenApproval:
     """Tests for token approval endpoint."""
 
     @pytest.fixture(autouse=True)
-    def setup_tokens(self, client):
+    def setup_tokens(self, client, auth_headers):
         """Generate tokens for testing."""
         resp = client.post(
             "/api/v1/sdlc-tokens/generate",
             json={"pipeline_id": "issue-200"},
+            headers=auth_headers,
         )
         data = resp.get_json()["data"]
         self.refine_token = data["refine_token"]
@@ -267,13 +288,14 @@ class TestHasTokensForPipeline:
 
         assert has_tokens_for_pipeline("issue-300") is False
 
-    def test_with_tokens(self, client):
+    def test_with_tokens(self, client, auth_headers):
         """Should return True after tokens are generated."""
         from routes.sdlc_tokens import has_tokens_for_pipeline
 
         client.post(
             "/api/v1/sdlc-tokens/generate",
             json={"pipeline_id": "issue-300"},
+            headers=auth_headers,
         )
         assert has_tokens_for_pipeline("issue-300") is True
 
@@ -491,35 +513,192 @@ class TestResolvePhaseDecisions:
 class TestResetEndpoint:
     """Tests for the /reset endpoint."""
 
-    def test_reset_clears_in_memory_tokens(self, client):
+    def test_reset_clears_in_memory_tokens(self, client, auth_headers):
         """Reset should remove tokens from the in-memory store."""
         from routes.sdlc_tokens import has_tokens_for_pipeline
+        from state_store import PipelineNotFoundError
 
         client.post(
             "/api/v1/sdlc-tokens/generate",
             json={"pipeline_id": "issue-700"},
+            headers=auth_headers,
         )
         assert has_tokens_for_pipeline("issue-700") is True
 
-        resp = client.post(
-            "/api/v1/sdlc-tokens/reset",
-            json={"pipeline_id": "issue-700"},
-        )
+        # Mock state store — pipeline doesn't exist in persistent storage
+        mock_store = MagicMock()
+        mock_store.load_pipeline.side_effect = PipelineNotFoundError("not found")
+
+        with patch("state_store.get_state_store", return_value=mock_store), \
+             patch("routes.get_repo_path", return_value="/tmp/test"):
+            resp = client.post(
+                "/api/v1/sdlc-tokens/reset",
+                json={"pipeline_id": "issue-700"},
+                headers=auth_headers,
+            )
         assert resp.status_code == 200
         assert has_tokens_for_pipeline("issue-700") is False
 
-    def test_reset_missing_pipeline_id(self, client):
+    def test_reset_missing_pipeline_id(self, client, auth_headers):
         """Reset without pipeline_id should return 400."""
         resp = client.post(
             "/api/v1/sdlc-tokens/reset",
             json={},
+            headers=auth_headers,
         )
         assert resp.status_code == 400
 
-    def test_reset_nonexistent_pipeline(self, client):
+    def test_reset_nonexistent_pipeline(self, client, auth_headers):
         """Reset for unknown pipeline should succeed (idempotent)."""
+        from state_store import PipelineNotFoundError
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.side_effect = PipelineNotFoundError("not found")
+
+        with patch("state_store.get_state_store", return_value=mock_store), \
+             patch("routes.get_repo_path", return_value="/tmp/test"):
+            resp = client.post(
+                "/api/v1/sdlc-tokens/reset",
+                json={"pipeline_id": "issue-999"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+
+    def test_reset_returns_503_on_persistent_store_failure(self, client, auth_headers):
+        """Reset should return 503 when persistent store write fails."""
+        from routes.sdlc_tokens import has_tokens_for_pipeline
+
+        # Pre-populate in-memory tokens
+        client.post(
+            "/api/v1/sdlc-tokens/generate",
+            json={"pipeline_id": "issue-750"},
+            headers=auth_headers,
+        )
+        assert has_tokens_for_pipeline("issue-750") is True
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.sdlc_token_gated = True
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+        mock_store.save_pipeline.side_effect = RuntimeError("disk full")
+
+        with patch("state_store.get_state_store", return_value=mock_store), \
+             patch("routes.get_repo_path", return_value="/tmp/test"):
+            resp = client.post(
+                "/api/v1/sdlc-tokens/reset",
+                json={"pipeline_id": "issue-750"},
+                headers=auth_headers,
+            )
+            assert resp.status_code == 503
+            assert "Failed to clear" in resp.get_json()["message"]
+
+        # In-memory tokens should NOT be cleared since persistent store failed
+        assert has_tokens_for_pipeline("issue-750") is True
+
+    def test_reset_clears_both_stores_on_success(self, client, auth_headers):
+        """Reset should clear persistent flag and in-memory tokens on success."""
+        from routes.sdlc_tokens import has_tokens_for_pipeline
+
+        client.post(
+            "/api/v1/sdlc-tokens/generate",
+            json={"pipeline_id": "issue-760"},
+            headers=auth_headers,
+        )
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.sdlc_token_gated = True
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+
+        with patch("state_store.get_state_store", return_value=mock_store), \
+             patch("routes.get_repo_path", return_value="/tmp/test"):
+            resp = client.post(
+                "/api/v1/sdlc-tokens/reset",
+                json={"pipeline_id": "issue-760"},
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+
+        assert has_tokens_for_pipeline("issue-760") is False
+        assert mock_pipeline.sdlc_token_gated is False
+        mock_store.save_pipeline.assert_called_once()
+
+
+class TestLauncherAuth:
+    """Tests for launcher secret authentication on privileged endpoints."""
+
+    def test_generate_without_auth_returns_401(self, client):
+        """Generate without Authorization header should return 401."""
+        resp = client.post(
+            "/api/v1/sdlc-tokens/generate",
+            json={"pipeline_id": "issue-800"},
+        )
+        assert resp.status_code == 401
+
+    def test_generate_with_wrong_secret_returns_401(self, client):
+        """Generate with wrong launcher secret should return 401."""
+        resp = client.post(
+            "/api/v1/sdlc-tokens/generate",
+            json={"pipeline_id": "issue-801"},
+            headers={"Authorization": "Bearer wrong-secret"},
+        )
+        assert resp.status_code == 401
+
+    def test_generate_missing_bearer_prefix_returns_401(self, client):
+        """Generate without Bearer prefix should return 401."""
+        resp = client.post(
+            "/api/v1/sdlc-tokens/generate",
+            json={"pipeline_id": "issue-802"},
+            headers={"Authorization": TEST_LAUNCHER_SECRET},
+        )
+        assert resp.status_code == 401
+
+    def test_reset_without_auth_returns_401(self, client):
+        """Reset without Authorization header should return 401."""
         resp = client.post(
             "/api/v1/sdlc-tokens/reset",
-            json={"pipeline_id": "issue-999"},
+            json={"pipeline_id": "issue-803"},
+        )
+        assert resp.status_code == 401
+
+    def test_reset_with_wrong_secret_returns_401(self, client):
+        """Reset with wrong launcher secret should return 401."""
+        resp = client.post(
+            "/api/v1/sdlc-tokens/reset",
+            json={"pipeline_id": "issue-804"},
+            headers={"Authorization": "Bearer wrong-secret"},
+        )
+        assert resp.status_code == 401
+
+    def test_approve_does_not_require_launcher_auth(self, client, auth_headers):
+        """Approve endpoint should not require launcher auth (uses token auth)."""
+        # Generate tokens first (with auth)
+        resp = client.post(
+            "/api/v1/sdlc-tokens/generate",
+            json={"pipeline_id": "issue-805"},
+            headers=auth_headers,
+        )
+        token = resp.get_json()["data"]["refine_token"]
+
+        # Approve without launcher auth — should work (uses SDLC token instead)
+        resp = client.post(
+            "/api/v1/sdlc-tokens/approve",
+            json={
+                "pipeline_id": "issue-805",
+                "phase": "refine",
+                "token": token,
+            },
         )
         assert resp.status_code == 200
+
+    def test_generate_with_no_secret_configured_returns_401(self, client, monkeypatch):
+        """Generate should return 401 when no launcher secret is configured."""
+        monkeypatch.delenv("EGG_LAUNCHER_SECRET", raising=False)
+        resp = client.post(
+            "/api/v1/sdlc-tokens/generate",
+            json={"pipeline_id": "issue-806"},
+            headers={"Authorization": "Bearer anything"},
+        )
+        assert resp.status_code == 401
