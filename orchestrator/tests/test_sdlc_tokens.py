@@ -45,9 +45,9 @@ class TestWordList:
             assert word.isalpha(), f"Word '{word}' contains non-alpha characters"
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture()
 def _set_launcher_secret(monkeypatch):
-    """Set EGG_LAUNCHER_SECRET for all tests."""
+    """Set EGG_LAUNCHER_SECRET for tests that interact with the SDLC token endpoints."""
     monkeypatch.setenv("EGG_LAUNCHER_SECRET", TEST_LAUNCHER_SECRET)
 
 
@@ -75,6 +75,7 @@ def client(app):
     return app.test_client()
 
 
+@pytest.mark.usefixtures("_set_launcher_secret")
 class TestTokenGeneration:
     """Tests for token generation endpoint."""
 
@@ -141,11 +142,12 @@ class TestTokenGeneration:
         assert resp.status_code == 409
 
 
+@pytest.mark.usefixtures("_set_launcher_secret")
 class TestTokenApproval:
     """Tests for token approval endpoint."""
 
     @pytest.fixture(autouse=True)
-    def setup_tokens(self, client, auth_headers):
+    def setup_tokens(self, client, auth_headers, _set_launcher_secret):
         """Generate tokens for testing."""
         resp = client.post(
             "/api/v1/sdlc-tokens/generate",
@@ -279,6 +281,7 @@ class TestTokenApproval:
         assert resp.status_code == 403
 
 
+@pytest.mark.usefixtures("_set_launcher_secret")
 class TestHasTokensForPipeline:
     """Tests for has_tokens_for_pipeline helper."""
 
@@ -300,6 +303,7 @@ class TestHasTokensForPipeline:
         assert has_tokens_for_pipeline("issue-300") is True
 
 
+@pytest.mark.usefixtures("_set_launcher_secret")
 class TestDecisionGating:
     """Tests for resolve endpoint gating on token-gated pipelines."""
 
@@ -339,6 +343,7 @@ class TestDecisionGating:
         assert data["sdlc_token_gated"] is True
 
 
+@pytest.mark.usefixtures("_set_launcher_secret")
 class TestDecisionGateFailClosed:
     """Tests for the fail-closed behavior of the token gate in resolve_decision."""
 
@@ -417,6 +422,7 @@ class TestDecisionGateFailClosed:
                 assert resp.status_code == 200
 
 
+@pytest.mark.usefixtures("_set_launcher_secret")
 class TestPhaseTransitionDecisionMatching:
     """Tests for _is_phase_transition_decision matching logic."""
 
@@ -462,6 +468,7 @@ class TestPhaseTransitionDecisionMatching:
         assert _is_phase_transition_decision(decision, "plan") is True
 
 
+@pytest.mark.usefixtures("_set_launcher_secret")
 class TestResolvePhaseDecisions:
     """Tests for _resolve_phase_decisions auto-resolution."""
 
@@ -510,6 +517,7 @@ class TestResolvePhaseDecisions:
             _resolve_phase_decisions("issue-600", "refine")
 
 
+@pytest.mark.usefixtures("_set_launcher_secret")
 class TestResetEndpoint:
     """Tests for the /reset endpoint."""
 
@@ -626,6 +634,7 @@ class TestResetEndpoint:
         mock_store.save_pipeline.assert_called_once()
 
 
+@pytest.mark.usefixtures("_set_launcher_secret")
 class TestLauncherAuth:
     """Tests for launcher secret authentication on privileged endpoints."""
 
