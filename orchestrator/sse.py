@@ -6,13 +6,14 @@ that bridges the EventBus to connected HTTP clients.
 """
 
 import json
+import os
 import sys
 import threading
 import time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 from typing import Any, Generator
 
 # Add shared directory to path
@@ -146,7 +147,7 @@ class SSEClientManager:
         Returns:
             Queue that will receive SSE event dicts
         """
-        q: Queue = Queue()
+        q: Queue = Queue(maxsize=1000)
         with self._lock:
             self._clients[pipeline_id].append(q)
             client_count = len(self._clients[pipeline_id])
@@ -195,12 +196,18 @@ class SSEClientManager:
             "data": event.data,
         }
 
-        # Try to include visualization from state store
+        # Try to include visualization from state store.
+        # Note: this runs on the EventBus worker thread, so we cannot use
+        # Flask's get_repo_path() (no request context). Resolve from the
+        # instance attribute or EGG_REPO_PATH env var instead.
         try:
             repo_path = self.repo_path
             if repo_path is None:
-                from routes import get_repo_path
-                repo_path = get_repo_path()
+                env_path = os.environ.get("EGG_REPO_PATH")
+                if env_path:
+                    repo_path = Path(env_path)
+            if repo_path is None:
+                raise RuntimeError("repo_path not available for visualization")
             store = get_state_store(repo_path)
             pipeline = store.load_pipeline(pipeline_id)
             payload["visualization"] = {
@@ -209,16 +216,29 @@ class SSEClientManager:
             payload["status"] = pipeline.status.value
             payload["current_phase"] = pipeline.current_phase.value
         except Exception:
-            # Visualization is best-effort; don't break streaming
-            pass
+            logger.debug(
+                "Failed to attach visualization to SSE event",
+                pipeline_id=pipeline_id,
+                exc_info=True,
+            )
 
         is_terminal = event.event_type in TERMINAL_EVENT_TYPES
 
         for q in clients:
             try:
                 q.put_nowait(("event", payload, is_terminal))
+            except Full:
+                logger.warning(
+                    "SSE client queue full, dropping event",
+                    pipeline_id=pipeline_id,
+                    event_type=event.event_type.value,
+                )
             except Exception:
-                pass
+                logger.debug(
+                    "Failed to enqueue SSE event",
+                    pipeline_id=pipeline_id,
+                    exc_info=True,
+                )
 
     def get_client_count(self, pipeline_id: str | None = None) -> int:
         """Get number of connected clients.
@@ -237,6 +257,7 @@ class SSEClientManager:
 
 # Singleton
 _sse_manager: SSEClientManager | None = None
+_sse_manager_lock = threading.Lock()
 
 
 def get_sse_manager() -> SSEClientManager:
@@ -247,8 +268,10 @@ def get_sse_manager() -> SSEClientManager:
     """
     global _sse_manager
     if _sse_manager is None:
-        _sse_manager = SSEClientManager()
-        _sse_manager.subscribe_to_events()
+        with _sse_manager_lock:
+            if _sse_manager is None:
+                _sse_manager = SSEClientManager()
+                _sse_manager.subscribe_to_events()
     return _sse_manager
 
 
@@ -319,7 +342,6 @@ def create_sse_stream(
                 )
 
         start_time = time.monotonic()
-        last_heartbeat = time.monotonic()
 
         while True:
             # Check max connection time
@@ -338,8 +360,6 @@ def create_sse_stream(
                     event=payload.get("event_type", "update"),
                 )
 
-                last_heartbeat = time.monotonic()
-
                 # If this was a terminal event, send done and stop
                 if is_terminal:
                     yield format_sse_event(
@@ -353,7 +373,6 @@ def create_sse_stream(
                 yield format_sse_comment(
                     f"heartbeat {datetime.utcnow().isoformat()}Z"
                 )
-                last_heartbeat = time.monotonic()
 
     finally:
         manager.remove_client(pipeline_id, q)

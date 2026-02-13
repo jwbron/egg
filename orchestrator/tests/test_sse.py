@@ -266,6 +266,38 @@ class TestSSEClientManager:
         manager.unsubscribe_from_events()
         manager.remove_client("test-123", q)
 
+    def test_event_visualization_falls_back_to_env_var(self):
+        """Test that _handle_event resolves repo_path from EGG_REPO_PATH env var."""
+        bus = EventBus()
+        pipeline = create_test_pipeline()
+        # No repo_path passed to manager
+        manager = SSEClientManager(event_bus=bus)
+        manager.subscribe_to_events()
+
+        q = manager.add_client("test-123")
+
+        with patch("sse.get_state_store") as mock_store, \
+             patch("sse.render_pipeline_dag") as mock_dag, \
+             patch.dict("os.environ", {"EGG_REPO_PATH": "/tmp/test-env-repo"}):
+            store_instance = MagicMock()
+            store_instance.load_pipeline.return_value = pipeline
+            mock_store.return_value = store_instance
+            mock_dag.return_value = "ENV DAG"
+
+            event = Event(
+                event_type=EventType.PHASE_STARTED,
+                pipeline_id="test-123",
+                data={"phase": "plan", "status": "running"},
+            )
+            bus.publish(event)
+
+        msg_type, payload, is_terminal = q.get_nowait()
+        assert "visualization" in payload
+        assert payload["visualization"]["dag"] == "ENV DAG"
+
+        manager.unsubscribe_from_events()
+        manager.remove_client("test-123", q)
+
 
 class TestCreateSSEStream:
     """Tests for create_sse_stream generator."""

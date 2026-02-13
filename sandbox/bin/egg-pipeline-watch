@@ -17,7 +17,6 @@ Options:
 import argparse
 import json
 import os
-import shutil
 import signal
 import sys
 from http.client import HTTPConnection
@@ -137,27 +136,19 @@ def display_error(data: dict) -> None:
     sys.stderr.write(f"{RED}Error: {error}{RESET}\n")
 
 
-def parse_sse_stream(response) -> None:
+def parse_sse_stream(response):
     """Parse an SSE stream from an HTTP response.
 
     Yields (event_type, data_dict) tuples.
     """
-    buf = ""
     event_type = None
     data_lines = []
 
-    # Read response body incrementally
-    while True:
-        chunk = response.read(1)
-        if not chunk:
-            break
-        char = chunk.decode("utf-8", errors="replace")
-        buf += char
-
-        # Process complete lines
-        while "\n" in buf:
-            line, buf = buf.split("\n", 1)
-            line = line.rstrip("\r")
+    # Use a buffered line reader for efficiency and correct UTF-8 handling
+    rfile = response.makefile("rb")
+    try:
+        for raw_line in rfile:
+            line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
 
             if line.startswith("event: "):
                 event_type = line[7:]
@@ -177,6 +168,8 @@ def parse_sse_stream(response) -> None:
                     yield (event_type or "message", data)
                 event_type = None
                 data_lines = []
+    finally:
+        rfile.close()
 
 
 def watch_pipeline(
@@ -210,7 +203,7 @@ def watch_pipeline(
         path += "?" + "&".join(params)
 
     try:
-        conn = HTTPConnection(host, port, timeout=30)
+        conn = HTTPConnection(host, port, timeout=60)
         conn.request(
             "GET",
             path,
