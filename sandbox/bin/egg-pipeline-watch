@@ -144,8 +144,8 @@ def parse_sse_stream(response):
     event_type = None
     data_lines = []
 
-    # Iterate directly on HTTPResponse, which inherits __iter__ from
-    # io.IOBase (calls readline() repeatedly) for buffered line reading.
+    # Iterate directly on HTTPResponse, which inherits from
+    # io.BufferedIOBase — __iter__ (from IOBase) calls readline() repeatedly.
     for raw_line in response:
         line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
 
