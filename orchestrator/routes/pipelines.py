@@ -5,7 +5,6 @@ Pipeline CRUD endpoints for egg-orchestrator.
 import json
 import os
 import re
-import subprocess
 import sys
 import threading
 from datetime import datetime
@@ -1052,45 +1051,6 @@ def _aggregate_review_verdicts(
     return overall, combined
 
 
-def _commit_contract_to_worktree(
-    worktree_path: Path,
-    contract_rel_path: str,
-    issue_number: int | None,
-    pipeline_id: str,
-) -> None:
-    """Commit the contract file in the pipeline worktree.
-
-    The old GitHub Actions workflow explicitly committed the contract
-    before spawning agents.  The local orchestrator must do the same
-    to ensure the contract is deterministically present on the feature
-    branch.
-    """
-    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_path)]
-
-    subprocess.run(
-        [*git_base, "add", contract_rel_path],
-        capture_output=True, text=True, check=True,
-    )
-
-    # Only commit if there are staged changes (idempotent on re-runs)
-    result = subprocess.run(
-        [*git_base, "diff", "--cached", "--quiet"],
-        capture_output=True, text=True, check=False,
-    )
-    if result.returncode == 0:
-        return  # Nothing to commit
-
-    if issue_number is not None:
-        msg = f"Initialize SDLC contract for issue #{issue_number}"
-    else:
-        msg = f"Initialize SDLC contract for pipeline {pipeline_id}"
-
-    subprocess.run(
-        [*git_base, "commit", "--no-verify", "-m", msg],
-        capture_output=True, text=True, check=True,
-    )
-
-
 def _build_phase_prompt(
     phase: str,
     pipeline_id: str,
@@ -1906,24 +1866,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         repo_root=worktree_repo_path,
                     )
                 pipeline.contract_synced = True
-
-                # Commit contract to the worktree so it's on the feature branch
-                if pipeline.issue_number is not None:
-                    contract_rel = f".egg-state/contracts/{pipeline.issue_number}.json"
-                else:
-                    contract_rel = f".egg-state/contracts/{pipeline_id}.json"
-
-                try:
-                    _commit_contract_to_worktree(
-                        worktree_repo_path, contract_rel, pipeline.issue_number, pipeline_id
-                    )
-                except subprocess.CalledProcessError as git_err:
-                    logger.warning(
-                        "Failed to commit contract to worktree (continuing)",
-                        pipeline_id=pipeline_id,
-                        error=str(git_err),
-                    )
-
                 store.save_pipeline(pipeline, commit=False)
                 logger.info(
                     "Pipeline contract created in worktree",
