@@ -3,7 +3,6 @@ Tests for unified SSE streaming module.
 """
 
 import json
-import time
 from pathlib import Path
 from queue import Queue
 from unittest.mock import MagicMock, patch
@@ -297,7 +296,7 @@ class TestCreateUnifiedSSEStream:
             assert "retry: 5000" in snapshot
 
             # Parse the snapshot data
-            data_line = [l for l in snapshot.split("\n") if l.startswith("data: ")][0]
+            data_line = [line for line in snapshot.split("\n") if line.startswith("data: ")][0]
             data = json.loads(data_line[6:])
             assert len(data["pipelines"]) == 2
             assert data["pipelines"][0]["pipeline_id"] == "p-1"
@@ -330,7 +329,7 @@ class TestCreateUnifiedSSEStream:
             snapshot = next(gen)
             gen.close()
 
-            data_line = [l for l in snapshot.split("\n") if l.startswith("data: ")][0]
+            data_line = [line for line in snapshot.split("\n") if line.startswith("data: ")][0]
             data = json.loads(data_line[6:])
             assert len(data["pipelines"]) == 1
             assert data["pipelines"][0]["pipeline_id"] == "p-1"
@@ -361,7 +360,7 @@ class TestCreateUnifiedSSEStream:
             snapshot = next(gen)
             gen.close()
 
-            data_line = [l for l in snapshot.split("\n") if l.startswith("data: ")][0]
+            data_line = [line for line in snapshot.split("\n") if line.startswith("data: ")][0]
             data = json.loads(data_line[6:])
             assert len(data["pipelines"]) == 2
 
@@ -414,8 +413,6 @@ class TestCreateUnifiedSSEStream:
         ):
             # Need to also patch the imported constant
             import unified_sse
-
-            original_interval = unified_sse.HEARTBEAT_INTERVAL
 
             mock_q = Queue()
             mock_manager = MagicMock()
@@ -494,7 +491,7 @@ class TestCreateUnifiedSSEStream:
             snapshot = next(gen)
             gen.close()
 
-            data_line = [l for l in snapshot.split("\n") if l.startswith("data: ")][0]
+            data_line = [line for line in snapshot.split("\n") if line.startswith("data: ")][0]
             data = json.loads(data_line[6:])
             assert data["pipelines"] == []
 
@@ -523,7 +520,7 @@ class TestCreateUnifiedSSEStream:
             snapshot = next(gen)
             gen.close()
 
-            data_line = [l for l in snapshot.split("\n") if l.startswith("data: ")][0]
+            data_line = [line for line in snapshot.split("\n") if line.startswith("data: ")][0]
             data = json.loads(data_line[6:])
             entry = data["pipelines"][0]
             assert entry["repo"] == "owner/repo"

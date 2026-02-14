@@ -64,13 +64,6 @@ from .agent_roles import (
     get_role_definition,
     get_role_dependencies,
 )
-from .deployment import (
-    DeploymentConfig,
-    ServiceMapping,
-    ValidationTest,
-    check_suspicious_env_vars,
-    load_deployment_config,
-)
 from .audit import (
     create_audit_entry,
     create_transition_entry,
@@ -86,6 +79,13 @@ from .dependency_graph import (
     compute_execution_plan,
     format_execution_plan,
     get_parallel_groups,
+)
+from .deployment import (
+    DeploymentConfig,
+    ServiceMapping,
+    ValidationTest,
+    check_suspicious_env_vars,
+    load_deployment_config,
 )
 from .feedback import (
     FeedbackQuestionInput,

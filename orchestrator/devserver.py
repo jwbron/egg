@@ -225,7 +225,7 @@ class DevserverManager:
             ) from e
         except FileNotFoundError as e:
             raise ComposeExtractionError(
-                f"git not found — cannot extract compose config"
+                "git not found — cannot extract compose config"
             ) from e
 
     def _resolve_affected_services(

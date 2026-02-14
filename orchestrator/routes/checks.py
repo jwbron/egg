@@ -9,7 +9,7 @@ to coordinate with the orchestrator, which manages the Docker infrastructure.
 import sys
 from pathlib import Path
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, jsonify
 
 # Add parent directory to path for imports
 _parent_path = Path(__file__).parent.parent

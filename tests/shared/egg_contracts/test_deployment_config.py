@@ -5,11 +5,8 @@ and the deployment config loader.
 
 import json
 import textwrap
-from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
-
 from egg_contracts.deployment import (
     DeploymentConfig,
     ServiceMapping,
@@ -17,7 +14,7 @@ from egg_contracts.deployment import (
     check_suspicious_env_vars,
     load_deployment_config,
 )
-
+from pydantic import ValidationError
 
 # ── ServiceMapping Tests ──────────────────────────────────────────────
 

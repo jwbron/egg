@@ -25,7 +25,6 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 def app():
     """Create a test Flask app with the checks blueprint."""
     from flask import Flask
-
     from routes.checks import _active_devservers, checks_bp
 
     app = Flask(__name__)

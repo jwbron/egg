@@ -8,18 +8,14 @@ All orchestrator HTTP API calls are mocked.
 
 import json
 import sys
-import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 # Add paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / ".github" / "scripts"))
 
 from egg_contracts import CheckStatus, Contract, IssueInfo
-from egg_contracts.deployment import DeploymentConfig
 
 
 def _make_contract(**kwargs) -> Contract:
@@ -242,7 +238,6 @@ class TestDefensiveParsing:
         check = DeploymentCheck(contract, tmp_path)
 
         teardown_called = False
-        original_teardown = check._teardown_devserver
 
         def tracking_teardown(pid):
             nonlocal teardown_called

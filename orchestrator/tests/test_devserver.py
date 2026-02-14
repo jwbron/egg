@@ -13,12 +13,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
-
 from devserver import (
     ComposeExtractionError,
     DevserverManager,
     DevserverStatusValue,
-    NetworkError,
     ServiceStatus,
     StackLifecycleError,
 )
