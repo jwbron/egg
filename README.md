@@ -125,7 +125,20 @@ During the **implement** phase, work is divided across these specialized agents:
 | **Documenter** | Update docs, READMEs, and changelogs |
 | **Integrator** | Run full test suite, validate integration |
 
-**Execution model**: Wave-based with dependencies. The coder runs first, then tester and documenter run in parallel (both depend on coder's output), and finally the integrator runs after all others complete.
+**Execution model**: Wave-based with dependencies. The coder runs first, then tester and documenter run in parallel (both depend on coder's output). The integrator runs after the coder and tester complete (it does not wait for the documenter).
+
+### Reviewer Roles (Implement Phase)
+
+After the integrator completes, reviewers validate the implementation output:
+
+| Role | Responsibility |
+|------|----------------|
+| **Unified Reviewer** | Comprehensive review across all criteria |
+| **Code Reviewer** | Security, correctness, code quality |
+| **Contract Reviewer** | Verify acceptance criteria met, task completion status |
+| **Agent Design Reviewer** | Check for agent-mode anti-patterns, autonomous operation capability |
+
+**Execution model**: All reviewers depend on the integrator and run in parallel after it completes, producing structured verdicts (approved/needs_revision). Reviewers currently only operate in the implement phase.
 
 ### Plan Phase Roles
 
@@ -138,19 +151,6 @@ During the **plan** phase, work is divided across these specialized agents:
 | **Risk Analyst** | Identify technical risks, propose mitigation strategies |
 
 **Execution model**: Architect runs first, then task planner and risk analyst run in parallel (both depend on architect's analysis).
-
-### Reviewer Roles
-
-Reviewers validate phase outputs against quality criteria:
-
-| Role | Responsibility |
-|------|----------------|
-| **Unified Reviewer** | Comprehensive review across all criteria |
-| **Code Reviewer** | Security, correctness, code quality |
-| **Contract Reviewer** | Verify acceptance criteria met, task completion status |
-| **Agent Design Reviewer** | Check for agent-mode anti-patterns, autonomous operation capability |
-
-**Execution model**: Reviewers run after the integrator completes, producing structured verdicts (approved/needs_revision).
 
 ### How It Works
 
