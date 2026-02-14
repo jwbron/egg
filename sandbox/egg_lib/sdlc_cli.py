@@ -4,7 +4,11 @@ Replaces the Claude-as-collaborator SDLC pipeline workflow with a rich
 terminal CLI that directly handles DAG visualization and HITL checkpoints.
 
 Usage:
-    egg-sdlc [<issue_number>] [--repo <owner/repo>]
+    egg-sdlc -r egg -i 659           # Repo dir + issue number
+    egg-sdlc -r egg 659              # Short form (positional issue)
+    egg-sdlc 659                     # Auto-detect repo
+    egg-sdlc --repo owner/repo -i 1  # Explicit owner/repo
+    egg-sdlc                         # Local/prompt mode (no issue)
 """
 
 import argparse
@@ -64,6 +68,42 @@ def _parse_egg_repos() -> list[str]:
     if not egg_repos:
         return []
     return [r.strip() for r in egg_repos.split(",") if r.strip()]
+
+
+def _resolve_repo_dir(repo_dir: str) -> str | None:
+    """Resolve a repo directory name to owner/repo format.
+
+    Looks up the directory name in EGG_REPOS (e.g. "egg" matches "jwbron/egg")
+    and changes to the repo directory if it exists.
+    """
+    from pathlib import Path
+
+    # Find matching entry in EGG_REPOS
+    for entry in _parse_egg_repos():
+        if entry.split("/")[-1] == repo_dir:
+            # Change to the repo directory so git/gh commands work
+            repo_path = Path.home() / "repos" / repo_dir
+            if repo_path.is_dir():
+                os.chdir(repo_path)
+            return entry
+
+    # Not in EGG_REPOS — check if the directory exists and try gh detection
+    repo_path = Path.home() / "repos" / repo_dir
+    if repo_path.is_dir():
+        os.chdir(repo_path)
+        try:
+            result = subprocess.run(
+                ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except Exception:
+            pass
+
+    return None
 
 
 def _get_current_repo() -> str | None:
@@ -454,21 +494,50 @@ def main() -> None:
         prog="egg-sdlc",
     )
     parser.add_argument(
-        "issue_number",
+        "issue_number_pos",
         nargs="?",
         type=int,
-        help="GitHub issue number (omit for local/prompt mode)",
+        help="GitHub issue number (positional, omit for local/prompt mode)",
     )
     parser.add_argument(
+        "-i",
+        "--issue",
+        type=int,
+        metavar="NUM",
+        help="GitHub issue number",
+    )
+    parser.add_argument(
+        "-r",
         "--repo",
-        metavar="OWNER/REPO",
-        help="Repository in owner/repo format (default: auto-detect)",
+        metavar="NAME",
+        help="Repository directory name under ~/repos/ (e.g. 'egg'). "
+        "Also accepts owner/repo format for direct specification.",
     )
 
     args = parser.parse_args()
 
+    # Resolve issue number: -i/--issue takes precedence over positional
+    issue_number = args.issue or args.issue_number_pos
+
     # Handle SIGPIPE gracefully
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
+    # Resolve repo: if it looks like a directory name (no slash), resolve it
+    repo = None
+    if args.repo:
+        if "/" in args.repo:
+            # Already in owner/repo format
+            repo = args.repo
+        else:
+            # Directory name — resolve to owner/repo via EGG_REPOS
+            repo = _resolve_repo_dir(args.repo)
+            if not repo:
+                _write(
+                    f"{RED}Cannot resolve repo '{args.repo}'. "
+                    f"No matching entry in mounted repos.{RESET}\n",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
 
     # Create orchestrator client
     client = OrchClient()
@@ -483,8 +552,8 @@ def main() -> None:
         sys.exit(1)
 
     # Dispatch to mode
-    if args.issue_number:
-        exit_code = run_issue_mode(client, args.issue_number, args.repo)
+    if issue_number:
+        exit_code = run_issue_mode(client, issue_number, repo)
     else:
         exit_code = run_local_mode(client)
 

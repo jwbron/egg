@@ -5,7 +5,8 @@
 # This ensures full TTY access for interactive HITL features (editor, Claude).
 #
 # Usage:
-#   egg-sdlc [<issue_number>] [--repo <owner/repo>]
+#   egg-sdlc -r <repo_dir> -i <issue_number>
+#   egg-sdlc [<issue_number>] [--repo <name_or_owner/repo>]
 #
 # If already running inside a container, delegates directly to the Python CLI.
 
