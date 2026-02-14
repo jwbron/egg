@@ -58,6 +58,14 @@ def _clear_screen() -> None:
         sys.stdout.flush()
 
 
+def _parse_egg_repos() -> list[str]:
+    """Parse the EGG_REPOS env var into a list of owner/repo strings."""
+    egg_repos = os.environ.get("EGG_REPOS", "").strip()
+    if not egg_repos:
+        return []
+    return [r.strip() for r in egg_repos.split(",") if r.strip()]
+
+
 def _get_current_repo() -> str | None:
     """Get the current repo in owner/repo format.
 
@@ -67,9 +75,8 @@ def _get_current_repo() -> str | None:
     """
     # Strategy 1: EGG_REPOS env var — reliable in gateway-managed containers
     # where .git is shadowed by tmpfs.
-    egg_repos = os.environ.get("EGG_REPOS", "").strip()
-    if egg_repos:
-        repos = [r.strip() for r in egg_repos.split(",") if r.strip()]
+    repos = _parse_egg_repos()
+    if repos:
         if len(repos) == 1:
             return repos[0]
         # Multiple repos — can't auto-select, fall through to gh detection
@@ -363,8 +370,7 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
         repo = _get_current_repo()
     if not repo:
         # Check if multiple repos are available via EGG_REPOS
-        egg_repos = os.environ.get("EGG_REPOS", "").strip()
-        available = [r.strip() for r in egg_repos.split(",") if r.strip()] if egg_repos else []
+        available = _parse_egg_repos()
         if len(available) > 1:
             repo_list = ", ".join(available)
             _write(
