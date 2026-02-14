@@ -163,7 +163,15 @@ def cleanup_networks():
     # Post-test cleanup: remove any leftover networks
     try:
         result = subprocess.run(
-            ["docker", "network", "ls", "--filter", "label=egg.pipeline-id=integration-test", "--format", "{{.ID}}"],
+            [
+                "docker",
+                "network",
+                "ls",
+                "--filter",
+                "label=egg.pipeline-id=integration-test",
+                "--format",
+                "{{.ID}}",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
@@ -193,10 +201,13 @@ class TestDeploymentCheckE2E:
         # Start devserver stack
         status = manager.start(config, changed_files=["src/app.py"])
 
-        # Stack should be healthy (busybox httpd serves /health)
-        assert status.status in (
-            DevserverStatusValue.HEALTHY,
-            DevserverStatusValue.UNHEALTHY,  # Accept unhealthy — wget may not be available in compose exec
+        # Stack should be healthy (health checks now use orchestrator-side HTTP probes)
+        assert (
+            status.status
+            in (
+                DevserverStatusValue.HEALTHY,
+                DevserverStatusValue.UNHEALTHY,  # Accept unhealthy — container may not be reachable from orchestrator network
+            )
         )
         assert "echo" in status.services
 
@@ -226,14 +237,20 @@ class TestDeploymentCheckE2E:
             text=True,
             timeout=10,
         )
-        assert result.returncode != 0, f"Check network '{network_name}' should be removed after teardown"
+        assert result.returncode != 0, (
+            f"Check network '{network_name}' should be removed after teardown"
+        )
 
         # Verify no orphaned containers
         result = subprocess.run(
             [
-                "docker", "ps", "-a",
-                "--filter", f"label=com.docker.compose.project={network_name}",
-                "--format", "{{.ID}}",
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                f"label=com.docker.compose.project={network_name}",
+                "--format",
+                "{{.ID}}",
             ],
             capture_output=True,
             text=True,
@@ -303,8 +320,8 @@ class TestDeploymentCheckE2E:
             assert net1 != net2, "Networks should have different IDs"
         finally:
             # Clean up
-            mgr1._network_id = net1 if 'net1' in dir() else ""
-            mgr2._network_id = net2 if 'net2' in dir() else ""
+            mgr1._network_id = net1 if "net1" in locals() else ""
+            mgr2._network_id = net2 if "net2" in locals() else ""
             try:
                 mgr1._remove_check_network()
             except Exception:

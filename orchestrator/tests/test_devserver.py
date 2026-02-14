@@ -39,6 +39,7 @@ def _make_deployment_config(**kwargs) -> DeploymentConfig:
 def _make_manager(
     tmp_path: Path,
     pipeline_id: str = "issue-645",
+    docker_client: any = None,
 ) -> DevserverManager:
     """Create a DevserverManager with temp paths."""
     repo_path = tmp_path / "repo"
@@ -49,6 +50,7 @@ def _make_manager(
         pipeline_id=pipeline_id,
         repo_path=repo_path,
         worktree_path=worktree_path,
+        docker_client=docker_client,
     )
 
 
@@ -99,9 +101,7 @@ class TestComposeExtraction:
         manager = _make_manager(tmp_path)
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout="{{not valid yaml]]]"
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout="{{not valid yaml]]]")
             with pytest.raises(ComposeExtractionError, match="not valid YAML"):
                 manager._extract_compose_config("docker-compose.yml")
 
@@ -119,9 +119,7 @@ class TestComposeExtraction:
 
         committed_content = "services:\n  api:\n    image: api:v1\n"
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=committed_content
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout=committed_content)
             result = manager._extract_compose_config("docker-compose.yml")
 
         # The result should be the committed content, not anything from the working tree
@@ -229,9 +227,7 @@ class TestComposeOverrideGeneration:
             ),
         ]
 
-        override_yaml = manager._generate_compose_override(
-            affected, worktree, ["api"]
-        )
+        override_yaml = manager._generate_compose_override(affected, worktree, ["api"])
 
         data = yaml.safe_load(override_yaml)
         volumes = data["services"]["api"].get("volumes", [])
@@ -258,9 +254,7 @@ class TestComposeOverrideGeneration:
     def test_security_options(self, tmp_path):
         manager = _make_manager(tmp_path)
 
-        override_yaml = manager._generate_compose_override(
-            [], tmp_path / "worktree", ["api"]
-        )
+        override_yaml = manager._generate_compose_override([], tmp_path / "worktree", ["api"])
 
         data = yaml.safe_load(override_yaml)
         svc = data["services"]["api"]
@@ -271,9 +265,7 @@ class TestComposeOverrideGeneration:
     def test_network_attached(self, tmp_path):
         manager = _make_manager(tmp_path)
 
-        override_yaml = manager._generate_compose_override(
-            [], tmp_path / "worktree", ["api"]
-        )
+        override_yaml = manager._generate_compose_override([], tmp_path / "worktree", ["api"])
 
         data = yaml.safe_load(override_yaml)
         networks = data["services"]["api"]["networks"]
@@ -306,11 +298,9 @@ class TestNetworkManagement:
 
     @patch("devserver.docker")
     def test_create_network_internal(self, mock_docker_module, tmp_path):
-        manager = _make_manager(tmp_path)
-
         mock_client = MagicMock()
-        mock_docker_module.from_env.return_value = mock_client
         mock_docker_module.errors.NotFound = Exception
+        manager = _make_manager(tmp_path, docker_client=mock_client)
 
         mock_client.networks.get.side_effect = Exception("not found")
         mock_network = MagicMock()
@@ -329,12 +319,10 @@ class TestNetworkManagement:
 
     @patch("devserver.docker")
     def test_remove_network(self, mock_docker_module, tmp_path):
-        manager = _make_manager(tmp_path)
-        manager._network_id = "net-123"
-
         mock_client = MagicMock()
-        mock_docker_module.from_env.return_value = mock_client
         mock_docker_module.errors.NotFound = Exception
+        manager = _make_manager(tmp_path, docker_client=mock_client)
+        manager._network_id = "net-123"
 
         mock_network = MagicMock()
         mock_network.containers = []
@@ -358,9 +346,7 @@ class TestDevserverStatus:
         status = DevserverStatus(
             status=DevserverStatusValue.HEALTHY,
             services={
-                "api": ServiceStatus(
-                    name="api", healthy=True, ip="172.34.0.5", port=8080
-                ),
+                "api": ServiceStatus(name="api", healthy=True, ip="172.34.0.5", port=8080),
             },
             network_id="net-abc",
         )
@@ -386,9 +372,8 @@ class TestTeardown:
 
     @patch("devserver.docker")
     def test_double_teardown_no_error(self, mock_docker_module, tmp_path):
-        manager = _make_manager(tmp_path)
-        mock_docker_module.from_env.return_value = MagicMock()
         mock_docker_module.errors.NotFound = Exception
+        manager = _make_manager(tmp_path, docker_client=MagicMock())
 
         manager.teardown()
         manager.teardown()
@@ -398,9 +383,8 @@ class TestTeardown:
     @patch("devserver.docker")
     @patch("subprocess.run")
     def test_teardown_cleans_temp_dir(self, mock_run, mock_docker_module, tmp_path):
-        manager = _make_manager(tmp_path)
-        mock_docker_module.from_env.return_value = MagicMock()
         mock_docker_module.errors.NotFound = Exception
+        manager = _make_manager(tmp_path, docker_client=MagicMock())
 
         # Simulate a started state with temp dir
         temp_dir = tmp_path / "temp-compose"
@@ -508,7 +492,7 @@ class TestStart:
     @patch("devserver.docker")
     @patch("subprocess.run")
     def test_raises_on_no_services(self, mock_run, mock_docker, tmp_path):
-        manager = _make_manager(tmp_path)
+        manager = _make_manager(tmp_path, docker_client=MagicMock())
         config = _make_deployment_config()
 
         # Return a compose file with no services

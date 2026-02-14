@@ -262,6 +262,9 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         # Save updated pipeline with optimistic locking
         store.save_pipeline(pipeline, expected_version=original_version)
 
+        # Tear down any active devserver for the previous phase
+        teardown_devserver(pipeline_id)
+
         logger.info(
             "Phase advanced",
             pipeline_id=pipeline_id,

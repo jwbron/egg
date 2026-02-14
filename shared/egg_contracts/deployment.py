@@ -8,7 +8,7 @@ service-to-source mappings, health endpoints, and optional smoke tests.
 """
 
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -49,10 +49,10 @@ class ServiceMapping(BaseModel):
     @classmethod
     def reject_path_traversal(cls, v: str) -> str:
         """Reject source directories containing path traversal sequences."""
-        if ".." in v:
-            raise ValueError("source_dir must not contain '..' path traversal")
         if v.startswith("/"):
             raise ValueError("source_dir must be relative (no leading '/')")
+        if ".." in PurePosixPath(v).parts:
+            raise ValueError("source_dir must not contain '..' path traversal")
         return v
 
     @field_validator("container_mount_path")
@@ -61,7 +61,7 @@ class ServiceMapping(BaseModel):
         """Validate container mount path is absolute."""
         if not v.startswith("/"):
             raise ValueError("container_mount_path must be an absolute path")
-        if ".." in v:
+        if ".." in PurePosixPath(v).parts:
             raise ValueError("container_mount_path must not contain '..' path traversal")
         return v
 
@@ -146,10 +146,10 @@ class DeploymentConfig(BaseModel):
     @classmethod
     def reject_compose_path_traversal(cls, v: str) -> str:
         """Reject compose file paths containing path traversal."""
-        if ".." in v:
-            raise ValueError("compose_file must not contain '..' path traversal")
         if v.startswith("/"):
             raise ValueError("compose_file must be relative (no leading '/')")
+        if ".." in PurePosixPath(v).parts:
+            raise ValueError("compose_file must not contain '..' path traversal")
         return v
 
     @field_validator("health_endpoints")

@@ -84,20 +84,27 @@ class DeploymentCheck(CheckRunner):
         self,
         method: str,
         url: str,
+        _redirect_depth: int = 0,
         **kwargs: Any,
     ) -> requests.Response | None:
         """Make an HTTP request with defensive handling.
 
         Applies timeout, max response size, and blocks external redirects.
+        Same-host redirects are followed up to a limit of 5 hops.
 
         Args:
             method: HTTP method (GET, POST, etc.).
             url: Request URL.
+            _redirect_depth: Internal counter for redirect hops.
             **kwargs: Additional requests kwargs.
 
         Returns:
             Response object, or None on error.
         """
+        max_redirects = 5
+        if _redirect_depth > max_redirects:
+            return None
+
         kwargs.setdefault("timeout", REQUEST_TIMEOUT)
         kwargs["stream"] = True  # Stream to enforce size limits
         kwargs["allow_redirects"] = False  # Handle redirects manually
@@ -105,13 +112,17 @@ class DeploymentCheck(CheckRunner):
         try:
             resp = requests.request(method, url, **kwargs)
 
-            # Check for redirects to external hosts (attacker-controlled)
+            # Follow same-host redirects; block cross-host redirects
             if resp.is_redirect:
                 redirect_url = resp.headers.get("Location", "")
                 original_host = urlparse(url).hostname
                 redirect_host = urlparse(redirect_url).hostname
                 if redirect_host and redirect_host != original_host:
                     return None  # Block external redirect
+                # Follow same-host redirect
+                return self._safe_request(
+                    method, redirect_url, _redirect_depth=_redirect_depth + 1, **kwargs
+                )
 
             # Enforce max response size
             content = b""
@@ -305,9 +316,7 @@ class DeploymentCheck(CheckRunner):
             if resp is None:
                 result["error"] = "Request failed or timed out"
             elif resp.status_code != test.expected_status:
-                result["error"] = (
-                    f"Expected status {test.expected_status}, got {resp.status_code}"
-                )
+                result["error"] = f"Expected status {test.expected_status}, got {resp.status_code}"
                 result["status_code"] = resp.status_code
             elif test.expected_body_contains:
                 body = resp.text or ""

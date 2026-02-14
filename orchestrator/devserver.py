@@ -16,6 +16,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -104,10 +106,11 @@ class DevserverStatus:
     services: dict[str, ServiceStatus] = field(default_factory=dict)
     network_id: str = ""
     error_message: str = ""
+    warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary for API responses."""
-        return {
+        result: dict[str, Any] = {
             "status": self.status.value,
             "services": {
                 name: {
@@ -122,6 +125,9 @@ class DevserverStatus:
             "network_id": self.network_id,
             "error_message": self.error_message,
         }
+        if self.warnings:
+            result["warnings"] = self.warnings
+        return result
 
 
 class DevserverManager:
@@ -153,7 +159,7 @@ class DevserverManager:
         self.pipeline_id = pipeline_id
         self.repo_path = repo_path
         self.worktree_path = worktree_path
-        self.docker_client = docker_client
+        self.docker_client = docker_client or (docker.from_env() if docker else None)
 
         self._network_name = f"{EGG_CHECK_NETWORK_PREFIX}-{pipeline_id}"
         self._network_id: str = ""
@@ -204,9 +210,7 @@ class DevserverManager:
 
             content = result.stdout
             if not content.strip():
-                raise ComposeExtractionError(
-                    f"Compose file {compose_path} at HEAD is empty"
-                )
+                raise ComposeExtractionError(f"Compose file {compose_path} at HEAD is empty")
 
             # Validate it's valid YAML
             try:
@@ -219,13 +223,9 @@ class DevserverManager:
             return content
 
         except subprocess.TimeoutExpired as e:
-            raise ComposeExtractionError(
-                f"Timed out extracting {compose_path} from HEAD"
-            ) from e
+            raise ComposeExtractionError(f"Timed out extracting {compose_path} from HEAD") from e
         except FileNotFoundError as e:
-            raise ComposeExtractionError(
-                "git not found — cannot extract compose config"
-            ) from e
+            raise ComposeExtractionError("git not found — cannot extract compose config") from e
 
     def _resolve_affected_services(
         self,
@@ -245,7 +245,9 @@ class DevserverManager:
         for mapping in service_mappings:
             source_dir = mapping.source_dir.rstrip("/") + "/"
             for changed_file in changed_files:
-                if changed_file.startswith(source_dir) or changed_file == mapping.source_dir.rstrip("/"):
+                if changed_file.startswith(source_dir) or changed_file == mapping.source_dir.rstrip(
+                    "/"
+                ):
                     affected.append(mapping)
                     break
         return affected
@@ -299,9 +301,7 @@ class DevserverManager:
                     host_path = str(worktree_path / mapping.source_dir)
                     container_path = mapping.container_mount_path
                     service_config.setdefault("volumes", [])
-                    service_config["volumes"].append(
-                        f"{host_path}:{container_path}:ro"
-                    )
+                    service_config["volumes"].append(f"{host_path}:{container_path}:ro")
 
             services[service_name] = service_config
 
@@ -329,9 +329,7 @@ class DevserverManager:
             NetworkError: If network creation fails.
         """
         try:
-            docker_sdk = docker
-
-            client = docker_sdk.from_env()
+            client = self.docker_client
             # Remove existing network with same name (cleanup from failed runs)
             try:
                 existing = client.networks.get(self._network_name)
@@ -341,7 +339,7 @@ class DevserverManager:
                     pipeline_id=self.pipeline_id,
                 )
                 existing.remove()
-            except docker_sdk.errors.NotFound:
+            except docker.errors.NotFound:
                 pass
 
             network = client.networks.create(
@@ -366,9 +364,7 @@ class DevserverManager:
             return network.id
 
         except Exception as e:
-            raise NetworkError(
-                f"Failed to create check network '{self._network_name}': {e}"
-            ) from e
+            raise NetworkError(f"Failed to create check network '{self._network_name}': {e}") from e
 
     def _create_scoped_network(self, service_name: str) -> str:
         """Create a per-service scoped network for inter-container isolation.
@@ -383,15 +379,13 @@ class DevserverManager:
             Network ID.
         """
         try:
-            docker_sdk = docker
-
-            client = docker_sdk.from_env()
+            client = self.docker_client
             network_name = f"{self._network_name}-{service_name}"
 
             try:
                 existing = client.networks.get(network_name)
                 existing.remove()
-            except docker_sdk.errors.NotFound:
+            except docker.errors.NotFound:
                 pass
 
             network = client.networks.create(
@@ -421,9 +415,7 @@ class DevserverManager:
 
         Force-removes even if containers are still attached.
         """
-        docker_sdk = docker
-
-        client = docker_sdk.from_env()
+        client = self.docker_client
 
         # Remove scoped networks first
         for service_name, network_id in self._scoped_networks.items():
@@ -442,7 +434,7 @@ class DevserverManager:
                     service=service_name,
                     network_id=network_id[:12],
                 )
-            except docker_sdk.errors.NotFound:
+            except docker.errors.NotFound:
                 pass
             except Exception as e:
                 logger.warning(
@@ -472,7 +464,7 @@ class DevserverManager:
                 network_name=self._network_name,
                 network_id=self._network_id[:12],
             )
-        except docker_sdk.errors.NotFound:
+        except docker.errors.NotFound:
             pass
         except Exception as e:
             logger.warning(
@@ -500,7 +492,14 @@ class DevserverManager:
                 timeout=30,
             )
             if result.returncode != 0:
-                # Fallback: diff against HEAD~1
+                # Fallback: diff against HEAD~1 — this only captures the last
+                # commit, not all agent changes if multiple commits were made.
+                logger.warning(
+                    "origin/main diff failed, falling back to HEAD~1 "
+                    "(may return partial changed-file list)",
+                    pipeline_id=self.pipeline_id,
+                    stderr=result.stderr.strip(),
+                )
                 result = subprocess.run(
                     ["git", "diff", "--name-only", "HEAD~1", "HEAD"],
                     cwd=str(self.worktree_path),
@@ -568,12 +567,56 @@ class DevserverManager:
             pass
         return warnings
 
+    def _get_container_ip(self, service_name: str) -> str:
+        """Get the IP address of a service container on the check network.
+
+        Args:
+            service_name: Docker compose service name.
+
+        Returns:
+            IP address string, or empty string if not found.
+        """
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(self._temp_dir / "docker-compose.yml"),
+                    "-f",
+                    str(self._temp_dir / "docker-compose.override.yml"),
+                    "--project-name",
+                    self._network_name,
+                    "ps",
+                    "-q",
+                    service_name,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            container_id = result.stdout.strip()
+            if not container_id:
+                return ""
+
+            client = self.docker_client
+            container = client.containers.get(container_id)
+            networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
+            net_info = networks.get(self._network_name, {})
+            return net_info.get("IPAddress", "")
+        except Exception:
+            return ""
+
     def _wait_for_health(
         self,
         deployment_config: DeploymentConfig,
         timeout_seconds: int,
     ) -> bool:
         """Wait for all services with health endpoints to become healthy.
+
+        Makes HTTP requests directly from the orchestrator to the container
+        IPs on the check network, avoiding reliance on tools (wget/curl)
+        being present inside containers.
 
         Args:
             deployment_config: Configuration with health endpoint paths.
@@ -594,32 +637,29 @@ class DevserverManager:
                 if svc_status and svc_status.healthy:
                     continue
 
-                # Try to check health via docker compose exec or container inspect
+                # Get the container IP on the check network and probe from
+                # the orchestrator side — no dependency on tools inside the
+                # container (wget, curl, etc.).
                 try:
-                    result = subprocess.run(
-                        [
-                            "docker", "compose",
-                            "-f", str(self._temp_dir / "docker-compose.yml"),
-                            "-f", str(self._temp_dir / "docker-compose.override.yml"),
-                            "--project-name", self._network_name,
-                            "exec", "-T", service_name,
-                            "wget", "-q", "-O", "/dev/null",
-                            f"http://localhost{health_path}",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                    )
-                    if result.returncode == 0:
-                        if svc_status:
-                            svc_status.healthy = True
-                        logger.info(
-                            "Service healthy",
-                            service=service_name,
-                            health_path=health_path,
-                        )
-                    else:
+                    ip = self._get_container_ip(service_name)
+                    if not ip:
                         all_healthy = False
+                        continue
+
+                    url = f"http://{ip}{health_path}"
+                    req = urllib.request.Request(url, method="GET")
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        if resp.status == 200:
+                            if svc_status:
+                                svc_status.healthy = True
+                                svc_status.ip = ip
+                            logger.info(
+                                "Service healthy",
+                                service=service_name,
+                                health_path=health_path,
+                            )
+                        else:
+                            all_healthy = False
                 except Exception:
                     all_healthy = False
 
@@ -640,16 +680,12 @@ class DevserverManager:
             deployment_config: Configuration with compose file reference.
         """
         try:
-            compose_content = self._extract_compose_config(
-                deployment_config.compose_file
-            )
+            compose_content = self._extract_compose_config(deployment_config.compose_file)
             data = yaml.safe_load(compose_content)
             if not isinstance(data, dict) or "services" not in data:
                 return
 
-            docker_sdk = docker
-
-            client = docker_sdk.from_env()
+            client = self.docker_client
 
             for svc_name, svc_config in data["services"].items():
                 if not isinstance(svc_config, dict):
@@ -718,14 +754,13 @@ class DevserverManager:
                 compose_file=deployment_config.compose_file,
                 pipeline_id=self.pipeline_id,
             )
-            compose_content = self._extract_compose_config(
-                deployment_config.compose_file
-            )
+            compose_content = self._extract_compose_config(deployment_config.compose_file)
 
             # Pre-flight: check for suspicious credentials
             cred_warnings = self._check_suspicious_env_vars_in_compose(compose_content)
             for warning in cred_warnings:
                 logger.warning("Credential check", message=warning)
+            self._status.warnings = cred_warnings
 
             # Step 2: Resolve affected services
             if changed_files is None:
@@ -737,9 +772,7 @@ class DevserverManager:
             all_service_names = self._get_compose_service_names(compose_content)
 
             if not all_service_names:
-                raise StackLifecycleError(
-                    "No services found in compose file"
-                )
+                raise StackLifecycleError("No services found in compose file")
 
             logger.info(
                 "Resolved affected services",
@@ -776,20 +809,24 @@ class DevserverManager:
             )
             result = subprocess.run(
                 [
-                    "docker", "compose",
-                    "-f", str(base_compose_path),
-                    "-f", str(override_path),
-                    "--project-name", self._network_name,
-                    "up", "-d", "--no-build",
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(base_compose_path),
+                    "-f",
+                    str(override_path),
+                    "--project-name",
+                    self._network_name,
+                    "up",
+                    "-d",
+                    "--no-build",
                 ],
                 capture_output=True,
                 text=True,
                 timeout=DEVSERVER_HARD_TIMEOUT_SECONDS,
             )
             if result.returncode != 0:
-                raise StackLifecycleError(
-                    f"docker compose up failed: {result.stderr.strip()}"
-                )
+                raise StackLifecycleError(f"docker compose up failed: {result.stderr.strip()}")
 
             self._started = True
 
@@ -810,10 +847,7 @@ class DevserverManager:
                 )
             else:
                 self._status.status = DevserverStatusValue.UNHEALTHY
-                unhealthy = [
-                    name for name, svc in self._status.services.items()
-                    if not svc.healthy
-                ]
+                unhealthy = [name for name, svc in self._status.services.items() if not svc.healthy]
                 self._status.error_message = (
                     f"Timeout waiting for services to become healthy: {unhealthy}"
                 )
@@ -851,9 +885,7 @@ class DevserverManager:
                 via scoped networks.
         """
         try:
-            docker_sdk = docker
-
-            client = docker_sdk.from_env()
+            client = self.docker_client
             network = client.networks.get(self._network_id)
             network.connect(sandbox_container_id)
             self._attached_containers.append(sandbox_container_id)
@@ -890,12 +922,19 @@ class DevserverManager:
                 if base_compose_path.exists():
                     subprocess.run(
                         [
-                            "docker", "compose",
-                            "-f", str(base_compose_path),
-                            "-f", str(override_path),
-                            "--project-name", self._network_name,
-                            "down", "--volumes", "--remove-orphans",
-                            "--timeout", "10",
+                            "docker",
+                            "compose",
+                            "-f",
+                            str(base_compose_path),
+                            "-f",
+                            str(override_path),
+                            "--project-name",
+                            self._network_name,
+                            "down",
+                            "--volumes",
+                            "--remove-orphans",
+                            "--timeout",
+                            "10",
                         ],
                         capture_output=True,
                         text=True,

@@ -38,7 +38,7 @@ from devserver import (
 )
 from egg_contracts.deployment import load_deployment_config
 from routes import get_repo_path, resolve_worktree_path
-from state_store import PipelineNotFoundError, get_state_store
+from state_store import InvalidPipelineIdError, PipelineNotFoundError, get_state_store
 
 logger = get_logger("orchestrator.routes.checks")
 
@@ -47,6 +47,9 @@ checks_bp = Blueprint("checks", __name__, url_prefix="/api/v1/pipelines")
 # Active DevserverManager instances keyed by pipeline_id.
 # Guarded by _devservers_lock since waitress serves requests from multiple threads.
 _active_devservers: dict[str, DevserverManager] = {}
+# Sentinel set: pipeline IDs whose devservers are currently being started.
+# Prevents TOCTOU races where two concurrent requests both start a stack.
+_starting_devservers: set[str] = set()
 _devservers_lock = threading.Lock()
 
 
@@ -103,7 +106,28 @@ def start_deployment_check(pipeline_id: str) -> tuple[Response, int]:
         409 if devserver already running.
         422 if no deployment config exists.
     """
-    # Atomically check if already running
+    # Validate pipeline_id before any use — prevents path traversal in
+    # resolve_worktree_path and dict lookups with untrusted keys.
+    repo_path = get_repo_path()
+    try:
+        store = get_state_store(repo_path)
+        store.load_pipeline(pipeline_id)
+    except InvalidPipelineIdError:
+        return jsonify(
+            {
+                "success": False,
+                "message": f"Invalid pipeline ID format: {pipeline_id}",
+            }
+        ), 400
+    except PipelineNotFoundError:
+        return jsonify(
+            {
+                "success": False,
+                "message": f"Pipeline not found: {pipeline_id}",
+            }
+        ), 404
+
+    # Atomically check if already running or being started
     with _devservers_lock:
         if pipeline_id in _active_devservers:
             existing = _active_devservers[pipeline_id]
@@ -112,32 +136,35 @@ def start_deployment_check(pipeline_id: str) -> tuple[Response, int]:
                 DevserverStatusValue.HEALTHY,
                 DevserverStatusValue.UNHEALTHY,
             ):
-                return jsonify({
+                return jsonify(
+                    {
+                        "success": False,
+                        "message": "Devserver already running for this pipeline",
+                        "status": existing.status.to_dict(),
+                    }
+                ), 409
+        if pipeline_id in _starting_devservers:
+            return jsonify(
+                {
                     "success": False,
-                    "message": "Devserver already running for this pipeline",
-                    "status": existing.status.to_dict(),
-                }), 409
-
-    # Resolve paths
-    repo_path = get_repo_path()
-    try:
-        store = get_state_store(repo_path)
-        store.load_pipeline(pipeline_id)
-    except PipelineNotFoundError:
-        return jsonify({
-            "success": False,
-            "message": f"Pipeline not found: {pipeline_id}",
-        }), 404
+                    "message": "Devserver is already being started for this pipeline",
+                }
+            ), 409
+        _starting_devservers.add(pipeline_id)
 
     worktree_path = resolve_worktree_path(pipeline_id, repo_path)
 
     # Load deployment config
     deployment_config = load_deployment_config(worktree_path)
     if deployment_config is None:
-        return jsonify({
-            "success": False,
-            "message": "No deployment config found (.egg/deployment.yml)",
-        }), 422
+        with _devservers_lock:
+            _starting_devservers.discard(pipeline_id)
+        return jsonify(
+            {
+                "success": False,
+                "message": "No deployment config found (.egg/deployment.yml)",
+            }
+        ), 422
 
     # Create and start devserver
     manager = DevserverManager(
@@ -149,25 +176,18 @@ def start_deployment_check(pipeline_id: str) -> tuple[Response, int]:
     try:
         status = manager.start(deployment_config)
 
-        # Atomically register the manager; check again in case a concurrent
-        # request raced past the initial check while we were starting.
+        # Atomically register the manager and clear the sentinel
         with _devservers_lock:
-            if pipeline_id in _active_devservers:
-                # Another request won the race — tear down ours
-                manager.teardown()
-                existing = _active_devservers[pipeline_id]
-                return jsonify({
-                    "success": False,
-                    "message": "Devserver already running for this pipeline",
-                    "status": existing.status.to_dict(),
-                }), 409
+            _starting_devservers.discard(pipeline_id)
             _active_devservers[pipeline_id] = manager
 
-        return jsonify({
-            "success": True,
-            "message": "Devserver started",
-            "status": status.to_dict(),
-        }), 200
+        return jsonify(
+            {
+                "success": True,
+                "message": "Devserver started",
+                "status": status.to_dict(),
+            }
+        ), 200
 
     except DevserverError as e:
         logger.error(
@@ -176,11 +196,15 @@ def start_deployment_check(pipeline_id: str) -> tuple[Response, int]:
             error=str(e),
         )
         # Clean up on failure
+        with _devservers_lock:
+            _starting_devservers.discard(pipeline_id)
         manager.teardown()
-        return jsonify({
-            "success": False,
-            "message": f"Failed to start devserver: {e}",
-        }), 500
+        return jsonify(
+            {
+                "success": False,
+                "message": f"Failed to start devserver: {e}",
+            }
+        ), 500
 
 
 @checks_bp.route("/<pipeline_id>/deployment-check/status", methods=["GET"])
@@ -194,15 +218,19 @@ def get_deployment_check_status(pipeline_id: str) -> tuple[Response, int]:
     with _devservers_lock:
         manager = _active_devservers.get(pipeline_id)
     if manager is None:
-        return jsonify({
-            "success": False,
-            "message": f"No devserver running for pipeline: {pipeline_id}",
-        }), 404
+        return jsonify(
+            {
+                "success": False,
+                "message": f"No devserver running for pipeline: {pipeline_id}",
+            }
+        ), 404
 
-    return jsonify({
-        "success": True,
-        "status": manager.status.to_dict(),
-    }), 200
+    return jsonify(
+        {
+            "success": True,
+            "status": manager.status.to_dict(),
+        }
+    ), 200
 
 
 @checks_bp.route("/<pipeline_id>/deployment-check/teardown", methods=["POST"])
@@ -216,7 +244,9 @@ def teardown_deployment_check(pipeline_id: str) -> tuple[Response, int]:
     """
     teardown_devserver(pipeline_id)
 
-    return jsonify({
-        "success": True,
-        "message": "Devserver torn down",
-    }), 200
+    return jsonify(
+        {
+            "success": True,
+            "message": "Devserver torn down",
+        }
+    ), 200

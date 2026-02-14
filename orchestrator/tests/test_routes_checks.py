@@ -25,7 +25,7 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 def app():
     """Create a test Flask app with the checks blueprint."""
     from flask import Flask
-    from routes.checks import _active_devservers, checks_bp
+    from routes.checks import _active_devservers, _starting_devservers, checks_bp
 
     app = Flask(__name__)
     app.register_blueprint(checks_bp)
@@ -33,10 +33,12 @@ def app():
 
     # Clean up active devservers between tests
     _active_devservers.clear()
+    _starting_devservers.clear()
 
     yield app
 
     _active_devservers.clear()
+    _starting_devservers.clear()
 
 
 @pytest.fixture
@@ -124,9 +126,15 @@ class TestStartDeploymentCheck:
         assert data["success"] is False
         assert "deployment config" in data["message"].lower()
 
-    def test_start_conflict_already_running(self, client):
+    @patch("routes.checks.get_state_store")
+    @patch("routes.checks.get_repo_path")
+    def test_start_conflict_already_running(self, mock_get_repo, mock_get_store, client):
         from devserver import DevserverStatus, DevserverStatusValue
         from routes.checks import _active_devservers
+
+        mock_get_repo.return_value = Path("/repo")
+        mock_store = MagicMock()
+        mock_get_store.return_value = mock_store
 
         mock_manager = MagicMock()
         mock_manager.status = DevserverStatus(status=DevserverStatusValue.HEALTHY)
