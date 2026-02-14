@@ -106,35 +106,6 @@ def _resolve_repo_dir(repo_dir: str) -> str | None:
     return None
 
 
-def _get_current_repo() -> str | None:
-    """Get the current repo in owner/repo format.
-
-    Tries multiple strategies:
-    1. EGG_REPOS env var (set by exec_in_new_container with session repo info)
-    2. gh CLI auto-detection (works when .git is available)
-    """
-    # Strategy 1: EGG_REPOS env var — reliable in gateway-managed containers
-    # where .git is shadowed by tmpfs.
-    repos = _parse_egg_repos()
-    if repos:
-        if len(repos) == 1:
-            return repos[0]
-        # Multiple repos — can't auto-select, fall through to gh detection
-
-    # Strategy 2: gh CLI — works when running from a real git repo
-    try:
-        result = subprocess.run(
-            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception:
-        pass
-    return None
-
 
 # --- SSE Parsing (reused from egg-pipeline-watch) ---
 
@@ -405,25 +376,11 @@ def run_local_mode(client: OrchClient) -> int:
 
 def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = None) -> int:
     """Run egg-sdlc in issue mode."""
-    # Determine repo
     if not repo:
-        repo = _get_current_repo()
-    if not repo:
-        # Check if multiple repos are available via EGG_REPOS
-        available = _parse_egg_repos()
-        if len(available) > 1:
-            repo_list = ", ".join(available)
-            _write(
-                f"{RED}Multiple repos available: {repo_list}. "
-                f"Use --repo <owner/repo> to select one.{RESET}\n",
-                file=sys.stderr,
-            )
-        else:
-            _write(
-                f"{RED}Cannot determine repository. "
-                f"Use --repo <owner/repo> or run from a git repository.{RESET}\n",
-                file=sys.stderr,
-            )
+        _write(
+            f"{RED}Repository is required. Use -r <repo_dir> or --repo <owner/repo>.{RESET}\n",
+            file=sys.stderr,
+        )
         return 1
 
     pipeline_id = f"issue-{issue_number}"
