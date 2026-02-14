@@ -19,5 +19,5 @@ if [ -n "${EGG_CONTAINER:-}" ] || [ -f "/.dockerenv" ]; then
     exec python3 "$SCRIPT_DIR/../sandbox/bin/egg-sdlc" "$@"
 fi
 
-# Host: launch via egg --exec
-exec "$SCRIPT_DIR/egg" --exec egg-sdlc "$@"
+# Host: launch via egg --exec (6-hour timeout for long-running SDLC pipelines)
+exec "$SCRIPT_DIR/egg" --timeout 360 --exec egg-sdlc "$@"
