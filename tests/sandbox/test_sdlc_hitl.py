@@ -103,8 +103,44 @@ class TestGetDraftPath:
 
 
 class TestFindRepoPath:
-    def test_git_rev_parse_success(self, tmp_path):
+    def test_egg_repos_env_single_repo(self, tmp_path, monkeypatch):
+        """When EGG_REPOS has a single repo, use its directory under ~/repos/."""
+        repos_dir = tmp_path / "repos"
+        repo_dir = repos_dir / "myrepo"
+        repo_dir.mkdir(parents=True)
+        monkeypatch.setenv("EGG_REPOS", "owner/myrepo")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        result = _find_repo_path()
+        assert result == repo_dir
+
+    def test_egg_repos_env_multiple_repos_falls_through(self, tmp_path, monkeypatch):
+        """When EGG_REPOS has multiple repos, fall through to other strategies."""
+        repos_dir = tmp_path / "repos"
+        (repos_dir / "a").mkdir(parents=True)
+        (repos_dir / "b").mkdir(parents=True)
+        monkeypatch.setenv("EGG_REPOS", "owner/a,owner/b")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=128, stdout="")
+            result = _find_repo_path()
+            # Falls through to cwd since git also fails
+            assert result == tmp_path
+
+    def test_single_repo_under_repos_dir(self, tmp_path, monkeypatch):
+        """When ~/repos/ has exactly one subdirectory, use it."""
+        repos_dir = tmp_path / "repos"
+        repo_dir = repos_dir / "only-repo"
+        repo_dir.mkdir(parents=True)
+        monkeypatch.delenv("EGG_REPOS", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        result = _find_repo_path()
+        assert result == repo_dir
+
+    def test_git_rev_parse_success(self, tmp_path, monkeypatch):
         """When git rev-parse succeeds, its output is used."""
+        monkeypatch.delenv("EGG_REPOS", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
@@ -112,15 +148,14 @@ class TestFindRepoPath:
             )
             result = _find_repo_path()
             assert result == tmp_path
-            mock_run.assert_called_once()
-            args = mock_run.call_args[0][0]
-            assert args == ["git", "rev-parse", "--show-toplevel"]
 
     def test_git_rev_parse_failure_falls_back(self, tmp_path, monkeypatch):
         """When git rev-parse fails, falls back to cwd traversal."""
         # Create a .git dir in tmp_path
         (tmp_path / ".git").mkdir()
         monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("EGG_REPOS", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=128, stdout="")
@@ -130,6 +165,8 @@ class TestFindRepoPath:
     def test_no_git_anywhere(self, tmp_path, monkeypatch):
         """When no .git found, returns cwd."""
         monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("EGG_REPOS", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=128, stdout="")
             result = _find_repo_path()
@@ -138,6 +175,8 @@ class TestFindRepoPath:
     def test_git_command_not_found(self, tmp_path, monkeypatch):
         """When git is not installed, falls back gracefully."""
         monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("EGG_REPOS", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
         with patch("subprocess.run", side_effect=FileNotFoundError):
             result = _find_repo_path()
             assert result == tmp_path

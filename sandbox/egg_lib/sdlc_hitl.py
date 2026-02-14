@@ -49,7 +49,35 @@ def _get_draft_path(
 
 
 def _find_repo_path() -> Path:
-    """Find the repository root path using git rev-parse."""
+    """Find the repository root path.
+
+    Tries multiple strategies since .git is shadowed by tmpfs in
+    gateway-managed containers:
+    1. EGG_REPOS env var → derive path from ~/repos/<repo-name>
+    2. Single subdirectory under ~/repos/
+    3. git rev-parse (works outside containers)
+    4. Walk up from cwd looking for .git
+    """
+    repos_dir = Path.home() / "repos"
+
+    # Strategy 1: EGG_REPOS env var (set by exec_in_new_container)
+    egg_repos = os.environ.get("EGG_REPOS", "").strip()
+    if egg_repos:
+        repos = [r.strip() for r in egg_repos.split(",") if r.strip()]
+        if len(repos) == 1:
+            # "owner/name" → use "name" as directory
+            repo_name = repos[0].split("/")[-1]
+            candidate = repos_dir / repo_name
+            if candidate.is_dir():
+                return candidate
+
+    # Strategy 2: single repo under ~/repos/
+    if repos_dir.is_dir():
+        subdirs = [d for d in repos_dir.iterdir() if d.is_dir()]
+        if len(subdirs) == 1:
+            return subdirs[0]
+
+    # Strategy 3: git rev-parse (works when .git is real)
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -61,7 +89,8 @@ def _find_repo_path() -> Path:
             return Path(result.stdout.strip())
     except (subprocess.SubprocessError, FileNotFoundError, OSError):
         pass
-    # Fallback: walk up from cwd looking for .git
+
+    # Strategy 4: walk up from cwd looking for .git
     cwd = Path.cwd()
     while cwd != cwd.parent:
         if (cwd / ".git").exists():
@@ -215,7 +244,11 @@ def handle_hitl_checkpoint(
 
         if choice == "1":
             # Edit with $EDITOR
-            if draft_path and draft_path.exists():
+            if draft_path:
+                if not draft_path.exists():
+                    # Create the draft file so the user can start editing
+                    draft_path.parent.mkdir(parents=True, exist_ok=True)
+                    draft_path.write_text(f"# Draft: {phase}\n\n")
                 print(f"\n  Opening {draft_path.name} in editor...")
                 if _launch_editor(draft_path):
                     print(f"  {GREEN}File saved. You can now approve or continue editing.{RESET}")
