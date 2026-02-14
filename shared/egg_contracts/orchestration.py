@@ -216,11 +216,14 @@ class OrchestrationState:
         return [h for h in self.handoffs if role in h.target_agents]
 
     def get_pending_roles(self) -> list[AgentRole]:
-        """Get all roles that are pending execution."""
+        """Get all roles that are pending execution.
+
+        Only returns roles that have been registered in this orchestration's
+        executions, not all possible roles from the enum.
+        """
         pending = []
-        for role in AgentRole:
-            execution = self.executions.get(role)
-            if execution is None or execution.status == AgentExecutionStatus.PENDING:
+        for role, execution in self.executions.items():
+            if execution.status == AgentExecutionStatus.PENDING:
                 pending.append(role)
         return pending
 
@@ -267,14 +270,20 @@ class OrchestrationState:
         return False
 
 
-def initialize_orchestration(contract: Contract) -> OrchestrationState:
+def initialize_orchestration(
+    contract: Contract,
+    roles: list[AgentRole] | None = None,
+) -> OrchestrationState:
     """Initialize orchestration state for a contract.
 
-    Creates pending executions for all agent roles based on the
-    contract configuration.
+    Creates pending executions for the specified agent roles (or defaults
+    based on contract configuration).
 
     Args:
         contract: The contract to initialize orchestration for
+        roles: Specific roles to use. If None, uses the contract's
+            multi_agent_config.roles_enabled or defaults to the 4
+            implement-phase roles for backward compatibility.
 
     Returns:
         Initialized OrchestrationState
@@ -282,10 +291,18 @@ def initialize_orchestration(contract: Contract) -> OrchestrationState:
     state = OrchestrationState()
     state.started_at = datetime.utcnow().isoformat() + "Z"
 
-    # Check which roles are enabled
-    enabled_roles = list(AgentRole)  # Default: all roles
-    if contract.multi_agent_config is not None:
+    if roles is not None:
+        enabled_roles = roles
+    elif contract.multi_agent_config is not None:
         enabled_roles = [AgentRole(r.value) for r in contract.multi_agent_config.roles_enabled]
+    else:
+        # Default: implement-phase roles for backward compatibility
+        enabled_roles = [
+            AgentRole.CODER,
+            AgentRole.TESTER,
+            AgentRole.DOCUMENTER,
+            AgentRole.INTEGRATOR,
+        ]
 
     # Create pending execution for each enabled role
     for role in enabled_roles:
@@ -348,7 +365,8 @@ def get_runnable_agents(state: OrchestrationState) -> list[AgentRole]:
     """Get all agents that can currently run.
 
     Returns agents that are pending and have all dependencies satisfied.
-    These agents can be run in parallel.
+    These agents can be run in parallel. Only considers roles registered
+    in the orchestration state, not all possible roles.
 
     Args:
         state: Current orchestration state
@@ -357,7 +375,7 @@ def get_runnable_agents(state: OrchestrationState) -> list[AgentRole]:
         List of roles that can run now
     """
     runnable = []
-    for role in AgentRole:
+    for role in state.executions:
         if can_agent_run(role, state):
             runnable.append(role)
     return runnable

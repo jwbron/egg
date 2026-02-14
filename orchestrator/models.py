@@ -70,6 +70,15 @@ class AgentRole(StrEnum):
     TESTER = "tester"
     DOCUMENTER = "documenter"
     INTEGRATOR = "integrator"
+    # Plan-phase roles
+    ARCHITECT = "architect"
+    TASK_PLANNER = "task_planner"
+    RISK_ANALYST = "risk_analyst"
+    # Reviewer roles (specific subtypes)
+    REVIEWER_UNIFIED = "reviewer_unified"
+    REVIEWER_CODE = "reviewer_code"
+    REVIEWER_CONTRACT = "reviewer_contract"
+    REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
 
 
 class ReviewerType(StrEnum):
@@ -121,6 +130,9 @@ class AgentExecution(BaseModel):
     )
     error: str | None = Field(default=None, description="Error message if failed")
     retry_count: int = Field(default=0, ge=0, description="Number of retries")
+    conflicts: list[str] = Field(
+        default_factory=list, description="Files with unresolved merge conflicts"
+    )
 
 
 class HITLDecision(BaseModel):
@@ -166,9 +178,12 @@ class PipelineConfig(BaseModel):
         default=True, description="Auto-create PR on implementation complete"
     )
     multi_agent: bool = Field(
-        default=True, description="Use multi-agent execution in implement phase"
+        default=True, description="Use multi-agent execution in implement and plan phases"
     )
     parallel_agents: bool = Field(default=True, description="Run independent agents in parallel")
+    max_parallel_agents: int = Field(
+        default=10, ge=1, description="Maximum parallel agents per wave"
+    )
     max_review_cycles: int = Field(default=3, ge=1, description="Max review cycles per phase")
     decision_timeout: int = Field(
         default=3600, ge=60, description="HITL decision timeout in seconds"

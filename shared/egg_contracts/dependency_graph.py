@@ -319,9 +319,9 @@ def get_parallel_groups(
     """
     from .orchestration import can_agent_run
 
-    # Get all pending roles that can run
+    # Get all pending roles that can run (only from registered executions)
     runnable = []
-    for role in AgentRole:
+    for role in state.executions:
         if can_agent_run(role, state):
             runnable.append(role)
 

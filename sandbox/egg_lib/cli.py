@@ -118,6 +118,21 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
         metavar="ISSUE",
         help="Start SDLC pipeline with token-gated approvals for the given issue number",
     )
+    import argparse as _argparse
+
+    parser.add_argument(
+        "--multi-agent",
+        dest="multi_agent",
+        action=_argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable/disable multi-agent execution (--multi-agent / --no-multi-agent)",
+    )
+    parser.add_argument(
+        "--max-parallel",
+        type=int,
+        default=None,
+        help="Maximum parallel agents per wave (default: 10)",
+    )
 
     # Private mode arguments (mutually exclusive)
     mode_group = parser.add_mutually_exclusive_group()

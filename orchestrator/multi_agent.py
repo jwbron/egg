@@ -76,6 +76,17 @@ class AgentWave:
         return all(r.status == AgentExecutionStatus.COMPLETE for r in self.results.values())
 
 
+"""Type alias for the spawner callable.
+
+The spawn function receives (role, prompt, extra_env) and returns (exit_code, logs).
+When provided, the executor uses this instead of the Docker client to spawn agents.
+"""
+SpawnFn = Callable[
+    [AgentRole, str, dict[str, str]],
+    tuple[int, str],
+]
+
+
 class MultiAgentExecutor:
     """Manages multi-agent parallel execution.
 
@@ -88,6 +99,8 @@ class MultiAgentExecutor:
         pipeline: Pipeline,
         repo_path: Path,
         dispatcher: PipelineDispatcher | None = None,
+        spawn_fn: SpawnFn | None = None,
+        max_parallel_agents: int = 10,
     ):
         """Initialize executor.
 
@@ -95,11 +108,21 @@ class MultiAgentExecutor:
             pipeline: Pipeline to execute
             repo_path: Path to repository
             dispatcher: Optional dispatcher (created if not provided)
+            spawn_fn: Optional callable to spawn agents. When provided,
+                agents are spawned via this function instead of Docker.
+                Signature: (role, prompt, extra_env) -> (exit_code, logs)
+            max_parallel_agents: Maximum agents to run concurrently in a wave
         """
         self.pipeline = pipeline
         self.repo_path = repo_path
         self.dispatcher = dispatcher or create_dispatcher(pipeline, repo_path)
-        self.docker_client = get_docker_client()
+        self.spawn_fn = spawn_fn
+        self.max_parallel_agents = max_parallel_agents
+
+        if spawn_fn is None:
+            self.docker_client = get_docker_client()
+        else:
+            self.docker_client = None
 
         self.current_wave: AgentWave | None = None
         self.completed_waves: list[AgentWave] = []
@@ -291,10 +314,109 @@ class MultiAgentExecutor:
 
             return completed
 
+    def _execute_wave_with_spawn_fn(
+        self,
+        wave: AgentWave,
+        agent_prompts: dict[AgentRole, str],
+        on_complete: Callable[[AgentRole, AgentExecution], None] | None = None,
+    ) -> AgentWave:
+        """Execute a wave using the spawn_fn callable.
+
+        Each agent is run in its own thread (up to max_parallel_agents concurrent).
+        The spawn function blocks until completion.
+
+        Args:
+            wave: Wave to execute
+            agent_prompts: Role-to-prompt mapping for agents in this wave
+            on_complete: Optional callback when each agent completes
+
+        Returns:
+            Completed wave
+        """
+        import json
+        from concurrent.futures import ThreadPoolExecutor
+
+        assert self.spawn_fn is not None
+
+        wave.started_at = datetime.utcnow()
+        self.current_wave = wave
+
+        semaphore = threading.Semaphore(self.max_parallel_agents)
+
+        def run_agent(role: AgentRole) -> None:
+            with semaphore:
+                try:
+                    # Get handoff data from completed agents
+                    handoff_data = self.dispatcher.get_handoff_data(role)
+
+                    extra_env = {
+                        "EGG_AGENT_ROLE": role.value,
+                        "EGG_HANDOFF_DATA": json.dumps(handoff_data) if handoff_data else "{}",
+                        "EGG_WAVE_NUMBER": str(wave.wave_number),
+                    }
+
+                    prompt = agent_prompts.get(role, "")
+
+                    # Mark as started
+                    self.dispatcher.start_agent(role)
+
+                    logger.info(
+                        "Agent spawning via spawn_fn",
+                        pipeline_id=self.pipeline.id,
+                        role=role.value,
+                        wave=wave.wave_number,
+                    )
+
+                    emit_event(
+                        EventType.AGENT_STARTED,
+                        self.pipeline.id,
+                        data={
+                            "role": role.value,
+                            "wave": wave.wave_number,
+                            "phase": self.pipeline.current_phase.value,
+                            "status": "running",
+                        },
+                    )
+
+                    exit_code, logs = self.spawn_fn(role, prompt, extra_env)
+                    success = exit_code == 0
+
+                    execution = self.record_agent_result(
+                        role,
+                        success=success,
+                        error=f"Exit code: {exit_code}" if not success else None,
+                    )
+
+                    if on_complete:
+                        on_complete(role, execution)
+
+                except Exception as e:
+                    logger.error(
+                        "Agent spawn_fn failed",
+                        pipeline_id=self.pipeline.id,
+                        role=role.value,
+                        error=str(e),
+                    )
+                    execution = self.record_agent_result(
+                        role,
+                        success=False,
+                        error=str(e),
+                    )
+                    if on_complete:
+                        on_complete(role, execution)
+
+        with ThreadPoolExecutor(max_workers=self.max_parallel_agents) as executor:
+            futures = [executor.submit(run_agent, role) for role in wave.agents]
+            for future in futures:
+                future.result()  # Wait for all to complete
+
+        return self.complete_current_wave() or wave
+
     def execute_wave(
         self,
         wave: AgentWave,
         on_complete: Callable[[AgentRole, AgentExecution], None] | None = None,
+        agent_prompts: dict[AgentRole, str] | None = None,
     ) -> AgentWave:
         """Execute a wave and wait for completion.
 
@@ -303,10 +425,20 @@ class MultiAgentExecutor:
         Args:
             wave: Wave to execute
             on_complete: Optional callback when each agent completes
+            agent_prompts: Role-to-prompt mapping (required when using spawn_fn)
 
         Returns:
             Completed wave
         """
+        # Use spawn_fn path if available
+        if self.spawn_fn is not None:
+            return self._execute_wave_with_spawn_fn(
+                wave,
+                agent_prompts=agent_prompts or {},
+                on_complete=on_complete,
+            )
+
+        # Docker-based path (original)
         self.spawn_wave(wave)
 
         # Wait for all containers to complete
@@ -354,11 +486,13 @@ class MultiAgentExecutor:
     def execute_all_waves(
         self,
         on_wave_complete: Callable[[AgentWave], None] | None = None,
+        agent_prompts: dict[AgentRole, str] | None = None,
     ) -> list[AgentWave]:
         """Execute all waves until completion or failure.
 
         Args:
             on_wave_complete: Optional callback after each wave
+            agent_prompts: Role-to-prompt mapping (required when using spawn_fn)
 
         Returns:
             List of completed waves
@@ -368,7 +502,10 @@ class MultiAgentExecutor:
             if not wave:
                 break
 
-            completed = self.execute_wave(wave)
+            completed = self.execute_wave(
+                wave,
+                agent_prompts=agent_prompts,
+            )
 
             if on_wave_complete:
                 on_wave_complete(completed)

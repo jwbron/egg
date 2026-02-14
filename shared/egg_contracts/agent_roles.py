@@ -23,16 +23,29 @@ from typing import Any
 
 
 class AgentRole(StrEnum):
-    """Specialized agent roles for the implement phase.
+    """Specialized agent roles for multi-agent orchestration.
 
     Each role has a focused responsibility and specific file access patterns.
     The orchestrator uses these roles to parallelize work where dependencies allow.
+
+    Implement-phase roles: CODER, TESTER, DOCUMENTER, INTEGRATOR
+    Plan-phase roles: ARCHITECT, TASK_PLANNER, RISK_ANALYST
+    Reviewer roles: REVIEWER_UNIFIED, REVIEWER_CODE, REVIEWER_CONTRACT, REVIEWER_AGENT_DESIGN
     """
 
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
     INTEGRATOR = "integrator"
+    # Plan-phase roles
+    ARCHITECT = "architect"
+    TASK_PLANNER = "task_planner"
+    RISK_ANALYST = "risk_analyst"
+    # Reviewer roles
+    REVIEWER_UNIFIED = "reviewer_unified"
+    REVIEWER_CODE = "reviewer_code"
+    REVIEWER_CONTRACT = "reviewer_contract"
+    REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
 
 
 class AgentStatus(StrEnum):
@@ -292,12 +305,208 @@ INTEGRATOR_ROLE = AgentRoleDefinition(
 )
 
 
+# Plan-phase agent role definitions
+
+ARCHITECT_ROLE = AgentRoleDefinition(
+    role=AgentRole.ARCHITECT,
+    description="Analyzes the task and produces architecture analysis",
+    responsibilities=[
+        "Understand the problem or feature request",
+        "Research the codebase to understand existing patterns",
+        "Identify key files, constraints, and dependencies",
+        "Recommend an approach with justification",
+        "Document technical decisions",
+    ],
+    dependencies=[],  # Architect runs first in plan phase
+    file_access=FileAccessPattern(
+        allowed_read=[],  # Can read all files
+        allowed_write=[
+            ".egg-state/drafts/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=[
+            "**/*.py",
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.js",
+            "**/*.jsx",
+            "**/*.go",
+            "**/*.java",
+            ".egg-state/contracts/",
+        ],
+    ),
+    produces_outputs=["architecture_analysis", "technical_decisions"],
+    requires_inputs=[],
+)
+
+TASK_PLANNER_ROLE = AgentRoleDefinition(
+    role=AgentRole.TASK_PLANNER,
+    description="Decomposes architecture analysis into discrete tasks",
+    responsibilities=[
+        "Review the architecture analysis from the architect",
+        "Break down work into phases with discrete tasks",
+        "Define clear acceptance criteria for each task",
+        "Define dependency ordering between tasks",
+        "Identify the test strategy",
+    ],
+    dependencies=[AgentRole.ARCHITECT],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/drafts/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=[
+            "**/*.py",
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.js",
+            "**/*.jsx",
+            "**/*.go",
+            "**/*.java",
+            ".egg-state/contracts/",
+        ],
+    ),
+    produces_outputs=["task_breakdown", "acceptance_criteria"],
+    requires_inputs=["architecture_analysis"],
+)
+
+RISK_ANALYST_ROLE = AgentRoleDefinition(
+    role=AgentRole.RISK_ANALYST,
+    description="Assesses technical risks for the proposed implementation",
+    responsibilities=[
+        "Review the architecture analysis from the architect",
+        "Identify technical risks (security, performance, compatibility)",
+        "Assess impact and likelihood of each risk",
+        "Propose mitigation strategies and rollback plans",
+        "Flag areas that need human review",
+    ],
+    dependencies=[AgentRole.ARCHITECT],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/drafts/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=[
+            "**/*.py",
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.js",
+            "**/*.jsx",
+            "**/*.go",
+            "**/*.java",
+            ".egg-state/contracts/",
+        ],
+    ),
+    can_run_in_parallel=True,  # Can run in parallel with task_planner
+    produces_outputs=["risk_assessment", "mitigation_plan"],
+    requires_inputs=["architecture_analysis"],
+)
+
+# Reviewer agent role definitions (read-only file access)
+
+REVIEWER_UNIFIED_ROLE = AgentRoleDefinition(
+    role=AgentRole.REVIEWER_UNIFIED,
+    description="Performs a unified review of the phase output",
+    responsibilities=[
+        "Review all changes made in this phase",
+        "Apply comprehensive review criteria",
+        "Write a structured verdict (approved/needs_revision)",
+    ],
+    dependencies=[AgentRole.INTEGRATOR],  # Default: review after integrator
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/reviews/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=["**/*"],
+    ),
+    produces_outputs=["review_verdict"],
+    requires_inputs=["integration_report"],
+)
+
+REVIEWER_CODE_ROLE = AgentRoleDefinition(
+    role=AgentRole.REVIEWER_CODE,
+    description="Performs a comprehensive code review",
+    responsibilities=[
+        "Review code quality, security, and correctness",
+        "Check for OWASP top 10 vulnerabilities",
+        "Verify error handling and edge cases",
+    ],
+    dependencies=[AgentRole.INTEGRATOR],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/reviews/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=["**/*"],
+    ),
+    produces_outputs=["review_verdict"],
+    requires_inputs=["integration_report"],
+)
+
+REVIEWER_CONTRACT_ROLE = AgentRoleDefinition(
+    role=AgentRole.REVIEWER_CONTRACT,
+    description="Verifies implementation matches the contract",
+    responsibilities=[
+        "Verify acceptance criteria are met",
+        "Check task completion status",
+        "Validate contract consistency",
+    ],
+    dependencies=[AgentRole.INTEGRATOR],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/reviews/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=["**/*"],
+    ),
+    produces_outputs=["review_verdict"],
+    requires_inputs=["integration_report"],
+)
+
+REVIEWER_AGENT_DESIGN_ROLE = AgentRoleDefinition(
+    role=AgentRole.REVIEWER_AGENT_DESIGN,
+    description="Reviews agent-mode design alignment",
+    responsibilities=[
+        "Check for agent-mode design anti-patterns",
+        "Verify autonomous operation capability",
+        "Assess human-in-the-loop integration",
+    ],
+    dependencies=[AgentRole.INTEGRATOR],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/reviews/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=["**/*"],
+    ),
+    produces_outputs=["review_verdict"],
+    requires_inputs=["integration_report"],
+)
+
+
 # Registry of all agent roles
 AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
+    # Implement-phase roles
     AgentRole.CODER: CODER_ROLE,
     AgentRole.TESTER: TESTER_ROLE,
     AgentRole.DOCUMENTER: DOCUMENTER_ROLE,
     AgentRole.INTEGRATOR: INTEGRATOR_ROLE,
+    # Plan-phase roles
+    AgentRole.ARCHITECT: ARCHITECT_ROLE,
+    AgentRole.TASK_PLANNER: TASK_PLANNER_ROLE,
+    AgentRole.RISK_ANALYST: RISK_ANALYST_ROLE,
+    # Reviewer roles
+    AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_ROLE,
+    AgentRole.REVIEWER_CODE: REVIEWER_CODE_ROLE,
+    AgentRole.REVIEWER_CONTRACT: REVIEWER_CONTRACT_ROLE,
+    AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_ROLE,
 }
 
 
@@ -393,6 +602,90 @@ class AgentExecution:
     def can_retry(self, max_retries: int = 2) -> bool:
         """Check if the agent can be retried."""
         return self.status == AgentStatus.FAILED and self.retry_count < max_retries
+
+
+# Phase-to-role mappings for multi-agent execution
+
+_PHASE_ROLES: dict[str, list[AgentRole]] = {
+    "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR],
+    "plan": [AgentRole.ARCHITECT, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
+}
+
+_PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
+    "implement": [
+        AgentRole.REVIEWER_UNIFIED,
+        AgentRole.REVIEWER_CODE,
+        AgentRole.REVIEWER_CONTRACT,
+        AgentRole.REVIEWER_AGENT_DESIGN,
+    ],
+    "plan": [
+        AgentRole.REVIEWER_UNIFIED,
+        AgentRole.REVIEWER_AGENT_DESIGN,
+    ],
+}
+
+
+def get_roles_for_phase(
+    phase: str,
+    include_reviewers: bool = False,
+) -> list[AgentRole]:
+    """Return the agent roles for a given pipeline phase.
+
+    Args:
+        phase: Pipeline phase name (e.g., "implement", "plan")
+        include_reviewers: Whether to include reviewer roles
+
+    Returns:
+        List of AgentRole values for that phase.
+
+    Raises:
+        ValueError: If phase has no defined roles.
+    """
+    roles = _PHASE_ROLES.get(phase)
+    if roles is None:
+        raise ValueError(f"No agent roles defined for phase: {phase}")
+    result = list(roles)
+    if include_reviewers:
+        result.extend(_PHASE_REVIEWERS.get(phase, []))
+    return result
+
+
+def detect_write_overlaps(
+    roles: list[AgentRole],
+) -> list[tuple[AgentRole, AgentRole, list[str]]]:
+    """Detect overlapping write patterns between agents that may run in parallel.
+
+    Only checks roles that can run in the same wave (share no dependency edge).
+
+    Returns:
+        List of (role1, role2, overlapping_patterns) tuples.
+    """
+    from .dependency_graph import build_dependency_graph
+
+    graph = build_dependency_graph(roles)
+    waves = graph.compute_waves()
+
+    overlaps = []
+    for wave in waves:
+        if len(wave) < 2:
+            continue
+        for i, role1 in enumerate(wave):
+            for role2 in wave[i + 1:]:
+                role1_def = get_role_definition(role1)
+                role2_def = get_role_definition(role2)
+                # Find common write patterns
+                common = []
+                for p1 in role1_def.file_access.allowed_write:
+                    for p2 in role2_def.file_access.allowed_write:
+                        if p1 == p2:
+                            common.append(p1)
+                        elif p1.endswith("/") and p2.startswith(p1):
+                            common.append(p1)
+                        elif p2.endswith("/") and p1.startswith(p2):
+                            common.append(p2)
+                if common:
+                    overlaps.append((role1, role2, common))
+    return overlaps
 
 
 def create_execution_for_role(role: AgentRole | str) -> AgentExecution:

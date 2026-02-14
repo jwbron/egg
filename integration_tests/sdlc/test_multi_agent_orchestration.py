@@ -5,6 +5,7 @@ Tests the orchestration logic for coordinating specialized agents
 """
 
 from egg_contracts import (
+    AgentExecutionModel,
     AgentExecutionStatus,
     AgentRole,
     AgentRoleType,
@@ -34,6 +35,21 @@ class TestDependencyGraph:
     def test_build_graph_all_roles(self):
         """Build graph includes all agent roles."""
         graph = build_dependency_graph()
+        assert len(graph.nodes) == 11
+        assert AgentRole.CODER in graph.nodes
+        assert AgentRole.TESTER in graph.nodes
+        assert AgentRole.DOCUMENTER in graph.nodes
+        assert AgentRole.INTEGRATOR in graph.nodes
+        assert AgentRole.ARCHITECT in graph.nodes
+        assert AgentRole.TASK_PLANNER in graph.nodes
+        assert AgentRole.RISK_ANALYST in graph.nodes
+
+    def test_build_graph_implement_roles(self):
+        """Build graph with implement-phase roles only."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("implement")
+        graph = build_dependency_graph(roles)
         assert len(graph.nodes) == 4
         assert AgentRole.CODER in graph.nodes
         assert AgentRole.TESTER in graph.nodes
@@ -69,8 +85,11 @@ class TestDependencyGraph:
         assert tester_idx < integrator_idx
 
     def test_compute_waves(self):
-        """Compute waves groups agents correctly."""
-        graph = build_dependency_graph()
+        """Compute waves groups implement-phase agents correctly."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("implement")
+        graph = build_dependency_graph(roles)
         waves = graph.compute_waves()
 
         # Wave 1: coder
@@ -85,8 +104,11 @@ class TestDependencyGraph:
         assert AgentRole.INTEGRATOR in waves[2]
 
     def test_execution_plan(self):
-        """Execution plan has correct structure."""
-        plan = compute_execution_plan()
+        """Execution plan has correct structure for implement phase."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("implement")
+        plan = compute_execution_plan(roles)
 
         assert len(plan) == 3
         assert plan.total_agents == 4
@@ -119,12 +141,12 @@ class TestOrchestrationState:
         )
 
     def test_initialize_orchestration(self):
-        """Initialize creates pending executions for all roles."""
+        """Initialize creates pending executions for default implement-phase roles."""
         contract = self._create_test_contract()
         state = initialize_orchestration(contract)
 
         assert len(state.executions) == 4
-        for role in AgentRole:
+        for role in [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR]:
             assert role in state.executions
             assert state.executions[role].status == AgentExecutionStatus.PENDING
 
@@ -200,7 +222,8 @@ class TestOrchestrationState:
 
         assert not state.all_complete()
 
-        for role in AgentRole:
+        # Mark only registered roles (implement-phase defaults) as complete
+        for role in list(state.executions.keys()):
             state.mark_complete(role)
 
         assert state.all_complete()
@@ -434,3 +457,201 @@ class TestConvenienceFunctions:
         assert can_agent_run(AgentRole.TESTER, state)
         assert can_agent_run(AgentRole.DOCUMENTER, state)
         assert not can_agent_run(AgentRole.INTEGRATOR, state)
+
+
+class TestPlanPhaseRoles:
+    """Tests for plan-phase agent roles."""
+
+    def test_get_roles_for_plan_phase(self):
+        """Get roles for plan phase returns architect, task_planner, risk_analyst."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("plan")
+        assert len(roles) == 3
+        assert AgentRole.ARCHITECT in roles
+        assert AgentRole.TASK_PLANNER in roles
+        assert AgentRole.RISK_ANALYST in roles
+
+    def test_get_roles_for_implement_phase(self):
+        """Get roles for implement phase returns coder, tester, documenter, integrator."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("implement")
+        assert len(roles) == 4
+        assert AgentRole.CODER in roles
+        assert AgentRole.TESTER in roles
+        assert AgentRole.DOCUMENTER in roles
+        assert AgentRole.INTEGRATOR in roles
+
+    def test_get_roles_for_unknown_phase_raises(self):
+        """Unknown phase raises ValueError."""
+        import pytest
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        with pytest.raises(ValueError, match="No agent roles defined"):
+            get_roles_for_phase("unknown")
+
+    def test_plan_phase_dependency_graph(self):
+        """Plan-phase roles have correct dependency structure."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("plan")
+        graph = build_dependency_graph(roles)
+
+        assert len(graph.nodes) == 3
+        waves = graph.compute_waves()
+
+        # Wave 1: architect (no dependencies)
+        assert AgentRole.ARCHITECT in waves[0]
+
+        # Wave 2: task_planner and risk_analyst (both depend on architect)
+        assert len(waves[1]) == 2
+        assert AgentRole.TASK_PLANNER in waves[1]
+        assert AgentRole.RISK_ANALYST in waves[1]
+
+    def test_plan_phase_orchestration(self):
+        """Plan-phase orchestration follows architect -> planner + analyst."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        contract = Contract(
+            issue=IssueInfo(
+                number=456,
+                title="Plan Test",
+                url="https://github.com/test/repo/issues/456",
+            )
+        )
+
+        roles = get_roles_for_phase("plan")
+        state = initialize_orchestration(contract, roles=roles)
+
+        assert len(state.executions) == 3
+        runnable = get_runnable_agents(state)
+        assert runnable == [AgentRole.ARCHITECT]
+
+        # After architect completes, planner and analyst can run
+        state.mark_complete(AgentRole.ARCHITECT)
+        runnable = get_runnable_agents(state)
+        assert AgentRole.TASK_PLANNER in runnable
+        assert AgentRole.RISK_ANALYST in runnable
+
+    def test_get_roles_with_reviewers(self):
+        """Get roles with reviewers included."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("implement", include_reviewers=True)
+        assert len(roles) == 8  # 4 implement + 4 reviewers
+        assert AgentRole.REVIEWER_UNIFIED in roles
+        assert AgentRole.REVIEWER_CODE in roles
+
+
+class TestReviewerRoles:
+    """Tests for reviewer agent roles."""
+
+    def test_reviewer_roles_in_graph(self):
+        """Reviewer roles depend on integrator."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("implement", include_reviewers=True)
+        graph = build_dependency_graph(roles)
+
+        # Reviewers should be in a wave after integrator
+        waves = graph.compute_waves()
+        assert len(waves) == 4  # coder -> tester+doc -> integrator -> reviewers
+
+        # Wave 4 should be all reviewers
+        assert AgentRole.REVIEWER_UNIFIED in waves[3]
+        assert AgentRole.REVIEWER_CODE in waves[3]
+        assert AgentRole.REVIEWER_CONTRACT in waves[3]
+        assert AgentRole.REVIEWER_AGENT_DESIGN in waves[3]
+
+    def test_reviewer_roles_read_only(self):
+        """Reviewer roles have read-only file access."""
+        from egg_contracts.agent_roles import get_role_definition
+
+        for role in [
+            AgentRole.REVIEWER_UNIFIED,
+            AgentRole.REVIEWER_CODE,
+            AgentRole.REVIEWER_CONTRACT,
+            AgentRole.REVIEWER_AGENT_DESIGN,
+        ]:
+            role_def = get_role_definition(role)
+            # Reviewers can write to reviews and agent-outputs only
+            assert ".egg-state/reviews/" in role_def.file_access.allowed_write
+            assert ".egg-state/agent-outputs/" in role_def.file_access.allowed_write
+            # All other writes blocked
+            assert "**/*" in role_def.file_access.blocked_write
+
+
+class TestWriteOverlapDetection:
+    """Tests for write overlap detection between parallel agents."""
+
+    def test_overlaps_in_implement_phase(self):
+        """Implement-phase parallel agents share agent-outputs directory."""
+        from egg_contracts.agent_roles import detect_write_overlaps, get_roles_for_phase
+
+        roles = get_roles_for_phase("implement")
+        overlaps = detect_write_overlaps(roles)
+
+        # Tester and documenter both write to .egg-state/agent-outputs/
+        # This is expected since each agent writes to its own file within it
+        assert len(overlaps) >= 1
+        roles_in_overlap = {(o[0], o[1]) for o in overlaps}
+        assert (AgentRole.TESTER, AgentRole.DOCUMENTER) in roles_in_overlap
+
+    def test_overlaps_in_plan_phase(self):
+        """Plan-phase parallel agents may share write patterns."""
+        from egg_contracts.agent_roles import detect_write_overlaps, get_roles_for_phase
+
+        roles = get_roles_for_phase("plan")
+        overlaps = detect_write_overlaps(roles)
+
+        # task_planner and risk_analyst both write to .egg-state/drafts/
+        # and .egg-state/agent-outputs/
+        assert len(overlaps) >= 1
+
+
+class TestMultiAgentConfig:
+    """Tests for MultiAgentConfig with phase overrides."""
+
+    def test_default_multi_agent_config(self):
+        """Default config enables all roles."""
+        config = MultiAgentConfig()
+        assert config.enabled is True
+        assert config.parallel_execution is True
+        assert len(config.roles_enabled) == 11  # All roles
+        assert len(config.phase_overrides) == 0
+
+    def test_phase_override(self):
+        """Phase overrides customize per-phase behavior."""
+        from egg_contracts.models import PhaseAgentConfig
+
+        config = MultiAgentConfig(
+            phase_overrides={
+                "plan": PhaseAgentConfig(
+                    enabled=True,
+                    roles=[AgentRoleType.ARCHITECT, AgentRoleType.TASK_PLANNER],
+                ),
+            },
+        )
+
+        assert "plan" in config.phase_overrides
+        plan_config = config.phase_overrides["plan"]
+        assert len(plan_config.roles) == 2
+        assert AgentRoleType.ARCHITECT in plan_config.roles
+
+    def test_agent_execution_conflicts_field(self):
+        """AgentExecutionModel has conflicts field."""
+        model = AgentExecutionModel(
+            role=AgentRoleType.CODER,
+            status=AgentExecutionStatus.COMPLETE,
+            conflicts=["src/file1.py", "src/file2.py"],
+        )
+        assert model.conflicts == ["src/file1.py", "src/file2.py"]
+
+    def test_agent_execution_conflicts_default_empty(self):
+        """AgentExecutionModel defaults to empty conflicts list."""
+        model = AgentExecutionModel(
+            role=AgentRoleType.CODER,
+            status=AgentExecutionStatus.PENDING,
+        )
+        assert model.conflicts == []
