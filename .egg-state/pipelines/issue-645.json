@@ -477,9 +477,9 @@
     },
     "pr": {
       "phase": "pr",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-02-14T01:09:25.731655",
-      "completed_at": null,
+      "completed_at": "2026-02-14T01:10:37.377519",
       "containers": [
         {
           "container_id": "61db929d9044e81a6a969c095c11bded34f8d2cef38b02f24e09dcecb832ae1b",
@@ -539,9 +539,9 @@
     }
   ],
   "created_at": "2026-02-13T23:32:23.876688",
-  "updated_at": "2026-02-14T01:10:36.475753",
+  "updated_at": "2026-02-14T01:10:37.377684",
   "contract_synced": true,
   "sdlc_token_gated": false,
   "error": null,
-  "version": 65
+  "version": 66
 }
