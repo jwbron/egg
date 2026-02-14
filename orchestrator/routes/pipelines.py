@@ -107,7 +107,8 @@ except ImportError:
 # SSE stream subscribes to the EventBus — a separate system.  We need to
 # emit events to both so SSE clients see live updates.
 try:
-    from events import EventType, emit_event as _emit_event
+    from events import EventType
+    from events import emit_event as _emit_event
 except ImportError:
     _emit_event = None  # type: ignore[assignment]
 
