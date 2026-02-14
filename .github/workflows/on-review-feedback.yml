@@ -229,10 +229,11 @@ jobs:
             # Case 4: Human @mentions the bot in a PR comment
             # Only authorized users can trigger via @mention.
             # The should-run step validates PR authorship; this just checks the mention.
-            # Use regex with word boundary to avoid matching substrings like @egg-bot-staging
+            # Use regex with leading and trailing boundaries to avoid matching
+            # substrings like @egg-bot-staging or email-like foo@egg-bot
             elif ! is_review_bot "$COMMENT_USER" && is_authorized_user "$COMMENT_USER" && \
                [[ "$IS_PR" == "true" ]] && \
-               [[ "$COMMENT_BODY" =~ @${BOT_USERNAME}($|[^a-zA-Z0-9_-]) ]]; then
+               [[ "$COMMENT_BODY" =~ (^|[[:space:]]|[^a-zA-Z0-9_])@${BOT_USERNAME}($|[^a-zA-Z0-9_-]) ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
               echo "trigger_type=mention" >> "$GITHUB_OUTPUT"
             else
