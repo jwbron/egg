@@ -1,15 +1,15 @@
 {
-  "all_passed": false,
+  "all_passed": true,
   "checks": [
     {
       "name": "lint",
-      "passed": false,
-      "output": "ruff found 10 errors: 1 unused import (F401) in orchestrator/routes/pipelines.py, 1 unused import (F401) in orchestrator/tests/test_unified_sse.py, 5 ambiguous variable name (E741) in orchestrator/tests/test_unified_sse.py, 1 unused variable (F841) in orchestrator/tests/test_unified_sse.py, 1 deprecated typing import (UP035) in orchestrator/unified_sse.py, 1 unsorted import block (I001) in sandbox/entrypoint.py. 4 auto-fixable."
+      "passed": true,
+      "output": "ruff check: All checks passed! (exit code 0)"
     },
     {
       "name": "pytest",
-      "passed": false,
-      "output": "3225 passed, 1 failed, 81 skipped. Failed: tests/gateway/test_agent_restrictions.py::TestAgentRoleConsistency::test_role_values_match_shared_library - Gateway AgentRole missing role: ARCHITECT."
+      "passed": true,
+      "output": "3226 passed, 81 skipped, 3 warnings in 14.21s (exit code 0)"
     }
   ]
 }
