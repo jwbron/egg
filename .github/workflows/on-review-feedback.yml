@@ -39,7 +39,7 @@ on:
         type: string
         default: "jwbron/egg/action@main"
       authorized_users:
-        description: 'Comma-separated list of authorized GitHub usernames (for bot-authored PR check bypass)'
+        description: 'Comma-separated list of GitHub usernames authorized to trigger the bot (via review or @mention)'
         required: false
         type: string
         default: "jwbron"
@@ -106,6 +106,7 @@ jobs:
       bot_username: ${{ steps.resolve.outputs.bot_username }}
       branch_prefix: ${{ steps.resolve.outputs.branch_prefix }}
       reviewer_username: ${{ steps.resolve.outputs.reviewer_username }}
+      authorized_users: ${{ steps.resolve.outputs.authorized_users }}
       max_feedback_rounds: ${{ steps.resolve.outputs.max_feedback_rounds }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
       should_check_trigger: ${{ steps.resolve.outputs.should_check_trigger }}
@@ -118,10 +119,12 @@ jobs:
             echo "bot_username=${{ inputs.bot_username }}" >> "$GITHUB_OUTPUT"
             echo "branch_prefix=${{ inputs.branch_prefix }}" >> "$GITHUB_OUTPUT"
             echo "reviewer_username=${{ inputs.reviewer_username || '' }}" >> "$GITHUB_OUTPUT"
+            echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}" >> "$GITHUB_OUTPUT"
           else
             echo "bot_username=${{ vars.EGG_BOT_USERNAME }}" >> "$GITHUB_OUTPUT"
             echo "branch_prefix=${{ vars.EGG_BRANCH_PREFIX }}" >> "$GITHUB_OUTPUT"
             echo "reviewer_username=${{ vars.EGG_REVIEWER_USERNAME || '' }}" >> "$GITHUB_OUTPUT"
+            echo "authorized_users=${{ vars.EGG_AUTHORIZED_USERS || 'jwbron' }}" >> "$GITHUB_OUTPUT"
           fi
           echo "max_feedback_rounds=${{ inputs.max_feedback_rounds || '3' }}" >> "$GITHUB_OUTPUT"
 
@@ -152,6 +155,7 @@ jobs:
         env:
           BOT_USERNAME: ${{ needs.resolve-inputs.outputs.bot_username }}
           REVIEWER_USERNAME: ${{ needs.resolve-inputs.outputs.reviewer_username }}
+          AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
           EVENT_NAME: ${{ github.event_name }}
           REVIEW_USER: ${{ github.event.review.user.login }}
           REVIEW_BODY: ${{ github.event.review.body }}
@@ -174,6 +178,18 @@ jobs:
             [[ "$PR_AUTHOR" == "$BOT_USERNAME" || "$PR_AUTHOR" == "${BOT_USERNAME}[bot]" ]]
           }
 
+          # Helper: check if a user is in the authorized_users list (comma-separated)
+          is_authorized_user() {
+            local user="$1"
+            local IFS=','
+            for authorized in $AUTHORIZED_USERS; do
+              # Trim whitespace
+              authorized=$(echo "$authorized" | xargs)
+              [[ "$user" == "$authorized" ]] && return 0
+            done
+            return 1
+          }
+
           # For pull_request_review events
           if [[ "$EVENT_NAME" == "pull_request_review" ]]; then
             # Case 1: Automated review (bot/reviewer with marker)
@@ -184,12 +200,12 @@ jobs:
               echo "should_run=true" >> "$GITHUB_OUTPUT"
               echo "trigger_type=review" >> "$GITHUB_OUTPUT"
             # Case 2: Human review on bot-authored PR
-            # Trigger for non-approvals (changes_requested, commented)
+            # Trigger for non-approvals (changes_requested, commented) from authorized users only.
             # Note: Human approvals with suggestions won't trigger because humans
             # don't add the verdict=approve-with-suggestions marker. This is an
             # accepted limitation - non-blocking suggestions in human approvals
             # are considered optional and don't require automated follow-up.
-            elif ! is_review_bot "$REVIEW_USER" && is_bot_authored_pr && \
+            elif ! is_review_bot "$REVIEW_USER" && is_authorized_user "$REVIEW_USER" && is_bot_authored_pr && \
                [[ "$REVIEW_STATE" != "approved" ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
               echo "trigger_type=review" >> "$GITHUB_OUTPUT"
@@ -211,9 +227,10 @@ jobs:
               echo "should_run=true" >> "$GITHUB_OUTPUT"
               echo "trigger_type=review" >> "$GITHUB_OUTPUT"
             # Case 4: Human @mentions the bot in a PR comment
+            # Only authorized users can trigger via @mention.
             # The should-run step validates PR authorship; this just checks the mention.
             # Use regex with word boundary to avoid matching substrings like @egg-bot-staging
-            elif ! is_review_bot "$COMMENT_USER" && \
+            elif ! is_review_bot "$COMMENT_USER" && is_authorized_user "$COMMENT_USER" && \
                [[ "$IS_PR" == "true" ]] && \
                [[ "$COMMENT_BODY" =~ @${BOT_USERNAME}($|[^a-zA-Z0-9_-]) ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
