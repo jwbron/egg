@@ -288,6 +288,21 @@ For programmatic interaction with the orchestrator API (usable by both agents an
 
 All commands support `--json` for machine-readable output. Run `egg-orch <command> --help` for detailed usage.
 
+### egg-checkpoint CLI
+
+For querying agent session checkpoints across multi-agent pipelines:
+
+| Command | Description |
+|---------|-------------|
+| `egg-checkpoint list [filters]` | List checkpoints with multi-dimensional filtering |
+| `egg-checkpoint show <id-or-commit>` | Display full checkpoint details (transcript, tool calls, files touched) |
+| `egg-checkpoint browse --issue <n>` | Group checkpoints by session for an issue |
+| `egg-checkpoint context [filters]` | Cross-agent context summary grouped by phase and agent type |
+
+**Filters**: `--issue`, `--pr`, `--pipeline`, `--session`, `--branch`, `--trigger`, `--status`, `--agent-type`, `--phase`, `--limit`, `--json`
+
+See the [Checkpoint Access Guide](docs/guides/checkpoint-access.md) for detailed usage examples.
+
 ### Flags
 
 | Flag | Description |
