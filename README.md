@@ -145,7 +145,7 @@ Reviewers run as part of multi-agent wave execution in refine, plan, and impleme
 - **Contract Reviewer**: Verify acceptance criteria met, task completion status
 - **Agent Design Reviewer**: Check for agent-mode anti-patterns, autonomous operation capability
 
-**Execution model**: Reviewers run in parallel as the final wave of each phase's dependency graph. In implement phase, reviewers depend on the integrator. In plan phase, reviewers depend on the task planner and risk analyst. In refine phase (single-agent), reviewers run after the coder completes.
+**Execution model**: Reviewers run in parallel as the final wave of each phase's dependency graph. In implement phase, reviewers depend on the integrator. In plan phase, reviewers depend on the task planner and risk analyst. In refine phase (single-worker), reviewers run after the coder completes.
 
 ### Plan Phase Roles
 
