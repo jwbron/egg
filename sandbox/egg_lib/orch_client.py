@@ -200,6 +200,10 @@ class OrchClient:
             body={"status": "cancelled"},
         )
 
+    def delete_pipeline(self, pipeline_id: str) -> dict[str, Any]:
+        """Delete a pipeline."""
+        return self._request("DELETE", f"/api/v1/pipelines/{pipeline_id}")
+
     def stream_pipeline(self, pipeline_id: str) -> tuple[HTTPConnection, HTTPResponse]:
         """Open an SSE stream for pipeline events.
 

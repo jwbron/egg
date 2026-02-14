@@ -4,18 +4,23 @@ Replaces the Claude-as-collaborator SDLC pipeline workflow with a rich
 terminal CLI that directly handles DAG visualization and HITL checkpoints.
 
 Usage:
-    egg-sdlc [<issue_number>] [--repo <owner/repo>]
+    egg-sdlc -r egg -i 659           # Repo dir + issue number
+    egg-sdlc -r egg 659              # Short form (positional issue)
+    egg-sdlc 659                     # Auto-detect repo
+    egg-sdlc --repo owner/repo -i 1  # Explicit owner/repo
+    egg-sdlc                         # Local/prompt mode (no issue)
 """
 
 import argparse
 import json
+import os
 import signal
 import subprocess
 import sys
 import time
 
 from .orch_client import OrchClient, OrchestratorError
-from .sdlc_hitl import handle_hitl_checkpoint
+from .sdlc_hitl import _parse_egg_repos, handle_hitl_checkpoint
 
 # ANSI escape codes
 RESET = "\033[0m"
@@ -57,19 +62,43 @@ def _clear_screen() -> None:
         sys.stdout.flush()
 
 
-def _get_current_repo() -> str | None:
-    """Get the current repo in owner/repo format using gh CLI."""
-    try:
-        result = subprocess.run(
-            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception:
-        pass
+def _resolve_repo_dir(repo_dir: str) -> str | None:
+    """Resolve a repo directory name to owner/repo format.
+
+    Looks up the directory name in EGG_REPOS (e.g. "egg" matches "jwbron/egg")
+    and changes to the repo directory if it exists.
+
+    Side effect: calls os.chdir() to the repo directory on success, so that
+    downstream git/gh commands can auto-detect the repository context.
+    """
+    from pathlib import Path
+
+    # Find matching entry in EGG_REPOS
+    for entry in _parse_egg_repos():
+        if entry.split("/")[-1] == repo_dir:
+            repo_path = Path.home() / "repos" / repo_dir
+            if repo_path.is_dir():
+                os.chdir(repo_path)
+                return entry
+            # Directory doesn't exist — fall through to try gh detection
+            break
+
+    # Not in EGG_REPOS — check if the directory exists and try gh detection
+    repo_path = Path.home() / "repos" / repo_dir
+    if repo_path.is_dir():
+        os.chdir(repo_path)
+        try:
+            result = subprocess.run(
+                ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except Exception:
+            pass
+
     return None
 
 
@@ -340,15 +369,33 @@ def run_local_mode(client: OrchClient) -> int:
 # --- Issue Mode ---
 
 
+def _restart_pipeline(
+    client: OrchClient,
+    pipeline_id: str,
+    issue_number: int,
+    repo: str,
+    branch: str,
+) -> None:
+    """Delete an existing pipeline and re-create it.
+
+    The caller must ensure the pipeline is in a terminal state before calling.
+    """
+    client.delete_pipeline(pipeline_id)
+    client.create_pipeline(
+        issue_number=issue_number,
+        repo=repo,
+        branch=branch,
+        mode="issue",
+    )
+    client.start_pipeline(pipeline_id)
+    print(f"  {GREEN}Pipeline restarted.{RESET}")
+
+
 def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = None) -> int:
     """Run egg-sdlc in issue mode."""
-    # Determine repo
-    if not repo:
-        repo = _get_current_repo()
     if not repo:
         _write(
-            f"{RED}Cannot determine repository. "
-            f"Use --repo <owner/repo> or run from a git repository.{RESET}\n",
+            f"{RED}Repository is required. Use -r <repo_dir> or --repo <owner/repo>.{RESET}\n",
             file=sys.stderr,
         )
         return 1
@@ -373,17 +420,39 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
         )
     except OrchestratorError as e:
         if e.status_code == 409:
-            # Pipeline already exists — try to get its status
+            # Pipeline already exists — check if it's still active
             print(f"  {YELLOW}Pipeline already exists. Checking status...{RESET}")
             try:
                 status_data = client.get_pipeline_status(pipeline_id)
                 status = status_data.get("status", "unknown")
                 if status in ("complete", "failed", "cancelled"):
-                    print(f"  Pipeline is {status}. Cannot restart.")
-                    return 1
-                print(f"  Pipeline status: {status}. Attaching to watch loop...")
-            except OrchestratorError:
-                pass
+                    # Terminal state — safe to delete and re-create
+                    print(f"  Pipeline was {status}. Restarting...")
+                    _restart_pipeline(client, pipeline_id, issue_number, repo, branch)
+                elif status in ("running", "awaiting_human"):
+                    print(f"  Pipeline status: {status}. Attaching to watch loop...")
+                else:
+                    # Unknown/stuck state — cancel first, then verify terminal
+                    print(f"  Pipeline status: {status}. Restarting...")
+                    try:
+                        client.cancel_pipeline(pipeline_id)
+                    except OrchestratorError:
+                        pass  # May already be in a terminal state
+                    # Re-check status after cancel to confirm it's terminal
+                    # before deleting (avoids deleting a still-running pipeline)
+                    recheck = client.get_pipeline_status(pipeline_id)
+                    recheck_status = recheck.get("status", "unknown")
+                    if recheck_status not in ("complete", "failed", "cancelled"):
+                        _write(
+                            f"{RED}Pipeline is still {recheck_status} after cancel. "
+                            f"Cannot restart automatically.{RESET}\n",
+                            file=sys.stderr,
+                        )
+                        return 1
+                    _restart_pipeline(client, pipeline_id, issue_number, repo, branch)
+            except OrchestratorError as e2:
+                _write(f"{RED}Failed to restart pipeline: {e2}{RESET}\n", file=sys.stderr)
+                return 1
         else:
             _write(f"{RED}Failed to create pipeline: {e}{RESET}\n", file=sys.stderr)
             return 1
@@ -421,21 +490,50 @@ def main() -> None:
         prog="egg-sdlc",
     )
     parser.add_argument(
-        "issue_number",
+        "issue_number_pos",
         nargs="?",
         type=int,
-        help="GitHub issue number (omit for local/prompt mode)",
+        help="GitHub issue number (positional, omit for local/prompt mode)",
     )
     parser.add_argument(
+        "-i",
+        "--issue",
+        type=int,
+        metavar="NUM",
+        help="GitHub issue number",
+    )
+    parser.add_argument(
+        "-r",
         "--repo",
-        metavar="OWNER/REPO",
-        help="Repository in owner/repo format (default: auto-detect)",
+        metavar="NAME",
+        help="Repository directory name under ~/repos/ (e.g. 'egg'). "
+        "Also accepts owner/repo format for direct specification.",
     )
 
     args = parser.parse_args()
 
+    # Resolve issue number: -i/--issue takes precedence over positional
+    issue_number = args.issue or args.issue_number_pos
+
     # Handle SIGPIPE gracefully
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
+    # Resolve repo: if it looks like a directory name (no slash), resolve it
+    repo = None
+    if args.repo:
+        if "/" in args.repo:
+            # Already in owner/repo format
+            repo = args.repo
+        else:
+            # Directory name — resolve to owner/repo via EGG_REPOS
+            repo = _resolve_repo_dir(args.repo)
+            if not repo:
+                _write(
+                    f"{RED}Cannot resolve repo '{args.repo}'. "
+                    f"No matching entry in mounted repos.{RESET}\n",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
 
     # Create orchestrator client
     client = OrchClient()
@@ -450,8 +548,8 @@ def main() -> None:
         sys.exit(1)
 
     # Dispatch to mode
-    if args.issue_number:
-        exit_code = run_issue_mode(client, args.issue_number, args.repo)
+    if issue_number:
+        exit_code = run_issue_mode(client, issue_number, repo)
     else:
         exit_code = run_local_mode(client)
 

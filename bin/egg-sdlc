@@ -5,7 +5,8 @@
 # This ensures full TTY access for interactive HITL features (editor, Claude).
 #
 # Usage:
-#   egg-sdlc [<issue_number>] [--repo <owner/repo>]
+#   egg-sdlc -r <repo_dir> -i <issue_number>
+#   egg-sdlc --private -r <repo_dir> -i <issue_number>
 #
 # If already running inside a container, delegates directly to the Python CLI.
 
@@ -15,9 +16,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Detect if we're already inside a container
 if [ -n "${EGG_CONTAINER:-}" ] || [ -f "/.dockerenv" ]; then
-    # Inside container: run directly
-    exec python3 "$SCRIPT_DIR/../sandbox/bin/egg-sdlc" "$@"
+    # Inside container: run directly (strip --private/--public, handled by host)
+    args=()
+    for arg in "$@"; do
+        case "$arg" in
+            --private|--public) ;;  # Already applied at container level
+            *) args+=("$arg") ;;
+        esac
+    done
+    exec python3 "$SCRIPT_DIR/../sandbox/bin/egg-sdlc" "${args[@]}"
 fi
 
-# Host: launch via egg --exec
-exec "$SCRIPT_DIR/egg" --exec egg-sdlc "$@"
+# Host: extract --private/--public before passing to egg --exec
+# (egg --exec uses REMAINDER parsing, so these must come before --exec)
+egg_flags=("--timeout" "360")
+sdlc_args=()
+
+for arg in "$@"; do
+    case "$arg" in
+        --private|--public) egg_flags+=("$arg") ;;
+        *) sdlc_args+=("$arg") ;;
+    esac
+done
+
+exec "$SCRIPT_DIR/egg" "${egg_flags[@]}" --exec egg-sdlc "${sdlc_args[@]}"

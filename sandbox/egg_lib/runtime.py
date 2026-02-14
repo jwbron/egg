@@ -19,6 +19,7 @@ import ipaddress
 import json
 import os
 import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -781,6 +782,7 @@ def exec_in_new_container(
     _validate_repo_mode(repo_mode)
 
     ctx = get_context()
+    quiet = get_quiet_mode()
 
     # Check if image exists - build non-interactively if missing
     if not image_exists():
@@ -820,13 +822,14 @@ def exec_in_new_container(
                 break
 
     info(f"Executing command in new container: {container_id}")
-    if task_id:
-        info(f"Task ID: {task_id}")
-    if thread_ts:
-        info(f"Thread TS: {thread_ts}")
-    print(f"Command: {' '.join(command)}")
-    print(f"Timeout: {timeout_minutes} minutes")
-    print()
+    if not quiet:
+        if task_id:
+            info(f"Task ID: {task_id}")
+        if thread_ts:
+            info(f"Thread TS: {thread_ts}")
+        print(f"Command: {' '.join(command)}")
+        print(f"Timeout: {timeout_minutes} minutes")
+        print()
 
     # Build mount configuration
     info("Configuring repository mounts...")
@@ -847,8 +850,9 @@ def exec_in_new_container(
             error("Failed to allocate container IP for session mode")
             return False
 
-        info(f"Session mode: {repo_mode}")
-        info(f"Pre-allocated IP: {container_ip}")
+        if not quiet:
+            info(f"Session mode: {repo_mode}")
+            info(f"Pre-allocated IP: {container_ip}")
 
         # Use session-based repo setup with visibility filtering
         # Pass pipeline phase from environment for phase-based operation filtering
@@ -858,7 +862,7 @@ def exec_in_new_container(
             container_ip=container_ip,
             mode=repo_mode,
             mount_args=mount_args,
-            quiet=False,
+            quiet=quiet,
             phase=pipeline_phase,
         )
 
@@ -880,15 +884,17 @@ def exec_in_new_container(
     if repos:
         mode_info = f" ({repo_mode} mode)" if repo_mode else ""
         info(f"Mounted {len(repos)} repo(s){mode_info} (all git operations via gateway)")
-        print()
+        if not quiet:
+            print()
 
     # Add standard mounts (shared-certs)
-    add_standard_mounts(mount_args, quiet=False)
+    add_standard_mounts(mount_args, quiet=quiet)
 
     # Note: Host ~/.claude is NOT mounted - container uses gateway-injected
     # Anthropic credentials instead of host Claude configuration
 
-    print()
+    if not quiet:
+        print()
 
     # Build docker run command
     # Note: We don't use --rm so we can save logs before cleanup
@@ -896,7 +902,14 @@ def exec_in_new_container(
     # Caller-specific env vars
     caller_env: dict[str, str] = {
         "PYTHONUNBUFFERED": "1",
+        "EGG_QUIET": "1" if quiet else "0",
     }
+
+    # Pass filtered repos (owner/repo format) so in-container tools like
+    # egg-sdlc can determine the repo without relying on .git (which is
+    # shadowed by tmpfs in the gateway-managed worktree architecture).
+    if _filtered_repos:
+        caller_env["EGG_REPOS"] = ",".join(_filtered_repos)
 
     # Add correlation environment variables for log tracing
     if task_id:
@@ -934,11 +947,22 @@ def exec_in_new_container(
         extra_args=log_config,
     )
 
+    # Insert lifecycle flags: always keep stdin open (-i) so exec'd commands
+    # can read input; allocate a pseudo-TTY (-t) when the host has one.
+    lifecycle_flags = ["-i"]
+    if sys.stdin.isatty():
+        lifecycle_flags.append("-t")
+    cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = lifecycle_flags
+
     # Insert mount arguments before the image name (last element)
     cmd[-1:-1] = mount_args
 
     # Add the command to execute (after image name)
     cmd.extend(command)
+
+    # Clear statusbar before launching container
+    if quiet:
+        status_finish(f"Launching {command[0]}...")
 
     # Run container with configurable timeout
     timeout_seconds = timeout_minutes * 60

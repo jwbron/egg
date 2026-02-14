@@ -102,6 +102,48 @@ except ImportError:
     def report_pipeline_status(pipeline, event_type=None, message=None):  # type: ignore[misc]
         pass
 
+# Import event bus for SSE streaming.
+# report_pipeline_status dispatches to StatusReporter handlers, but the
+# SSE stream subscribes to the EventBus — a separate system.  We need to
+# emit events to both so SSE clients see live updates.
+try:
+    from events import EventType
+    from events import emit_event as _emit_event
+except ImportError:
+    _emit_event = None  # type: ignore[assignment]
+
+# Map report_pipeline_status event_type strings to EventType enum values
+_EVENT_TYPE_MAP: dict[str, "EventType"] = {}
+if _emit_event is not None:
+    _EVENT_TYPE_MAP = {
+        "phase.started": EventType.PHASE_STARTED,
+        "phase.completed": EventType.PHASE_COMPLETED,
+        "phase.revision_requested": EventType.PHASE_STARTED,  # re-entering phase
+        "pipeline.completed": EventType.PIPELINE_COMPLETED,
+        "pipeline.failed": EventType.PIPELINE_FAILED,
+        "decision.created": EventType.DECISION_CREATED,
+    }
+
+
+def _emit_pipeline_event(
+    pipeline: Pipeline,
+    event_type_str: str,
+) -> None:
+    """Emit a pipeline event to the EventBus for SSE streaming."""
+    if _emit_event is None:
+        return
+    mapped = _EVENT_TYPE_MAP.get(event_type_str)
+    if mapped is None:
+        return
+    _emit_event(
+        mapped,
+        pipeline.id,
+        data={
+            "status": pipeline.status.value,
+            "phase": pipeline.current_phase.value,
+        },
+    )
+
 
 # Import visualization modules for DAG endpoint
 try:
@@ -2123,10 +2165,17 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     """
     from routes.phases import get_phase_transitions
 
+    # Track which run of the pipeline this thread owns.  If the pipeline
+    # is deleted and recreated with the same ID while we're still running,
+    # the new run creates its own worktrees under the same path.  Without
+    # this guard, our finally block would delete the *new* run's worktrees.
+    run_created_at: datetime | None = None
+
     try:
         store = get_state_store(repo_path)
         spawner = get_container_spawner()
         pipeline = store.load_pipeline(pipeline_id)
+        run_created_at = pipeline.created_at
         pipeline_mode = getattr(pipeline, "mode", "issue")
         transitions = get_phase_transitions(pipeline_mode)
 
@@ -2320,7 +2369,23 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         hitl_revision_feedback: str | None = None
 
         while True:
-            pipeline = store.load_pipeline(pipeline_id)
+            try:
+                pipeline = store.load_pipeline(pipeline_id)
+            except Exception:
+                # Pipeline was deleted — exit quietly
+                logger.info(
+                    "Pipeline no longer exists, exiting thread",
+                    pipeline_id=pipeline_id,
+                )
+                return
+
+            # Detect recreation: another run now owns this pipeline ID
+            if pipeline.created_at != run_created_at:
+                logger.info(
+                    "Pipeline was recreated, exiting old thread",
+                    pipeline_id=pipeline_id,
+                )
+                return
 
             if pipeline.status in (PipelineStatus.FAILED, PipelineStatus.CANCELLED):
                 logger.info(
@@ -2344,6 +2409,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     event_type="phase.started",
                     message=f"Phase {current_phase.value} started",
                 )
+                _emit_pipeline_event(pipeline, "phase.started")
 
             # Common sandbox environment for all containers in this phase.
             # GATEWAY_URL, RUNTIME_UID/GID, proxy vars, DNS lockdown, and
@@ -2827,6 +2893,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 event_type="phase.completed",
                 message=f"Phase {current_phase.value} completed",
             )
+            _emit_pipeline_event(pipeline, "phase.completed")
 
             # After plan phase: populate contract with task structure.
             # NOTE: worktree_repo_path is used for both draft reads and
@@ -2897,6 +2964,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     event_type="decision.created",
                     message=f"Awaiting human approval for {current_phase.value} phase",
                 )
+                _emit_pipeline_event(pipeline, "decision.created")
 
                 try:
                     dq.wait_for_decision(decision.id)
@@ -2995,6 +3063,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 event_type="phase.revision_requested",
                                 message=f"Human requested changes to {current_phase.value}",
                             )
+                            _emit_pipeline_event(pipeline, "phase.revision_requested")
                             continue  # Re-enter outer loop → re-run phase with feedback
 
                 # Approved — resume and advance
@@ -3022,6 +3091,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     event_type="pipeline.completed",
                     message="Pipeline completed successfully",
                 )
+                _emit_pipeline_event(pipeline, "pipeline.completed")
                 logger.info("Pipeline complete", pipeline_id=pipeline_id)
                 break
 
@@ -3046,27 +3116,55 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         try:
             store = get_state_store(repo_path)
             pipeline = store.load_pipeline(pipeline_id)
-            pipeline.status = PipelineStatus.FAILED
-            pipeline.error = str(e)
-            store.save_pipeline(pipeline)
 
-            # Report pipeline failure to collaborator
-            report_pipeline_status(
-                pipeline,
-                event_type="pipeline.failed",
-                message=f"Pipeline failed: {str(e)[:100]}",
-            )
+            # Don't corrupt a recreated pipeline's state
+            if run_created_at and pipeline.created_at != run_created_at:
+                logger.info(
+                    "Pipeline was recreated, not marking new run as failed",
+                    pipeline_id=pipeline_id,
+                )
+            else:
+                pipeline.status = PipelineStatus.FAILED
+                pipeline.error = str(e)
+                store.save_pipeline(pipeline)
+
+                # Report pipeline failure to collaborator
+                report_pipeline_status(
+                    pipeline,
+                    event_type="pipeline.failed",
+                    message=f"Pipeline failed: {str(e)[:100]}",
+                )
+                _emit_pipeline_event(pipeline, "pipeline.failed")
         except Exception:
             pass
     finally:
-        # Clean up pipeline-level worktrees regardless of success/failure
+        # Clean up pipeline-level worktrees unless the pipeline has been
+        # recreated (delete + create with the same ID).  In that case the
+        # new run owns the worktrees and we must not remove them.
         try:
             _spawner = get_container_spawner()
-            _spawner.gateway.delete_worktrees(
-                container_id=pipeline_id,
-                force=True,
-            )
-            logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
+            _store = get_state_store(repo_path)
+            skip_cleanup = False
+            try:
+                current = _store.load_pipeline(pipeline_id)
+                if run_created_at and current.created_at != run_created_at:
+                    skip_cleanup = True
+                    logger.info(
+                        "Pipeline was recreated, skipping worktree cleanup",
+                        pipeline_id=pipeline_id,
+                        old_created_at=run_created_at.isoformat(),
+                        new_created_at=current.created_at.isoformat(),
+                    )
+            except Exception:
+                # Pipeline was deleted and not recreated — safe to clean up
+                pass
+
+            if not skip_cleanup:
+                _spawner.gateway.delete_worktrees(
+                    container_id=pipeline_id,
+                    force=True,
+                )
+                logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
         except Exception as wt_err:
             logger.warning(
                 "Failed to clean up pipeline worktrees",

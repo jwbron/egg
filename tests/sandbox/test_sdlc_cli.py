@@ -1,13 +1,15 @@
-"""Tests for sandbox/egg_lib/sdlc_cli.py - SSE parsing and rendering."""
+"""Tests for sandbox/egg_lib/sdlc_cli.py - SSE parsing, rendering, and repo resolution."""
 
 import json
 import sys
 from io import StringIO
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
 
 from egg_lib.sdlc_cli import (
+    _resolve_repo_dir,
     _write,
     parse_sse_stream,
     render_event_info,
@@ -60,7 +62,7 @@ class TestParseSseStream:
 
     def test_no_event_type_defaults_to_message(self):
         """When no event: line is present, type defaults to 'message'."""
-        raw = [b"data: {\"key\": \"val\"}\n", b"\n"]
+        raw = [b'data: {"key": "val"}\n', b"\n"]
         events = list(parse_sse_stream(iter(raw)))
         assert len(events) == 1
         assert events[0][0] == "message"
@@ -71,7 +73,7 @@ class TestParseSseStream:
         raw = [
             b":heartbeat\n",
             b"event: status\n",
-            b"data: {\"status\": \"ok\"}\n",
+            b'data: {"status": "ok"}\n',
             b"\n",
         ]
         events = list(parse_sse_stream(iter(raw)))
@@ -82,8 +84,8 @@ class TestParseSseStream:
         """Multiple data: lines are joined with newlines."""
         raw = [
             b"event: info\n",
-            b"data: {\"line1\": true,\n",
-            b"data:  \"line2\": false}\n",
+            b'data: {"line1": true,\n',
+            b'data:  "line2": false}\n',
             b"\n",
         ]
         events = list(parse_sse_stream(iter(raw)))
@@ -113,7 +115,7 @@ class TestParseSseStream:
         """\\r\\n line endings are handled correctly."""
         raw = [
             b"event: status\r\n",
-            b"data: {\"ok\": true}\r\n",
+            b'data: {"ok": true}\r\n',
             b"\r\n",
         ]
         events = list(parse_sse_stream(iter(raw)))
@@ -160,7 +162,11 @@ class TestRenderHeader:
 
 class TestRenderEventInfo:
     def test_running_status(self):
-        data = {"status": "running", "current_phase": "implement", "timestamp": "2025-01-01T12:34:56Z"}
+        data = {
+            "status": "running",
+            "current_phase": "implement",
+            "timestamp": "2025-01-01T12:34:56Z",
+        }
         info = render_event_info(data)
         assert "running" in info
         assert "implement" in info
@@ -181,3 +187,47 @@ class TestRenderEventInfo:
         data = {"status": "complete", "current_phase": "done"}
         info = render_event_info(data)
         assert "pending" not in info
+
+
+# ---------------------------------------------------------------------------
+# _resolve_repo_dir tests
+# ---------------------------------------------------------------------------
+
+
+class TestResolveRepoDir:
+    def test_egg_repos_match_with_existing_dir(self, tmp_path, monkeypatch):
+        """When EGG_REPOS matches and directory exists, returns owner/repo."""
+        repo_dir = tmp_path / "repos" / "myrepo"
+        repo_dir.mkdir(parents=True)
+        monkeypatch.setenv("EGG_REPOS", "owner/myrepo")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        result = _resolve_repo_dir("myrepo")
+        assert result == "owner/myrepo"
+
+    def test_egg_repos_match_without_existing_dir(self, tmp_path, monkeypatch):
+        """When EGG_REPOS matches but directory doesn't exist, returns None."""
+        # Don't create the directory — only set EGG_REPOS
+        monkeypatch.setenv("EGG_REPOS", "owner/myrepo")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=128, stdout="")
+            result = _resolve_repo_dir("myrepo")
+        assert result is None
+
+    def test_no_egg_repos_falls_back_to_gh(self, tmp_path, monkeypatch):
+        """When EGG_REPOS is empty, falls back to gh repo view."""
+        repo_dir = tmp_path / "repos" / "myrepo"
+        repo_dir.mkdir(parents=True)
+        monkeypatch.delenv("EGG_REPOS", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="org/myrepo\n")
+            result = _resolve_repo_dir("myrepo")
+        assert result == "org/myrepo"
+
+    def test_directory_not_found_returns_none(self, tmp_path, monkeypatch):
+        """When the directory doesn't exist at all, returns None."""
+        monkeypatch.delenv("EGG_REPOS", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        result = _resolve_repo_dir("nonexistent")
+        assert result is None
