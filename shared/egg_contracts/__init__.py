@@ -64,6 +64,13 @@ from .agent_roles import (
     get_role_definition,
     get_role_dependencies,
 )
+from .deployment import (
+    DeploymentConfig,
+    ServiceMapping,
+    ValidationTest,
+    check_suspicious_env_vars,
+    load_deployment_config,
+)
 from .audit import (
     create_audit_entry,
     create_transition_entry,
@@ -361,6 +368,12 @@ __all__ = [
     "get_dispatch_for_contract",
     "load_agent_output",
     "save_agent_output",
+    # Deployment validation
+    "DeploymentConfig",
+    "ServiceMapping",
+    "ValidationTest",
+    "check_suspicious_env_vars",
+    "load_deployment_config",
     # Agent Recovery
     "AgentCircuitBreaker",
     "AgentRetryConfig",

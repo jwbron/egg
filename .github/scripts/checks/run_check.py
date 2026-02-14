@@ -27,6 +27,7 @@ CHECK_REGISTRY: dict[str, tuple[str, str]] = {
     "lint": ("lint_check", "LintCheck"),
     "test": ("test_check", "TestCheck"),
     "fixer": ("check_fixer", "CheckFixer"),
+    "deployment": ("deployment_check", "DeploymentCheck"),
 }
 
 

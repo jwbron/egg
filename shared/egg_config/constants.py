@@ -32,6 +32,20 @@ ORCHESTRATOR_PORT = 9849
 ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"  # Orchestrator IP in isolated network
 ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"  # Orchestrator IP in external network
 
+# Deployment validation (DinD) network configuration
+# Third network for devserver containers during check phase deployment validation.
+# Internal-only (no gateway, no DNS, no internet) — services communicate within
+# the bridge but cannot reach external networks.
+EGG_CHECK_NETWORK_PREFIX = "egg-check"  # Actual name: egg-check-{pipeline_id}
+EGG_CHECK_SUBNET = "172.34.0.0/24"  # Must not overlap with isolated/external subnets
+
+# Resource limits for devserver containers during deployment validation.
+# These prevent agent-modified code from exhausting host resources.
+DEVSERVER_CPU_LIMIT = "1.0"  # CPU quota per container (1 full core)
+DEVSERVER_MEMORY_LIMIT = "512m"  # Memory limit per container
+DEVSERVER_PIDS_LIMIT = 256  # Max PIDs per container (prevents fork bombs)
+DEVSERVER_HARD_TIMEOUT_SECONDS = 300  # Hard time cap for entire devserver lifecycle
+
 # Test constants - use these in unit tests to avoid coupling to production values
 # Using a clearly fake port (1234) makes it obvious when tests accidentally
 # connect to real services
@@ -39,6 +53,12 @@ TEST_GATEWAY_PORT = 1234
 TEST_GATEWAY_PROXY_PORT = 5678
 
 __all__ = [
+    "DEVSERVER_CPU_LIMIT",
+    "DEVSERVER_HARD_TIMEOUT_SECONDS",
+    "DEVSERVER_MEMORY_LIMIT",
+    "DEVSERVER_PIDS_LIMIT",
+    "EGG_CHECK_NETWORK_PREFIX",
+    "EGG_CHECK_SUBNET",
     "EGG_CONTAINER_IP",
     "EGG_EXTERNAL_NETWORK",
     "EGG_EXTERNAL_SUBNET",
