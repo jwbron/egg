@@ -959,7 +959,7 @@ The `egg-sdlc` CLI provides an interactive terminal interface for driving SDLC p
 # Issue mode: start/attach to pipeline for a GitHub issue
 egg-sdlc -r <repo_dir> -i <issue_number>
 egg-sdlc -r <repo_dir> <issue_number>        # Short form (positional issue)
-egg-sdlc --private -r <repo_dir> -i <issue_number>  # Private repo access
+egg-sdlc --private -r <repo_dir> -i <issue_number>  # Private mode (network lockdown)
 
 # Local mode: prompt-driven pipeline (no GitHub)
 egg-sdlc
