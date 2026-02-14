@@ -362,11 +362,22 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
     if not repo:
         repo = _get_current_repo()
     if not repo:
-        _write(
-            f"{RED}Cannot determine repository. "
-            f"Use --repo <owner/repo> or run from a git repository.{RESET}\n",
-            file=sys.stderr,
-        )
+        # Check if multiple repos are available via EGG_REPOS
+        egg_repos = os.environ.get("EGG_REPOS", "").strip()
+        available = [r.strip() for r in egg_repos.split(",") if r.strip()] if egg_repos else []
+        if len(available) > 1:
+            repo_list = ", ".join(available)
+            _write(
+                f"{RED}Multiple repos available: {repo_list}. "
+                f"Use --repo <owner/repo> to select one.{RESET}\n",
+                file=sys.stderr,
+            )
+        else:
+            _write(
+                f"{RED}Cannot determine repository. "
+                f"Use --repo <owner/repo> or run from a git repository.{RESET}\n",
+                file=sys.stderr,
+            )
         return 1
 
     pipeline_id = f"issue-{issue_number}"
