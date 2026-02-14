@@ -89,6 +89,13 @@ from .dependency_graph import (
     format_execution_plan,
     get_parallel_groups,
 )
+from .deployment import (
+    DeploymentConfig,
+    ServiceMapping,
+    ValidationTest,
+    check_suspicious_env_vars,
+    load_deployment_config,
+)
 from .feedback import (
     FeedbackQuestionInput,
     ParsedFeedbackResponse,
@@ -381,6 +388,12 @@ __all__ = [
     "get_dispatch_for_contract",
     "load_agent_output",
     "save_agent_output",
+    # Deployment validation
+    "DeploymentConfig",
+    "ServiceMapping",
+    "ValidationTest",
+    "check_suspicious_env_vars",
+    "load_deployment_config",
     # Agent Recovery
     "AgentCircuitBreaker",
     "AgentRetryConfig",
