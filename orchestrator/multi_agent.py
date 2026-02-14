@@ -368,17 +368,14 @@ class MultiAgentExecutor:
                             role=role.value,
                             phase=self.pipeline.current_phase.value,
                         )
+                        # record_agent_result already calls
+                        # dispatcher.complete_agent(), so no separate call
+                        # is needed.
                         execution = self.record_agent_result(
                             role,
                             success=True,
                             error=None,
                         )
-                        # Mark as skipped in the contract so the dispatcher
-                        # doesn't try to dispatch it again.
-                        try:
-                            self.dispatcher.complete_agent(role)
-                        except Exception:
-                            pass
                         if on_complete:
                             on_complete(role, execution)
                         return

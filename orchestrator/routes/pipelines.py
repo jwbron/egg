@@ -2144,11 +2144,10 @@ def _synthesize_plan_draft(
             # Agent outputs may contain a "content" or "output" key with
             # the main text, or may be the full JSON blob.
             content = data.get("content") or data.get("output") or json.dumps(data, indent=2)
-            sections.append(f"## {heading}\n\n{content}")
         except (json.JSONDecodeError, Exception) as e:
             # Fall back to raw text if not valid JSON
             try:
-                sections.append(f"## {heading}\n\n{output_file.read_text()}")
+                content = output_file.read_text()
             except Exception:
                 logger.warning(
                     "Failed to read agent output for plan draft",
@@ -2156,6 +2155,18 @@ def _synthesize_plan_draft(
                     file=filename,
                     error=str(e),
                 )
+                continue
+
+        # Skip empty or whitespace-only outputs
+        if not content or not content.strip():
+            logger.warning(
+                "Agent output is empty, skipping from plan draft",
+                pipeline_id=pipeline_id,
+                file=filename,
+            )
+            continue
+
+        sections.append(f"## {heading}\n\n{content}")
 
     if not sections:
         logger.warning(
@@ -2164,8 +2175,23 @@ def _synthesize_plan_draft(
         )
         return
 
+    draft_content = "\n\n".join(sections) + "\n"
+
+    # Guard against a draft that has section headings but no real content.
+    # Strip headings and whitespace; require at least 50 chars of substance.
+    stripped = draft_content
+    for _, heading in agent_files:
+        stripped = stripped.replace(f"## {heading}", "")
+    if len(stripped.strip()) < 50:
+        logger.warning(
+            "Synthesized plan draft has insufficient content, not writing",
+            pipeline_id=pipeline_id,
+            content_length=len(stripped.strip()),
+        )
+        return
+
     draft_path.parent.mkdir(parents=True, exist_ok=True)
-    draft_path.write_text("\n\n".join(sections) + "\n")
+    draft_path.write_text(draft_content)
     logger.info(
         "Synthesized plan draft from agent outputs",
         pipeline_id=pipeline_id,
