@@ -152,11 +152,31 @@ def _launch_editor(file_path: Path) -> bool:
         return False
 
 
-def _launch_claude(repo_path: Path) -> None:
-    """Launch an interactive Claude Code session."""
+def _launch_claude(
+    repo_path: Path,
+    draft_rel: str | None = None,
+    phase: str | None = None,
+    issue_number: int | None = None,
+) -> None:
+    """Launch an interactive Claude Code session with draft context."""
+    cmd = ["claude"]
+
+    # Inject context so Claude knows which draft to edit
+    if draft_rel:
+        parts = ["You are helping review/edit a draft in an SDLC pipeline."]
+        if phase:
+            parts.append(f"Current phase: {phase}.")
+        if issue_number:
+            parts.append(f"Issue: #{issue_number}.")
+        parts.append(
+            f"Draft file: {draft_rel}. "
+            f"Start by reading `{draft_rel}` and showing its content to the user."
+        )
+        cmd.extend(["--append-system-prompt", " ".join(parts)])
+
     try:
         subprocess.run(
-            ["claude"],
+            cmd,
             cwd=str(repo_path),
             stdin=sys.stdin,
             stdout=sys.stdout,
@@ -270,7 +290,7 @@ def handle_hitl_checkpoint(
         elif choice == "2":
             # Launch Claude
             print("\n  Launching Claude Code... (type /exit to return)")
-            _launch_claude(repo_path)
+            _launch_claude(repo_path, draft_rel, phase, issue_number)
             print(
                 f"\n  {GREEN}Returned from Claude. You can now approve or continue editing.{RESET}"
             )
