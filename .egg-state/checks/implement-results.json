@@ -2,19 +2,14 @@
   "all_passed": false,
   "checks": [
     {
-      "name": "ruff-check",
-      "passed": true,
-      "output": "All checks passed!"
-    },
-    {
-      "name": "ruff-format",
+      "name": "lint",
       "passed": false,
-      "output": "29 files would be reformatted, 311 files already formatted. Formatting issues in gateway/, orchestrator/, shared/, tests/ directories."
+      "output": "ruff check found 15 errors: 4 unused imports (F401), 6 ambiguous variable names (E741), 2 deprecated typing imports (UP035), 1 unsorted import block (I001), 1 unused local variable (F841). 8 auto-fixable. Files affected: orchestrator/sse.py, orchestrator/unified_sse.py, orchestrator/tests/test_sse.py, orchestrator/tests/test_unified_sse.py, sandbox/entrypoint.py, tests/workflows/test_multi_reviewer.py."
     },
     {
       "name": "pytest",
       "passed": false,
-      "output": "4123 passed, 3 failed, 81 skipped, 2 errors in 39.39s. Failures: 3 tests in gateway/tests/test_session_manager.py (TestSessionEndCheckpointCapture - _capture_and_cleanup_session not called). Errors: 2 tests in gateway/tests/test_worktree_manager.py (TestWorktreeManagerDockerGitDir - git init failed in sandbox environment)."
+      "output": "3531 collected, 3449 passed, 81 skipped, 1 failed. 2 test files skipped due to missing 'docker' module (test_container_spawner.py, test_docker_client.py). Failure: orchestrator/tests/test_state_store.py::TestStateValidation::test_load_invalid_schema_fails - expected StateValidationError was not raised."
     }
   ]
 }
