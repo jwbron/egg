@@ -412,8 +412,24 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
                     )
                     client.start_pipeline(pipeline_id)
                     print(f"  {GREEN}Pipeline restarted.{RESET}")
-                else:
+                elif status in ("running", "awaiting_human"):
                     print(f"  Pipeline status: {status}. Attaching to watch loop...")
+                else:
+                    # Unknown/stuck state — cancel, delete, re-create
+                    print(f"  Pipeline status: {status}. Restarting...")
+                    try:
+                        client.cancel_pipeline(pipeline_id)
+                    except OrchestratorError:
+                        pass  # May already be in a terminal state
+                    client.delete_pipeline(pipeline_id)
+                    client.create_pipeline(
+                        issue_number=issue_number,
+                        repo=repo,
+                        branch=branch,
+                        mode="issue",
+                    )
+                    client.start_pipeline(pipeline_id)
+                    print(f"  {GREEN}Pipeline restarted.{RESET}")
             except OrchestratorError as e2:
                 _write(f"{RED}Failed to restart pipeline: {e2}{RESET}\n", file=sys.stderr)
                 return 1
