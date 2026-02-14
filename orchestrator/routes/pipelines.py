@@ -2510,6 +2510,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Restore phase status to COMPLETE now that the HITL gate is cleared
                 phase_execution = pipeline.get_phase_execution(current_phase)
                 phase_execution.status = PipelineStatus.COMPLETE
+                if phase_execution.completed_at is None:
+                    phase_execution.completed_at = datetime.utcnow()
                 store.save_pipeline(pipeline)
 
             # Determine next phase
