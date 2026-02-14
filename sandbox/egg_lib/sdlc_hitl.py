@@ -165,13 +165,12 @@ def handle_hitl_checkpoint(
     decision: dict[str, Any],
     pipeline_mode: str = "issue",
     issue_number: int | None = None,
-) -> str | None:
+) -> str:
     """Handle a HITL checkpoint interactively.
 
     Returns:
         "resolved" if the decision was resolved (pipeline should continue),
-        "cancelled" if the pipeline was cancelled,
-        None if the user wants to re-enter the watch loop without resolving.
+        "cancelled" if the pipeline was cancelled.
     """
     decision_id = decision.get("id", "unknown")
     question = decision.get("question", "Decision required")
@@ -283,7 +282,7 @@ def _detect_phase(question: str, context: str | None = None) -> str:
     q = question.lower()
     if "refine" in q or "analysis" in q:
         return "refine"
-    elif "plan" in q:
+    elif re.search(r"\bplan\b", q):
         return "plan"
     elif "implement" in q:
         return "implement"

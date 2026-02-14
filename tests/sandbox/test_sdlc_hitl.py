@@ -52,6 +52,11 @@ class TestDetectPhase:
         assert _detect_phase("improve the approach") == "unknown"
         assert _detect_phase("comprehensive review") == "unknown"
 
+    def test_plan_word_boundary(self):
+        """'plan' must match as a whole word, not as a substring of other words."""
+        assert _detect_phase("explanation of changes") == "unknown"
+        assert _detect_phase("unplanned outage occurred") == "unknown"
+
     def test_unknown_question(self):
         assert _detect_phase("Something else entirely") == "unknown"
 
