@@ -53,6 +53,9 @@ TERMINAL_EVENT_TYPES = {
     EventType.PIPELINE_CANCELLED,
 }
 
+# Pipeline status values that indicate a terminal state
+TERMINAL_STATUSES = {"complete", "failed", "cancelled"}
+
 
 def format_sse_event(
     data: dict[str, Any],
@@ -345,14 +348,10 @@ def create_sse_stream(
 
                 initial = generate_status_report(pipeline, use_ascii=use_ascii)
                 initial["event_type"] = "snapshot"
-                initial["visualization"] = {
-                    "dag": render_pipeline_dag(pipeline, use_ascii=use_ascii),
-                }
                 yield format_sse_event(initial, event="snapshot", retry=5000)
 
                 # If pipeline is already terminal, send done and return
-                terminal_statuses = {"complete", "failed", "cancelled"}
-                if pipeline.status.value in terminal_statuses:
+                if pipeline.status.value in TERMINAL_STATUSES:
                     yield format_sse_event(
                         {"pipeline_id": pipeline_id, "reason": "already_terminal"},
                         event="done",
@@ -418,19 +417,13 @@ def create_sse_stream(
                     pipeline = store.load_pipeline(pipeline_id)
 
                     # Only refresh for non-terminal pipelines
-                    terminal = {"complete", "failed", "cancelled"}
-                    if pipeline.status.value in terminal:
+                    if pipeline.status.value in TERMINAL_STATUSES:
                         continue
 
                     refresh = generate_status_report(
                         pipeline, use_ascii=use_ascii
                     )
                     refresh["event_type"] = "refresh"
-                    refresh["visualization"] = {
-                        "dag": render_pipeline_dag(
-                            pipeline, use_ascii=use_ascii
-                        ),
-                    }
                     refresh["timestamp"] = (
                         datetime.utcnow().isoformat() + "Z"
                     )

@@ -470,7 +470,6 @@ class TestCreateSSEStream:
         with (
             patch("sse.get_sse_manager") as mock_mgr,
             patch("sse.get_state_store") as mock_store,
-            patch("sse.render_pipeline_dag") as mock_dag,
             patch("sse.generate_status_report") as mock_report,
         ):
             mock_q = Queue()
@@ -481,11 +480,11 @@ class TestCreateSSEStream:
             store_instance = MagicMock()
             store_instance.load_pipeline.return_value = pipeline
             mock_store.return_value = store_instance
-            mock_dag.return_value = "PIPELINE DAG RENDERING"
             mock_report.return_value = {
                 "pipeline_id": "test-123",
                 "status": "running",
                 "current_phase": "implement",
+                "visualization": {"dag": "PIPELINE DAG RENDERING"},
             }
 
             gen = create_sse_stream("test-123", repo_path=tmp_dir)
