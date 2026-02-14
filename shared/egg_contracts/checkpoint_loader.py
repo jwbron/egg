@@ -308,6 +308,9 @@ def add_checkpoint_to_index_v2(
     if checkpoint.pipeline_phase is not None:
         _append_to_index(index.by_phase, checkpoint.pipeline_phase, checkpoint.id)
 
+    if checkpoint.pipeline_id is not None:
+        _append_to_index(index.by_pipeline, checkpoint.pipeline_id, checkpoint.id)
+
     if checkpoint.session_status is not None:
         _append_to_index(index.by_status, checkpoint.session_status.value, checkpoint.id)
 
@@ -388,6 +391,7 @@ def list_checkpoints_v2(
     session_status: str | None = None,
     agent_type: str | None = None,
     pipeline_phase: str | None = None,
+    pipeline_id: str | None = None,
     limit: int | None = None,
 ) -> list[CheckpointSummaryV2]:
     """
@@ -406,6 +410,7 @@ def list_checkpoints_v2(
         session_status: Filter by session status value
         agent_type: Filter by agent type value
         pipeline_phase: Filter by pipeline phase
+        pipeline_id: Filter by pipeline run ID
         limit: Maximum number of results
 
     Returns:
@@ -451,6 +456,9 @@ def list_checkpoints_v2(
 
     if pipeline_phase is not None:
         _intersect(index.get_by_phase(pipeline_phase))
+
+    if pipeline_id is not None:
+        _intersect(index.get_by_pipeline(pipeline_id))
 
     # Filter summaries
     results = []

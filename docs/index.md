@@ -53,6 +53,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [GitHub Automation](guides/github-automation.md) | Built-in review bots, autofixer, conflict resolver, and doc updater workflows |
 | [Reusable Workflows](guides/reusable-workflows.md) | Using egg's reusable workflows in external repositories |
 | [SDLC Pipeline](guides/sdlc-pipeline.md) | Operational guide for the structurally enforced SDLC pipeline |
+| [Checkpoint Access](guides/checkpoint-access.md) | Querying cross-agent checkpoints in multi-agent pipelines |
 
 ### SDLC Pipeline Templates
 

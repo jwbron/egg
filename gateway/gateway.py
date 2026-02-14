@@ -2512,6 +2512,7 @@ def session_create() -> tuple[Response, int] | Response:
     uid = data.get("uid")
     gid = data.get("gid")
     phase = data.get("phase")  # Optional SDLC pipeline phase
+    pipeline_id = data.get("pipeline_id")  # Optional pipeline run ID
 
     # Validate required fields
     if not container_id:
@@ -2631,6 +2632,7 @@ def session_create() -> tuple[Response, int] | Response:
         container_ip=container_ip,
         mode=mode,
         phase=phase,
+        pipeline_id=pipeline_id,
     )
 
     audit_log(

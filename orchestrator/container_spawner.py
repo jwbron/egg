@@ -280,6 +280,7 @@ class ContainerSpawner:
                     uid=host_uid,
                     gid=host_gid,
                     phase=phase,
+                    pipeline_id=pipeline_id,
                 )
                 session_token = session_info.session_token
 

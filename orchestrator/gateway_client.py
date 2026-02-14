@@ -232,6 +232,7 @@ class GatewayClient:
         uid: int | None = None,
         gid: int | None = None,
         phase: str | None = None,
+        pipeline_id: str | None = None,
     ) -> SessionInfo:
         """Register a session for a container.
 
@@ -245,6 +246,7 @@ class GatewayClient:
             uid: Host UID for worktree ownership
             gid: Host GID for worktree ownership
             phase: Optional SDLC pipeline phase
+            pipeline_id: Optional pipeline run ID for multi-agent correlation
 
         Returns:
             SessionInfo with the created session
@@ -265,6 +267,8 @@ class GatewayClient:
             request_data["gid"] = gid
         if phase:
             request_data["phase"] = phase
+        if pipeline_id:
+            request_data["pipeline_id"] = pipeline_id
 
         result = self._make_request(
             "/api/v1/sessions/create",

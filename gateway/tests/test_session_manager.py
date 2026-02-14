@@ -1255,6 +1255,118 @@ class TestSessionMetadataFields:
         assert session.pr_number == 42
 
 
+class TestSessionPipelineId:
+    """Tests for pipeline_id field on Session."""
+
+    def test_session_with_pipeline_id(self):
+        """Session can be created with pipeline_id."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            pipeline_id="issue-42",
+        )
+        assert session.pipeline_id == "issue-42"
+
+    def test_pipeline_id_defaults_none(self):
+        """pipeline_id defaults to None."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+        )
+        assert session.pipeline_id is None
+
+    def test_to_dict_includes_pipeline_id(self):
+        """to_dict_for_persistence includes pipeline_id when set."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            pipeline_id="issue-42",
+        )
+        d = session.to_dict_for_persistence()
+        assert d["pipeline_id"] == "issue-42"
+
+    def test_to_dict_excludes_none_pipeline_id(self):
+        """to_dict_for_persistence excludes pipeline_id when None."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+        )
+        d = session.to_dict_for_persistence()
+        assert "pipeline_id" not in d
+
+    def test_roundtrip_with_pipeline_id(self):
+        """pipeline_id survives serialization roundtrip."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            pipeline_id="issue-42",
+        )
+        d = session.to_dict_for_persistence()
+        restored = Session.from_persistence(d)
+        assert restored.pipeline_id == "issue-42"
+
+    def test_register_session_with_pipeline_id(self, tmp_path):
+        """register_session passes pipeline_id."""
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            pipeline_id="issue-42",
+        )
+        assert session.pipeline_id == "issue-42"
+
+    def test_backward_compatibility_without_pipeline_id(self):
+        """from_persistence handles sessions without pipeline_id."""
+        now = datetime.now(UTC)
+        data = {
+            "session_token_hash": "abc123",
+            "container_id": "test-container",
+            "container_ip": "172.18.0.5",
+            "mode": "private",
+            "created_at": now.isoformat(),
+            "last_seen": now.isoformat(),
+            "expires_at": (now + timedelta(hours=24)).isoformat(),
+        }
+        session = Session.from_persistence(data)
+        assert session.pipeline_id is None
+
+
 class TestSessionCheckpointFields:
     """Tests for Session checkpoint_repo and last_repo_path fields."""
 

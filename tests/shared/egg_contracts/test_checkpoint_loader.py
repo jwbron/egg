@@ -41,6 +41,7 @@ def _make_v2_checkpoint(
     pr_number=None,
     agent_type=AgentType.UNKNOWN,
     pipeline_phase=None,
+    pipeline_id=None,
     branch=None,
     now=None,
 ):
@@ -58,6 +59,7 @@ def _make_v2_checkpoint(
         pr_number=pr_number,
         agent_type=agent_type,
         pipeline_phase=pipeline_phase,
+        pipeline_id=pipeline_id,
         branch=branch,
         session=session,
         created_at=now,
@@ -381,9 +383,46 @@ class TestAddCheckpointToIndexV2:
             assert index.by_issue == {}
             assert index.by_pr == {}
             assert index.by_phase == {}
+            assert index.by_pipeline == {}
             # But by_session and by_trigger should still be populated
             assert len(index.by_session) == 1
             assert len(index.by_trigger) == 1
+
+    def test_by_pipeline_populated(self):
+        """Test that by_pipeline index is populated when pipeline_id is set."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            index_path = Path(tmpdir) / "index.json"
+            now = datetime.now(UTC)
+
+            cp1 = _make_v2_checkpoint(
+                checkpoint_id="ckpt-aa00000001",
+                session_id="session-1",
+                commit_sha="aaa1234567890",
+                pipeline_id="issue-42",
+                now=now,
+            )
+            cp2 = _make_v2_checkpoint(
+                checkpoint_id="ckpt-bb00000002",
+                session_id="session-2",
+                commit_sha="bbb1234567890",
+                pipeline_id="issue-42",
+                now=now + timedelta(seconds=1),
+            )
+            cp3 = _make_v2_checkpoint(
+                checkpoint_id="ckpt-cc00000003",
+                session_id="session-3",
+                commit_sha="ccc1234567890",
+                pipeline_id="issue-99",
+                now=now + timedelta(seconds=2),
+            )
+
+            add_checkpoint_to_index_v2(cp1, index_path)
+            add_checkpoint_to_index_v2(cp2, index_path)
+            index = add_checkpoint_to_index_v2(cp3, index_path)
+
+            assert len(index.get_by_pipeline("issue-42")) == 2
+            assert len(index.get_by_pipeline("issue-99")) == 1
+            assert index.get_by_pipeline("nonexistent") == []
 
     def test_multi_dimensional_queries(self):
         """Test querying the index from multiple dimensions."""
@@ -653,6 +692,39 @@ class TestListCheckpointsV2:
         with tempfile.TemporaryDirectory() as tmpdir:
             checkpoints_dir, index_path = self._build_index(tmpdir)
             results = list_checkpoints_v2(checkpoints_dir, index_path, pr_number=10)
+            assert len(results) == 1
+            assert results[0].id == "ckpt-aa00000001"
+
+    def test_filter_by_pipeline_id(self):
+        """Test filtering by pipeline ID."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir = Path(tmpdir) / "checkpoints"
+            index_path = Path(tmpdir) / "index.json"
+            now = datetime.now(UTC)
+
+            cp1 = _make_v2_checkpoint(
+                checkpoint_id="ckpt-aa00000001",
+                session_id="session-1",
+                commit_sha="aaa1234567890",
+                pipeline_id="issue-42",
+                now=now,
+            )
+            cp2 = _make_v2_checkpoint(
+                checkpoint_id="ckpt-bb00000002",
+                session_id="session-2",
+                commit_sha="bbb1234567890",
+                pipeline_id="issue-99",
+                now=now + timedelta(seconds=1),
+            )
+
+            _save_checkpoint_at_path(cp1, checkpoints_dir)
+            _save_checkpoint_at_path(cp2, checkpoints_dir)
+            add_checkpoint_to_index_v2(cp1, index_path)
+            add_checkpoint_to_index_v2(cp2, index_path)
+
+            results = list_checkpoints_v2(
+                checkpoints_dir, index_path, pipeline_id="issue-42"
+            )
             assert len(results) == 1
             assert results[0].id == "ckpt-aa00000001"
 
