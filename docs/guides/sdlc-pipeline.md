@@ -957,12 +957,15 @@ The `egg-sdlc` CLI provides an interactive terminal interface for driving SDLC p
 
 ```bash
 # Issue mode: start/attach to pipeline for a GitHub issue
-egg-sdlc <issue_number>
-egg-sdlc <issue_number> --repo <owner/repo>
+egg-sdlc -r <repo_dir> -i <issue_number>
+egg-sdlc -r <repo_dir> <issue_number>        # Short form (positional issue)
+egg-sdlc --private -r <repo_dir> -i <issue_number>  # Private repo access
 
 # Local mode: prompt-driven pipeline (no GitHub)
 egg-sdlc
 ```
+
+**Note:** Issue mode requires the `-r/--repo` flag specifying the repository directory name under `~/repos/` (e.g., `egg`). The flag also accepts full `owner/repo` format for direct specification. Repo autodetection was removed in favor of explicit specification.
 
 **Features:**
 - Real-time DAG visualization (reuses `egg-pipeline-watch` SSE patterns)
@@ -983,7 +986,7 @@ egg-sdlc
 
 **Via egg-sdlc** (recommended for interactive use):
 ```bash
-egg-sdlc 123
+egg-sdlc -r egg -i 123
 ```
 
 The SDLC pipeline can also be triggered via the local orchestrator API:
