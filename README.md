@@ -112,16 +112,49 @@ Each pipeline phase has a defined set of permitted operations:
 
 ## Multi-Agent Orchestration
 
-The orchestrator (`orchestrator/`) manages parallel execution of specialized agent roles during implementation. Each role runs in its own sandbox container with scoped permissions:
+The orchestrator (`orchestrator/`) manages parallel execution of specialized agent roles. Each role runs in its own sandbox container with scoped permissions enforced by the gateway.
+
+### Implementation Phase Roles
+
+During the **implement** phase, work is divided across these specialized agents:
 
 | Role | Responsibility |
 |------|----------------|
 | **Coder** | Write code, create commits, push branches |
-| **Tester** | Run tests, validate acceptance criteria |
-| **Documenter** | Update docs, generate changelogs |
-| **Integrator** | Coordinate roles, manage PR lifecycle |
+| **Tester** | Write and run tests, validate acceptance criteria |
+| **Documenter** | Update docs, READMEs, and changelogs |
+| **Integrator** | Run full test suite, validate integration |
 
-Roles are enforced by the gateway — each agent can only perform operations allowed for its role. The orchestrator handles wave-based execution, dependency tracking, container lifecycle, and result collection.
+**Execution model**: Wave-based with dependencies. The coder runs first, then tester and documenter run in parallel (both depend on coder's output), and finally the integrator runs after all others complete.
+
+### Plan Phase Roles
+
+During the **plan** phase, work is divided across these specialized agents:
+
+| Role | Responsibility |
+|------|----------------|
+| **Architect** | Analyze task, research codebase, recommend approach |
+| **Task Planner** | Break work into phases and discrete tasks with acceptance criteria |
+| **Risk Analyst** | Identify technical risks, propose mitigation strategies |
+
+**Execution model**: Architect runs first, then task planner and risk analyst run in parallel (both depend on architect's analysis).
+
+### Reviewer Roles
+
+Reviewers validate phase outputs against quality criteria:
+
+| Role | Responsibility |
+|------|----------------|
+| **Unified Reviewer** | Comprehensive review across all criteria |
+| **Code Reviewer** | Security, correctness, code quality |
+| **Contract Reviewer** | Verify acceptance criteria met, task completion status |
+| **Agent Design Reviewer** | Check for agent-mode anti-patterns, autonomous operation capability |
+
+**Execution model**: Reviewers run after the integrator completes, producing structured verdicts (approved/needs_revision).
+
+### How It Works
+
+The orchestrator handles wave-based execution, dependency tracking, container lifecycle, and result collection. Each role's file access is restricted by the gateway — agents can only read/write files within their permission scope. Handoff data (e.g., changed files from coder) is passed between waves via the `EGG_HANDOFF_DATA` environment variable.
 
 ## Starting a Pipeline
 
@@ -262,6 +295,9 @@ All commands support `--json` for machine-readable output. Run `egg-orch <comman
 | `--compose` | Use Docker Compose to manage the gateway stack |
 | `--down` | Stop the Docker Compose stack (use with `--compose`) |
 | `--build` | Rebuild compose images before starting (use with `--compose`) |
+| `--multi-agent` | Enable multi-agent execution (wave-based parallel agents) |
+| `--no-multi-agent` | Disable multi-agent execution (single-agent mode) |
+| `--max-parallel <n>` | Maximum parallel agents per wave (default: 10) |
 | `--exec <cmd>` | Execute command in new ephemeral container |
 | `--timeout <min>` | Timeout for --exec commands (default: 30) |
 | `--auth <method>` | Anthropic auth method for --exec: `oauth-token` (default) or `api-key` |
