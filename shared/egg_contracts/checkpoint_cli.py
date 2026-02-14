@@ -70,15 +70,39 @@ def run_git(
     return result
 
 
-def checkout_checkpoint_branch(repo_path: str) -> Path | None:
+def _resolve_checkpoint_target(repo_path: str, checkpoint_repo: str | None = None) -> str:
+    """Resolve the fetch/ls-remote target for the checkpoint branch.
+
+    Args:
+        repo_path: Path to the repository.
+        checkpoint_repo: Optional "owner/repo" for an external checkpoint repo.
+
+    Returns:
+        A git remote name or HTTPS URL to use for fetching checkpoints.
+    """
+    if checkpoint_repo:
+        return f"https://github.com/{checkpoint_repo}.git"
+    return "origin"
+
+
+def checkout_checkpoint_branch(
+    repo_path: str, checkpoint_repo: str | None = None
+) -> Path | None:
     """
     Checkout the checkpoint branch to a temporary directory.
 
+    Args:
+        repo_path: Path to the repository.
+        checkpoint_repo: Optional "owner/repo" for an external checkpoint repo.
+            When set, fetches checkpoints from this repo instead of origin.
+
     Returns the path to the checkout, or None if branch doesn't exist.
     """
+    target = _resolve_checkpoint_target(repo_path, checkpoint_repo)
+
     # Check if branch exists
     result = run_git(
-        ["ls-remote", "--heads", "origin", CHECKPOINT_BRANCH],
+        ["ls-remote", "--heads", target, CHECKPOINT_BRANCH],
         cwd=repo_path,
         check=False,
     )
@@ -86,15 +110,22 @@ def checkout_checkpoint_branch(repo_path: str) -> Path | None:
         return None
 
     # Fetch the branch
-    run_git(["fetch", "origin", CHECKPOINT_BRANCH], cwd=repo_path, check=False)
+    run_git(["fetch", target, CHECKPOINT_BRANCH], cwd=repo_path, check=False)
 
     # Create temp directory and checkout
     temp_dir = tempfile.mkdtemp(prefix="checkpoint_browse_")
     temp_path = Path(temp_dir)
 
+    # Determine the local ref to checkout from. When fetching from a URL
+    # (external checkpoint repo) the branch may only be in FETCH_HEAD.
+    if checkpoint_repo:
+        checkout_ref = "FETCH_HEAD"
+    else:
+        checkout_ref = f"origin/{CHECKPOINT_BRANCH}"
+
     try:
         run_git(
-            ["worktree", "add", "--detach", str(temp_path), f"origin/{CHECKPOINT_BRANCH}"],
+            ["worktree", "add", "--detach", str(temp_path), checkout_ref],
             cwd=repo_path,
         )
         return temp_path
@@ -322,12 +353,29 @@ def print_checkpoint_details(checkpoint: CheckpointV2 | dict[str, Any]) -> None:
             print(f"  {op}: {count}")
 
 
+def _get_checkpoint_repo_from_args(args: argparse.Namespace) -> str | None:
+    """Get checkpoint_repo from CLI args or repo config."""
+    checkpoint_repo = getattr(args, "checkpoint_repo", None)
+    if checkpoint_repo:
+        return checkpoint_repo
+    # Try to auto-detect from repo config
+    repo_path = args.repo_path or get_repo_path()
+    try:
+        from checkpoint_handler import _get_checkpoint_repo_for_path
+
+        return _get_checkpoint_repo_for_path(repo_path)
+    except ImportError:
+        pass
+    return None
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     """List checkpoints with metadata."""
     repo_path = args.repo_path or get_repo_path()
 
     # Checkout checkpoint branch
-    worktree_path = checkout_checkpoint_branch(repo_path)
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
     if not worktree_path:
         print("No checkpoints found (checkpoint branch does not exist)")
         return 0
@@ -375,7 +423,8 @@ def cmd_show(args: argparse.Namespace) -> int:
     identifier = args.identifier
 
     # Checkout checkpoint branch
-    worktree_path = checkout_checkpoint_branch(repo_path)
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
     if not worktree_path:
         print("No checkpoints found (checkpoint branch does not exist)")
         return 1
@@ -411,9 +460,10 @@ def cmd_show(args: argparse.Namespace) -> int:
 def cmd_browse(args: argparse.Namespace) -> int:
     """Filter checkpoints by issue number."""
     repo_path = args.repo_path or get_repo_path()
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
 
     # Checkout checkpoint branch
-    worktree_path = checkout_checkpoint_branch(repo_path)
+    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
     if not worktree_path:
         print("No checkpoints found (checkpoint branch does not exist)")
         return 0
@@ -476,6 +526,10 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repo-path",
         help="Repository path (defaults to EGG_REPO_PATH or cwd)",
+    )
+    parser.add_argument(
+        "--checkpoint-repo",
+        help="External checkpoint repo in 'owner/repo' format (overrides repo_settings config)",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")

@@ -171,7 +171,7 @@ except ImportError:
 _config_path = Path(__file__).parent.parent / "config"
 if _config_path.exists() and str(_config_path) not in sys.path:
     sys.path.insert(0, str(_config_path))
-from repo_config import get_auth_mode
+from repo_config import get_auth_mode, get_checkpoint_repo
 
 logger = get_logger("gateway")
 
@@ -852,6 +852,9 @@ def git_push() -> tuple[Response, int] | Response:
                     # Get session from request context
                     session = getattr(g, "session", None)
 
+                    # Look up checkpoint repo config (may be a separate repo)
+                    ckpt_repo = get_checkpoint_repo(repo) if repo else None
+
                     if old_ref_sha:
                         # Use per-commit checkpoint creation
                         capture_and_store_checkpoints_for_push(
@@ -862,6 +865,7 @@ def git_push() -> tuple[Response, int] | Response:
                             session=session,
                             github_token=token_str,
                             async_store=True,  # Don't block push response
+                            checkpoint_repo=ckpt_repo,
                         )
                     else:
                         # Fallback: couldn't get old ref, create single checkpoint
@@ -873,6 +877,7 @@ def git_push() -> tuple[Response, int] | Response:
                             push_sha=new_sha,
                             github_token=token_str,
                             async_store=True,
+                            checkpoint_repo=ckpt_repo,
                         )
             except Exception as checkpoint_err:
                 # Checkpoint failure should never block push success

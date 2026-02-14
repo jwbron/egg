@@ -76,11 +76,17 @@ readable_repos:
 #   - checks: List of check commands for the SDLC pipeline implement phase
 #     Each entry has "name" (display label) and "command" (shell command)
 #     These run sequentially during the checker step
+#   - checkpoint_repo: Push checkpoints to a separate repo instead of the
+#     source repo. Value is "owner/repo" format. The checkpoint branch
+#     (egg/checkpoints/v2) will be created in this repo. Useful for keeping
+#     session transcripts and tool call data private/separate.
+#     Default: not set (checkpoints stored in the same repo)
 repo_settings:
   # Example:
   # YOUR_USERNAME/egg:
   #   restrict_to_configured_users: true
   #   disable_auto_fix: true
+  #   checkpoint_repo: YOUR_USERNAME/egg-checkpoints
   #   checks:
   #     - name: lint
   #       command: make lint

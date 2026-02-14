@@ -324,6 +324,22 @@ except ImportError:
         ]
 
 
+def get_checkpoint_repo(repo: str) -> str | None:
+    """Get the checkpoint destination repo for a repository.
+
+    When set, checkpoints are pushed to a separate repository instead of the
+    same repo being worked on. This is useful for privacy, keeping checkpoint
+    data (session transcripts, tool calls) out of the source repo's history.
+
+    Args:
+        repo: Repository in "owner/repo" format
+
+    Returns:
+        Checkpoint repo in "owner/repo" format, or None to use the same repo.
+    """
+    return get_repo_setting(repo, "checkpoint_repo", None)
+
+
 def get_repo_checks(repo: str) -> list[dict[str, str]]:
     """Get configured check commands for a repository.
 

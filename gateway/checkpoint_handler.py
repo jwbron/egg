@@ -625,6 +625,7 @@ class CheckpointHandler:
         checkpoint: CheckpointV2,
         repo_path: str,
         remote: str = "origin",
+        checkpoint_repo: str | None = None,
     ) -> bool:
         """
         Store a v2 checkpoint in the checkpoint branch.
@@ -636,6 +637,10 @@ class CheckpointHandler:
             checkpoint: The v2 checkpoint to store
             repo_path: Path to the repository
             remote: Git remote name
+            checkpoint_repo: Optional "owner/repo" for a separate checkpoint
+                destination. When set, checkpoints are pushed to this repo
+                instead of the source repo's remote. Useful for keeping
+                checkpoint data (transcripts, tool calls) private.
 
         Returns:
             True if successful, False otherwise
@@ -643,16 +648,28 @@ class CheckpointHandler:
         if not CHECKPOINT_ENABLED:
             return False
 
+        # Determine the push/fetch target: either a separate repo URL or the
+        # existing remote name.
+        if checkpoint_repo:
+            target = f"https://github.com/{checkpoint_repo}.git"
+            logger.info(
+                "Using external checkpoint repo",
+                checkpoint_repo=checkpoint_repo,
+                target=target,
+            )
+        else:
+            target = remote
+
         try:
             with tempfile.TemporaryDirectory(prefix="checkpoint_") as temp_dir:
                 temp_path = Path(temp_dir)
 
-                branch_exists = self._branch_exists(repo_path, remote, CHECKPOINT_BRANCH)
+                branch_exists = self._branch_exists(repo_path, target, CHECKPOINT_BRANCH)
 
                 if branch_exists:
                     self._run_git(
                         repo_path,
-                        ["fetch", remote, f"{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}"],
+                        ["fetch", target, f"{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}"],
                     )
                     self._run_git(
                         repo_path,
@@ -711,7 +728,7 @@ class CheckpointHandler:
 
                     self._run_git(
                         str(temp_path),
-                        ["push", remote, f"HEAD:{CHECKPOINT_BRANCH}"],
+                        ["push", target, f"HEAD:{CHECKPOINT_BRANCH}"],
                         timeout=120,
                     )
 
@@ -720,6 +737,7 @@ class CheckpointHandler:
                         checkpoint_id=checkpoint.id,
                         branch=CHECKPOINT_BRANCH,
                         trigger_type=checkpoint.trigger_type.value,
+                        checkpoint_repo=checkpoint_repo or "(same repo)",
                     )
 
                     # Update usage aggregates (graceful degradation on failure)
@@ -751,6 +769,7 @@ class CheckpointHandler:
                 "Failed to store checkpoint",
                 error=str(e),
                 checkpoint_id=checkpoint.id,
+                checkpoint_repo=checkpoint_repo,
             )
             return False
 
@@ -833,12 +852,18 @@ def capture_and_store_checkpoint(
     push_sha: str | None = None,
     github_token: str | None = None,
     async_store: bool = True,
+    checkpoint_repo: str | None = None,
 ) -> CheckpointV2 | None:
     """
     Capture and store a v2 checkpoint for a commit.
 
     This is the main entry point for checkpoint capture from gateway.py.
     By default, storage is done asynchronously to not block the push response.
+
+    Args:
+        checkpoint_repo: Optional "owner/repo" for a separate checkpoint
+            destination. When set, checkpoints are pushed to this repo
+            instead of the source repo.
     """
     if not CHECKPOINT_ENABLED:
         return None
@@ -862,7 +887,9 @@ def capture_and_store_checkpoint(
 
         def _store_with_error_handling() -> None:
             try:
-                handler.store_checkpoint_v2(checkpoint, repo_path)
+                handler.store_checkpoint_v2(
+                    checkpoint, repo_path, checkpoint_repo=checkpoint_repo
+                )
             except Exception as e:
                 logger.error(
                     "Async checkpoint storage failed",
@@ -877,7 +904,9 @@ def capture_and_store_checkpoint(
         )
         thread.start()
     else:
-        handler.store_checkpoint_v2(checkpoint, repo_path)
+        handler.store_checkpoint_v2(
+            checkpoint, repo_path, checkpoint_repo=checkpoint_repo
+        )
 
     return checkpoint
 
@@ -892,12 +921,18 @@ def capture_and_store_checkpoints_for_push(
     pipeline_phase: str | None = None,
     github_token: str | None = None,
     async_store: bool = True,
+    checkpoint_repo: str | None = None,
 ) -> list[CheckpointV2]:
     """
     Capture and store v2 checkpoints for all commits in a push.
 
     Creates one checkpoint per commit with trigger_type=COMMIT. The push_sha
     field on each checkpoint points to the tip commit (new_sha).
+
+    Args:
+        checkpoint_repo: Optional "owner/repo" for a separate checkpoint
+            destination. When set, checkpoints are pushed to this repo
+            instead of the source repo.
     """
     if not CHECKPOINT_ENABLED:
         return []
@@ -948,7 +983,9 @@ def capture_and_store_checkpoints_for_push(
         def _store_all_with_error_handling() -> None:
             for cp in checkpoints:
                 try:
-                    handler.store_checkpoint_v2(cp, repo_path)
+                    handler.store_checkpoint_v2(
+                        cp, repo_path, checkpoint_repo=checkpoint_repo
+                    )
                 except Exception as e:
                     logger.error(
                         "Async checkpoint storage failed",
@@ -964,9 +1001,59 @@ def capture_and_store_checkpoints_for_push(
         thread.start()
     else:
         for cp in checkpoints:
-            handler.store_checkpoint_v2(cp, repo_path)
+            handler.store_checkpoint_v2(
+                cp, repo_path, checkpoint_repo=checkpoint_repo
+            )
 
     return checkpoints
+
+
+def _get_checkpoint_repo_for_path(repo_path: str) -> str | None:
+    """Determine the checkpoint_repo config for a given repo path.
+
+    Extracts the owner/repo from the git remote URL and looks up the
+    checkpoint_repo setting in repo_config.
+
+    Args:
+        repo_path: Path to the git repository
+
+    Returns:
+        Checkpoint repo in "owner/repo" format, or None.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        remote_url = result.stdout.strip()
+
+        # Import here to avoid circular imports at module level
+        try:
+            from config.repo_config import get_checkpoint_repo
+
+            # Extract owner/repo from URL
+            import re
+
+            patterns = [
+                r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$",
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, remote_url)
+                if match:
+                    repo = f"{match.group(1)}/{match.group(2)}"
+                    return get_checkpoint_repo(repo)
+        except (ImportError, FileNotFoundError):
+            pass
+    except Exception:
+        pass
+    return None
 
 
 def capture_session_end_checkpoint(
@@ -975,6 +1062,7 @@ def capture_session_end_checkpoint(
     repo_path: str | None = None,
     github_token: str | None = None,
     async_store: bool = True,
+    checkpoint_repo: str | None = None,
 ) -> tuple[CheckpointV2 | None, threading.Event | None]:
     """
     Capture and store a session-end checkpoint.
@@ -989,6 +1077,9 @@ def capture_session_end_checkpoint(
         repo_path: Optional repo path for context
         github_token: Optional GitHub token for pushing
         async_store: If True, store asynchronously (default)
+        checkpoint_repo: Optional "owner/repo" for a separate checkpoint
+            destination. If not provided and repo_path is available, will
+            attempt to look up the config from repo settings.
 
     Returns:
         Tuple of (checkpoint, completion_event). completion_event is None
@@ -1025,12 +1116,18 @@ def capture_session_end_checkpoint(
         )
         return checkpoint, None
 
+    # Auto-detect checkpoint_repo from repo config if not explicitly provided
+    if checkpoint_repo is None:
+        checkpoint_repo = _get_checkpoint_repo_for_path(repo_path)
+
     if async_store:
         completion_event = threading.Event()
 
         def _store_with_event() -> None:
             try:
-                handler.store_checkpoint_v2(checkpoint, repo_path)
+                handler.store_checkpoint_v2(
+                    checkpoint, repo_path, checkpoint_repo=checkpoint_repo
+                )
             except Exception as e:
                 logger.error(
                     "Async session-end checkpoint storage failed",
@@ -1048,5 +1145,7 @@ def capture_session_end_checkpoint(
         thread.start()
         return checkpoint, completion_event
     else:
-        handler.store_checkpoint_v2(checkpoint, repo_path)
+        handler.store_checkpoint_v2(
+            checkpoint, repo_path, checkpoint_repo=checkpoint_repo
+        )
         return checkpoint, None
