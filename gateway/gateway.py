@@ -1398,8 +1398,12 @@ def gh_pr_create() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
-    # Block PR creation in local SDLC mode
-    if session_mode == "local":
+    # Get session phase from request context (set by @require_session_auth decorator)
+    session_phase = getattr(g, "session_phase", None)
+
+    # Block PR creation in local SDLC mode (except during PR phase, where
+    # phase-permissions grant it and the gateway provides push access).
+    if session_mode == "local" and session_phase != "pr":
         audit_log(
             "pr_create_blocked_local_mode",
             "gh_pr_create",
@@ -1411,9 +1415,6 @@ def gh_pr_create() -> tuple[Response, int] | Response:
             status_code=403,
             details={"session_mode": "local"},
         )
-
-    # Get session phase from request context (set by @require_session_auth decorator)
-    session_phase = getattr(g, "session_phase", None)
 
     # Check phase restrictions (if session has a phase set)
     if session_phase:
@@ -1599,8 +1600,9 @@ def gh_pr_comment() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
-    # Block PR comment in local SDLC mode
-    if session_mode == "local":
+    # Block PR comment in local SDLC mode (except during PR phase)
+    session_phase = getattr(g, "session_phase", None)
+    if session_mode == "local" and session_phase != "pr":
         audit_log(
             "pr_comment_blocked_local_mode",
             "gh_pr_comment",
@@ -1731,8 +1733,9 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
-    # Block PR edit in local SDLC mode
-    if session_mode == "local":
+    # Block PR edit in local SDLC mode (except during PR phase)
+    session_phase = getattr(g, "session_phase", None)
+    if session_mode == "local" and session_phase != "pr":
         audit_log(
             "pr_edit_blocked_local_mode",
             "gh_pr_edit",
@@ -1853,8 +1856,9 @@ def gh_pr_close() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
-    # Block PR close in local SDLC mode
-    if session_mode == "local":
+    # Block PR close in local SDLC mode (except during PR phase)
+    session_phase = getattr(g, "session_phase", None)
+    if session_mode == "local" and session_phase != "pr":
         audit_log(
             "pr_close_blocked_local_mode",
             "gh_pr_close",
@@ -1970,8 +1974,9 @@ def gh_execute() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
-    # Block all gh commands in local SDLC mode
-    if session_mode == "local":
+    # Block gh commands in local SDLC mode (except during PR phase)
+    session_phase = getattr(g, "session_phase", None)
+    if session_mode == "local" and session_phase != "pr":
         audit_log(
             "gh_command_blocked_local_mode",
             "gh_execute",
