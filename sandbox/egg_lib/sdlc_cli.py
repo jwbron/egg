@@ -255,9 +255,6 @@ def watch_pipeline(
                 except Exception:
                     pass
 
-    # Should not reach here, but handle timeout reconnect
-    return "error"
-
 
 # --- Local Mode ---
 

@@ -28,6 +28,7 @@ class _StubHandler(BaseHTTPRequestHandler):
 
     # Set by each test via the _serve() context manager
     responses: dict = {}  # path → (status, body_dict)
+    last_path: str = ""  # full path including query string from last request
 
     def do_GET(self):
         self._handle()
@@ -39,6 +40,7 @@ class _StubHandler(BaseHTTPRequestHandler):
         self._handle()
 
     def _handle(self):
+        _StubHandler.last_path = self.path
         key = self.path.split("?")[0]
         status, body = self.responses.get(key, (404, {"message": "not found"}))
         payload = json.dumps(body).encode()
@@ -214,9 +216,14 @@ class TestGetPipeline:
 class TestGetPipelineStatus:
     def test_success(self, stub_server):
         client, set_resp = stub_server
-        set_resp({
-            "/api/v1/pipelines/p1/status": (200, {"data": {"status": "running", "phase": "refine"}})
-        })
+        set_resp(
+            {
+                "/api/v1/pipelines/p1/status": (
+                    200,
+                    {"data": {"status": "running", "phase": "refine"}},
+                )
+            }
+        )
         result = client.get_pipeline_status("p1")
         assert result["status"] == "running"
 
@@ -231,22 +238,25 @@ class TestListDecisions:
         assert result[0]["id"] == "d1"
 
     def test_pending_only(self, stub_server):
-        """pending_only appends query param. Stub ignores query, but path routes correctly."""
+        """pending_only=True sends ?pending_only=true matching the server parameter name."""
         client, set_resp = stub_server
         set_resp({"/api/v1/pipelines/p1/decisions": (200, {"data": {"decisions": [{"id": "d1"}]}})})
         result = client.list_decisions("p1", pending_only=True)
         assert len(result) == 1
+        assert "pending_only=true" in _StubHandler.last_path
 
 
 class TestResolveDecision:
     def test_success(self, stub_server):
         client, set_resp = stub_server
-        set_resp({
-            "/api/v1/pipelines/p1/decisions/d1/resolve": (
-                200,
-                {"status": "resolved"},
-            )
-        })
+        set_resp(
+            {
+                "/api/v1/pipelines/p1/decisions/d1/resolve": (
+                    200,
+                    {"status": "resolved"},
+                )
+            }
+        )
         result = client.resolve_decision("p1", "d1", "Approved")
         assert result["status"] == "resolved"
 

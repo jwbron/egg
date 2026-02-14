@@ -88,8 +88,7 @@ class OrchClient:
             raise
         except ConnectionRefusedError:
             raise OrchestratorError(
-                f"Cannot connect to orchestrator at {self.base_url}. "
-                "Is the orchestrator running?"
+                f"Cannot connect to orchestrator at {self.base_url}. Is the orchestrator running?"
             ) from None
         except TimeoutError:
             raise OrchestratorError(
@@ -175,13 +174,11 @@ class OrchClient:
         data = self._request("GET", f"/api/v1/pipelines/{pipeline_id}/status")
         return data.get("data", data)
 
-    def list_decisions(
-        self, pipeline_id: str, pending_only: bool = False
-    ) -> list[dict[str, Any]]:
+    def list_decisions(self, pipeline_id: str, pending_only: bool = False) -> list[dict[str, Any]]:
         """List HITL decisions for a pipeline."""
         path = f"/api/v1/pipelines/{pipeline_id}/decisions"
         if pending_only:
-            path += "?pending=true"
+            path += "?pending_only=true"
         data = self._request("GET", path)
         return data.get("data", {}).get("decisions", [])
 
