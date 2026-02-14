@@ -1892,6 +1892,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 store.save_pipeline(pipeline)
                 return
 
+        hitl_revision_feedback: str | None = None
+
         while True:
             pipeline = store.load_pipeline(pipeline_id)
 
@@ -1947,7 +1949,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 phase_gateway_mode = "public"
 
             phase_failed = False
-            review_feedback: str | None = None
+            review_feedback: str | None = hitl_revision_feedback
+            hitl_revision_feedback = None
 
             # --- Inner review cycle ---
             while True:
@@ -2370,14 +2373,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
                 question = (
                     f"The {current_phase.value} phase has completed. "
-                    f"Please review the {phase_label} and approve to continue."
+                    f"Please review the {phase_label} and approve to continue, "
+                    f"or provide feedback to request changes."
                 )
 
                 dq = get_decision_queue(pipeline_id, repo_path)
                 decision = dq.queue_decision(
                     question=question,
                     context=draft_content,
-                    options=["approve"],
+                    options=["approve", "request changes"],
                     timeout_seconds=pipeline.config.decision_timeout,
                 )
 
@@ -2407,7 +2411,35 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         decision_id=decision.id,
                     )
 
-                # Resume — reload since decision resolution may have modified state
+                # Check resolution — did the human approve or request changes?
+                resolved_decision = dq.get_decision(decision.id)
+                resolution = (resolved_decision.resolution or "").strip()
+
+                _APPROVE_KEYWORDS = {"approved", "approve", "lgtm", "yes", ""}
+                if resolution.lower() not in _APPROVE_KEYWORDS:
+                    # Human provided feedback — re-run the phase with corrections
+                    logger.info(
+                        "HITL gate: changes requested, re-running phase",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        feedback_preview=resolution[:200],
+                    )
+                    hitl_revision_feedback = resolution
+                    pipeline = store.load_pipeline(pipeline_id)
+                    pipeline.status = PipelineStatus.RUNNING
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    phase_execution.status = PipelineStatus.RUNNING
+                    phase_execution.review_cycles += 1
+                    store.save_pipeline(pipeline)
+
+                    report_pipeline_status(
+                        pipeline,
+                        event_type="phase.revision_requested",
+                        message=f"Human requested changes to {current_phase.value}",
+                    )
+                    continue  # Re-enter outer loop → re-run phase with feedback
+
+                # Approved — resume and advance
                 pipeline = store.load_pipeline(pipeline_id)
                 pipeline.status = PipelineStatus.RUNNING
                 # Restore phase status to COMPLETE now that the HITL gate is cleared
