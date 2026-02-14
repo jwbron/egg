@@ -1568,7 +1568,7 @@ def _build_agent_prompt(
             pipeline_mode=pipeline_mode,
             reviewer_type=reviewer_type,
             issue_number=issue_number,
-            review_cycle=review_cycle,
+            review_cycle=review_cycle + 1,
             prior_feedback=review_feedback,
         )
     else:
@@ -2811,7 +2811,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_mode=pipeline_mode,
                             reviewer_type=rtype,
                             issue_number=pipeline.issue_number,
-                            review_cycle=review_cycle,
+                            review_cycle=review_cycle + 1,
                             prior_feedback=review_feedback,
                         )
                         reviewer_command = [
