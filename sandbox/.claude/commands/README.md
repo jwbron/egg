@@ -5,14 +5,15 @@ This directory contains slash command documentation for Claude Code CLI in the s
 ## Available Commands
 
 ### /sdlc
-Initialize and start an SDLC pipeline for an issue.
+Redirects to the `egg-sdlc` CLI tool for launching SDLC pipelines.
 
 **Usage**: `/sdlc <issue_number> [--repo owner/repo]`
 
 **What it does**:
-- Creates a new pipeline in the egg-orchestrator
-- Starts automated multi-agent orchestration
-- Shows how to monitor progress
+- Provides instructions to use the `egg-sdlc` CLI directly
+- The `egg-sdlc` CLI handles DAG visualization and HITL checkpoints
+
+**Recommended**: Use `egg-sdlc` directly instead of `/sdlc` for better TTY support.
 
 **File**: `sdlc.md`
 

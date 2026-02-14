@@ -8,7 +8,7 @@ A structurally enforced SDLC pipeline for autonomous LLM agents — turning task
 
 ## How It Works
 
-Run `egg` to start an interactive session, then use the `/sdlc` skill to launch a multi-agent pipeline. The agent cannot skip steps, self-approve work, or bypass review — these constraints are enforced by the gateway infrastructure, not by prompts.
+Use the `egg-sdlc` CLI to launch a multi-agent pipeline. The agent cannot skip steps, self-approve work, or bypass review — these constraints are enforced by the gateway infrastructure, not by prompts.
 
 ```
          ┌───────────┐     ┌───────────┐     ┌───────────────┐     ┌──────────┐
@@ -26,11 +26,13 @@ Run `egg` to start an interactive session, then use the `/sdlc` skill to launch 
 3. **Implement** — Agent creates a draft PR and implements tasks. CI runs, automated review provides line-level feedback. Re-implementation cycles continue until all checks pass.
 4. **Merge** — Draft PR is marked ready. Only a human can merge via GitHub UI.
 
-The `/sdlc` skill supports two modes:
-- **Issue mode** (`/sdlc 123`): GitHub-issue-driven pipeline with full remote integration
-- **Local mode** (`/sdlc` with no args): Prompt-driven pipeline that runs entirely locally
+The `egg-sdlc` CLI supports two modes:
+- **Issue mode** (`egg-sdlc 123`): GitHub-issue-driven pipeline with full remote integration
+- **Local mode** (`egg-sdlc` with no args): Prompt-driven pipeline that runs entirely locally
 
 Both modes create a pipeline in the orchestrator, which spawns sandbox containers to execute each phase as a DAG. Pipeline state lives in a JSON contract (`.egg-state/contracts/{identifier}.json`) committed to the feature branch, giving full auditability of every phase transition.
+
+For convenience, the `/sdlc` skill inside the `egg` interactive session redirects to `egg-sdlc`, so you can invoke it either way.
 
 ## The Gateway
 
@@ -124,12 +126,13 @@ Roles are enforced by the gateway — each agent can only perform operations all
 ## Starting a Pipeline
 
 ```bash
-# Start egg
-egg
+# Direct CLI (recommended)
+egg-sdlc 123              # Issue mode — drives from GitHub issue #123
+egg-sdlc                  # Local mode — prompt-driven, no GitHub interaction
 
-# Inside the session, launch the SDLC pipeline:
-/sdlc 123              # Issue mode — drives from GitHub issue #123
-/sdlc                  # Local mode — prompt-driven, no GitHub interaction
+# Or from inside an egg session
+egg
+/sdlc 123                 # Redirects to egg-sdlc
 ```
 
 The pipeline creates a draft PR automatically when entering the implement phase. Once all checks pass, the PR is marked ready for human review and merge.
@@ -156,7 +159,7 @@ egg
 
 Running `egg` starts the gateway and sandbox automatically. On first run it will prompt you to configure repositories and credentials via `egg --setup`. By default it launches in public mode (full internet access); use `egg --private` for network-locked private repo mode.
 
-Once inside a session, use `/sdlc` to launch the full pipeline, or work interactively with individual agent modes (`/coder-mode`, `/tester-mode`, etc.).
+Use `egg-sdlc` to launch the full SDLC pipeline, or work interactively inside an `egg` session with individual agent modes (`/coder-mode`, `/tester-mode`, etc.).
 
 See the [Local Quickstart Guide](docs/guides/local-quickstart.md) for detailed setup instructions including PAT-based authentication.
 
