@@ -221,10 +221,15 @@ def handle_complete_signal(
             "Contract not found for completion signal (non-fatal)",
             pipeline_id=pipeline_id,
             role=agent_role_str,
+            commit=data.get("commit"),
         )
         return make_success_response(
             "Completion acknowledged (contract not found)",
-            data={"agent_role": agent_role_str, "contract_missing": True},
+            data={
+                "agent_role": agent_role_str,
+                "contract_missing": True,
+                "commit": data.get("commit"),
+            },
         )
     except Exception as e:
         logger.error(
@@ -341,10 +346,17 @@ def handle_error_signal(
             "Contract not found for error signal (non-fatal)",
             pipeline_id=pipeline_id,
             role=agent_role_str,
+            error=error_message,
+            recoverable=recoverable,
         )
         return make_success_response(
             "Error acknowledged (contract not found)",
-            data={"agent_role": agent_role_str, "contract_missing": True},
+            data={
+                "agent_role": agent_role_str,
+                "contract_missing": True,
+                "error": error_message,
+                "recoverable": recoverable,
+            },
         )
     except Exception as e:
         logger.error(

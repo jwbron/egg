@@ -1644,7 +1644,13 @@ def _run_multi_agent_phase(
         from ..dispatch import create_dispatcher  # type: ignore
         from ..multi_agent import MultiAgentExecutor  # type: ignore
 
-    from egg_contracts.agent_roles import get_roles_for_phase
+    from egg_contracts.agent_roles import (
+        AgentRole as ContractAgentRole,
+    )
+    from egg_contracts.agent_roles import (
+        get_roles_for_phase,
+    )
+    from egg_contracts.orchestration import initialize_orchestration
 
     # Get pipeline mode
     pipeline_mode = pipeline.mode or "issue"
@@ -1721,8 +1727,6 @@ def _run_multi_agent_phase(
     # we need to reinitialize with the correct roles so the dispatcher
     # dispatches ARCHITECT, TASK_PLANNER, RISK_ANALYST instead.
     dispatcher = create_dispatcher(pipeline, worktree_repo_path)
-    from egg_contracts.agent_roles import AgentRole as ContractAgentRole
-    from egg_contracts.orchestration import initialize_orchestration
 
     phase_contract_roles = [ContractAgentRole(r.value) for r in roles]
     dispatcher.contract_orchestrator.state = initialize_orchestration(
@@ -2097,6 +2101,15 @@ def _read_check_results(repo_path: Path) -> dict | None:
         return None
 
 
+# Minimum characters of non-heading content required for a synthesized plan
+# draft to be written.  This prevents writing near-empty drafts that contain
+# only section headings (e.g. when agents produced no meaningful output).
+# A short but valid single-section output like "No architectural risks
+# identified." is ~40 chars, so 50 provides a small buffer while still
+# catching truly empty drafts.
+_MIN_PLAN_DRAFT_CONTENT_LENGTH = 50
+
+
 def _synthesize_plan_draft(
     repo_path: Path,
     pipeline_id: str,
@@ -2112,6 +2125,11 @@ def _synthesize_plan_draft(
     """
     draft_rel = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
     if not draft_rel:
+        logger.debug(
+            "No draft path for plan phase, skipping synthesis",
+            pipeline_id=pipeline_id,
+            pipeline_mode=pipeline_mode,
+        )
         return
 
     draft_path = repo_path / draft_rel
@@ -2144,8 +2162,10 @@ def _synthesize_plan_draft(
             # Agent outputs may contain a "content" or "output" key with
             # the main text, or may be the full JSON blob.
             content = data.get("content") or data.get("output") or json.dumps(data, indent=2)
-        except (json.JSONDecodeError, Exception) as e:
+        except json.JSONDecodeError:
             # Fall back to raw text if not valid JSON
+            content = raw
+        except Exception as e:
             try:
                 content = output_file.read_text()
             except Exception:
@@ -2178,11 +2198,10 @@ def _synthesize_plan_draft(
     draft_content = "\n\n".join(sections) + "\n"
 
     # Guard against a draft that has section headings but no real content.
-    # Strip headings and whitespace; require at least 50 chars of substance.
     stripped = draft_content
     for _, heading in agent_files:
         stripped = stripped.replace(f"## {heading}", "")
-    if len(stripped.strip()) < 50:
+    if len(stripped.strip()) < _MIN_PLAN_DRAFT_CONTENT_LENGTH:
         logger.warning(
             "Synthesized plan draft has insufficient content, not writing",
             pipeline_id=pipeline_id,
