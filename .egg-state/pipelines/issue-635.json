@@ -187,10 +187,10 @@
         {
           "container_id": "7bb14618796acaa2c50995272b40a84ba3cb0d30b2c6d400749a067575224bfc",
           "container_name": "egg-sandbox-egg-issue-635-checker",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-02-14T01:27:21.336291",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-02-14T01:28:32.359319",
+          "exit_code": 0,
           "agent_role": "checker",
           "session_token": null
         }
@@ -209,10 +209,10 @@
         },
         {
           "role": "checker",
-          "status": "running",
+          "status": "complete",
           "container_id": "7bb14618796acaa2c50995272b40a84ba3cb0d30b2c6d400749a067575224bfc",
           "started_at": "2026-02-14T01:27:21.336297",
-          "completed_at": null,
+          "completed_at": "2026-02-14T01:28:32.359323",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -253,9 +253,9 @@
     }
   ],
   "created_at": "2026-02-13T23:51:06.806504",
-  "updated_at": "2026-02-14T01:27:21.336363",
+  "updated_at": "2026-02-14T01:28:32.359565",
   "contract_synced": true,
   "sdlc_token_gated": false,
   "error": null,
-  "version": 34
+  "version": 35
 }
