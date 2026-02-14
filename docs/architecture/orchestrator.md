@@ -44,7 +44,7 @@ Pipelines can specify an explicit network mode that controls internet access for
 
 - **`public`**: Full internet access (default for issue-mode pipelines)
 - **`private`**: Network lockdown - Anthropic API + private GitHub repos only (enforced by gateway proxy)
-- **`None`** (auto): Falls back to pipeline mode mapping (`local` → `local`, `issue` → `public`)
+- **`None`** (auto): Falls back based on pipeline mode — `issue` → `public`, `local` → `local` for non-PR phases (switches to `public` for the PR phase to enable push access)
 
 **Setting network mode:**
 
