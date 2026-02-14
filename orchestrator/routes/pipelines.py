@@ -1520,10 +1520,10 @@ def _run_multi_agent_phase(
         (exit_code, combined_logs) — 0 on success.
     """
     try:
-        from dispatch import PipelineDispatcher, create_dispatcher
+        from dispatch import create_dispatcher
         from multi_agent import MultiAgentExecutor
     except ImportError:
-        from ..dispatch import PipelineDispatcher, create_dispatcher  # type: ignore
+        from ..dispatch import create_dispatcher  # type: ignore
         from ..multi_agent import MultiAgentExecutor  # type: ignore
 
     # Import agent roles helper

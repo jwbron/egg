@@ -38,6 +38,15 @@ class AgentRole:
     TESTER = "tester"
     DOCUMENTER = "documenter"
     INTEGRATOR = "integrator"
+    # Plan-phase roles
+    ARCHITECT = "architect"
+    TASK_PLANNER = "task_planner"
+    RISK_ANALYST = "risk_analyst"
+    # Reviewer roles
+    REVIEWER_UNIFIED = "reviewer_unified"
+    REVIEWER_CODE = "reviewer_code"
+    REVIEWER_CONTRACT = "reviewer_contract"
+    REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
 
 
 @dataclass
