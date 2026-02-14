@@ -289,10 +289,10 @@
         {
           "container_id": "8baaeebc14aa0aa909cdf68f692b7ff763e604dc08663d55f7f57f0ce221b61b",
           "container_name": "egg-sandbox-egg-issue-659-coder",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-02-14T21:55:18.434714",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-02-14T21:55:21.603358",
+          "exit_code": 1,
           "agent_role": "coder",
           "session_token": null
         }
@@ -300,13 +300,13 @@
       "agents": [
         {
           "role": "coder",
-          "status": "running",
+          "status": "failed",
           "container_id": "8baaeebc14aa0aa909cdf68f692b7ff763e604dc08663d55f7f57f0ce221b61b",
           "started_at": "2026-02-14T21:55:18.434724",
-          "completed_at": null,
+          "completed_at": "2026-02-14T21:55:21.603363",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         }
@@ -348,8 +348,8 @@
     }
   ],
   "created_at": "2026-02-14T06:22:58.057692",
-  "updated_at": "2026-02-14T21:55:18.434889",
+  "updated_at": "2026-02-14T21:55:21.603528",
   "contract_synced": true,
   "error": null,
-  "version": 43
+  "version": 44
 }
