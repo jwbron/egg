@@ -1,10 +1,10 @@
-# Reusable SDLC Workflows
+# Reusable Workflows
 
-This guide explains how to use egg's SDLC workflows in your own repositories.
+This guide explains how to use egg's reusable workflows in your own repositories.
 
 ## Overview
 
-The egg project provides a set of reusable GitHub Actions workflows for AI-powered code review, autofix, conflict resolution, and SDLC pipeline management. These workflows can be called from any repository that has the required secrets configured.
+The egg project provides a set of reusable GitHub Actions workflows for AI-powered code review, autofix, conflict resolution, and review feedback handling. These workflows can be called from any repository that has the required secrets configured.
 
 ## Version Pinning
 
@@ -112,52 +112,6 @@ jobs:
       BOT_APP_INSTALLATION_ID: ${{ secrets.BOT_APP_INSTALLATION_ID }}
       ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
 ```
-
-### Mention Response Workflow
-
-**`on-mention.yml`** - Respond when the bot is mentioned.
-
-```yaml
-jobs:
-  respond:
-    uses: jwbron/egg/.github/workflows/on-mention.yml@main
-    with:
-      issue_or_pr_number: ${{ github.event.issue.number }}
-      bot_username: ${{ vars.EGG_BOT_USERNAME }}
-      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
-      authorized_users: "user1,user2"
-    secrets:
-      BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
-      BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-      BOT_APP_INSTALLATION_ID: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-      ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
-```
-
-### SDLC Pipeline
-
-**`sdlc-pipeline.yml`** - Full SDLC pipeline for issue-to-PR automation.
-
-```yaml
-jobs:
-  pipeline:
-    uses: jwbron/egg/.github/workflows/sdlc-pipeline.yml@main
-    with:
-      issue_number: ${{ github.event.issue.number }}
-      bot_username: ${{ vars.EGG_BOT_USERNAME }}
-      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}  # Creates <prefix>/issue-N branches
-    secrets:
-      BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
-      BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-      BOT_APP_INSTALLATION_ID: ${{ secrets.BOT_APP_INSTALLATION_ID }}
-      ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
-```
-
-The pipeline is triggered by applying the `sdlc:refine` label to an issue. You can set up the SDLC labels in your repository using the setup script:
-
-```bash
-.github/scripts/setup-sdlc-labels.sh --repo owner/repo
-```
-
 
 ## Common Parameters
 

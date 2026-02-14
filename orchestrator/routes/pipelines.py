@@ -637,7 +637,7 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
 
 
 def _get_unified_criteria(phase: str) -> str:
-    """Return unified review criteria ported from build-unified-review-prompt.sh."""
+    """Return unified review criteria for the given phase."""
     if phase == "refine":
         return (
             "### 1. Problem Understanding\n"
@@ -718,7 +718,7 @@ def _get_unified_criteria(phase: str) -> str:
 
 
 def _get_agent_design_criteria() -> str:
-    """Return agent-mode design review criteria from build-agent-mode-design-review-prompt-workloop.sh."""
+    """Return agent-mode design review criteria."""
     return (
         "Flag these **clear** anti-patterns:\n\n"
         "1. **Excessive pre-fetching** — Baking large diffs (10KB+) or full file contents "
@@ -735,7 +735,7 @@ def _get_agent_design_criteria() -> str:
 
 
 def _get_code_review_criteria() -> str:
-    """Return code review criteria from build-code-review-prompt-workloop.sh."""
+    """Return code review criteria."""
     return (
         "### Security (highest priority)\n"
         "- Injection vulnerabilities (SQL, command, XSS, LDAP, path traversal)\n"
@@ -760,7 +760,7 @@ def _get_code_review_criteria() -> str:
 
 
 def _get_contract_review_criteria() -> str:
-    """Return contract verification criteria from build-contract-verification-prompt-workloop.sh."""
+    """Return contract verification criteria."""
     return (
         "### Task Verification\n"
         "For each task in the contract, verify:\n"
@@ -783,7 +783,7 @@ def _get_contract_review_criteria() -> str:
     )
 
 
-# Per-phase reviewer matrix matching GHA sdlc-work-loop.yml
+# Per-phase reviewer matrix
 _PHASE_REVIEWERS: dict[str, list[str]] = {
     "refine": ["unified", "agent-design"],
     "plan": ["unified", "agent-design"],
@@ -1076,20 +1076,20 @@ def _commit_statefiles_to_worktree(
 
     subprocess.run(
         [*git_base, "add", ".egg-state/"],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, check=True, timeout=30,
     )
 
     # Only commit if there are staged changes (idempotent on re-runs)
     result = subprocess.run(
         [*git_base, "diff", "--cached", "--quiet", "--", ".egg-state/"],
-        capture_output=True, text=True, check=False,
+        capture_output=True, text=True, check=False, timeout=30,
     )
     if result.returncode == 0:
         return  # Nothing to commit
 
     subprocess.run(
         [*git_base, "commit", "--no-verify", "-m", message, "--", ".egg-state/"],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, check=True, timeout=30,
     )
 
 
@@ -1106,7 +1106,7 @@ def _build_phase_prompt(
 ) -> str:
     """Build a phase-specific prompt for the sandbox Claude invocation.
 
-    Follows the same structure as action/build-sdlc-prompt.sh:
+    Follows a structured prompt format:
     Context → Task → Restrictions → Completion.  Adapted for the
     orchestrator (local mode has no GitHub issue, contract, or PR).
     """
@@ -2013,8 +2013,7 @@ def _populate_contract_from_plan(
 ) -> None:
     """Read the plan draft and populate the contract with tasks.
 
-    Lightweight version of action/populate-contract-tasks.py.
-    Reads the plan draft, extracts task structure from markdown headers,
+    Extracts task structure from markdown headers in the plan draft
     and writes tasks + acceptance criteria to the contract.
     """
     try:

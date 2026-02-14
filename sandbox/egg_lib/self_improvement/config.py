@@ -13,10 +13,11 @@ METRICS_FILE = METRICS_DIR / "self-improvement-metrics.json"
 
 # Workflow names that are egg-related
 EGG_WORKFLOWS = [
-    "on-mention.yml",
     "on-pull-request.yml",
     "on-check-failure.yml",
-    "self-improvement.yml",
+    "on-merge-conflict.yml",
+    "on-review-feedback.yml",
+    "on-push-doc-updater.yml",
 ]
 
 # Default time window for analysis

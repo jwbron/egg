@@ -256,63 +256,57 @@ action/
 ├── action.yml                              # GitHub Action metadata
 ├── entrypoint.sh                           # Action entry point
 ├── generate-config.sh                      # Runtime config generator
-├── build-mention-prompt.sh                 # @mention workflow prompt builder
 ├── build-review-prompt.sh                  # PR review workflow prompt builder
 ├── build-feedback-prompt.sh                # Review feedback addressing workflow prompt builder
 ├── build-autofixer-prompt.sh               # Autofixer workflow prompt builder
 ├── build-agent-mode-design-review-prompt.sh # Agent-mode design review prompt
 ├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder
 ├── build-conflict-prompt.sh                # Conflict resolution workflow prompt builder
-├── build-sdlc-prompt.sh                    # SDLC pipeline prompt builder
-├── build-unified-review-prompt.sh          # Unified review prompt builder for all SDLC phases
-├── build-coder-prompt.sh                   # Coder agent prompt builder (multi-agent)
-├── build-tester-prompt.sh                  # Tester agent prompt builder (multi-agent)
-├── build-documenter-prompt.sh              # Documenter agent prompt builder (multi-agent)
-├── build-integrator-prompt.sh              # Integrator agent prompt builder (multi-agent)
-├── contract-state.sh                       # Contract state management utility
-├── populate-contract-tasks.py              # Populates contract tasks from plan document
+├── build-contract-verification-prompt.sh  # Contract verification review prompt builder
 ├── autofixer-conventions.md                # Guidelines for autofixer behavior
 ├── conflict-conventions.md                 # Guidelines for conflict resolution via merge commits
 ├── review-conventions.md                   # Guidelines for review communication
 └── README.md
 ```
 
-## GitHub Workflows (SDLC-Related)
+## GitHub Workflows (PR Operations)
 
-Key workflows for the SDLC pipeline (see `.github/workflows/` for complete list):
+Key workflows for PR automation (see `.github/workflows/` for complete list):
 
 ```
 .github/workflows/
-├── lint.yml                                # Reusable lint workflow (called by sdlc-work-loop.yml)
-├── test.yml                                # Reusable test workflow (called by sdlc-work-loop.yml)
-├── test-integration.yml                    # Reusable integration test workflow (called by sdlc-work-loop.yml)
-├── sdlc-pipeline.yml                       # SDLC pipeline orchestration
-├── sdlc-work-loop.yml                      # Unified work/review cycle for SDLC phases
-├── sdlc-multi-agent.yml                    # Multi-agent orchestration for implement phase
-├── sdlc-hitl.yml                           # Human-in-the-loop decision handling
-└── reusable-review.yml                     # PR-based code review workflow
+├── on-pull-request.yml                     # AI code review on PR open/sync
+├── on-check-failure.yml                    # Auto-fix failing checks
+├── on-merge-conflict.yml                   # Auto-resolve merge conflicts
+├── on-review-feedback.yml                  # Address review feedback on bot PRs
+├── on-push-doc-updater.yml                 # Auto-update docs after merge
+├── on-pull-request-agent-mode-design.yml   # Agent-mode design review
+├── on-pull-request-contract-verify.yml    # Contract verification on PRs
+├── reusable-review.yml                     # PR-based code review workflow
+├── reusable-autofix.yml                    # Reusable auto-fix logic
+├── reusable-conflict-resolve.yml           # Reusable conflict resolution
+├── lint.yml                                # Lint workflow
+├── test.yml                                # Test workflow
+└── test-integration.yml                    # Integration test workflow
 ```
 
-## GitHub Workflows Scripts
+## GitHub Workflow Scripts
 
 ```
 .github/
-└── scripts/
-    ├── checks/                             # SDLC phase check scripts
-    │   ├── __init__.py
-    │   ├── base.py                         # CheckRunner base class
-    │   ├── run_check.py                    # Check execution entry point
-    │   ├── check_fixer.py                  # Auto-fix check runner
-    │   ├── deployment_check.py             # Deployment validation (DinD devserver)
-    │   ├── draft_validation_check.py       # Draft document validation
-    │   ├── lint_check.py                   # Lint check runner
-    │   ├── merge_conflict_check.py         # Merge conflict detection
-    │   ├── plan_yaml_check.py              # Plan YAML validation
-    │   └── test_check.py                   # Test execution check
-    ├── create-release.sh                   # Semantic versioning release script
-    ├── push-contract-update.sh             # Conflict-resistant contract push utility
-    ├── setup-sdlc-labels.sh                # SDLC label setup (idempotent)
-    └── transition-sdlc-label.sh            # Atomic SDLC label transitions
+├── scripts/
+│   ├── checks/                            # Python-based check framework
+│   │   ├── __init__.py
+│   │   ├── base.py                        # CheckRunner base class
+│   │   ├── check_fixer.py                 # Auto-fix check (runs make fix)
+│   │   ├── deployment_check.py            # Deployment validation (DinD devserver)
+│   │   ├── draft_validation_check.py      # Draft document validation
+│   │   ├── lint_check.py                  # Lint check (runs make lint)
+│   │   ├── merge_conflict_check.py        # Merge conflict marker detection
+│   │   ├── plan_yaml_check.py             # Plan YAML structure validation
+│   │   ├── run_check.py                   # Check runner entry point
+│   │   └── test_check.py                  # Test check (runs make test)
+│   └── create-release.sh                  # Semantic versioning release script
 ```
 
 ## Config Directory

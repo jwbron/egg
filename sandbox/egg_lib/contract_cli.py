@@ -402,7 +402,7 @@ def validate_decision_id(decision_id: str) -> None:
 def format_decision_markdown(decision_id: str, question: str, options: list[dict[str, Any]]) -> str:
     """Format a HITL decision as markdown with proper markers.
 
-    The output format matches what sdlc-hitl.yml expects:
+    The output format matches what the HITL decision handler expects:
     - HTML comment marker with decision ID for detection
     - Checkbox list for options
 

@@ -2,7 +2,7 @@
 
 Use this format when posting a phase completion comment to GitHub.
 The approval checkbox uses the `<!-- egg-phase-approval -->` marker
-which triggers the sdlc-hitl.yml workflow when edited.
+which the orchestrator's decision queue detects when edited.
 
 ## Template
 

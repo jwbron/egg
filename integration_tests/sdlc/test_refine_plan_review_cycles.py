@@ -167,7 +167,7 @@ class TestFeedbackInjection:
     """Tests for feedback injection into producer prompts."""
 
     def test_build_refine_prompt_includes_feedback(self, temp_repo, base_contract):
-        """build-sdlc-prompt.sh includes refine feedback when present."""
+        """Refine prompt includes feedback when present."""
         # Create contract with feedback
         contract_path = temp_repo / ".egg-state" / "contracts" / "400.json"
         base_contract["refine_review_cycles"] = 1
@@ -180,7 +180,7 @@ class TestFeedbackInjection:
         assert "constraints" in contract["refine_review_feedback"]
 
     def test_build_plan_prompt_includes_feedback(self, temp_repo, base_contract):
-        """build-sdlc-prompt.sh includes plan feedback when present."""
+        """Plan prompt includes feedback when present."""
         # Create contract with feedback
         base_contract["current_phase"] = "plan"
         contract_path = temp_repo / ".egg-state" / "contracts" / "400.json"

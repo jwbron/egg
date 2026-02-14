@@ -301,10 +301,10 @@ class TestStateValidation:
 
     def test_load_invalid_schema_fails(self, state_store, tmp_path):
         """Test loading invalid schema fails."""
-        # Use a valid pipeline ID format but with missing required fields
+        # Use a valid pipeline ID format but with an invalid enum value for status
         pipelines_dir = tmp_path / ".egg-state" / "pipelines"
         pipelines_dir.mkdir(parents=True)
-        (pipelines_dir / "issue-9998.json").write_text('{"id": "issue-9998"}')
+        (pipelines_dir / "issue-9998.json").write_text('{"id": "issue-9998", "status": "not-a-valid-status"}')
 
         with pytest.raises(StateValidationError):
             state_store.load_pipeline("issue-9998")

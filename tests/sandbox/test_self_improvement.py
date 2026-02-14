@@ -66,7 +66,7 @@ class TestRunLog:
             status="running",
             trigger="exec",
             logs="",
-            metadata={"task_id": "task-123", "workflow": "on-mention.yml"},
+            metadata={"task_id": "task-123", "workflow": "on-pull-request.yml"},
         )
         assert log.metadata["task_id"] == "task-123"
         assert log.completed_at is None
@@ -96,8 +96,8 @@ class TestConfig:
     def test_default_values(self):
         """Config has expected default values."""
         assert DEFAULT_SINCE_HOURS == 24
-        assert "on-mention.yml" in EGG_WORKFLOWS
         assert "on-pull-request.yml" in EGG_WORKFLOWS
+        assert "on-check-failure.yml" in EGG_WORKFLOWS
 
     def test_bot_username_default(self):
         """BOT_USERNAME has a default value."""
@@ -227,13 +227,13 @@ class TestGHALogCollector:
                     [
                         {
                             "id": 1,
-                            "path": ".github/workflows/on-mention.yml",
+                            "path": ".github/workflows/on-pull-request.yml",
                             "created_at": now.isoformat(),
                             "updated_at": now.isoformat(),
                             "status": "completed",
                             "conclusion": "success",
-                            "event": "issue_comment",
-                            "name": "egg: On Mention",
+                            "event": "pull_request",
+                            "name": "egg: On Pull Request",
                         },
                         {
                             "id": 2,
@@ -254,7 +254,7 @@ class TestGHALogCollector:
         since = now - timedelta(hours=1)
         runs = collector._fetch_workflow_runs(since)
 
-        # Should only include the on-mention workflow
+        # Should only include the on-pull-request workflow
         assert len(runs) == 1
         assert runs[0]["id"] == 1
 
@@ -371,7 +371,7 @@ class TestCollect:
                 trigger="issue_comment",
                 logs="Error: test failure",
                 metadata={
-                    "workflow": "on-mention.yml",
+                    "workflow": "on-pull-request.yml",
                     "head_branch": "main",
                     "html_url": "https://github.com/test/repo/actions/runs/123",
                 },
@@ -452,8 +452,8 @@ class TestCollect:
                 trigger="issue_comment",
                 logs="Error: gateway connection failed",
                 metadata={
-                    "workflow": "on-mention.yml",
-                    "workflow_path": ".github/workflows/on-mention.yml",
+                    "workflow": "on-pull-request.yml",
+                    "workflow_path": ".github/workflows/on-pull-request.yml",
                     "head_branch": "main",
                     "html_url": "https://github.com/test/repo/actions/runs/123",
                     "run_number": 42,
@@ -471,7 +471,7 @@ class TestCollect:
         assert "### Statistics" in markdown
         assert "### Runs to Analyze" in markdown
         assert "Run 123" in markdown
-        assert "on-mention.yml" in markdown
+        assert "on-pull-request.yml" in markdown
         assert "gateway connection failed" in markdown
         # Failed runs should have failure emoji
         assert "❌" in markdown
@@ -520,9 +520,9 @@ class TestCollect:
         # Success runs should have success emoji
         assert "✅" in markdown
 
-    def test_self_improvement_workflow_in_egg_workflows(self):
-        """self-improvement.yml is included in EGG_WORKFLOWS for self-reflection."""
-        assert "self-improvement.yml" in EGG_WORKFLOWS
+    def test_pr_workflow_in_egg_workflows(self):
+        """PR workflow is included in EGG_WORKFLOWS."""
+        assert "on-pull-request.yml" in EGG_WORKFLOWS
 
     @patch.object(GHALogCollector, "collect")
     def test_collect_run_summary_logs_omitted_flag(self, mock_collect: MagicMock):
@@ -541,7 +541,7 @@ class TestCollect:
                 trigger="issue_comment",
                 logs="x" * 20000,  # Large logs
                 metadata={
-                    "workflow": "on-mention.yml",
+                    "workflow": "on-pull-request.yml",
                     "head_branch": "main",
                     "html_url": f"https://github.com/test/repo/actions/runs/{i}",
                 },
@@ -575,7 +575,7 @@ class TestCollect:
                 trigger="issue_comment",
                 logs="x" * 20000,
                 metadata={
-                    "workflow": "on-mention.yml",
+                    "workflow": "on-pull-request.yml",
                     "head_branch": "main",
                     "html_url": f"https://github.com/test/repo/actions/runs/{i}",
                 },

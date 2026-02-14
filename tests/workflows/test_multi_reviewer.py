@@ -1,18 +1,15 @@
-"""Tests for multi-reviewer workflow integration.
+"""Tests for multi-reviewer integration.
 
-These tests verify the behavior of the parallel reviewer architecture in
-sdlc-work-loop.yml, including:
+These tests verify the behavior of the parallel reviewer architecture,
+including:
 - Review verdict aggregation logic
 - Per-reviewer feedback combination
 - Reviewer failure handling
 - Phase-based reviewer defaults
 """
 
-import os
 import sys
 from pathlib import Path
-
-import pytest
 
 # Add shared to path for import
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
@@ -156,16 +153,14 @@ class TestPhaseBasedReviewerDefaults:
         assert "contract" in names
         assert "code" in names
 
-    def test_reviewers_have_valid_scripts(self):
-        """Each reviewer should have a valid script path."""
+    def test_reviewers_have_valid_names(self):
+        """Each reviewer should have a valid name."""
         for phase in ["refine", "plan", "implement"]:
             reviewers = get_default_reviewers(phase)
 
             for reviewer in reviewers:
                 assert "name" in reviewer
-                assert "script" in reviewer
-                assert reviewer["script"].startswith("action/")
-                assert reviewer["script"].endswith(".sh")
+                assert reviewer["name"]  # Non-empty name
 
 
 class TestReviewerFailureHandling:
@@ -289,70 +284,22 @@ def combine_feedbacks(feedbacks: dict) -> str:
 
 
 def get_default_reviewers(phase: str) -> list:
-    """Get default reviewers for a phase."""
+    """Get default reviewers for a phase.
+
+    Note: Review prompts are now built by the local orchestrator
+    (orchestrator/routes/pipelines.py), not by shell scripts.
+    """
     if phase in ["refine", "plan"]:
         return [
-            {"name": "unified", "script": "action/build-unified-review-prompt.sh"},
-            {
-                "name": "agent-design",
-                "script": "action/build-agent-mode-design-review-prompt-workloop.sh",
-            },
+            {"name": "unified"},
+            {"name": "agent-design"},
         ]
     elif phase == "implement":
         return [
-            {"name": "unified", "script": "action/build-unified-review-prompt.sh"},
-            {
-                "name": "agent-design",
-                "script": "action/build-agent-mode-design-review-prompt-workloop.sh",
-            },
-            {
-                "name": "contract",
-                "script": "action/build-contract-verification-prompt-workloop.sh",
-            },
-            {"name": "code", "script": "action/build-code-review-prompt-workloop.sh"},
+            {"name": "unified"},
+            {"name": "agent-design"},
+            {"name": "contract"},
+            {"name": "code"},
         ]
     else:
-        return [{"name": "unified", "script": "action/build-unified-review-prompt.sh"}]
-
-
-class TestReviewScriptExistence:
-    """Verify that all reviewer scripts exist."""
-
-    @pytest.fixture
-    def repo_root(self):
-        """Get the repository root directory."""
-        return Path(__file__).parent.parent.parent
-
-    def test_unified_review_script_exists(self, repo_root):
-        """The unified review script should exist."""
-        script = repo_root / "action" / "build-unified-review-prompt.sh"
-        assert script.exists(), f"Missing: {script}"
-
-    def test_agent_design_review_script_exists(self, repo_root):
-        """The agent-design review script (workloop version) should exist."""
-        script = repo_root / "action" / "build-agent-mode-design-review-prompt-workloop.sh"
-        assert script.exists(), f"Missing: {script}"
-
-    def test_contract_verification_script_exists(self, repo_root):
-        """The contract verification script (workloop version) should exist."""
-        script = repo_root / "action" / "build-contract-verification-prompt-workloop.sh"
-        assert script.exists(), f"Missing: {script}"
-
-    def test_code_review_script_exists(self, repo_root):
-        """The code review script (workloop version) should exist."""
-        script = repo_root / "action" / "build-code-review-prompt-workloop.sh"
-        assert script.exists(), f"Missing: {script}"
-
-    def test_all_scripts_are_executable(self, repo_root):
-        """All review scripts should be executable."""
-        scripts = [
-            "build-unified-review-prompt.sh",
-            "build-agent-mode-design-review-prompt-workloop.sh",
-            "build-contract-verification-prompt-workloop.sh",
-            "build-code-review-prompt-workloop.sh",
-        ]
-
-        for script_name in scripts:
-            script = repo_root / "action" / script_name
-            if script.exists():
-                assert os.access(script, os.X_OK), f"Not executable: {script}"
+        return [{"name": "unified"}]

@@ -221,7 +221,7 @@ Returns a Server-Sent Events (SSE) stream for real-time updates across all activ
 
 ### Multi-Reviewer Architecture
 
-The work loop runs multiple specialized reviewers in parallel, with phase-specific defaults:
+The orchestrator runs multiple specialized reviewers in parallel, with phase-specific defaults:
 
 | Phase | Reviewers | Focus |
 |-------|-----------|-------|
@@ -231,15 +231,15 @@ The work loop runs multiple specialized reviewers in parallel, with phase-specif
 
 **Specialized Reviewers:**
 
-| Reviewer | Script | Focus |
-|----------|--------|-------|
-| **Unified** | `build-unified-review-prompt.sh` | Phase-specific quality criteria |
-| **Agent-Design** | `build-agent-mode-design-review-prompt-workloop.sh` | Agent-mode design alignment (anti-patterns) |
-| **Contract** | `build-contract-verification-prompt-workloop.sh` | Task completion, acceptance criteria |
-| **Code** | `build-code-review-prompt-workloop.sh` | Security, correctness, robustness |
+| Reviewer | Focus |
+|----------|-------|
+| **Unified** | Phase-specific quality criteria |
+| **Agent-Design** | Agent-mode design alignment (anti-patterns) |
+| **Contract** | Task completion, acceptance criteria |
+| **Code** | Security, correctness, robustness |
 
 **Verdict Aggregation:**
-- All reviewers run in parallel (matrix job)
+- All reviewers run in parallel
 - Any `needs_revision` from any reviewer → aggregate `needs_revision`
 - Feedback is combined with per-reviewer section headers
 - Failed reviewers are tracked separately and trigger escalation
@@ -282,8 +282,8 @@ The gateway enforces file access patterns for each agent role via `gateway/agent
 **Handoff Data:**
 Agents communicate via handoff data stored in `.egg-state/agent-outputs/{role}-output.json`. For example, the Coder agent outputs a list of changed files, which the Tester and Documenter agents read to focus their work.
 
-**Workflow:**
-Multi-agent orchestration is triggered via `.github/workflows/sdlc-multi-agent.yml`. The workflow reads the contract state, determines which agents can run based on dependencies, and dispatches them in parallel where possible.
+**Orchestration:**
+Multi-agent orchestration is managed by the local orchestrator (`orchestrator/container_spawner.py`). The orchestrator reads the contract state, determines which agents can run based on dependencies, and dispatches them in parallel where possible.
 
 ### Refine and Plan Phase Review Cycles
 
@@ -372,15 +372,7 @@ This structural enforcement prevents incidents where agents push code during pla
 
 ### Conflict-Resistant Contract Updates
 
-The SDLC pipeline uses `.github/scripts/push-contract-update.sh` to handle concurrent contract updates without merge conflicts. When multiple workflow jobs modify the same contract file simultaneously, traditional git rebase can fail with conflicts.
-
-The script implements a "reset-and-reapply" pattern:
-1. When a push fails, it aborts any failed rebase
-2. Resets to the remote HEAD (discarding the conflicted local commit)
-3. Re-applies the jq transformation from scratch on the fresh remote state
-4. Creates a new commit and retries the push
-
-This approach is idempotent — the jq transformation is applied to whatever the current remote state is, rather than trying to merge conflicting commits. The script accepts either a simple jq filter or a path to a script that performs complex multi-step transformations.
+The local orchestrator handles concurrent contract updates through `orchestrator/state_store.py`, which uses git-backed state management. When multiple agents modify the same contract file simultaneously, the state store handles conflict resolution automatically through its commit-based approach.
 
 ### Contract Schema
 
@@ -582,12 +574,12 @@ egg-contract agent-fail --role tester --error "Tests failed"
 
 | File | Purpose |
 |------|---------|
-| `.github/workflows/sdlc-multi-agent.yml` | Multi-agent orchestration workflow |
+| `orchestrator/container_spawner.py` | Multi-agent container lifecycle |
+| `orchestrator/multi_agent.py` | Multi-agent orchestration |
 | `shared/egg_contracts/agent_roles.py` | Agent role definitions and file access |
 | `shared/egg_contracts/orchestration.py` | Orchestration state management |
 | `shared/egg_contracts/dependency_graph.py` | Dependency graph and wave computation |
 | `shared/egg_contracts/orchestrator.py` | Dispatch logic and handoff management |
-| `action/build-{role}-prompt.sh` | Role-specific prompt builders |
 | `gateway/agent_restrictions.py` | File access validation per role |
 
 ## Circuit Breaker and Escalation
@@ -642,9 +634,9 @@ This prevents accidental double-clicks and allows humans to change their mind.
 
 ### Detection Workflow
 
-The `sdlc-hitl.yml` workflow:
+The local orchestrator's decision queue (`orchestrator/decision_queue.py`):
 
-1. Triggers on `issue_comment.edited`
+1. Monitors for decision responses
 2. Parses checkbox state using `hitl.py`
 3. Validates debounce period
 4. Updates contract with resolution
@@ -718,10 +710,10 @@ When a phase is complete and ready for human approval, agents post a comment usi
 
 Tasks are automatically extracted from the plan document and populated into the contract during the plan phase, after the plan document is validated.
 
-The `action/populate-contract-tasks.py` script (issue-mode only):
-1. Fetches the plan comment from the GitHub issue
+The orchestrator's pipeline routes (`orchestrator/routes/pipelines.py`):
+1. Fetches the plan document from the draft files
 2. Parses task markers and PR metadata using `shared/egg_contracts/plan_parser.py`
-3. Writes phases, tasks, and PR metadata into `.egg-state/contracts/{issue-number}.json`
+3. Writes phases, tasks, and PR metadata into `.egg-state/contracts/{identifier}.json`
 4. Validates the contract against the JSON schema
 5. Commits the updated contract to the feature branch
 
@@ -735,38 +727,10 @@ Each SDLC phase can run automated checks before completion. The check system pro
 
 ### Check Framework
 
-Check scripts inherit from `CheckRunner` base class (`.github/scripts/checks/base.py`) and implement a `run()` method that returns a `CheckResult`:
-
-```python
-from .base import CheckResult, CheckRunner, CheckStatus
-
-class MyCheck(CheckRunner):
-    @property
-    def check_id(self) -> str:
-        return "check-my-check"
-
-    def run(self) -> CheckResult:
-        # Validation logic here
-        return self.create_result(
-            status=CheckStatus.PASS,
-            message="Check passed",
-        )
-```
-
-Check results have three statuses:
+Phase checks are defined in `shared/egg_contracts/phase_defaults.py` and executed by the local orchestrator. Check results have three statuses:
 - `PASS`: Check succeeded
 - `FAIL`: Check failed (may be fixable)
 - `SKIP`: Check skipped (e.g., no test infrastructure found)
-
-### Running Checks
-
-Checks are executed via `run_check.py`:
-
-```bash
-python .github/scripts/checks/run_check.py lint .egg-state/contracts/123.json --repo-root .
-```
-
-The script loads the contract, runs the check, and outputs JSON with the result.
 
 ### Per-Repository Check Commands
 
@@ -902,12 +866,7 @@ When `phase_configs.{phase}.checks` is specified, it completely replaces the def
 
 ### Writing Custom Checks
 
-To add a new check:
-
-1. Create a Python file in `.github/scripts/checks/` that inherits from `CheckRunner`
-2. Implement the `check_id` property and `run()` method
-3. Register the check in `CHECK_REGISTRY` in `run_check.py`
-4. Add the check to phase defaults or contract-specific `phase_configs`
+Custom checks can be configured per-repository in `~/.config/egg/repositories.yaml` (see above) or by adding check definitions to `shared/egg_contracts/phase_defaults.py`.
 
 ### Check DAG Configuration
 
@@ -969,26 +928,13 @@ The `autofix_attempts` counter resets to 0 when:
 
 | File | Purpose |
 |------|---------|
-| `.github/workflows/sdlc-pipeline.yml` | Main pipeline orchestration |
-| `.github/workflows/sdlc-multi-agent.yml` | Multi-agent orchestration workflow |
-| `.github/workflows/sdlc-work-loop.yml` | Unified work/review/respond cycle for refine, plan, and implement phases |
+| `orchestrator/dispatch.py` | Pipeline phase dispatch |
+| `orchestrator/container_spawner.py` | Agent container lifecycle |
+| `orchestrator/multi_agent.py` | Multi-agent orchestration |
+| `orchestrator/decision_queue.py` | HITL decision handling |
+| `orchestrator/state_store.py` | Git-backed pipeline state |
+| `orchestrator/routes/pipelines.py` | Pipeline API and prompt building |
 | `.github/workflows/reusable-review.yml` | PR-based code review workflow |
-| `.github/workflows/sdlc-hitl.yml` | HITL checkbox detection |
-| `.github/scripts/checks/base.py` | CheckRunner base class for phase checks |
-| `.github/scripts/checks/run_check.py` | Check execution entry point |
-| `.github/scripts/checks/*.py` | Built-in check implementations |
-| `.github/scripts/push-contract-update.sh` | Conflict-resistant contract push utility |
-| `action/build-sdlc-prompt.sh` | Phase-specific prompt builder (includes review feedback injection) |
-| `action/build-coder-prompt.sh` | Coder agent prompt builder |
-| `action/build-tester-prompt.sh` | Tester agent prompt builder |
-| `action/build-documenter-prompt.sh` | Documenter agent prompt builder |
-| `action/build-integrator-prompt.sh` | Integrator agent prompt builder |
-| `action/build-unified-review-prompt.sh` | Unified review prompt builder for all SDLC phases |
-| `action/build-agent-mode-design-review-prompt-workloop.sh` | Agent-mode design review for work loop |
-| `action/build-contract-verification-prompt-workloop.sh` | Contract verification review for work loop |
-| `action/build-code-review-prompt-workloop.sh` | Code review for work loop |
-| `action/populate-contract-tasks.py` | Extracts tasks from plan into contract |
-| `action/contract-state.sh` | Contract state management utility |
 | `sandbox/scripts/gh` | gh wrapper with self-review fallback |
 | `shared/egg_contracts/models.py` | Pydantic models for contract (includes CheckDefinition, CheckResult, PhaseConfig) |
 | `shared/egg_contracts/agent_roles.py` | Agent role definitions and file access patterns |
@@ -1002,43 +948,6 @@ The `autofix_attempts` counter resets to 0 when:
 | `shared/egg_contracts/hitl.py` | Checkbox parsing and debounce |
 | `.egg/schemas/contract.schema.json` | JSON schema definition |
 | `.egg/phase-permissions.json` | Phase operation restrictions |
-
-## SDLC Labels
-
-The pipeline uses GitHub labels to track issue state and enable filtering:
-
-### Phase Labels
-
-| Label | Description | Applied When |
-|-------|-------------|--------------|
-| `sdlc:refine` | Issue is in refine phase | Pipeline initialized or workflow triggered |
-| `sdlc:plan` | Issue is in plan phase | Refine phase approved |
-| `sdlc:implement` | Issue is in implement phase | Plan phase approved |
-| `sdlc:pr` | Issue has a PR in review | Draft PR created |
-
-### Status Labels
-
-| Label | Description | Applied When |
-|-------|-------------|--------------|
-| `sdlc:awaiting-approval` | Human approval required | Phase completion or escalation |
-
-### Label Lifecycle
-
-1. **Pipeline start**: `sdlc:refine` is added (and triggers the pipeline)
-2. **Phase transitions**: Old phase label removed, new phase label added
-3. **Awaiting approval**: `sdlc:awaiting-approval` added when human review needed
-4. **On approval**: `sdlc:awaiting-approval` removed, phase label transitioned
-5. **Issue closed**: All SDLC labels automatically removed by cleanup workflow
-
-### Label Setup
-
-To set up SDLC labels in a repository:
-
-```bash
-.github/scripts/setup-sdlc-labels.sh --repo owner/repo
-```
-
-This script is idempotent and safe to run multiple times.
 
 ### egg-sdlc CLI
 
@@ -1077,14 +986,16 @@ egg-sdlc
 egg-sdlc 123
 ```
 
-**Via label** (recommended for CI):
-```bash
-gh issue edit 123 --add-label "sdlc:refine"
-```
+The SDLC pipeline can also be triggered via the local orchestrator API:
 
-**Via workflow dispatch**:
 ```bash
-gh workflow run sdlc-pipeline.yml -f issue_number=123 -f starting_phase=refine
+# Via orchestrator API
+curl -X POST http://localhost:9849/api/v1/pipelines \
+  -H "Content-Type: application/json" \
+  -d '{"issue_number": 123, "mode": "issue"}'
+
+# Via egg-orch CLI
+egg-orch pipeline create --issue 123
 ```
 
 ### Contract CLI Commands

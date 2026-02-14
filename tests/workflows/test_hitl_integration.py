@@ -1,8 +1,8 @@
-"""Tests verifying CLI output format matches workflow regex patterns.
+"""Tests verifying CLI output format matches HITL regex patterns.
 
-The sdlc-hitl.yml workflow uses specific regex patterns to detect HITL decisions
+The HITL decision handler uses specific regex patterns to detect decisions
 and phase approvals. These tests ensure the CLI output format matches what the
-workflow expects.
+handler expects.
 """
 
 import re
@@ -16,24 +16,21 @@ from egg_lib.contract_cli import format_decision_markdown
 
 
 class TestWorkflowRegexPatterns:
-    """Tests that CLI output matches workflow regex patterns.
+    """Tests that CLI output matches HITL regex patterns.
 
-    These patterns are extracted from .github/workflows/sdlc-hitl.yml
+    These patterns are used by the HITL decision handler to detect
+    decisions and approvals.
     """
 
-    # Pattern from sdlc-hitl.yml step "Parse decision changes":
-    # grep -oP '<!-- egg-hitl-decision id=\K[a-z0-9-]+' | head -1
-    # The regex requires a valid boundary (space or >) after the ID to match workflow behavior
+    # Pattern for parsing decision ID from HTML comment markers:
+    # The regex requires a valid boundary (space or >) after the ID
     DECISION_ID_PATTERN = re.compile(r"<!-- egg-hitl-decision id=([a-z0-9-]+)(?=[ >])")
 
-    # Pattern from sdlc-hitl.yml step "Parse decision changes":
-    # grep -oP '^\s*-\s*\[x\]\s*\K.+'
+    # Patterns for parsing checkbox state:
     CHECKED_OPTION_PATTERN = re.compile(r"^\s*-\s*\[x\]\s*(.+)$", re.MULTILINE)
     UNCHECKED_OPTION_PATTERN = re.compile(r"^\s*-\s*\[ \]\s*(.+)$", re.MULTILINE)
 
-    # Phase approval markers from sdlc-hitl.yml job "handle-approval":
-    # contains(github.event.comment.body, '<!-- egg-phase-approval') &&
-    # contains(github.event.comment.body, '[x] Approve')
+    # Phase approval markers:
     PHASE_APPROVAL_MARKER = "<!-- egg-phase-approval"
     APPROVE_CHECKBOX_PATTERN = re.compile(r"\[x\]\s*Approve")
 

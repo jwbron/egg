@@ -14,10 +14,8 @@ for how to call egg's workflows from your own repositories.
 | [AI Code Review](#ai-code-review) | PR opened/updated | Reviews code changes, posts feedback via `gh pr review` |
 | [Address Review Feedback](#address-review-feedback) | Review posted on bot PR | Automatically addresses review feedback, enabling review loops |
 | [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
-| [@mention Response](#mention-response) | Bot mention in issues/PR comments | Runs arbitrary tasks requested by authorized users |
 | [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
-| [Conflict Resolver](#conflict-resolver) | SDLC pipeline / push to main / schedule / manual | Resolves merge conflicts via merge commits |
-| [Self-Improvement](#self-improvement) | Nightly schedule (2 AM UTC) | Analyzes all runs for issues, creates tracking issues |
+| [Conflict Resolver](#conflict-resolver) | Push to main / schedule / manual | Resolves merge conflicts via merge commits |
 | [Doc Updater](#doc-updater) | Push to main | Checks if code changes require documentation updates |
 
 ## AI Code Review
@@ -227,34 +225,6 @@ The reviewer applies guidelines with judgment, not as absolute rules:
 If a PR has no agent-mode concerns, the reviewer approves with a brief note rather
 than providing general feedback that duplicates the base review.
 
-## @mention Response
-
-**Workflow:** [`.github/workflows/on-mention.yml`](../../.github/workflows/on-mention.yml)
-
-Triggers when an authorized user mentions the configured bot in:
-- Issue comments
-- PR comments
-- PR review comments (inline code comments)
-- PR review submissions (full review summary)
-- New issues
-
-### How It Works
-
-1. **Authorization** — Only runs for authorized users (currently `jwbron`).
-   Bot self-triggers are blocked as defense-in-depth.
-2. **Acknowledgment** — Reacts to the comment/issue with an eyes emoji.
-3. **Context detection** — Determines whether the mention is on a PR (checks out PR branch)
-   or an issue (checks out `main`).
-4. **Trusted prompt build** — Builds the prompt from `main`, then checks out the PR branch
-   for execution if applicable.
-5. **Execution** — Runs egg with the context of the mention. The agent can read code,
-   make changes, push commits, create PRs, and post comments.
-
-### Concurrency
-
-Mentions on the same issue/PR are queued (not cancelled) via concurrency groups,
-so each request is processed.
-
 ## Check Autofixer
 
 **Workflow:** [`.github/workflows/on-check-failure.yml`](../../.github/workflows/on-check-failure.yml)
@@ -287,17 +257,15 @@ The agent follows these rules (customizable via `.egg/autofixer-rules.md`):
 
 **Workflow:** [`.github/workflows/on-merge-conflict.yml`](../../.github/workflows/on-merge-conflict.yml)
 
-Resolves merge conflicts on PRs via merge commits. Can be triggered automatically by the SDLC pipeline, on push to main, via schedule, or manually with `workflow_dispatch`.
+Resolves merge conflicts on PRs via merge commits. Can be triggered on push to main, via schedule, or manually with `workflow_dispatch`.
 
 ### Trigger Modes
 
-1. **SDLC pipeline integration** — When the SDLC pipeline attempts to merge `origin/main` into an issue branch and encounters conflicts, it triggers this workflow via `workflow_dispatch` with the PR number and waits synchronously for resolution. If successful, the pipeline pulls the resolved changes and continues. If resolution fails, the pipeline exits with an error.
+1. **Push-triggered detection** — When code is pushed to main, waits 60 seconds for GitHub to recompute mergeable state, then queries all open PRs to find conflicts. Concurrent pushes are deduplicated via a concurrency group with cancel-in-progress.
 
-2. **Push-triggered detection** — When code is pushed to main, waits 60 seconds for GitHub to recompute mergeable state, then queries all open PRs to find conflicts. Concurrent pushes are deduplicated via a concurrency group with cancel-in-progress.
+2. **Scheduled fallback** — Runs every 2 hours as a safety net for PRs that develop conflicts outside of main branch updates or where the push-triggered run failed.
 
-3. **Scheduled fallback** — Runs every 2 hours as a safety net for PRs that develop conflicts outside of main branch updates or where the push-triggered run failed.
-
-4. **Manual dispatch** — Supports `workflow_dispatch` for manual triggering on a specific PR.
+3. **Manual dispatch** — Supports `workflow_dispatch` for manual triggering on a specific PR.
 
 ### How It Works
 
@@ -327,50 +295,6 @@ The agent follows these rules (customizable via `.egg/conflict-rules.md`):
 Each PR gets its own concurrency group (`egg-conflict-<pr_number>`) with
 `cancel-in-progress: false`, ensuring conflict resolution attempts complete rather than
 being cancelled by subsequent scheduled runs.
-
-## Self-Improvement
-
-**Workflow:** [`.github/workflows/self-improvement.yml`](../../.github/workflows/self-improvement.yml)
-
-Runs nightly at 2 AM UTC (and via `workflow_dispatch`) to analyze recent workflow runs.
-
-### How It Works
-
-1. **Run collection** — Pre-collects data from all egg-related workflow runs (mention,
-   review, autofixer, self-improvement) from the last 24 hours. Analyzes both failed
-   AND successful runs, since successful runs may contain tool errors, warnings, or
-   patterns worth investigating.
-2. **Partitioned analysis** — Run data is partitioned across multiple egg instances
-   that analyze in parallel. Each partition receives a subset of runs to ensure all
-   runs fit within context limits.
-3. **Log analysis** — For each run, examines logs via `gh run view <id> --log` to
-   understand what happened. Looks for gateway failures, auth issues, rate limiting,
-   infrastructure problems, tool failures, warnings, and recurring patterns.
-4. **Self-reflection** — The workflow analyzes its own runs. When self-improvement
-   workflow failures are detected, the agent pays special attention to improving
-   the self-improvement process itself.
-5. **Issue management** — Creates GitHub issues with the `self-improvement` label.
-   Checks for existing open issues to avoid duplicates, updating them with new
-   occurrences instead.
-
-### What It Looks For
-
-The agent uses judgment to identify issues worth tracking:
-
-| Category | Examples |
-|----------|----------|
-| **Infrastructure** | Gateway/sidecar failures, Docker issues, network problems |
-| **Authentication** | Credential issues, token expiration, permission errors |
-| **Rate limiting** | API limits, throttling patterns |
-| **Tool failures** | Tool call errors (even in successful runs), retries |
-| **Patterns** | Recurring warnings, deprecation notices, concerning trends |
-
-A single transient failure may not need an issue, but recurring patterns do.
-
-### Manual Trigger Options
-
-- `since_hours` — Analyze runs from the last N hours (default: 24)
-- `dry_run` — Analyze only, don't create issues
 
 ## Doc Updater
 
@@ -428,7 +352,6 @@ and architecture docs.
 
 ## Documentation Onboarding
 
-**Script:** [`action/build-onboarding-doc-prompt.sh`](../../action/build-onboarding-doc-prompt.sh)
 **Slash command:** `/onboarding-docs` ([`sandbox/.claude/commands/onboarding-docs.md`](../../sandbox/.claude/commands/onboarding-docs.md))
 
 Complementary to the incremental doc-updater, the onboarding capability generates comprehensive documentation for an entire repository from scratch. This is useful for bootstrapping documentation on existing codebases or creating complete documentation sets for new projects.

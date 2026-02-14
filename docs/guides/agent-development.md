@@ -163,13 +163,13 @@ AGENT_FILE_RESTRICTIONS = {
 }
 ```
 
-### Step 7: Update Workflow
+### Step 7: Register with Orchestrator
 
-Add the agent to `.github/workflows/sdlc-multi-agent.yml`:
+Register the agent with the local orchestrator's multi-agent system in `orchestrator/multi_agent.py`:
 
 1. Add to the dispatch logic
 2. Add to the parallel groups configuration
-3. Add the agent job
+3. Configure container spawning for the new agent role
 
 ### Step 8: Add Tests
 
