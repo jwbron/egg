@@ -58,6 +58,10 @@ inputs:
     description: Claude model to use
     required: false
     default: opus
+  checkpoint-repo:
+    description: "External checkpoint repo in 'owner/repo' format. Redirects checkpoint storage to a separate repository instead of the source repo. The GitHub token must have write access to both repos."
+    required: false
+    default: ""
   image-tag:
     description: Docker image tag to use (e.g., v1.0.0 or latest)
     required: false
@@ -97,6 +101,7 @@ runs:
         INPUT_MODE: ${{ inputs.mode }}
         INPUT_TIMEOUT: ${{ inputs.timeout }}
         INPUT_MODEL: ${{ inputs.model }}
+        INPUT_CHECKPOINT_REPO: ${{ inputs.checkpoint-repo }}
         INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
         GITHUB_EVENT_REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
       run: ${{ github.action_path }}/entrypoint.sh

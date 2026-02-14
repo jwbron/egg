@@ -377,6 +377,7 @@ jobs:
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
+          checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO || '' }}
           timeout: ${{ env.TIMEOUT }}
         env:
           EGG_AGENT_ROLE: coder
@@ -527,6 +528,7 @@ jobs:
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
+          checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO || '' }}
           timeout: ${{ env.TIMEOUT }}
         env:
           EGG_AGENT_ROLE: tester
@@ -657,6 +659,7 @@ jobs:
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
+          checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO || '' }}
           timeout: ${{ env.TIMEOUT }}
         env:
           EGG_AGENT_ROLE: documenter
@@ -789,6 +792,7 @@ jobs:
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-username: ${{ env.EGG_BOT_USERNAME }}
           bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
+          checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO || '' }}
           timeout: ${{ env.TIMEOUT }}
         env:
           EGG_AGENT_ROLE: integrator

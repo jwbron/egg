@@ -17,6 +17,7 @@ Commands:
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -43,6 +44,19 @@ from .usage_loader import (
 
 # Checkpoint branch name
 CHECKPOINT_BRANCH = "egg/checkpoints/v2"
+
+# Validation pattern for checkpoint_repo values (must be "owner/repo" format)
+_REPO_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
+
+
+def _validate_checkpoint_repo(checkpoint_repo: str) -> str:
+    """Validate that checkpoint_repo matches 'owner/repo' format."""
+    if not _REPO_PATTERN.match(checkpoint_repo):
+        raise ValueError(
+            f"Invalid checkpoint_repo format: {checkpoint_repo!r} "
+            f"(expected 'owner/repo')"
+        )
+    return checkpoint_repo
 
 
 def get_repo_path() -> str:
@@ -71,15 +85,40 @@ def run_git(
     return result
 
 
-def checkout_checkpoint_branch(repo_path: str) -> Path | None:
+def _resolve_checkpoint_target(repo_path: str, checkpoint_repo: str | None = None) -> str:
+    """Resolve the fetch/ls-remote target for the checkpoint branch.
+
+    Args:
+        repo_path: Path to the repository.
+        checkpoint_repo: Optional "owner/repo" for an external checkpoint repo.
+
+    Returns:
+        A git remote name or HTTPS URL to use for fetching checkpoints.
+    """
+    if checkpoint_repo:
+        _validate_checkpoint_repo(checkpoint_repo)
+        return f"https://github.com/{checkpoint_repo}.git"
+    return "origin"
+
+
+def checkout_checkpoint_branch(
+    repo_path: str, checkpoint_repo: str | None = None
+) -> Path | None:
     """
     Checkout the checkpoint branch to a temporary directory.
 
+    Args:
+        repo_path: Path to the repository.
+        checkpoint_repo: Optional "owner/repo" for an external checkpoint repo.
+            When set, fetches checkpoints from this repo instead of origin.
+
     Returns the path to the checkout, or None if branch doesn't exist.
     """
+    target = _resolve_checkpoint_target(repo_path, checkpoint_repo)
+
     # Check if branch exists
     result = run_git(
-        ["ls-remote", "--heads", "origin", CHECKPOINT_BRANCH],
+        ["ls-remote", "--heads", target, CHECKPOINT_BRANCH],
         cwd=repo_path,
         check=False,
     )
@@ -87,11 +126,17 @@ def checkout_checkpoint_branch(repo_path: str) -> Path | None:
         return None
 
     # Fetch the branch
-    run_git(["fetch", "origin", CHECKPOINT_BRANCH], cwd=repo_path, check=False)
+    run_git(["fetch", target, CHECKPOINT_BRANCH], cwd=repo_path, check=False)
 
     # Create temp directory and checkout
     temp_dir = tempfile.mkdtemp(prefix="usage_browse_")
     temp_path = Path(temp_dir)
+
+    # Determine the local ref to checkout from
+    if checkpoint_repo:
+        checkout_ref = "FETCH_HEAD"
+    else:
+        checkout_ref = f"origin/{CHECKPOINT_BRANCH}"
 
     try:
         run_git(
@@ -100,7 +145,7 @@ def checkout_checkpoint_branch(repo_path: str) -> Path | None:
                 "add",
                 "--detach",
                 str(temp_path),
-                f"origin/{CHECKPOINT_BRANCH}",
+                checkout_ref,
             ],
             cwd=repo_path,
         )
@@ -305,12 +350,29 @@ def print_workflow_usage(usage: WorkflowUsage) -> None:
     print(f"Last Updated: {format_timestamp(usage.last_updated)}")
 
 
+def _get_checkpoint_repo_from_args(args: argparse.Namespace) -> str | None:
+    """Get checkpoint_repo from CLI args or repo config."""
+    checkpoint_repo = getattr(args, "checkpoint_repo", None)
+    if checkpoint_repo:
+        return checkpoint_repo
+    # Try to auto-detect from repo config
+    repo_path = args.repo_path or get_repo_path()
+    try:
+        from checkpoint_handler import _get_checkpoint_repo_for_path
+
+        return _get_checkpoint_repo_for_path(repo_path)
+    except ImportError:
+        pass
+    return None
+
+
 def cmd_summary(args: argparse.Namespace) -> int:
     """Show overall usage summary."""
     repo_path = args.repo_path or get_repo_path()
 
     # Checkout checkpoint branch
-    worktree_path = checkout_checkpoint_branch(repo_path)
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
     if not worktree_path:
         print("No usage data found (checkpoint branch does not exist)")
         return 0
@@ -335,7 +397,8 @@ def cmd_issue(args: argparse.Namespace) -> int:
     issue_number = args.issue
 
     # Checkout checkpoint branch
-    worktree_path = checkout_checkpoint_branch(repo_path)
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
     if not worktree_path:
         print("No usage data found (checkpoint branch does not exist)")
         return 1
@@ -364,7 +427,8 @@ def cmd_session(args: argparse.Namespace) -> int:
     session_id = args.session
 
     # Checkout checkpoint branch
-    worktree_path = checkout_checkpoint_branch(repo_path)
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
     if not worktree_path:
         print("No usage data found (checkpoint branch does not exist)")
         return 1
@@ -393,7 +457,8 @@ def cmd_pr(args: argparse.Namespace) -> int:
     pr_number = args.pr
 
     # Checkout checkpoint branch
-    worktree_path = checkout_checkpoint_branch(repo_path)
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
     if not worktree_path:
         print("No usage data found (checkpoint branch does not exist)")
         return 1
@@ -422,7 +487,8 @@ def cmd_workflow(args: argparse.Namespace) -> int:
     workflow_id = args.workflow
 
     # Checkout checkpoint branch
-    worktree_path = checkout_checkpoint_branch(repo_path)
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
     if not worktree_path:
         print("No usage data found (checkpoint branch does not exist)")
         return 1
@@ -453,10 +519,13 @@ def cmd_backfill_pr(args: argparse.Namespace) -> int:
     branch = args.branch
 
     # Checkout checkpoint branch
-    worktree_path = checkout_checkpoint_branch(repo_path)
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
     if not worktree_path:
         print("No checkpoint branch found - nothing to backfill")
         return 1
+
+    push_target = _resolve_checkpoint_target(repo_path, checkpoint_repo)
 
     try:
         updated = backfill_pr_usage(
@@ -479,7 +548,7 @@ def cmd_backfill_pr(args: argparse.Namespace) -> int:
                     check=False,
                 )
                 run_git(
-                    ["push", "origin", f"HEAD:{CHECKPOINT_BRANCH}"],
+                    ["push", push_target, f"HEAD:{CHECKPOINT_BRANCH}"],
                     cwd=str(worktree_path),
                 )
                 print("  Changes pushed to checkpoint branch")
@@ -501,6 +570,10 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repo-path",
         help="Repository path (defaults to EGG_REPO_PATH or cwd)",
+    )
+    parser.add_argument(
+        "--checkpoint-repo",
+        help="External checkpoint repo in 'owner/repo' format (overrides repo_settings config)",
     )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
 
