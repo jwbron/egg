@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -58,7 +59,22 @@ def _clear_screen() -> None:
 
 
 def _get_current_repo() -> str | None:
-    """Get the current repo in owner/repo format using gh CLI."""
+    """Get the current repo in owner/repo format.
+
+    Tries multiple strategies:
+    1. EGG_REPOS env var (set by exec_in_new_container with session repo info)
+    2. gh CLI auto-detection (works when .git is available)
+    """
+    # Strategy 1: EGG_REPOS env var — reliable in gateway-managed containers
+    # where .git is shadowed by tmpfs.
+    egg_repos = os.environ.get("EGG_REPOS", "").strip()
+    if egg_repos:
+        repos = [r.strip() for r in egg_repos.split(",") if r.strip()]
+        if len(repos) == 1:
+            return repos[0]
+        # Multiple repos — can't auto-select, fall through to gh detection
+
+    # Strategy 2: gh CLI — works when running from a real git repo
     try:
         result = subprocess.run(
             ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],

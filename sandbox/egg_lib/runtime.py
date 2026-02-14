@@ -905,6 +905,12 @@ def exec_in_new_container(
         "EGG_QUIET": "1" if quiet else "0",
     }
 
+    # Pass filtered repos (owner/repo format) so in-container tools like
+    # egg-sdlc can determine the repo without relying on .git (which is
+    # shadowed by tmpfs in the gateway-managed worktree architecture).
+    if _filtered_repos:
+        caller_env["EGG_REPOS"] = ",".join(_filtered_repos)
+
     # Add correlation environment variables for log tracing
     if task_id:
         caller_env["EGG_TASK_ID"] = task_id
