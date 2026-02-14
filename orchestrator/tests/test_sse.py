@@ -564,6 +564,85 @@ class TestCreateSSEStream:
             assert "pipeline.completed" in events[0]
 
 
+    def test_refresh_sent_when_queue_empty(self):
+        """Test that a refresh event is sent when no real events arrive."""
+        pipeline = create_test_pipeline()
+        tmp_dir = Path("/tmp/test-sse-refresh")
+
+        with (
+            patch("sse.get_sse_manager") as mock_mgr,
+            patch("sse.get_state_store") as mock_store,
+            patch("sse.render_pipeline_dag") as mock_dag,
+            patch("sse.generate_status_report") as mock_report,
+            patch("sse.REFRESH_INTERVAL", 0.01),
+        ):
+            mock_q = Queue()
+            mock_manager = MagicMock()
+            mock_manager.add_client.return_value = mock_q
+            mock_mgr.return_value = mock_manager
+
+            store_instance = MagicMock()
+            store_instance.load_pipeline.return_value = pipeline
+            mock_store.return_value = store_instance
+            mock_dag.return_value = "REFRESHED DAG"
+            mock_report.return_value = {
+                "pipeline_id": "test-123",
+                "status": "running",
+                "current_phase": "implement",
+                "visualization": {"dag": "REFRESHED DAG"},
+            }
+
+            gen = create_sse_stream("test-123", repo_path=tmp_dir)
+            snapshot = next(gen)  # Initial snapshot
+            assert "event: snapshot" in snapshot
+
+            # Next yield should be a refresh (queue is empty, short timeout)
+            refresh = next(gen)
+            assert "event: refresh" in refresh
+            assert "REFRESHED DAG" in refresh
+
+            gen.close()
+
+    def test_no_refresh_for_terminal_pipeline(self):
+        """Test that refresh is skipped for pipelines in terminal state."""
+        pipeline = create_test_pipeline(status=PipelineStatus.RUNNING)
+        terminal_pipeline = create_test_pipeline(status=PipelineStatus.COMPLETE)
+        tmp_dir = Path("/tmp/test-sse-no-refresh")
+
+        with (
+            patch("sse.get_sse_manager") as mock_mgr,
+            patch("sse.get_state_store") as mock_store,
+            patch("sse.render_pipeline_dag") as mock_dag,
+            patch("sse.generate_status_report") as mock_report,
+            patch("sse.REFRESH_INTERVAL", 0.01),
+            patch("sse.HEARTBEAT_INTERVAL", 0.01),
+        ):
+            mock_q = Queue()
+            mock_manager = MagicMock()
+            mock_manager.add_client.return_value = mock_q
+            mock_mgr.return_value = mock_manager
+
+            store_instance = MagicMock()
+            # First call returns running (for snapshot), then complete (for refresh)
+            store_instance.load_pipeline.side_effect = [pipeline, terminal_pipeline]
+            mock_store.return_value = store_instance
+            mock_dag.return_value = "DAG"
+            mock_report.return_value = {
+                "pipeline_id": "test-123",
+                "status": "running",
+            }
+
+            gen = create_sse_stream("test-123", repo_path=tmp_dir)
+            snapshot = next(gen)  # Initial snapshot
+            assert "event: snapshot" in snapshot
+
+            # Next yield should be a heartbeat comment (no refresh for terminal)
+            heartbeat = next(gen)
+            assert heartbeat.startswith(": heartbeat")
+
+            gen.close()
+
+
 class TestGetSSEManager:
     """Tests for get_sse_manager singleton."""
 

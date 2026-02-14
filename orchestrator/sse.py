@@ -40,6 +40,9 @@ logger = get_logger("orchestrator.sse")
 # Heartbeat interval in seconds
 HEARTBEAT_INTERVAL = 15
 
+# How often to send visualization refreshes (keeps elapsed time updating)
+REFRESH_INTERVAL = 5
+
 # Maximum time a client can be connected (1 hour)
 MAX_CONNECTION_TIME = 3600
 
@@ -369,10 +372,12 @@ def create_sse_stream(
                 )
 
         start_time = time.monotonic()
+        last_heartbeat = time.monotonic()
 
         while True:
             # Check max connection time
-            if time.monotonic() - start_time > MAX_CONNECTION_TIME:
+            now = time.monotonic()
+            if now - start_time > MAX_CONNECTION_TIME:
                 yield format_sse_event(
                     {"pipeline_id": pipeline_id, "reason": "timeout"},
                     event="done",
@@ -380,7 +385,7 @@ def create_sse_stream(
                 return
 
             try:
-                msg_type, payload, is_terminal = q.get(timeout=HEARTBEAT_INTERVAL)
+                msg_type, payload, is_terminal = q.get(timeout=REFRESH_INTERVAL)
 
                 yield format_sse_event(
                     payload,
@@ -396,8 +401,47 @@ def create_sse_stream(
                     return
 
             except Empty:
-                # No events — send heartbeat to keep connection alive
-                yield format_sse_comment(f"heartbeat {datetime.utcnow().isoformat()}Z")
+                # Send heartbeat comment periodically to keep connection alive
+                now = time.monotonic()
+                if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+                    yield format_sse_comment(
+                        f"heartbeat {datetime.utcnow().isoformat()}Z"
+                    )
+                    last_heartbeat = now
+
+                # Send a visualization refresh so elapsed time and
+                # "Updated" timestamp stay current between real events.
+                try:
+                    if repo_path is None:
+                        continue
+                    store = get_state_store(repo_path)
+                    pipeline = store.load_pipeline(pipeline_id)
+
+                    # Only refresh for non-terminal pipelines
+                    terminal = {"complete", "failed", "cancelled"}
+                    if pipeline.status.value in terminal:
+                        continue
+
+                    refresh = generate_status_report(
+                        pipeline, use_ascii=use_ascii
+                    )
+                    refresh["event_type"] = "refresh"
+                    refresh["visualization"] = {
+                        "dag": render_pipeline_dag(
+                            pipeline, use_ascii=use_ascii
+                        ),
+                    }
+                    refresh["timestamp"] = (
+                        datetime.utcnow().isoformat() + "Z"
+                    )
+                    yield format_sse_event(refresh, event="refresh")
+                except Exception:
+                    # If refresh fails, keep the stream alive
+                    logger.debug(
+                        "Failed to send SSE refresh",
+                        pipeline_id=pipeline_id,
+                        exc_info=True,
+                    )
 
     finally:
         manager.remove_client(pipeline_id, q)
