@@ -129,7 +129,7 @@ sandbox/
 │   ├── egg-contract        # Symlink to contract_cli.py
 │   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
 │   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
-│   ├── egg-orch            # Orchestrator API CLI
+│   ├── egg-orch            # Symlink to orch_cli.py
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
 │   ├── contract_cli.py     # SDLC contract CLI implementation
