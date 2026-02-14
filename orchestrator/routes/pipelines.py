@@ -2909,7 +2909,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         # Circuit breaker: don't allow unbounded HITL revision loops.
                         # Uses a dedicated counter so agentic review cycles don't
                         # consume the human's revision budget.
-                        max_hitl_cycles = pipeline.config.max_review_cycles
+                        max_hitl_cycles = pipeline.config.max_hitl_review_cycles
                         if phase_execution.hitl_review_cycles >= max_hitl_cycles:
                             logger.warning(
                                 "HITL revision circuit breaker — advancing despite feedback",
