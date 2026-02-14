@@ -4,11 +4,15 @@ Replaces the Claude-as-collaborator SDLC pipeline workflow with a rich
 terminal CLI that directly handles DAG visualization and HITL checkpoints.
 
 Usage:
-    egg-sdlc -r egg -i 659           # Repo dir + issue number
-    egg-sdlc -r egg 659              # Short form (positional issue)
-    egg-sdlc 659                     # Auto-detect repo
-    egg-sdlc --repo owner/repo -i 1  # Explicit owner/repo
+    egg-sdlc -r <repo> -i <issue>   # Repo dir + issue number
+    egg-sdlc -r <repo> <issue>      # Short form (positional issue)
     egg-sdlc                         # Local/prompt mode (no issue)
+
+Examples:
+    egg-sdlc -r egg -i 659          # Pipeline for issue #659 in ~/repos/egg
+    egg-sdlc -r egg 659             # Same, positional issue number
+    egg-sdlc --private -r egg -i 659 # Private repo access
+    egg-sdlc                        # Local mode (no GitHub issue)
 """
 
 import argparse
