@@ -88,11 +88,15 @@ from egg_contracts.usage_loader import (
     update_usage_from_checkpoint,
 )
 from egg_logging import get_logger
-from git_client import cleanup_credential_helper, create_credential_helper
 
 try:
+    from .git_client import cleanup_credential_helper, create_credential_helper
     from .session_manager import Session
 except ImportError:
+    from git_client import (  # type: ignore[no-redef, import-not-found]
+        cleanup_credential_helper,
+        create_credential_helper,
+    )
     from session_manager import Session  # type: ignore[no-redef, import-not-found]
 
 logger = get_logger("gateway.checkpoint-handler")

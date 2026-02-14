@@ -144,6 +144,7 @@ class OrchClient:
         mode: str = "issue",
         prompt: str | None = None,
         config: dict[str, Any] | None = None,
+        network_mode: str | None = None,
     ) -> dict[str, Any]:
         """Create a new pipeline."""
         body: dict[str, Any] = {"mode": mode}
@@ -157,6 +158,8 @@ class OrchClient:
             body["prompt"] = prompt
         if config:
             body["config"] = config
+        if network_mode:
+            body["network_mode"] = network_mode
         data = self._request("POST", "/api/v1/pipelines", body=body)
         return data.get("data", {}).get("pipeline", data)
 

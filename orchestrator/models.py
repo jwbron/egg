@@ -226,6 +226,10 @@ class Pipeline(BaseModel):
     )
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update time")
     contract_synced: bool = Field(default=True, description="Whether state is synced with contract")
+    network_mode: str | None = Field(
+        default=None,
+        description="Network mode for spawned containers: 'public', 'private', or None (auto from pipeline mode)",
+    )
     error: str | None = Field(default=None, description="Error if failed")
     version: int = Field(
         default=1, ge=1, description="Optimistic locking version (incremented on each save)"

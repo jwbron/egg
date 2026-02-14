@@ -291,6 +291,58 @@ class TestPipeline:
         assert restored.id == pipeline.id
         assert restored.issue_number == pipeline.issue_number
 
+    def test_network_mode_default_none(self):
+        """Test that network_mode defaults to None."""
+        pipeline = Pipeline(
+            id="issue-496",
+            issue_number=496,
+            repo="owner/repo",
+            branch="egg/issue-496",
+        )
+        assert pipeline.network_mode is None
+
+    def test_network_mode_private(self):
+        """Test creating a pipeline with network_mode='private'."""
+        pipeline = Pipeline(
+            id="issue-496",
+            issue_number=496,
+            repo="owner/repo",
+            branch="egg/issue-496",
+            network_mode="private",
+        )
+        assert pipeline.network_mode == "private"
+
+    def test_network_mode_roundtrip(self):
+        """Test that network_mode survives serialization/deserialization."""
+        pipeline = Pipeline(
+            id="issue-496",
+            issue_number=496,
+            repo="owner/repo",
+            branch="egg/issue-496",
+            network_mode="private",
+        )
+        json_data = pipeline.model_dump_json()
+        restored = Pipeline.model_validate_json(json_data)
+        assert restored.network_mode == "private"
+
+    def test_network_mode_backward_compat(self):
+        """Test that missing network_mode in JSON defaults to None (backward compat)."""
+        import json
+
+        raw = json.dumps(
+            {
+                "id": "issue-496",
+                "issue_number": 496,
+                "repo": "owner/repo",
+                "branch": "egg/issue-496",
+                "mode": "issue",
+                "status": "pending",
+                "current_phase": "refine",
+            }
+        )
+        restored = Pipeline.model_validate_json(raw)
+        assert restored.network_mode is None
+
 
 class TestAgentRole:
     """Tests for AgentRole enum."""

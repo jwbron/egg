@@ -48,6 +48,13 @@ STATUS_COLORS = {
 }
 
 
+def _detect_network_mode() -> str | None:
+    """Detect private mode from environment (set by host wrapper)."""
+    if os.environ.get("EGG_PRIVATE_MODE", "").lower() in ("true", "1"):
+        return "private"
+    return None
+
+
 def _write(text: str, file=None) -> None:
     """Write text, stripping ANSI if not a TTY."""
     import re
@@ -344,7 +351,7 @@ def run_local_mode(client: OrchClient) -> int:
     print(f"\n{DIM}Creating local pipeline...{RESET}")
 
     try:
-        pipeline = client.create_pipeline(mode="local", prompt=prompt)
+        pipeline = client.create_pipeline(mode="local", prompt=prompt, network_mode=_detect_network_mode())
     except OrchestratorError as e:
         _write(f"{RED}Failed to create pipeline: {e}{RESET}\n", file=sys.stderr)
         return 1
@@ -379,6 +386,7 @@ def _restart_pipeline(
     issue_number: int,
     repo: str,
     branch: str,
+    network_mode: str | None = None,
 ) -> None:
     """Delete an existing pipeline and re-create it.
 
@@ -390,6 +398,7 @@ def _restart_pipeline(
         repo=repo,
         branch=branch,
         mode="issue",
+        network_mode=network_mode,
     )
     client.start_pipeline(pipeline_id)
     print(f"  {GREEN}Pipeline restarted.{RESET}")
@@ -416,11 +425,13 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
     # Create pipeline
     print(f"\n{DIM}Creating pipeline...{RESET}")
     try:
+        network_mode = _detect_network_mode()
         client.create_pipeline(
             issue_number=issue_number,
             repo=repo,
             branch=branch,
             mode="issue",
+            network_mode=network_mode,
         )
     except OrchestratorError as e:
         if e.status_code == 409:
@@ -432,7 +443,7 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
                 if status in ("complete", "failed", "cancelled"):
                     # Terminal state — safe to delete and re-create
                     print(f"  Pipeline was {status}. Restarting...")
-                    _restart_pipeline(client, pipeline_id, issue_number, repo, branch)
+                    _restart_pipeline(client, pipeline_id, issue_number, repo, branch, network_mode=network_mode)
                 elif status in ("running", "awaiting_human"):
                     print(f"  Pipeline status: {status}. Attaching to watch loop...")
                 else:
@@ -453,7 +464,7 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
                             file=sys.stderr,
                         )
                         return 1
-                    _restart_pipeline(client, pipeline_id, issue_number, repo, branch)
+                    _restart_pipeline(client, pipeline_id, issue_number, repo, branch, network_mode=network_mode)
             except OrchestratorError as e2:
                 _write(f"{RED}Failed to restart pipeline: {e2}{RESET}\n", file=sys.stderr)
                 return 1
