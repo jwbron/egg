@@ -59,7 +59,7 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
 - **Pull, Don't Push** - Agent fetches relevant docs on-demand
 - **Avoid Redundancy** - Each concept documented once, referenced elsewhere
 
-See `~/repos/egg/docs/index.md` for navigation to all documentation.
+See the repo's `docs/` directory for navigation to all documentation.
 
 ## Maintenance
 
