@@ -234,6 +234,12 @@ class SSEClientManager:
                 try:
                     dag_cache[use_ascii] = render_pipeline_dag(pipeline, use_ascii=use_ascii)
                 except Exception:
+                    logger.debug(
+                        "Failed to render DAG for SSE event",
+                        pipeline_id=pipeline_id,
+                        use_ascii=use_ascii,
+                        exc_info=True,
+                    )
                     dag_cache[use_ascii] = None
 
         is_terminal = event.event_type in TERMINAL_EVENT_TYPES
