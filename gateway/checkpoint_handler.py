@@ -686,9 +686,13 @@ class CheckpointHandler:
                 branch_exists = self._branch_exists(repo_path, target, CHECKPOINT_BRANCH)
 
                 if branch_exists:
+                    # Force-update the local branch to match the remote.
+                    # The + prefix handles the case where the local branch
+                    # has diverged (e.g., from a different remote or
+                    # concurrent checkpoint pushes).
                     self._run_git(
                         repo_path,
-                        ["fetch", target, f"{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}"],
+                        ["fetch", target, f"+{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}"],
                     )
                     self._run_git(
                         repo_path,
@@ -701,6 +705,15 @@ class CheckpointHandler:
                         ],
                     )
                 else:
+                    # Delete any stale local branch before creating orphan.
+                    # The branch may exist locally from a different remote
+                    # (e.g., checkpoints were previously stored in the source
+                    # repo before migrating to an external checkpoint repo).
+                    self._run_git(
+                        repo_path,
+                        ["branch", "-D", CHECKPOINT_BRANCH],
+                        check=False,
+                    )
                     self._run_git(
                         repo_path,
                         ["worktree", "add", "--detach", str(temp_path)],
@@ -1047,6 +1060,12 @@ def _get_checkpoint_repo_for_path(repo_path: str) -> str | None:
             check=False,
         )
         if result.returncode != 0 or not result.stdout.strip():
+            logger.debug(
+                "Could not get remote URL for checkpoint repo auto-detection",
+                repo_path=repo_path,
+                returncode=result.returncode,
+                stderr=result.stderr.strip() if result.stderr else "",
+            )
             return None
 
         remote_url = result.stdout.strip()
@@ -1062,10 +1081,22 @@ def _get_checkpoint_repo_for_path(repo_path: str) -> str | None:
             if match:
                 repo = f"{match.group(1)}/{match.group(2)}"
                 return get_checkpoint_repo(repo)
-        except (ImportError, FileNotFoundError):
-            pass
-    except Exception:
-        pass
+            else:
+                logger.debug(
+                    "Could not extract owner/repo from remote URL",
+                    remote_url=remote_url,
+                )
+        except (ImportError, FileNotFoundError) as e:
+            logger.debug(
+                "Config not available for checkpoint repo auto-detection",
+                error=str(e),
+            )
+    except Exception as e:
+        logger.debug(
+            "Checkpoint repo auto-detection failed",
+            error=str(e),
+            repo_path=repo_path,
+        )
     return None
 
 

@@ -96,6 +96,8 @@ def _capture_and_cleanup_session(
         _checkpoint, completion_event = capture_session_end_checkpoint(
             session=session,
             session_status=status,
+            repo_path=session.last_repo_path,
+            checkpoint_repo=session.checkpoint_repo,
         )
 
         # Wait for async storage to complete before cleaning up the buffer
@@ -192,6 +194,8 @@ class Session:
     phase: str | None = None  # SDLC pipeline phase for operation filtering
     issue_number: int | None = None  # GitHub issue number for checkpoint linkage
     pr_number: int | None = None  # GitHub PR number for checkpoint linkage
+    checkpoint_repo: str | None = None  # External checkpoint repo (owner/repo)
+    last_repo_path: str | None = None  # Last known repo path from git operations
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -221,6 +225,10 @@ class Session:
             result["issue_number"] = self.issue_number
         if self.pr_number is not None:
             result["pr_number"] = self.pr_number
+        if self.checkpoint_repo is not None:
+            result["checkpoint_repo"] = self.checkpoint_repo
+        if self.last_repo_path is not None:
+            result["last_repo_path"] = self.last_repo_path
         return result
 
     @classmethod
@@ -239,6 +247,8 @@ class Session:
             phase=data.get("phase"),
             issue_number=data.get("issue_number"),
             pr_number=data.get("pr_number"),
+            checkpoint_repo=data.get("checkpoint_repo"),
+            last_repo_path=data.get("last_repo_path"),
         )
 
 
