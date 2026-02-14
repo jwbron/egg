@@ -5,6 +5,7 @@ Convenient symlinks to commonly used commands.
 ## Commands
 
 - `egg` - Start/manage egg sandbox container
+- `egg-sdlc` - Interactive SDLC pipeline CLI with DAG visualization and HITL checkpoints
 - `egg-deploy` - Deploy and manage the gateway stack via Docker Compose
 - `egg-status` - Monitor all active SDLC pipelines in real-time
 - `egg-pipeline-watch` - Watch a specific pipeline's progress with DAG visualization

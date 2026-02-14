@@ -40,7 +40,7 @@ Code reviews are performed by the existing PR review workflow (`reusable-review.
 
 ### 4. Human-in-the-Loop at Critical Points
 
-The pipeline pauses for human approval at phase transitions. Decisions use checkbox-based UI with 30-second debounce to prevent accidental clicks.
+The pipeline pauses for human approval at phase transitions (refine and plan). In issue mode, the `sdlc-hitl.yml` workflow's `handle-approval` job processes checkbox-based approval. In local mode, the orchestrator's decision queue also supports requesting changes, with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
 
 ## Pipeline Architecture
 
@@ -131,6 +131,7 @@ When `pending_decisions > 0`, the `data` object includes an additional `pending_
 ```
 
 **CLI tools**:
+- `egg-sdlc [<issue_number>]` — Interactive SDLC pipeline CLI with DAG visualization and HITL checkpoints
 - `egg-pipeline-watch <pipeline_id>` — Monitor a single pipeline via SSE stream (real-time DAG visualization)
 - `egg-status` — Monitor all active pipelines via unified SSE stream (real-time updates)
 
@@ -761,6 +762,7 @@ If not configured, the checker falls back to auto-discovery (scanning for Makefi
 | **Merge Conflict** | `check-merge-conflict` | Detects conflicts with base branch | No |
 | **Lint** | `check-lint` | Runs `make lint` if available | Yes |
 | **Test** | `check-test` | Runs `make test` or pytest | No |
+| **Deployment Validation** | `check-deployment` | Validates changes against locally running devserver (opt-in via `.egg/deployment.yml`) | No |
 | **Auto-Fixer** | `check-fixer` | Attempts to auto-fix failed checks | N/A |
 
 ### Phase Default Configurations
@@ -778,9 +780,62 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 - Lint check (required, 1 retry)
 - Test check (required)
 - Auto-fixer (optional)
+- Deployment validation (optional, 1 retry, requires `.egg/deployment.yml`)
 
 **PR phase:**
 - No checks
+
+### Deployment Validation
+
+The deployment validation check (`check-deployment`) runs agent-modified code against a locally running devserver to catch integration issues before merge. This check is **opt-in** and requires target repositories to provide a `.egg/deployment.yml` configuration file.
+
+**How it works:**
+
+1. The orchestrator extracts the `docker-compose.yml` from the committed state (before agent changes)
+2. Generates override mounts for agent-modified services based on service-to-source mappings
+3. Starts the devserver stack in an isolated Docker network with resource limits
+4. The sandbox check runner polls health endpoints and runs validation tests
+5. The orchestrator tears down the stack after validation completes
+
+**Configuration (`.egg/deployment.yml`):**
+
+```yaml
+compose_file: "docker-compose.yml"  # Path relative to repo root
+services:
+  - source_dir: "services/api"      # Source directory (agent changes)
+    service_name: "api"              # docker-compose service name
+    container_mount_path: "/app"    # Mount path inside container
+health_endpoints:
+  api: "/health"                    # Service name → health check path
+validation_tests:
+  - service: "api"                  # Target service name
+    path: "/users"                  # Request path
+    method: "GET"
+    expected_status: 200
+    description: "API smoke test"
+```
+
+**Security guarantees:**
+
+- Devserver containers run in an isolated Docker network (no internet, no access to other containers)
+- Resource limits prevent exhaustion attacks (CPU, memory, PIDs)
+- Hard timeout of 5 minutes for the entire devserver lifecycle
+- No cloud credentials or production secrets are injected
+- Suspicious environment variables (AWS_*, GCP_*, AZURE_*, GOOGLE_CLOUD_*, *_SECRET_KEY, *_API_KEY, *_ACCESS_KEY, *_TOKEN, *_PASSWORD, *_CREDENTIALS) are rejected
+
+**When to use:**
+
+- Microservices with docker-compose devserver setups
+- Integration testing that requires multiple services running
+- Validating API contracts between services
+
+**When not to use:**
+
+- Projects without docker-compose devserver infrastructure
+- Simple single-service applications (use `make test` instead)
+- Projects where devserver setup is complex or requires external dependencies
+
+The check is optional by default and will skip if `.egg/deployment.yml` is not present. When enabled, it runs with 1 retry on failure.
 
 ### Customizing Phase Checks
 
@@ -894,9 +949,44 @@ The `autofix_attempts` counter resets to 0 when:
 | `.egg/schemas/contract.schema.json` | JSON schema definition |
 | `.egg/phase-permissions.json` | Phase operation restrictions |
 
+### egg-sdlc CLI
+
+The `egg-sdlc` CLI provides an interactive terminal interface for driving SDLC pipelines. It replaces the previous Claude-as-collaborator approach with direct user control.
+
+**Usage:**
+
+```bash
+# Issue mode: start/attach to pipeline for a GitHub issue
+egg-sdlc <issue_number>
+egg-sdlc <issue_number> --repo <owner/repo>
+
+# Local mode: prompt-driven pipeline (no GitHub)
+egg-sdlc
+```
+
+**Features:**
+- Real-time DAG visualization (reuses `egg-pipeline-watch` SSE patterns)
+- Interactive HITL checkpoints with multiple resolution options:
+  1. Edit draft with `$EDITOR` (default: vim)
+  2. Launch Claude for AI-assisted editing
+  3. Approve and advance to next phase
+  4. Provide text feedback for revision
+  5. Cancel pipeline
+- Automatic reconnection on SSE timeouts
+- Works both inside containers and from the host (via `egg --exec`)
+
+**Host-side:** `bin/egg-sdlc` launches a container with TTY passthrough for interactive features.
+
+**In-container:** `sandbox/bin/egg-sdlc` runs the Python CLI directly.
+
 ### Triggering the Pipeline
 
-The SDLC pipeline is triggered via the local orchestrator API:
+**Via egg-sdlc** (recommended for interactive use):
+```bash
+egg-sdlc 123
+```
+
+The SDLC pipeline can also be triggered via the local orchestrator API:
 
 ```bash
 # Via orchestrator API
