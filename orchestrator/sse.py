@@ -41,7 +41,7 @@ logger = get_logger("orchestrator.sse")
 HEARTBEAT_INTERVAL = 15
 
 # How often to send visualization refreshes (keeps elapsed time updating)
-REFRESH_INTERVAL = 5
+REFRESH_INTERVAL = 1
 
 # Maximum time a client can be connected (1 hour)
 MAX_CONNECTION_TIME = 3600
