@@ -334,7 +334,7 @@ class TestNetworkManagement:
         assert manager._network_id == ""
 
 
-# ── DevserverStatus Tests ────────────────────────────────────────────
+# ── Container Endpoint Tests ─────────────────────────────────────────
 
 
 class TestGetContainerEndpoint:
