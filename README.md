@@ -136,10 +136,8 @@ The pipeline creates a draft PR automatically when entering the implement phase.
 
 ### Human-in-the-Loop Checkpoints
 
-At each phase boundary (refine and plan), the pipeline pauses for human approval before proceeding. Humans can approve to advance, or request changes to re-run the phase with feedback. Interaction happens through checkbox-based UI in GitHub comments (issue mode) or terminal prompts (local mode):
+At each phase boundary (refine and plan), the pipeline pauses for human approval before proceeding. Interaction happens through checkbox-based UI in GitHub comments (issue mode) or terminal prompts (local mode). In local mode, the orchestrator also supports requesting changes to re-run a phase with feedback (limited by `max_review_cycles`).
 
-- **Approve**: Advance to the next phase with the current output
-- **Request changes**: Provide feedback and re-run the phase (limited by `max_review_cycles`)
 - **Guidance**: Provide additional context, adjust acceptance criteria, break into subtasks
 - **Override**: Mark complete, skip tasks, cancel pipeline
 - **Manual**: Complete manually, reassign

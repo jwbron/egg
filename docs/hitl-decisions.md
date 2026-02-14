@@ -5,13 +5,15 @@ This document explains how human decisions are captured and processed in the SDL
 ## Overview
 
 The SDLC pipeline includes phases where human input is required before proceeding:
-- **Refine phase**: Human approves the analysis before planning, or requests changes to revise
-- **Plan phase**: Human approves the implementation plan before coding, or requests changes to revise
+- **Refine phase**: Human approves the analysis before planning
+- **Plan phase**: Human approves the implementation plan before coding
 
 Three mechanisms exist for gathering human input:
 1. **Formal HITL decisions** — Multiple-choice questions with checkboxes
 2. **Feedback comments** — Open-ended questions in an editable comment
-3. **Phase approval** — Choice to approve and advance, or request changes and revise
+3. **Phase approval** — Single checkbox to approve and advance to the next phase
+
+In local mode, the orchestrator's decision queue also supports a "request changes" option at phase gates, with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
 
 ## Formal HITL Decisions
 
@@ -127,7 +129,7 @@ When you're done, check the box below to submit.
 
 ## Phase Approval
 
-Phase approval is the mechanism for advancing or revising phases at HITL gates.
+Phase approval is a simpler mechanism for advancing the pipeline at HITL gates.
 
 ### Format
 
@@ -136,7 +138,6 @@ Phase approval is the mechanism for advancing or revising phases at HITL gates.
 
 <!-- egg-phase-approval -->
 - [ ] Approve and advance to plan phase
-- [ ] Request changes (provide feedback below)
 
 ---
 
@@ -147,21 +148,20 @@ Phase approval is the mechanism for advancing or revising phases at HITL gates.
 
 1. The agent includes this at the end of phase completion comments (refine and plan phases)
 2. The `<!-- egg-phase-approval -->` marker identifies the approval section
-3. When the human checks a checkbox, GitHub triggers an edit event
-4. The orchestrator detects the choice and either:
-   - **Approve**: Advances to the next phase
-   - **Request changes**: If feedback is provided, re-runs the phase with that feedback. If no feedback is provided, prompts the human for specifics.
-5. A circuit breaker (`max_review_cycles`, default 3) prevents unbounded revision loops. When exceeded, the phase advances despite feedback.
+3. When the human checks the `[x] Approve` checkbox, GitHub triggers an edit event
+4. The `sdlc-hitl.yml` workflow's `handle-approval` job detects this
+5. The workflow updates the contract phase and triggers the next pipeline run
+
+In **local mode**, the orchestrator handles phase approval via its decision queue, which also supports a "request changes" option with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
 
 ### Key Differences from Decisions
 
 | Aspect | Formal Decisions | Phase Approval |
 |--------|-----------------|----------------|
 | Marker | `<!-- egg-hitl-decision id=... -->` | `<!-- egg-phase-approval -->` |
-| Purpose | Choose between options | Advance to next phase or request revision |
-| Multiple options | Yes (with "Other") | Two: approve or request changes |
-| Revision support | No | Yes (with circuit breaker) |
-| Workflow job | `handle-decision` | Orchestrator HITL gate logic |
+| Purpose | Choose between options | Advance to next phase |
+| Multiple options | Yes (with "Other") | No (single checkbox) |
+| Workflow job | `handle-decision` | `handle-approval` |
 
 ## Workflow Detection
 
