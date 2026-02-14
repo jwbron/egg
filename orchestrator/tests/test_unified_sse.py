@@ -414,7 +414,6 @@ class TestCreateUnifiedSSEStream:
             # Need to also patch the imported constant
             import unified_sse
 
-
             mock_q = Queue()
             mock_manager = MagicMock()
             mock_manager.add_client.return_value = mock_q

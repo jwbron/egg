@@ -71,6 +71,14 @@ _IMPLEMENT_CHECKS: list[CheckDefinition] = [
         retry_on_fail=False,
         max_retries=0,
     ),
+    CheckDefinition(
+        id="check-deployment",
+        name="Deployment Validation",
+        script="deployment_check.py",
+        required=False,
+        retry_on_fail=True,
+        max_retries=1,
+    ),
 ]
 
 # Default checks for the PR phase (empty by default)

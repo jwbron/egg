@@ -1455,6 +1455,12 @@ _REVIEWED_PHASES = {"refine", "plan", "implement"}
 # Phases that pause for human approval before advancing (HITL gates)
 _HITL_GATE_PHASES = {"refine", "plan"}
 
+# Keywords that indicate human approval at HITL gates
+_APPROVE_KEYWORDS = {"approved", "approve", "lgtm", "yes", ""}
+
+# Bare option labels that indicate "request changes" without actionable feedback
+_BARE_OPTION_LABELS = {"request changes", "request_changes"}
+
 
 def _build_checker_prompt(
     pipeline_id: str,
@@ -1891,6 +1897,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 store.save_pipeline(pipeline)
                 return
 
+        hitl_revision_feedback: str | None = None
+
         while True:
             pipeline = store.load_pipeline(pipeline_id)
 
@@ -1946,7 +1954,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 phase_gateway_mode = "public"
 
             phase_failed = False
-            review_feedback: str | None = None
+            review_feedback: str | None = hitl_revision_feedback
+            hitl_revision_feedback = None
 
             # --- Inner review cycle ---
             while True:
@@ -2352,7 +2361,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # contract load/save inside _populate_contract_from_plan.
             # The contract was created at worktree_repo_path above, so
             # both operations must use the same path.
-            if current_phase.value == "plan":
+            if current_phase.value == "plan" and phase_execution.review_cycles == 0:
                 _populate_contract_from_plan(
                     worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
                 )
@@ -2369,14 +2378,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
                 question = (
                     f"The {current_phase.value} phase has completed. "
-                    f"Please review the {phase_label} and approve to continue."
+                    f"Please review the {phase_label} and approve to continue, "
+                    f"or provide feedback to request changes."
                 )
 
                 dq = get_decision_queue(pipeline_id, repo_path)
                 decision = dq.queue_decision(
                     question=question,
                     context=draft_content,
-                    options=["approve"],
+                    options=["approve", "request changes"],
                     timeout_seconds=pipeline.config.decision_timeout,
                 )
 
@@ -2406,12 +2416,101 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         decision_id=decision.id,
                     )
 
-                # Resume — reload since decision resolution may have modified state
+                # Check resolution — did the human approve or request changes?
+                resolved_decision = dq.get_decision(decision.id)
+                resolution = (resolved_decision.resolution or "").strip()
+
+                if resolution.lower() not in _APPROVE_KEYWORDS:
+                    # If the resolution is just a bare option label (e.g. "request changes")
+                    # with no actionable feedback, re-queue asking for specifics.
+                    if resolution.lower() in _BARE_OPTION_LABELS:
+                        logger.info(
+                            "HITL gate: bare option label without feedback, requesting specifics",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase.value,
+                            resolution=resolution,
+                        )
+                        followup = dq.queue_decision(
+                            question=(
+                                f"You selected \"{resolution}\" but didn't provide specific feedback. "
+                                f"Please describe what changes you'd like to see in the {phase_label}."
+                            ),
+                            context=draft_content,
+                            options=["approve", "request changes"],
+                            timeout_seconds=pipeline.config.decision_timeout,
+                        )
+                        try:
+                            dq.wait_for_decision(followup.id)
+                        except DecisionTimeoutError:
+                            # Timeout: resolution will be None, so
+                            # (resolution or "").strip() → "", which is in
+                            # _APPROVE_KEYWORDS — intentionally treating
+                            # timeout as approval (same as no-text approve).
+                            logger.warning(
+                                "HITL follow-up timed out, advancing",
+                                pipeline_id=pipeline_id,
+                                decision_id=followup.id,
+                            )
+                        resolved_followup = dq.get_decision(followup.id)
+                        resolution = (resolved_followup.resolution or "").strip()
+                        # If the follow-up is also bare or an approval, just approve
+                        if resolution.lower() in _APPROVE_KEYWORDS or resolution.lower() in _BARE_OPTION_LABELS:
+                            logger.info(
+                                "HITL follow-up: no actionable feedback, treating as approval",
+                                pipeline_id=pipeline_id,
+                                phase=current_phase.value,
+                            )
+                            # Fall through to approval path below
+                        else:
+                            # Got real feedback on the follow-up — proceed to revision
+                            pass  # Fall through to the revision block below
+
+                    # Re-check: resolution may have been updated by the follow-up path
+                    if resolution.lower() not in _APPROVE_KEYWORDS and resolution.lower() not in _BARE_OPTION_LABELS:
+                        # Human provided feedback — re-run the phase with corrections
+                        logger.info(
+                            "HITL gate: changes requested, re-running phase",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase.value,
+                            feedback_preview=resolution[:200],
+                        )
+                        pipeline = store.load_pipeline(pipeline_id)
+                        pipeline.status = PipelineStatus.RUNNING
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        phase_execution.status = PipelineStatus.RUNNING
+                        phase_execution.completed_at = None  # Reset — phase is re-running
+                        phase_execution.review_cycles += 1
+
+                        # Circuit breaker: don't allow unbounded HITL revision loops
+                        max_cycles = pipeline.config.max_review_cycles
+                        if phase_execution.review_cycles >= max_cycles:
+                            logger.warning(
+                                "HITL revision circuit breaker — advancing despite feedback",
+                                pipeline_id=pipeline_id,
+                                phase=current_phase.value,
+                                review_cycles=phase_execution.review_cycles,
+                                max_review_cycles=max_cycles,
+                            )
+                            store.save_pipeline(pipeline)
+                            # Fall through to the approval path below
+                        else:
+                            hitl_revision_feedback = resolution
+                            store.save_pipeline(pipeline)
+                            report_pipeline_status(
+                                pipeline,
+                                event_type="phase.revision_requested",
+                                message=f"Human requested changes to {current_phase.value}",
+                            )
+                            continue  # Re-enter outer loop → re-run phase with feedback
+
+                # Approved — resume and advance
                 pipeline = store.load_pipeline(pipeline_id)
                 pipeline.status = PipelineStatus.RUNNING
                 # Restore phase status to COMPLETE now that the HITL gate is cleared
                 phase_execution = pipeline.get_phase_execution(current_phase)
                 phase_execution.status = PipelineStatus.COMPLETE
+                if phase_execution.completed_at is None:
+                    phase_execution.completed_at = datetime.utcnow()
                 store.save_pipeline(pipeline)
 
             # Determine next phase
