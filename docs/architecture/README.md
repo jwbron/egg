@@ -104,11 +104,13 @@ Browse and query checkpoints via the `egg-checkpoint` CLI:
 | `egg-checkpoint list [filters] [--limit <n>]` | List checkpoints with metadata |
 | `egg-checkpoint show <id-or-commit>` | Display full checkpoint details |
 | `egg-checkpoint browse --issue <number>` | Filter checkpoints by issue number |
+| `egg-checkpoint context [filters]` | Cross-agent context summary grouped by phase and agent type |
 
 **Supported filters**:
 - `--branch <name>` — Filter by git branch
 - `--issue <n>` — Filter by issue number
 - `--pr <n>` — Filter by PR number
+- `--pipeline <id>` — Filter by pipeline run ID (for multi-agent workflows)
 - `--session <id>` — Filter by session ID
 - `--trigger <commit|session_end>` — Filter by trigger type
 - `--status <completed|expired|failed>` — Filter by session status
