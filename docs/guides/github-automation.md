@@ -187,6 +187,7 @@ The workflow follows the trusted prompt build pattern:
 ## Design Review
 
 **Workflow:** [`.github/workflows/on-pull-request-agent-mode-design.yml`](../../.github/workflows/on-pull-request-agent-mode-design.yml)
+**Framework:** [`.github/workflows/reusable-review.yml`](../../.github/workflows/reusable-review.yml)
 
 A specialized reviewer that checks PRs for alignment with [agent-mode design principles](agent-mode-design.md).
 Uses the same reusable framework as AI Code Review but with a focused prompt.
