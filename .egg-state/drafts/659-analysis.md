@@ -1,205 +1,232 @@
-# Analysis: Tune claude.md files and prompts
-
-> Issue: #659 | Phase: refine
+# Issue #659: Tune claude.md files and prompts
 
 ## Problem Statement
 
-The egg system uses a multi-layered prompt architecture to instruct Claude agents across different execution contexts (local SDLC orchestrator, GitHub Actions workflows, standalone sandbox usage). Over time, this has led to:
+The issue requests an audit of all CLAUDE.md files and prompts to:
+1. Reduce token waste from excessive frontloaded context
+2. Ensure each prompt is appropriate for its task
+3. Unify prompt generators between local orchestration and GitHub Actions workflows
 
-1. **Token waste from frontloaded context**: The `CLAUDE.md` file (assembled from 7 rule files at container startup) is always loaded in full (~423 lines / ~3,500 tokens) regardless of task type. Rules about SDLC contracts and orchestrator CLI are irrelevant for non-pipeline tasks.
-2. **Divergent prompt generators**: The local orchestrator (Python in `orchestrator/routes/pipelines.py`) and GitHub Actions (shell scripts in `action/build-*.sh`) maintain independent implementations of equivalent prompts (review criteria, contract verification, autofixer rules).
-3. **Unclear prompt ownership**: Some content lives in `.claude/rules/` files, some in Python string builders, and some in shell scripts—making it hard to know what to update when criteria change.
-
-The issue asks us to audit all CLAUDE.md files and prompts, trim unnecessary frontloaded context, and ensure local and GitHub Actions workflows use the same prompt generators.
-
-## Current Architecture
-
-### Prompt Sources Inventory
-
-The system has **four layers** of prompt content:
-
-| Layer | Location | When Loaded | Token Cost |
-|-------|----------|-------------|------------|
-| **CLAUDE.md** (rules) | `sandbox/.claude/rules/*.md` → assembled into `~/CLAUDE.md` by `entrypoint.py:setup_agent_rules()` | Always (every Claude session) | ~3,500 tokens |
-| **Slash commands** | `sandbox/.claude/commands/*.md` → copied to `~/.claude/commands/` | On invocation only | 0 until used |
-| **Action prompt builders** | `action/build-*-prompt.sh` (7 scripts, ~1,530 lines total) | GitHub Actions only | Per-invocation |
-| **Orchestrator prompt builders** | `orchestrator/routes/pipelines.py` (`_build_phase_prompt`, `_build_agent_prompt`, `_build_review_prompt`, `_build_autofix_prompt`) | Local SDLC only | Per-invocation |
+## Current Inventory
 
 ### CLAUDE.md Assembly
 
-The `entrypoint.py:setup_agent_rules()` function combines 7 rule files in fixed order:
+CLAUDE.md is assembled at container startup from 7 rule files in `sandbox/.claude/rules/`:
 
-1. `mission.md` (135 lines) — Core agent role, workflow, git operations, PR lifecycle, decision framework
-2. `environment.md` (71 lines) — Sandbox constraints, network modes, gateway, filesystem
-3. `code-standards.md` (11 lines) — Tech stack, PEP 8, TypeScript conventions
-4. `test-workflow.md` (22 lines) — Test execution patterns
-5. `pr-descriptions.md` (18 lines) — PR format template
-6. `contract.md` (72 lines) — `egg-contract` CLI reference (SDLC-only)
-7. `orchestrator.md` (92 lines) — `egg-orch` CLI reference (SDLC-only)
+| File | Lines | Purpose |
+|------|-------|---------|
+| `mission.md` | 136 | Role, workflow, PR lifecycle, git safety |
+| `environment.md` | 72 | Sandbox, network modes, gateway, filesystem |
+| `code-standards.md` | ~10 | Tech stack and commands |
+| `test-workflow.md` | ~16 | Test framework reference |
+| `pr-descriptions.md` | ~12 | PR format template |
+| `contract.md` | 72 | `egg-contract` CLI reference with HITL examples |
+| `orchestrator.md` | 77 | `egg-orch` CLI reference (30+ commands) |
 
-**Problem**: Rules 6-7 (`contract.md`, `orchestrator.md`) total ~164 lines / ~1,200 tokens and are only relevant during SDLC pipeline execution. They waste tokens in standalone sandbox sessions and GitHub Actions bot runs.
+**Total: ~424 lines, ~3,500 tokens.** Every agent session loads this regardless of task type.
 
-### Slash Commands (7 commands)
-
-These load on-demand and are well-scoped:
-- `coder-mode.md` (74 lines) — Multi-agent coder role
-- `documenter-mode.md` (105 lines) — Multi-agent documenter role
-- `integrator-mode.md` (154 lines) — Multi-agent integrator role
-- `tester-mode.md` (84 lines) — Multi-agent tester role
-- `sdlc.md` (30 lines) — Deprecated redirect to `egg-sdlc` CLI
-- `onboarding-docs.md` (122 lines) — Repo documentation generator
-- `show-metrics.md` (42 lines) — Activity metrics report
-
-**Issues found**:
-- `sdlc.md` is deprecated but still present
-- Agent mode commands (coder/documenter/tester/integrator) share significant structural boilerplate that could be templated
+Assembly is done by `setup_agent_rules()` in `sandbox/entrypoint.py:678-716`. The result is written to `~/CLAUDE.md` and symlinked to `~/repos/CLAUDE.md`.
 
 ### GitHub Actions Prompt Builders (7 scripts)
 
-| Script | Lines | Purpose | Shared Config |
-|--------|-------|---------|---------------|
-| `build-review-prompt.sh` | 188 | Code review | `.egg/review-rules.md` |
-| `build-agent-mode-design-review-prompt.sh` | 180 | Design review | None (all hardcoded) |
-| `build-autofixer-prompt.sh` | 132 | Check autofix | `.egg/autofixer-rules.md` |
-| `build-conflict-prompt.sh` | 281 | Merge conflict | `.egg/conflict-rules.md` |
-| `build-contract-verification-prompt.sh` | 219 | Contract verify | `.egg/contract-rules.md` |
-| `build-doc-updater-prompt.sh` | 447 | Doc updates | None (all hardcoded) |
-| `build-feedback-prompt.sh` | 86 | PR feedback | None (all hardcoded) |
+| Script | Lines | Model | Role |
+|--------|-------|-------|------|
+| `action/build-review-prompt.sh` | 188 | Opus | Code reviewer |
+| `action/build-conflict-prompt.sh` | 281 | Opus | Conflict resolver |
+| `action/build-autofixer-prompt.sh` | 132 | Opus | Check failure fixer |
+| `action/build-agent-mode-design-review-prompt.sh` | 180 | Opus | Design reviewer |
+| `action/build-contract-verification-prompt.sh` | 219 | Opus | Contract verifier |
+| `action/build-doc-updater-prompt.sh` | 447 | Sonnet | Doc updater |
+| `action/build-feedback-prompt.sh` | 86 | Opus | Feedback addresser |
 
-All scripts support repo-specific overrides via `.egg/<type>-rules.md` files, with sensible hardcoded defaults.
+Supporting conventions files: `review-conventions.md`, `conflict-conventions.md`, `autofixer-conventions.md`.
 
-### Orchestrator Prompt Builders (Python)
+### Local Orchestrator Prompt Builders (5 functions in `orchestrator/routes/pipelines.py`)
 
-| Function | Purpose | Equivalent GA Script |
-|----------|---------|---------------------|
-| `_build_phase_prompt()` | Phase execution (refine/plan/implement/pr) | None (orchestrator-only) |
-| `_build_agent_prompt()` | Multi-agent role prompts | None (orchestrator-only) |
-| `_build_review_prompt()` | Agent review with verdicts | `build-review-prompt.sh` |
-| `_build_autofix_prompt()` | Check autofix | `build-autofixer-prompt.sh` |
-| `_build_checker_prompt()` | Pre-autofix validation | `build-autofixer-prompt.sh` (partial) |
-
-## Key Findings
-
-### Finding 1: Review criteria are maintained in two places
-
-The GitHub Actions code review uses criteria from `action/build-review-prompt.sh` (hardcoded defaults + `.egg/review-rules.md`), while the local orchestrator uses Python functions (`_get_unified_criteria()`, `_get_code_review_criteria()`, `_get_agent_design_criteria()`, `_get_contract_review_criteria()`). These are independently maintained and could diverge.
-
-### Finding 2: Autofixer criteria are aligned but duplicated
-
-The orchestrator's `_build_autofix_prompt()` explicitly states it's "modeled on `action/build-autofixer-prompt.sh`" and uses identical auto-fixable vs report-only categories. However, the criteria exist as hardcoded strings in both locations, so updates must be made in two places.
-
-### Finding 3: Contract verification criteria match but diverge in output format
-
-Both systems use identical task verification checklists (implementation exists, acceptance criteria met, commits linked, tests present), but the output format differs: GitHub Actions posts a PR review comment with HTML markers; the orchestrator writes structured JSON verdict files.
-
-### Finding 4: CLAUDE.md frontloads SDLC-specific content for all sessions
-
-The `contract.md` (~72 lines) and `orchestrator.md` (~92 lines) rule files are always included in `CLAUDE.md`, even when the agent is running a simple GitHub Actions bot task (review, autofix, conflict resolution) that never uses the SDLC contract or orchestrator CLI.
-
-### Finding 5: No shared prompt library between GA and orchestrator
-
-The GitHub Actions shell scripts and orchestrator Python code have no shared source of truth for criteria definitions. Each system hardcodes its own version, creating maintenance risk.
-
-### Finding 6: Deprecated sdlc.md command is still present
-
-The `sandbox/.claude/commands/sdlc.md` file is a 30-line redirect to `egg-sdlc` CLI. It serves no functional purpose and should be removed or minimized.
-
-## Constraints
-
-- **Backward compatibility**: GitHub Actions workflows in external repos depend on the `action/build-*-prompt.sh` scripts. Their interfaces (env vars, output format) must remain stable.
-- **Docker build**: Rule files are baked into the Docker image at build time. Dynamic per-invocation selection requires entrypoint changes, not Dockerfile changes.
-- **Claude Code behavior**: CLAUDE.md is loaded automatically by Claude Code. There is no built-in mechanism to conditionally load sections.
-- **Multi-repo support**: The `.egg/<type>-rules.md` override pattern allows external repos to customize criteria. Any shared library must preserve this.
-- **Token budget**: Reducing frontloaded context has real value — every token in CLAUDE.md is consumed on every API call for the entire session.
-
-## Options Considered
-
-### Option A: Shared criteria files with conditional CLAUDE.md assembly
-
-**Approach**: Extract review/autofix/contract criteria into shared markdown files (e.g., `shared/prompts/review-criteria.md`, `shared/prompts/autofixer-criteria.md`). Both the shell scripts and Python code read from these shared files at runtime. Modify `entrypoint.py:setup_agent_rules()` to accept an environment variable (e.g., `EGG_CONTEXT_MODE=sdlc|bot|standalone`) that controls which rule files are included in CLAUDE.md.
-
-**Pros**:
-- Single source of truth for all criteria
-- Conditional CLAUDE.md reduces token waste (~1,200 tokens saved for non-SDLC sessions)
-- Clear ownership: criteria live in one place
-- Shell scripts can `cat` the shared files; Python can `Path.read_text()`
-
-**Cons**:
-- Requires changes to Docker build to include shared prompt files
-- Adds a new `shared/prompts/` directory to manage
-- Shell scripts need path resolution logic for shared files
-- Testing shared files requires integration tests
-
-### Option B: Consolidate prompt generation into Python library
-
-**Approach**: Create a Python prompt library (`shared/egg_prompts/`) that both the orchestrator and a new `build-prompt` CLI tool use. GitHub Actions shell scripts call `python -m egg_prompts.build_review --pr <N>` instead of assembling prompts in bash. Conditional CLAUDE.md assembly via entrypoint env var.
-
-**Pros**:
-- Eliminates shell-script prompt logic entirely
-- Type-safe, testable prompt generation
-- Single implementation for all contexts
-- Easier to add new prompt types
-
-**Cons**:
-- Rewrites all 7 shell scripts (~1,530 lines)
-- GitHub Actions workflows must change invocation pattern
-- Python dependency in action environment (already available)
-- Larger scope of change and more risk
-
-### Option C: Trim and align without restructuring
-
-**Approach**: Keep the current architecture (shell scripts for GA, Python for orchestrator) but:
-1. Trim CLAUDE.md: make `contract.md` and `orchestrator.md` conditional on `EGG_SDLC_ISSUE` being set
-2. Align criteria: manually synchronize review/autofix/contract criteria between shell scripts and Python, adding comments pointing to the canonical source
-3. Remove deprecated `sdlc.md` command
-4. Add token-cost annotations to rule files so future changes are conscious of budget
-
-**Pros**:
-- Minimal change, low risk
-- No new abstractions or dependencies
-- Quick to implement
-- Preserves existing patterns
-
-**Cons**:
-- Doesn't solve the dual-maintenance problem long-term
-- Criteria will drift again without tooling
-- Manual synchronization is error-prone
-- "Comments pointing to canonical source" is a weak enforcement mechanism
-
-## Recommended Approach
-
-**Option A: Shared criteria files with conditional CLAUDE.md assembly.**
-
-This option provides the best balance of impact and risk:
-
-1. **Shared criteria files** solve the core dual-maintenance problem by establishing a single source of truth, without the scope explosion of Option B's full Python rewrite.
-
-2. **Conditional CLAUDE.md assembly** is straightforward — `entrypoint.py` already reads rules in a specific order; skipping `contract.md` and `orchestrator.md` when `EGG_SDLC_ISSUE` is not set requires ~5 lines of logic.
-
-3. The shell scripts already support loading from external files (`.egg/<type>-rules.md`). Changing them to also check `shared/prompts/<type>-criteria.md` as a fallback before hardcoded defaults is a natural extension.
-
-4. The orchestrator Python code can read the same shared files with `Path.read_text()`, replacing the current hardcoded criteria functions.
-
-**Scope breakdown**:
-
-| Task | Files Affected | Complexity |
-|------|---------------|-----------|
-| Create `shared/prompts/` with criteria files | New: 4-5 markdown files | Low |
-| Update shell scripts to read shared criteria | 4 of 7 scripts (review, autofixer, contract, conflict) | Medium |
-| Update orchestrator to read shared criteria | `orchestrator/routes/pipelines.py` | Medium |
-| Conditional CLAUDE.md assembly | `sandbox/entrypoint.py` | Low |
-| Remove deprecated `sdlc.md` | `sandbox/.claude/commands/sdlc.md` | Low |
-| Trim/tighten existing rule files | 7 rule files | Low |
-| Add tests for prompt consistency | New test file | Medium |
-
-## Open Questions
-
-1. Should the `mission.md` rule file be split further? It contains both universal agent instructions (git workflow, PR lifecycle) and some SDLC-specific language (e.g., references to "refine phase"). Splitting could save additional tokens for non-SDLC runs, but adds complexity.
-
-2. The agent mode commands (coder/documenter/tester/integrator) share significant boilerplate (file access constraints section, handoff format, quality checklist). Should these be templated or left as standalone files? Templating would reduce total content but add build complexity.
-
-3. Should `show-metrics.md` be trimmed or removed? It's a monitoring utility that may rarely be used and could be replaced with a simpler CLI tool.
+| Function | Lines | Role |
+|----------|-------|------|
+| `_build_review_prompt()` | 944-1024 | Multi-type reviewer |
+| `_build_phase_prompt()` | 1137-1360 | Phase-specific agent |
+| `_build_agent_prompt()` | 1378-1600 | Role-specific agent |
+| `_build_checker_prompt()` | 1891-1965 | Check runner |
+| `_build_autofix_prompt()` | 1968-2029 | Autofix agent |
 
 ---
 
-*Authored-by: egg*
+## Finding 1: Prompt Divergence Between Local and GHA Flows
+
+The issue specifically asks to ensure local and GHA flows use the same prompt generators. Currently, **they are completely separate implementations** with significant divergence.
+
+### Code Review
+
+| Aspect | GHA (`build-review-prompt.sh`) | Orchestrator (`_build_review_prompt`) |
+|--------|------|-------------|
+| **Scope** | Monolithic single-reviewer | Multi-reviewer (unified, agent-design, code, contract) |
+| **Output** | PR comment via `gh pr review` | JSON verdict file in `.egg-state/reviews/` |
+| **Security criteria** | 8 items (LDAP injection, path traversal, SSRF...) | 4 categories (missing LDAP, path traversal) |
+| **Methodology** | Explicit 5-step "How to Review" | Implicit (criteria only) |
+| **Tone** | Aggressive ("find ALL issues, do not stop") | Pragmatic/approval-friendly |
+| **Re-review** | Delta-based git diff from last review commit | Generic "prior feedback" injection |
+| **Skip guidance** | Lists what to ignore (style, type annotations, autogenerated) | None |
+
+### Autofix
+
+| Aspect | GHA (`build-autofixer-prompt.sh`) | Orchestrator (`_build_autofix_prompt`) |
+|--------|------|-------------|
+| **Investigation** | Uses `gh pr checks` | Reads `.egg-state/checks/implement-results.json` |
+| **Scope** | Includes lock files as auto-fixable | Omits lock files |
+| **Reporting** | Post PR comment for unfixable issues | No reporting guidance |
+| **Verification** | "Repeat until ALL checks pass" | "Run checks again to confirm" |
+| **Conventions** | Loads `autofixer-conventions.md` (125 lines) | None loaded |
+
+### Contract Verification
+
+| Aspect | GHA (`build-contract-verification-prompt.sh`) | Orchestrator (`_build_review_prompt` with contract type) |
+|--------|------|-------------|
+| **Criterion marking** | CLI-based `egg-contract verify-criterion` | Narrative reporting only |
+| **Rules source** | Configurable `.egg/contract-rules.md` | Hardcoded in function |
+| **Re-review** | Incremental delta-based verification | Generic feedback-based |
+| **Scope** | Comprehensive (standalone) | Narrowed (other reviewers handle code quality) |
+
+### Missing from Orchestrator
+
+- **Conflict resolution**: GHA has a full conflict resolver (`build-conflict-prompt.sh` + `conflict-conventions.md`). Orchestrator has zero conflict resolution capability — only a dormant `AgentExecution.conflicts` field.
+- **Doc updater**: GHA has sophisticated change analysis with high-risk file detection. Orchestrator DOCUMENTER role has only generic instructions.
+- **Feedback addressing**: GHA has a dedicated workflow with iteration limits. Orchestrator handles feedback only through HITL phase re-entry.
+
+---
+
+## Finding 2: CLAUDE.md Token Waste
+
+### Sections Always Loaded but Rarely Needed
+
+| Section | Tokens | Needed For |
+|---------|--------|------------|
+| SDLC Contract reference | ~600 | Only SDLC pipeline tasks |
+| Orchestrator CLI (30+ commands) | ~1,000 | Only pipeline management |
+| Network Modes (public/private detail) | ~350 | Only when hitting network issues |
+| Non-Interactive Mode | ~200 | Only CI/GitHub Actions runs |
+| Notifications | ~150 | Only async communication tasks |
+
+**Potential savings: ~2,300 tokens per session** for non-pipeline tasks (65% of current CLAUDE.md).
+
+### Redundancy Within CLAUDE.md
+
+- Git push constraints mentioned 4 times across `mission.md` and `environment.md`
+- Worktree warnings in both `mission.md` (line 40-42) and `environment.md` (line 44)
+- Gateway sidecar details in `mission.md` (line 13) and `environment.md` (lines 38-45)
+- Branch naming in `mission.md` (line 38) and `environment.md` (line 43)
+
+### Design Principles vs Reality
+
+The rules README states: "Index, Don't Dump" and "Pull, Don't Push." However:
+- `contract.md` dumps the full CLI reference with 6 example workflows (~72 lines) instead of referencing `egg-contract --help`
+- `orchestrator.md` dumps all 30+ CLI commands (~77 lines) instead of referencing `egg-orch --help`
+- These violate the stated "index" principle
+
+---
+
+## Finding 3: Orchestrator Phase Prompts Duplicate CLAUDE.md
+
+`_build_phase_prompt()` re-specifies content already in CLAUDE.md:
+
+- **Implement phase** (lines 1267-1274): Repeats `egg-contract` commands already in `contract.md`
+- **PR phase** (lines 1276-1289): Repeats commit/PR workflow already in `mission.md`
+- **Phase restrictions** (lines 1296-1361): 10-15 lines per phase of "You CAN/CANNOT" that duplicate `environment.md` and are gateway-enforced anyway
+
+Estimated redundancy: **~400-500 tokens per prompt**, or **6,000-7,500 tokens across a typical pipeline run** (15 prompt invocations).
+
+---
+
+## Recommended Approach
+
+### Task 1: Trim CLAUDE.md (~2,300 token reduction)
+
+Move rarely-needed sections to on-demand references:
+
+1. **Replace `contract.md`** (72 lines) with:
+   ```
+   # SDLC Contract
+   For contract-based tasks: `egg-contract show` to view state, `egg-contract --help` for full reference.
+   ```
+   (~3 lines, saves ~550 tokens)
+
+2. **Replace `orchestrator.md`** (77 lines) with:
+   ```
+   # Orchestrator CLI
+   For pipeline management: `egg-orch --help` for full reference. Common: `egg-orch health`, `egg-orch signal progress`.
+   ```
+   (~3 lines, saves ~950 tokens)
+
+3. **Consolidate network modes** in `environment.md` to ~5 lines (saves ~300 tokens)
+
+4. **Remove duplicate git/worktree content** between `mission.md` and `environment.md` (saves ~200 tokens)
+
+5. **Move Non-Interactive Mode** to a conditional section (saves ~200 tokens)
+
+### Task 2: Unify Prompt Generators
+
+Create a shared Python module `shared/prompt_builders/` used by both flows:
+
+```
+shared/prompt_builders/
+  __init__.py
+  review.py          # Shared review criteria and prompt assembly
+  autofix.py         # Shared autofix instructions
+  contract_verify.py # Shared contract verification criteria
+  conventions.py     # Load convention files
+```
+
+- GHA shell scripts call a Python entry point that generates the prompt
+- Orchestrator Python functions import from the same module
+- Both get identical criteria, methodology, and tone
+- Each adapts context injection (GHA: GitHub API data; orchestrator: pipeline state) and output format (GHA: PR comment; orchestrator: JSON verdict)
+
+### Task 3: Fill Orchestrator Gaps
+
+For features present in GHA but missing from orchestrator:
+- Add conflict resolution prompt builder (or document that it's intentionally deferred)
+- Enhance DOCUMENTER role with high-risk file detection from `build-doc-updater-prompt.sh`
+- Add reporting guidance to autofix prompt (what to do with unfixable issues)
+
+### Task 4: Reduce Phase Prompt Redundancy
+
+In `_build_phase_prompt()`:
+- Remove `egg-contract` CLI references (already in CLAUDE.md)
+- Remove gateway-enforced restrictions (CAN/CANNOT lists)
+- Keep only phase-specific task objectives and non-obvious constraints
+
+---
+
+## Constraints and Dependencies
+
+1. **CLAUDE.md changes affect all agents** — must test that agents still find needed info
+2. **Shell script prompt builders** are tested in `tests/action/` — unified module needs equivalent coverage
+3. **Orchestrator prompt changes** are tested in `orchestrator/tests/test_pipeline_prompts.py` — needs updates
+4. **Convention files** (`review-conventions.md`, etc.) are loaded at runtime — shared module must handle file loading from both contexts
+5. **Container rebuild required** for CLAUDE.md changes (assembled at startup)
+
+## Risk Assessment
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Over-trimming CLAUDE.md causes agent confusion | High | Test each change with representative tasks; keep critical safety rules (merge blocking, branch naming) |
+| Shared module breaks GHA workflows | High | Run GHA tests against shared module; keep shell scripts as thin wrappers |
+| Different output formats complicate unification | Medium | Separate context injection and output formatting from shared criteria/methodology |
+| Lock file changes across shell → Python | Low | Shell scripts become thin wrappers calling Python; test both paths |
+
+---
+
+## Implementation Estimate
+
+**Scope**: 4 tasks across ~20 files
+
+| Task | Files Changed | New Files |
+|------|---------------|-----------|
+| Trim CLAUDE.md | 4 rule files + entrypoint.py | 0 |
+| Shared prompt module | 7 shell scripts + pipelines.py | 5 (shared module) |
+| Fill orchestrator gaps | pipelines.py, models.py | 0 |
+| Reduce phase redundancy | pipelines.py | 0 |
+| Tests | 4 test files | 1-2 (shared module tests) |
+
+Authored-by: egg
