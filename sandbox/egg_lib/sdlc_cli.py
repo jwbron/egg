@@ -433,7 +433,6 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
         if e.status_code == 409:
             # Pipeline already exists — check if it's still active
             print(f"  {YELLOW}Pipeline already exists. Checking status...{RESET}")
-            network_mode = _detect_network_mode()
             try:
                 status_data = client.get_pipeline_status(pipeline_id)
                 status = status_data.get("status", "unknown")

@@ -437,6 +437,12 @@ def create_pipeline() -> tuple[Response, int]:
 
     mode = data.get("mode", "issue")
 
+    network_mode = data.get("network_mode")
+    if network_mode is not None and network_mode not in ("public", "private"):
+        return make_error_response(
+            f"Invalid network_mode: {network_mode!r} (must be 'public' or 'private')"
+        )
+
     if mode == "local":
         # Local mode: prompt required, issue_number/repo/branch optional
         prompt = data.get("prompt")
@@ -458,7 +464,7 @@ def create_pipeline() -> tuple[Response, int]:
                 config=data.get("config"),
                 mode="local",
                 prompt=prompt,
-                network_mode=data.get("network_mode"),
+                network_mode=network_mode,
             )
 
             # Contract creation is deferred to _run_pipeline so it writes
@@ -503,7 +509,7 @@ def create_pipeline() -> tuple[Response, int]:
             branch=branch,
             config=data.get("config"),
             mode="issue",
-            network_mode=data.get("network_mode"),
+            network_mode=network_mode,
         )
 
         # Contract creation is deferred to _run_pipeline so it writes
@@ -2439,9 +2445,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
             repos = [pipeline.repo] if pipeline.repo else []
 
-            # PR phase gets push access even for local pipelines.
-            # Override the gateway session mode to "public" so the
-            # gateway allows git push and PR creation.
+            # PR phase gets push access even for local pipelines, unless
+            # the pipeline is in private mode (which must stay isolated).
             phase_gateway_mode = gateway_mode
             if current_phase.value == "pr" and pipeline_mode == "local" and gateway_mode != "private":
                 phase_gateway_mode = "public"
