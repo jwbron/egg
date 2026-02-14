@@ -229,7 +229,7 @@ def watch_pipeline(
                         )
                         if result == "cancelled":
                             return "cancelled"
-                        # result == "resolved" or None → reconnect to SSE
+                        # result == "resolved" → reconnect to SSE
                         break  # Break inner loop, reconnect
 
         except OrchestratorError as e:
