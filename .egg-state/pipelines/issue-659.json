@@ -5,7 +5,7 @@
   "branch": "egg/issue-659",
   "mode": "issue",
   "prompt": null,
-  "status": "failed",
+  "status": "awaiting_human",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -18,7 +18,7 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "complete",
+      "status": "awaiting_human",
       "started_at": "2026-02-14T05:17:20.865227",
       "completed_at": "2026-02-14T05:23:33.792687",
       "containers": [
@@ -68,8 +68,8 @@
     }
   ],
   "created_at": "2026-02-14T05:17:20.781933",
-  "updated_at": "2026-02-14T05:23:33.817897",
+  "updated_at": "2026-02-14T05:23:33.834512",
   "contract_synced": true,
   "error": "Decision decision-1 not found",
-  "version": 10
+  "version": 11
 }
