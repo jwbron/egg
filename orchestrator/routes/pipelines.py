@@ -2145,9 +2145,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     """Run a pipeline by spawning containers for each phase.
 
     This runs in a background thread. For each phase it:
-    1. Spawns a worker (CODER) container
-    2. For reviewed phases (refine, plan): spawns a reviewer, reads the
-       verdict, and loops back to the worker if revision is needed
+    1. Spawns a worker (CODER) container — or multi-agent wave execution
+       for implement and plan phases when multi_agent is enabled
+    2. For reviewed phases (implement, plan): reads reviewer verdicts and
+       loops back with feedback if revision is needed
     3. Advances to the next phase once approved (or circuit-breaker hit)
 
     Args:
@@ -2450,6 +2451,33 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 }
 
                 if use_multi_agent:
+                    # Delete stale verdict files before spawning reviewers
+                    # to prevent reading outdated verdicts if a reviewer
+                    # crashes or the pipeline restarts from a checkpoint.
+                    from egg_contracts.agent_roles import (
+                        _PHASE_REVIEWERS as _phase_reviewer_roles_cleanup,
+                    )
+
+                    for role in _phase_reviewer_roles_cleanup.get(
+                        current_phase.value, []
+                    ):
+                        rtype = role.value.replace("reviewer_", "", 1).replace(
+                            "_", "-"
+                        )
+                        verdict_rel = _verdict_path_for_type(
+                            current_phase.value,
+                            rtype,
+                            pipeline_mode,
+                            pipeline.issue_number,
+                            pipeline_id,
+                        )
+                        verdict_path = worktree_repo_path / verdict_rel
+                        if verdict_path.exists():
+                            try:
+                                verdict_path.unlink()
+                            except OSError:
+                                pass
+
                     logger.info(
                         "Spawning multi-agent wave execution for phase",
                         pipeline_id=pipeline_id,
