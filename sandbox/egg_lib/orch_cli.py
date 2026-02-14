@@ -401,6 +401,8 @@ def cmd_pipeline_create(args: argparse.Namespace) -> int:
         data["branch"] = args.branch
     if args.prompt:
         data["prompt"] = args.prompt
+    if args.network_mode:
+        data["network_mode"] = args.network_mode
 
     result = orch_request("/api/v1/pipelines", method="POST", data=data)
 
@@ -1030,6 +1032,11 @@ def create_parser() -> argparse.ArgumentParser:
     pl_create.add_argument("--issue", type=int, help="Issue number")
     pl_create.add_argument("--branch", help="Branch name")
     pl_create.add_argument("--prompt", help="Prompt (required for local mode)")
+    pl_create.add_argument(
+        "--network-mode",
+        choices=["public", "private"],
+        help="Network mode for spawned containers",
+    )
     _add_json_flag(pl_create)
     pl_create.set_defaults(func=cmd_pipeline_create)
 

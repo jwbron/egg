@@ -431,6 +431,7 @@ class StateStore:
         mode: str = "issue",
         prompt: str | None = None,
         pipeline_id: str | None = None,
+        network_mode: str | None = None,
     ) -> Pipeline:
         """Create a new pipeline.
 
@@ -442,6 +443,7 @@ class StateStore:
             mode: Pipeline mode - "issue" or "local"
             prompt: User prompt (required for local mode)
             pipeline_id: Explicit pipeline ID (auto-generated if not provided)
+            network_mode: Network mode for spawned containers ("public", "private", or None)
 
         Returns:
             Created pipeline
@@ -467,6 +469,7 @@ class StateStore:
             branch=branch,
             mode=mode,
             prompt=prompt,
+            network_mode=network_mode,
             # Contract is created separately — mark as unsynced until verified
             contract_synced=False,
         )

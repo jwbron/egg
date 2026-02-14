@@ -458,6 +458,7 @@ def create_pipeline() -> tuple[Response, int]:
                 config=data.get("config"),
                 mode="local",
                 prompt=prompt,
+                network_mode=data.get("network_mode"),
             )
 
             # Contract creation is deferred to _run_pipeline so it writes
@@ -502,6 +503,7 @@ def create_pipeline() -> tuple[Response, int]:
             branch=branch,
             config=data.get("config"),
             mode="issue",
+            network_mode=data.get("network_mode"),
         )
 
         # Contract creation is deferred to _run_pipeline so it writes
@@ -2195,8 +2197,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     env_max_parallel,
                 )
 
-        # Map pipeline mode to gateway session mode
-        gateway_mode = "local" if pipeline_mode == "local" else "public"
+        # Map pipeline mode to gateway session mode.
+        # If the pipeline has an explicit network_mode (e.g. "private"), use it;
+        # otherwise fall back to the default mapping.
+        if pipeline.network_mode:
+            gateway_mode = pipeline.network_mode
+        else:
+            gateway_mode = "local" if pipeline_mode == "local" else "public"
 
         # Parse host repo map for volume mounts.  When the orchestrator
         # runs inside Docker, EGG_REPO_PATH is the *container* path but
@@ -2436,7 +2443,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # Override the gateway session mode to "public" so the
             # gateway allows git push and PR creation.
             phase_gateway_mode = gateway_mode
-            if current_phase.value == "pr" and pipeline_mode == "local":
+            if current_phase.value == "pr" and pipeline_mode == "local" and gateway_mode != "private":
                 phase_gateway_mode = "public"
 
             phase_failed = False
