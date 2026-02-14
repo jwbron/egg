@@ -109,13 +109,13 @@ gh pr create --title "Add feature" --body "..."
 ### Option B: Issue pipeline (GitHub-driven)
 
 ```
-/sdlc <issue_number>
+/sdlc -r <repo_dir> -i <issue_number>
 ```
 
-This creates an issue-driven pipeline with full GitHub integration. You can also specify a repo:
+This creates an issue-driven pipeline with full GitHub integration. The `-r/--repo` flag specifies the repository directory name under `~/repos/` (e.g., `egg`), and `-i/--issue` specifies the GitHub issue number. Example:
 
 ```
-/sdlc 123 --repo your-username/your-repo
+/sdlc -r your-repo -i 123
 ```
 
 **Issue pipeline phases:**
