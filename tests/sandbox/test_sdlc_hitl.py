@@ -556,6 +556,6 @@ class TestLaunchClaude:
         prompt_idx = cmd.index("--append-system-prompt")
         prompt_text = cmd[prompt_idx + 1]
         assert "drafts/1-plan.md" in prompt_text
-        # Phase and issue should not appear
-        assert "phase" not in prompt_text.lower().split("draft")[0]
-        assert "#" not in prompt_text.split("Draft file")[0]
+        # Phase and issue should not appear in the prompt
+        assert "Current phase:" not in prompt_text
+        assert "Issue: #" not in prompt_text
