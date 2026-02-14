@@ -85,7 +85,9 @@ class TestDeploymentCheckFail:
         mock_resp.is_redirect = False
         mock_resp._content = b'{"success": false, "message": "No config"}'
 
-        with patch.object(check, "_start_devserver", return_value={"success": False, "message": "No config"}):
+        with patch.object(
+            check, "_start_devserver", return_value={"success": False, "message": "No config"}
+        ):
             with patch.object(check, "_teardown_devserver"):
                 result = check.run()
 
@@ -249,3 +251,99 @@ class TestDefensiveParsing:
 
         assert teardown_called
         assert result.status == CheckStatus.FAIL
+
+
+class TestSafeRequestRedirects:
+    """Tests for _safe_request redirect handling."""
+
+    def _make_check(self):
+        from checks.deployment_check import DeploymentCheck
+
+        contract = _make_contract()
+        return DeploymentCheck(contract, Path("/tmp"))
+
+    def _mock_response(self, status_code=200, is_redirect=False, location=None, body=b"ok"):
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.is_redirect = is_redirect
+        resp.headers = {"Location": location} if location else {}
+        resp.iter_content.return_value = iter([body])
+        resp._content = body
+        return resp
+
+    @patch("checks.deployment_check.requests.request")
+    def test_follows_same_host_absolute_redirect(self, mock_request):
+        redirect_resp = self._mock_response(
+            301, is_redirect=True, location="http://localhost:8080/healthz"
+        )
+        final_resp = self._mock_response(200, body=b"healthy")
+        mock_request.side_effect = [redirect_resp, final_resp]
+
+        check = self._make_check()
+        result = check._safe_request("GET", "http://localhost:8080/health")
+
+        assert result is not None
+        assert result.status_code == 200
+        assert mock_request.call_count == 2
+
+    @patch("checks.deployment_check.requests.request")
+    def test_follows_relative_redirect(self, mock_request):
+        redirect_resp = self._mock_response(301, is_redirect=True, location="/healthz")
+        final_resp = self._mock_response(200, body=b"healthy")
+        mock_request.side_effect = [redirect_resp, final_resp]
+
+        check = self._make_check()
+        result = check._safe_request("GET", "http://172.20.0.2:8080/health")
+
+        assert result is not None
+        assert result.status_code == 200
+        # Verify the resolved URL was used for the second request
+        second_call_url = mock_request.call_args_list[1][0][1]
+        assert second_call_url == "http://172.20.0.2:8080/healthz"
+
+    @patch("checks.deployment_check.requests.request")
+    def test_blocks_cross_host_redirect(self, mock_request):
+        redirect_resp = self._mock_response(301, is_redirect=True, location="http://evil.com/steal")
+        mock_request.return_value = redirect_resp
+
+        check = self._make_check()
+        result = check._safe_request("GET", "http://172.20.0.2:8080/health")
+
+        assert result is None
+        assert mock_request.call_count == 1
+
+    @patch("checks.deployment_check.requests.request")
+    def test_enforces_redirect_depth_limit(self, mock_request):
+        # Every response is a same-host redirect, exceeding the 5-hop limit
+        redirect_resp = self._mock_response(301, is_redirect=True, location="http://localhost/loop")
+        mock_request.return_value = redirect_resp
+
+        check = self._make_check()
+        result = check._safe_request("GET", "http://localhost/start")
+
+        assert result is None
+        # 1 original + 5 redirects = 6, then depth check returns None
+        assert mock_request.call_count == 6
+
+    @patch("checks.deployment_check.requests.request")
+    def test_non_redirect_returned_directly(self, mock_request):
+        resp = self._mock_response(200, body=b'{"status": "ok"}')
+        mock_request.return_value = resp
+
+        check = self._make_check()
+        result = check._safe_request("GET", "http://172.20.0.2:8080/health")
+
+        assert result is not None
+        assert result.status_code == 200
+        assert mock_request.call_count == 1
+
+    @patch("checks.deployment_check.requests.request")
+    def test_connection_error_returns_none(self, mock_request):
+        import requests as req_lib
+
+        mock_request.side_effect = req_lib.exceptions.ConnectionError("refused")
+
+        check = self._make_check()
+        result = check._safe_request("GET", "http://172.20.0.2:8080/health")
+
+        assert result is None

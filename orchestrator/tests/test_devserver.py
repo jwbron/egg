@@ -337,6 +337,123 @@ class TestNetworkManagement:
 # ── DevserverStatus Tests ────────────────────────────────────────────
 
 
+class TestGetContainerEndpoint:
+    """Tests for _get_container_endpoint port extraction."""
+
+    def _setup_manager(self, tmp_path, mock_client, container_attrs, compose_stdout="abc123"):
+        """Create a manager with mocked Docker client and compose output."""
+        manager = _make_manager(tmp_path, docker_client=mock_client)
+        manager._temp_dir = tmp_path
+        # Create dummy compose files expected by the subprocess call
+        (tmp_path / "docker-compose.yml").write_text("version: '3'\n")
+        (tmp_path / "docker-compose.override.yml").write_text("version: '3'\n")
+        mock_container = MagicMock()
+        mock_container.attrs = container_attrs
+        mock_client.containers.get.return_value = mock_container
+        return manager
+
+    @patch("devserver.subprocess.run")
+    def test_single_port(self, mock_run, tmp_path):
+        mock_client = MagicMock()
+        mock_run.return_value = MagicMock(stdout="abc123\n")
+        manager = self._setup_manager(
+            tmp_path,
+            mock_client,
+            {
+                "NetworkSettings": {
+                    "Networks": {"egg-check-issue-645": {"IPAddress": "172.20.0.2"}}
+                },
+                "Config": {"ExposedPorts": {"8080/tcp": {}}},
+            },
+        )
+        ip, port = manager._get_container_endpoint("api")
+        assert ip == "172.20.0.2"
+        assert port == 8080
+
+    @patch("devserver.subprocess.run")
+    def test_multi_port_picks_first(self, mock_run, tmp_path):
+        mock_client = MagicMock()
+        mock_run.return_value = MagicMock(stdout="abc123\n")
+        # Dict order is insertion order in CPython 3.7+
+        exposed = {"3000/tcp": {}, "8080/tcp": {}}
+        manager = self._setup_manager(
+            tmp_path,
+            mock_client,
+            {
+                "NetworkSettings": {
+                    "Networks": {"egg-check-issue-645": {"IPAddress": "172.20.0.2"}}
+                },
+                "Config": {"ExposedPorts": exposed},
+            },
+        )
+        ip, port = manager._get_container_endpoint("api")
+        assert port == 3000  # First key in insertion order
+
+    @patch("devserver.subprocess.run")
+    def test_no_exposed_ports_returns_zero(self, mock_run, tmp_path):
+        mock_client = MagicMock()
+        mock_run.return_value = MagicMock(stdout="abc123\n")
+        manager = self._setup_manager(
+            tmp_path,
+            mock_client,
+            {
+                "NetworkSettings": {
+                    "Networks": {"egg-check-issue-645": {"IPAddress": "172.20.0.2"}}
+                },
+                "Config": {},
+            },
+        )
+        ip, port = manager._get_container_endpoint("api")
+        assert ip == "172.20.0.2"
+        assert port == 0
+
+    @patch("devserver.subprocess.run")
+    def test_malformed_port_key_returns_zero(self, mock_run, tmp_path):
+        mock_client = MagicMock()
+        mock_run.return_value = MagicMock(stdout="abc123\n")
+        manager = self._setup_manager(
+            tmp_path,
+            mock_client,
+            {
+                "NetworkSettings": {
+                    "Networks": {"egg-check-issue-645": {"IPAddress": "172.20.0.2"}}
+                },
+                "Config": {"ExposedPorts": {"notaport/tcp": {}}},
+            },
+        )
+        ip, port = manager._get_container_endpoint("api")
+        assert ip == "172.20.0.2"
+        assert port == 0
+
+    @patch("devserver.subprocess.run")
+    def test_empty_compose_output_returns_empty(self, mock_run, tmp_path):
+        mock_client = MagicMock()
+        mock_run.return_value = MagicMock(stdout="")
+        manager = _make_manager(tmp_path, docker_client=mock_client)
+        manager._temp_dir = tmp_path
+        (tmp_path / "docker-compose.yml").write_text("version: '3'\n")
+        (tmp_path / "docker-compose.override.yml").write_text("version: '3'\n")
+        ip, port = manager._get_container_endpoint("api")
+        assert ip == ""
+        assert port == 0
+
+    @patch("devserver.subprocess.run")
+    def test_docker_client_exception_returns_empty(self, mock_run, tmp_path):
+        mock_client = MagicMock()
+        mock_run.return_value = MagicMock(stdout="abc123\n")
+        mock_client.containers.get.side_effect = Exception("not found")
+        manager = _make_manager(tmp_path, docker_client=mock_client)
+        manager._temp_dir = tmp_path
+        (tmp_path / "docker-compose.yml").write_text("version: '3'\n")
+        (tmp_path / "docker-compose.override.yml").write_text("version: '3'\n")
+        ip, port = manager._get_container_endpoint("api")
+        assert ip == ""
+        assert port == 0
+
+
+# ── DevserverStatus Tests ────────────────────────────────────────────
+
+
 class TestDevserverStatus:
     """Tests for DevserverStatus dataclass."""
 

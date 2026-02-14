@@ -611,6 +611,13 @@ class DevserverManager:
 
             # Extract the first exposed port from the container config.
             # ExposedPorts is a dict like {"8080/tcp": {}, "443/tcp": {}}.
+            # NOTE: For multi-port containers, this picks the first key in
+            # insertion order (CPython 3.7+ dict ordering = Dockerfile EXPOSE
+            # order).  If the health endpoint is on a non-first port, this
+            # will probe the wrong port.  For single-port containers (the
+            # expected case for devserver services) this is unambiguous.  A
+            # future enhancement could add an optional port field to
+            # DeploymentConfig.health_endpoints to remove the ambiguity.
             port = 0
             exposed = container.attrs.get("Config", {}).get("ExposedPorts", {})
             if exposed:
