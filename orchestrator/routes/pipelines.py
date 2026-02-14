@@ -2916,7 +2916,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 pipeline_id=pipeline_id,
                                 phase=current_phase.value,
                                 hitl_review_cycles=phase_execution.hitl_review_cycles,
-                                max_review_cycles=max_hitl_cycles,
+                                max_hitl_review_cycles=max_hitl_cycles,
                             )
                             store.save_pipeline(pipeline)
                             # Fall through to the approval path below
