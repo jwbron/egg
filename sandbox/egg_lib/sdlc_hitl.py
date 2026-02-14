@@ -47,15 +47,19 @@ def _get_draft_path(
 
 
 def _find_repo_path() -> Path:
-    """Find the repository root path."""
-    # Check common locations
-    repos_dir = Path.home() / "repos"
-    if repos_dir.exists():
-        # Look for .git directory
-        for child in repos_dir.iterdir():
-            if child.is_dir() and (child / ".git").exists():
-                return child
-    # Fallback to cwd
+    """Find the repository root path using git rev-parse."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return Path(result.stdout.strip())
+    except Exception:
+        pass
+    # Fallback: walk up from cwd looking for .git
     cwd = Path.cwd()
     while cwd != cwd.parent:
         if (cwd / ".git").exists():
@@ -173,7 +177,7 @@ def handle_hitl_checkpoint(
     context = decision.get("context", "")
 
     # Determine current phase from the question or context
-    phase = _detect_phase(question)
+    phase = _detect_phase(question, context)
 
     # Find and read the draft
     repo_path = _find_repo_path()
@@ -268,8 +272,18 @@ def handle_hitl_checkpoint(
                 return "cancelled"
 
 
-def _detect_phase(question: str) -> str:
-    """Detect the pipeline phase from the HITL question text."""
+def _detect_phase(question: str, context: dict[str, Any] | str | None = None) -> str:
+    """Detect the pipeline phase from the decision payload.
+
+    Checks the ``context`` dict for an explicit ``phase`` field first,
+    falling back to substring matching on the question text.
+    """
+    # Prefer explicit phase from context dict
+    if isinstance(context, dict):
+        phase = context.get("phase", "")
+        if phase:
+            return str(phase)
+    # Fallback to substring matching on question text
     q = question.lower()
     if "refine" in q or "analysis" in q:
         return "refine"
