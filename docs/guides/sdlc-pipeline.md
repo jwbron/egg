@@ -40,7 +40,7 @@ Code reviews are performed by the existing PR review workflow (`reusable-review.
 
 ### 4. Human-in-the-Loop at Critical Points
 
-The pipeline pauses for human approval at phase transitions. Decisions use checkbox-based UI with 30-second debounce to prevent accidental clicks.
+The pipeline pauses for human approval at phase transitions (refine and plan). In issue mode, the `sdlc-hitl.yml` workflow's `handle-approval` job processes checkbox-based approval. In local mode, the orchestrator's decision queue also supports requesting changes, with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
 
 ## Pipeline Architecture
 
