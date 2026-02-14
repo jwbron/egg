@@ -197,7 +197,7 @@ jobs:
 
       - name: Run shellcheck on action scripts
         run: |
-          shellcheck --severity=warning action/entrypoint.sh action/generate-config.sh action/build-review-prompt.sh action/build-autofixer-prompt.sh action/build-conflict-prompt.sh action/build-feedback-prompt.sh action/build-doc-updater-prompt.sh action/build-agent-mode-design-review-prompt.sh
+          shellcheck --severity=warning action/entrypoint.sh action/generate-config.sh action/build-review-prompt.sh action/build-autofixer-prompt.sh action/build-conflict-prompt.sh action/build-feedback-prompt.sh action/build-doc-updater-prompt.sh action/build-agent-mode-design-review-prompt.sh action/build-contract-verification-prompt.sh
 
   prompt-builders:
     name: Prompt Builder Tests

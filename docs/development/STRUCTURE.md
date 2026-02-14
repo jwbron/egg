@@ -226,7 +226,8 @@ tests/
 ├── sandbox/                       # Sandbox component tests
 │   ├── test_contract_cli.py       # Contract CLI tests
 │   └── ...
-├── scripts/                       # Script validation tests
+├── scripts/
+│   └── test_checks.py             # Check script framework tests
 ├── shared/
 │   └── egg_contracts/
 │       ├── test_models.py         # Contract model tests including check models
@@ -253,6 +254,7 @@ action/
 ├── build-agent-mode-design-review-prompt.sh # Agent-mode design review prompt
 ├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder
 ├── build-conflict-prompt.sh                # Conflict resolution workflow prompt builder
+├── build-contract-verification-prompt.sh  # Contract verification review prompt builder
 ├── autofixer-conventions.md                # Guidelines for autofixer behavior
 ├── conflict-conventions.md                 # Guidelines for conflict resolution via merge commits
 ├── review-conventions.md                   # Guidelines for review communication
@@ -271,6 +273,7 @@ Key workflows for PR automation (see `.github/workflows/` for complete list):
 ├── on-review-feedback.yml                  # Address review feedback on bot PRs
 ├── on-push-doc-updater.yml                 # Auto-update docs after merge
 ├── on-pull-request-agent-mode-design.yml   # Agent-mode design review
+├── on-pull-request-contract-verify.yml    # Contract verification on PRs
 ├── reusable-review.yml                     # PR-based code review workflow
 ├── reusable-autofix.yml                    # Reusable auto-fix logic
 ├── reusable-conflict-resolve.yml           # Reusable conflict resolution
@@ -283,8 +286,17 @@ Key workflows for PR automation (see `.github/workflows/` for complete list):
 
 ```
 .github/
-└── scripts/
-    └── create-release.sh                   # Semantic versioning release script
+├── scripts/
+│   ├── checks/                            # Python-based check framework
+│   │   ├── base.py                        # CheckRunner base class
+│   │   ├── check_fixer.py                 # Auto-fix check (runs make fix)
+│   │   ├── lint_check.py                  # Lint check (runs make lint)
+│   │   ├── test_check.py                  # Test check (runs make test)
+│   │   ├── merge_conflict_check.py        # Merge conflict marker detection
+│   │   ├── draft_validation_check.py      # Draft document validation
+│   │   ├── plan_yaml_check.py             # Plan YAML structure validation
+│   │   └── run_check.py                   # Check runner entry point
+│   └── create-release.sh                  # Semantic versioning release script
 ```
 
 ## Config Directory
