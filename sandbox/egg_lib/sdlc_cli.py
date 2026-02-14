@@ -67,17 +67,21 @@ def _resolve_repo_dir(repo_dir: str) -> str | None:
 
     Looks up the directory name in EGG_REPOS (e.g. "egg" matches "jwbron/egg")
     and changes to the repo directory if it exists.
+
+    Side effect: calls os.chdir() to the repo directory on success, so that
+    downstream git/gh commands can auto-detect the repository context.
     """
     from pathlib import Path
 
     # Find matching entry in EGG_REPOS
     for entry in _parse_egg_repos():
         if entry.split("/")[-1] == repo_dir:
-            # Change to the repo directory so git/gh commands work
             repo_path = Path.home() / "repos" / repo_dir
             if repo_path.is_dir():
                 os.chdir(repo_path)
-            return entry
+                return entry
+            # Directory doesn't exist — fall through to try gh detection
+            break
 
     # Not in EGG_REPOS — check if the directory exists and try gh detection
     repo_path = Path.home() / "repos" / repo_dir
@@ -96,7 +100,6 @@ def _resolve_repo_dir(repo_dir: str) -> str | None:
             pass
 
     return None
-
 
 
 # --- SSE Parsing (reused from egg-pipeline-watch) ---
@@ -366,6 +369,28 @@ def run_local_mode(client: OrchClient) -> int:
 # --- Issue Mode ---
 
 
+def _restart_pipeline(
+    client: OrchClient,
+    pipeline_id: str,
+    issue_number: int,
+    repo: str,
+    branch: str,
+) -> None:
+    """Delete an existing pipeline and re-create it.
+
+    The caller must ensure the pipeline is in a terminal state before calling.
+    """
+    client.delete_pipeline(pipeline_id)
+    client.create_pipeline(
+        issue_number=issue_number,
+        repo=repo,
+        branch=branch,
+        mode="issue",
+    )
+    client.start_pipeline(pipeline_id)
+    print(f"  {GREEN}Pipeline restarted.{RESET}")
+
+
 def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = None) -> int:
     """Run egg-sdlc in issue mode."""
     if not repo:
@@ -401,35 +426,30 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
                 status_data = client.get_pipeline_status(pipeline_id)
                 status = status_data.get("status", "unknown")
                 if status in ("complete", "failed", "cancelled"):
-                    # Terminal state — delete and re-create
+                    # Terminal state — safe to delete and re-create
                     print(f"  Pipeline was {status}. Restarting...")
-                    client.delete_pipeline(pipeline_id)
-                    client.create_pipeline(
-                        issue_number=issue_number,
-                        repo=repo,
-                        branch=branch,
-                        mode="issue",
-                    )
-                    client.start_pipeline(pipeline_id)
-                    print(f"  {GREEN}Pipeline restarted.{RESET}")
+                    _restart_pipeline(client, pipeline_id, issue_number, repo, branch)
                 elif status in ("running", "awaiting_human"):
                     print(f"  Pipeline status: {status}. Attaching to watch loop...")
                 else:
-                    # Unknown/stuck state — cancel, delete, re-create
+                    # Unknown/stuck state — cancel first, then verify terminal
                     print(f"  Pipeline status: {status}. Restarting...")
                     try:
                         client.cancel_pipeline(pipeline_id)
                     except OrchestratorError:
                         pass  # May already be in a terminal state
-                    client.delete_pipeline(pipeline_id)
-                    client.create_pipeline(
-                        issue_number=issue_number,
-                        repo=repo,
-                        branch=branch,
-                        mode="issue",
-                    )
-                    client.start_pipeline(pipeline_id)
-                    print(f"  {GREEN}Pipeline restarted.{RESET}")
+                    # Re-check status after cancel to confirm it's terminal
+                    # before deleting (avoids deleting a still-running pipeline)
+                    recheck = client.get_pipeline_status(pipeline_id)
+                    recheck_status = recheck.get("status", "unknown")
+                    if recheck_status not in ("complete", "failed", "cancelled"):
+                        _write(
+                            f"{RED}Pipeline is still {recheck_status} after cancel. "
+                            f"Cannot restart automatically.{RESET}\n",
+                            file=sys.stderr,
+                        )
+                        return 1
+                    _restart_pipeline(client, pipeline_id, issue_number, repo, branch)
             except OrchestratorError as e2:
                 _write(f"{RED}Failed to restart pipeline: {e2}{RESET}\n", file=sys.stderr)
                 return 1
