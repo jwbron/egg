@@ -387,7 +387,7 @@
           "retry_count": 0
         }
       ],
-      "review_cycles": 0,
+      "review_cycles": 1,
       "artifacts": {},
       "error": null
     }
@@ -421,9 +421,9 @@
     }
   ],
   "created_at": "2026-02-13T23:51:06.806504",
-  "updated_at": "2026-02-14T01:51:48.309260",
+  "updated_at": "2026-02-14T01:51:49.223017",
   "contract_synced": true,
   "sdlc_token_gated": false,
   "error": null,
-  "version": 51
+  "version": 52
 }
