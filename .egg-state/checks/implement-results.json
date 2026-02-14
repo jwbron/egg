@@ -2,19 +2,14 @@
   "all_passed": false,
   "checks": [
     {
-      "name": "ruff-check",
-      "passed": true,
-      "output": "All checks passed!"
-    },
-    {
-      "name": "ruff-format",
+      "name": "lint",
       "passed": false,
-      "output": "29 files would be reformatted, 311 files already formatted. Formatting issues in gateway/, orchestrator/, shared/, tests/ directories."
+      "output": "ruff found 10 errors: 1 unused import (F401) in orchestrator/routes/pipelines.py, 1 unused import (F401) in orchestrator/tests/test_unified_sse.py, 5 ambiguous variable name (E741) in orchestrator/tests/test_unified_sse.py, 1 unused variable (F841) in orchestrator/tests/test_unified_sse.py, 1 deprecated typing import (UP035) in orchestrator/unified_sse.py, 1 unsorted import block (I001) in sandbox/entrypoint.py. 4 auto-fixable."
     },
     {
       "name": "pytest",
       "passed": false,
-      "output": "4123 passed, 3 failed, 81 skipped, 2 errors in 39.39s. Failures: 3 tests in gateway/tests/test_session_manager.py (TestSessionEndCheckpointCapture - _capture_and_cleanup_session not called). Errors: 2 tests in gateway/tests/test_worktree_manager.py (TestWorktreeManagerDockerGitDir - git init failed in sandbox environment)."
+      "output": "3225 passed, 1 failed, 81 skipped. Failed: tests/gateway/test_agent_restrictions.py::TestAgentRoleConsistency::test_role_values_match_shared_library - Gateway AgentRole missing role: ARCHITECT."
     }
   ]
 }
