@@ -3,8 +3,6 @@ Tests for SSE streaming module.
 """
 
 import json
-import threading
-import time
 from pathlib import Path
 from queue import Queue
 from unittest.mock import MagicMock, patch
@@ -89,7 +87,7 @@ class TestFormatSSEEvent:
         """Test that data dict is properly JSON encoded."""
         result = format_sse_event({"nested": {"a": [1, 2]}})
         lines = result.strip().split("\n")
-        data_line = [l for l in lines if l.startswith("data: ")][0]
+        data_line = [line for line in lines if line.startswith("data: ")][0]
         json_str = data_line[6:]
         parsed = json.loads(json_str)
         assert parsed == {"nested": {"a": [1, 2]}}
