@@ -228,7 +228,7 @@ def handle_hitl_checkpoint(
 
         elif choice == "2":
             # Launch Claude
-            print(f"\n  Launching Claude Code... (type /exit to return)")
+            print("\n  Launching Claude Code... (type /exit to return)")
             _launch_claude(repo_path)
             print(f"\n  {GREEN}Returned from Claude. You can now approve or continue editing.{RESET}")
             # Re-read draft in case Claude modified it

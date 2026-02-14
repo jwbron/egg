@@ -12,9 +12,8 @@ import json
 import signal
 import subprocess
 import sys
-from http.client import HTTPConnection
 
-from .orch_client import OrchClient, OrchestratorError, get_orchestrator_url
+from .orch_client import OrchClient, OrchestratorError
 from .sdlc_hitl import handle_hitl_checkpoint
 
 # ANSI escape codes
@@ -350,7 +349,7 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
     # Create pipeline
     print(f"\n{DIM}Creating pipeline...{RESET}")
     try:
-        pipeline = client.create_pipeline(
+        client.create_pipeline(
             issue_number=issue_number,
             repo=repo,
             branch=branch,

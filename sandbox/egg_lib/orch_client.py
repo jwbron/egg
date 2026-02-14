@@ -90,13 +90,13 @@ class OrchClient:
             raise OrchestratorError(
                 f"Cannot connect to orchestrator at {self.base_url}. "
                 "Is the orchestrator running?"
-            )
+            ) from None
         except TimeoutError:
             raise OrchestratorError(
                 f"Connection to orchestrator timed out ({self.timeout}s)"
-            )
+            ) from None
         except Exception as e:
-            raise OrchestratorError(f"Orchestrator request failed: {e}")
+            raise OrchestratorError(f"Orchestrator request failed: {e}") from e
         finally:
             if conn:
                 try:

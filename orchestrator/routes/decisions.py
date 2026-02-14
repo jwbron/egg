@@ -35,7 +35,7 @@ from decision_queue import (
     DecisionNotFoundError,
     get_decision_queue,
 )
-from state_store import InvalidPipelineIdError, PipelineNotFoundError, get_state_store
+from state_store import InvalidPipelineIdError
 
 logger = get_logger("orchestrator.decisions")
 
