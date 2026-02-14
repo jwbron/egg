@@ -356,7 +356,14 @@ class TestAgentRole:
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
         assert AgentRole.INTEGRATOR in roles
-        assert len(roles) == 6
+        assert AgentRole.ARCHITECT in roles
+        assert AgentRole.TASK_PLANNER in roles
+        assert AgentRole.RISK_ANALYST in roles
+        assert AgentRole.REVIEWER_UNIFIED in roles
+        assert AgentRole.REVIEWER_CODE in roles
+        assert AgentRole.REVIEWER_CONTRACT in roles
+        assert AgentRole.REVIEWER_AGENT_DESIGN in roles
+        assert len(roles) == 13
 
 
 class TestPipelinePhase:

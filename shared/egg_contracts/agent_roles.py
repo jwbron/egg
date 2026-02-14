@@ -434,7 +434,10 @@ REVIEWER_UNIFIED_ROLE = AgentRoleDefinition(
         "Apply comprehensive review criteria",
         "Write a structured verdict (approved/needs_revision)",
     ],
-    dependencies=[AgentRole.INTEGRATOR],  # Default: review after integrator
+    # Depend on terminal roles from both implement and plan phases.
+    # build_from_roles() only adds edges for deps present in the role set,
+    # so INTEGRATOR is used for implement phase, TASK_PLANNER/RISK_ANALYST for plan.
+    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
@@ -455,7 +458,7 @@ REVIEWER_CODE_ROLE = AgentRoleDefinition(
         "Check for OWASP top 10 vulnerabilities",
         "Verify error handling and edge cases",
     ],
-    dependencies=[AgentRole.INTEGRATOR],
+    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
@@ -468,6 +471,17 @@ REVIEWER_CODE_ROLE = AgentRoleDefinition(
     requires_inputs=["integration_report"],
 )
 
+# Contract reviewer needs write access to .egg-state/contracts/ to mark
+# items as done, so it uses a custom blocked_write list that excludes it.
+_REVIEWER_CONTRACT_BLOCKED_WRITE = [
+    "src/",
+    "lib/",
+    "docs/",
+    "tests/",
+    "test/",
+    ".egg-state/drafts/",
+]
+
 REVIEWER_CONTRACT_ROLE = AgentRoleDefinition(
     role=AgentRole.REVIEWER_CONTRACT,
     description="Verifies implementation matches the contract",
@@ -476,14 +490,15 @@ REVIEWER_CONTRACT_ROLE = AgentRoleDefinition(
         "Check task completion status",
         "Validate contract consistency",
     ],
-    dependencies=[AgentRole.INTEGRATOR],
+    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
             ".egg-state/reviews/",
             ".egg-state/agent-outputs/",
+            ".egg-state/contracts/",
         ],
-        blocked_write=_REVIEWER_BLOCKED_WRITE,
+        blocked_write=_REVIEWER_CONTRACT_BLOCKED_WRITE,
     ),
     produces_outputs=["review_verdict"],
     requires_inputs=["integration_report"],
@@ -497,7 +512,7 @@ REVIEWER_AGENT_DESIGN_ROLE = AgentRoleDefinition(
         "Verify autonomous operation capability",
         "Assess human-in-the-loop integration",
     ],
-    dependencies=[AgentRole.INTEGRATOR],
+    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
@@ -639,6 +654,10 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
         AgentRole.REVIEWER_AGENT_DESIGN,
     ],
     "plan": [
+        AgentRole.REVIEWER_UNIFIED,
+        AgentRole.REVIEWER_AGENT_DESIGN,
+    ],
+    "refine": [
         AgentRole.REVIEWER_UNIFIED,
         AgentRole.REVIEWER_AGENT_DESIGN,
     ],
