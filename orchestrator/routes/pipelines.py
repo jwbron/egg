@@ -1061,41 +1061,42 @@ def _aggregate_review_verdicts(
     return overall, combined
 
 
-def _commit_contract_to_worktree(
+def _commit_statefiles_to_worktree(
     worktree_path: Path,
-    contract_rel_path: str,
-    issue_number: int | None,
-    pipeline_id: str,
+    message: str,
 ) -> None:
-    """Commit the contract file in the pipeline worktree.
+    """Stage and commit all ``.egg-state/`` files in *worktree_path*.
 
-    The old GitHub Actions workflow explicitly committed the contract
-    before spawning agents.  The local orchestrator must do the same
-    to ensure the contract is deterministically present on the feature
-    branch.
+    The old GitHub Actions workflow ran ``git add .egg-state/`` at every
+    phase boundary to capture contracts, drafts, reviews, and check
+    results.  The local orchestrator must do the same so these state
+    files are deterministically present on the feature branch regardless
+    of whether the agent happened to commit them.
+
+    The commit is idempotent (skips when nothing is staged) and
+    non-fatal to callers — raise on ``git add`` failure only.
     """
+    state_dir = worktree_path / ".egg-state"
+    if not state_dir.exists():
+        return  # Nothing to commit yet
+
     git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_path)]
 
     subprocess.run(
-        [*git_base, "add", contract_rel_path],
+        [*git_base, "add", ".egg-state/"],
         capture_output=True, text=True, check=True,
     )
 
-    # Only commit if the contract file has staged changes (idempotent on re-runs)
+    # Only commit if there are staged changes (idempotent on re-runs)
     result = subprocess.run(
-        [*git_base, "diff", "--cached", "--quiet", "--", contract_rel_path],
+        [*git_base, "diff", "--cached", "--quiet", "--", ".egg-state/"],
         capture_output=True, text=True, check=False,
     )
     if result.returncode == 0:
         return  # Nothing to commit
 
-    if issue_number is not None:
-        msg = f"Initialize SDLC contract for issue #{issue_number}"
-    else:
-        msg = f"Initialize SDLC contract for pipeline {pipeline_id}"
-
     subprocess.run(
-        [*git_base, "commit", "--no-verify", "-m", msg],
+        [*git_base, "commit", "--no-verify", "-m", message],
         capture_output=True, text=True, check=True,
     )
 
@@ -1916,26 +1917,20 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     )
                 pipeline.contract_synced = True
 
-                # Commit contract to the worktree so it's on the feature branch
-                from egg_contracts.loader import get_contract_path
-
-                contract_identifier = (
-                    pipeline.issue_number
+                # Commit all .egg-state/ files so they're on the feature branch
+                issue_ref = (
+                    f"issue #{pipeline.issue_number}"
                     if pipeline.issue_number is not None
-                    else pipeline_id
+                    else f"pipeline {pipeline_id}"
                 )
-                contract_rel = str(
-                    get_contract_path(contract_identifier, repo_root=worktree_repo_path)
-                    .relative_to(worktree_repo_path)
-                )
-
                 try:
-                    _commit_contract_to_worktree(
-                        worktree_repo_path, contract_rel, pipeline.issue_number, pipeline_id
+                    _commit_statefiles_to_worktree(
+                        worktree_repo_path,
+                        f"Initialize SDLC contract for {issue_ref}",
                     )
                 except subprocess.CalledProcessError as git_err:
                     logger.warning(
-                        "Failed to commit contract to worktree (continuing)",
+                        "Failed to commit statefiles to worktree (continuing)",
                         pipeline_id=pipeline_id,
                         error=str(git_err),
                     )
@@ -2421,6 +2416,22 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             if current_phase.value == "plan":
                 _populate_contract_from_plan(
                     worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+                )
+
+            # Commit any .egg-state/ files produced during this phase
+            # (drafts, reviews, check results, contract updates).  Mirrors
+            # the GHA workflow's `git add .egg-state/` at phase boundaries.
+            try:
+                _commit_statefiles_to_worktree(
+                    worktree_repo_path,
+                    f"Persist statefiles after {current_phase.value} phase",
+                )
+            except subprocess.CalledProcessError as git_err:
+                logger.warning(
+                    "Failed to commit statefiles after phase (continuing)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    error=str(git_err),
                 )
 
             # --- HITL gate: pause for human approval ---
