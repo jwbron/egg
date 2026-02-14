@@ -210,6 +210,9 @@ Fixed IPs:
 - `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error)
 - `GET /pipelines/{id}/decisions` - HITL decision queue
 
+**CLI Access:**
+The `egg-orch` CLI (`sandbox/bin/egg-orch`) provides command-line access to all orchestrator API endpoints. Available in sandbox containers for agent use, or can be run from the host with appropriate environment variables. See the [README CLI Reference](../../README.md#egg-orch-cli) for command details.
+
 ### Signal Flow
 
 1. **Orchestrator → Sandbox**: Container spawn with env vars

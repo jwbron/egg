@@ -141,6 +141,27 @@ Checks run sequentially during the implement phase checker step. If not configur
 - Manual: Edit `~/.config/egg/repositories.yaml` and add `checks` under `repo_settings.{repo}`
 - Runtime: The gateway injects repo checks via the `EGG_REPO_CHECKS` environment variable (JSON-encoded)
 
+### Checkpoint Repository Configuration
+
+By default, checkpoints (session transcripts and tool call data) are stored in the same repository on the `egg/checkpoints/v2` branch. To keep checkpoint data separate or private, configure a different destination repository:
+
+**Example:**
+```yaml
+repo_settings:
+  your-org/web-app:
+    checkpoint_repo: your-org/web-app-checkpoints
+```
+
+The value must be in `owner/repo` format. The GitHub token must have write access to both the source repository and the checkpoint repository. This is useful for:
+- **Privacy**: Keep session transcripts and tool call data out of the source repo's history
+- **Separation of concerns**: Isolate checkpoint data from source code
+- **Access control**: Limit who can view checkpoint data
+
+**Configuration:**
+- Manual: Edit `~/.config/egg/repositories.yaml` and add `checkpoint_repo` under `repo_settings.{repo}`
+- GitHub Actions: Use the `checkpoint-repo` input (see `action/README.md`)
+- Runtime: The gateway looks up checkpoint configuration via `get_checkpoint_repo()` from `config/repo_config.py`
+
 ## context-filters.yaml
 
 Controls which Confluence spaces, JIRA projects, and repositories are synced.
