@@ -5,7 +5,7 @@
   "branch": "egg/issue-659",
   "mode": "issue",
   "prompt": null,
-  "status": "awaiting_human",
+  "status": "cancelled",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -68,8 +68,8 @@
     }
   ],
   "created_at": "2026-02-14T05:17:20.781933",
-  "updated_at": "2026-02-14T05:23:33.834512",
+  "updated_at": "2026-02-14T05:31:01.762126",
   "contract_synced": true,
   "error": "Decision decision-1 not found",
-  "version": 11
+  "version": 12
 }
