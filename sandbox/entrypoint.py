@@ -753,7 +753,6 @@ def setup_claude(config: Config, logger: Logger) -> None:
 
     # Create settings.json
     settings = {
-        "alwaysThinkingEnabled": True,
         "defaultPermissionMode": "bypassPermissions",
         "autoApproveEdits": True,
         "editorMode": "normal",
