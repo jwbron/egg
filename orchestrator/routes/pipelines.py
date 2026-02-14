@@ -5,6 +5,7 @@ Pipeline CRUD endpoints for egg-orchestrator.
 import json
 import os
 import re
+import subprocess
 import sys
 import threading
 from datetime import datetime
@@ -1051,6 +1052,47 @@ def _aggregate_review_verdicts(
     return overall, combined
 
 
+def _commit_statefiles_to_worktree(
+    worktree_path: Path,
+    message: str,
+) -> None:
+    """Stage and commit all ``.egg-state/`` files in *worktree_path*.
+
+    The old GitHub Actions workflow ran ``git add .egg-state/`` at every
+    phase boundary to capture contracts, drafts, reviews, and check
+    results.  The local orchestrator must do the same so these state
+    files are deterministically present on the feature branch regardless
+    of whether the agent happened to commit them.
+
+    The commit is idempotent (skips when nothing is staged).
+    Raises ``subprocess.CalledProcessError`` on git failure;
+    both call sites catch and log rather than aborting the pipeline.
+    """
+    state_dir = worktree_path / ".egg-state"
+    if not state_dir.exists():
+        return  # Nothing to commit yet
+
+    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_path)]
+
+    subprocess.run(
+        [*git_base, "add", ".egg-state/"],
+        capture_output=True, text=True, check=True,
+    )
+
+    # Only commit if there are staged changes (idempotent on re-runs)
+    result = subprocess.run(
+        [*git_base, "diff", "--cached", "--quiet", "--", ".egg-state/"],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode == 0:
+        return  # Nothing to commit
+
+    subprocess.run(
+        [*git_base, "commit", "--no-verify", "-m", message, "--", ".egg-state/"],
+        capture_output=True, text=True, check=True,
+    )
+
+
 def _build_phase_prompt(
     phase: str,
     pipeline_id: str,
@@ -1872,6 +1914,25 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         repo_root=worktree_repo_path,
                     )
                 pipeline.contract_synced = True
+
+                # Commit all .egg-state/ files so they're on the feature branch
+                issue_ref = (
+                    f"issue #{pipeline.issue_number}"
+                    if pipeline.issue_number is not None
+                    else f"pipeline {pipeline_id}"
+                )
+                try:
+                    _commit_statefiles_to_worktree(
+                        worktree_repo_path,
+                        f"Initialize SDLC contract for {issue_ref}",
+                    )
+                except subprocess.CalledProcessError as git_err:
+                    logger.warning(
+                        "Failed to commit statefiles to worktree (continuing)",
+                        pipeline_id=pipeline_id,
+                        error=str(git_err),
+                    )
+
                 store.save_pipeline(pipeline, commit=False)
                 logger.info(
                     "Pipeline contract created in worktree",
@@ -2356,6 +2417,22 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             if current_phase.value == "plan" and phase_execution.review_cycles == 0:
                 _populate_contract_from_plan(
                     worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+                )
+
+            # Commit any .egg-state/ files produced during this phase
+            # (drafts, reviews, check results, contract updates).  Mirrors
+            # the GHA workflow's `git add .egg-state/` at phase boundaries.
+            try:
+                _commit_statefiles_to_worktree(
+                    worktree_repo_path,
+                    f"Persist statefiles after {current_phase.value} phase",
+                )
+            except subprocess.CalledProcessError as git_err:
+                logger.warning(
+                    "Failed to commit statefiles after phase (continuing)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    error=str(git_err),
                 )
 
             # --- HITL gate: pause for human approval ---
