@@ -403,17 +403,28 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
         )
     except OrchestratorError as e:
         if e.status_code == 409:
-            # Pipeline already exists — try to get its status
+            # Pipeline already exists — check if it's still active
             print(f"  {YELLOW}Pipeline already exists. Checking status...{RESET}")
             try:
                 status_data = client.get_pipeline_status(pipeline_id)
                 status = status_data.get("status", "unknown")
                 if status in ("complete", "failed", "cancelled"):
-                    print(f"  Pipeline is {status}. Cannot restart.")
-                    return 1
-                print(f"  Pipeline status: {status}. Attaching to watch loop...")
-            except OrchestratorError:
-                pass
+                    # Terminal state — delete and re-create
+                    print(f"  Pipeline was {status}. Restarting...")
+                    client.delete_pipeline(pipeline_id)
+                    client.create_pipeline(
+                        issue_number=issue_number,
+                        repo=repo,
+                        branch=branch,
+                        mode="issue",
+                    )
+                    client.start_pipeline(pipeline_id)
+                    print(f"  {GREEN}Pipeline restarted.{RESET}")
+                else:
+                    print(f"  Pipeline status: {status}. Attaching to watch loop...")
+            except OrchestratorError as e2:
+                _write(f"{RED}Failed to restart pipeline: {e2}{RESET}\n", file=sys.stderr)
+                return 1
         else:
             _write(f"{RED}Failed to create pipeline: {e}{RESET}\n", file=sys.stderr)
             return 1
