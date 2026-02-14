@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 635,
+    "title": "claude might not be a good fit for the sdlc pipeline collaborator",
+    "url": "https://github.com/jwbron/egg/issues/635"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": [
+    {
+      "role": "coder",
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-14T12:00:00.000000Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0
+    },
+    {
+      "role": "tester",
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0
+    },
+    {
+      "role": "documenter",
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0
+    },
+    {
+      "role": "integrator",
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0
+    }
+  ],
+  "multi_agent_config": null
+}
