@@ -434,7 +434,10 @@ REVIEWER_UNIFIED_ROLE = AgentRoleDefinition(
         "Apply comprehensive review criteria",
         "Write a structured verdict (approved/needs_revision)",
     ],
-    dependencies=[AgentRole.INTEGRATOR],  # Default: review after integrator
+    # Depend on terminal roles from both implement and plan phases.
+    # build_from_roles() only adds edges for deps present in the role set,
+    # so INTEGRATOR is used for implement phase, TASK_PLANNER/RISK_ANALYST for plan.
+    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
@@ -455,7 +458,7 @@ REVIEWER_CODE_ROLE = AgentRoleDefinition(
         "Check for OWASP top 10 vulnerabilities",
         "Verify error handling and edge cases",
     ],
-    dependencies=[AgentRole.INTEGRATOR],
+    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
@@ -476,7 +479,7 @@ REVIEWER_CONTRACT_ROLE = AgentRoleDefinition(
         "Check task completion status",
         "Validate contract consistency",
     ],
-    dependencies=[AgentRole.INTEGRATOR],
+    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
@@ -497,7 +500,7 @@ REVIEWER_AGENT_DESIGN_ROLE = AgentRoleDefinition(
         "Verify autonomous operation capability",
         "Assess human-in-the-loop integration",
     ],
-    dependencies=[AgentRole.INTEGRATOR],
+    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[

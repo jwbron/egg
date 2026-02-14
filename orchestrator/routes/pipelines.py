@@ -825,13 +825,6 @@ def _get_contract_review_criteria() -> str:
     )
 
 
-# Per-phase reviewer matrix
-_PHASE_REVIEWERS: dict[str, list[str]] = {
-    "refine": ["unified", "agent-design"],
-    "plan": ["unified", "agent-design"],
-    "implement": ["unified", "agent-design", "code", "contract"],
-}
-
 
 def _get_review_criteria_for_type(reviewer_type: str, phase: str) -> str:
     """Dispatch to the correct criteria function based on reviewer type."""
@@ -1552,16 +1545,16 @@ def _build_agent_prompt(
             ]
         )
     elif role_value.startswith("reviewer_"):
-        reviewer_type = role_value.replace("reviewer_", "")
-        lines.extend(
-            [
-                f"Perform a **{reviewer_type}** review of the phase output:",
-                "",
-                "1. Review all changes made in this phase",
-                "2. Apply review criteria specific to your type",
-                "3. Write a structured verdict (approved/needs_revision)",
-                "",
-            ]
+        # Delegate to the detailed review prompt with criteria and verdict format
+        reviewer_type = role_value.replace("reviewer_", "", 1).replace("_", "-")
+        return _build_review_prompt(
+            phase=phase,
+            pipeline_id=pipeline_id,
+            pipeline_mode=pipeline_mode,
+            reviewer_type=reviewer_type,
+            issue_number=issue_number,
+            review_cycle=review_cycle,
+            prior_feedback=review_feedback,
         )
     else:
         lines.extend(
@@ -1634,7 +1627,7 @@ def _run_multi_agent_phase(
     pipeline_mode = pipeline.mode or "issue"
 
     # Build agent-specific prompts for all roles in this phase
-    roles = get_roles_for_phase(phase)
+    roles = get_roles_for_phase(phase, include_reviewers=True)
     agent_prompts_by_role: dict = {}
     for contract_role in roles:
         role_str = contract_role.value
@@ -1876,8 +1869,6 @@ def _spawn_and_wait(
     return final_info.exit_code, container_logs
 
 
-# Phases that get an agentic review cycle before advancing
-_REVIEWED_PHASES = {"refine", "plan", "implement"}
 
 # Phases that pause for human approval before advancing (HITL gates)
 _HITL_GATE_PHASES = {"refine", "plan"}
@@ -2728,153 +2719,78 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
                             break
 
-                # 3. Multi-reviewer loop (all reviewed phases)
-                if current_phase.value not in _REVIEWED_PHASES:
-                    break  # No review needed — advance
-
-                reviewer_types = _PHASE_REVIEWERS.get(current_phase.value, ["unified"])
-
-                # Delete stale verdict files before spawning reviewers
-                for rtype in reviewer_types:
-                    verdict_rel = _verdict_path_for_type(
-                        current_phase.value,
-                        rtype,
-                        pipeline_mode,
-                        pipeline.issue_number,
-                        pipeline_id,
-                    )
-                    verdict_path = worktree_repo_path / verdict_rel
-                    if verdict_path.exists():
-                        try:
-                            verdict_path.unlink()
-                        except OSError:
-                            pass
-
-                # Run reviewers sequentially
-                all_verdicts: dict[str, ReviewVerdict | None] = {}
-                for reviewer_type in reviewer_types:
-                    logger.info(
-                        "Spawning reviewer",
-                        pipeline_id=pipeline_id,
-                        phase=current_phase.value,
-                        reviewer_type=reviewer_type,
-                        review_cycle=review_cycle + 1,
+                # 3. Read reviewer verdicts (multi-agent reviewed phases)
+                # Reviewers now run as part of wave-based multi-agent execution
+                # above, so we only need to read their verdict files here.
+                if use_multi_agent:
+                    from egg_contracts.agent_roles import (
+                        _PHASE_REVIEWERS as _phase_reviewer_roles,
                     )
 
-                    review_prompt = _build_review_prompt(
-                        phase=current_phase.value,
-                        pipeline_id=pipeline_id,
-                        pipeline_mode=pipeline_mode,
-                        reviewer_type=reviewer_type,
-                        issue_number=pipeline.issue_number,
-                        review_cycle=review_cycle + 1,
-                        prior_feedback=review_feedback,
+                    reviewer_roles = _phase_reviewer_roles.get(
+                        current_phase.value, []
                     )
+                    if not reviewer_roles:
+                        break  # No reviewers for this phase — advance
 
-                    reviewer_command = [
-                        "claude",
-                        "--dangerously-skip-permissions",
-                        "--print",
-                        "--verbose",
-                        "--output-format",
-                        "stream-json",
-                        "--model",
-                        "opus",
-                        "--max-turns",
-                        "50",
-                        review_prompt,
-                    ]
-
-                    reviewer_env = {
-                        **sandbox_env,
-                        "EGG_REVIEWER_TYPE": reviewer_type,
-                    }
-
-                    try:
-                        rev_exit, rev_logs = _spawn_and_wait(
-                            spawner=spawner,
-                            pipeline_id=pipeline_id,
-                            agent_role=AgentRole.REVIEWER,
+                    all_verdicts: dict[str, ReviewVerdict | None] = {}
+                    for role in reviewer_roles:
+                        rtype = role.value.replace("reviewer_", "", 1).replace(
+                            "_", "-"
+                        )
+                        all_verdicts[rtype] = _read_review_verdict(
+                            worktree_repo_path,
+                            current_phase.value,
+                            reviewer_type=rtype,
+                            pipeline_mode=pipeline_mode,
                             issue_number=pipeline.issue_number,
-                            repo_volumes=repo_volumes,
-                            gateway_mode=phase_gateway_mode,
-                            repos=repos,
-                            phase=current_phase.value,
-                            sandbox_env=reviewer_env,
-                            sandbox_command=reviewer_command,
-                            timeout=1800,
-                            store=store,
-                            certs_volume=certs_volume,
-                        )
-                    except ContainerSpawnError as e:
-                        logger.warning(
-                            "Reviewer failed to spawn, treating as approved",
                             pipeline_id=pipeline_id,
-                            reviewer_type=reviewer_type,
-                            error=str(e),
                         )
-                        all_verdicts[reviewer_type] = None
-                        continue
 
-                    if rev_exit != 0:
-                        logger.warning(
-                            "Reviewer exited non-zero, treating as approved",
-                            pipeline_id=pipeline_id,
-                            reviewer_type=reviewer_type,
-                            exit_code=rev_exit,
-                        )
-                        all_verdicts[reviewer_type] = None
-                        continue
-
-                    # Read this reviewer's verdict
-                    all_verdicts[reviewer_type] = _read_review_verdict(
-                        worktree_repo_path,
-                        current_phase.value,
-                        reviewer_type=reviewer_type,
-                        pipeline_mode=pipeline_mode,
-                        issue_number=pipeline.issue_number,
-                        pipeline_id=pipeline_id,
+                    overall_verdict, combined_feedback = (
+                        _aggregate_review_verdicts(all_verdicts)
                     )
 
-                # Aggregate all verdicts
-                overall_verdict, combined_feedback = _aggregate_review_verdicts(all_verdicts)
+                    if overall_verdict == "approved":
+                        logger.info(
+                            "All reviewers approved",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase.value,
+                            review_cycle=review_cycle + 1,
+                        )
+                        break  # Advance to next phase
 
-                if overall_verdict == "approved":
+                    # needs_revision — check circuit breaker
+                    max_cycles = pipeline.config.max_review_cycles
+                    if review_cycle + 1 >= max_cycles:
+                        logger.warning(
+                            "Review circuit breaker — advancing despite needs_revision",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase.value,
+                            review_cycles=review_cycle + 1,
+                            max_review_cycles=max_cycles,
+                        )
+                        break
+
+                    # Store feedback and loop
+                    review_feedback = combined_feedback
+                    pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    phase_execution.review_cycles = review_cycle + 1
+                    store.save_pipeline(pipeline)
+
                     logger.info(
-                        "All reviewers approved",
+                        "Review needs revision — looping",
                         pipeline_id=pipeline_id,
                         phase=current_phase.value,
                         review_cycle=review_cycle + 1,
+                        feedback_preview=review_feedback[:200]
+                        if review_feedback
+                        else "",
                     )
-                    break  # Advance to next phase
+                    continue  # Re-run while loop with feedback
 
-                # needs_revision — check circuit breaker
-                max_cycles = pipeline.config.max_review_cycles
-                if review_cycle + 1 >= max_cycles:
-                    logger.warning(
-                        "Review circuit breaker — advancing despite needs_revision",
-                        pipeline_id=pipeline_id,
-                        phase=current_phase.value,
-                        review_cycles=review_cycle + 1,
-                        max_review_cycles=max_cycles,
-                    )
-                    break
-
-                # Store feedback and loop
-                review_feedback = combined_feedback
-                pipeline = store.load_pipeline(pipeline_id)
-                phase_execution = pipeline.get_phase_execution(current_phase)
-                phase_execution.review_cycles = review_cycle + 1
-                store.save_pipeline(pipeline)
-
-                logger.info(
-                    "Review needs revision — looping",
-                    pipeline_id=pipeline_id,
-                    phase=current_phase.value,
-                    review_cycle=review_cycle + 1,
-                    feedback_preview=review_feedback[:200] if review_feedback else "",
-                )
-                # Continue inner while loop → re-spawn worker with feedback
+                break  # Non-multi-agent phases — advance directly
 
             # If the phase failed, the outer loop should also break
             if phase_failed:
