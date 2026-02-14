@@ -92,9 +92,9 @@ def _write(text: str, file=None) -> None:
 
 
 def _clear_screen() -> None:
-    """Clear the terminal screen and move cursor to top."""
+    """Move cursor to top-left for in-place redraw."""
     if IS_TTY:
-        sys.stdout.write("\033[2J\033[H")
+        sys.stdout.write("\033[H")
         sys.stdout.flush()
 
 
@@ -161,7 +161,10 @@ def display_visualization(data: dict, compact: bool = False) -> None:
 
     if compact:
         output = format_status_line(pipeline_id, data)
-        _write(output + "\n")
+        if IS_TTY:
+            _write(output + "\033[K\n\033[J")
+        else:
+            _write(output + "\n")
         return
 
     output = render_header(pipeline_id, event_type)
@@ -175,6 +178,12 @@ def display_visualization(data: dict, compact: bool = False) -> None:
 
     output += render_event_info(data)
     output += f"\n\n{DIM}Press Ctrl+C to stop watching{RESET}\n"
+
+    if IS_TTY:
+        # Clear remainder of each line and any leftover lines below
+        # to overwrite stale content without a full screen clear.
+        lines = output.split("\n")
+        output = "\033[K\n".join(lines) + "\033[J"
 
     _write(output)
 
