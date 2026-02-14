@@ -598,16 +598,16 @@ class TestWaveGrouping:
         result = render_pipeline_dag(pipeline, include_header=False)
 
         lines = result.split("\n")
-        agent_lines = [l.strip() for l in lines if "coder" in l or "tester" in l or "integrator" in l or "reviewer" in l]
+        agent_lines = [line.strip() for line in lines if "coder" in line or "tester" in line or "integrator" in line or "reviewer" in line]
 
         # Coder should be on its own line (wave 1)
-        assert any("coder" in l and "tester" not in l and "integrator" not in l for l in agent_lines)
+        assert any("coder" in line and "tester" not in line and "integrator" not in line for line in agent_lines)
         # Tester and documenter should be on the same line (wave 2)
-        assert any("tester" in l and "documenter" in l for l in agent_lines)
+        assert any("tester" in line and "documenter" in line for line in agent_lines)
         # Integrator should be on its own line (wave 3)
-        assert any("integrator" in l and "coder" not in l and "reviewer" not in l for l in agent_lines)
+        assert any("integrator" in line and "coder" not in line and "reviewer" not in line for line in agent_lines)
         # Reviewers should be after integrator (wave 4)
-        assert any("reviewer_unified" in l for l in agent_lines)
+        assert any("reviewer_unified" in line for line in agent_lines)
 
     def test_plan_phase_wave_order(self):
         """Agents are grouped by execution wave in plan phase."""
@@ -636,14 +636,14 @@ class TestWaveGrouping:
         result = render_pipeline_dag(pipeline, include_header=False)
 
         lines = result.split("\n")
-        agent_lines = [l.strip() for l in lines if "architect" in l or "planner" in l or "analyst" in l or "reviewer" in l]
+        agent_lines = [line.strip() for line in lines if "architect" in line or "planner" in line or "analyst" in line or "reviewer" in line]
 
         # Architect alone (wave 1)
-        assert any("architect" in l and "planner" not in l for l in agent_lines)
+        assert any("architect" in line and "planner" not in line for line in agent_lines)
         # Task planner and risk analyst together (wave 2)
-        assert any("task_planner" in l and "risk_analyst" in l for l in agent_lines)
+        assert any("task_planner" in line and "risk_analyst" in line for line in agent_lines)
         # Reviewers together (wave 3) — after planner agents
-        assert any("reviewer_unified" in l and "reviewer_agent_design" in l for l in agent_lines)
+        assert any("reviewer_unified" in line and "reviewer_agent_design" in line for line in agent_lines)
 
     def test_compute_wave_order_implement(self):
         """_compute_wave_order returns correct wave groups for implement phase."""
@@ -709,9 +709,9 @@ class TestWaveGrouping:
 
         lines = result.split("\n")
         # Find the line indices containing each agent type
-        architect_line = next(i for i, l in enumerate(lines) if "architect" in l)
-        planner_line = next(i for i, l in enumerate(lines) if "task_planner" in l)
-        reviewer_line = next(i for i, l in enumerate(lines) if "reviewer_unified" in l)
+        architect_line = next(i for i, line in enumerate(lines) if "architect" in line)
+        planner_line = next(i for i, line in enumerate(lines) if "task_planner" in line)
+        reviewer_line = next(i for i, line in enumerate(lines) if "reviewer_unified" in line)
 
         # Reviewer must come AFTER architect and planner
         assert reviewer_line > architect_line

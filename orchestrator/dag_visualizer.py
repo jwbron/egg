@@ -18,7 +18,6 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 from models import (
     AgentExecution,
     AgentExecutionStatus,
-    AgentRole,
     ContainerStatus,
     Pipeline,
     PipelinePhase,
