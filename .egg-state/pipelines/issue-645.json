@@ -474,6 +474,17 @@
       "review_cycles": 1,
       "artifacts": {},
       "error": null
+    },
+    "pr": {
+      "phase": "pr",
+      "status": "running",
+      "started_at": "2026-02-14T01:09:25.731655",
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "artifacts": {},
+      "error": null
     }
   },
   "decisions": [
@@ -505,9 +516,9 @@
     }
   ],
   "created_at": "2026-02-13T23:32:23.876688",
-  "updated_at": "2026-02-14T01:09:25.713266",
+  "updated_at": "2026-02-14T01:09:25.731823",
   "contract_synced": true,
   "sdlc_token_gated": false,
   "error": null,
-  "version": 62
+  "version": 63
 }
