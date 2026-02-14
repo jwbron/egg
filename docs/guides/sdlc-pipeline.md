@@ -814,8 +814,8 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 - Merge conflict check (required)
 - Lint check (required, 1 retry)
 - Test check (required)
-- Deployment validation (optional, 1 retry, requires `.egg/deployment.yml`)
 - Auto-fixer (optional)
+- Deployment validation (optional, 1 retry, requires `.egg/deployment.yml`)
 
 **PR phase:**
 - No checks
