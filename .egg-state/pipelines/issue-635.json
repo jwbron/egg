@@ -101,17 +101,17 @@
       "options": [
         "approve"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-13T23:58:59.408428",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-02-14T00:53:59.621864",
+      "resolution": "approve",
       "timeout_seconds": 3600
     }
   ],
   "created_at": "2026-02-13T23:51:06.806504",
-  "updated_at": "2026-02-13T23:58:59.424867",
+  "updated_at": "2026-02-14T00:53:59.622788",
   "contract_synced": true,
   "sdlc_token_gated": false,
   "error": null,
-  "version": 14
+  "version": 15
 }
