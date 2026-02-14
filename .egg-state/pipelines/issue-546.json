@@ -316,17 +316,17 @@
       "options": [
         "approve"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-14T02:00:38.078876",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-02-14T02:06:16.359010",
+      "resolution": "approve",
       "timeout_seconds": 3600
     }
   ],
   "created_at": "2026-02-14T01:09:09.731967",
-  "updated_at": "2026-02-14T02:00:38.109924",
+  "updated_at": "2026-02-14T02:06:16.360622",
   "contract_synced": true,
   "sdlc_token_gated": false,
   "error": null,
-  "version": 41
+  "version": 42
 }
