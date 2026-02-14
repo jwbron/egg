@@ -506,4 +506,9 @@ class TestHandleHitlCheckpoint:
         )
 
         assert result == "resolved"
-        mock_claude.assert_called_once_with(tmp_path)
+        mock_claude.assert_called_once_with(
+            tmp_path,
+            ".egg-state/drafts/42-analysis.md",
+            "refine",
+            42,
+        )

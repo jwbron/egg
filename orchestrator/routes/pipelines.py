@@ -2123,10 +2123,17 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     """
     from routes.phases import get_phase_transitions
 
+    # Track which run of the pipeline this thread owns.  If the pipeline
+    # is deleted and recreated with the same ID while we're still running,
+    # the new run creates its own worktrees under the same path.  Without
+    # this guard, our finally block would delete the *new* run's worktrees.
+    run_created_at: datetime | None = None
+
     try:
         store = get_state_store(repo_path)
         spawner = get_container_spawner()
         pipeline = store.load_pipeline(pipeline_id)
+        run_created_at = pipeline.created_at
         pipeline_mode = getattr(pipeline, "mode", "issue")
         transitions = get_phase_transitions(pipeline_mode)
 
@@ -2320,7 +2327,23 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         hitl_revision_feedback: str | None = None
 
         while True:
-            pipeline = store.load_pipeline(pipeline_id)
+            try:
+                pipeline = store.load_pipeline(pipeline_id)
+            except Exception:
+                # Pipeline was deleted — exit quietly
+                logger.info(
+                    "Pipeline no longer exists, exiting thread",
+                    pipeline_id=pipeline_id,
+                )
+                return
+
+            # Detect recreation: another run now owns this pipeline ID
+            if pipeline.created_at != run_created_at:
+                logger.info(
+                    "Pipeline was recreated, exiting old thread",
+                    pipeline_id=pipeline_id,
+                )
+                return
 
             if pipeline.status in (PipelineStatus.FAILED, PipelineStatus.CANCELLED):
                 logger.info(
@@ -3046,27 +3069,54 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         try:
             store = get_state_store(repo_path)
             pipeline = store.load_pipeline(pipeline_id)
-            pipeline.status = PipelineStatus.FAILED
-            pipeline.error = str(e)
-            store.save_pipeline(pipeline)
 
-            # Report pipeline failure to collaborator
-            report_pipeline_status(
-                pipeline,
-                event_type="pipeline.failed",
-                message=f"Pipeline failed: {str(e)[:100]}",
-            )
+            # Don't corrupt a recreated pipeline's state
+            if run_created_at and pipeline.created_at != run_created_at:
+                logger.info(
+                    "Pipeline was recreated, not marking new run as failed",
+                    pipeline_id=pipeline_id,
+                )
+            else:
+                pipeline.status = PipelineStatus.FAILED
+                pipeline.error = str(e)
+                store.save_pipeline(pipeline)
+
+                # Report pipeline failure to collaborator
+                report_pipeline_status(
+                    pipeline,
+                    event_type="pipeline.failed",
+                    message=f"Pipeline failed: {str(e)[:100]}",
+                )
         except Exception:
             pass
     finally:
-        # Clean up pipeline-level worktrees regardless of success/failure
+        # Clean up pipeline-level worktrees unless the pipeline has been
+        # recreated (delete + create with the same ID).  In that case the
+        # new run owns the worktrees and we must not remove them.
         try:
             _spawner = get_container_spawner()
-            _spawner.gateway.delete_worktrees(
-                container_id=pipeline_id,
-                force=True,
-            )
-            logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
+            _store = get_state_store(repo_path)
+            skip_cleanup = False
+            try:
+                current = _store.load_pipeline(pipeline_id)
+                if run_created_at and current.created_at != run_created_at:
+                    skip_cleanup = True
+                    logger.info(
+                        "Pipeline was recreated, skipping worktree cleanup",
+                        pipeline_id=pipeline_id,
+                        old_created_at=run_created_at.isoformat(),
+                        new_created_at=current.created_at.isoformat(),
+                    )
+            except Exception:
+                # Pipeline was deleted and not recreated — safe to clean up
+                pass
+
+            if not skip_cleanup:
+                _spawner.gateway.delete_worktrees(
+                    container_id=pipeline_id,
+                    force=True,
+                )
+                logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
         except Exception as wt_err:
             logger.warning(
                 "Failed to clean up pipeline worktrees",
