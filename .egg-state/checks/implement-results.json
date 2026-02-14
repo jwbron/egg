@@ -1,15 +1,15 @@
 {
-  "all_passed": false,
+  "all_passed": true,
   "checks": [
+    {
+      "name": "lint",
+      "passed": true,
+      "output": "ruff check: All checks passed! (exit code 0)"
+    },
     {
       "name": "pytest",
       "passed": true,
-      "output": "3310 passed, 81 skipped, 3 warnings in 23.95s. All tests passed."
-    },
-    {
-      "name": "lint",
-      "passed": false,
-      "output": "ruff check found 23 errors: 8 unused imports (F401), 5 ambiguous variable names (E741), 2 deprecated typing imports (UP035), 3 bare raise-from exceptions (B904), 2 unused variables (F841), 1 unnecessary f-string (F541), 1 unsorted imports (I001). 12 are auto-fixable with --fix."
+      "output": "3310 passed, 81 skipped, 3 warnings in 23.79s (exit code 0)"
     }
   ]
 }
