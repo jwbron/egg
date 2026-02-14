@@ -94,6 +94,7 @@ def make_success_response(
 
 
 from routes import get_repo_path  # noqa: E402 — shared helper
+from routes.checks import teardown_devserver  # noqa: E402
 
 
 def validate_phase_transition(
@@ -261,6 +262,9 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         # Save updated pipeline with optimistic locking
         store.save_pipeline(pipeline, expected_version=original_version)
 
+        # Tear down any active devserver for the previous phase
+        teardown_devserver(pipeline_id)
+
         logger.info(
             "Phase advanced",
             pipeline_id=pipeline_id,
@@ -407,6 +411,9 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
 
         store.save_pipeline(pipeline, expected_version=original_version)
 
+        # Tear down any active devserver for this pipeline
+        teardown_devserver(pipeline_id)
+
         logger.info(
             "Phase completed",
             pipeline_id=pipeline_id,
@@ -478,6 +485,9 @@ def fail_phase(pipeline_id: str) -> tuple[Response, int]:
         pipeline.error = error_message
 
         store.save_pipeline(pipeline, expected_version=original_version)
+
+        # Tear down any active devserver for this pipeline
+        teardown_devserver(pipeline_id)
 
         logger.error(
             "Phase failed",
