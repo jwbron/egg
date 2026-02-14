@@ -2109,7 +2109,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             try:
                 pipeline.config.max_parallel_agents = int(env_max_parallel)
             except ValueError:
-                pass
+                logger.warning(
+                    "Invalid EGG_MAX_PARALLEL_AGENTS value: %r, ignoring",
+                    env_max_parallel,
+                )
 
         # Map pipeline mode to gateway session mode
         gateway_mode = "local" if pipeline_mode == "local" else "public"

@@ -581,6 +581,13 @@ class TestReviewerRoles:
             # Source directories blocked via directory-based patterns
             assert "src/" in role_def.file_access.blocked_write
 
+            # Verify can_write() actually works for allowed paths
+            assert role_def.file_access.can_write(".egg-state/reviews/verdict.json")
+            assert role_def.file_access.can_write(".egg-state/agent-outputs/report.json")
+            # Verify can_write() blocks source/production paths
+            assert not role_def.file_access.can_write("src/main.py")
+            assert not role_def.file_access.can_write("gateway/server.py")
+
 
 class TestWriteOverlapDetection:
     """Tests for write overlap detection between parallel agents."""
