@@ -2443,6 +2443,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         try:
                             dq.wait_for_decision(followup.id)
                         except DecisionTimeoutError:
+                            # Timeout: resolution will be None, so
+                            # (resolution or "").strip() → "", which is in
+                            # _APPROVE_KEYWORDS — intentionally treating
+                            # timeout as approval (same as no-text approve).
                             logger.warning(
                                 "HITL follow-up timed out, advancing",
                                 pipeline_id=pipeline_id,
@@ -2471,7 +2475,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             phase=current_phase.value,
                             feedback_preview=resolution[:200],
                         )
-                        hitl_revision_feedback = resolution
                         pipeline = store.load_pipeline(pipeline_id)
                         pipeline.status = PipelineStatus.RUNNING
                         phase_execution = pipeline.get_phase_execution(current_phase)
@@ -2492,6 +2495,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             store.save_pipeline(pipeline)
                             # Fall through to the approval path below
                         else:
+                            hitl_revision_feedback = resolution
                             store.save_pipeline(pipeline)
                             report_pipeline_status(
                                 pipeline,
