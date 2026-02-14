@@ -2782,7 +2782,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # contract load/save inside _populate_contract_from_plan.
             # The contract was created at worktree_repo_path above, so
             # both operations must use the same path.
-            if current_phase.value == "plan" and phase_execution.review_cycles == 0:
+            # Called on every successful plan completion (including after
+            # HITL revision) so the contract reflects the latest approved
+            # plan, not a previously rejected draft.
+            if current_phase.value == "plan":
                 _populate_contract_from_plan(
                     worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
                 )
@@ -2854,10 +2857,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         followup = dq.queue_decision(
                             question=(
                                 f"You selected \"{resolution}\" but didn't provide specific feedback. "
-                                f"Please describe what changes you'd like to see in the {phase_label}."
+                                f"Please describe what changes you'd like to see in the {phase_label}, "
+                                f"or approve to continue."
                             ),
                             context=draft_content,
-                            options=["approve", "request changes"],
+                            options=["approve"],
                             timeout_seconds=pipeline.config.decision_timeout,
                         )
                         try:
@@ -2900,17 +2904,19 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase_execution = pipeline.get_phase_execution(current_phase)
                         phase_execution.status = PipelineStatus.RUNNING
                         phase_execution.completed_at = None  # Reset — phase is re-running
-                        phase_execution.review_cycles += 1
+                        phase_execution.hitl_review_cycles += 1
 
-                        # Circuit breaker: don't allow unbounded HITL revision loops
-                        max_cycles = pipeline.config.max_review_cycles
-                        if phase_execution.review_cycles >= max_cycles:
+                        # Circuit breaker: don't allow unbounded HITL revision loops.
+                        # Uses a dedicated counter so agentic review cycles don't
+                        # consume the human's revision budget.
+                        max_hitl_cycles = pipeline.config.max_review_cycles
+                        if phase_execution.hitl_review_cycles >= max_hitl_cycles:
                             logger.warning(
                                 "HITL revision circuit breaker — advancing despite feedback",
                                 pipeline_id=pipeline_id,
                                 phase=current_phase.value,
-                                review_cycles=phase_execution.review_cycles,
-                                max_review_cycles=max_cycles,
+                                hitl_review_cycles=phase_execution.hitl_review_cycles,
+                                max_review_cycles=max_hitl_cycles,
                             )
                             store.save_pipeline(pipeline)
                             # Fall through to the approval path below

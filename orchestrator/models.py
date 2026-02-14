@@ -164,7 +164,8 @@ class PhaseExecution(BaseModel):
     agents: list[AgentExecution] = Field(
         default_factory=list, description="Agent executions (implement phase)"
     )
-    review_cycles: int = Field(default=0, ge=0, description="Review cycles completed")
+    review_cycles: int = Field(default=0, ge=0, description="Agentic review cycles completed")
+    hitl_review_cycles: int = Field(default=0, ge=0, description="HITL revision cycles completed")
     artifacts: dict[str, str] = Field(
         default_factory=dict, description="Produced artifacts (file paths)"
     )

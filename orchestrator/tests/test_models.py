@@ -109,6 +109,20 @@ class TestPhaseExecution:
         assert phase.containers == []
         assert phase.agents == []
 
+    def test_hitl_review_cycles_defaults_to_zero(self):
+        """Test that hitl_review_cycles defaults to 0 and is independent of review_cycles."""
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+        assert phase.review_cycles == 0
+        assert phase.hitl_review_cycles == 0
+
+    def test_hitl_review_cycles_independent_of_review_cycles(self):
+        """Test that hitl_review_cycles and review_cycles are tracked independently."""
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+        phase.review_cycles = 2
+        phase.hitl_review_cycles = 1
+        assert phase.review_cycles == 2
+        assert phase.hitl_review_cycles == 1
+
     def test_phase_with_agents(self):
         """Test phase with agent executions."""
         phase = PhaseExecution(
