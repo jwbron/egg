@@ -11,6 +11,7 @@ from egg_lib.sdlc_hitl import (
     _detect_phase,
     _find_repo_path,
     _get_draft_path,
+    _launch_claude,
     _read_draft,
     handle_hitl_checkpoint,
 )
@@ -512,3 +513,49 @@ class TestHandleHitlCheckpoint:
             "refine",
             42,
         )
+
+
+# ---------------------------------------------------------------------------
+# _launch_claude unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestLaunchClaude:
+    """Unit tests for _launch_claude command construction."""
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_with_draft_context(self, mock_run, tmp_path):
+        """When draft_rel is provided, --append-system-prompt is added."""
+        _launch_claude(tmp_path, draft_rel="drafts/42-analysis.md", phase="refine", issue_number=42)
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "claude"
+        assert "--append-system-prompt" in cmd
+        prompt_idx = cmd.index("--append-system-prompt")
+        prompt_text = cmd[prompt_idx + 1]
+        assert "refine" in prompt_text
+        assert "#42" in prompt_text
+        assert "drafts/42-analysis.md" in prompt_text
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_without_draft_context(self, mock_run, tmp_path):
+        """When draft_rel is None, bare 'claude' command is used."""
+        _launch_claude(tmp_path, draft_rel=None, phase="implement", issue_number=10)
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["claude"]
+        assert mock_run.call_args[1]["cwd"] == str(tmp_path)
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_with_draft_but_no_phase_or_issue(self, mock_run, tmp_path):
+        """When draft_rel is set but phase/issue are None, prompt still includes draft."""
+        _launch_claude(tmp_path, draft_rel="drafts/1-plan.md", phase=None, issue_number=None)
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert "--append-system-prompt" in cmd
+        prompt_idx = cmd.index("--append-system-prompt")
+        prompt_text = cmd[prompt_idx + 1]
+        assert "drafts/1-plan.md" in prompt_text
+        # Phase and issue should not appear
+        assert "phase" not in prompt_text.lower().split("draft")[0]
+        assert "#" not in prompt_text.split("Draft file")[0]
