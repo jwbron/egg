@@ -1453,6 +1453,13 @@ def run_exec(config: Config, logger: Logger, args: list[str]) -> int:
     Returns:
         Exit code from the subprocess
     """
+    # Change to repos directory (same as interactive mode) so that tools
+    # like `gh repo view` can auto-detect the repository context.
+    if config.repos_dir.exists():
+        os.chdir(config.repos_dir)
+    else:
+        os.chdir(config.user_home)
+
     env = os.environ.copy()
     # Remove launcher secret — privileged credential not for Claude's use
     env.pop("EGG_LAUNCHER_SECRET", None)
