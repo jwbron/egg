@@ -166,8 +166,11 @@ def display_dashboard(pipelines: dict, verbose: bool = False) -> None:
     output = render_dashboard(pipelines, verbose=verbose)
 
     if IS_TTY:
-        sys.stdout.write(MOVE_HOME + CLEAR_SCREEN)
-        sys.stdout.write(output + "\n")
+        # Overwrite in place without full screen clear to avoid flicker.
+        # Clear remainder of each line, then clear any leftover lines below.
+        lines = output.split("\n")
+        cleared = "\033[K\n".join(lines)
+        sys.stdout.write(MOVE_HOME + cleared + "\n\033[J")
         sys.stdout.flush()
     else:
         plain = strip_ansi(output)
