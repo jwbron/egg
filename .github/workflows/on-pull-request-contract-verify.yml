@@ -80,10 +80,14 @@ jobs:
             if [[ -n "${issue_number:-}" ]]; then
               contract_path=".egg-state/contracts/${issue_number}.json"
               echo "Checking for contract file: $contract_path on branch $branch_name"
-              if gh api "repos/${{ github.repository }}/contents/${contract_path}?ref=${branch_name}" --silent 2>/dev/null; then
+              http_code=$(gh api "repos/${{ github.repository }}/contents/${contract_path}?ref=${branch_name}" \
+                --silent -i 2>/dev/null | head -1 | awk '{print $2}') || http_code="000"
+              if [[ "$http_code" == "200" ]]; then
                 echo "Contract file found, running contract verification"
                 echo "run=true" >> "$GITHUB_OUTPUT"
                 exit 0
+              elif [[ "$http_code" != "404" ]]; then
+                echo "::warning::Unexpected HTTP $http_code checking contract file at $contract_path"
               else
                 echo "No contract file found at $contract_path"
               fi
