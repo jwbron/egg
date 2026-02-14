@@ -20,6 +20,8 @@ _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
+from devserver import DevserverError
+
 
 @pytest.fixture
 def app():
@@ -145,6 +147,81 @@ class TestStartDeploymentCheck:
 
         assert resp.status_code == 409
         assert data["success"] is False
+
+    @patch("routes.checks.get_state_store")
+    @patch("routes.checks.get_repo_path")
+    def test_start_conflict_already_starting(self, mock_get_repo, mock_get_store, client):
+        """409 returned when pipeline is already in _starting_devservers."""
+        from routes.checks import _starting_devservers
+
+        mock_get_repo.return_value = Path("/repo")
+        mock_store = MagicMock()
+        mock_get_store.return_value = mock_store
+
+        _starting_devservers.add("issue-123")
+
+        resp = client.post("/api/v1/pipelines/issue-123/deployment-check/start")
+        data = json.loads(resp.data)
+
+        assert resp.status_code == 409
+        assert data["success"] is False
+        assert "already being started" in data["message"].lower()
+
+    @patch("routes.checks.get_state_store")
+    @patch("routes.checks.load_deployment_config")
+    @patch("routes.checks.DevserverManager")
+    @patch("routes.checks.get_repo_path")
+    @patch("routes.checks.resolve_worktree_path")
+    def test_start_cleans_sentinel_on_devserver_error(
+        self,
+        mock_resolve_wt,
+        mock_get_repo,
+        mock_manager_cls,
+        mock_load_config,
+        mock_get_store,
+        client,
+    ):
+        """Sentinel is cleaned up when manager.start() raises DevserverError."""
+        from routes.checks import _starting_devservers
+
+        mock_get_repo.return_value = Path("/repo")
+        mock_resolve_wt.return_value = Path("/worktree")
+        mock_store = MagicMock()
+        mock_get_store.return_value = mock_store
+        mock_load_config.return_value = MagicMock()
+
+        mock_manager = MagicMock()
+        mock_manager.start.side_effect = DevserverError("compose up failed")
+        mock_manager_cls.return_value = mock_manager
+
+        resp = client.post("/api/v1/pipelines/issue-123/deployment-check/start")
+
+        assert resp.status_code == 500
+        assert "issue-123" not in _starting_devservers
+        mock_manager.teardown.assert_called_once()
+
+    @patch("routes.checks.get_state_store")
+    @patch("routes.checks.get_repo_path")
+    @patch("routes.checks.resolve_worktree_path")
+    def test_start_cleans_sentinel_on_unexpected_error(
+        self,
+        mock_resolve_wt,
+        mock_get_repo,
+        mock_get_store,
+        client,
+    ):
+        """Sentinel is cleaned up even for non-DevserverError exceptions."""
+        from routes.checks import _starting_devservers
+
+        mock_get_repo.return_value = Path("/repo")
+        mock_store = MagicMock()
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.side_effect = RuntimeError("boom")
+
+        resp = client.post("/api/v1/pipelines/issue-123/deployment-check/start")
+
+        assert resp.status_code == 500
+        assert "issue-123" not in _starting_devservers
 
 
 class TestGetDeploymentCheckStatus:
