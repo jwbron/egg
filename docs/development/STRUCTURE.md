@@ -54,7 +54,7 @@ gateway/
 ├── auth.py                 # Session authentication
 ├── token_refresher.py      # GitHub App token management (bot and optional reviewer)
 ├── anthropic_credentials.py # API key injection for Claude
-├── checkpoint_handler.py   # Per-commit checkpoint capture
+├── checkpoint_handler.py   # Checkpoint capture (commit and session-end triggers)
 ├── transcript_buffer.py    # API proxy transcript capture buffer
 ├── worktree_manager.py     # Git worktree lifecycle
 ├── session_manager.py      # Agent session management
