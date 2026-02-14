@@ -88,6 +88,7 @@ from egg_contracts.usage_loader import (
     update_usage_from_checkpoint,
 )
 from egg_logging import get_logger
+from git_client import cleanup_credential_helper, create_credential_helper
 
 try:
     from .session_manager import Session
@@ -830,31 +831,35 @@ class CheckpointHandler:
     ) -> subprocess.CompletedProcess[str]:
         """Run a git command."""
         env = os.environ.copy()
+        credential_helper_path = None
 
-        if self._github_token:
-            env["GIT_ASKPASS"] = "echo"
-            env["GIT_USERNAME"] = "x-access-token"
-            env["GIT_PASSWORD"] = self._github_token
+        try:
+            if self._github_token:
+                credential_helper_path, env = create_credential_helper(
+                    self._github_token, env
+                )
 
-        # SECURITY: Disable all git hooks. The checkpoint handler runs git commands
-        # internally for bookkeeping (storing checkpoints to the checkpoint branch).
-        # Hooks from user repos must not execute in the gateway's trusted environment.
-        cmd = ["git", "-c", "core.hooksPath=/dev/null"] + args
+            # SECURITY: Disable all git hooks. The checkpoint handler runs git commands
+            # internally for bookkeeping (storing checkpoints to the checkpoint branch).
+            # Hooks from user repos must not execute in the gateway's trusted environment.
+            cmd = ["git", "-c", "core.hooksPath=/dev/null"] + args
 
-        result = subprocess.run(
-            cmd,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=env,
-            check=False,
-        )
+            result = subprocess.run(
+                cmd,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+                check=False,
+            )
 
-        if check and result.returncode != 0:
-            raise CheckpointError(f"Git command failed: {result.stderr}")
+            if check and result.returncode != 0:
+                raise CheckpointError(f"Git command failed: {result.stderr}")
 
-        return result
+            return result
+        finally:
+            cleanup_credential_helper(credential_helper_path)
 
 
 # Global checkpoint handler instance
