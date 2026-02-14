@@ -1081,9 +1081,9 @@ def _commit_contract_to_worktree(
         capture_output=True, text=True, check=True,
     )
 
-    # Only commit if there are staged changes (idempotent on re-runs)
+    # Only commit if the contract file has staged changes (idempotent on re-runs)
     result = subprocess.run(
-        [*git_base, "diff", "--cached", "--quiet"],
+        [*git_base, "diff", "--cached", "--quiet", "--", contract_rel_path],
         capture_output=True, text=True, check=False,
     )
     if result.returncode == 0:
@@ -1917,10 +1917,17 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 pipeline.contract_synced = True
 
                 # Commit contract to the worktree so it's on the feature branch
-                if pipeline.issue_number is not None:
-                    contract_rel = f".egg-state/contracts/{pipeline.issue_number}.json"
-                else:
-                    contract_rel = f".egg-state/contracts/{pipeline_id}.json"
+                from egg_contracts.loader import get_contract_path
+
+                contract_identifier = (
+                    pipeline.issue_number
+                    if pipeline.issue_number is not None
+                    else pipeline_id
+                )
+                contract_rel = str(
+                    get_contract_path(contract_identifier, repo_root=worktree_repo_path)
+                    .relative_to(worktree_repo_path)
+                )
 
                 try:
                     _commit_contract_to_worktree(
