@@ -219,29 +219,35 @@ def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pi
 
 
 def _collect_all_pipelines(base_path: Path) -> list:
-    """Collect pipelines from base_path and all repo subdirectories."""
+    """Collect pipelines from base_path and all repo subdirectories.
+
+    All StateStore instances share a single global worktree, so we deduplicate
+    by pipeline ID to avoid returning the same pipeline multiple times when
+    both the base path and child repo paths resolve to the same store.
+    """
+    seen: set[str] = set()
     pipelines = []
+
+    def _add_from_store(store):
+        for pid in store.list_pipelines():
+            if pid in seen:
+                continue
+            try:
+                pipelines.append(store.load_pipeline(pid))
+                seen.add(pid)
+            except StateStoreError:
+                continue
 
     # Check base path itself
     if (base_path / ".egg-state" / "pipelines").exists():
-        store = get_state_store(base_path)
-        for pid in store.list_pipelines():
-            try:
-                pipelines.append(store.load_pipeline(pid))
-            except StateStoreError:
-                continue
+        _add_from_store(get_state_store(base_path))
 
     # Check repo subdirectories if base_path is not a git repo
     if not (base_path / ".git").exists():
         for child in sorted(base_path.iterdir()):
             if child.is_dir() and (child / ".git").exists():
                 try:
-                    store = get_state_store(child)
-                    for pid in store.list_pipelines():
-                        try:
-                            pipelines.append(store.load_pipeline(pid))
-                        except StateStoreError:
-                            continue
+                    _add_from_store(get_state_store(child))
                 except StateStoreError:
                     continue
 
