@@ -2536,6 +2536,13 @@ def session_create() -> tuple[Response, int] | Response:
             f"Invalid phase: {phase}. Must be one of: {', '.join(sorted(VALID_PIPELINE_PHASES))}"
         )
 
+    # Validate pipeline_id if provided
+    if pipeline_id is not None:
+        if not isinstance(pipeline_id, str):
+            return make_error("Invalid pipeline_id: must be a string")
+        if len(pipeline_id) > 256:
+            return make_error("Invalid pipeline_id: must be 256 characters or fewer")
+
     # Step 1: Query visibility for all repos
     repo_visibilities = {}
     for repo in repos:
@@ -2644,6 +2651,7 @@ def session_create() -> tuple[Response, int] | Response:
             "container_ip": container_ip,
             "mode": mode,
             "phase": phase,
+            "pipeline_id": pipeline_id,
             "filtered_repos": filtered_repos,
             "worktree_count": len(worktrees),
             "worktree_errors": worktree_errors if worktree_errors else None,

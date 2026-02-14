@@ -267,7 +267,7 @@ class GatewayClient:
             request_data["gid"] = gid
         if phase:
             request_data["phase"] = phase
-        if pipeline_id:
+        if pipeline_id is not None:
             request_data["pipeline_id"] = pipeline_id
 
         result = self._make_request(

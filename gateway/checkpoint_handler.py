@@ -598,7 +598,7 @@ class CheckpointHandler:
 
     def _resolve_pipeline_id(self, session: Session | None) -> str | None:
         """Resolve pipeline ID from session or environment."""
-        if session and getattr(session, "pipeline_id", None) is not None:
+        if session and session.pipeline_id is not None:
             return session.pipeline_id
         return os.environ.get("EGG_PIPELINE_ID") or None
 
