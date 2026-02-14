@@ -5,6 +5,7 @@ the draft document and offers interactive options for resolution.
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -230,7 +231,9 @@ def handle_hitl_checkpoint(
             # Launch Claude
             print("\n  Launching Claude Code... (type /exit to return)")
             _launch_claude(repo_path)
-            print(f"\n  {GREEN}Returned from Claude. You can now approve or continue editing.{RESET}")
+            print(
+                f"\n  {GREEN}Returned from Claude. You can now approve or continue editing.{RESET}"
+            )
             # Re-read draft in case Claude modified it
             draft_content = _read_draft(repo_path, draft_rel)
             continue  # Return to menu
@@ -247,9 +250,7 @@ def handle_hitl_checkpoint(
 
         elif choice == "4":
             # Feedback
-            feedback = _prompt_text(
-                f"\n  {BOLD}Enter feedback (empty line to finish):{RESET}"
-            )
+            feedback = _prompt_text(f"\n  {BOLD}Enter feedback (empty line to finish):{RESET}")
             if not feedback.strip():
                 print(f"  {DIM}No feedback entered.{RESET}")
                 continue
@@ -272,18 +273,13 @@ def handle_hitl_checkpoint(
                 return "cancelled"
 
 
-def _detect_phase(question: str, context: dict[str, Any] | str | None = None) -> str:
+def _detect_phase(question: str, context: str | None = None) -> str:
     """Detect the pipeline phase from the decision payload.
 
-    Checks the ``context`` dict for an explicit ``phase`` field first,
-    falling back to substring matching on the question text.
+    Uses substring matching on the question text.  The ``context`` argument
+    is accepted for forward-compatibility but is not inspected today (the
+    orchestrator always passes a string).
     """
-    # Prefer explicit phase from context dict
-    if isinstance(context, dict):
-        phase = context.get("phase", "")
-        if phase:
-            return str(phase)
-    # Fallback to substring matching on question text
     q = question.lower()
     if "refine" in q or "analysis" in q:
         return "refine"
@@ -291,6 +287,6 @@ def _detect_phase(question: str, context: dict[str, Any] | str | None = None) ->
         return "plan"
     elif "implement" in q:
         return "implement"
-    elif "pr" in q:
+    elif re.search(r"\bpr\b", q):
         return "pr"
     return "unknown"

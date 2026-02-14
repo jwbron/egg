@@ -21,28 +21,13 @@ from egg_lib.sdlc_hitl import (
 
 
 class TestDetectPhase:
-    """_detect_phase should prefer the context dict's phase field."""
+    """_detect_phase uses substring matching on the question text."""
 
-    def test_context_dict_with_phase(self):
-        assert _detect_phase("some question", {"phase": "implement"}) == "implement"
-
-    def test_context_dict_phase_takes_precedence(self):
-        """Even when question text contains 'refine', context phase wins."""
-        assert _detect_phase("please refine this", {"phase": "plan"}) == "plan"
-
-    def test_context_dict_empty_phase_falls_back(self):
-        """Empty phase in context falls back to substring matching."""
-        assert _detect_phase("refine the analysis", {"phase": ""}) == "refine"
-
-    def test_context_dict_no_phase_key(self):
-        """Context dict without phase key falls back to substring matching."""
-        assert _detect_phase("approve the plan", {"other": "data"}) == "plan"
-
-    def test_context_string_falls_back(self):
-        """String context (not dict) falls back to substring matching."""
+    def test_string_context_ignored(self):
+        """String context is accepted but detection uses the question."""
         assert _detect_phase("implement changes", "some string context") == "implement"
 
-    def test_context_none_falls_back(self):
+    def test_context_none(self):
         assert _detect_phase("review the pr", None) == "pr"
 
     def test_refine_keyword(self):
@@ -59,6 +44,13 @@ class TestDetectPhase:
 
     def test_pr_keyword(self):
         assert _detect_phase("Review the PR changes") == "pr"
+
+    def test_pr_word_boundary(self):
+        """'pr' must match as a whole word, not as a substring of other words."""
+        # "approve" contains "pr" but should NOT match as phase "pr"
+        assert _detect_phase("approve this change") == "unknown"
+        assert _detect_phase("improve the approach") == "unknown"
+        assert _detect_phase("comprehensive review") == "unknown"
 
     def test_unknown_question(self):
         assert _detect_phase("Something else entirely") == "unknown"
@@ -179,7 +171,7 @@ class TestHandleHitlCheckpoint:
         base = {
             "id": "d1",
             "question": "Approve the refine analysis?",
-            "context": {"phase": "refine"},
+            "context": "Draft content for refine phase",
         }
         base.update(overrides)
         return base
@@ -201,8 +193,11 @@ class TestHandleHitlCheckpoint:
         decision = self._make_decision()
 
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -219,8 +214,11 @@ class TestHandleHitlCheckpoint:
         decision = self._make_decision()
 
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "cancelled"
@@ -238,14 +236,15 @@ class TestHandleHitlCheckpoint:
         decision = self._make_decision()
 
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
-        client.resolve_decision.assert_called_once_with(
-            "issue-42", "d1", "Please add more detail"
-        )
+        client.resolve_decision.assert_called_once_with("issue-42", "d1", "Please add more detail")
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("builtins.input")
@@ -259,8 +258,11 @@ class TestHandleHitlCheckpoint:
         decision = self._make_decision()
 
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -277,8 +279,11 @@ class TestHandleHitlCheckpoint:
         decision = self._make_decision()
 
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "cancelled"
@@ -292,11 +297,17 @@ class TestHandleHitlCheckpoint:
         mock_input.side_effect = ["1", "3"]
 
         client = self._make_client()
-        decision = self._make_decision(context={"phase": "implement"})  # implement has no draft
+        decision = self._make_decision(
+            question="Ready to implement?",
+            context="",
+        )  # implement phase has no draft
 
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -321,8 +332,11 @@ class TestHandleHitlCheckpoint:
         decision = self._make_decision()
 
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -340,8 +354,11 @@ class TestHandleHitlCheckpoint:
         decision = self._make_decision()
 
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -362,8 +379,11 @@ class TestHandleHitlCheckpoint:
         decision = self._make_decision()
 
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -384,8 +404,11 @@ class TestHandleHitlCheckpoint:
         decision = self._make_decision()
 
         handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         captured = capsys.readouterr()
@@ -404,8 +427,11 @@ class TestHandleHitlCheckpoint:
         decision = self._make_decision()
 
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
