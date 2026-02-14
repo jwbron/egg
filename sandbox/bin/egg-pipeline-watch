@@ -20,6 +20,7 @@ import os
 import re
 import signal
 import sys
+from datetime import datetime
 from http.client import HTTPConnection
 from urllib.parse import urlparse
 
@@ -82,6 +83,15 @@ def strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
+def _utc_to_local_time(iso_timestamp: str) -> str:
+    """Convert a UTC ISO timestamp to a local-time HH:MM:SS string."""
+    try:
+        dt = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+        return dt.astimezone().strftime("%H:%M:%S")
+    except (ValueError, AttributeError):
+        return iso_timestamp.split("T")[-1].rstrip("Z")[:8]
+
+
 def _write(text: str, file=None) -> None:
     """Write text, stripping ANSI codes if not a TTY."""
     file = file or sys.stdout
@@ -92,9 +102,9 @@ def _write(text: str, file=None) -> None:
 
 
 def _clear_screen() -> None:
-    """Clear the terminal screen and move cursor to top."""
+    """Move cursor to top-left for in-place redraw."""
     if IS_TTY:
-        sys.stdout.write("\033[2J\033[H")
+        sys.stdout.write("\033[H")
         sys.stdout.flush()
 
 
@@ -109,7 +119,7 @@ def format_status_line(pipeline_id: str, data: dict) -> str:
 
     time_part = ""
     if updated:
-        time_part = updated.split("T")[-1].rstrip("Z")[:8]
+        time_part = _utc_to_local_time(updated)
 
     display_status = "awaiting approval" if status == "awaiting_human" else status
     line = f"{BOLD}{pipeline_id}{RESET}  {color}{display_status}{RESET}  phase={phase}"
@@ -146,7 +156,7 @@ def render_event_info(data: dict) -> str:
     lines.append("")
     lines.append(f"  Status: {color}{display_status}{RESET}  |  Phase: {phase}")
     if timestamp:
-        time_part = timestamp.split("T")[-1].rstrip("Z")[:8]
+        time_part = _utc_to_local_time(timestamp)
         lines.append(f"  {DIM}Updated: {time_part}  Event: {event_type}{RESET}")
 
     return "\n".join(lines)
@@ -161,7 +171,10 @@ def display_visualization(data: dict, compact: bool = False) -> None:
 
     if compact:
         output = format_status_line(pipeline_id, data)
-        _write(output + "\n")
+        if IS_TTY:
+            _write(output + "\033[K\n\033[J")
+        else:
+            _write(output + "\n")
         return
 
     output = render_header(pipeline_id, event_type)
@@ -175,6 +188,12 @@ def display_visualization(data: dict, compact: bool = False) -> None:
 
     output += render_event_info(data)
     output += f"\n\n{DIM}Press Ctrl+C to stop watching{RESET}\n"
+
+    if IS_TTY:
+        # Clear remainder of each line and any leftover lines below
+        # to overwrite stale content without a full screen clear.
+        lines = output.split("\n")
+        output = "\033[K\n".join(lines) + "\033[J"
 
     _write(output)
 
