@@ -893,7 +893,7 @@ def _read_phase_draft(
     pipeline_mode: str,
     issue_number: int | None = None,
     pipeline_id: str | None = None,
-    max_chars: int = 8000,
+    max_chars: int = 32000,
 ) -> str:
     """Read draft file contents. Truncates at max_chars."""
     draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
