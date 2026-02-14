@@ -8,8 +8,8 @@ Run `egg-sdlc` directly from the terminal:
 
 ```bash
 # Issue mode: start pipeline for a GitHub issue
-egg-sdlc <issue_number>
-egg-sdlc <issue_number> --repo <owner/repo>
+egg-sdlc -r <repo_dir> -i <issue_number>
+egg-sdlc -r <repo_dir> <issue_number>        # Short form (positional issue)
 
 # Local mode: prompt-driven pipeline (no GitHub)
 egg-sdlc
