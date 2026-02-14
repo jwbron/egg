@@ -1,0 +1,282 @@
+"""HITL checkpoint handler for the egg-sdlc CLI.
+
+When a pipeline reaches an awaiting_human state, this module presents
+the draft document and offers interactive options for resolution.
+"""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+from .orch_client import OrchClient, OrchestratorError
+
+# ANSI escape codes
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+GREEN = "\033[32m"
+RED = "\033[31m"
+YELLOW = "\033[33m"
+CYAN = "\033[36m"
+
+
+def _get_draft_path(
+    phase: str,
+    pipeline_mode: str,
+    issue_number: int | None = None,
+    pipeline_id: str | None = None,
+) -> str | None:
+    """Return relative path to the draft file for a phase.
+
+    Mirrors the logic in orchestrator/routes/pipelines.py:_get_draft_path.
+    """
+    is_local = pipeline_mode == "local"
+    if is_local:
+        prefix = pipeline_id if pipeline_id else "local"
+    else:
+        prefix = str(issue_number) if issue_number else "unknown"
+
+    if phase == "refine":
+        return f".egg-state/drafts/{prefix}-analysis.md"
+    elif phase == "implement":
+        return None
+    else:
+        return f".egg-state/drafts/{prefix}-{phase}.md"
+
+
+def _find_repo_path() -> Path:
+    """Find the repository root path."""
+    # Check common locations
+    repos_dir = Path.home() / "repos"
+    if repos_dir.exists():
+        # Look for .git directory
+        for child in repos_dir.iterdir():
+            if child.is_dir() and (child / ".git").exists():
+                return child
+    # Fallback to cwd
+    cwd = Path.cwd()
+    while cwd != cwd.parent:
+        if (cwd / ".git").exists():
+            return cwd
+        cwd = cwd.parent
+    return Path.cwd()
+
+
+def _read_draft(repo_path: Path, draft_rel: str | None) -> str | None:
+    """Read a draft file, returning its content or None."""
+    if not draft_rel:
+        return None
+    draft_path = repo_path / draft_rel
+    if not draft_path.exists():
+        return None
+    try:
+        return draft_path.read_text()
+    except Exception:
+        return None
+
+
+def _display_draft_preview(content: str, max_lines: int = 40) -> None:
+    """Display a preview of the draft document."""
+    lines = content.split("\n")
+    print(f"\n{BOLD}--- Draft Preview ---{RESET}")
+    for i, line in enumerate(lines[:max_lines]):
+        print(f"  {DIM}{i + 1:3d}{RESET}  {line}")
+    if len(lines) > max_lines:
+        print(f"  {DIM}... ({len(lines) - max_lines} more lines){RESET}")
+    print(f"{BOLD}--- End Preview ---{RESET}\n")
+
+
+def _launch_editor(file_path: Path) -> bool:
+    """Launch the user's preferred editor on the file.
+
+    Returns True if editor exited successfully.
+    """
+    editor = os.environ.get("EDITOR", "vim")
+    try:
+        result = subprocess.run(
+            [editor, str(file_path)],
+            stdin=sys.stdin,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+        )
+        return result.returncode == 0
+    except FileNotFoundError:
+        print(f"{RED}Editor '{editor}' not found. Set $EDITOR to your preferred editor.{RESET}")
+        return False
+    except Exception as e:
+        print(f"{RED}Failed to launch editor: {e}{RESET}")
+        return False
+
+
+def _launch_claude(repo_path: Path) -> None:
+    """Launch an interactive Claude Code session."""
+    try:
+        subprocess.run(
+            ["claude"],
+            cwd=str(repo_path),
+            stdin=sys.stdin,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+        )
+    except FileNotFoundError:
+        print(f"{RED}Claude CLI not found. Is it installed?{RESET}")
+    except Exception as e:
+        print(f"{RED}Failed to launch Claude: {e}{RESET}")
+
+
+def _prompt_choice(prompt: str, valid: set[str]) -> str:
+    """Prompt the user for a choice, retrying on invalid input."""
+    while True:
+        try:
+            choice = input(prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return "5"  # Cancel on EOF/interrupt
+        if choice in valid:
+            return choice
+        print(f"  {RED}Invalid choice. Enter one of: {', '.join(sorted(valid))}{RESET}")
+
+
+def _prompt_text(prompt: str) -> str:
+    """Prompt for multi-line text input. Empty line to finish."""
+    print(prompt)
+    lines = []
+    try:
+        while True:
+            line = input("  > ")
+            if line == "":
+                break
+            lines.append(line)
+    except (EOFError, KeyboardInterrupt):
+        print()
+    return "\n".join(lines)
+
+
+def handle_hitl_checkpoint(
+    client: OrchClient,
+    pipeline_id: str,
+    decision: dict[str, Any],
+    pipeline_mode: str = "issue",
+    issue_number: int | None = None,
+) -> str | None:
+    """Handle a HITL checkpoint interactively.
+
+    Returns:
+        "resolved" if the decision was resolved (pipeline should continue),
+        "cancelled" if the pipeline was cancelled,
+        None if the user wants to re-enter the watch loop without resolving.
+    """
+    decision_id = decision.get("id", "unknown")
+    question = decision.get("question", "Decision required")
+    context = decision.get("context", "")
+
+    # Determine current phase from the question or context
+    phase = _detect_phase(question)
+
+    # Find and read the draft
+    repo_path = _find_repo_path()
+    draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
+    draft_content = _read_draft(repo_path, draft_rel)
+    draft_path = repo_path / draft_rel if draft_rel else None
+
+    # Display decision info
+    print(f"\n{BOLD}{YELLOW}{'=' * 60}{RESET}")
+    print(f"{BOLD}{YELLOW}  HUMAN DECISION REQUIRED{RESET}")
+    print(f"{BOLD}{YELLOW}{'=' * 60}{RESET}")
+    print(f"\n  {BOLD}Pipeline:{RESET} {pipeline_id}")
+    print(f"  {BOLD}Phase:{RESET}    {phase}")
+    print(f"  {BOLD}Question:{RESET} {question}")
+    if context:
+        print(f"  {BOLD}Context:{RESET}  {context}")
+
+    # Show draft preview if available
+    if draft_content:
+        _display_draft_preview(draft_content)
+    elif draft_rel:
+        print(f"\n  {DIM}Draft file: {draft_rel} (not found){RESET}")
+
+    # Interactive menu loop
+    while True:
+        print(f"\n  {BOLD}Options:{RESET}")
+        print(f"  {CYAN}[1]{RESET} Edit with $EDITOR ({os.environ.get('EDITOR', 'vim')})")
+        print(f"  {CYAN}[2]{RESET} Start Claude for AI-assisted editing")
+        print(f"  {CYAN}[3]{RESET} Approve and advance to next phase")
+        print(f"  {CYAN}[4]{RESET} Provide feedback (text input)")
+        print(f"  {CYAN}[5]{RESET} Cancel pipeline")
+
+        choice = _prompt_choice(f"\n  {BOLD}Choose [1-5]:{RESET} ", {"1", "2", "3", "4", "5"})
+
+        if choice == "1":
+            # Edit with $EDITOR
+            if draft_path and draft_path.exists():
+                print(f"\n  Opening {draft_path.name} in editor...")
+                if _launch_editor(draft_path):
+                    print(f"  {GREEN}File saved. You can now approve or continue editing.{RESET}")
+                    # Re-read for preview
+                    draft_content = _read_draft(repo_path, draft_rel)
+                else:
+                    print(f"  {RED}Editor exited with error.{RESET}")
+            else:
+                print(f"  {RED}No draft file available to edit.{RESET}")
+            continue  # Return to menu
+
+        elif choice == "2":
+            # Launch Claude
+            print(f"\n  Launching Claude Code... (type /exit to return)")
+            _launch_claude(repo_path)
+            print(f"\n  {GREEN}Returned from Claude. You can now approve or continue editing.{RESET}")
+            # Re-read draft in case Claude modified it
+            draft_content = _read_draft(repo_path, draft_rel)
+            continue  # Return to menu
+
+        elif choice == "3":
+            # Approve
+            try:
+                client.resolve_decision(pipeline_id, decision_id, "Approved")
+                print(f"\n  {GREEN}Decision resolved: Approved{RESET}")
+                return "resolved"
+            except OrchestratorError as e:
+                print(f"\n  {RED}Failed to resolve decision: {e}{RESET}")
+                continue
+
+        elif choice == "4":
+            # Feedback
+            feedback = _prompt_text(
+                f"\n  {BOLD}Enter feedback (empty line to finish):{RESET}"
+            )
+            if not feedback.strip():
+                print(f"  {DIM}No feedback entered.{RESET}")
+                continue
+            try:
+                client.resolve_decision(pipeline_id, decision_id, feedback)
+                print(f"\n  {GREEN}Decision resolved with feedback.{RESET}")
+                return "resolved"
+            except OrchestratorError as e:
+                print(f"\n  {RED}Failed to resolve decision: {e}{RESET}")
+                continue
+
+        elif choice == "5":
+            # Cancel
+            try:
+                client.cancel_pipeline(pipeline_id)
+                print(f"\n  {YELLOW}Pipeline cancelled.{RESET}")
+                return "cancelled"
+            except OrchestratorError as e:
+                print(f"\n  {RED}Failed to cancel pipeline: {e}{RESET}")
+                return "cancelled"
+
+
+def _detect_phase(question: str) -> str:
+    """Detect the pipeline phase from the HITL question text."""
+    q = question.lower()
+    if "refine" in q or "analysis" in q:
+        return "refine"
+    elif "plan" in q:
+        return "plan"
+    elif "implement" in q:
+        return "implement"
+    elif "pr" in q:
+        return "pr"
+    return "unknown"

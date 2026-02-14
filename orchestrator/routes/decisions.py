@@ -287,25 +287,6 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
     if not resolution:
         return make_error_response("Missing resolution")
 
-    # Check if pipeline is token-gated — block direct resolution if so
-    try:
-        store = get_state_store(repo_path)
-        pipeline = store.load_pipeline(pipeline_id)
-        if pipeline.sdlc_token_gated:
-            return make_error_response(
-                "This pipeline requires token-gated approval. "
-                "Type !approve <phase> in your terminal.",
-                status_code=403,
-            )
-    except PipelineNotFoundError:
-        pass  # Pipeline may not exist yet, allow resolution
-    except Exception:
-        logger.error("Failed to check token gate", pipeline_id=pipeline_id, exc_info=True)
-        return make_error_response(
-            "Unable to verify pipeline token gate. Try again.",
-            status_code=503,
-        )
-
     try:
         queue = get_decision_queue(pipeline_id, repo_path)
         decision = queue.resolve_decision(decision_id, resolution)

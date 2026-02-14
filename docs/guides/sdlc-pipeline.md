@@ -131,6 +131,7 @@ When `pending_decisions > 0`, the `data` object includes an additional `pending_
 ```
 
 **CLI tools**:
+- `egg-sdlc [<issue_number>]` — Interactive SDLC pipeline CLI with DAG visualization and HITL checkpoints
 - `egg-pipeline-watch <pipeline_id>` — Monitor a single pipeline via SSE stream (real-time DAG visualization)
 - `egg-status` — Monitor all active pipelines via unified SSE stream (real-time updates)
 
@@ -985,9 +986,44 @@ To set up SDLC labels in a repository:
 
 This script is idempotent and safe to run multiple times.
 
+### egg-sdlc CLI
+
+The `egg-sdlc` CLI provides an interactive terminal interface for driving SDLC pipelines. It replaces the previous Claude-as-collaborator approach with direct user control.
+
+**Usage:**
+
+```bash
+# Issue mode: start/attach to pipeline for a GitHub issue
+egg-sdlc <issue_number>
+egg-sdlc <issue_number> --repo <owner/repo>
+
+# Local mode: prompt-driven pipeline (no GitHub)
+egg-sdlc
+```
+
+**Features:**
+- Real-time DAG visualization (reuses `egg-pipeline-watch` SSE patterns)
+- Interactive HITL checkpoints with multiple resolution options:
+  1. Edit draft with `$EDITOR` (default: vim)
+  2. Launch Claude for AI-assisted editing
+  3. Approve and advance to next phase
+  4. Provide text feedback for revision
+  5. Cancel pipeline
+- Automatic reconnection on SSE timeouts
+- Works both inside containers and from the host (via `egg --exec`)
+
+**Host-side:** `bin/egg-sdlc` launches a container with TTY passthrough for interactive features.
+
+**In-container:** `sandbox/bin/egg-sdlc` runs the Python CLI directly.
+
 ### Triggering the Pipeline
 
-**Via label** (recommended):
+**Via egg-sdlc** (recommended for interactive use):
+```bash
+egg-sdlc 123
+```
+
+**Via label** (recommended for CI):
 ```bash
 gh issue edit 123 --add-label "sdlc:refine"
 ```
