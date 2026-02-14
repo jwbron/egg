@@ -510,7 +510,7 @@ class WorktreeManager:
                 # admin dirs for OTHER containers' worktrees if their
                 # paths are temporarily inaccessible (e.g., Docker mount
                 # race conditions during container lifecycle changes).
-                logger.warning(
+                logger.info(
                     "Git worktree remove failed, cleaning up manually",
                     container_id=container_id,
                     repo=repo_name,

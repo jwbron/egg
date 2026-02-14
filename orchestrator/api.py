@@ -49,7 +49,6 @@ try:
     from routes.metrics import metrics_bp
     from routes.phases import phases_bp
     from routes.pipelines import pipelines_bp
-    from routes.sdlc_tokens import sdlc_tokens_bp
     from routes.signals import signals_bp
     from webhooks import webhooks_bp
 
@@ -62,7 +61,6 @@ try:
     app.register_blueprint(decisions_bp)
     app.register_blueprint(metrics_bp)
     app.register_blueprint(webhooks_bp)
-    app.register_blueprint(sdlc_tokens_bp)
 except ImportError:
     from .routes.checks import checks_bp  # type: ignore[no-redef]
     from .routes.containers import containers_bp  # type: ignore[no-redef]
@@ -71,7 +69,6 @@ except ImportError:
     from .routes.metrics import metrics_bp  # type: ignore[no-redef]
     from .routes.phases import phases_bp  # type: ignore[no-redef]
     from .routes.pipelines import pipelines_bp  # type: ignore[no-redef]
-    from .routes.sdlc_tokens import sdlc_tokens_bp  # type: ignore[no-redef]
     from .routes.signals import signals_bp  # type: ignore[no-redef]
     from .webhooks import webhooks_bp  # type: ignore[no-redef]
 
@@ -84,7 +81,6 @@ except ImportError:
     app.register_blueprint(decisions_bp)
     app.register_blueprint(metrics_bp)
     app.register_blueprint(webhooks_bp)
-    app.register_blueprint(sdlc_tokens_bp)
 
 
 @app.before_request

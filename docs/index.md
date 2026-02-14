@@ -80,7 +80,7 @@ Each major component has detailed documentation:
 | [Sandbox Container](../sandbox/README.md) | `sandbox/` | Agent environment, tools, entrypoint |
 | [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, and SDLC contracts |
 | [Configuration](../config/README.md) | `config/` | Repository and host configuration |
-| [CLI Entry Points](../bin/README.md) | `bin/` | `egg` and `setup-gateway` commands |
+| [CLI Entry Points](../bin/README.md) | `bin/` | `egg`, `egg-sdlc`, and `setup-gateway` commands |
 | [GitHub Action](../action/README.md) | `action/` | Composite action for GitHub Actions |
 | [Claude Code Config](../sandbox/.claude/README.md) | `sandbox/.claude/` | Agent rules and slash commands |
 

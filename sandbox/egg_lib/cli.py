@@ -111,13 +111,7 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
         help="Rebuild compose images before starting (use with --compose)",
     )
 
-    # SDLC pipeline with token-gated approvals
-    parser.add_argument(
-        "--sdlc",
-        type=int,
-        metavar="ISSUE",
-        help="Start SDLC pipeline with token-gated approvals for the given issue number",
-    )
+    # Multi-agent execution options
     parser.add_argument(
         "--multi-agent",
         dest="multi_agent",
@@ -234,7 +228,6 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
     # Normal run
     if not run_claude(
         repo_mode=repo_mode,
-        sdlc_issue=args.sdlc,
         multi_agent=args.multi_agent,
         max_parallel=args.max_parallel,
     ):
