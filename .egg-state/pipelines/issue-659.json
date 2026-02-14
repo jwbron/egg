@@ -81,11 +81,25 @@
       "resolved_at": "2026-02-14T23:16:18.803054",
       "resolution": "Approved",
       "timeout_seconds": 3600
+    },
+    {
+      "id": "decision-2",
+      "question": "The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "context": "(Draft file not found: .egg-state/drafts/659-plan.md)",
+      "options": [
+        "approve",
+        "request changes"
+      ],
+      "status": "pending",
+      "created_at": "2026-02-14T23:16:19.779438",
+      "resolved_at": null,
+      "resolution": null,
+      "timeout_seconds": 3600
     }
   ],
   "created_at": "2026-02-14T23:08:39.489257",
-  "updated_at": "2026-02-14T23:16:19.744292",
+  "updated_at": "2026-02-14T23:16:19.781130",
   "contract_synced": true,
   "error": null,
-  "version": 15
+  "version": 16
 }
