@@ -40,7 +40,7 @@ Code reviews are performed by the existing PR review workflow (`reusable-review.
 
 ### 4. Human-in-the-Loop at Critical Points
 
-The pipeline pauses for human approval at phase transitions (refine and plan). The orchestrator's decision queue processes checkbox-based approval in both issue and local modes. In local mode, the decision queue also supports requesting changes, with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
+The pipeline pauses for human approval at phase transitions (refine and plan). The orchestrator's decision queue handles approval in both issue and local modes, and supports requesting changes with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
 
 ## Pipeline Architecture
 
