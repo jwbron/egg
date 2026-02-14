@@ -797,6 +797,7 @@ If not configured, the checker falls back to auto-discovery (scanning for Makefi
 | **Merge Conflict** | `check-merge-conflict` | Detects conflicts with base branch | No |
 | **Lint** | `check-lint` | Runs `make lint` if available | Yes |
 | **Test** | `check-test` | Runs `make test` or pytest | No |
+| **Deployment Validation** | `check-deployment` | Validates changes against locally running devserver (opt-in via `.egg/deployment.yml`) | No |
 | **Auto-Fixer** | `check-fixer` | Attempts to auto-fix failed checks | N/A |
 
 ### Phase Default Configurations
@@ -813,10 +814,62 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 - Merge conflict check (required)
 - Lint check (required, 1 retry)
 - Test check (required)
+- Deployment validation (optional, 1 retry, requires `.egg/deployment.yml`)
 - Auto-fixer (optional)
 
 **PR phase:**
 - No checks
+
+### Deployment Validation
+
+The deployment validation check (`check-deployment`) runs agent-modified code against a locally running devserver to catch integration issues before merge. This check is **opt-in** and requires target repositories to provide a `.egg/deployment.yml` configuration file.
+
+**How it works:**
+
+1. The orchestrator extracts the `docker-compose.yml` from the committed state (before agent changes)
+2. Generates override mounts for agent-modified services based on service-to-source mappings
+3. Starts the devserver stack in an isolated Docker network with resource limits
+4. The sandbox check runner polls health endpoints and runs validation tests
+5. The orchestrator tears down the stack after validation completes
+
+**Configuration (`.egg/deployment.yml`):**
+
+```yaml
+version: "1"
+compose_file: "docker-compose.yml"  # Path relative to repo root
+services:
+  - source_dir: "services/api"      # Source directory (agent changes)
+    service_name: "api"              # docker-compose service name
+    container_mount_path: "/app"    # Mount path inside container
+    health_endpoint: "http://api:8000/health"  # Health check URL
+tests:
+  - name: "API smoke test"
+    url: "http://api:8000/users"
+    method: "GET"
+    expected_status: 200
+```
+
+**Security guarantees:**
+
+- Devserver containers run in an isolated Docker network (no internet, no access to other containers)
+- Resource limits prevent exhaustion attacks (CPU, memory, PIDs)
+- Hard timeout of 5 minutes for the entire devserver lifecycle
+- No cloud credentials or production secrets are injected
+- Suspicious environment variables (AWS_*, *_SECRET_KEY, etc.) are rejected
+
+**When to use:**
+
+- Microservices with docker-compose devserver setups
+- Integration testing that requires multiple services running
+- Validating API contracts between services
+
+**When not to use:**
+
+- Projects without docker-compose devserver infrastructure
+- Simple single-service applications (use `make test` instead)
+- Projects where devserver setup is complex or requires external dependencies
+
+The check is optional by default and will skip if `.egg/deployment.yml` is not present. When enabled, it runs with 1 retry on failure.
 
 ### Customizing Phase Checks
 

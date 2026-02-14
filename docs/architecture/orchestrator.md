@@ -209,6 +209,9 @@ Fixed IPs:
 - `GET /pipelines/stream` - Unified SSE stream for all active pipelines (supports `?ascii=true`, `?active_only=false`, `?full_dag=true`)
 - `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error)
 - `GET /pipelines/{id}/decisions` - HITL decision queue
+- `POST /pipelines/{id}/checks/devserver/start` - Start devserver for deployment validation
+- `GET /pipelines/{id}/checks/devserver/status` - Poll devserver status
+- `POST /pipelines/{id}/checks/devserver/teardown` - Tear down devserver
 
 **CLI Access:**
 The `egg-orch` CLI (`sandbox/bin/egg-orch`) provides command-line access to all orchestrator API endpoints. Available in sandbox containers for agent use, or can be run from the host with appropriate environment variables. See the [README CLI Reference](../../README.md#egg-orch-cli) for command details.
@@ -219,6 +222,85 @@ The `egg-orch` CLI (`sandbox/bin/egg-orch`) provides command-line access to all 
 2. **Sandbox → Orchestrator**: Signal on completion/error
 3. **Gateway → Orchestrator**: Health check (optional)
 4. **Orchestrator → GitHub**: Webhook responses, PR updates
+
+## Devserver Management (Deployment Validation)
+
+The orchestrator manages Docker-in-Docker (DinD) devserver stacks during deployment validation checks. This enables testing agent-modified code against locally running services before merge.
+
+### Architecture
+
+**Orchestrator responsibilities:**
+- Extract `docker-compose.yml` from committed state (before agent changes)
+- Generate override mounts for agent-modified services
+- Create isolated Docker network (`egg-check-{pipeline_id}`)
+- Start devserver stack with resource limits
+- Provide status polling endpoints for sandbox check runner
+- Tear down stack after validation completes
+
+**Sandbox check runner responsibilities:**
+- Signal orchestrator to start devserver via REST API
+- Poll status until healthy or timeout
+- Run health checks against service endpoints
+- Run validation tests from `.egg/deployment.yml`
+- Signal teardown
+
+### Security Properties
+
+**Network isolation:**
+- Devserver containers run in dedicated `egg-check-{pipeline_id}` bridge network
+- No internet access (internal-only, no gateway, no DNS)
+- Services can only communicate within the isolated network
+- Sandbox checker makes HTTP requests from outside the devserver network
+
+**Resource limits (per container):**
+- CPU: 1.0 core
+- Memory: 512 MB
+- PIDs: 256 (prevents fork bombs)
+- Hard timeout: 5 minutes for entire lifecycle
+
+**Credential safety:**
+- No cloud credentials or production secrets injected
+- Environment variables scanned for suspicious patterns (AWS_*, *_SECRET_KEY, *_TOKEN, etc.)
+- Only target repo code is mounted (no access to egg internals)
+
+### Configuration
+
+Target repositories opt in by providing `.egg/deployment.yml`:
+
+```yaml
+version: "1"
+compose_file: "docker-compose.yml"
+services:
+  - source_dir: "services/api"
+    service_name: "api"
+    container_mount_path: "/app"
+    health_endpoint: "http://api:8000/health"
+tests:
+  - name: "API smoke test"
+    url: "http://api:8000/users"
+    method: "GET"
+    expected_status: 200
+```
+
+See `shared/egg_contracts/deployment.py` for full schema.
+
+### API Flow
+
+1. **Start**: Sandbox calls `POST /api/v1/pipelines/{id}/checks/devserver/start`
+   - Orchestrator extracts compose config, generates overrides, starts stack
+   - Returns immediately with `{"status": "starting"}`
+
+2. **Poll**: Sandbox polls `GET /api/v1/pipelines/{id}/checks/devserver/status`
+   - Returns `{"status": "starting" | "healthy" | "unhealthy" | "error"}`
+   - Includes service IPs and ports when healthy
+
+3. **Validate**: Sandbox runs health checks and tests against service endpoints
+
+4. **Teardown**: Sandbox calls `POST /api/v1/pipelines/{id}/checks/devserver/teardown`
+   - Orchestrator stops containers, removes network
+   - Returns `{"status": "stopped"}`
+
+See `orchestrator/devserver.py` and `orchestrator/routes/checks.py` for implementation.
 
 ## Sandbox Lifecycle
 
