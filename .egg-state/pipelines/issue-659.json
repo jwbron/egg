@@ -53,6 +53,18 @@
       "hitl_review_cycles": 0,
       "artifacts": {},
       "error": null
+    },
+    "plan": {
+      "phase": "plan",
+      "status": "running",
+      "started_at": "2026-02-14T23:16:19.692127",
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "artifacts": {},
+      "error": null
     }
   },
   "decisions": [
@@ -72,8 +84,8 @@
     }
   ],
   "created_at": "2026-02-14T23:08:39.489257",
-  "updated_at": "2026-02-14T23:16:19.672303",
+  "updated_at": "2026-02-14T23:16:19.692671",
   "contract_synced": true,
   "error": null,
-  "version": 13
+  "version": 14
 }
