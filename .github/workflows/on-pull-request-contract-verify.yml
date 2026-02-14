@@ -1,6 +1,6 @@
 name: "egg: Contract Verification"
 
-# Trigger on PRs with the sdlc:pr label
+# Trigger on PRs with the sdlc:pr label or a contract file
 # This workflow verifies that implementation matches the SDLC contract
 on:
   pull_request:
@@ -42,7 +42,7 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-      - name: Check for sdlc:pr label and extract issue number
+      - name: Check for sdlc:pr label or contract file
         id: check
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
@@ -50,31 +50,54 @@ jobs:
         run: |
           set -euo pipefail
 
-          # For workflow_dispatch, always run
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            # Check if PR has sdlc:pr label
-            labels=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.labels[].name')
-            if echo "$labels" | grep -q "^sdlc:pr$"; then
-              echo "PR has sdlc:pr label, running contract verification"
-              echo "run=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "PR does not have sdlc:pr label, skipping"
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
+          # Fetch PR metadata (labels + branch name) in a single API call
+          pr_data=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '{labels: [.labels[].name], branch: .head.ref}')
+          branch_name=$(echo "$pr_data" | jq -r '.branch')
+          labels=$(echo "$pr_data" | jq -r '.labels[]')
 
-          # Extract issue number from branch name (egg/issue-{number})
-          branch_name=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.head.ref')
-          if [[ "$branch_name" =~ ^egg/issue-([0-9]+)$ ]]; then
+          # Extract issue number from branch name (egg/issue-{number}...)
+          if [[ "$branch_name" =~ ^egg/issue-([0-9]+) ]]; then
             issue_number="${BASH_REMATCH[1]}"
             echo "Extracted issue number from branch: $issue_number"
             echo "issue_number=${issue_number}" >> "$GITHUB_OUTPUT"
           else
             echo "Could not extract issue number from branch name: $branch_name"
             echo "issue_number=" >> "$GITHUB_OUTPUT"
+          fi
+
+          # For workflow_dispatch, always run
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            # Check if PR has sdlc:pr label
+            if echo "$labels" | grep -q "^sdlc:pr$"; then
+              echo "PR has sdlc:pr label, running contract verification"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            # No label — check if a contract file exists on the PR's head branch
+            if [[ -n "${issue_number:-}" ]]; then
+              contract_path=".egg-state/contracts/${issue_number}.json"
+              echo "Checking for contract file: $contract_path on branch $branch_name"
+              set +o pipefail
+              http_code=$(gh api "repos/${{ github.repository }}/contents/${contract_path}?ref=${branch_name}" \
+                --silent -i 2>/dev/null | head -1 | awk '{print $2}')
+              set -o pipefail
+              http_code="${http_code:-000}"
+              if [[ "$http_code" == "200" ]]; then
+                echo "Contract file found, running contract verification"
+                echo "run=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              elif [[ "$http_code" != "404" ]]; then
+                echo "::warning::Unexpected HTTP $http_code checking contract file at $contract_path"
+              else
+                echo "No contract file found at $contract_path"
+              fi
+            fi
+
+            echo "No sdlc:pr label and no contract file, skipping"
+            echo "run=false" >> "$GITHUB_OUTPUT"
           fi
 
   verify:
