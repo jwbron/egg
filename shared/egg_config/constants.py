@@ -36,8 +36,8 @@ ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"  # Orchestrator IP in external network
 # Third network for devserver containers during check phase deployment validation.
 # Internal-only (no gateway, no DNS, no internet) — services communicate within
 # the bridge but cannot reach external networks.
+# Docker auto-assigns subnets to avoid collisions with concurrent pipelines.
 EGG_CHECK_NETWORK_PREFIX = "egg-check"  # Actual name: egg-check-{pipeline_id}
-EGG_CHECK_SUBNET = "172.34.0.0/24"  # Must not overlap with isolated/external subnets
 
 # Resource limits for devserver containers during deployment validation.
 # These prevent agent-modified code from exhausting host resources.
@@ -58,7 +58,6 @@ __all__ = [
     "DEVSERVER_MEMORY_LIMIT",
     "DEVSERVER_PIDS_LIMIT",
     "EGG_CHECK_NETWORK_PREFIX",
-    "EGG_CHECK_SUBNET",
     "EGG_CONTAINER_IP",
     "EGG_EXTERNAL_NETWORK",
     "EGG_EXTERNAL_SUBNET",

@@ -311,8 +311,6 @@ class TestNetworkManagement:
         mock_client = MagicMock()
         mock_docker_module.from_env.return_value = mock_client
         mock_docker_module.errors.NotFound = Exception
-        mock_docker_module.types.IPAMConfig = MagicMock()
-        mock_docker_module.types.IPAMPool = MagicMock()
 
         mock_client.networks.get.side_effect = Exception("not found")
         mock_network = MagicMock()
@@ -326,6 +324,8 @@ class TestNetworkManagement:
         call_kwargs = mock_client.networks.create.call_args[1]
         assert call_kwargs["internal"] is True
         assert call_kwargs["driver"] == "bridge"
+        # Docker auto-assigns subnets to avoid collisions with concurrent pipelines
+        assert "ipam" not in call_kwargs
 
     @patch("devserver.docker")
     def test_remove_network(self, mock_docker_module, tmp_path):

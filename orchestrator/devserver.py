@@ -48,7 +48,6 @@ from egg_config.constants import (
     DEVSERVER_MEMORY_LIMIT,
     DEVSERVER_PIDS_LIMIT,
     EGG_CHECK_NETWORK_PREFIX,
-    EGG_CHECK_SUBNET,
 )
 from egg_contracts.deployment import (
     DeploymentConfig,
@@ -286,7 +285,8 @@ class DevserverManager:
                 },
                 "security_opt": [
                     "no-new-privileges:true",
-                    "seccomp:unconfined",  # Use Docker default seccomp
+                    # Docker applies its default seccomp profile automatically
+                    # when no seccomp option is specified — no override needed.
                 ],
                 "cap_drop": ["ALL"],
                 "read_only": False,
@@ -352,13 +352,8 @@ class DevserverManager:
                     "egg.check-network": "true",
                     "egg.pipeline-id": self.pipeline_id,
                 },
-                ipam=docker_sdk.types.IPAMConfig(
-                    pool_configs=[
-                        docker_sdk.types.IPAMPool(
-                            subnet=EGG_CHECK_SUBNET,
-                        ),
-                    ],
-                ),
+                # Let Docker auto-assign subnets to avoid collisions when
+                # multiple pipelines run deployment checks concurrently.
             )
 
             logger.info(
@@ -708,6 +703,11 @@ class DevserverManager:
         """
         if self._started:
             return self._status
+
+        if docker is None:
+            raise DevserverError(
+                "docker SDK (pip install docker) is required for deployment validation"
+            )
 
         self._status = DevserverStatus(status=DevserverStatusValue.STARTING)
 

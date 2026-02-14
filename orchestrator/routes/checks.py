@@ -7,6 +7,7 @@ to coordinate with the orchestrator, which manages the Docker infrastructure.
 """
 
 import sys
+import threading
 from pathlib import Path
 
 from flask import Blueprint, Response, jsonify
@@ -43,8 +44,10 @@ logger = get_logger("orchestrator.routes.checks")
 
 checks_bp = Blueprint("checks", __name__, url_prefix="/api/v1/pipelines")
 
-# Active DevserverManager instances keyed by pipeline_id
+# Active DevserverManager instances keyed by pipeline_id.
+# Guarded by _devservers_lock since waitress serves requests from multiple threads.
 _active_devservers: dict[str, DevserverManager] = {}
+_devservers_lock = threading.Lock()
 
 
 def get_devserver_manager(pipeline_id: str) -> DevserverManager | None:
@@ -56,7 +59,8 @@ def get_devserver_manager(pipeline_id: str) -> DevserverManager | None:
     Returns:
         DevserverManager if one exists for this pipeline, None otherwise.
     """
-    return _active_devservers.get(pipeline_id)
+    with _devservers_lock:
+        return _active_devservers.get(pipeline_id)
 
 
 def teardown_devserver(pipeline_id: str) -> None:
@@ -67,7 +71,8 @@ def teardown_devserver(pipeline_id: str) -> None:
     Args:
         pipeline_id: Pipeline identifier.
     """
-    manager = _active_devservers.pop(pipeline_id, None)
+    with _devservers_lock:
+        manager = _active_devservers.pop(pipeline_id, None)
     if manager:
         try:
             manager.teardown()
@@ -98,19 +103,20 @@ def start_deployment_check(pipeline_id: str) -> tuple[Response, int]:
         409 if devserver already running.
         422 if no deployment config exists.
     """
-    # Check if already running
-    if pipeline_id in _active_devservers:
-        existing = _active_devservers[pipeline_id]
-        if existing.status.status in (
-            DevserverStatusValue.STARTING,
-            DevserverStatusValue.HEALTHY,
-            DevserverStatusValue.UNHEALTHY,
-        ):
-            return jsonify({
-                "success": False,
-                "message": "Devserver already running for this pipeline",
-                "status": existing.status.to_dict(),
-            }), 409
+    # Atomically check if already running
+    with _devservers_lock:
+        if pipeline_id in _active_devservers:
+            existing = _active_devservers[pipeline_id]
+            if existing.status.status in (
+                DevserverStatusValue.STARTING,
+                DevserverStatusValue.HEALTHY,
+                DevserverStatusValue.UNHEALTHY,
+            ):
+                return jsonify({
+                    "success": False,
+                    "message": "Devserver already running for this pipeline",
+                    "status": existing.status.to_dict(),
+                }), 409
 
     # Resolve paths
     repo_path = get_repo_path()
@@ -142,7 +148,20 @@ def start_deployment_check(pipeline_id: str) -> tuple[Response, int]:
 
     try:
         status = manager.start(deployment_config)
-        _active_devservers[pipeline_id] = manager
+
+        # Atomically register the manager; check again in case a concurrent
+        # request raced past the initial check while we were starting.
+        with _devservers_lock:
+            if pipeline_id in _active_devservers:
+                # Another request won the race — tear down ours
+                manager.teardown()
+                existing = _active_devservers[pipeline_id]
+                return jsonify({
+                    "success": False,
+                    "message": "Devserver already running for this pipeline",
+                    "status": existing.status.to_dict(),
+                }), 409
+            _active_devservers[pipeline_id] = manager
 
         return jsonify({
             "success": True,
@@ -172,7 +191,8 @@ def get_deployment_check_status(pipeline_id: str) -> tuple[Response, int]:
         200 with DevserverStatus.
         404 if no devserver started for this pipeline.
     """
-    manager = _active_devservers.get(pipeline_id)
+    with _devservers_lock:
+        manager = _active_devservers.get(pipeline_id)
     if manager is None:
         return jsonify({
             "success": False,
