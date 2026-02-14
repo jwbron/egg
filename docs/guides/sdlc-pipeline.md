@@ -40,7 +40,7 @@ Code reviews are performed by the existing PR review workflow (`reusable-review.
 
 ### 4. Human-in-the-Loop at Critical Points
 
-The pipeline pauses for human approval at phase transitions. Decisions use checkbox-based UI with 30-second debounce to prevent accidental clicks.
+The pipeline pauses for human approval at phase transitions (refine and plan). Humans can approve to advance or request changes to revise the phase output. The orchestrator implements a circuit breaker (`max_review_cycles`) to prevent unbounded revision loops, defaulting to 3 revision cycles before advancing despite feedback.
 
 ## Pipeline Architecture
 
@@ -213,8 +213,8 @@ Returns a Server-Sent Events (SSE) stream for real-time updates across all activ
 
 | Phase | Purpose | Allowed Operations | Exit Requires |
 |-------|---------|-------------------|---------------|
-| **Refine** | Analyze issue, produce analysis document | `gh issue comment/edit` | Auto-review pass + Human approval |
-| **Plan** | Create implementation plan with tasks | `gh issue comment/edit`, `egg-contract add-decision` | Auto-review pass + Human approval |
+| **Refine** | Analyze issue, produce analysis document | `gh issue comment/edit` | Auto-review pass + Human approval (or max revision cycles) |
+| **Plan** | Create implementation plan with tasks | `gh issue comment/edit`, `egg-contract add-decision` | Auto-review pass + Human approval (or max revision cycles) |
 | **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
 | **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
 
