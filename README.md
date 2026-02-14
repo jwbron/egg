@@ -296,7 +296,7 @@ For querying agent session checkpoints across multi-agent pipelines:
 |---------|-------------|
 | `egg-checkpoint list [filters]` | List checkpoints with multi-dimensional filtering |
 | `egg-checkpoint show <id-or-commit>` | Display full checkpoint details (transcript, tool calls, files touched) |
-| `egg-checkpoint browse --issue <n>` | Group checkpoints by session for an issue |
+| `egg-checkpoint browse --issue <n>` | Filter checkpoints by issue number |
 | `egg-checkpoint context [filters]` | Cross-agent context summary grouped by phase and agent type |
 
 **Filters**: `--issue`, `--pr`, `--pipeline`, `--session`, `--branch`, `--trigger`, `--status`, `--agent-type`, `--phase`, `--limit`, `--json`
