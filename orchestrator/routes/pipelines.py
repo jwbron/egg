@@ -102,6 +102,47 @@ except ImportError:
     def report_pipeline_status(pipeline, event_type=None, message=None):  # type: ignore[misc]
         pass
 
+# Import event bus for SSE streaming.
+# report_pipeline_status dispatches to StatusReporter handlers, but the
+# SSE stream subscribes to the EventBus — a separate system.  We need to
+# emit events to both so SSE clients see live updates.
+try:
+    from events import EventType, emit_event as _emit_event
+except ImportError:
+    _emit_event = None  # type: ignore[assignment]
+
+# Map report_pipeline_status event_type strings to EventType enum values
+_EVENT_TYPE_MAP: dict[str, "EventType"] = {}
+if _emit_event is not None:
+    _EVENT_TYPE_MAP = {
+        "phase.started": EventType.PHASE_STARTED,
+        "phase.completed": EventType.PHASE_COMPLETED,
+        "phase.revision_requested": EventType.PHASE_STARTED,  # re-entering phase
+        "pipeline.completed": EventType.PIPELINE_COMPLETED,
+        "pipeline.failed": EventType.PIPELINE_FAILED,
+        "decision.created": EventType.DECISION_CREATED,
+    }
+
+
+def _emit_pipeline_event(
+    pipeline: Pipeline,
+    event_type_str: str,
+) -> None:
+    """Emit a pipeline event to the EventBus for SSE streaming."""
+    if _emit_event is None:
+        return
+    mapped = _EVENT_TYPE_MAP.get(event_type_str)
+    if mapped is None:
+        return
+    _emit_event(
+        mapped,
+        pipeline.id,
+        data={
+            "status": pipeline.status.value,
+            "phase": pipeline.current_phase.value,
+        },
+    )
+
 
 # Import visualization modules for DAG endpoint
 try:
@@ -2367,6 +2408,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     event_type="phase.started",
                     message=f"Phase {current_phase.value} started",
                 )
+                _emit_pipeline_event(pipeline, "phase.started")
 
             # Common sandbox environment for all containers in this phase.
             # GATEWAY_URL, RUNTIME_UID/GID, proxy vars, DNS lockdown, and
@@ -2850,6 +2892,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 event_type="phase.completed",
                 message=f"Phase {current_phase.value} completed",
             )
+            _emit_pipeline_event(pipeline, "phase.completed")
 
             # After plan phase: populate contract with task structure.
             # NOTE: worktree_repo_path is used for both draft reads and
@@ -2920,6 +2963,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     event_type="decision.created",
                     message=f"Awaiting human approval for {current_phase.value} phase",
                 )
+                _emit_pipeline_event(pipeline, "decision.created")
 
                 try:
                     dq.wait_for_decision(decision.id)
@@ -3018,6 +3062,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 event_type="phase.revision_requested",
                                 message=f"Human requested changes to {current_phase.value}",
                             )
+                            _emit_pipeline_event(pipeline, "phase.revision_requested")
                             continue  # Re-enter outer loop → re-run phase with feedback
 
                 # Approved — resume and advance
@@ -3045,6 +3090,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     event_type="pipeline.completed",
                     message="Pipeline completed successfully",
                 )
+                _emit_pipeline_event(pipeline, "pipeline.completed")
                 logger.info("Pipeline complete", pipeline_id=pipeline_id)
                 break
 
@@ -3087,6 +3133,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     event_type="pipeline.failed",
                     message=f"Pipeline failed: {str(e)[:100]}",
                 )
+                _emit_pipeline_event(pipeline, "pipeline.failed")
         except Exception:
             pass
     finally:
