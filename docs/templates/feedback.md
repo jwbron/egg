@@ -72,9 +72,9 @@ The `--format markdown` flag outputs the comment text ready for posting.
 
 When feedback is submitted:
 
-1. The `sdlc-hitl.yml` workflow detects the edit
+1. The orchestrator's decision queue detects the edit
 2. Answers are parsed from the blockquotes
 3. The contract is updated with the answers
 4. The pipeline resumes with feedback available
 
-The agent receives submitted feedback in its context via the prompt builder.
+The agent receives submitted feedback in its context via the orchestrator's prompt building.

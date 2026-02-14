@@ -1150,7 +1150,7 @@ phases:
 
 
 class TestFindPlanCommentPriority:
-    """Tests for plan comment detection priority in populate-contract-tasks.py."""
+    """Tests for plan comment detection priority in contract task population."""
 
     def test_yaml_fence_detection(self):
         """Test that yaml-tasks fence is detected."""

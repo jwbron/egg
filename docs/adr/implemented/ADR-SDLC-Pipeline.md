@@ -3,6 +3,8 @@
 **Status:** Implemented
 **Date:** 2026-02-07
 
+> **Note:** The GitHub Actions-based SDLC workflow implementation described in this ADR has been superseded by the local distributed orchestrator (`orchestrator/` package, PR #524). The architectural principles, contract system, role-based access control, and HITL mechanisms described here remain valid — only the execution layer has changed from GitHub Actions workflows to the local orchestrator. GitHub Actions SDLC workflows were removed in issue #545.
+
 ---
 
 ## Executive Summary
@@ -187,7 +189,7 @@ A 30-second debounce prevents accidental clicks:
 In addition to formal HITL decisions, a simpler phase approval mechanism exists for advancing between phases:
 - Uses `<!-- egg-phase-approval -->` markers in comments
 - Single checkbox: `- [ ] Approve and advance to next phase`
-- Detected by the `handle-approval` job in `sdlc-hitl.yml`
+- Detected by the orchestrator's decision queue
 - See [Phase Completion Template](../../templates/phase-completion.md) for the comment format
 
 ---
@@ -217,54 +219,23 @@ Role is determined from workflow context in this priority:
 
 ## Pipeline Workflow
 
-### GitHub Actions Integration
+### Orchestrator Integration
 
-```yaml
-# .github/workflows/sdlc-pipeline.yml
-on:
-  workflow_dispatch:
-    inputs:
-      issue_number:
-        required: true
-  issues:
-    types: [labeled]
+The SDLC pipeline is now executed by the local distributed orchestrator (`orchestrator/` package). The orchestrator manages the full lifecycle:
 
-jobs:
-  resolve-inputs:
-    # Resolve inputs for reusable workflow support
+- `orchestrator/dispatch.py` — Phase dispatch and management
+- `orchestrator/container_spawner.py` — Agent container lifecycle
+- `orchestrator/decision_queue.py` — HITL decision handling
+- `orchestrator/state_store.py` — Git-backed pipeline state
 
-  init:
-    # Initialize contract from issue, create branch
+Code review happens through PR comments via `.github/workflows/reusable-review.yml`.
 
-  work-loop:
-    # Unified work/review/respond cycle for all phases
-```
+### HITL Processing
 
-**Note:** As of PR #460, the pipeline was consolidated from separate phase jobs (implement, wait-for-checks, finalize-pr) into a unified `work-loop` job. Code review now happens through PR comments via `reusable-review.yml` (introduced in PR #285) instead of a separate reviewer agent.
-
-### Unified Work Loop Architecture
-
-The pipeline uses a single reusable workflow (`.github/workflows/sdlc-work-loop.yml`) for all SDLC phases. This design:
-
-- **Reduces duplication**: Single workflow handles refine, plan, and implement phases
-- **Simplifies maintenance**: Changes to the work/review/respond cycle are made in one place
-- **Collocates check scripts**: Phase validation scripts live in `.github/scripts/` alongside workflows
-- **Provides check DAG**: Checks run in dependency order (merge-fix → parallel lint/test → fixer → review)
-
-### HITL Workflow
-
-```yaml
-# .github/workflows/sdlc-hitl.yml
-on:
-  issue_comment:
-    types: [edited]
-
-jobs:
-  process_decision:
-    # Parse checkbox state
-    # Check debounce expiration
-    # Update contract and resume pipeline
-```
+The orchestrator's decision queue handles HITL decisions:
+1. Monitors for checkbox state changes
+2. Validates debounce period
+3. Updates contract and resumes pipeline
 
 ---
 
@@ -311,9 +282,9 @@ Long-running jobs checkpoint state before timeout:
 | Phase permissions | `.egg/schemas/phase-permissions.schema.json` |
 | Contract library | `shared/egg_contracts/` |
 | Gateway endpoints | `gateway/contract_api.py`, `gateway/phase_api.py` |
+| Orchestrator | `orchestrator/` |
 | CLI tools | `sandbox/egg_lib/contract_cli.py` |
 | PR review workflow | `.github/workflows/reusable-review.yml` |
-| Workflow files | `.github/workflows/sdlc-*.yml` |
 | Templates | `docs/templates/analysis.md`, `docs/templates/plan.md`, `docs/templates/phase-completion.md` |
 | HITL documentation | `docs/hitl-decisions.md` |
 | HITL integration tests | `tests/workflows/test_hitl_integration.py` |

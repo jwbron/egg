@@ -807,7 +807,7 @@ class TestReviewMarkerFormat:
 
         The gh wrapper always produces lowercase verdicts, but this test
         documents that uppercase would NOT match the regex used in
-        sdlc-pipeline.yml and reusable-review.yml.
+        reusable-review.yml and the orchestrator's review handling.
         """
         import re
 

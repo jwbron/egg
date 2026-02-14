@@ -46,38 +46,18 @@ else
 fi
 ```
 
-### Step 4: Build the Onboarding Prompt
+### Step 4: Create and Start SDLC Pipeline
 
-Run the prompt builder script against the target repository:
-
-```bash
-cd "$repo_path"
-GITHUB_REPOSITORY="<owner/repo>" bash ~/repos/egg/action/build-onboarding-doc-prompt.sh
-```
-
-This produces a prompt file at `/tmp/onboarding-doc-prompt.txt`.
-
-Read the generated prompt:
+Create a local-mode pipeline via the orchestrator with an onboarding documentation prompt:
 
 ```bash
-cat /tmp/onboarding-doc-prompt.txt
-```
-
-### Step 5: Create and Start SDLC Pipeline
-
-Pass the generated prompt to the orchestrator as a local-mode pipeline:
-
-```bash
-# Read the prompt content
-prompt_content=$(cat /tmp/onboarding-doc-prompt.txt)
-
 # Create pipeline
 curl -s -X POST http://egg-orchestrator:9849/api/v1/pipelines \
   -H "Content-Type: application/json" \
-  -d "$(jq -n --arg prompt "$prompt_content" --arg repo "$GITHUB_REPOSITORY" '{
+  -d "$(jq -n --arg repo "$GITHUB_REPOSITORY" '{
     "mode": "local",
     "repo": $repo,
-    "prompt": $prompt
+    "prompt": "Generate comprehensive onboarding documentation for this repository. Survey the codebase structure, identify key components, and create documentation that helps new contributors understand the project."
   }')" | jq .
 ```
 
@@ -109,11 +89,10 @@ You can pass additional environment variables when building the prompt:
 | `INCLUDE_PATTERN="gateway/**"` | Limit scope to files matching this glob |
 | `EXCLUDE_DIRS="legacy,tmp"` | Additional directories to skip (comma-separated) |
 
-Example with scope limiting:
+Example with scope limiting — include in the prompt:
 
-```bash
-INCLUDE_PATTERN="gateway/**" GITHUB_REPOSITORY="<owner/repo>" \
-  bash ~/repos/egg/action/build-onboarding-doc-prompt.sh
+```
+Focus only on files matching the pattern: gateway/**
 ```
 
 ## Error Handling

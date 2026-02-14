@@ -42,9 +42,9 @@ Output:
 
 1. The agent includes this markdown in a GitHub comment
 2. The `<!-- egg-hitl-decision id=... -->` marker identifies the decision
-3. When the human checks a checkbox, GitHub triggers an `issue_comment.edited` event
-4. The `sdlc-hitl.yml` workflow detects the change and updates the contract
-5. If this was the last pending decision, the workflow advances to the next phase
+3. When the human checks a checkbox, the orchestrator's decision queue detects the change
+4. The decision is resolved and the contract is updated
+5. If this was the last pending decision, the pipeline advances to the next phase
 
 ### Auto-appended "Other" Option
 
@@ -110,10 +110,9 @@ When you're done, check the box below to submit.
 1. The agent includes this markdown in a GitHub comment
 2. The `<!-- egg-feedback id=... -->` marker identifies the feedback comment
 3. The human edits the comment to fill in answers (replacing placeholder text)
-4. When the human checks `[x] Submit feedback`, GitHub triggers an edit event
-5. The `sdlc-hitl.yml` workflow's `handle-feedback` job detects this
-6. The workflow parses answers, updates the contract, and resumes the pipeline
-7. The agent receives the feedback in its next invocation
+4. When the human checks `[x] Submit feedback`, the orchestrator detects the change
+5. The feedback is parsed, the contract is updated, and the pipeline resumes
+6. The agent receives the feedback in its next invocation
 
 ### Key Differences from Decisions
 
@@ -146,9 +145,8 @@ Phase approval is a simpler mechanism for advancing the pipeline.
 
 1. The agent includes this at the end of phase completion comments
 2. The `<!-- egg-phase-approval -->` marker identifies the approval section
-3. When the human checks the `[x] Approve` checkbox, GitHub triggers an edit event
-4. The `sdlc-hitl.yml` workflow's `handle-approval` job detects this
-5. The workflow updates the contract phase and triggers the next pipeline run
+3. When the human checks the `[x] Approve` checkbox, the orchestrator detects the change
+4. The contract phase is updated and the next pipeline phase is triggered
 
 ### Key Differences from Decisions
 
@@ -159,16 +157,16 @@ Phase approval is a simpler mechanism for advancing the pipeline.
 | Multiple options | Yes (with "Other") | No (single checkbox) |
 | Workflow job | `handle-decision` | `handle-approval` |
 
-## Workflow Detection
+## Detection Mechanism
 
-The `sdlc-hitl.yml` workflow triggers on `issue_comment.edited` events. It checks:
+The orchestrator's decision queue (`orchestrator/decision_queue.py`) monitors for changes. It checks:
 
 1. **For decisions**: Comment contains `<!-- egg-hitl-decision` and a checkbox changed
 2. **For approvals**: Comment contains `<!-- egg-phase-approval` AND `[x] Approve`
 
 ### Security
 
-- Only authorized users (configured in the workflow) can trigger phase transitions
+- Only authorized users can trigger phase transitions
 - The bot cannot approve its own comments
 - Debounce logic prevents rapid-fire updates when multiple boxes are checked quickly
 
@@ -206,7 +204,7 @@ Check that:
 
 ## Related Files
 
-- `.github/workflows/sdlc-hitl.yml` — Workflow handling decisions, feedback, and approvals
+- `orchestrator/decision_queue.py` — Decision queue handling decisions, feedback, and approvals
 - `sandbox/egg_lib/contract_cli.py` — CLI for creating decisions and feedback
 - `shared/egg_contracts/feedback.py` — Feedback generation and parsing
 - `docs/templates/analysis.md` — Template showing decision usage

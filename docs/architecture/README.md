@@ -45,8 +45,7 @@ See the [main README](../../README.md) for the architecture diagram.
 | **Shared Libraries** | Config, logging, git utilities, orchestrator types | [Shared README](../../shared/README.md) |
 | **egg_contracts** | SDLC contract models, role-based mutation validation, multi-agent orchestration | `shared/egg_contracts/` |
 | **egg_orchestrator** | Shared orchestrator types and sandbox-to-orchestrator communication | `shared/egg_orchestrator/` |
-| **Check Scripts** | Phase-specific validation (lint, test, merge conflicts) | `.github/scripts/checks/` |
-| **Multi-Agent Orchestration** | Parallel agent execution (Coder, Tester, Documenter, Integrator) | `.github/workflows/sdlc-multi-agent.yml` |
+| **Multi-Agent Orchestration** | Parallel agent execution (Coder, Tester, Documenter, Integrator) | `orchestrator/multi_agent.py`, `orchestrator/container_spawner.py` |
 
 ## SDLC Contracts
 
@@ -116,12 +115,7 @@ The parser generates placeholder tasks for empty phases and includes warnings fo
 
 ### Phase Checks
 
-Each SDLC phase can have configurable automated checks that run before completion. The check system (`shared/egg_contracts/phase_defaults.py` and `.github/scripts/checks/`) provides:
-
-**Check framework:**
-- `CheckRunner` base class for implementing checks
-- `run_check.py` entry point for executing checks by name
-- JSON-based check results with pass/fail/skip status
+Each SDLC phase can have configurable automated checks that run before completion. The check system (`shared/egg_contracts/phase_defaults.py`) provides:
 
 **Built-in checks:**
 - `lint`: Runs project linter (via `make lint`)
@@ -141,23 +135,20 @@ Contracts can override phase defaults via the `phase_configs` field, allowing pe
 
 ### SDLC Pipeline
 
-The SDLC pipeline orchestrates agent-based development with structurally enforced checkpoints through GitHub Actions workflows:
+The SDLC pipeline orchestrates agent-based development with structurally enforced checkpoints through the local orchestrator:
 
-**Core workflows:**
-- `.github/workflows/sdlc-pipeline.yml` - Main pipeline orchestration (initialization and unified work loop)
-- `.github/workflows/sdlc-work-loop.yml` - Unified work/review/respond cycle for refine, plan, and implement phases
+**Core components:**
+- `orchestrator/dispatch.py` - Pipeline phase dispatch and management
+- `orchestrator/container_spawner.py` - Agent container lifecycle management
+- `orchestrator/decision_queue.py` - Human-in-the-loop decision handling with debounce
+- `orchestrator/state_store.py` - Git-backed pipeline state management
+- `orchestrator/routes/pipelines.py` - Pipeline API, prompt building, and visualization
 - `.github/workflows/reusable-review.yml` - PR-based code review (invoked for draft PRs during implement phase)
-- `.github/workflows/sdlc-hitl.yml` - Human-in-the-loop decision handling with debounce for rapid checkbox edits
-
-**Supporting scripts:**
-- `action/build-sdlc-prompt.sh` - Phase-specific prompt builder with context and document templates
-- `action/build-unified-review-prompt.sh` - Unified review prompt builder for all SDLC phases
-- `action/contract-state.sh` - Contract state management (load, update, phase transitions)
 
 **Resilience features:**
 - HITL escalation: Generates checkbox-based decision UI with 30-second debounce
 - Rate limiting: GitHub API rate limit tracking and automatic retry backoff
-- Timeout checkpoints: Monitors job time and saves state before timeout
+- Container monitoring: Health checks and automatic recovery
 
 ## Key Architectural Decisions
 
