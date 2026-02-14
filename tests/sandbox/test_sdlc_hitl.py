@@ -387,6 +387,33 @@ class TestHandleHitlCheckpoint:
         mock_editor.assert_called_once_with(draft_file)
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._launch_editor")
+    @patch("builtins.input")
+    def test_edit_creates_missing_draft(self, mock_input, mock_editor, mock_repo, tmp_path, capsys):
+        """Option 1 (edit) creates the draft file when it doesn't exist."""
+        mock_repo.return_value = tmp_path
+        mock_editor.return_value = True
+        # choice 1 → draft created & editor opens → back to menu → choice 3 (approve)
+        mock_input.side_effect = ["1", "3"]
+
+        client = self._make_client()
+        decision = self._make_decision()  # "refine" phase
+
+        result = handle_hitl_checkpoint(
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+
+        assert result == "resolved"
+        draft_file = tmp_path / ".egg-state" / "drafts" / "42-analysis.md"
+        assert draft_file.exists()
+        assert draft_file.read_text() == "# Draft: refine\n\n"
+        mock_editor.assert_called_once_with(draft_file)
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("builtins.input")
     def test_invalid_choice_retries(self, mock_input, mock_repo, tmp_path, capsys):
         """Invalid menu choices prompt again."""

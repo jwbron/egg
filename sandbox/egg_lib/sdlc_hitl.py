@@ -48,6 +48,14 @@ def _get_draft_path(
         return f".egg-state/drafts/{prefix}-{phase}.md"
 
 
+def _parse_egg_repos() -> list[str]:
+    """Parse the EGG_REPOS env var into a list of owner/repo strings."""
+    egg_repos = os.environ.get("EGG_REPOS", "").strip()
+    if not egg_repos:
+        return []
+    return [r.strip() for r in egg_repos.split(",") if r.strip()]
+
+
 def _find_repo_path() -> Path:
     """Find the repository root path.
 
@@ -61,9 +69,8 @@ def _find_repo_path() -> Path:
     repos_dir = Path.home() / "repos"
 
     # Strategy 1: EGG_REPOS env var (set by exec_in_new_container)
-    egg_repos = os.environ.get("EGG_REPOS", "").strip()
-    if egg_repos:
-        repos = [r.strip() for r in egg_repos.split(",") if r.strip()]
+    repos = _parse_egg_repos()
+    if repos:
         if len(repos) == 1:
             # "owner/name" → use "name" as directory
             repo_name = repos[0].split("/")[-1]

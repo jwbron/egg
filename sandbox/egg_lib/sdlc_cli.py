@@ -20,7 +20,7 @@ import sys
 import time
 
 from .orch_client import OrchClient, OrchestratorError
-from .sdlc_hitl import handle_hitl_checkpoint
+from .sdlc_hitl import _parse_egg_repos, handle_hitl_checkpoint
 
 # ANSI escape codes
 RESET = "\033[0m"
@@ -60,14 +60,6 @@ def _clear_screen() -> None:
     if IS_TTY:
         sys.stdout.write("\033[2J\033[H")
         sys.stdout.flush()
-
-
-def _parse_egg_repos() -> list[str]:
-    """Parse the EGG_REPOS env var into a list of owner/repo strings."""
-    egg_repos = os.environ.get("EGG_REPOS", "").strip()
-    if not egg_repos:
-        return []
-    return [r.strip() for r in egg_repos.split(",") if r.strip()]
 
 
 def _resolve_repo_dir(repo_dir: str) -> str | None:
