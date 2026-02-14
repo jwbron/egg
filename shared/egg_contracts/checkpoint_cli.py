@@ -23,6 +23,7 @@ Commands:
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -46,6 +47,19 @@ from .checkpoints import (
 # Checkpoint branch name
 CHECKPOINT_BRANCH = "egg/checkpoints/v2"
 
+# Validation pattern for checkpoint_repo values (must be "owner/repo" format)
+_REPO_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
+
+
+def _validate_checkpoint_repo(checkpoint_repo: str) -> str:
+    """Validate that checkpoint_repo matches 'owner/repo' format."""
+    if not _REPO_PATTERN.match(checkpoint_repo):
+        raise ValueError(
+            f"Invalid checkpoint_repo format: {checkpoint_repo!r} "
+            f"(expected 'owner/repo')"
+        )
+    return checkpoint_repo
+
 
 def get_repo_path() -> str:
     """Get the repository path from environment or default."""
@@ -56,7 +70,10 @@ def run_git(
     args: list[str], cwd: str | None = None, check: bool = True
 ) -> subprocess.CompletedProcess[str]:
     """Run a git command."""
-    cmd = ["git"] + args
+    # SECURITY: Disable all git hooks. This CLI may run git commands in
+    # user repositories. Hooks must not execute in this trusted context.
+    # See issue #58 for context on hook-based attacks.
+    cmd = ["git", "-c", "core.hooksPath=/dev/null"] + args
     result = subprocess.run(
         cmd,
         cwd=cwd or get_repo_path(),
@@ -81,6 +98,7 @@ def _resolve_checkpoint_target(repo_path: str, checkpoint_repo: str | None = Non
         A git remote name or HTTPS URL to use for fetching checkpoints.
     """
     if checkpoint_repo:
+        _validate_checkpoint_repo(checkpoint_repo)
         return f"https://github.com/{checkpoint_repo}.git"
     return "origin"
 

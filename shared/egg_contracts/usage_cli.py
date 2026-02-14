@@ -17,6 +17,7 @@ Commands:
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -43,6 +44,19 @@ from .usage_loader import (
 
 # Checkpoint branch name
 CHECKPOINT_BRANCH = "egg/checkpoints/v2"
+
+# Validation pattern for checkpoint_repo values (must be "owner/repo" format)
+_REPO_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
+
+
+def _validate_checkpoint_repo(checkpoint_repo: str) -> str:
+    """Validate that checkpoint_repo matches 'owner/repo' format."""
+    if not _REPO_PATTERN.match(checkpoint_repo):
+        raise ValueError(
+            f"Invalid checkpoint_repo format: {checkpoint_repo!r} "
+            f"(expected 'owner/repo')"
+        )
+    return checkpoint_repo
 
 
 def get_repo_path() -> str:
@@ -82,6 +96,7 @@ def _resolve_checkpoint_target(repo_path: str, checkpoint_repo: str | None = Non
         A git remote name or HTTPS URL to use for fetching checkpoints.
     """
     if checkpoint_repo:
+        _validate_checkpoint_repo(checkpoint_repo)
         return f"https://github.com/{checkpoint_repo}.git"
     return "origin"
 

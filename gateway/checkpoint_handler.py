@@ -46,6 +46,7 @@ Integration points:
 """
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -112,6 +113,23 @@ SESSION_END_CAPTURE_TIMEOUT = 30
 
 # Feature flag for enabling/disabling checkpoints
 CHECKPOINT_ENABLED = os.environ.get("CHECKPOINT_ENABLED", "true").lower() == "true"
+
+# Validation pattern for checkpoint_repo values (must be "owner/repo" format)
+_REPO_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
+
+
+def _validate_checkpoint_repo(checkpoint_repo: str) -> str:
+    """Validate that checkpoint_repo matches 'owner/repo' format.
+
+    Raises:
+        ValueError: If the format is invalid.
+    """
+    if not _REPO_PATTERN.match(checkpoint_repo):
+        raise ValueError(
+            f"Invalid checkpoint_repo format: {checkpoint_repo!r} "
+            f"(expected 'owner/repo')"
+        )
+    return checkpoint_repo
 
 # Mapping from agent_role strings to AgentType enum values
 _ROLE_TO_AGENT_TYPE = {
@@ -651,6 +669,7 @@ class CheckpointHandler:
         # Determine the push/fetch target: either a separate repo URL or the
         # existing remote name.
         if checkpoint_repo:
+            _validate_checkpoint_repo(checkpoint_repo)
             target = f"https://github.com/{checkpoint_repo}.git"
             logger.info(
                 "Using external checkpoint repo",
@@ -779,13 +798,11 @@ class CheckpointHandler:
     def _branch_exists(self, repo_path: str, remote: str, branch: str) -> bool:
         """Check if a branch exists on the remote."""
         try:
-            result = subprocess.run(
-                ["git", "ls-remote", "--heads", remote, branch],
-                cwd=repo_path,
-                capture_output=True,
-                text=True,
-                timeout=30,
+            result = self._run_git(
+                repo_path,
+                ["ls-remote", "--heads", remote, branch],
                 check=False,
+                timeout=30,
             )
             return bool(result.stdout.strip())
         except Exception:
@@ -1039,16 +1056,12 @@ def _get_checkpoint_repo_for_path(repo_path: str) -> str | None:
             from config.repo_config import get_checkpoint_repo
 
             # Extract owner/repo from URL
-            import re
-
-            patterns = [
-                r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$",
-            ]
-            for pattern in patterns:
-                match = re.search(pattern, remote_url)
-                if match:
-                    repo = f"{match.group(1)}/{match.group(2)}"
-                    return get_checkpoint_repo(repo)
+            match = re.search(
+                r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url
+            )
+            if match:
+                repo = f"{match.group(1)}/{match.group(2)}"
+                return get_checkpoint_repo(repo)
         except (ImportError, FileNotFoundError):
             pass
     except Exception:
