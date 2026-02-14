@@ -4,13 +4,12 @@
 Usage:
     egg-sdlc -r <repo> -i <issue>   # Repo dir + issue number
     egg-sdlc -r <repo> <issue>      # Short form (positional issue)
-    egg-sdlc <issue>                 # Auto-detect repo
     egg-sdlc                         # Prompt-driven pipeline (no GitHub)
 
 Examples:
     egg-sdlc -r egg -i 635          # Pipeline for issue #635 in ~/repos/egg
     egg-sdlc -r egg 635             # Same, positional issue number
-    egg-sdlc 635 --repo org/repo    # Explicit owner/repo format
+    egg-sdlc --private -r egg -i 635 # Private repo access
     egg-sdlc                        # Local mode (no GitHub issue)
 """
 

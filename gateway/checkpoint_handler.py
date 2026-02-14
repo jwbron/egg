@@ -88,6 +88,7 @@ from egg_contracts.usage_loader import (
     update_usage_from_checkpoint,
 )
 from egg_logging import get_logger
+from git_client import cleanup_credential_helper, create_credential_helper
 
 try:
     from .git_client import cleanup_credential_helper, create_credential_helper
@@ -835,11 +836,13 @@ class CheckpointHandler:
     ) -> subprocess.CompletedProcess[str]:
         """Run a git command."""
         env = os.environ.copy()
-        cred_path = None
+        credential_helper_path = None
 
         try:
             if self._github_token:
-                cred_path, env = create_credential_helper(self._github_token, env)
+                credential_helper_path, env = create_credential_helper(
+                    self._github_token, env
+                )
 
             # SECURITY: Disable all git hooks. The checkpoint handler runs git commands
             # internally for bookkeeping (storing checkpoints to the checkpoint branch).
@@ -861,7 +864,7 @@ class CheckpointHandler:
 
             return result
         finally:
-            cleanup_credential_helper(cred_path)
+            cleanup_credential_helper(credential_helper_path)
 
 
 # Global checkpoint handler instance

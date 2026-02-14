@@ -20,6 +20,7 @@ import os
 import re
 import signal
 import sys
+from datetime import datetime
 from http.client import HTTPConnection
 from urllib.parse import urlparse
 
@@ -82,6 +83,15 @@ def strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
+def _utc_to_local_time(iso_timestamp: str) -> str:
+    """Convert a UTC ISO timestamp to a local-time HH:MM:SS string."""
+    try:
+        dt = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+        return dt.astimezone().strftime("%H:%M:%S")
+    except (ValueError, AttributeError):
+        return iso_timestamp.split("T")[-1].rstrip("Z")[:8]
+
+
 def _write(text: str, file=None) -> None:
     """Write text, stripping ANSI codes if not a TTY."""
     file = file or sys.stdout
@@ -109,7 +119,7 @@ def format_status_line(pipeline_id: str, data: dict) -> str:
 
     time_part = ""
     if updated:
-        time_part = updated.split("T")[-1].rstrip("Z")[:8]
+        time_part = _utc_to_local_time(updated)
 
     display_status = "awaiting approval" if status == "awaiting_human" else status
     line = f"{BOLD}{pipeline_id}{RESET}  {color}{display_status}{RESET}  phase={phase}"
@@ -146,7 +156,7 @@ def render_event_info(data: dict) -> str:
     lines.append("")
     lines.append(f"  Status: {color}{display_status}{RESET}  |  Phase: {phase}")
     if timestamp:
-        time_part = timestamp.split("T")[-1].rstrip("Z")[:8]
+        time_part = _utc_to_local_time(timestamp)
         lines.append(f"  {DIM}Updated: {time_part}  Event: {event_type}{RESET}")
 
     return "\n".join(lines)

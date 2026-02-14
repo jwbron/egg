@@ -27,7 +27,7 @@ Use the `egg-sdlc` CLI to launch a multi-agent pipeline. The agent cannot skip s
 4. **Merge** — Draft PR is marked ready. Only a human can merge via GitHub UI.
 
 The `egg-sdlc` CLI supports two modes:
-- **Issue mode** (`egg-sdlc 123`): GitHub-issue-driven pipeline with full remote integration
+- **Issue mode** (`egg-sdlc -r <repo_dir> -i <issue_num>`): GitHub-issue-driven pipeline with full remote integration
 - **Local mode** (`egg-sdlc` with no args): Prompt-driven pipeline that runs entirely locally
 
 Both modes create a pipeline in the orchestrator, which spawns sandbox containers to execute each phase as a DAG. Pipeline state lives in a JSON contract (`.egg-state/contracts/{identifier}.json`) committed to the feature branch, giving full auditability of every phase transition.
@@ -160,12 +160,14 @@ The orchestrator handles wave-based execution, dependency tracking, container li
 
 ```bash
 # Direct CLI (recommended)
-egg-sdlc 123              # Issue mode — drives from GitHub issue #123
+egg-sdlc -r egg -i 123    # Issue mode — repo dir + issue number
+egg-sdlc -r egg 123       # Short form (positional issue)
+egg-sdlc --private -r myrepo -i 456  # Private repo access
 egg-sdlc                  # Local mode — prompt-driven, no GitHub interaction
 
 # Or from inside an egg session
 egg
-/sdlc 123                 # Redirects to egg-sdlc
+/sdlc -r egg -i 123       # Redirects to egg-sdlc
 ```
 
 The pipeline creates a draft PR automatically when entering the implement phase. Once all checks pass, the PR is marked ready for human review and merge.
