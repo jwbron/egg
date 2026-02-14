@@ -11,10 +11,11 @@ import sys
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
 from queue import Empty, Full, Queue
-from typing import Any, Generator
+from typing import Any
 
 # Add shared directory to path
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -32,7 +33,6 @@ except ImportError:
 
 from dag_visualizer import generate_status_report, render_pipeline_dag
 from events import Event, EventBus, EventType, get_event_bus
-from models import Pipeline
 from state_store import PipelineNotFoundError, get_state_store
 
 logger = get_logger("orchestrator.sse")
@@ -120,6 +120,7 @@ class SSEClientManager:
         self.event_bus = event_bus or get_event_bus()
         self.repo_path = repo_path
         self._clients: dict[str, list[Queue]] = defaultdict(list)
+        self._client_prefs: dict[int, bool] = {}  # id(queue) -> use_ascii
         self._lock = threading.Lock()
         self._subscribed = False
 
@@ -138,11 +139,12 @@ class SSEClientManager:
         self.event_bus.unsubscribe(None, self._handle_event)
         self._subscribed = False
 
-    def add_client(self, pipeline_id: str) -> Queue:
+    def add_client(self, pipeline_id: str, use_ascii: bool = False) -> Queue:
         """Register a new SSE client for a pipeline.
 
         Args:
             pipeline_id: Pipeline to watch
+            use_ascii: Whether client prefers ASCII-only DAG rendering
 
         Returns:
             Queue that will receive SSE event dicts
@@ -150,6 +152,7 @@ class SSEClientManager:
         q: Queue = Queue(maxsize=1000)
         with self._lock:
             self._clients[pipeline_id].append(q)
+            self._client_prefs[id(q)] = use_ascii
             client_count = len(self._clients[pipeline_id])
         logger.info(
             "SSE client connected",
@@ -169,6 +172,7 @@ class SSEClientManager:
             clients = self._clients.get(pipeline_id, [])
             if q in clients:
                 clients.remove(q)
+            self._client_prefs.pop(id(q), None)
             if not clients:
                 self._clients.pop(pipeline_id, None)
             remaining = len(self._clients.get(pipeline_id, []))
@@ -184,11 +188,12 @@ class SSEClientManager:
 
         with self._lock:
             clients = list(self._clients.get(pipeline_id, []))
+            client_prefs = {id(q): self._client_prefs.get(id(q), False) for q in clients}
 
         if not clients:
             return
 
-        # Build SSE payload
+        # Build base SSE payload (without per-client visualization)
         payload = {
             "event_type": event.event_type.value,
             "pipeline_id": pipeline_id,
@@ -196,10 +201,11 @@ class SSEClientManager:
             "data": event.data,
         }
 
-        # Try to include visualization from state store.
+        # Try to include visualization and pipeline state from state store.
         # Note: this runs on the EventBus worker thread, so we cannot use
         # Flask's get_repo_path() (no request context). Resolve from the
         # instance attribute or EGG_REPO_PATH env var instead.
+        pipeline = None
         try:
             repo_path = self.repo_path
             if repo_path is None:
@@ -210,23 +216,42 @@ class SSEClientManager:
                 raise RuntimeError("repo_path not available for visualization")
             store = get_state_store(repo_path)
             pipeline = store.load_pipeline(pipeline_id)
-            payload["visualization"] = {
-                "dag": render_pipeline_dag(pipeline),
-            }
             payload["status"] = pipeline.status.value
             payload["current_phase"] = pipeline.current_phase.value
+            payload["pending_decisions"] = len(pipeline.get_pending_decisions())
         except Exception:
             logger.debug(
-                "Failed to attach visualization to SSE event",
+                "Failed to attach pipeline state to SSE event",
                 pipeline_id=pipeline_id,
                 exc_info=True,
             )
 
+        # Pre-render DAG for each unique use_ascii preference to avoid
+        # duplicate renders when multiple clients share the same preference.
+        dag_cache: dict[bool, str | None] = {}
+        if pipeline is not None:
+            for use_ascii in set(client_prefs.values()):
+                try:
+                    dag_cache[use_ascii] = render_pipeline_dag(pipeline, use_ascii=use_ascii)
+                except Exception:
+                    logger.debug(
+                        "Failed to render DAG for SSE event",
+                        pipeline_id=pipeline_id,
+                        use_ascii=use_ascii,
+                        exc_info=True,
+                    )
+                    dag_cache[use_ascii] = None
+
         is_terminal = event.event_type in TERMINAL_EVENT_TYPES
 
         for q in clients:
+            use_ascii = client_prefs.get(id(q), False)
+            client_payload = dict(payload)
+            dag = dag_cache.get(use_ascii)
+            if dag is not None:
+                client_payload["visualization"] = {"dag": dag}
             try:
-                q.put_nowait(("event", payload, is_terminal))
+                q.put_nowait(("event", client_payload, is_terminal))
             except Full:
                 logger.warning(
                     "SSE client queue full, dropping event",
@@ -297,7 +322,7 @@ def create_sse_stream(
         SSE-formatted event strings
     """
     manager = get_sse_manager()
-    q = manager.add_client(pipeline_id)
+    q = manager.add_client(pipeline_id, use_ascii=use_ascii)
 
     # Resolve repo_path from Flask context if not provided
     if repo_path is None:
