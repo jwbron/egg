@@ -22,7 +22,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -114,7 +114,10 @@ class DeploymentCheck(CheckRunner):
 
             # Follow same-host redirects; block cross-host redirects
             if resp.is_redirect:
-                redirect_url = resp.headers.get("Location", "")
+                location = resp.headers.get("Location", "")
+                # Resolve relative redirects (e.g. "/healthz") against
+                # the original URL so they become fully qualified.
+                redirect_url = urljoin(url, location)
                 original_host = urlparse(url).hostname
                 redirect_host = urlparse(redirect_url).hostname
                 if redirect_host and redirect_host != original_host:

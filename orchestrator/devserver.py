@@ -567,14 +567,18 @@ class DevserverManager:
             pass
         return warnings
 
-    def _get_container_ip(self, service_name: str) -> str:
-        """Get the IP address of a service container on the check network.
+    def _get_container_endpoint(self, service_name: str) -> tuple[str, int]:
+        """Get the IP address and exposed port of a service container.
+
+        Looks up the container on the check network and extracts the first
+        exposed port from the container's configuration.
 
         Args:
             service_name: Docker compose service name.
 
         Returns:
-            IP address string, or empty string if not found.
+            Tuple of (ip_address, port). IP is empty string and port is 0
+            if not found.
         """
         try:
             result = subprocess.run(
@@ -597,20 +601,33 @@ class DevserverManager:
             )
             container_id = result.stdout.strip()
             if not container_id:
-                return ""
+                return ("", 0)
 
             client = self.docker_client
             container = client.containers.get(container_id)
             networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
             net_info = networks.get(self._network_name, {})
-            return net_info.get("IPAddress", "")
+            ip = net_info.get("IPAddress", "")
+
+            # Extract the first exposed port from the container config.
+            # ExposedPorts is a dict like {"8080/tcp": {}, "443/tcp": {}}.
+            port = 0
+            exposed = container.attrs.get("Config", {}).get("ExposedPorts", {})
+            if exposed:
+                first_port_key = next(iter(exposed))  # e.g. "8080/tcp"
+                try:
+                    port = int(first_port_key.split("/")[0])
+                except (ValueError, IndexError):
+                    pass
+
+            return (ip, port)
         except Exception:
             logger.debug(
-                "Failed to get container IP",
+                "Failed to get container endpoint",
                 service=service_name,
                 exc_info=True,
             )
-            return ""
+            return ("", 0)
 
     def _wait_for_health(
         self,
@@ -642,26 +659,31 @@ class DevserverManager:
                 if svc_status and svc_status.healthy:
                     continue
 
-                # Get the container IP on the check network and probe from
-                # the orchestrator side — no dependency on tools inside the
-                # container (wget, curl, etc.).
+                # Get the container IP and exposed port on the check network
+                # and probe from the orchestrator side — no dependency on
+                # tools inside the container (wget, curl, etc.).
                 try:
-                    ip = self._get_container_ip(service_name)
+                    ip, port = self._get_container_endpoint(service_name)
                     if not ip:
                         all_healthy = False
                         continue
 
-                    url = f"http://{ip}{health_path}"
+                    if port:
+                        url = f"http://{ip}:{port}{health_path}"
+                    else:
+                        url = f"http://{ip}{health_path}"
                     req = urllib.request.Request(url, method="GET")
                     with urllib.request.urlopen(req, timeout=5) as resp:
                         if resp.status == 200:
                             if svc_status:
                                 svc_status.healthy = True
                                 svc_status.ip = ip
+                                svc_status.port = port
                             logger.info(
                                 "Service healthy",
                                 service=service_name,
                                 health_path=health_path,
+                                port=port,
                             )
                         else:
                             all_healthy = False
