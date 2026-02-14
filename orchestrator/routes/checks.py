@@ -152,33 +152,35 @@ def start_deployment_check(pipeline_id: str) -> tuple[Response, int]:
             ), 409
         _starting_devservers.add(pipeline_id)
 
-    worktree_path = resolve_worktree_path(pipeline_id, repo_path)
-
-    # Load deployment config
-    deployment_config = load_deployment_config(worktree_path)
-    if deployment_config is None:
-        with _devservers_lock:
-            _starting_devservers.discard(pipeline_id)
-        return jsonify(
-            {
-                "success": False,
-                "message": "No deployment config found (.egg/deployment.yml)",
-            }
-        ), 422
-
-    # Create and start devserver
-    manager = DevserverManager(
-        pipeline_id=pipeline_id,
-        repo_path=repo_path,
-        worktree_path=worktree_path,
-    )
-
+    # Everything after the sentinel is set must be wrapped in try/finally
+    # to ensure _starting_devservers is always cleaned up — otherwise a
+    # non-DevserverError exception (e.g. ValueError from config loading,
+    # DockerException from client init) permanently wedges this pipeline.
+    manager = None
     try:
+        worktree_path = resolve_worktree_path(pipeline_id, repo_path)
+
+        # Load deployment config
+        deployment_config = load_deployment_config(worktree_path)
+        if deployment_config is None:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "No deployment config found (.egg/deployment.yml)",
+                }
+            ), 422
+
+        # Create and start devserver
+        manager = DevserverManager(
+            pipeline_id=pipeline_id,
+            repo_path=repo_path,
+            worktree_path=worktree_path,
+        )
+
         status = manager.start(deployment_config)
 
         # Atomically register the manager and clear the sentinel
         with _devservers_lock:
-            _starting_devservers.discard(pipeline_id)
             _active_devservers[pipeline_id] = manager
 
         return jsonify(
@@ -195,16 +197,34 @@ def start_deployment_check(pipeline_id: str) -> tuple[Response, int]:
             pipeline_id=pipeline_id,
             error=str(e),
         )
-        # Clean up on failure
-        with _devservers_lock:
-            _starting_devservers.discard(pipeline_id)
-        manager.teardown()
+        if manager is not None:
+            manager.teardown()
         return jsonify(
             {
                 "success": False,
                 "message": f"Failed to start devserver: {e}",
             }
         ), 500
+
+    except Exception as e:
+        logger.error(
+            "Unexpected error during devserver start",
+            pipeline_id=pipeline_id,
+            error=str(e),
+            exc_info=True,
+        )
+        if manager is not None:
+            manager.teardown()
+        return jsonify(
+            {
+                "success": False,
+                "message": f"Unexpected error starting devserver: {e}",
+            }
+        ), 500
+
+    finally:
+        with _devservers_lock:
+            _starting_devservers.discard(pipeline_id)
 
 
 @checks_bp.route("/<pipeline_id>/deployment-check/status", methods=["GET"])
