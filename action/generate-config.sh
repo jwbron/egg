@@ -58,6 +58,17 @@ else
   AUTH_MODE="user"
 fi
 
+# Build optional repo_settings lines
+CHECKPOINT_REPO_LINE=""
+if [[ -n "${INPUT_CHECKPOINT_REPO:-}" ]]; then
+  # Validate owner/repo format before writing to config
+  if [[ ! "${INPUT_CHECKPOINT_REPO}" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
+    echo "ERROR: checkpoint-repo must be in 'owner/repo' format, got: ${INPUT_CHECKPOINT_REPO}" >&2
+    exit 1
+  fi
+  CHECKPOINT_REPO_LINE="    checkpoint_repo: ${INPUT_CHECKPOINT_REPO}"
+fi
+
 cat > "$CONFIG_DIR/repositories.yaml" <<YAML
 github_username: ${GITHUB_ACTOR}
 bot_username: ${BOT_USERNAME}
@@ -68,6 +79,7 @@ writable_repos:
 repo_settings:
   ${GITHUB_REPOSITORY}:
     auth_mode: ${AUTH_MODE}
+${CHECKPOINT_REPO_LINE}
 
 user_mode:
   github_user: ${GITHUB_ACTOR}

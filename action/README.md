@@ -36,6 +36,8 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
     # reviewer-app-id: ${{ secrets.REVIEWER_APP_ID }}
     # reviewer-app-private-key: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
     # reviewer-app-installation-id: ${{ secrets.REVIEWER_APP_INSTALLATION_ID }}
+    # Optional: redirect checkpoints to separate repo for privacy
+    # checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO }}
 ```
 
 > **Note:** Use `@main` until the first release (v0.1.0) creates the `@v0` tag.
@@ -51,6 +53,21 @@ For full reproducibility, pin to an exact version:
 ```yaml
 uses: jwbron/egg/action@v0.1.0
 ```
+
+## Checkpoint Repository Configuration
+
+By default, checkpoints (session transcripts and tool call data) are stored in the same repository on the `egg/checkpoints/v2` branch. To keep this data private or separate, use the `checkpoint-repo` input:
+
+```yaml
+- uses: jwbron/egg/action@v0
+  with:
+    prompt: "Task description"
+    anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+    github-token: ${{ secrets.CROSS_REPO_TOKEN }}
+    checkpoint-repo: "owner/checkpoint-repo-name"
+```
+
+The value must be in `owner/repo` format. The `github-token` must have write access to both the source repository and the checkpoint repository. The default `github.token` is scoped to the current repository, so cross-repo checkpoints require a PAT or GitHub App token with access to both repositories. To configure this globally across workflows, set the `EGG_CHECKPOINT_REPO` repository variable in Settings > Secrets and variables > Actions > Variables, then reference it with `checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO }}`.
 
 ## Documentation
 

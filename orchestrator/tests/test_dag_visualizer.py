@@ -276,7 +276,6 @@ class TestRenderPipelineDag:
         assert "+ coder" in result
         assert "> reviewer" in result
 
-
     def test_hitl_gate_phase_shows_awaiting_approval(self):
         """Test that a phase in AWAITING_HUMAN status shows 'awaiting approval'."""
         phases = {
@@ -500,6 +499,8 @@ class TestGenerateStatusReport:
         assert "phases" in report
         assert "pending_decisions" in report
         assert "updated_at" in report
+        assert "timestamp" in report
+        assert report["timestamp"] == report["updated_at"]
 
     def test_visualization_contains_all_formats(self):
         """Test that visualization includes all format types."""

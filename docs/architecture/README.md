@@ -79,15 +79,21 @@ Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib
 
 ### Checkpoint System
 
-Checkpoints capture agent session context as first-class versioned data in Git. When agents push commits, the gateway automatically captures:
+Checkpoints capture agent session context as first-class versioned data in Git. The v2 checkpoint system captures **all agent sessions** (not just commits) with rich multi-dimensional querying.
 
+**Triggers**: Checkpoints are captured on two events:
+- **Commit**: When agents push commits during implementation
+- **Session-end**: When agent containers terminate (completed, expired, or failed)
+
+**Captured data**:
 - **Transcript**: Full conversation history with timestamps and message roles
 - **Tool calls**: All tool invocations with parameters, results, and durations
 - **Files touched**: All file operations (read, write, edit, glob, grep)
 - **Token usage**: Input/output tokens and estimated costs
 - **Session metadata**: Session ID, agent role, model, duration
+- **Workflow context**: Issue number, PR number, pipeline phase, agent type, session status
 
-Checkpoints are stored in the `egg/checkpoints/v2` branch and linked to commits via checkpoint IDs in contract tasks and audit entries. This provides full traceability from requirements to implementation.
+Checkpoints are stored in the `egg/checkpoints/v2` branch with a multi-dimensional index supporting rich queries. This provides full traceability from requirements to implementation, including sessions that didn't produce commits.
 
 **Checkpoint CLI**
 
@@ -95,11 +101,21 @@ Browse and query checkpoints via the `egg-checkpoint` CLI:
 
 | Command | Purpose |
 |---------|---------|
-| `egg-checkpoint list [--branch <name>] [--issue <n>] [--limit <n>]` | List checkpoints with metadata |
-| `egg-checkpoint show <commit-sha>` | Display full checkpoint details for a commit |
+| `egg-checkpoint list [filters] [--limit <n>]` | List checkpoints with metadata |
+| `egg-checkpoint show <id-or-commit>` | Display full checkpoint details |
 | `egg-checkpoint browse --issue <number>` | Filter checkpoints by issue number |
 
-Checkpoints enable post-hoc analysis of agent behavior, debugging failed sessions, and auditing agent decisions.
+**Supported filters**:
+- `--branch <name>` — Filter by git branch
+- `--issue <n>` — Filter by issue number
+- `--pr <n>` — Filter by PR number
+- `--session <id>` — Filter by session ID
+- `--trigger <commit|session_end>` — Filter by trigger type
+- `--status <completed|expired|failed>` — Filter by session status
+- `--agent-type <coder|tester|documenter|integrator|reviewer|unknown>` — Filter by agent type
+- `--phase <refine|plan|implement|pr>` — Filter by pipeline phase
+
+Checkpoints enable post-hoc analysis of agent behavior, debugging failed sessions, auditing agent decisions, and tracking token usage across issues and PRs.
 
 ### Plan Parser
 

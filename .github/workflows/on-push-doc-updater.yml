@@ -112,6 +112,7 @@ jobs:
           bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
           bot-branch-prefix: ${{ inputs.branch_prefix || vars.EGG_BRANCH_PREFIX }}
+          checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO || '' }}
           github-token: ${{ steps.bot-token.outputs.token }}
           timeout: "20"
         env:
