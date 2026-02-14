@@ -88,16 +88,16 @@
           "retry_count": 0
         }
       ],
-      "review_cycles": 0,
+      "review_cycles": 1,
       "artifacts": {},
       "error": null
     }
   },
   "decisions": [],
   "created_at": "2026-02-14T01:09:09.731967",
-  "updated_at": "2026-02-14T01:17:20.152000",
+  "updated_at": "2026-02-14T01:17:20.960792",
   "contract_synced": true,
   "sdlc_token_gated": false,
   "error": null,
-  "version": 11
+  "version": 12
 }
