@@ -80,10 +80,11 @@ By default, checkpoints (session transcripts and tool call data) are stored in t
   with:
     prompt: "Task description"
     anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+    github-token: ${{ secrets.CROSS_REPO_TOKEN }}
     checkpoint-repo: "owner/checkpoint-repo-name"
 ```
 
-The value must be in `owner/repo` format. The GitHub token must have write access to both repositories. To configure this globally across workflows, set the `EGG_CHECKPOINT_REPO` repository variable in Settings > Secrets and variables > Actions > Variables, then reference it with `checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO }}`.
+The value must be in `owner/repo` format. The `github-token` must have write access to both the source repository and the checkpoint repository. The default `github.token` is scoped to the current repository, so cross-repo checkpoints require a PAT or GitHub App token with access to both repositories. To configure this globally across workflows, set the `EGG_CHECKPOINT_REPO` repository variable in Settings > Secrets and variables > Actions > Variables, then reference it with `checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO }}`.
 
 ## Documentation
 
