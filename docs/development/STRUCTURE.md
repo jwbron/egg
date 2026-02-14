@@ -129,10 +129,12 @@ sandbox/
 │   ├── egg-contract        # Symlink to contract_cli.py
 │   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
 │   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
+│   ├── egg-orch            # Orchestrator API CLI
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
 │   ├── contract_cli.py     # SDLC contract CLI implementation
-│   └── checkpoint_cli.py   # Checkpoint browsing CLI wrapper
+│   ├── checkpoint_cli.py   # Checkpoint browsing CLI wrapper
+│   └── orch_cli.py         # Orchestrator API CLI implementation
 ├── llm/                    # Claude Code / Agent SDK integration
 ├── tools/                  # Interactive tools
 │   ├── discover-tests.py   # Test framework discovery
