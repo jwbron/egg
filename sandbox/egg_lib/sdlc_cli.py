@@ -12,6 +12,7 @@ import json
 import signal
 import subprocess
 import sys
+import time
 
 from .orch_client import OrchClient, OrchestratorError
 from .sdlc_hitl import handle_hitl_checkpoint
@@ -172,10 +173,19 @@ def watch_pipeline(
 
     Returns the terminal status: "complete", "failed", "cancelled", or "error".
     """
+    max_retries = 20
+    retry_delay = 1.0  # seconds, doubles each retry up to max_delay
+    max_delay = 30.0
+    retries = 0
+
     while True:
         conn = None
         try:
             conn, response = client.stream_pipeline(pipeline_id)
+
+            # Reset retry state on successful connection
+            retries = 0
+            retry_delay = 1.0
 
             last_status = None
             last_pending = 0
@@ -239,7 +249,16 @@ def watch_pipeline(
             _write(f"\n{DIM}Stopped watching.{RESET}\n")
             return "interrupted"
         except TimeoutError:
-            _write(f"{YELLOW}Connection timed out. Reconnecting...{RESET}\n")
+            retries += 1
+            if retries > max_retries:
+                _write(
+                    f"{RED}Max reconnection attempts ({max_retries}) reached. Giving up.{RESET}\n",
+                    file=sys.stderr,
+                )
+                return "error"
+            _write(f"{YELLOW}Connection timed out. Reconnecting in {retry_delay:.0f}s...{RESET}\n")
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, max_delay)
             continue  # Reconnect
         except ConnectionRefusedError:
             _write(

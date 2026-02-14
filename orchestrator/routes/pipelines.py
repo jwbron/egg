@@ -1076,20 +1076,20 @@ def _commit_statefiles_to_worktree(
 
     subprocess.run(
         [*git_base, "add", ".egg-state/"],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, check=True, timeout=30,
     )
 
     # Only commit if there are staged changes (idempotent on re-runs)
     result = subprocess.run(
         [*git_base, "diff", "--cached", "--quiet", "--", ".egg-state/"],
-        capture_output=True, text=True, check=False,
+        capture_output=True, text=True, check=False, timeout=30,
     )
     if result.returncode == 0:
         return  # Nothing to commit
 
     subprocess.run(
         [*git_base, "commit", "--no-verify", "-m", message, "--", ".egg-state/"],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, check=True, timeout=30,
     )
 
 

@@ -6,6 +6,7 @@ the draft document and offers interactive options for resolution.
 
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -58,7 +59,7 @@ def _find_repo_path() -> Path:
         )
         if result.returncode == 0 and result.stdout.strip():
             return Path(result.stdout.strip())
-    except Exception:
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
         pass
     # Fallback: walk up from cwd looking for .git
     cwd = Path.cwd()
@@ -101,7 +102,7 @@ def _launch_editor(file_path: Path) -> bool:
     editor = os.environ.get("EDITOR", "vim")
     try:
         result = subprocess.run(
-            [editor, str(file_path)],
+            [*shlex.split(editor), str(file_path)],
             stdin=sys.stdin,
             stdout=sys.stdout,
             stderr=sys.stderr,
@@ -275,16 +276,16 @@ def handle_hitl_checkpoint(
 def _detect_phase(question: str, context: str | None = None) -> str:
     """Detect the pipeline phase from the decision payload.
 
-    Uses substring matching on the question text.  The ``context`` argument
+    Uses word-boundary regex on the question text.  The ``context`` argument
     is accepted for forward-compatibility but is not inspected today (the
     orchestrator always passes a string).
     """
     q = question.lower()
-    if "refine" in q or "analysis" in q:
+    if re.search(r"\brefine\b", q) or re.search(r"\banalysis\b", q):
         return "refine"
     elif re.search(r"\bplan\b", q):
         return "plan"
-    elif "implement" in q:
+    elif re.search(r"\bimplement\b", q):
         return "implement"
     elif re.search(r"\bpr\b", q):
         return "pr"
