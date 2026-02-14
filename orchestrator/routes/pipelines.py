@@ -1073,8 +1073,9 @@ def _commit_statefiles_to_worktree(
     files are deterministically present on the feature branch regardless
     of whether the agent happened to commit them.
 
-    The commit is idempotent (skips when nothing is staged) and
-    non-fatal to callers — raise on ``git add`` failure only.
+    The commit is idempotent (skips when nothing is staged).
+    Raises ``subprocess.CalledProcessError`` on git failure;
+    both call sites catch and log rather than aborting the pipeline.
     """
     state_dir = worktree_path / ".egg-state"
     if not state_dir.exists():
@@ -1096,7 +1097,7 @@ def _commit_statefiles_to_worktree(
         return  # Nothing to commit
 
     subprocess.run(
-        [*git_base, "commit", "--no-verify", "-m", message],
+        [*git_base, "commit", "--no-verify", "-m", message, "--", ".egg-state/"],
         capture_output=True, text=True, check=True,
     )
 
