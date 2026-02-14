@@ -1730,6 +1730,21 @@ def _run_multi_agent_phase(
         roles=phase_contract_roles,
     )
 
+    # Validate: every dispatched role must have a prompt for this phase.
+    # This catches misconfiguration early instead of silently skipping agents.
+    dispatched_roles = {r.value for r in dispatcher.get_agents_to_run()}
+    prompted_roles = {r.value for r in agent_prompts_by_role}
+    unexpected = dispatched_roles - prompted_roles
+    if unexpected:
+        logger.warning(
+            "Dispatcher returning agents with no prompt for this phase — "
+            "check phase role configuration",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            unexpected_roles=sorted(unexpected),
+            expected_roles=sorted(prompted_roles),
+        )
+
     executor = MultiAgentExecutor(
         pipeline=pipeline,
         repo_path=worktree_repo_path,
