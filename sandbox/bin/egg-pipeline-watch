@@ -36,8 +36,15 @@ CYAN = "\033[36m"
 # Whether stdout is a real terminal (vs piped/captured by Claude Code)
 IS_TTY = sys.stdout.isatty()
 
+# ANSI cursor visibility
+HIDE_CURSOR = "\033[?25l"
+SHOW_CURSOR = "\033[?25h"
+
 # Regex to strip ANSI escape sequences
 _ANSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
+
+# Track previous frame to skip redundant redraws
+_prev_frame: str | None = None
 
 # Status → ANSI color mapping (used by format_status_line and render_event_info)
 STATUS_COLORS = {
@@ -101,13 +108,6 @@ def _write(text: str, file=None) -> None:
     file.flush()
 
 
-def _clear_screen() -> None:
-    """Move cursor to top-left for in-place redraw."""
-    if IS_TTY:
-        sys.stdout.write("\033[H")
-        sys.stdout.flush()
-
-
 def format_status_line(pipeline_id: str, data: dict) -> str:
     """Format a single-line status display."""
     status = data.get("status", "unknown")
@@ -163,8 +163,12 @@ def render_event_info(data: dict) -> str:
 
 
 def display_visualization(data: dict, compact: bool = False) -> None:
-    """Display the DAG visualization with in-place update."""
-    _clear_screen()
+    """Display the DAG visualization with in-place update.
+
+    Uses a single atomic write with hidden cursor to eliminate flicker.
+    Skips the redraw entirely if the content hasn't changed.
+    """
+    global _prev_frame
 
     pipeline_id = data.get("pipeline_id", "unknown")
     event_type = data.get("event_type", "")
@@ -172,7 +176,13 @@ def display_visualization(data: dict, compact: bool = False) -> None:
     if compact:
         output = format_status_line(pipeline_id, data)
         if IS_TTY:
-            _write(output + "\033[K\n\033[J")
+            if output == _prev_frame:
+                return
+            _prev_frame = output
+            sys.stdout.write(
+                HIDE_CURSOR + "\033[H" + output + "\033[K\n\033[J" + SHOW_CURSOR
+            )
+            sys.stdout.flush()
         else:
             _write(output + "\n")
         return
@@ -190,12 +200,19 @@ def display_visualization(data: dict, compact: bool = False) -> None:
     output += f"\n\n{DIM}Press Ctrl+C to stop watching{RESET}\n"
 
     if IS_TTY:
-        # Clear remainder of each line and any leftover lines below
-        # to overwrite stale content without a full screen clear.
+        if output == _prev_frame:
+            return
+        _prev_frame = output
+        # Build a single buffer: hide cursor, move home, content with
+        # per-line clear, clear below, show cursor.  One write + flush.
         lines = output.split("\n")
-        output = "\033[K\n".join(lines) + "\033[J"
-
-    _write(output)
+        cleared = "\033[K\n".join(lines)
+        sys.stdout.write(
+            HIDE_CURSOR + "\033[H" + cleared + "\033[J" + SHOW_CURSOR
+        )
+        sys.stdout.flush()
+    else:
+        _write(output)
 
 
 def display_done(data: dict, last_status: str | None = None) -> None:
@@ -331,6 +348,9 @@ def watch_pipeline(
                 return 0
 
     except KeyboardInterrupt:
+        if IS_TTY:
+            sys.stdout.write(SHOW_CURSOR)
+            sys.stdout.flush()
         _write(f"\n{DIM}Stopped watching.{RESET}\n")
         return 0
     except TimeoutError:

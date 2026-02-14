@@ -372,6 +372,7 @@ def create_sse_stream(
 
         start_time = time.monotonic()
         last_heartbeat = time.monotonic()
+        last_refresh_dag: str | None = None
 
         while True:
             # Check max connection time
@@ -408,8 +409,9 @@ def create_sse_stream(
                     )
                     last_heartbeat = now
 
-                # Send a visualization refresh so elapsed time and
-                # "Updated" timestamp stay current between real events.
+                # Send a visualization refresh so the client stays
+                # current between real events — but only if the DAG
+                # content actually changed (avoids pointless redraws).
                 try:
                     if repo_path is None:
                         continue
@@ -423,6 +425,14 @@ def create_sse_stream(
                     refresh = generate_status_report(
                         pipeline, use_ascii=use_ascii
                     )
+
+                    # Skip if the DAG visualization is identical to the
+                    # last refresh we sent — nothing visible changed.
+                    current_dag = refresh.get("visualization", {}).get("dag")
+                    if current_dag is not None and current_dag == last_refresh_dag:
+                        continue
+                    last_refresh_dag = current_dag
+
                     refresh["event_type"] = "refresh"
                     refresh["timestamp"] = (
                         datetime.utcnow().isoformat() + "Z"

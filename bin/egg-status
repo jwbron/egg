@@ -33,6 +33,8 @@ from http.client import HTTPConnection
 
 # ANSI escape codes
 MOVE_HOME = "\033[H"
+HIDE_CURSOR = "\033[?25l"
+SHOW_CURSOR = "\033[?25h"
 RESET = "\033[0m"
 DIM = "\033[2m"
 BOLD = "\033[1m"
@@ -42,6 +44,9 @@ YELLOW = "\033[33m"
 CYAN = "\033[36m"
 
 IS_TTY = sys.stdout.isatty()
+
+# Track previous frame to skip redundant redraws
+_prev_frame: str | None = None
 
 _ANSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
 
@@ -161,15 +166,23 @@ def render_dashboard(pipelines: dict, verbose: bool = False) -> str:
 
 
 def display_dashboard(pipelines: dict, verbose: bool = False) -> None:
-    """Display the dashboard, handling TTY vs non-TTY modes."""
+    """Display the dashboard, handling TTY vs non-TTY modes.
+
+    Uses a single atomic write with hidden cursor to eliminate flicker.
+    Skips the redraw entirely if the content hasn't changed.
+    """
+    global _prev_frame
     output = render_dashboard(pipelines, verbose=verbose)
 
     if IS_TTY:
-        # Overwrite in place without full screen clear to avoid flicker.
-        # Clear remainder of each line, then clear any leftover lines below.
+        if output == _prev_frame:
+            return
+        _prev_frame = output
         lines = output.split("\n")
         cleared = "\033[K\n".join(lines)
-        sys.stdout.write(MOVE_HOME + cleared + "\n\033[J")
+        sys.stdout.write(
+            HIDE_CURSOR + MOVE_HOME + cleared + "\n\033[J" + SHOW_CURSOR
+        )
         sys.stdout.flush()
     else:
         plain = strip_ansi(output)
@@ -275,6 +288,9 @@ def watch_all_pipelines(
                 display_dashboard(pipelines, verbose=verbose)
 
     except KeyboardInterrupt:
+        if IS_TTY:
+            sys.stdout.write(SHOW_CURSOR)
+            sys.stdout.flush()
         _write(f"\n{DIM}Stopped.{RESET}\n")
         return 0
     except ConnectionRefusedError:
