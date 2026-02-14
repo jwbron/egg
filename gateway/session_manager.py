@@ -194,6 +194,7 @@ class Session:
     phase: str | None = None  # SDLC pipeline phase for operation filtering
     issue_number: int | None = None  # GitHub issue number for checkpoint linkage
     pr_number: int | None = None  # GitHub PR number for checkpoint linkage
+    pipeline_id: str | None = None  # Pipeline run ID for multi-agent correlation
     checkpoint_repo: str | None = None  # External checkpoint repo (owner/repo)
     last_repo_path: str | None = None  # Last known repo path from git operations
 
@@ -225,6 +226,8 @@ class Session:
             result["issue_number"] = self.issue_number
         if self.pr_number is not None:
             result["pr_number"] = self.pr_number
+        if self.pipeline_id is not None:
+            result["pipeline_id"] = self.pipeline_id
         if self.checkpoint_repo is not None:
             result["checkpoint_repo"] = self.checkpoint_repo
         if self.last_repo_path is not None:
@@ -247,6 +250,7 @@ class Session:
             phase=data.get("phase"),
             issue_number=data.get("issue_number"),
             pr_number=data.get("pr_number"),
+            pipeline_id=data.get("pipeline_id"),
             checkpoint_repo=data.get("checkpoint_repo"),
             last_repo_path=data.get("last_repo_path"),
         )
@@ -393,6 +397,7 @@ class SessionManager:
         phase: str | None = None,
         issue_number: int | None = None,
         pr_number: int | None = None,
+        pipeline_id: str | None = None,
     ) -> tuple[str, Session]:
         """
         Register a new session for a container.
@@ -404,6 +409,7 @@ class SessionManager:
             phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
             issue_number: Optional GitHub issue number for checkpoint linkage
             pr_number: Optional GitHub PR number for checkpoint linkage
+            pipeline_id: Optional pipeline run ID for multi-agent correlation
 
         Returns:
             Tuple of (session_token, Session)
@@ -425,6 +431,7 @@ class SessionManager:
             phase=phase,
             issue_number=issue_number,
             pr_number=pr_number,
+            pipeline_id=pipeline_id,
         )
 
         with self._lock:

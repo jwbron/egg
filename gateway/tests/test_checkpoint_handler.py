@@ -450,6 +450,7 @@ def _make_test_session(
     phase="implement",
     issue_number=530,
     pr_number=42,
+    pipeline_id=None,
 ):
     """Create a test Session for checkpoint tests."""
     now = datetime.now(UTC)
@@ -466,6 +467,7 @@ def _make_test_session(
         phase=phase,
         issue_number=issue_number,
         pr_number=pr_number,
+        pipeline_id=pipeline_id,
     )
 
 
@@ -894,3 +896,57 @@ class TestStoreCheckpointV2GitOps:
 
         # branch -D should use check=False (non-fatal if branch doesn't exist)
         assert branch_delete_calls[0][2].get("check") is False
+
+
+class TestResolvePipelineId:
+    """Tests for CheckpointHandler._resolve_pipeline_id."""
+
+    def test_from_session(self):
+        """Pipeline ID resolved from session."""
+        from checkpoint_handler import CheckpointHandler
+
+        handler = CheckpointHandler()
+        session = _make_test_session(pipeline_id="issue-42")
+        assert handler._resolve_pipeline_id(session) == "issue-42"
+
+    @patch.dict("os.environ", {"EGG_PIPELINE_ID": "issue-99"})
+    def test_from_env(self):
+        """Pipeline ID falls back to EGG_PIPELINE_ID env var."""
+        from checkpoint_handler import CheckpointHandler
+
+        handler = CheckpointHandler()
+        session = _make_test_session(pipeline_id=None)
+        assert handler._resolve_pipeline_id(session) == "issue-99"
+
+    @patch.dict("os.environ", {}, clear=True)
+    def test_returns_none(self):
+        """Returns None when no pipeline ID available."""
+        from checkpoint_handler import CheckpointHandler
+
+        handler = CheckpointHandler()
+        session = _make_test_session(pipeline_id=None)
+        # Clear the env var explicitly
+        import os
+
+        os.environ.pop("EGG_PIPELINE_ID", None)
+        assert handler._resolve_pipeline_id(session) is None
+
+    def test_none_session(self):
+        """Returns None when session is None."""
+        from checkpoint_handler import CheckpointHandler
+
+        handler = CheckpointHandler()
+        with patch.dict("os.environ", {}, clear=True):
+            import os
+
+            os.environ.pop("EGG_PIPELINE_ID", None)
+            assert handler._resolve_pipeline_id(None) is None
+
+    def test_session_takes_precedence_over_env(self):
+        """Session pipeline_id takes precedence over env var."""
+        from checkpoint_handler import CheckpointHandler
+
+        handler = CheckpointHandler()
+        session = _make_test_session(pipeline_id="from-session")
+        with patch.dict("os.environ", {"EGG_PIPELINE_ID": "from-env"}):
+            assert handler._resolve_pipeline_id(session) == "from-session"

@@ -211,6 +211,9 @@ class CheckpointV2(BaseModel):
     pipeline_phase: str | None = Field(
         default=None, description="SDLC pipeline phase when checkpoint was created"
     )
+    pipeline_id: str | None = Field(
+        default=None, description="Pipeline run ID for multi-agent workflow correlation"
+    )
 
     # Session details
     session: SessionMetadata = Field(..., description="Session metadata")
@@ -268,12 +271,14 @@ class CheckpointSummaryV2(BaseModel):
         default=AgentType.UNKNOWN, description="Agent role classification"
     )
     pipeline_phase: str | None = Field(default=None, description="Pipeline phase")
+    pipeline_id: str | None = Field(default=None, description="Pipeline run ID")
 
     # Metrics
     created_at: datetime = Field(..., description="When checkpoint was created")
     message_count: int = Field(default=0, ge=0, description="Number of messages in transcript")
     tool_call_count: int = Field(default=0, ge=0, description="Number of tool calls")
     total_tokens: int = Field(default=0, ge=0, description="Total tokens used")
+    files_touched_count: int = Field(default=0, ge=0, description="Number of files touched")
 
     @classmethod
     def from_checkpoint(cls, checkpoint: "CheckpointV2") -> "CheckpointSummaryV2":
@@ -289,10 +294,12 @@ class CheckpointSummaryV2(BaseModel):
             branch=checkpoint.branch,
             agent_type=checkpoint.agent_type,
             pipeline_phase=checkpoint.pipeline_phase,
+            pipeline_id=checkpoint.pipeline_id,
             created_at=checkpoint.created_at,
             message_count=checkpoint.transcript.message_count if checkpoint.transcript else 0,
             tool_call_count=len(checkpoint.tool_calls),
             total_tokens=checkpoint.token_usage.total_tokens if checkpoint.token_usage else 0,
+            files_touched_count=len(checkpoint.files_touched),
         )
 
 
@@ -346,6 +353,9 @@ class CheckpointIndexV2(BaseModel):
     by_status: dict[str, list[str]] = Field(
         default_factory=dict, description="session_status -> [checkpoint_ids]"
     )
+    by_pipeline: dict[str, list[str]] = Field(
+        default_factory=dict, description="pipeline_id -> [checkpoint_ids]"
+    )
 
     def get_by_session(self, session_id: str) -> list[str]:
         """Get checkpoint IDs for a session."""
@@ -378,3 +388,7 @@ class CheckpointIndexV2(BaseModel):
     def get_by_status(self, status: SessionStatus) -> list[str]:
         """Get checkpoint IDs for a session status."""
         return self.by_status.get(status.value, [])
+
+    def get_by_pipeline(self, pipeline_id: str) -> list[str]:
+        """Get checkpoint IDs for a pipeline run."""
+        return self.by_pipeline.get(pipeline_id, [])
