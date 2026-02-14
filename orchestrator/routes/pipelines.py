@@ -791,7 +791,7 @@ def _get_contract_review_criteria() -> str:
     )
 
 
-# Per-phase reviewer matrix matching GHA sdlc-work-loop.yml
+# Per-phase reviewer matrix
 _PHASE_REVIEWERS: dict[str, list[str]] = {
     "refine": ["unified", "agent-design"],
     "plan": ["unified", "agent-design"],
@@ -1622,8 +1622,7 @@ def _populate_contract_from_plan(
 ) -> None:
     """Read the plan draft and populate the contract with tasks.
 
-    Reads the plan draft and populates the contract with task definitions.
-    Reads the plan draft, extracts task structure from markdown headers,
+    Extracts task structure from markdown headers in the plan draft
     and writes tasks + acceptance criteria to the contract.
     """
     try:
