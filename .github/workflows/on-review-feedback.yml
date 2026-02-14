@@ -1,12 +1,13 @@
 name: "egg: Address Review Feedback"
 
-# Trigger when the review bot posts feedback on a PR.
-# This enables the loop: PR opened → review → address feedback → re-review → ...
+# Trigger when the review bot posts feedback on a PR, or when a human @mentions
+# the bot in a PR comment.
 #
-# Handles two cases:
+# Handles three cases:
 # - pull_request_review: formal review posted via gh pr review
-# - issue_comment: self-review posted as comment (GitHub blocks bots from
+# - issue_comment (bot): self-review posted as comment (GitHub blocks bots from
 #   reviewing their own PRs via the Reviews API)
+# - issue_comment (human): human @mentions the bot on a bot-authored PR
 on:
   pull_request_review:
     types: [submitted]
@@ -144,6 +145,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should_run: ${{ steps.check.outputs.should_run }}
+      trigger_type: ${{ steps.check.outputs.trigger_type }}
     steps:
       - name: Check if triggered by our bot or reviewer
         id: check
@@ -180,6 +182,7 @@ jobs:
                [[ "$REVIEW_BODY" == *"egg-automated-review"* ]] && \
                [[ "$REVIEW_STATE" != "approved" || "$REVIEW_BODY" == *"verdict=approve-with-suggestions"* ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
+              echo "trigger_type=review" >> "$GITHUB_OUTPUT"
             # Case 2: Human review on bot-authored PR
             # Trigger for non-approvals (changes_requested, commented)
             # Note: Human approvals with suggestions won't trigger because humans
@@ -189,21 +192,31 @@ jobs:
             elif ! is_review_bot "$REVIEW_USER" && is_bot_authored_pr && \
                [[ "$REVIEW_STATE" != "approved" ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
+              echo "trigger_type=review" >> "$GITHUB_OUTPUT"
             else
               echo "should_run=false" >> "$GITHUB_OUTPUT"
             fi
-          # For issue_comment events (self-review as comment - legacy, less common with reviewer account)
+          # For issue_comment events
           elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
             # Extract verdict using regex to distinguish approve from approve-with-suggestions
             comment_verdict=""
             if [[ "$COMMENT_BODY" =~ verdict=([a-z-]+) ]]; then
               comment_verdict="${BASH_REMATCH[1]}"
             fi
+            # Case 3: Self-review as comment (GitHub blocks bots from reviewing own PRs)
             if is_review_bot "$COMMENT_USER" && \
                [[ "$IS_PR" == "true" && \
                   "$COMMENT_BODY" == *"egg-automated-review"* && \
                   "$comment_verdict" != "approve" ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
+              echo "trigger_type=review" >> "$GITHUB_OUTPUT"
+            # Case 4: Human @mentions the bot in a PR comment
+            # The should-run step validates PR authorship; this just checks the mention.
+            elif ! is_review_bot "$COMMENT_USER" && \
+               [[ "$IS_PR" == "true" && \
+                  "$COMMENT_BODY" == *"@${BOT_USERNAME}"* ]]; then
+              echo "should_run=true" >> "$GITHUB_OUTPUT"
+              echo "trigger_type=mention" >> "$GITHUB_OUTPUT"
             else
               echo "should_run=false" >> "$GITHUB_OUTPUT"
             fi
@@ -346,7 +359,7 @@ jobs:
       # This ensures we don't run multiple times when multiple reviewers trigger concurrently.
       - name: Wait for all reviewer checks to complete
         id: wait-for-reviewers
-        if: steps.should-run.outputs.run == 'true'
+        if: steps.should-run.outputs.run == 'true' && needs.check-trigger.outputs.trigger_type != 'mention'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
@@ -413,7 +426,7 @@ jobs:
       # Uses semantic marker instead of content patterns per #363
       - name: Minimize previous feedback comments
         id: minimize
-        if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
+        if: steps.should-run.outputs.run == 'true' && (steps.wait-for-reviewers.outputs.proceed == 'true' || needs.check-trigger.outputs.trigger_type == 'mention')
         run: |
           set -euo pipefail
           HIDDEN_COUNT=0
@@ -439,7 +452,7 @@ jobs:
 
       # Post acknowledgment comment with marker for iteration tracking
       - name: Post starting comment
-        if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
+        if: steps.should-run.outputs.run == 'true' && (steps.wait-for-reviewers.outputs.proceed == 'true' || needs.check-trigger.outputs.trigger_type == 'mention')
         run: |
           set -euo pipefail
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
@@ -451,21 +464,21 @@ jobs:
       # This prevents malicious PRs from injecting content via .egg/feedback-rules.md.
       # The agent will check out the PR branch itself after the prompt is built.
       - name: Checkout main (trusted)
-        if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
+        if: steps.should-run.outputs.run == 'true' && (steps.wait-for-reviewers.outputs.proceed == 'true' || needs.check-trigger.outputs.trigger_type == 'mention')
         uses: actions/checkout@v4
         with:
           ref: main
           persist-credentials: false
 
       - name: Build feedback prompt
-        if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
+        if: steps.should-run.outputs.run == 'true' && (steps.wait-for-reviewers.outputs.proceed == 'true' || needs.check-trigger.outputs.trigger_type == 'mention')
         id: prompt
         run: bash ${{ inputs.prompt_script || 'action/build-feedback-prompt.sh' }}
         env:
           PR_NUMBER: ${{ env.PR_NUMBER }}
 
       - name: Checkout PR branch
-        if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
+        if: steps.should-run.outputs.run == 'true' && (steps.wait-for-reviewers.outputs.proceed == 'true' || needs.check-trigger.outputs.trigger_type == 'mention')
         uses: actions/checkout@v4
         with:
           repository: ${{ steps.pr-meta.outputs.head-repo }}
@@ -473,7 +486,7 @@ jobs:
           persist-credentials: false
 
       - name: Run egg to address feedback
-        if: steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
+        if: steps.should-run.outputs.run == 'true' && (steps.wait-for-reviewers.outputs.proceed == 'true' || needs.check-trigger.outputs.trigger_type == 'mention')
         id: egg
         uses: jwbron/egg/action@main
         with:
@@ -491,7 +504,7 @@ jobs:
           EGG_BOT_NAME: feedback
 
       - name: Post result comment
-        if: always() && !cancelled() && steps.should-run.outputs.run == 'true' && steps.wait-for-reviewers.outputs.proceed == 'true'
+        if: always() && !cancelled() && steps.should-run.outputs.run == 'true' && (steps.wait-for-reviewers.outputs.proceed == 'true' || needs.check-trigger.outputs.trigger_type == 'mention')
         run: |
           set -euo pipefail
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
