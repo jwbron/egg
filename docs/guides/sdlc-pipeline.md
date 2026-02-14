@@ -835,18 +835,19 @@ The deployment validation check (`check-deployment`) runs agent-modified code ag
 **Configuration (`.egg/deployment.yml`):**
 
 ```yaml
-version: "1"
 compose_file: "docker-compose.yml"  # Path relative to repo root
 services:
   - source_dir: "services/api"      # Source directory (agent changes)
     service_name: "api"              # docker-compose service name
     container_mount_path: "/app"    # Mount path inside container
-    health_endpoint: "http://api:8000/health"  # Health check URL
-tests:
-  - name: "API smoke test"
-    url: "http://api:8000/users"
+health_endpoints:
+  api: "/health"                    # Service name → health check path
+validation_tests:
+  - service: "api"                  # Target service name
+    path: "/users"                  # Request path
     method: "GET"
     expected_status: 200
+    description: "API smoke test"
 ```
 
 **Security guarantees:**
@@ -855,7 +856,7 @@ tests:
 - Resource limits prevent exhaustion attacks (CPU, memory, PIDs)
 - Hard timeout of 5 minutes for the entire devserver lifecycle
 - No cloud credentials or production secrets are injected
-- Suspicious environment variables (AWS_*, *_SECRET_KEY, etc.) are rejected
+- Suspicious environment variables (AWS_*, GCP_*, AZURE_*, GOOGLE_CLOUD_*, *_SECRET_KEY, *_API_KEY, *_ACCESS_KEY, *_TOKEN, *_PASSWORD, *_CREDENTIALS) are rejected
 
 **When to use:**
 

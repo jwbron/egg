@@ -209,9 +209,9 @@ Fixed IPs:
 - `GET /pipelines/stream` - Unified SSE stream for all active pipelines (supports `?ascii=true`, `?active_only=false`, `?full_dag=true`)
 - `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error)
 - `GET /pipelines/{id}/decisions` - HITL decision queue
-- `POST /pipelines/{id}/checks/devserver/start` - Start devserver for deployment validation
-- `GET /pipelines/{id}/checks/devserver/status` - Poll devserver status
-- `POST /pipelines/{id}/checks/devserver/teardown` - Tear down devserver
+- `POST /pipelines/{id}/deployment-check/start` - Start devserver for deployment validation
+- `GET /pipelines/{id}/deployment-check/status` - Poll devserver status
+- `POST /pipelines/{id}/deployment-check/teardown` - Tear down devserver
 
 **CLI Access:**
 The `egg-orch` CLI (`sandbox/bin/egg-orch`) provides command-line access to all orchestrator API endpoints. Available in sandbox containers for agent use, or can be run from the host with appropriate environment variables. See the [README CLI Reference](../../README.md#egg-orch-cli) for command details.
@@ -260,7 +260,7 @@ The orchestrator manages Docker-in-Docker (DinD) devserver stacks during deploym
 
 **Credential safety:**
 - No cloud credentials or production secrets injected
-- Environment variables scanned for suspicious patterns (AWS_*, *_SECRET_KEY, *_TOKEN, etc.)
+- Environment variables scanned for suspicious patterns (AWS_*, GCP_*, AZURE_*, GOOGLE_CLOUD_*, *_SECRET_KEY, *_API_KEY, *_ACCESS_KEY, *_TOKEN, *_PASSWORD, *_CREDENTIALS)
 - Only target repo code is mounted (no access to egg internals)
 
 ### Configuration
@@ -268,35 +268,36 @@ The orchestrator manages Docker-in-Docker (DinD) devserver stacks during deploym
 Target repositories opt in by providing `.egg/deployment.yml`:
 
 ```yaml
-version: "1"
 compose_file: "docker-compose.yml"
 services:
   - source_dir: "services/api"
     service_name: "api"
     container_mount_path: "/app"
-    health_endpoint: "http://api:8000/health"
-tests:
-  - name: "API smoke test"
-    url: "http://api:8000/users"
+health_endpoints:
+  api: "/health"
+validation_tests:
+  - service: "api"
+    path: "/users"
     method: "GET"
     expected_status: 200
+    description: "API smoke test"
 ```
 
 See `shared/egg_contracts/deployment.py` for full schema.
 
 ### API Flow
 
-1. **Start**: Sandbox calls `POST /api/v1/pipelines/{id}/checks/devserver/start`
+1. **Start**: Sandbox calls `POST /api/v1/pipelines/{id}/deployment-check/start`
    - Orchestrator extracts compose config, generates overrides, starts stack
    - Returns immediately with `{"status": "starting"}`
 
-2. **Poll**: Sandbox polls `GET /api/v1/pipelines/{id}/checks/devserver/status`
+2. **Poll**: Sandbox polls `GET /api/v1/pipelines/{id}/deployment-check/status`
    - Returns `{"status": "starting" | "healthy" | "unhealthy" | "error"}`
    - Includes service IPs and ports when healthy
 
 3. **Validate**: Sandbox runs health checks and tests against service endpoints
 
-4. **Teardown**: Sandbox calls `POST /api/v1/pipelines/{id}/checks/devserver/teardown`
+4. **Teardown**: Sandbox calls `POST /api/v1/pipelines/{id}/deployment-check/teardown`
    - Orchestrator stops containers, removes network
    - Returns `{"status": "stopped"}`
 
