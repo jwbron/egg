@@ -101,17 +101,17 @@
       "options": [
         "approve"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-14T01:25:43.522470",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-02-14T01:30:02.696120",
+      "resolution": "Approved with modification: KEEP on-mention.yml and its prompt builder (build-mention-prompt.sh). We want to retain the ability to tag the bot via @mentions on PRs. Remove only the other 7 SDLC workflows.",
       "timeout_seconds": 3600
     }
   ],
   "created_at": "2026-02-14T01:15:56.775046",
-  "updated_at": "2026-02-14T01:25:43.551344",
+  "updated_at": "2026-02-14T01:30:02.697653",
   "contract_synced": true,
   "sdlc_token_gated": false,
   "error": null,
-  "version": 14
+  "version": 15
 }
