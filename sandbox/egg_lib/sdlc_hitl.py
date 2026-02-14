@@ -242,6 +242,12 @@ def handle_hitl_checkpoint(
     draft_content = _read_draft(repo_path, draft_rel)
     draft_path = repo_path / draft_rel if draft_rel else None
 
+    # Fall back to decision context if local draft file not found.
+    # The draft lives in the agent's worktree which may not be mounted
+    # here, but the orchestrator reads it and attaches it as context.
+    if not draft_content and context:
+        draft_content = context
+
     # Display decision info
     print(f"\n{BOLD}{YELLOW}{'=' * 60}{RESET}")
     print(f"{BOLD}{YELLOW}  HUMAN DECISION REQUIRED{RESET}")
@@ -249,8 +255,6 @@ def handle_hitl_checkpoint(
     print(f"\n  {BOLD}Pipeline:{RESET} {pipeline_id}")
     print(f"  {BOLD}Phase:{RESET}    {phase}")
     print(f"  {BOLD}Question:{RESET} {question}")
-    if context:
-        print(f"  {BOLD}Context:{RESET}  {context}")
 
     # Show draft preview if available
     if draft_content:
@@ -273,9 +277,12 @@ def handle_hitl_checkpoint(
             # Edit with $EDITOR
             if draft_path:
                 if not draft_path.exists():
-                    # Create the draft file so the user can start editing
+                    # Write draft content (from context) so the editor
+                    # opens with the actual draft, not a stub.
                     draft_path.parent.mkdir(parents=True, exist_ok=True)
-                    draft_path.write_text(f"# Draft: {phase}\n\n")
+                    draft_path.write_text(
+                        draft_content if draft_content else f"# Draft: {phase}\n\n"
+                    )
                 print(f"\n  Opening {draft_path.name} in editor...")
                 if _launch_editor(draft_path):
                     print(f"  {GREEN}File saved. You can now approve or continue editing.{RESET}")

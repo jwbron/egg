@@ -391,14 +391,43 @@ class TestHandleHitlCheckpoint:
     @patch("egg_lib.sdlc_hitl._launch_editor")
     @patch("builtins.input")
     def test_edit_creates_missing_draft(self, mock_input, mock_editor, mock_repo, tmp_path, capsys):
-        """Option 1 (edit) creates the draft file when it doesn't exist."""
+        """Option 1 (edit) creates the draft file from decision context when file doesn't exist."""
         mock_repo.return_value = tmp_path
         mock_editor.return_value = True
         # choice 1 → draft created & editor opens → back to menu → choice 3 (approve)
         mock_input.side_effect = ["1", "3"]
 
         client = self._make_client()
-        decision = self._make_decision()  # "refine" phase
+        decision = self._make_decision()  # "refine" phase, has context
+
+        result = handle_hitl_checkpoint(
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+
+        assert result == "resolved"
+        draft_file = tmp_path / ".egg-state" / "drafts" / "42-analysis.md"
+        assert draft_file.exists()
+        # File should contain the decision context (fallback from worktree)
+        assert draft_file.read_text() == "Draft content for refine phase"
+        mock_editor.assert_called_once_with(draft_file)
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._launch_editor")
+    @patch("builtins.input")
+    def test_edit_creates_stub_when_no_context(
+        self, mock_input, mock_editor, mock_repo, tmp_path, capsys
+    ):
+        """Option 1 (edit) creates a stub file when no draft or context exists."""
+        mock_repo.return_value = tmp_path
+        mock_editor.return_value = True
+        mock_input.side_effect = ["1", "3"]
+
+        client = self._make_client()
+        decision = self._make_decision(context="")
 
         result = handle_hitl_checkpoint(
             client,
