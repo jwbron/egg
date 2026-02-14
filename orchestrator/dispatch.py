@@ -61,6 +61,13 @@ def map_contract_role_to_agent_role(contract_role: ContractAgentRole) -> AgentRo
         ContractAgentRole.TESTER: AgentRole.TESTER,
         ContractAgentRole.DOCUMENTER: AgentRole.DOCUMENTER,
         ContractAgentRole.INTEGRATOR: AgentRole.INTEGRATOR,
+        ContractAgentRole.ARCHITECT: AgentRole.ARCHITECT,
+        ContractAgentRole.TASK_PLANNER: AgentRole.TASK_PLANNER,
+        ContractAgentRole.RISK_ANALYST: AgentRole.RISK_ANALYST,
+        ContractAgentRole.REVIEWER_UNIFIED: AgentRole.REVIEWER_UNIFIED,
+        ContractAgentRole.REVIEWER_CODE: AgentRole.REVIEWER_CODE,
+        ContractAgentRole.REVIEWER_CONTRACT: AgentRole.REVIEWER_CONTRACT,
+        ContractAgentRole.REVIEWER_AGENT_DESIGN: AgentRole.REVIEWER_AGENT_DESIGN,
     }
     return mapping[contract_role]
 
@@ -80,6 +87,13 @@ def map_agent_role_to_contract_role(agent_role: AgentRole) -> ContractAgentRole 
         AgentRole.TESTER: ContractAgentRole.TESTER,
         AgentRole.DOCUMENTER: ContractAgentRole.DOCUMENTER,
         AgentRole.INTEGRATOR: ContractAgentRole.INTEGRATOR,
+        AgentRole.ARCHITECT: ContractAgentRole.ARCHITECT,
+        AgentRole.TASK_PLANNER: ContractAgentRole.TASK_PLANNER,
+        AgentRole.RISK_ANALYST: ContractAgentRole.RISK_ANALYST,
+        AgentRole.REVIEWER_UNIFIED: ContractAgentRole.REVIEWER_UNIFIED,
+        AgentRole.REVIEWER_CODE: ContractAgentRole.REVIEWER_CODE,
+        AgentRole.REVIEWER_CONTRACT: ContractAgentRole.REVIEWER_CONTRACT,
+        AgentRole.REVIEWER_AGENT_DESIGN: ContractAgentRole.REVIEWER_AGENT_DESIGN,
     }
     return mapping.get(agent_role)
 

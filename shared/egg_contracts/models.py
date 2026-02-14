@@ -317,6 +317,15 @@ class AgentRoleType(StrEnum):
     TESTER = "tester"
     DOCUMENTER = "documenter"
     INTEGRATOR = "integrator"
+    # Plan-phase roles
+    ARCHITECT = "architect"
+    TASK_PLANNER = "task_planner"
+    RISK_ANALYST = "risk_analyst"
+    # Reviewer roles
+    REVIEWER_UNIFIED = "reviewer_unified"
+    REVIEWER_CODE = "reviewer_code"
+    REVIEWER_CONTRACT = "reviewer_contract"
+    REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
 
 
 class AgentExecutionModel(BaseModel):
@@ -347,6 +356,21 @@ class AgentExecutionModel(BaseModel):
     )
     error: str | None = Field(default=None, description="Error message if failed")
     retry_count: int = Field(default=0, ge=0, description="Number of retry attempts")
+    conflicts: list[str] = Field(
+        default_factory=list, description="Files with unresolved merge conflicts"
+    )
+
+
+class PhaseAgentConfig(BaseModel):
+    """Per-phase agent configuration override."""
+
+    enabled: bool = Field(default=True, description="Whether multi-agent is enabled for this phase")
+    roles: list[AgentRoleType] | None = Field(
+        default=None, description="Roles to use (None = use phase defaults)"
+    )
+    max_parallel_agents: int | None = Field(
+        default=None, description="Max parallel agents (None = use pipeline default)"
+    )
 
 
 class MultiAgentConfig(BaseModel):
@@ -363,6 +387,10 @@ class MultiAgentConfig(BaseModel):
     roles_enabled: list[AgentRoleType] = Field(
         default_factory=lambda: list(AgentRoleType),
         description="Which agent roles are enabled",
+    )
+    phase_overrides: dict[str, PhaseAgentConfig] = Field(
+        default_factory=dict,
+        description="Per-phase agent configuration overrides",
     )
 
 

@@ -38,6 +38,15 @@ class AgentRole:
     TESTER = "tester"
     DOCUMENTER = "documenter"
     INTEGRATOR = "integrator"
+    # Plan-phase roles
+    ARCHITECT = "architect"
+    TASK_PLANNER = "task_planner"
+    RISK_ANALYST = "risk_analyst"
+    # Reviewer roles
+    REVIEWER_UNIFIED = "reviewer_unified"
+    REVIEWER_CODE = "reviewer_code"
+    REVIEWER_CONTRACT = "reviewer_contract"
+    REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
 
 
 @dataclass
@@ -308,12 +317,117 @@ INTEGRATOR_PATTERNS = AgentFilePattern(
     ],
 )
 
+# Plan-phase agent patterns
+# These agents can only write to drafts and agent-outputs directories.
+
+_PLAN_AGENT_BLOCKED = [
+    "src/",
+    "lib/",
+    "shared/",
+    "gateway/",
+    "sandbox/",
+    "action/",
+    "docs/",
+    "tests/",
+    "test/",
+    ".egg-state/contracts/",
+    ".github/",
+]
+
+ARCHITECT_PATTERNS = AgentFilePattern(
+    role=AgentRole.ARCHITECT,
+    description="Architect agent: drafts and agent-outputs only",
+    allowed_patterns=[
+        ".egg-state/drafts/",
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=_PLAN_AGENT_BLOCKED,
+)
+
+TASK_PLANNER_PATTERNS = AgentFilePattern(
+    role=AgentRole.TASK_PLANNER,
+    description="Task planner agent: drafts and agent-outputs only",
+    allowed_patterns=[
+        ".egg-state/drafts/",
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=_PLAN_AGENT_BLOCKED,
+)
+
+RISK_ANALYST_PATTERNS = AgentFilePattern(
+    role=AgentRole.RISK_ANALYST,
+    description="Risk analyst agent: drafts and agent-outputs only",
+    allowed_patterns=[
+        ".egg-state/drafts/",
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=_PLAN_AGENT_BLOCKED,
+)
+
+# Reviewer agent patterns
+# Reviewers can only write to reviews and agent-outputs directories.
+
+_REVIEWER_ALLOWED = [
+    ".egg-state/reviews/",
+    ".egg-state/agent-outputs/",
+]
+
+_REVIEWER_BLOCKED = [
+    "src/",
+    "lib/",
+    "shared/",
+    "gateway/",
+    "sandbox/",
+    "action/",
+    "docs/",
+    "tests/",
+    "test/",
+    ".egg-state/contracts/",
+    ".egg-state/drafts/",
+    ".github/",
+]
+
+REVIEWER_UNIFIED_PATTERNS = AgentFilePattern(
+    role=AgentRole.REVIEWER_UNIFIED,
+    description="Unified reviewer agent: reviews and agent-outputs only",
+    allowed_patterns=_REVIEWER_ALLOWED,
+    blocked_patterns=_REVIEWER_BLOCKED,
+)
+
+REVIEWER_CODE_PATTERNS = AgentFilePattern(
+    role=AgentRole.REVIEWER_CODE,
+    description="Code reviewer agent: reviews and agent-outputs only",
+    allowed_patterns=_REVIEWER_ALLOWED,
+    blocked_patterns=_REVIEWER_BLOCKED,
+)
+
+REVIEWER_CONTRACT_PATTERNS = AgentFilePattern(
+    role=AgentRole.REVIEWER_CONTRACT,
+    description="Contract reviewer agent: reviews and agent-outputs only",
+    allowed_patterns=_REVIEWER_ALLOWED,
+    blocked_patterns=_REVIEWER_BLOCKED,
+)
+
+REVIEWER_AGENT_DESIGN_PATTERNS = AgentFilePattern(
+    role=AgentRole.REVIEWER_AGENT_DESIGN,
+    description="Agent design reviewer: reviews and agent-outputs only",
+    allowed_patterns=_REVIEWER_ALLOWED,
+    blocked_patterns=_REVIEWER_BLOCKED,
+)
+
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.CODER: CODER_PATTERNS,
     AgentRole.TESTER: TESTER_PATTERNS,
     AgentRole.DOCUMENTER: DOCUMENTER_PATTERNS,
     AgentRole.INTEGRATOR: INTEGRATOR_PATTERNS,
+    AgentRole.ARCHITECT: ARCHITECT_PATTERNS,
+    AgentRole.TASK_PLANNER: TASK_PLANNER_PATTERNS,
+    AgentRole.RISK_ANALYST: RISK_ANALYST_PATTERNS,
+    AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_PATTERNS,
+    AgentRole.REVIEWER_CODE: REVIEWER_CODE_PATTERNS,
+    AgentRole.REVIEWER_CONTRACT: REVIEWER_CONTRACT_PATTERNS,
+    AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_PATTERNS,
 }
 
 

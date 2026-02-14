@@ -1329,6 +1329,358 @@ def _build_phase_prompt(
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Multi-agent execution helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_agent_prompt(
+    role_value: str,
+    phase: str,
+    pipeline_id: str,
+    pipeline_mode: str,
+    prompt: str | None = None,
+    issue_number: int | None = None,
+    repo: str | None = None,
+    branch: str | None = None,
+    review_feedback: str | None = None,
+    review_cycle: int = 0,
+) -> str:
+    """Build a role-specific prompt for multi-agent execution.
+
+    For the CODER role, delegates to the existing _build_phase_prompt().
+    Other roles (TESTER, DOCUMENTER, INTEGRATOR, ARCHITECT, etc.) get
+    role-specific instructions.
+
+    Note: Handoff data from prior waves is passed via the EGG_HANDOFF_DATA
+    environment variable (set in _execute_wave_with_spawn_fn), not via
+    the prompt — prompts are built once before execution starts.
+
+    Args:
+        role_value: Agent role string (e.g. "coder", "tester")
+        phase: Pipeline phase name
+        pipeline_id: Pipeline ID
+        pipeline_mode: "issue" or "local"
+        prompt: Original task prompt
+        issue_number: GitHub issue number
+        repo: Repository name
+        branch: Branch name
+        review_feedback: Feedback from prior review cycle
+        review_cycle: Current review cycle number
+
+    Returns:
+        Complete prompt string for the agent
+    """
+    # CODER uses the existing phase prompt
+    if role_value == "coder":
+        return _build_phase_prompt(
+            phase=phase,
+            pipeline_id=pipeline_id,
+            pipeline_mode=pipeline_mode,
+            prompt=prompt,
+            issue_number=issue_number,
+            repo=repo,
+            branch=branch,
+            review_feedback=review_feedback,
+            review_cycle=review_cycle,
+        )
+
+    # Build context header (shared across all roles)
+    lines = [f"You are the **{role_value.upper()}** agent in the **{phase}** phase.\n"]
+    lines.append("## Context\n")
+    lines.append(f"Pipeline ID: {pipeline_id}")
+    lines.append(f"Phase: {phase}")
+    lines.append(f"Mode: {pipeline_mode}")
+    lines.append(f"Agent Role: {role_value}")
+    if repo:
+        lines.append(f"Repository: {repo}")
+    if branch:
+        lines.append(f"Branch: {branch}")
+    if issue_number is not None:
+        lines.append(f"Issue: #{issue_number}")
+    lines.append("")
+
+    # Include the original task prompt so agents know what they're working on
+    if prompt:
+        lines.append("## Task Description\n")
+        lines.append(prompt)
+        lines.append("")
+
+    # Review feedback from prior cycles
+    if review_feedback:
+        lines.append("## Review Feedback\n")
+        lines.append(review_feedback)
+        lines.append("")
+
+    # Role-specific instructions
+    lines.append("## Your Task\n")
+
+    if role_value == "tester":
+        lines.extend(
+            [
+                "Write and run tests for the changes made by the CODER agent:",
+                "",
+                "1. Review the changed files (available in handoff data or via git diff)",
+                "2. Write or update tests covering the new/changed code",
+                "3. Run all tests to ensure they pass",
+                "4. Report test coverage for the new code",
+                "5. Commit test files with descriptive messages",
+                "",
+                "Focus on:",
+                "- Unit tests for new functions and methods",
+                "- Edge cases and error handling",
+                "- Integration tests where appropriate",
+                "",
+            ]
+        )
+    elif role_value == "documenter":
+        lines.extend(
+            [
+                "Update documentation for the changes made by the CODER agent:",
+                "",
+                "1. Review the changed files (available in handoff data or via git diff)",
+                "2. Update relevant documentation (READMEs, docstrings, API docs)",
+                "3. Add or update inline code comments where helpful",
+                "4. Commit documentation changes with descriptive messages",
+                "",
+                "Focus on:",
+                "- Accurate descriptions of new features or changes",
+                "- Updated usage examples if APIs changed",
+                "- Clear explanation of any breaking changes",
+                "",
+            ]
+        )
+    elif role_value == "integrator":
+        lines.extend(
+            [
+                "Verify integration of all changes from CODER and TESTER agents:",
+                "",
+                "1. Run the full test suite to verify all tests pass",
+                "2. Check for integration issues between the changes",
+                "3. Verify no regressions were introduced",
+                "4. Produce an integration report",
+                "",
+                "Write your integration report to `.egg-state/agent-outputs/integrator-output.json`.",
+                "",
+            ]
+        )
+    elif role_value == "architect":
+        lines.extend(
+            [
+                "Analyze the task and produce an architecture analysis:",
+                "",
+                "1. Understand the problem or feature request from the issue",
+                "2. Research the current codebase to understand existing patterns",
+                "3. Identify key files, constraints, and dependencies",
+                "4. Consider multiple implementation approaches",
+                "5. Recommend an approach with justification and document technical decisions",
+                "",
+                "Write your analysis to `.egg-state/agent-outputs/architect-output.json`.",
+                "",
+            ]
+        )
+    elif role_value == "task_planner":
+        lines.extend(
+            [
+                "Decompose the architecture analysis into discrete tasks:",
+                "",
+                "1. Review the architecture analysis from the ARCHITECT agent",
+                "2. Break down the work into phases with discrete, actionable tasks",
+                "3. Define clear acceptance criteria for each task",
+                "4. Define dependency ordering between tasks",
+                "5. Identify the test strategy",
+                "",
+                "Write your task breakdown to `.egg-state/agent-outputs/task_planner-output.json`.",
+                "",
+            ]
+        )
+    elif role_value == "risk_analyst":
+        lines.extend(
+            [
+                "Assess technical risks for the proposed implementation:",
+                "",
+                "1. Review the architecture analysis from the ARCHITECT agent",
+                "2. Identify technical risks (security, performance, compatibility)",
+                "3. Assess impact and likelihood of each risk",
+                "4. Propose mitigation strategies and rollback plans",
+                "5. Flag areas that need human review",
+                "",
+                "Write your risk assessment to `.egg-state/agent-outputs/risk_analyst-output.json`.",
+                "",
+            ]
+        )
+    elif role_value.startswith("reviewer_"):
+        reviewer_type = role_value.replace("reviewer_", "")
+        lines.extend(
+            [
+                f"Perform a **{reviewer_type}** review of the phase output:",
+                "",
+                "1. Review all changes made in this phase",
+                "2. Apply review criteria specific to your type",
+                "3. Write a structured verdict (approved/needs_revision)",
+                "",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"Execute your role as {role_value} for this phase.",
+                "",
+            ]
+        )
+
+    # Phase restrictions
+    lines.append("## Phase Restrictions\n")
+    if phase == "implement":
+        lines.extend(
+            [
+                "- You CAN push code (git push)",
+                "- You CANNOT create PRs",
+                "",
+            ]
+        )
+    elif phase == "plan":
+        lines.extend(
+            [
+                "- You CAN write analysis and plan files",
+                "- You CANNOT modify production code",
+                "",
+            ]
+        )
+
+    lines.append("## Phase Completion\n")
+    lines.append(
+        "When you have completed your work, ensure everything is committed and exit successfully."
+    )
+
+    return "\n".join(lines)
+
+
+def _run_multi_agent_phase(
+    pipeline_id: str,
+    pipeline: Pipeline,
+    phase: str,
+    spawner,
+    repo_volumes: dict[str, str],
+    gateway_mode: str,
+    repos: list[str],
+    sandbox_env: dict[str, str],
+    store,
+    certs_volume: str | None,
+    worktree_repo_path: Path,
+    review_feedback: str | None = None,
+    review_cycle: int = 0,
+) -> tuple[int, str]:
+    """Run a phase using multi-agent wave-based execution.
+
+    Creates a MultiAgentExecutor with a spawner callable that wraps
+    _spawn_and_wait() and runs agents in dependency-ordered waves.
+
+    Returns:
+        (exit_code, combined_logs) — 0 on success.
+    """
+    try:
+        from dispatch import create_dispatcher
+        from multi_agent import MultiAgentExecutor
+    except ImportError:
+        from ..dispatch import create_dispatcher  # type: ignore
+        from ..multi_agent import MultiAgentExecutor  # type: ignore
+
+    from egg_contracts.agent_roles import get_roles_for_phase
+
+    # Get pipeline mode
+    pipeline_mode = pipeline.mode or "issue"
+
+    # Build agent-specific prompts for all roles in this phase
+    roles = get_roles_for_phase(phase)
+    agent_prompts_by_role: dict = {}
+    for contract_role in roles:
+        role_str = contract_role.value
+        prompt = _build_agent_prompt(
+            role_value=role_str,
+            phase=phase,
+            pipeline_id=pipeline_id,
+            pipeline_mode=pipeline_mode,
+            prompt=pipeline.prompt,
+            issue_number=pipeline.issue_number,
+            repo=pipeline.repo,
+            branch=pipeline.branch,
+            review_feedback=review_feedback,
+            review_cycle=review_cycle,
+        )
+        # Map using the orchestrator's AgentRole enum
+        try:
+            orch_role = AgentRole(role_str)
+        except ValueError:
+            # New roles not yet in orchestrator AgentRole — skip
+            continue
+        agent_prompts_by_role[orch_role] = prompt
+
+    # Build spawner callable that wraps _spawn_and_wait()
+    all_logs: list[str] = []
+    logs_lock = threading.Lock()
+
+    def spawn_fn(role: AgentRole, prompt_text: str, extra_env: dict[str, str]) -> tuple[int, str]:
+        merged_env = {**sandbox_env, **extra_env}
+
+        sandbox_command = [
+            "claude",
+            "--dangerously-skip-permissions",
+            "--print",
+            "--verbose",
+            "--output-format",
+            "stream-json",
+            "--model",
+            "opus",
+            "--max-turns",
+            "200",
+            prompt_text,
+        ]
+
+        exit_code, container_logs = _spawn_and_wait(
+            spawner=spawner,
+            pipeline_id=pipeline_id,
+            agent_role=role,
+            issue_number=pipeline.issue_number,
+            repo_volumes=repo_volumes,
+            gateway_mode=gateway_mode,
+            repos=repos,
+            phase=phase,
+            sandbox_env=merged_env,
+            sandbox_command=sandbox_command,
+            store=store,
+            certs_volume=certs_volume,
+        )
+
+        with logs_lock:
+            all_logs.append(f"--- {role.value} (exit={exit_code}) ---\n{container_logs}")
+
+        return exit_code, container_logs
+
+    # Create dispatcher and executor
+    dispatcher = create_dispatcher(pipeline, worktree_repo_path)
+    executor = MultiAgentExecutor(
+        pipeline=pipeline,
+        repo_path=worktree_repo_path,
+        dispatcher=dispatcher,
+        spawn_fn=spawn_fn,
+        max_parallel_agents=pipeline.config.max_parallel_agents,
+    )
+
+    # Execute all waves
+    completed_waves = executor.execute_all_waves(agent_prompts=agent_prompts_by_role)
+
+    # Check for failures
+    has_failures = any(w.has_failures for w in completed_waves)
+
+    combined_logs = "\n".join(all_logs)
+
+    if has_failures:
+        return 1, combined_logs
+
+    return 0, combined_logs
+
+
 def _spawn_and_wait(
     spawner,
     pipeline_id: str,
@@ -1779,6 +2131,22 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         pipeline_mode = getattr(pipeline, "mode", "issue")
         transitions = get_phase_transitions(pipeline_mode)
 
+        # Apply environment variable overrides for multi-agent config.
+        # These come from CLI flags (--multi-agent, --max-parallel) passed
+        # as env vars to the container.
+        env_multi_agent = os.environ.get("EGG_MULTI_AGENT")
+        if env_multi_agent is not None:
+            pipeline.config.multi_agent = env_multi_agent == "1"
+        env_max_parallel = os.environ.get("EGG_MAX_PARALLEL_AGENTS")
+        if env_max_parallel is not None:
+            try:
+                pipeline.config.max_parallel_agents = int(env_max_parallel)
+            except ValueError:
+                logger.warning(
+                    "Invalid EGG_MAX_PARALLEL_AGENTS value: %r, ignoring",
+                    env_max_parallel,
+                )
+
         # Map pipeline mode to gateway session mode
         gateway_mode = "local" if pipeline_mode == "local" else "public"
 
@@ -2017,68 +2385,120 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 phase_execution = pipeline.get_phase_execution(current_phase)
                 review_cycle = phase_execution.review_cycles
 
-                # 1. Spawn worker (CODER)
-                logger.info(
-                    "Spawning worker for phase",
-                    pipeline_id=pipeline_id,
-                    phase=current_phase.value,
-                    review_cycle=review_cycle,
-                    mode=gateway_mode,
-                )
+                # 1. Spawn worker(s)
+                # Use multi-agent wave-based execution when enabled for
+                # implement and plan phases; single-CODER path otherwise.
+                use_multi_agent = pipeline.config.multi_agent and current_phase.value in {
+                    "implement",
+                    "plan",
+                }
 
-                phase_prompt = _build_phase_prompt(
-                    phase=current_phase.value,
-                    pipeline_id=pipeline_id,
-                    pipeline_mode=pipeline_mode,
-                    prompt=pipeline.prompt,
-                    issue_number=pipeline.issue_number,
-                    repo=pipeline.repo,
-                    branch=pipeline.branch,
-                    review_feedback=review_feedback,
-                    review_cycle=review_cycle,
-                )
-
-                sandbox_command = [
-                    "claude",
-                    "--dangerously-skip-permissions",
-                    "--print",
-                    "--verbose",
-                    "--output-format",
-                    "stream-json",
-                    "--model",
-                    "opus",
-                    "--max-turns",
-                    "200",
-                    phase_prompt,
-                ]
-
-                try:
-                    exit_code, container_logs = _spawn_and_wait(
-                        spawner=spawner,
+                if use_multi_agent:
+                    logger.info(
+                        "Spawning multi-agent wave execution for phase",
                         pipeline_id=pipeline_id,
-                        agent_role=AgentRole.CODER,
-                        issue_number=pipeline.issue_number,
-                        repo_volumes=repo_volumes,
-                        gateway_mode=phase_gateway_mode,
-                        repos=repos,
                         phase=current_phase.value,
-                        sandbox_env=sandbox_env,
-                        sandbox_command=sandbox_command,
-                        store=store,
-                        certs_volume=certs_volume,
+                        review_cycle=review_cycle,
+                        mode=gateway_mode,
                     )
-                except ContainerSpawnError as e:
-                    pipeline = store.load_pipeline(pipeline_id)
-                    phase_execution = pipeline.get_phase_execution(current_phase)
-                    phase_execution.status = PipelineStatus.FAILED
-                    phase_execution.error = str(e)
-                    phase_execution.completed_at = datetime.utcnow()
-                    pipeline.status = PipelineStatus.FAILED
-                    pipeline.error = str(e)
-                    store.save_pipeline(pipeline)
-                    logger.error("Failed to spawn container", pipeline_id=pipeline_id, error=str(e))
-                    phase_failed = True
-                    break
+
+                    try:
+                        exit_code, container_logs = _run_multi_agent_phase(
+                            pipeline_id=pipeline_id,
+                            pipeline=pipeline,
+                            phase=current_phase.value,
+                            spawner=spawner,
+                            repo_volumes=repo_volumes,
+                            gateway_mode=phase_gateway_mode,
+                            repos=repos,
+                            sandbox_env=sandbox_env,
+                            store=store,
+                            certs_volume=certs_volume,
+                            worktree_repo_path=worktree_repo_path,
+                            review_feedback=review_feedback,
+                            review_cycle=review_cycle,
+                        )
+                    except ContainerSpawnError as e:
+                        pipeline = store.load_pipeline(pipeline_id)
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        phase_execution.status = PipelineStatus.FAILED
+                        phase_execution.error = str(e)
+                        phase_execution.completed_at = datetime.utcnow()
+                        pipeline.status = PipelineStatus.FAILED
+                        pipeline.error = str(e)
+                        store.save_pipeline(pipeline)
+                        logger.error(
+                            "Failed to spawn multi-agent containers",
+                            pipeline_id=pipeline_id,
+                            error=str(e),
+                        )
+                        phase_failed = True
+                        break
+
+                else:
+                    logger.info(
+                        "Spawning worker for phase",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        review_cycle=review_cycle,
+                        mode=gateway_mode,
+                    )
+
+                    phase_prompt = _build_phase_prompt(
+                        phase=current_phase.value,
+                        pipeline_id=pipeline_id,
+                        pipeline_mode=pipeline_mode,
+                        prompt=pipeline.prompt,
+                        issue_number=pipeline.issue_number,
+                        repo=pipeline.repo,
+                        branch=pipeline.branch,
+                        review_feedback=review_feedback,
+                        review_cycle=review_cycle,
+                    )
+
+                    sandbox_command = [
+                        "claude",
+                        "--dangerously-skip-permissions",
+                        "--print",
+                        "--verbose",
+                        "--output-format",
+                        "stream-json",
+                        "--model",
+                        "opus",
+                        "--max-turns",
+                        "200",
+                        phase_prompt,
+                    ]
+
+                    try:
+                        exit_code, container_logs = _spawn_and_wait(
+                            spawner=spawner,
+                            pipeline_id=pipeline_id,
+                            agent_role=AgentRole.CODER,
+                            issue_number=pipeline.issue_number,
+                            repo_volumes=repo_volumes,
+                            gateway_mode=phase_gateway_mode,
+                            repos=repos,
+                            phase=current_phase.value,
+                            sandbox_env=sandbox_env,
+                            sandbox_command=sandbox_command,
+                            store=store,
+                            certs_volume=certs_volume,
+                        )
+                    except ContainerSpawnError as e:
+                        pipeline = store.load_pipeline(pipeline_id)
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        phase_execution.status = PipelineStatus.FAILED
+                        phase_execution.error = str(e)
+                        phase_execution.completed_at = datetime.utcnow()
+                        pipeline.status = PipelineStatus.FAILED
+                        pipeline.error = str(e)
+                        store.save_pipeline(pipeline)
+                        logger.error(
+                            "Failed to spawn container", pipeline_id=pipeline_id, error=str(e)
+                        )
+                        phase_failed = True
+                        break
 
                 if exit_code != 0:
                     error_msg = f"Container exited with code {exit_code}"
@@ -2414,7 +2834,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # contract load/save inside _populate_contract_from_plan.
             # The contract was created at worktree_repo_path above, so
             # both operations must use the same path.
-            if current_phase.value == "plan" and phase_execution.review_cycles == 0:
+            # Called on every successful plan completion (including after
+            # HITL revision) so the contract reflects the latest approved
+            # plan, not a previously rejected draft.
+            if current_phase.value == "plan":
                 _populate_contract_from_plan(
                     worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
                 )
@@ -2502,10 +2925,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         followup = dq.queue_decision(
                             question=(
                                 f"You selected \"{resolution}\" but didn't provide specific feedback. "
-                                f"Please describe what changes you'd like to see in the {phase_label}."
+                                f"Please describe what changes you'd like to see in the {phase_label}, "
+                                f"or approve to continue."
                             ),
                             context=draft_content,
-                            options=["approve", "request changes"],
+                            options=["approve"],
                             timeout_seconds=pipeline.config.decision_timeout,
                         )
                         try:
@@ -2548,17 +2972,19 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase_execution = pipeline.get_phase_execution(current_phase)
                         phase_execution.status = PipelineStatus.RUNNING
                         phase_execution.completed_at = None  # Reset — phase is re-running
-                        phase_execution.review_cycles += 1
+                        phase_execution.hitl_review_cycles += 1
 
-                        # Circuit breaker: don't allow unbounded HITL revision loops
-                        max_cycles = pipeline.config.max_review_cycles
-                        if phase_execution.review_cycles >= max_cycles:
+                        # Circuit breaker: don't allow unbounded HITL revision loops.
+                        # Uses a dedicated counter so agentic review cycles don't
+                        # consume the human's revision budget.
+                        max_hitl_cycles = pipeline.config.max_hitl_review_cycles
+                        if phase_execution.hitl_review_cycles >= max_hitl_cycles:
                             logger.warning(
                                 "HITL revision circuit breaker — advancing despite feedback",
                                 pipeline_id=pipeline_id,
                                 phase=current_phase.value,
-                                review_cycles=phase_execution.review_cycles,
-                                max_review_cycles=max_cycles,
+                                hitl_review_cycles=phase_execution.hitl_review_cycles,
+                                max_hitl_review_cycles=max_hitl_cycles,
                             )
                             store.save_pipeline(pipeline)
                             # Fall through to the approval path below
