@@ -857,8 +857,7 @@ def git_push() -> tuple[Response, int] | Response:
 
                     # Store on session for session-end checkpoint use
                     if session is not None:
-                        if ckpt_repo:
-                            session.checkpoint_repo = ckpt_repo
+                        session.checkpoint_repo = ckpt_repo  # None clears previous value
                         session.last_repo_path = exec_path
 
                     if old_ref_sha:
