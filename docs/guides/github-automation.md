@@ -14,6 +14,7 @@ for how to call egg's workflows from your own repositories.
 | [AI Code Review](#ai-code-review) | PR opened/updated | Reviews code changes, posts feedback via `gh pr review` |
 | [Address Review Feedback](#address-review-feedback) | Review posted on bot PR | Automatically addresses review feedback, enabling review loops |
 | [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
+| [Contract Verification](#contract-verification) | PR with sdlc:pr label or contract file | Verifies implementation matches SDLC contract |
 | [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
 | [Conflict Resolver](#conflict-resolver) | Push to main / schedule / manual | Resolves merge conflicts via merge commits |
 | [Doc Updater](#doc-updater) | Push to main | Checks if code changes require documentation updates |
@@ -186,6 +187,7 @@ The workflow follows the trusted prompt build pattern:
 ## Design Review
 
 **Workflow:** [`.github/workflows/on-pull-request-agent-mode-design.yml`](../../.github/workflows/on-pull-request-agent-mode-design.yml)
+**Framework:** [`.github/workflows/reusable-review.yml`](../../.github/workflows/reusable-review.yml)
 
 A specialized reviewer that checks PRs for alignment with [agent-mode design principles](agent-mode-design.md).
 Uses the same reusable framework as AI Code Review but with a focused prompt.
@@ -224,6 +226,43 @@ The reviewer applies guidelines with judgment, not as absolute rules:
 
 If a PR has no agent-mode concerns, the reviewer approves with a brief note rather
 than providing general feedback that duplicates the base review.
+
+## Contract Verification
+
+**Workflow:** [`.github/workflows/on-pull-request-contract-verify.yml`](../../.github/workflows/on-pull-request-contract-verify.yml)
+**Framework:** [`.github/workflows/reusable-review.yml`](../../.github/workflows/reusable-review.yml)
+
+Verifies that PR implementations match their SDLC pipeline contracts. This workflow ensures agents stay aligned with approved plans and task requirements during the implementation phase.
+
+### Trigger Conditions
+
+The workflow runs on pull requests when **either** of these conditions is met:
+
+1. **Label-based trigger** — PR has the `sdlc:pr` label
+2. **Contract file detection** — PR branch contains `.egg-state/contracts/{issue_number}.json`, where the issue number is extracted from the branch name (`egg/issue-{number}...`)
+
+This dual-trigger approach ensures contract verification runs even when the label is missing but the contract file exists, preventing silently skipped verifications.
+
+### How It Works
+
+1. **Trigger check** — Determines if verification should run:
+   - Fetches PR metadata (labels and branch name) in a single API call
+   - Extracts issue number from branch name using pattern `egg/issue-{number}...`
+   - For labeled PRs, runs immediately
+   - For unlabeled PRs, checks if contract file exists on the PR's head branch
+2. **Contract verification** — Uses the reusable review framework with a contract-specific prompt:
+   - Reads the contract from `.egg-state/contracts/{issue_number}.json`
+   - Compares implementation against contract tasks
+   - Verifies commits are linked to tasks via `egg-contract` metadata
+   - Posts feedback via `gh pr review` if misalignments are detected
+
+### Manual Trigger
+
+Supports `workflow_dispatch` with a `pr_number` input for manual verification runs, bypassing filter checks.
+
+### Contract File Format
+
+Contract files follow the schema at `.egg/schemas/contract.schema.json`. The workflow specifically checks for task-commit linkages and ensures all contract tasks have corresponding implementation.
 
 ## Check Autofixer
 
