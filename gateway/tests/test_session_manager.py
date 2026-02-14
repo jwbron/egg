@@ -1255,6 +1255,116 @@ class TestSessionMetadataFields:
         assert session.pr_number == 42
 
 
+class TestSessionCheckpointFields:
+    """Tests for Session checkpoint_repo and last_repo_path fields."""
+
+    def test_session_defaults_checkpoint_fields_none(self):
+        """checkpoint_repo and last_repo_path default to None."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+        )
+        assert session.checkpoint_repo is None
+        assert session.last_repo_path is None
+
+    def test_session_with_checkpoint_fields(self):
+        """Session can be created with checkpoint_repo and last_repo_path."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            checkpoint_repo="jwbron/egg-checkpoints",
+            last_repo_path="/home/egg/repos/egg",
+        )
+        assert session.checkpoint_repo == "jwbron/egg-checkpoints"
+        assert session.last_repo_path == "/home/egg/repos/egg"
+
+    def test_to_dict_includes_checkpoint_fields(self):
+        """to_dict_for_persistence includes checkpoint fields when set."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            checkpoint_repo="jwbron/egg-checkpoints",
+            last_repo_path="/home/egg/repos/egg",
+        )
+        d = session.to_dict_for_persistence()
+        assert d["checkpoint_repo"] == "jwbron/egg-checkpoints"
+        assert d["last_repo_path"] == "/home/egg/repos/egg"
+
+    def test_to_dict_excludes_none_checkpoint_fields(self):
+        """to_dict_for_persistence excludes None checkpoint fields."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+        )
+        d = session.to_dict_for_persistence()
+        assert "checkpoint_repo" not in d
+        assert "last_repo_path" not in d
+
+    def test_roundtrip_with_checkpoint_fields(self):
+        """checkpoint_repo and last_repo_path survive serialization roundtrip."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            checkpoint_repo="jwbron/egg-checkpoints",
+            last_repo_path="/home/egg/repos/egg",
+        )
+        d = session.to_dict_for_persistence()
+        restored = Session.from_persistence(d)
+        assert restored.checkpoint_repo == "jwbron/egg-checkpoints"
+        assert restored.last_repo_path == "/home/egg/repos/egg"
+
+    def test_backward_compatibility_without_checkpoint_fields(self):
+        """from_persistence handles sessions without checkpoint fields."""
+        now = datetime.now(UTC)
+        data = {
+            "session_token_hash": "abc123",
+            "container_id": "test-container",
+            "container_ip": "172.18.0.5",
+            "mode": "private",
+            "created_at": now.isoformat(),
+            "last_seen": now.isoformat(),
+            "expires_at": (now + timedelta(hours=24)).isoformat(),
+        }
+        session = Session.from_persistence(data)
+        assert session.checkpoint_repo is None
+        assert session.last_repo_path is None
+
+
 class TestSessionEndCheckpointCapture:
     """Tests for session-end checkpoint capture during deletion/expiry."""
 

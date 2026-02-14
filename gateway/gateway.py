@@ -855,6 +855,11 @@ def git_push() -> tuple[Response, int] | Response:
                     # Look up checkpoint repo config (may be a separate repo)
                     ckpt_repo = get_checkpoint_repo(repo) if repo else None
 
+                    # Store on session for session-end checkpoint use
+                    if session is not None:
+                        session.checkpoint_repo = ckpt_repo  # None clears previous value
+                        session.last_repo_path = exec_path
+
                     if old_ref_sha:
                         # Use per-commit checkpoint creation
                         capture_and_store_checkpoints_for_push(

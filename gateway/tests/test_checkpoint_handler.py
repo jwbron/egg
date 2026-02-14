@@ -692,3 +692,205 @@ class TestCaptureSessionEndCheckpoint:
 
             assert checkpoint is not None
             assert event is None
+
+    @patch("checkpoint_handler._get_checkpoint_repo_for_path")
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_explicit_checkpoint_repo_skips_auto_detection(
+        self, mock_get_handler, mock_auto_detect
+    ):
+        """When checkpoint_repo is passed explicitly, auto-detection is skipped."""
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            SessionStatus,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        mock_handler = MagicMock()
+        mock_handler.capture_session_end_checkpoint.return_value = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.COMPLETED,
+            session_id="test-container",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+        mock_handler.store_checkpoint_v2.return_value = True
+        mock_get_handler.return_value = mock_handler
+
+        session = _make_test_session()
+        checkpoint, event = capture_session_end_checkpoint(
+            session=session,
+            session_status=SessionStatus.COMPLETED,
+            repo_path="/home/egg/repos/test-repo",
+            checkpoint_repo="jwbron/egg-checkpoints",
+            async_store=False,
+        )
+
+        assert checkpoint is not None
+        # Auto-detection should NOT be called when checkpoint_repo is explicit
+        mock_auto_detect.assert_not_called()
+        # store_checkpoint_v2 should receive the explicit checkpoint_repo
+        call_kwargs = mock_handler.store_checkpoint_v2.call_args
+        assert call_kwargs[1].get("checkpoint_repo") == "jwbron/egg-checkpoints" or (
+            len(call_kwargs[0]) > 2 and call_kwargs[0][2] == "jwbron/egg-checkpoints"
+        )
+
+    @patch("checkpoint_handler._get_checkpoint_repo_for_path")
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_auto_detection_used_when_checkpoint_repo_is_none(
+        self, mock_get_handler, mock_auto_detect
+    ):
+        """When checkpoint_repo is None, auto-detection is attempted."""
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            SessionStatus,
+            TriggerType,
+        )
+
+        mock_auto_detect.return_value = "jwbron/egg-checkpoints"
+
+        now = datetime.now(UTC)
+        mock_handler = MagicMock()
+        mock_handler.capture_session_end_checkpoint.return_value = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.COMPLETED,
+            session_id="test-container",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+        mock_handler.store_checkpoint_v2.return_value = True
+        mock_get_handler.return_value = mock_handler
+
+        session = _make_test_session()
+        checkpoint, event = capture_session_end_checkpoint(
+            session=session,
+            session_status=SessionStatus.COMPLETED,
+            repo_path="/home/egg/repos/test-repo",
+            checkpoint_repo=None,
+            async_store=False,
+        )
+
+        assert checkpoint is not None
+        mock_auto_detect.assert_called_once_with("/home/egg/repos/test-repo")
+        # store_checkpoint_v2 should receive the auto-detected checkpoint_repo
+        call_kwargs = mock_handler.store_checkpoint_v2.call_args
+        assert call_kwargs[1].get("checkpoint_repo") == "jwbron/egg-checkpoints"
+
+
+class TestStoreCheckpointV2GitOps:
+    """Tests for store_checkpoint_v2 git operations (force-fetch, branch cleanup)."""
+
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_force_fetch_prefix_used(self, mock_get_handler):
+        """Force-fetch (+) prefix is used when branch exists on remote."""
+        import checkpoint_handler
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        # Track all _run_git calls
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            # Return success for all commands
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        checkpoint = CheckpointV2(
+            id="ckpt-a1b2c3d4e5f67890",
+            trigger_type=TriggerType.COMMIT,
+            session_id="test-container",
+            commit_sha="abc123def456789012345678901234567890abcd",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+
+        # Will fail at some point during the process but we just need to
+        # verify the fetch call uses + prefix
+        try:
+            handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+        except Exception:
+            pass
+
+        # Find the fetch call
+        fetch_calls = [c for c in git_calls if "fetch" in c[1]]
+        assert len(fetch_calls) >= 1
+        fetch_args = fetch_calls[0][1]
+        # The refspec should have + prefix for force-update
+        refspec = fetch_args[-1]
+        assert refspec.startswith("+"), f"Expected force-fetch prefix, got: {refspec}"
+
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_stale_branch_deleted_before_orphan(self, mock_get_handler):
+        """Stale local branch is deleted before creating orphan for new remote."""
+        import checkpoint_handler
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=False)
+
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        checkpoint = CheckpointV2(
+            id="ckpt-a1b2c3d4e5f67890",
+            trigger_type=TriggerType.COMMIT,
+            session_id="test-container",
+            commit_sha="abc123def456789012345678901234567890abcd",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+
+        try:
+            handler.store_checkpoint_v2(
+                checkpoint, "/fake/repo", checkpoint_repo="jwbron/egg-checkpoints"
+            )
+        except Exception:
+            pass
+
+        # Find branch -D call (should come before orphan checkout)
+        branch_delete_calls = [
+            c for c in git_calls if "branch" in c[1] and "-D" in c[1]
+        ]
+        orphan_calls = [
+            c for c in git_calls if "checkout" in c[1] and "--orphan" in c[1]
+        ]
+
+        assert len(branch_delete_calls) >= 1, "Expected branch -D call for stale cleanup"
+        assert len(orphan_calls) >= 1, "Expected orphan checkout call"
+
+        # branch -D should come before orphan checkout
+        branch_idx = git_calls.index(branch_delete_calls[0])
+        orphan_idx = git_calls.index(orphan_calls[0])
+        assert branch_idx < orphan_idx, "branch -D should precede orphan checkout"
+
+        # branch -D should use check=False (non-fatal if branch doesn't exist)
+        assert branch_delete_calls[0][2].get("check") is False
