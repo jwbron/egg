@@ -20,7 +20,7 @@ import os
 import re
 import signal
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from http.client import HTTPConnection
 from urllib.parse import urlparse
 
@@ -86,8 +86,7 @@ def strip_ansi(text: str) -> str:
 def _utc_to_local_time(iso_timestamp: str) -> str:
     """Convert a UTC ISO timestamp to a local-time HH:MM:SS string."""
     try:
-        ts = iso_timestamp.rstrip("Z")
-        dt = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+        dt = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
         return dt.astimezone().strftime("%H:%M:%S")
     except (ValueError, AttributeError):
         return iso_timestamp.split("T")[-1].rstrip("Z")[:8]

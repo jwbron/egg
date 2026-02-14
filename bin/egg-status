@@ -32,7 +32,6 @@ import time
 from http.client import HTTPConnection
 
 # ANSI escape codes
-CLEAR_SCREEN = "\033[2J"
 MOVE_HOME = "\033[H"
 RESET = "\033[0m"
 DIM = "\033[2m"
