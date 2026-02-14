@@ -1,0 +1,7 @@
+{
+  "reviewer": "agent-design",
+  "verdict": "approved",
+  "summary": "No agent-mode design anti-patterns found. The implementation correctly removes shell-based prompt builders (which pre-fetched diffs/file contents into prompts) and replaces them with objective-oriented prompts that tell agents what to do and where to find resources, letting agents fetch what they need. Review verdicts use JSON appropriately (machine-consumed by the orchestrator's verdict aggregation logic, not human-facing). Phase restrictions in prompts are informational only — actual enforcement is at the gateway sandbox level via phase_filter.py. No post-processing pipelines were introduced.",
+  "feedback": "",
+  "timestamp": "2026-02-14T12:00:00Z"
+}
