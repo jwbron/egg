@@ -201,14 +201,8 @@ class TestDeploymentCheckE2E:
         # Start devserver stack
         status = manager.start(config, changed_files=["src/app.py"])
 
-        # Stack should be healthy (health checks now use orchestrator-side HTTP probes)
-        assert (
-            status.status
-            in (
-                DevserverStatusValue.HEALTHY,
-                DevserverStatusValue.UNHEALTHY,  # Accept unhealthy — container may not be reachable from orchestrator network
-            )
-        )
+        # Stack should be healthy (health checks use orchestrator-side HTTP probes)
+        assert status.status == DevserverStatusValue.HEALTHY
         assert "echo" in status.services
 
         # Verify the Docker network was created

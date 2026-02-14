@@ -605,6 +605,11 @@ class DevserverManager:
             net_info = networks.get(self._network_name, {})
             return net_info.get("IPAddress", "")
         except Exception:
+            logger.debug(
+                "Failed to get container IP",
+                service=service_name,
+                exc_info=True,
+            )
             return ""
 
     def _wait_for_health(
