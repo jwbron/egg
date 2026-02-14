@@ -32,6 +32,7 @@ except ImportError:
 
 
 from dispatch import create_dispatcher
+from egg_contracts.loader import ContractNotFoundError
 from handoffs import AgentOutput, save_agent_output
 from models import AgentRole
 from state_store import InvalidPipelineIdError, PipelineNotFoundError, get_state_store
@@ -212,6 +213,19 @@ def handle_complete_signal(
             f"Pipeline {pipeline_id} not found",
             status_code=404,
         )
+    except ContractNotFoundError:
+        # Contract may not exist yet (e.g. first phase still initializing)
+        # or may have been cleaned up.  This is non-fatal — the multi-agent
+        # executor tracks completion independently.
+        logger.warning(
+            "Contract not found for completion signal (non-fatal)",
+            pipeline_id=pipeline_id,
+            role=agent_role_str,
+        )
+        return make_success_response(
+            "Completion acknowledged (contract not found)",
+            data={"agent_role": agent_role_str, "contract_missing": True},
+        )
     except Exception as e:
         logger.error(
             "Failed to record completion",
@@ -321,6 +335,16 @@ def handle_error_signal(
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
             status_code=404,
+        )
+    except ContractNotFoundError:
+        logger.warning(
+            "Contract not found for error signal (non-fatal)",
+            pipeline_id=pipeline_id,
+            role=agent_role_str,
+        )
+        return make_success_response(
+            "Error acknowledged (contract not found)",
+            data={"agent_role": agent_role_str, "contract_missing": True},
         )
     except Exception as e:
         logger.error(

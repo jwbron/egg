@@ -1715,8 +1715,21 @@ def _run_multi_agent_phase(
 
         return exit_code, container_logs
 
-    # Create dispatcher and executor
+    # Create dispatcher and executor.
+    # The contract's orchestration state defaults to implement-phase roles
+    # (CODER, TESTER, DOCUMENTER, INTEGRATOR).  For other phases (e.g. plan)
+    # we need to reinitialize with the correct roles so the dispatcher
+    # dispatches ARCHITECT, TASK_PLANNER, RISK_ANALYST instead.
     dispatcher = create_dispatcher(pipeline, worktree_repo_path)
+    from egg_contracts.agent_roles import AgentRole as ContractAgentRole
+    from egg_contracts.orchestration import initialize_orchestration
+
+    phase_contract_roles = [ContractAgentRole(r.value) for r in roles]
+    dispatcher.contract_orchestrator.state = initialize_orchestration(
+        dispatcher.contract_orchestrator.contract,
+        roles=phase_contract_roles,
+    )
+
     executor = MultiAgentExecutor(
         pipeline=pipeline,
         repo_path=worktree_repo_path,
@@ -1735,6 +1748,14 @@ def _run_multi_agent_phase(
 
     if has_failures:
         return 1, combined_logs
+
+    # After successful multi-agent plan phase, synthesize a plan draft
+    # from agent outputs so _populate_contract_from_plan() and the HITL
+    # gate can find it.
+    if phase == "plan":
+        _synthesize_plan_draft(
+            worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+        )
 
     return 0, combined_logs
 
@@ -2059,6 +2080,83 @@ def _read_check_results(repo_path: Path) -> dict | None:
     except (json.JSONDecodeError, Exception) as e:
         logger.warning("Failed to parse check results", path=str(check_file), error=str(e))
         return None
+
+
+def _synthesize_plan_draft(
+    repo_path: Path,
+    pipeline_id: str,
+    pipeline_mode: str = "local",
+    issue_number: int | None = None,
+) -> None:
+    """Synthesize a plan draft from multi-agent plan outputs.
+
+    In multi-agent plan mode, ARCHITECT, TASK_PLANNER, and RISK_ANALYST
+    each write to .egg-state/agent-outputs/.  This function combines
+    their outputs into a single plan draft at .egg-state/drafts/{id}-plan.md
+    so that _populate_contract_from_plan() and the HITL gate can find it.
+    """
+    draft_rel = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
+    if not draft_rel:
+        return
+
+    draft_path = repo_path / draft_rel
+    if draft_path.exists():
+        # Draft already written (e.g. by a single-agent run) — don't overwrite.
+        return
+
+    outputs_dir = repo_path / ".egg-state" / "agent-outputs"
+    if not outputs_dir.is_dir():
+        logger.warning(
+            "No agent-outputs directory, cannot synthesize plan draft",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    sections: list[str] = []
+    agent_files = [
+        ("architect-output.json", "Architecture Analysis"),
+        ("task_planner-output.json", "Task Breakdown"),
+        ("risk_analyst-output.json", "Risk Assessment"),
+    ]
+
+    for filename, heading in agent_files:
+        output_file = outputs_dir / filename
+        if not output_file.exists():
+            continue
+        try:
+            raw = output_file.read_text()
+            data = json.loads(raw)
+            # Agent outputs may contain a "content" or "output" key with
+            # the main text, or may be the full JSON blob.
+            content = data.get("content") or data.get("output") or json.dumps(data, indent=2)
+            sections.append(f"## {heading}\n\n{content}")
+        except (json.JSONDecodeError, Exception) as e:
+            # Fall back to raw text if not valid JSON
+            try:
+                sections.append(f"## {heading}\n\n{output_file.read_text()}")
+            except Exception:
+                logger.warning(
+                    "Failed to read agent output for plan draft",
+                    pipeline_id=pipeline_id,
+                    file=filename,
+                    error=str(e),
+                )
+
+    if not sections:
+        logger.warning(
+            "No agent outputs found to synthesize plan draft",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
+    draft_path.write_text("\n\n".join(sections) + "\n")
+    logger.info(
+        "Synthesized plan draft from agent outputs",
+        pipeline_id=pipeline_id,
+        path=str(draft_path),
+        sections=len(sections),
+    )
 
 
 def _populate_contract_from_plan(

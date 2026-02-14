@@ -362,7 +362,7 @@ class MultiAgentExecutor:
                     # DOCUMENTER in the plan phase) — spawning them with an
                     # empty prompt crashes Claude Code.
                     if not prompt:
-                        logger.warning(
+                        logger.info(
                             "Skipping agent with no prompt for current phase",
                             pipeline_id=self.pipeline.id,
                             role=role.value,
