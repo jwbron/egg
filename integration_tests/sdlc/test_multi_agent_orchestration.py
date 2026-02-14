@@ -578,8 +578,8 @@ class TestReviewerRoles:
             # Reviewers can write to reviews and agent-outputs only
             assert ".egg-state/reviews/" in role_def.file_access.allowed_write
             assert ".egg-state/agent-outputs/" in role_def.file_access.allowed_write
-            # All other writes blocked
-            assert "**/*" in role_def.file_access.blocked_write
+            # Source directories blocked via directory-based patterns
+            assert "src/" in role_def.file_access.blocked_write
 
 
 class TestWriteOverlapDetection:

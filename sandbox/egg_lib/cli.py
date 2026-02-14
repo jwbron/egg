@@ -118,12 +118,10 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
         metavar="ISSUE",
         help="Start SDLC pipeline with token-gated approvals for the given issue number",
     )
-    import argparse as _argparse
-
     parser.add_argument(
         "--multi-agent",
         dest="multi_agent",
-        action=_argparse.BooleanOptionalAction,
+        action=argparse.BooleanOptionalAction,
         default=None,
         help="Enable/disable multi-agent execution (--multi-agent / --no-multi-agent)",
     )
@@ -234,7 +232,12 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
         return 0
 
     # Normal run
-    if not run_claude(repo_mode=repo_mode, sdlc_issue=args.sdlc):
+    if not run_claude(
+        repo_mode=repo_mode,
+        sdlc_issue=args.sdlc,
+        multi_agent=args.multi_agent,
+        max_parallel=args.max_parallel,
+    ):
         return 1
 
     return 0

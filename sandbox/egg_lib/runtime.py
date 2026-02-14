@@ -475,7 +475,12 @@ def _setup_session_repos(
     return session_token, repos, filtered_repos
 
 
-def run_claude(repo_mode: str | None = None, sdlc_issue: int | None = None) -> bool:
+def run_claude(
+    repo_mode: str | None = None,
+    sdlc_issue: int | None = None,
+    multi_agent: bool | None = None,
+    max_parallel: int | None = None,
+) -> bool:
     """Run Claude Code CLI in the sandboxed container (interactive mode).
 
     Args:
@@ -485,6 +490,10 @@ def run_claude(repo_mode: str | None = None, sdlc_issue: int | None = None) -> b
                    - "public": Only mount public repos
         sdlc_issue: Optional issue number for SDLC pipeline with token-gated approvals.
                     When set, EGG_SDLC_ISSUE is passed to the container.
+        multi_agent: Optional flag to enable/disable multi-agent execution.
+                    When set, EGG_MULTI_AGENT is passed to the container.
+        max_parallel: Optional maximum parallel agents per wave.
+                     When set, EGG_MAX_PARALLEL_AGENTS is passed to the container.
 
     Returns:
         True if container ran successfully, False otherwise
@@ -641,6 +650,12 @@ def run_claude(repo_mode: str | None = None, sdlc_issue: int | None = None) -> b
     # Pass SDLC issue number for token-gated approvals
     if sdlc_issue is not None:
         caller_env["EGG_SDLC_ISSUE"] = str(sdlc_issue)
+
+    # Pass multi-agent configuration
+    if multi_agent is not None:
+        caller_env["EGG_MULTI_AGENT"] = "1" if multi_agent else "0"
+    if max_parallel is not None:
+        caller_env["EGG_MAX_PARALLEL_AGENTS"] = str(max_parallel)
 
     cmd = build_sandbox_docker_cmd(
         container_name=container_id,

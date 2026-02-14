@@ -296,7 +296,14 @@ INTEGRATOR_ROLE = AgentRoleDefinition(
             ".egg-state/agent-outputs/",  # For integration report
         ],
         blocked_write=[
-            "**/*",  # Cannot modify any other files
+            # Use directory-based blocks instead of "**/*" which breaks
+            # can_write() by always matching before allowed_write is checked.
+            "src/",
+            "lib/",
+            "docs/",
+            "tests/",
+            "test/",
+            ".egg-state/contracts/",
         ],
     ),
     can_run_in_parallel=False,  # Runs after others complete
@@ -404,7 +411,20 @@ RISK_ANALYST_ROLE = AgentRoleDefinition(
     requires_inputs=["architecture_analysis"],
 )
 
-# Reviewer agent role definitions (read-only file access)
+# Reviewer agent role definitions
+# Reviewers can only write to reviews/ and agent-outputs/ directories.
+# Use directory-based blocks instead of "**/*" which breaks can_write()
+# by always matching before allowed_write is checked.
+
+_REVIEWER_BLOCKED_WRITE = [
+    "src/",
+    "lib/",
+    "docs/",
+    "tests/",
+    "test/",
+    ".egg-state/contracts/",
+    ".egg-state/drafts/",
+]
 
 REVIEWER_UNIFIED_ROLE = AgentRoleDefinition(
     role=AgentRole.REVIEWER_UNIFIED,
@@ -421,7 +441,7 @@ REVIEWER_UNIFIED_ROLE = AgentRoleDefinition(
             ".egg-state/reviews/",
             ".egg-state/agent-outputs/",
         ],
-        blocked_write=["**/*"],
+        blocked_write=_REVIEWER_BLOCKED_WRITE,
     ),
     produces_outputs=["review_verdict"],
     requires_inputs=["integration_report"],
@@ -442,7 +462,7 @@ REVIEWER_CODE_ROLE = AgentRoleDefinition(
             ".egg-state/reviews/",
             ".egg-state/agent-outputs/",
         ],
-        blocked_write=["**/*"],
+        blocked_write=_REVIEWER_BLOCKED_WRITE,
     ),
     produces_outputs=["review_verdict"],
     requires_inputs=["integration_report"],
@@ -463,7 +483,7 @@ REVIEWER_CONTRACT_ROLE = AgentRoleDefinition(
             ".egg-state/reviews/",
             ".egg-state/agent-outputs/",
         ],
-        blocked_write=["**/*"],
+        blocked_write=_REVIEWER_BLOCKED_WRITE,
     ),
     produces_outputs=["review_verdict"],
     requires_inputs=["integration_report"],
@@ -484,7 +504,7 @@ REVIEWER_AGENT_DESIGN_ROLE = AgentRoleDefinition(
             ".egg-state/reviews/",
             ".egg-state/agent-outputs/",
         ],
-        blocked_write=["**/*"],
+        blocked_write=_REVIEWER_BLOCKED_WRITE,
     ),
     produces_outputs=["review_verdict"],
     requires_inputs=["integration_report"],
@@ -670,7 +690,7 @@ def detect_write_overlaps(
         if len(wave) < 2:
             continue
         for i, role1 in enumerate(wave):
-            for role2 in wave[i + 1:]:
+            for role2 in wave[i + 1 :]:
                 role1_def = get_role_definition(role1)
                 role2_def = get_role_definition(role2)
                 # Find common write patterns

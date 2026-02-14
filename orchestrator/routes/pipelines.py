@@ -1312,13 +1312,16 @@ def _build_agent_prompt(
     branch: str | None = None,
     review_feedback: str | None = None,
     review_cycle: int = 0,
-    handoff_data: dict | None = None,
 ) -> str:
     """Build a role-specific prompt for multi-agent execution.
 
     For the CODER role, delegates to the existing _build_phase_prompt().
     Other roles (TESTER, DOCUMENTER, INTEGRATOR, ARCHITECT, etc.) get
     role-specific instructions.
+
+    Note: Handoff data from prior waves is passed via the EGG_HANDOFF_DATA
+    environment variable (set in _execute_wave_with_spawn_fn), not via
+    the prompt — prompts are built once before execution starts.
 
     Args:
         role_value: Agent role string (e.g. "coder", "tester")
@@ -1331,7 +1334,6 @@ def _build_agent_prompt(
         branch: Branch name
         review_feedback: Feedback from prior review cycle
         review_cycle: Current review cycle number
-        handoff_data: Data from dependency agents
 
     Returns:
         Complete prompt string for the agent
@@ -1365,132 +1367,157 @@ def _build_agent_prompt(
         lines.append(f"Issue: #{issue_number}")
     lines.append("")
 
-    # Handoff data section
-    if handoff_data:
-        lines.append("## Handoff Data from Prior Agents\n")
-        lines.append("The following data was produced by agents that ran before you:\n")
-        lines.append(f"```json\n{json.dumps(handoff_data, indent=2)}\n```\n")
+    # Include the original task prompt so agents know what they're working on
+    if prompt:
+        lines.append("## Task Description\n")
+        lines.append(prompt)
+        lines.append("")
+
+    # Review feedback from prior cycles
+    if review_feedback:
+        lines.append("## Review Feedback\n")
+        lines.append(review_feedback)
+        lines.append("")
 
     # Role-specific instructions
     lines.append("## Your Task\n")
 
     if role_value == "tester":
-        lines.extend([
-            "Write and run tests for the changes made by the CODER agent:",
-            "",
-            "1. Review the changed files (available in handoff data or via git diff)",
-            "2. Write or update tests covering the new/changed code",
-            "3. Run all tests to ensure they pass",
-            "4. Report test coverage for the new code",
-            "5. Commit test files with descriptive messages",
-            "",
-            "Focus on:",
-            "- Unit tests for new functions and methods",
-            "- Edge cases and error handling",
-            "- Integration tests where appropriate",
-            "",
-        ])
+        lines.extend(
+            [
+                "Write and run tests for the changes made by the CODER agent:",
+                "",
+                "1. Review the changed files (available in handoff data or via git diff)",
+                "2. Write or update tests covering the new/changed code",
+                "3. Run all tests to ensure they pass",
+                "4. Report test coverage for the new code",
+                "5. Commit test files with descriptive messages",
+                "",
+                "Focus on:",
+                "- Unit tests for new functions and methods",
+                "- Edge cases and error handling",
+                "- Integration tests where appropriate",
+                "",
+            ]
+        )
     elif role_value == "documenter":
-        lines.extend([
-            "Update documentation for the changes made by the CODER agent:",
-            "",
-            "1. Review the changed files (available in handoff data or via git diff)",
-            "2. Update relevant documentation (READMEs, docstrings, API docs)",
-            "3. Add or update inline code comments where helpful",
-            "4. Commit documentation changes with descriptive messages",
-            "",
-            "Focus on:",
-            "- Accurate descriptions of new features or changes",
-            "- Updated usage examples if APIs changed",
-            "- Clear explanation of any breaking changes",
-            "",
-        ])
+        lines.extend(
+            [
+                "Update documentation for the changes made by the CODER agent:",
+                "",
+                "1. Review the changed files (available in handoff data or via git diff)",
+                "2. Update relevant documentation (READMEs, docstrings, API docs)",
+                "3. Add or update inline code comments where helpful",
+                "4. Commit documentation changes with descriptive messages",
+                "",
+                "Focus on:",
+                "- Accurate descriptions of new features or changes",
+                "- Updated usage examples if APIs changed",
+                "- Clear explanation of any breaking changes",
+                "",
+            ]
+        )
     elif role_value == "integrator":
-        lines.extend([
-            "Verify integration of all changes from CODER and TESTER agents:",
-            "",
-            "1. Run the full test suite to verify all tests pass",
-            "2. Check for integration issues between the changes",
-            "3. Verify no regressions were introduced",
-            "4. Produce an integration report",
-            "",
-            "Write your integration report to `.egg-state/agent-outputs/integrator-output.json`.",
-            "",
-        ])
+        lines.extend(
+            [
+                "Verify integration of all changes from CODER and TESTER agents:",
+                "",
+                "1. Run the full test suite to verify all tests pass",
+                "2. Check for integration issues between the changes",
+                "3. Verify no regressions were introduced",
+                "4. Produce an integration report",
+                "",
+                "Write your integration report to `.egg-state/agent-outputs/integrator-output.json`.",
+                "",
+            ]
+        )
     elif role_value == "architect":
-        lines.extend([
-            "Analyze the task and produce an architecture analysis:",
-            "",
-            "1. Understand the problem or feature request from the issue",
-            "2. Research the current codebase to understand existing patterns",
-            "3. Identify key files, constraints, and dependencies",
-            "4. Consider multiple implementation approaches",
-            "5. Recommend an approach with justification and document technical decisions",
-            "",
-            "Write your analysis to `.egg-state/agent-outputs/architect-output.json`.",
-            "",
-        ])
+        lines.extend(
+            [
+                "Analyze the task and produce an architecture analysis:",
+                "",
+                "1. Understand the problem or feature request from the issue",
+                "2. Research the current codebase to understand existing patterns",
+                "3. Identify key files, constraints, and dependencies",
+                "4. Consider multiple implementation approaches",
+                "5. Recommend an approach with justification and document technical decisions",
+                "",
+                "Write your analysis to `.egg-state/agent-outputs/architect-output.json`.",
+                "",
+            ]
+        )
     elif role_value == "task_planner":
-        lines.extend([
-            "Decompose the architecture analysis into discrete tasks:",
-            "",
-            "1. Review the architecture analysis from the ARCHITECT agent",
-            "2. Break down the work into phases with discrete, actionable tasks",
-            "3. Define clear acceptance criteria for each task",
-            "4. Define dependency ordering between tasks",
-            "5. Identify the test strategy",
-            "",
-            "Write your task breakdown to `.egg-state/agent-outputs/task_planner-output.json`.",
-            "",
-        ])
+        lines.extend(
+            [
+                "Decompose the architecture analysis into discrete tasks:",
+                "",
+                "1. Review the architecture analysis from the ARCHITECT agent",
+                "2. Break down the work into phases with discrete, actionable tasks",
+                "3. Define clear acceptance criteria for each task",
+                "4. Define dependency ordering between tasks",
+                "5. Identify the test strategy",
+                "",
+                "Write your task breakdown to `.egg-state/agent-outputs/task_planner-output.json`.",
+                "",
+            ]
+        )
     elif role_value == "risk_analyst":
-        lines.extend([
-            "Assess technical risks for the proposed implementation:",
-            "",
-            "1. Review the architecture analysis from the ARCHITECT agent",
-            "2. Identify technical risks (security, performance, compatibility)",
-            "3. Assess impact and likelihood of each risk",
-            "4. Propose mitigation strategies and rollback plans",
-            "5. Flag areas that need human review",
-            "",
-            "Write your risk assessment to `.egg-state/agent-outputs/risk_analyst-output.json`.",
-            "",
-        ])
+        lines.extend(
+            [
+                "Assess technical risks for the proposed implementation:",
+                "",
+                "1. Review the architecture analysis from the ARCHITECT agent",
+                "2. Identify technical risks (security, performance, compatibility)",
+                "3. Assess impact and likelihood of each risk",
+                "4. Propose mitigation strategies and rollback plans",
+                "5. Flag areas that need human review",
+                "",
+                "Write your risk assessment to `.egg-state/agent-outputs/risk_analyst-output.json`.",
+                "",
+            ]
+        )
     elif role_value.startswith("reviewer_"):
         reviewer_type = role_value.replace("reviewer_", "")
-        lines.extend([
-            f"Perform a **{reviewer_type}** review of the phase output:",
-            "",
-            "1. Review all changes made in this phase",
-            "2. Apply review criteria specific to your type",
-            "3. Write a structured verdict (approved/needs_revision)",
-            "",
-        ])
+        lines.extend(
+            [
+                f"Perform a **{reviewer_type}** review of the phase output:",
+                "",
+                "1. Review all changes made in this phase",
+                "2. Apply review criteria specific to your type",
+                "3. Write a structured verdict (approved/needs_revision)",
+                "",
+            ]
+        )
     else:
-        lines.extend([
-            f"Execute your role as {role_value} for this phase.",
-            "",
-        ])
+        lines.extend(
+            [
+                f"Execute your role as {role_value} for this phase.",
+                "",
+            ]
+        )
 
     # Phase restrictions
     lines.append("## Phase Restrictions\n")
     if phase == "implement":
-        lines.extend([
-            "- You CAN push code (git push)",
-            "- You CANNOT create PRs",
-            "",
-        ])
+        lines.extend(
+            [
+                "- You CAN push code (git push)",
+                "- You CANNOT create PRs",
+                "",
+            ]
+        )
     elif phase == "plan":
-        lines.extend([
-            "- You CAN write analysis and plan files",
-            "- You CANNOT modify production code",
-            "",
-        ])
+        lines.extend(
+            [
+                "- You CAN write analysis and plan files",
+                "- You CANNOT modify production code",
+                "",
+            ]
+        )
 
     lines.append("## Phase Completion\n")
     lines.append(
-        "When you have completed your work, "
-        "ensure everything is committed and exit successfully."
+        "When you have completed your work, ensure everything is committed and exit successfully."
     )
 
     return "\n".join(lines)
@@ -1526,16 +1553,7 @@ def _run_multi_agent_phase(
         from ..dispatch import create_dispatcher  # type: ignore
         from ..multi_agent import MultiAgentExecutor  # type: ignore
 
-    # Import agent roles helper
-    try:
-        from egg_contracts.agent_roles import get_roles_for_phase
-    except ImportError:
-        # Fallback: only support implement phase roles
-        def get_roles_for_phase(phase_name: str) -> list:  # type: ignore[misc]
-            from egg_contracts.agent_roles import AgentRole as ContractRole
-            if phase_name == "implement":
-                return [ContractRole.CODER, ContractRole.TESTER, ContractRole.DOCUMENTER, ContractRole.INTEGRATOR]
-            raise ValueError(f"No agent roles defined for phase: {phase_name}")
+    from egg_contracts.agent_roles import get_roles_for_phase
 
     # Get pipeline mode
     pipeline_mode = pipeline.mode or "issue"
@@ -2074,6 +2092,19 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         pipeline_mode = getattr(pipeline, "mode", "issue")
         transitions = get_phase_transitions(pipeline_mode)
 
+        # Apply environment variable overrides for multi-agent config.
+        # These come from CLI flags (--multi-agent, --max-parallel) passed
+        # as env vars to the container.
+        env_multi_agent = os.environ.get("EGG_MULTI_AGENT")
+        if env_multi_agent is not None:
+            pipeline.config.multi_agent = env_multi_agent == "1"
+        env_max_parallel = os.environ.get("EGG_MAX_PARALLEL_AGENTS")
+        if env_max_parallel is not None:
+            try:
+                pipeline.config.max_parallel_agents = int(env_max_parallel)
+            except ValueError:
+                pass
+
         # Map pipeline mode to gateway session mode
         gateway_mode = "local" if pipeline_mode == "local" else "public"
 
@@ -2293,10 +2324,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # 1. Spawn worker(s)
                 # Use multi-agent wave-based execution when enabled for
                 # implement and plan phases; single-CODER path otherwise.
-                use_multi_agent = (
-                    pipeline.config.multi_agent
-                    and current_phase.value in {"implement", "plan"}
-                )
+                use_multi_agent = pipeline.config.multi_agent and current_phase.value in {
+                    "implement",
+                    "plan",
+                }
 
                 if use_multi_agent:
                     logger.info(
@@ -2324,8 +2355,21 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             review_cycle=review_cycle,
                         )
                     except ContainerSpawnError as e:
-                        exit_code = 1
-                        container_logs = str(e)
+                        pipeline = store.load_pipeline(pipeline_id)
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        phase_execution.status = PipelineStatus.FAILED
+                        phase_execution.error = str(e)
+                        phase_execution.completed_at = datetime.utcnow()
+                        pipeline.status = PipelineStatus.FAILED
+                        pipeline.error = str(e)
+                        store.save_pipeline(pipeline)
+                        logger.error(
+                            "Failed to spawn multi-agent containers",
+                            pipeline_id=pipeline_id,
+                            error=str(e),
+                        )
+                        phase_failed = True
+                        break
 
                 else:
                     logger.info(
@@ -2386,7 +2430,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline.status = PipelineStatus.FAILED
                         pipeline.error = str(e)
                         store.save_pipeline(pipeline)
-                        logger.error("Failed to spawn container", pipeline_id=pipeline_id, error=str(e))
+                        logger.error(
+                            "Failed to spawn container", pipeline_id=pipeline_id, error=str(e)
+                        )
                         phase_failed = True
                         break
 
