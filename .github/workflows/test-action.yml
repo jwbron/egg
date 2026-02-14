@@ -139,6 +139,56 @@ jobs:
 
           echo "Invalid PEM rejection test passed"
 
+      - name: Test generate-config.sh with checkpoint-repo
+        env:
+          INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
+          INPUT_GITHUB_TOKEN: test-github-token
+          INPUT_BOT_USERNAME: my-test-bot
+          INPUT_CHECKPOINT_REPO: "myorg/my-checkpoints"
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          rm -rf "${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+          bash action/generate-config.sh
+
+          CONFIG_DIR="${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+
+          grep -qF "checkpoint_repo: myorg/my-checkpoints" "$CONFIG_DIR/repositories.yaml"
+          echo "Checkpoint repo config generation test passed"
+
+      - name: Test generate-config.sh without checkpoint-repo omits setting
+        env:
+          INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
+          INPUT_GITHUB_TOKEN: test-github-token
+          INPUT_BOT_USERNAME: my-test-bot
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          rm -rf "${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+          bash action/generate-config.sh
+
+          CONFIG_DIR="${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+
+          if grep -q "checkpoint_repo" "$CONFIG_DIR/repositories.yaml"; then
+            echo "ERROR: checkpoint_repo should not be present when not configured"
+            exit 1
+          fi
+          echo "No checkpoint repo (default) test passed"
+
+      - name: Test generate-config.sh rejects invalid checkpoint-repo format
+        env:
+          INPUT_ANTHROPIC_OAUTH_TOKEN: test-token-placeholder
+          INPUT_GITHUB_TOKEN: test-github-token
+          INPUT_BOT_USERNAME: my-test-bot
+          INPUT_CHECKPOINT_REPO: "not-valid-format"
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          rm -rf "${RUNNER_TEMP}/egg-config-${GITHUB_RUN_ID}"
+
+          if bash action/generate-config.sh 2>/dev/null; then
+            echo "ERROR: generate-config.sh should have failed for invalid checkpoint-repo"
+            exit 1
+          fi
+          echo "Invalid checkpoint-repo rejection test passed"
+
   shellcheck:
     name: Shellcheck
     runs-on: ubuntu-latest

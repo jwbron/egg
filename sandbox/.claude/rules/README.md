@@ -50,6 +50,9 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
 - **contract.md** - SDLC contract CLI commands
   - `egg-contract` command reference (show, add-commit, update-notes, add-decision, add-feedback)
 
+- **orchestrator.md** - Orchestrator CLI commands
+  - `egg-orch` command reference (health, pipeline, signal, phase, decision, container, gateway)
+
 ## Design Principles
 
 - **Index, Don't Dump** - Rules are concise; detailed docs are referenced

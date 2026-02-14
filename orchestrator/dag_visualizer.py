@@ -473,4 +473,5 @@ def generate_status_report(
         },
         "pending_decisions": len(pipeline.get_pending_decisions()),
         "updated_at": pipeline.updated_at.isoformat() + "Z",
+        "timestamp": pipeline.updated_at.isoformat() + "Z",
     }

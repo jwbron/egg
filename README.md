@@ -233,6 +233,23 @@ For watching a specific pipeline's progress with DAG visualization:
 | `bin/egg-pipeline-watch <pipeline-id> --once` | Show current state and exit (no streaming) |
 | `bin/egg-pipeline-watch <pipeline-id> --ascii` | Use ASCII-only characters (no Unicode) |
 
+### egg-orch CLI
+
+For programmatic interaction with the orchestrator API (usable by both agents and humans):
+
+| Command Group | Description |
+|---------------|-------------|
+| `egg-orch health` | Check orchestrator + gateway health |
+| `egg-orch pipeline list/get/create/status/delete` | Pipeline management |
+| `egg-orch signal complete/progress/error/heartbeat` | Send agent signals |
+| `egg-orch phase get/advance/start/complete` | Phase transitions |
+| `egg-orch decision list/create/resolve/status` | HITL decision queue |
+| `egg-orch container list/spawn/get/stop/logs` | Container operations |
+| `egg-orch gateway health/phase/permissions` | Gateway operations |
+| `egg-orch env` | Show orchestrator environment variables |
+
+All commands support `--json` for machine-readable output. Run `egg-orch <command> --help` for detailed usage.
+
 ### Flags
 
 | Flag | Description |

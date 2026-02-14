@@ -87,7 +87,7 @@ class TestFormatSSEEvent:
         """Test that data dict is properly JSON encoded."""
         result = format_sse_event({"nested": {"a": [1, 2]}})
         lines = result.strip().split("\n")
-        data_line = [line for line in lines if line.startswith("data: ")][0]
+        data_line = [ln for ln in lines if ln.startswith("data: ")][0]
         json_str = data_line[6:]
         parsed = json.loads(json_str)
         assert parsed == {"nested": {"a": [1, 2]}}
@@ -262,9 +262,83 @@ class TestSSEClientManager:
         assert payload["visualization"]["dag"] == "TEST DAG"
         assert payload["status"] == "running"
         assert payload["current_phase"] == "implement"
+        assert "pending_decisions" in payload
 
         manager.unsubscribe_from_events()
         manager.remove_client("test-123", q)
+
+    def test_event_includes_pending_decisions(self):
+        """Test that events include pending_decisions count from pipeline state."""
+        bus = EventBus()
+        pipeline = create_test_pipeline()
+        # Add two decisions so get_pending_decisions returns them
+        pipeline.add_decision("Question 1?", ["yes", "no"])
+        pipeline.add_decision("Question 2?", ["a", "b"])
+        tmp_dir = Path("/tmp/test-sse-pending")
+        manager = SSEClientManager(event_bus=bus, repo_path=tmp_dir)
+        manager.subscribe_to_events()
+
+        q = manager.add_client("test-123")
+
+        with (
+            patch("sse.get_state_store") as mock_store,
+            patch("sse.render_pipeline_dag") as mock_dag,
+        ):
+            store_instance = MagicMock()
+            store_instance.load_pipeline.return_value = pipeline
+            mock_store.return_value = store_instance
+            mock_dag.return_value = "DAG"
+
+            event = Event(
+                event_type=EventType.PHASE_STARTED,
+                pipeline_id="test-123",
+                data={"phase": "plan"},
+            )
+            bus.publish(event)
+
+        msg_type, payload, is_terminal = q.get_nowait()
+        assert payload["pending_decisions"] == 2
+
+        manager.unsubscribe_from_events()
+        manager.remove_client("test-123", q)
+
+    def test_event_respects_per_client_ascii_preference(self):
+        """Test that events render DAG with correct use_ascii per client."""
+        bus = EventBus()
+        pipeline = create_test_pipeline()
+        tmp_dir = Path("/tmp/test-sse-ascii")
+        manager = SSEClientManager(event_bus=bus, repo_path=tmp_dir)
+        manager.subscribe_to_events()
+
+        q_unicode = manager.add_client("test-123", use_ascii=False)
+        q_ascii = manager.add_client("test-123", use_ascii=True)
+
+        with (
+            patch("sse.get_state_store") as mock_store,
+            patch("sse.render_pipeline_dag") as mock_dag,
+        ):
+            store_instance = MagicMock()
+            store_instance.load_pipeline.return_value = pipeline
+            mock_store.return_value = store_instance
+            mock_dag.side_effect = lambda p, use_ascii=False: (
+                "ASCII DAG" if use_ascii else "UNICODE DAG"
+            )
+
+            event = Event(
+                event_type=EventType.PHASE_STARTED,
+                pipeline_id="test-123",
+                data={"phase": "plan"},
+            )
+            bus.publish(event)
+
+        _, payload_unicode, _ = q_unicode.get_nowait()
+        _, payload_ascii, _ = q_ascii.get_nowait()
+        assert payload_unicode["visualization"]["dag"] == "UNICODE DAG"
+        assert payload_ascii["visualization"]["dag"] == "ASCII DAG"
+
+        manager.unsubscribe_from_events()
+        manager.remove_client("test-123", q_unicode)
+        manager.remove_client("test-123", q_ascii)
 
     def test_event_visualization_falls_back_to_env_var(self):
         """Test that _handle_event resolves repo_path from EGG_REPO_PATH env var."""

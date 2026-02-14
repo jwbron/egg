@@ -54,7 +54,7 @@ gateway/
 ├── auth.py                 # Session authentication
 ├── token_refresher.py      # GitHub App token management (bot and optional reviewer)
 ├── anthropic_credentials.py # API key injection for Claude
-├── checkpoint_handler.py   # Per-commit checkpoint capture
+├── checkpoint_handler.py   # Checkpoint capture (commit and session-end triggers)
 ├── transcript_buffer.py    # API proxy transcript capture buffer
 ├── worktree_manager.py     # Git worktree lifecycle
 ├── session_manager.py      # Agent session management
@@ -129,10 +129,12 @@ sandbox/
 │   ├── egg-contract        # Symlink to contract_cli.py
 │   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
 │   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
+│   ├── egg-orch            # Symlink to orch_cli.py
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
 │   ├── contract_cli.py     # SDLC contract CLI implementation
-│   └── checkpoint_cli.py   # Checkpoint browsing CLI wrapper
+│   ├── checkpoint_cli.py   # Checkpoint browsing CLI wrapper
+│   └── orch_cli.py         # Orchestrator API CLI implementation
 ├── llm/                    # Claude Code / Agent SDK integration
 ├── tools/                  # Interactive tools
 │   ├── discover-tests.py   # Test framework discovery
