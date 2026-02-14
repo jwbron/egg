@@ -12,6 +12,7 @@ Redirects to the `egg-sdlc` CLI tool for launching SDLC pipelines.
 **What it does**:
 - Provides instructions to use the `egg-sdlc` CLI directly
 - The `egg-sdlc` CLI handles DAG visualization and HITL checkpoints
+- References `egg-pipeline-watch` for monitoring pipeline progress
 
 **Recommended**: Use `egg-sdlc` directly instead of `/sdlc` for better TTY support.
 
