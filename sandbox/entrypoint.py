@@ -713,7 +713,7 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
 
     logger.success("AI agent rules installed: ~/CLAUDE.md (symlinked to ~/repos/)")
     logger.info(f"  Combined {len(rules_order)} rule files (index-based per LLM Doc ADR)")
-    logger.info("  Note: Reference docs in ~/repos/egg/docs/ (fetched on-demand)")
+    logger.info("  Note: Reference docs at $EGG_REPO_PATH/docs/ (fetched on-demand)")
 
 
 def setup_claude(config: Config, logger: Logger) -> None:
