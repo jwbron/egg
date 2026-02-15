@@ -947,6 +947,180 @@ class TestGitPush:
             # Verify get_changed_files_in_push was NOT invoked (check skipped entirely)
             mock_get_changed_files.assert_not_called()
 
+    def test_push_phase_hint_with_non_state_files(self, client):
+        """Push denied by phase restriction includes dirty-branch hint when non-.egg-state/ files blocked."""
+        import sys
+
+        import auth
+
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.agent_role = None
+        mock_session.phase = "plan"
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode - access allowed",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
+            patch.object(gateway, "check_phase_file_restrictions") as mock_check_phase,
+        ):
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="https://github.com/owner/repo.git\n",
+                stderr="",
+            )
+
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned",
+                details={"branch": "egg-feature"},
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_get_changed_files.return_value = (
+                ["src/main.py", ".egg-state/contracts/plan.json"],
+                None,
+            )
+
+            from phase_filter import FileRestrictionResult
+
+            mock_check_phase.return_value = FileRestrictionResult.block(
+                message="Files not allowed in plan phase",
+                role="plan",
+                blocked_files=["src/main.py"],
+                blocked_reason="Plan phase only allows .egg-state/ files",
+            )
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg-feature",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "clean branch" in data["data"]["hint"]
+            assert "previous phase" in data["data"]["hint"]
+
+    def test_push_phase_hint_with_only_state_files(self, client):
+        """Push denied by phase restriction shows generic hint when only .egg-state/ files blocked."""
+        import sys
+
+        import auth
+
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.agent_role = None
+        mock_session.phase = "plan"
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode - access allowed",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
+            patch.object(gateway, "check_phase_file_restrictions") as mock_check_phase,
+        ):
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="https://github.com/owner/repo.git\n",
+                stderr="",
+            )
+
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned",
+                details={"branch": "egg-feature"},
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_get_changed_files.return_value = (
+                [".egg-state/pipelines/state.json"],
+                None,
+            )
+
+            from phase_filter import FileRestrictionResult
+
+            mock_check_phase.return_value = FileRestrictionResult.block(
+                message="Files not allowed in plan phase",
+                role="plan",
+                blocked_files=[".egg-state/pipelines/state.json"],
+                blocked_reason="Plan phase does not allow pipeline state files",
+            )
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg-feature",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "file restrictions" in data["data"]["hint"]
+            assert "Check allowed patterns" in data["data"]["hint"]
+
 
 class TestGhPrCreate:
     """Tests for /api/v1/gh/pr/create endpoint."""

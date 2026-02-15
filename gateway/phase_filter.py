@@ -492,16 +492,20 @@ class PhaseFilter:
                     ".egg-state/contracts/*",
                     ".egg-state/drafts/*analysis*",
                     ".egg-state/checkpoints/*",
+                    ".egg-state/agent-outputs/*",
+                    ".egg-state/reviews/*",
                 ],
-                description="Refine phase can only push contracts, analysis drafts, and checkpoints",
+                description="Refine phase can only push contracts, analysis drafts, checkpoints, agent outputs, and reviews",
             ),
             PipelinePhase.PLAN: PhaseFileRestriction(
                 allowed_patterns=[
                     ".egg-state/contracts/*",
                     ".egg-state/drafts/*plan*",
                     ".egg-state/checkpoints/*",
+                    ".egg-state/agent-outputs/*",
+                    ".egg-state/reviews/*",
                 ],
-                description="Plan phase can only push contracts, plan drafts, and checkpoints",
+                description="Plan phase can only push contracts, plan drafts, checkpoints, agent outputs, and reviews",
             ),
             PipelinePhase.IMPLEMENT: PhaseFileRestriction(
                 blocked_patterns=[
