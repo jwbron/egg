@@ -869,6 +869,7 @@ def git_push() -> tuple[Response, int] | Response:
                     if session is not None:
                         session.checkpoint_repo = ckpt_repo  # None clears previous value
                         session.last_repo_path = exec_path
+                        session.last_branch = branch
 
                     if old_ref_sha:
                         # Use per-commit checkpoint creation
@@ -2550,6 +2551,7 @@ def session_create() -> tuple[Response, int] | Response:
     issue_number = data.get("issue_number")  # Optional GitHub issue number
     pr_number = data.get("pr_number")  # Optional GitHub PR number
     agent_role = data.get("agent_role")  # Optional agent role
+    claude_code_version = data.get("claude_code_version")  # Optional Claude Code version
 
     # Validate required fields
     if not container_id:
@@ -2695,6 +2697,7 @@ def session_create() -> tuple[Response, int] | Response:
         issue_number=issue_number,
         pr_number=pr_number,
         agent_role=agent_role,
+        claude_code_version=claude_code_version,
     )
 
     audit_log(

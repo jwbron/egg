@@ -310,6 +310,9 @@ class ContainerSpawner:
                     gid=host_gid,
                     phase=phase,
                     pipeline_id=pipeline_id,
+                    agent_role=agent_role.value,
+                    issue_number=issue_number,
+                    claude_code_version=os.environ.get("CLAUDE_CODE_VERSION"),
                 )
                 session_token = session_info.session_token
 

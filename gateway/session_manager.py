@@ -197,6 +197,8 @@ class Session:
     pipeline_id: str | None = None  # Pipeline run ID for multi-agent correlation
     checkpoint_repo: str | None = None  # External checkpoint repo (owner/repo)
     last_repo_path: str | None = None  # Last known repo path from git operations
+    last_branch: str | None = None  # Last known branch from git push
+    claude_code_version: str | None = None  # Claude Code version from container
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -232,6 +234,10 @@ class Session:
             result["checkpoint_repo"] = self.checkpoint_repo
         if self.last_repo_path is not None:
             result["last_repo_path"] = self.last_repo_path
+        if self.last_branch is not None:
+            result["last_branch"] = self.last_branch
+        if self.claude_code_version is not None:
+            result["claude_code_version"] = self.claude_code_version
         return result
 
     @classmethod
@@ -253,6 +259,8 @@ class Session:
             pipeline_id=data.get("pipeline_id"),
             checkpoint_repo=data.get("checkpoint_repo"),
             last_repo_path=data.get("last_repo_path"),
+            last_branch=data.get("last_branch"),
+            claude_code_version=data.get("claude_code_version"),
         )
 
 
@@ -399,6 +407,7 @@ class SessionManager:
         pr_number: int | None = None,
         pipeline_id: str | None = None,
         agent_role: str | None = None,
+        claude_code_version: str | None = None,
     ) -> tuple[str, Session]:
         """
         Register a new session for a container.
@@ -412,6 +421,7 @@ class SessionManager:
             pr_number: Optional GitHub PR number for checkpoint linkage
             pipeline_id: Optional pipeline run ID for multi-agent correlation
             agent_role: Optional agent role (e.g., "coder", "tester") for checkpoint metadata
+            claude_code_version: Optional Claude Code version string
 
         Returns:
             Tuple of (session_token, Session)
@@ -435,6 +445,7 @@ class SessionManager:
             pr_number=pr_number,
             pipeline_id=pipeline_id,
             agent_role=agent_role,
+            claude_code_version=claude_code_version,
         )
 
         with self._lock:

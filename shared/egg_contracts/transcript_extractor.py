@@ -227,8 +227,9 @@ def extract_tool_calls_from_proxy_buffer(
     tool_calls = []
     file_operations = []
 
-    # Track tool_use_id -> tool call for result matching
+    # Track tool_use_id -> (tool_call, response_timestamp) for result matching
     tool_use_map: dict[str, ToolCall] = {}
+    tool_use_timestamps: dict[str, datetime] = {}
 
     for entry in entries:
         ts = parse_timestamp(entry.get("timestamp"))
@@ -274,6 +275,8 @@ def extract_tool_calls_from_proxy_buffer(
                 )
                 tool_calls.append(tool_call)
                 tool_use_map[tool_use_id] = tool_call
+                if ts and tool_use_id:
+                    tool_use_timestamps[tool_use_id] = ts
 
                 # Extract file operations from tool calls
                 if tool_name in TOOL_TO_FILE_OP:
@@ -319,6 +322,14 @@ def extract_tool_calls_from_proxy_buffer(
                         else:
                             tool_call.result_summary = result_str if result_str else None
                         tool_call.success = not is_error
+
+                        # Compute approximate duration from tool_use response
+                        # timestamp to tool_result request timestamp
+                        if ts and tool_use_id in tool_use_timestamps:
+                            use_ts = tool_use_timestamps[tool_use_id]
+                            delta = (ts - use_ts).total_seconds()
+                            if delta >= 0:
+                                tool_call.duration_ms = delta * 1000
 
     return tool_calls, file_operations
 
