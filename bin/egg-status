@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import signal
 import sys
 import time
@@ -191,10 +192,16 @@ def display_dashboard(pipelines: dict, verbose: bool = False) -> None:
         if state_snapshot == _prev_state:
             return
         _prev_state = state_snapshot
+        cols = shutil.get_terminal_size().columns
         lines = output.split("\n")
-        cleared = "\033[K\n".join(lines)
+        padded = []
+        for line in lines:
+            visible_len = len(strip_ansi(line))
+            pad = max(0, cols - visible_len)
+            padded.append(line + " " * pad)
+        frame = "\n".join(padded)
         sys.stdout.write(
-            HIDE_CURSOR + MOVE_HOME + cleared + "\n\033[J" + SHOW_CURSOR
+            HIDE_CURSOR + MOVE_HOME + frame + "\n\033[J" + SHOW_CURSOR
         )
         sys.stdout.flush()
     else:

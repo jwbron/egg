@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import signal
 import sys
 from datetime import datetime
@@ -190,8 +191,11 @@ def display_visualization(data: dict, compact: bool = False) -> None:
             _prev_compact_state = state_snapshot
         output = format_status_line(pipeline_id, data)
         if IS_TTY:
+            cols = shutil.get_terminal_size().columns
+            visible_len = len(strip_ansi(output))
+            pad = max(0, cols - visible_len)
             sys.stdout.write(
-                HIDE_CURSOR + "\033[H" + output + "\033[K\n\033[J" + SHOW_CURSOR
+                HIDE_CURSOR + "\033[H" + output + " " * pad + "\n\033[J" + SHOW_CURSOR
             )
             sys.stdout.flush()
         else:
@@ -213,11 +217,18 @@ def display_visualization(data: dict, compact: bool = False) -> None:
     if IS_TTY:
         # No dedup for full DAG mode — the DAG includes elapsed-time
         # counters that change every second for running pipelines.
-        # The atomic write (single buffer + flush) handles flicker.
+        # Pad each line to terminal width so we overwrite in-place
+        # without any clear-to-EOL escapes (which cause visible flicker).
+        cols = shutil.get_terminal_size().columns
         lines = output.split("\n")
-        cleared = "\033[K\n".join(lines)
+        padded = []
+        for line in lines:
+            visible_len = len(strip_ansi(line))
+            pad = max(0, cols - visible_len)
+            padded.append(line + " " * pad)
+        frame = "\n".join(padded)
         sys.stdout.write(
-            HIDE_CURSOR + "\033[H" + cleared + "\033[J" + SHOW_CURSOR
+            HIDE_CURSOR + "\033[H" + frame + "\033[J" + SHOW_CURSOR
         )
         sys.stdout.flush()
     else:
