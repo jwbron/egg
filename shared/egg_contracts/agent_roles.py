@@ -556,7 +556,7 @@ REVIEWER_AGENT_DESIGN_ROLE = AgentRoleDefinition(
         "Verify autonomous operation capability",
         "Assess human-in-the-loop integration",
     ],
-    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
+    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST, AgentRole.REFINER],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[

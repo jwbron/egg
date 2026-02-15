@@ -499,6 +499,30 @@ def _wait_for_health(url: str, label: str, timeout: int = 60) -> bool:
     return False
 
 
+def _services_healthy() -> bool:
+    """Return True if the gateway is already running and healthy."""
+    import urllib.error
+    import urllib.request
+
+    ctx = get_context()
+    url = f"http://localhost:{ctx.gateway_port}/api/v1/health"
+    try:
+        with urllib.request.urlopen(url, timeout=3) as resp:
+            if resp.status == 200:
+                return True
+    except (urllib.error.URLError, OSError):
+        pass
+    return False
+
+
+def _get_mtime(path: Path) -> float:
+    """Return mtime of *path*, or 0.0 if it does not exist."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def ensure_compose_services(build: bool = True) -> bool:
     """Start gateway + orchestrator via Docker Compose.
 
@@ -542,6 +566,15 @@ def ensure_compose_services(build: bool = True) -> bool:
 
         return start_gateway_container()
 
+    # Probe whether services are already running
+    already_healthy = _services_healthy()
+
+    # Record config file mtimes before generation
+    env_path = compose_file.parent / ".env"
+    override_path = compose_file.parent / "docker-compose.override.yml"
+    env_mtime_before = _get_mtime(env_path)
+    override_mtime_before = _get_mtime(override_path)
+
     # Generate .env from current config
     if not _generate_env_file(compose_file):
         error("Failed to generate .env for Docker Compose")
@@ -550,11 +583,41 @@ def ensure_compose_services(build: bool = True) -> bool:
     # Generate docker-compose.override.yml with per-repo volume mounts
     override_file = _generate_override_file(compose_file)
 
-    # Clean up stale containers/networks from previous non-Compose runs
-    _cleanup_stale_resources()
+    # Detect whether config files actually changed
+    config_changed = (
+        _get_mtime(env_path) != env_mtime_before
+        or _get_mtime(override_path) != override_mtime_before
+    )
+
+    # Fast path: services healthy, config unchanged, no explicit rebuild
+    if already_healthy and not config_changed and not build:
+        success("Gateway is healthy")
+        # Quick orchestrator check — gateway confirmed healthy but orchestrator
+        # was not directly probed, so allow a couple of attempts.
+        ctx = get_context()
+        orchestrator_url = f"http://localhost:{ctx.orchestrator_port}/api/v1/health"
+        if _wait_for_health(orchestrator_url, "Orchestrator", timeout=5):
+            success("Orchestrator is healthy")
+        else:
+            warn("Orchestrator not healthy — continuing without it")
+        return True
+
+    # Only clean up stale resources on a cold start (gateway not running)
+    if not already_healthy:
+        _cleanup_stale_resources()
 
     # Start services
     if not compose_up(compose_file, build=build, override_file=override_file):
+        # Race recovery: another process may have started services concurrently
+        if _services_healthy():
+            success("Gateway is healthy (started by another process)")
+            ctx = get_context()
+            orchestrator_url = f"http://localhost:{ctx.orchestrator_port}/api/v1/health"
+            if _wait_for_health(orchestrator_url, "Orchestrator", timeout=30):
+                success("Orchestrator is healthy")
+            else:
+                warn("Orchestrator not healthy — continuing without it")
+            return True
         return False
 
     ctx = get_context()

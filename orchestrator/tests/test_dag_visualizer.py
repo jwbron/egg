@@ -684,6 +684,54 @@ class TestWaveGrouping:
         assert waves[0][0].role == AgentRole.CODER
         assert waves[-1][0].role == AgentRole.REVIEWER
 
+    def test_refine_phase_wave_order(self):
+        """Refiner is wave 1, reviewers are wave 2 in refine phase."""
+        phases = {
+            "refine": PhaseExecution(
+                phase=PipelinePhase.REFINE,
+                status=PipelineStatus.RUNNING,
+                agents=[
+                    AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(
+                        role=AgentRole.REVIEWER_AGENT_DESIGN, status=AgentExecutionStatus.RUNNING
+                    ),
+                    AgentExecution(
+                        role=AgentRole.REVIEWER_REFINE, status=AgentExecutionStatus.RUNNING
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.REFINE)
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        lines = result.split("\n")
+        agent_lines = [line.strip() for line in lines if "refiner" in line or "reviewer" in line]
+
+        # Refiner alone (wave 1)
+        assert any("refiner" in line and "reviewer" not in line for line in agent_lines)
+        # Both reviewers together (wave 2)
+        assert any("reviewer_agent_design" in line and "reviewer_refine" in line for line in agent_lines)
+
+    def test_compute_wave_order_refine(self):
+        """_compute_wave_order returns correct wave groups for refine phase."""
+        agents = [
+            AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(
+                role=AgentRole.REVIEWER_AGENT_DESIGN, status=AgentExecutionStatus.RUNNING
+            ),
+            AgentExecution(
+                role=AgentRole.REVIEWER_REFINE, status=AgentExecutionStatus.RUNNING
+            ),
+        ]
+        waves = _compute_wave_order(PipelinePhase.REFINE, agents)
+
+        assert len(waves) == 2  # refiner, reviewers
+        assert len(waves[0]) == 1  # refiner
+        assert waves[0][0].role == AgentRole.REFINER
+        assert len(waves[1]) == 2  # both reviewers
+        reviewer_roles = {a.role for a in waves[1]}
+        assert reviewer_roles == {AgentRole.REVIEWER_AGENT_DESIGN, AgentRole.REVIEWER_REFINE}
+
     def test_reviewers_after_planners_in_dag(self):
         """Verify reviewers render after planning agents, not before."""
         phases = {
