@@ -205,6 +205,26 @@
           "exit_code": null,
           "agent_role": "reviewer_unified",
           "session_token": null
+        },
+        {
+          "container_id": "72e594538a72d8ac43fee88afe2e08784872d2b9740d2feaa75cecbab4297f72",
+          "container_name": "egg-sandbox-egg-issue-632-reviewer_agent_design",
+          "status": "running",
+          "started_at": "2026-02-15T19:30:33.074396",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_agent_design",
+          "session_token": null
+        },
+        {
+          "container_id": "fdcda4a6523152f6c06e6408785dd76c982624c20b2bde944cc7b0583797cd15",
+          "container_name": "egg-sandbox-egg-issue-632-reviewer_plan",
+          "status": "running",
+          "started_at": "2026-02-15T19:30:33.081136",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_plan",
+          "session_token": null
         }
       ],
       "agents": [
@@ -327,6 +347,30 @@
           "error": null,
           "retry_count": 0,
           "conflicts": []
+        },
+        {
+          "role": "reviewer_agent_design",
+          "status": "running",
+          "container_id": "72e594538a72d8ac43fee88afe2e08784872d2b9740d2feaa75cecbab4297f72",
+          "started_at": "2026-02-15T19:30:33.074401",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_plan",
+          "status": "running",
+          "container_id": "fdcda4a6523152f6c06e6408785dd76c982624c20b2bde944cc7b0583797cd15",
+          "started_at": "2026-02-15T19:30:33.081140",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
         }
       ],
       "review_cycles": 1,
@@ -352,9 +396,9 @@
     }
   ],
   "created_at": "2026-02-15T18:46:27.445656",
-  "updated_at": "2026-02-15T19:30:33.070726",
+  "updated_at": "2026-02-15T19:30:33.081204",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 41
+  "version": 43
 }
