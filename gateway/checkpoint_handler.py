@@ -90,12 +90,17 @@ from egg_contracts.usage_loader import (
 from egg_logging import get_logger
 
 try:
-    from .git_client import cleanup_credential_helper, create_credential_helper
+    from .git_client import (
+        cleanup_credential_helper,
+        create_credential_helper,
+        get_token_for_repo,
+    )
     from .session_manager import Session
 except ImportError:
     from git_client import (  # type: ignore[no-redef, import-not-found]
         cleanup_credential_helper,
         create_credential_helper,
+        get_token_for_repo,
     )
     from session_manager import Session  # type: ignore[no-redef, import-not-found]
 
@@ -143,6 +148,17 @@ _ROLE_TO_AGENT_TYPE = {
     "documenter": AgentType.DOCUMENTER,
     "integrator": AgentType.INTEGRATOR,
     "reviewer": AgentType.REVIEWER,
+    "reviewer_unified": AgentType.REVIEWER,
+    "reviewer_code": AgentType.REVIEWER,
+    "reviewer_contract": AgentType.REVIEWER,
+    "reviewer_agent_design": AgentType.REVIEWER,
+    "reviewer_refine": AgentType.REVIEWER,
+    "reviewer_plan": AgentType.REVIEWER,
+    "architect": AgentType.ARCHITECT,
+    "task_planner": AgentType.TASK_PLANNER,
+    "risk_analyst": AgentType.RISK_ANALYST,
+    "refiner": AgentType.REFINER,
+    "checker": AgentType.CHECKER,
 }
 
 
@@ -151,6 +167,65 @@ def _resolve_agent_type(agent_role: str | None) -> AgentType:
     if not agent_role:
         return AgentType.UNKNOWN
     return _ROLE_TO_AGENT_TYPE.get(agent_role.lower(), AgentType.UNKNOWN)
+
+
+def _resolve_github_token(repo_path: str) -> str | None:
+    """Resolve a fresh GitHub token for a repository.
+
+    Extracts owner/repo from the git remote URL and calls get_token_for_repo()
+    to obtain a fresh installation token. This avoids relying on stale tokens
+    stored on the singleton CheckpointHandler.
+
+    Args:
+        repo_path: Path to the git repository
+
+    Returns:
+        A fresh GitHub token string, or None if unavailable.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            logger.debug(
+                "Could not get remote URL for token resolution",
+                repo_path=repo_path,
+            )
+            return None
+
+        remote_url = result.stdout.strip()
+        match = re.search(
+            r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url
+        )
+        if not match:
+            logger.debug(
+                "Could not extract owner/repo from remote URL",
+                remote_url=remote_url,
+            )
+            return None
+
+        repo = f"{match.group(1)}/{match.group(2)}"
+        token_str, _auth_mode, error_msg = get_token_for_repo(repo)
+        if not token_str:
+            logger.debug(
+                "Could not get token for repo",
+                repo=repo,
+                error=error_msg,
+            )
+            return None
+        return token_str
+    except Exception as e:
+        logger.debug(
+            "GitHub token resolution failed",
+            error=str(e),
+            repo_path=repo_path,
+        )
+        return None
 
 
 def get_commits_in_push(
@@ -667,6 +742,7 @@ class CheckpointHandler:
         repo_path: str,
         remote: str = "origin",
         checkpoint_repo: str | None = None,
+        github_token: str | None = None,
     ) -> bool:
         """
         Store a v2 checkpoint in the checkpoint branch.
@@ -682,6 +758,8 @@ class CheckpointHandler:
                 destination. When set, checkpoints are pushed to this repo
                 instead of the source repo's remote. Useful for keeping
                 checkpoint data (transcripts, tool calls) private.
+            github_token: Optional fresh GitHub token for git operations.
+                When provided, used instead of self._github_token.
 
         Returns:
             True if successful, False otherwise
@@ -706,7 +784,9 @@ class CheckpointHandler:
             with tempfile.TemporaryDirectory(prefix="checkpoint_") as temp_dir:
                 temp_path = Path(temp_dir)
 
-                branch_exists = self._branch_exists(repo_path, target, CHECKPOINT_BRANCH)
+                branch_exists = self._branch_exists(
+                    repo_path, target, CHECKPOINT_BRANCH, github_token=github_token
+                )
 
                 if branch_exists:
                     # Force-update the local branch to match the remote.
@@ -716,6 +796,7 @@ class CheckpointHandler:
                     self._run_git(
                         repo_path,
                         ["fetch", target, f"+{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}"],
+                        github_token=github_token,
                     )
                     self._run_git(
                         repo_path,
@@ -785,6 +866,7 @@ class CheckpointHandler:
                         str(temp_path),
                         ["push", target, f"HEAD:{CHECKPOINT_BRANCH}"],
                         timeout=120,
+                        github_token=github_token,
                     )
 
                     logger.info(
@@ -831,7 +913,13 @@ class CheckpointHandler:
     # Keep store_checkpoint as alias for backward compatibility
     store_checkpoint = store_checkpoint_v2
 
-    def _branch_exists(self, repo_path: str, remote: str, branch: str) -> bool:
+    def _branch_exists(
+        self,
+        repo_path: str,
+        remote: str,
+        branch: str,
+        github_token: str | None = None,
+    ) -> bool:
         """Check if a branch exists on the remote."""
         try:
             result = self._run_git(
@@ -839,6 +927,7 @@ class CheckpointHandler:
                 ["ls-remote", "--heads", remote, branch],
                 check=False,
                 timeout=30,
+                github_token=github_token,
             )
             return bool(result.stdout.strip())
         except Exception:
@@ -850,15 +939,25 @@ class CheckpointHandler:
         args: list[str],
         check: bool = True,
         timeout: int = 60,
+        github_token: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        """Run a git command."""
+        """Run a git command.
+
+        Args:
+            cwd: Working directory for the command
+            args: Git command arguments (without 'git' prefix)
+            check: If True, raise on non-zero exit code
+            timeout: Command timeout in seconds
+            github_token: Optional token to use instead of self._github_token
+        """
         env = os.environ.copy()
         credential_helper_path = None
+        token = github_token or self._github_token
 
         try:
-            if self._github_token:
+            if token:
                 credential_helper_path, env = create_credential_helper(
-                    self._github_token, env
+                    token, env
                 )
 
             # SECURITY: Disable all git hooks. The checkpoint handler runs git commands
@@ -945,7 +1044,10 @@ def capture_and_store_checkpoint(
         def _store_with_error_handling() -> None:
             try:
                 handler.store_checkpoint_v2(
-                    checkpoint, repo_path, checkpoint_repo=checkpoint_repo
+                    checkpoint,
+                    repo_path,
+                    checkpoint_repo=checkpoint_repo,
+                    github_token=github_token,
                 )
             except Exception as e:
                 logger.error(
@@ -962,7 +1064,10 @@ def capture_and_store_checkpoint(
         thread.start()
     else:
         handler.store_checkpoint_v2(
-            checkpoint, repo_path, checkpoint_repo=checkpoint_repo
+            checkpoint,
+            repo_path,
+            checkpoint_repo=checkpoint_repo,
+            github_token=github_token,
         )
 
     return checkpoint
@@ -1041,7 +1146,10 @@ def capture_and_store_checkpoints_for_push(
             for cp in checkpoints:
                 try:
                     handler.store_checkpoint_v2(
-                        cp, repo_path, checkpoint_repo=checkpoint_repo
+                        cp,
+                        repo_path,
+                        checkpoint_repo=checkpoint_repo,
+                        github_token=github_token,
                     )
                 except Exception as e:
                     logger.error(
@@ -1059,7 +1167,10 @@ def capture_and_store_checkpoints_for_push(
     else:
         for cp in checkpoints:
             handler.store_checkpoint_v2(
-                cp, repo_path, checkpoint_repo=checkpoint_repo
+                cp,
+                repo_path,
+                checkpoint_repo=checkpoint_repo,
+                github_token=github_token,
             )
 
     return checkpoints
@@ -1191,13 +1302,23 @@ def capture_session_end_checkpoint(
     if checkpoint_repo is None:
         checkpoint_repo = _get_checkpoint_repo_for_path(repo_path)
 
+    # Resolve a fresh GitHub token if none was provided. Session-end
+    # checkpoints are often captured long after the handler singleton was
+    # created, so the token stored on self._github_token may be stale
+    # (GitHub App installation tokens expire after 1 hour).
+    if github_token is None:
+        github_token = _resolve_github_token(repo_path)
+
     if async_store:
         completion_event = threading.Event()
 
         def _store_with_event() -> None:
             try:
                 handler.store_checkpoint_v2(
-                    checkpoint, repo_path, checkpoint_repo=checkpoint_repo
+                    checkpoint,
+                    repo_path,
+                    checkpoint_repo=checkpoint_repo,
+                    github_token=github_token,
                 )
             except Exception as e:
                 logger.error(
@@ -1217,6 +1338,9 @@ def capture_session_end_checkpoint(
         return checkpoint, completion_event
     else:
         handler.store_checkpoint_v2(
-            checkpoint, repo_path, checkpoint_repo=checkpoint_repo
+            checkpoint,
+            repo_path,
+            checkpoint_repo=checkpoint_repo,
+            github_token=github_token,
         )
         return checkpoint, None
