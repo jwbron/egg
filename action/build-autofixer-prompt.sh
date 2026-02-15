@@ -24,11 +24,18 @@ set -euo pipefail
 
 fetch_autofixer_rules() {
     local rules_file=".egg/autofixer-rules.md"
+    local script_dir
+    script_dir="$(dirname "$0")"
+    local shared_file="${script_dir}/../shared/prompts/autofixer-rules.md"
 
     if [[ -f "$rules_file" ]]; then
+        # User override takes priority
         cat "$rules_file"
+    elif [[ -f "$shared_file" ]]; then
+        # Shared criteria (anchored to trusted checkout via script dir)
+        cat "$shared_file"
     else
-        # Default autofixer rules when no repo-specific rules exist
+        # Inline fallback for rollout safety
         cat <<'EOF'
 ## Default Autofixer Rules
 

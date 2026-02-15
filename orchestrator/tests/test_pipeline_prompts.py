@@ -3,7 +3,9 @@ Tests for pipeline prompt builder functions (_build_checker_prompt, _build_autof
 """
 
 import sys
-from unittest.mock import MagicMock
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 # Mock heavy dependencies that pipelines.py imports at module level
 _docker_mock = MagicMock()
@@ -11,7 +13,14 @@ sys.modules.setdefault("docker", _docker_mock)
 sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
-from routes.pipelines import _build_autofix_prompt, _build_checker_prompt
+from routes.pipelines import (
+    _build_autofix_prompt,
+    _build_checker_prompt,
+    _get_agent_design_criteria,
+    _get_code_review_criteria,
+    _get_contract_review_criteria,
+    _read_shared_criteria,
+)
 
 
 class TestBuildCheckerPrompt:
@@ -99,3 +108,134 @@ class TestBuildAutofixPrompt:
         result = _build_autofix_prompt("pid-99", "issue", results)
         assert "pid-99" in result
         assert "issue" in result
+
+    def test_autofix_includes_shared_rules(self):
+        """Autofix prompt loads rules from shared/prompts/autofixer-rules.md."""
+        results = {"checks": [{"name": "lint", "passed": False, "output": "3 errors"}]}
+        result = _build_autofix_prompt("pid-1", "local", results)
+        # The shared file content should appear in the prompt
+        assert "Auto-fixable" in result or "auto-fixable" in result.lower()
+
+
+class TestReadSharedCriteria:
+    """Tests for _read_shared_criteria helper function."""
+
+    def test_reads_from_source_tree(self):
+        """Reads criteria from shared/prompts/ in the source tree."""
+        content = _read_shared_criteria("code-review-criteria.md")
+        assert content is not None
+        assert "Security" in content
+
+    def test_returns_none_for_missing_file(self):
+        """Returns None when no file is found."""
+        content = _read_shared_criteria("nonexistent-file.md")
+        assert content is None
+
+    def test_user_override_takes_priority(self):
+        """User override file takes priority over shared file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            egg_dir = Path(tmpdir) / ".egg"
+            egg_dir.mkdir()
+            (egg_dir / "review-rules.md").write_text("## Custom Override\nCustom content.")
+
+            content = _read_shared_criteria(
+                "code-review-criteria.md",
+                user_override="review-rules.md",
+                repo_path=tmpdir,
+            )
+            assert content is not None
+            assert "Custom Override" in content
+            assert "Custom content" in content
+
+    def test_shared_file_when_no_override(self):
+        """Falls through to shared file when no user override exists."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            content = _read_shared_criteria(
+                "code-review-criteria.md",
+                user_override="review-rules.md",
+                repo_path=tmpdir,
+            )
+            assert content is not None
+            # Should contain shared file content, not None
+            assert "Security" in content
+
+
+class TestGetCodeReviewCriteria:
+    """Tests for _get_code_review_criteria with shared file loading."""
+
+    def test_returns_criteria_content(self):
+        """Returns review criteria content."""
+        result = _get_code_review_criteria()
+        assert "Security" in result
+
+    def test_loads_from_shared_file(self):
+        """Criteria loads from shared/prompts/code-review-criteria.md."""
+        result = _get_code_review_criteria()
+        # Shared file has enriched content compared to inline fallback
+        assert "How to Review" in result
+
+    def test_user_override(self):
+        """Supports .egg/review-rules.md user override."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            egg_dir = Path(tmpdir) / ".egg"
+            egg_dir.mkdir()
+            (egg_dir / "review-rules.md").write_text("## My Custom Rules")
+
+            result = _get_code_review_criteria(repo_path=tmpdir)
+            assert "My Custom Rules" in result
+
+    def test_inline_fallback(self):
+        """Falls back to inline criteria when shared file is missing."""
+        # Patch _read_shared_criteria to return None (simulating missing files)
+        with patch("routes.pipelines._read_shared_criteria", return_value=None):
+            result = _get_code_review_criteria()
+            assert "Security" in result
+            assert "Correctness" in result
+
+
+class TestGetAgentDesignCriteria:
+    """Tests for _get_agent_design_criteria with shared file loading."""
+
+    def test_returns_criteria_content(self):
+        """Returns agent-design criteria content."""
+        result = _get_agent_design_criteria()
+        assert "pre-fetching" in result.lower()
+
+    def test_loads_from_shared_file(self):
+        """Criteria loads from shared/prompts/agent-design-criteria.md."""
+        result = _get_agent_design_criteria()
+        # Shared file has enriched content including review philosophy
+        assert "guidelines, not absolute rules" in result
+
+    def test_inline_fallback(self):
+        """Falls back to inline criteria when shared file is missing."""
+        with patch("routes.pipelines._read_shared_criteria", return_value=None):
+            result = _get_agent_design_criteria()
+            assert "Excessive pre-fetching" in result
+            assert "Rigid procedures" in result
+
+
+class TestGetContractReviewCriteria:
+    """Tests for _get_contract_review_criteria with shared file loading."""
+
+    def test_returns_criteria_content(self):
+        """Returns contract review criteria content."""
+        result = _get_contract_review_criteria()
+        assert "Task Verification" in result
+
+    def test_user_override(self):
+        """Supports .egg/contract-rules.md user override."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            egg_dir = Path(tmpdir) / ".egg"
+            egg_dir.mkdir()
+            (egg_dir / "contract-rules.md").write_text("## Custom Contract Rules")
+
+            result = _get_contract_review_criteria(repo_path=tmpdir)
+            assert "Custom Contract Rules" in result
+
+    def test_inline_fallback(self):
+        """Falls back to inline criteria when shared file is missing."""
+        with patch("routes.pipelines._read_shared_criteria", return_value=None):
+            result = _get_contract_review_criteria()
+            assert "Task Verification" in result
+            assert "Contract Integrity" in result
