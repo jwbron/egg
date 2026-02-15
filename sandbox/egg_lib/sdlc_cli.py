@@ -4,15 +4,17 @@ Replaces the Claude-as-collaborator SDLC pipeline workflow with a rich
 terminal CLI that directly handles DAG visualization and HITL checkpoints.
 
 Usage:
-    egg-sdlc -r <repo> -i <issue>   # Repo dir + issue number
-    egg-sdlc -r <repo> <issue>      # Short form (positional issue)
-    egg-sdlc                         # Local/prompt mode (no issue)
+    egg-sdlc -r <repo> -i <issue>       # Repo dir + issue number
+    egg-sdlc -r <repo> <issue>          # Short form (positional issue)
+    egg-sdlc                             # Local/prompt mode (interactive)
+    egg-sdlc -r <repo> -p "prompt"      # Local/prompt mode (non-interactive)
 
 Examples:
-    egg-sdlc -r egg -i 659          # Pipeline for issue #659 in ~/repos/egg
-    egg-sdlc -r egg 659             # Same, positional issue number
-    egg-sdlc --private -r egg -i 659 # Private repo access
-    egg-sdlc                        # Local mode (no GitHub issue)
+    egg-sdlc -r egg -i 659              # Pipeline for issue #659 in ~/repos/egg
+    egg-sdlc -r egg 659                 # Same, positional issue number
+    egg-sdlc --private -r egg -i 659    # Private repo access
+    egg-sdlc                            # Local mode (interactive prompt)
+    egg-sdlc -r egg -p "Add docs"       # Local mode with pre-supplied prompt
 """
 
 import argparse
@@ -318,35 +320,40 @@ def watch_pipeline(
 # --- Local Mode ---
 
 
-def run_local_mode(client: OrchClient) -> int:
-    """Run egg-sdlc in local (prompt-driven) mode."""
+def run_local_mode(client: OrchClient, prompt: str | None = None) -> int:
+    """Run egg-sdlc in local (prompt-driven) mode.
+
+    Args:
+        prompt: Optional pre-supplied prompt. If provided, skips interactive input.
+    """
     print(f"\n{BOLD}egg-sdlc: Local Mode{RESET}")
     print(f"{DIM}No issue number provided. Running prompt-driven pipeline.{RESET}\n")
 
-    # Prompt for task description
-    try:
-        task = input(f"{BOLD}What would you like to build or change?{RESET}\n> ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return 1
+    if not prompt:
+        # Prompt for task description interactively
+        try:
+            task = input(f"{BOLD}What would you like to build or change?{RESET}\n> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 1
 
-    if not task:
-        _write(f"{RED}No task description provided.{RESET}\n", file=sys.stderr)
-        return 1
+        if not task:
+            _write(f"{RED}No task description provided.{RESET}\n", file=sys.stderr)
+            return 1
 
-    # Ask a clarifying question
-    try:
-        scope = input(
-            f"\n{BOLD}Any specific files or areas of the codebase this should touch?{RESET}\n"
-            f"{DIM}(press Enter to skip){RESET}\n> "
-        ).strip()
-    except (EOFError, KeyboardInterrupt):
-        scope = ""
+        # Ask a clarifying question
+        try:
+            scope = input(
+                f"\n{BOLD}Any specific files or areas of the codebase this should touch?{RESET}\n"
+                f"{DIM}(press Enter to skip){RESET}\n> "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            scope = ""
 
-    # Build refined prompt
-    prompt = task
-    if scope:
-        prompt += f"\n\nScope: {scope}"
+        # Build refined prompt
+        prompt = task
+        if scope:
+            prompt += f"\n\nScope: {scope}"
 
     print(f"\n{DIM}Creating local pipeline...{RESET}")
 
@@ -524,6 +531,12 @@ def main() -> None:
         help="Repository directory name under ~/repos/ (e.g. 'egg'). "
         "Also accepts owner/repo format for direct specification.",
     )
+    parser.add_argument(
+        "-p",
+        "--prompt",
+        metavar="TEXT",
+        help="Task prompt for local mode (skips interactive input).",
+    )
 
     args = parser.parse_args()
 
@@ -564,9 +577,14 @@ def main() -> None:
 
     # Dispatch to mode
     if issue_number:
+        if args.prompt:
+            _write(
+                f"{YELLOW}Warning: --prompt is ignored in issue mode.{RESET}\n",
+                file=sys.stderr,
+            )
         exit_code = run_issue_mode(client, issue_number, repo)
     else:
-        exit_code = run_local_mode(client)
+        exit_code = run_local_mode(client, prompt=args.prompt)
 
     sys.exit(exit_code)
 

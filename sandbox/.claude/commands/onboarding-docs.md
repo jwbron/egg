@@ -1,108 +1,63 @@
 # Onboarding Documentation Generator
 
 Generate comprehensive documentation for an entire repository by running the
-onboarding doc prompt builder through the SDLC pipeline.
+onboarding doc prompt through the SDLC pipeline via `egg-sdlc`.
 
 ## Usage
 
 ```
-/onboarding-docs [<owner/repo>]
+/onboarding-docs [<repo_dir>]
 ```
 
 ## Workflow
 
-### Step 1: Validate Environment
+### Step 1: Determine Repository
 
-Check that the orchestrator is accessible:
-
-```bash
-curl -s http://egg-orchestrator:9849/api/v1/health | jq -r '.status'
-```
-
-If the orchestrator is not running, inform the user:
-- "The egg-orchestrator service is not running"
-- Suggest: `docker-compose up -d orchestrator`
-
-### Step 2: Determine Repository
-
-- If `<owner/repo>` was provided as an argument, use it as `GITHUB_REPOSITORY`.
+- If `<repo_dir>` was provided as an argument (e.g. `egg`), use it.
 - If no argument was provided, **ask the user** which repository to document
-  (in `owner/repo` format, e.g. `jwbron/egg`).
+  (directory name under `~/repos/`, e.g. `egg`).
 
-### Step 3: Ensure Repository Is Cloned
+### Step 2: Ensure Repository Exists
 
-Check if the repository already exists locally under `~/repos/`:
+Check if the repository exists locally under `~/repos/`:
 
 ```bash
-# Derive the repo directory name from GITHUB_REPOSITORY
-repo_name="${GITHUB_REPOSITORY#*/}"
-repo_path="$HOME/repos/${repo_name}"
+repo_path="$HOME/repos/${repo_dir}"
 
 if [ -d "$repo_path/.git" ]; then
     echo "Repository found at $repo_path"
 else
-    echo "Repository not found locally. Cloning..."
-    git clone "https://github.com/${GITHUB_REPOSITORY}.git" "$repo_path"
+    echo "Repository not found at $repo_path"
+    # Ask the user if they want to clone it
 fi
 ```
 
-### Step 4: Create and Start SDLC Pipeline
+### Step 3: Run SDLC Pipeline
 
-Create a local-mode pipeline via the orchestrator with an onboarding documentation prompt:
-
-```bash
-# Create pipeline
-curl -s -X POST http://egg-orchestrator:9849/api/v1/pipelines \
-  -H "Content-Type: application/json" \
-  -d "$(jq -n --arg repo "$GITHUB_REPOSITORY" '{
-    "mode": "local",
-    "repo": $repo,
-    "prompt": "Generate comprehensive onboarding documentation for this repository. Survey the codebase structure, identify key components, and create documentation that helps new contributors understand the project."
-  }')" | jq .
-```
-
-Save the returned `pipeline_id`. Then start it:
+Launch the pipeline using `egg-sdlc` with the `--prompt` and `--repo` flags:
 
 ```bash
-curl -s -X POST "http://egg-orchestrator:9849/api/v1/pipelines/<pipeline_id>/start" \
-  -H "Content-Type: application/json" -d '{}' | jq .
+egg-sdlc -r <repo_dir> --prompt "Generate comprehensive onboarding documentation for this repository. Survey the codebase structure, identify key components, and create documentation that helps new contributors understand the project."
 ```
 
-### Step 6: Stream Live Progress
+This handles orchestrator health checks, pipeline creation, DAG visualization,
+and HITL checkpoints automatically.
 
-After starting the pipeline, **immediately** run the pipeline watcher:
+## Customizing the Prompt
 
-```bash
-egg-pipeline-watch <pipeline_id>
-```
+You can refine the prompt to narrow scope. Examples:
 
-This streams live updates as the pipeline progresses through each phase. The
-watcher exits automatically when the pipeline reaches a terminal state.
-
-## Options
-
-You can pass additional environment variables when building the prompt:
-
-| Variable | Description |
-|----------|-------------|
-| `DRY_RUN=true` | Survey only — describe what docs would be created without making changes |
-| `INCLUDE_PATTERN="gateway/**"` | Limit scope to files matching this glob |
-| `EXCLUDE_DIRS="legacy,tmp"` | Additional directories to skip (comma-separated) |
-
-Example with scope limiting — include in the prompt:
-
-```
-Focus only on files matching the pattern: gateway/**
-```
+- Focus on a subdirectory: append `\n\nScope: gateway/**` to the prompt
+- Dry run (survey only): prepend `Survey only — describe what docs would be
+  created without making changes.` to the prompt
+- Exclude directories: append `\n\nExclude directories: legacy, tmp`
 
 ## Error Handling
 
 | Error | Action |
 |-------|--------|
-| Orchestrator unreachable | Check docker-compose status |
-| Repository not found | Verify owner/repo format and access permissions |
-| Pipeline already exists | Show existing pipeline status |
-| Build script fails | Check GITHUB_REPOSITORY is set correctly |
+| Orchestrator unreachable | `egg-sdlc` reports this automatically |
+| Repository not found | Verify the directory exists under `~/repos/` |
 
 ## Related Commands
 
