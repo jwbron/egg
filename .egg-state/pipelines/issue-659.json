@@ -174,17 +174,17 @@
         "approve",
         "request changes"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-15T04:05:44.919605",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-02-15T04:10:33.214213",
+      "resolution": "Approved",
       "timeout_seconds": 3600
     }
   ],
   "created_at": "2026-02-15T03:46:46.627479",
-  "updated_at": "2026-02-15T04:05:44.941973",
+  "updated_at": "2026-02-15T04:10:33.216762",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 21
+  "version": 22
 }
