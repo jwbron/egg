@@ -705,8 +705,8 @@ class TestDecisionPersistenceRegression:
         assert final.status == PipelineStatus.AWAITING_HUMAN
 
 
-class TestRunGitRetry:
-    """Tests for index.lock retry logic in _run_git."""
+class TestRunGitLocking:
+    """Tests for cross-process file locking and retry logic in _run_git."""
 
     def test_retry_succeeds_after_index_lock_error(self, tmp_path):
         """Test that _run_git retries on index.lock contention and succeeds."""
@@ -789,3 +789,65 @@ class TestRunGitRetry:
 
         store._cleanup_stale_locks()
         assert lock_file.exists()
+
+    def test_git_op_creates_lock_file(self, tmp_path):
+        """Test that _git_op creates the flock lock file on disk."""
+        worktree_dir = tmp_path / "wt"
+        worktree_dir.mkdir()
+        store = StateStore(tmp_path, worktree_dir=worktree_dir)
+        store._worktree = worktree_dir
+
+        lock_file = tmp_path / ".git-ops.lock"
+        assert not lock_file.exists()
+
+        with store._git_op():
+            assert lock_file.exists()
+
+    def test_git_op_reentrant(self, tmp_path):
+        """Test that _git_op can be nested without deadlocking."""
+        worktree_dir = tmp_path / "wt"
+        worktree_dir.mkdir()
+        store = StateStore(tmp_path, worktree_dir=worktree_dir)
+        store._worktree = worktree_dir
+
+        # Nested calls should succeed (reentrant RLock + flock depth tracking)
+        with store._git_op():
+            with store._git_op():
+                with store._git_op():
+                    pass
+            # Depth should still be >0 here, flock not yet released
+        # After all nesting exits, flock is released
+
+    def test_commit_state_holds_lock_across_git_calls(self, tmp_path):
+        """Test that _commit_state holds the lock for entire add→diff→commit."""
+        worktree_dir = tmp_path / "wt"
+        worktree_dir.mkdir()
+        store = StateStore(tmp_path, worktree_dir=worktree_dir)
+        store._worktree = worktree_dir
+
+        # Set up a pipeline file so _get_pipeline_path works
+        pipelines_dir = worktree_dir / ".egg-state" / "pipelines"
+        pipelines_dir.mkdir(parents=True)
+        (pipelines_dir / "issue-100.json").write_text("{}")
+
+        from models import Pipeline
+
+        pipeline = Pipeline(id="issue-100", issue_number=100, repo="test/repo", branch="egg/test")
+
+        depth_during_calls = []
+
+        original_run = subprocess.run
+
+        def tracking_run(*args, **kwargs):
+            # Record the flock nesting depth during each subprocess call.
+            # If compound locking works, depth should be >= 2 (outer _commit_state
+            # + inner _run_git).
+            depth_during_calls.append(StateStore._flock_depth)
+            return MagicMock(stdout="abc1234\n", returncode=0)
+
+        with patch("subprocess.run", side_effect=tracking_run):
+            store._commit_state(pipeline)
+
+        # All git calls should have happened at depth >= 2 (compound + inner)
+        assert len(depth_during_calls) >= 2  # at least add + diff (or add + diff + commit)
+        assert all(d >= 2 for d in depth_during_calls)
