@@ -3569,11 +3569,29 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 status_code=409,
             )
 
-        if pipeline.status in (PipelineStatus.COMPLETE, PipelineStatus.FAILED):
+        if pipeline.status == PipelineStatus.COMPLETE:
             return make_error_response(
-                f"Pipeline {pipeline_id} is already {pipeline.status.value}",
+                f"Pipeline {pipeline_id} is already complete",
                 status_code=409,
             )
+
+        if pipeline.status == PipelineStatus.FAILED:
+            # Reset the failed phase so it can be re-run
+            phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
+            if phase_execution.status == PipelineStatus.FAILED:
+                phase_execution.status = PipelineStatus.PENDING
+                phase_execution.started_at = None
+                phase_execution.completed_at = None
+                phase_execution.error = None
+                phase_execution.review_cycles = 0
+                phase_execution.hitl_review_cycles = 0
+                phase_execution.containers = []
+                logger.info(
+                    "Resetting failed phase for restart",
+                    pipeline_id=pipeline_id,
+                    phase=pipeline.current_phase.value,
+                )
+            pipeline.error = None
 
         # Mark pipeline as running
         pipeline.status = PipelineStatus.RUNNING
