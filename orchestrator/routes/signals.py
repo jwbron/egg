@@ -31,7 +31,7 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from dispatch import create_dispatcher
+from dispatch import create_dispatcher, map_agent_role_to_contract_role
 from egg_contracts.loader import ContractNotFoundError
 from handoffs import AgentOutput, save_agent_output
 from models import AgentRole
@@ -164,16 +164,24 @@ def handle_complete_signal(
         # Contracts live in per-pipeline worktrees, not the main repo.
         contract_path = resolve_worktree_path(pipeline_id, repo_path)
 
-        # Create dispatcher and record completion
-        dispatcher = create_dispatcher(pipeline, contract_path)
-
         commit = data.get("commit")
         outputs = data.get("handoff_data", {})
 
-        dispatcher.complete_agent(agent_role, commit=commit, outputs=outputs)
-        dispatcher.save_contract()
+        # Only interact with the contract dispatcher for roles that have
+        # a contract mapping (multi-agent phases: plan, implement).
+        # Single-agent roles like REFINER and REVIEWER_REFINE don't
+        # participate in contract orchestration.
+        has_contract_role = map_agent_role_to_contract_role(agent_role) is not None
 
-        # Save agent output
+        if has_contract_role:
+            dispatcher = create_dispatcher(pipeline, contract_path)
+            dispatcher.complete_agent(agent_role, commit=commit, outputs=outputs)
+            dispatcher.save_contract()
+            is_complete = dispatcher.is_complete()
+        else:
+            is_complete = True
+
+        # Save agent output (independent of contract — used for phase handoffs)
         if data.get("handoff_data") or data.get("files_changed"):
             output = AgentOutput(
                 role=agent_role,
@@ -190,9 +198,6 @@ def handle_complete_signal(
             role=agent_role.value,
             commit=commit,
         )
-
-        # Check if all agents are complete
-        is_complete = dispatcher.is_complete()
 
         return make_success_response(
             "Completion recorded",
@@ -309,10 +314,15 @@ def handle_error_signal(
         # Contracts live in per-pipeline worktrees, not the main repo.
         contract_path = resolve_worktree_path(pipeline_id, repo_path)
 
-        # Mark agent as failed
-        dispatcher = create_dispatcher(pipeline, contract_path)
-        dispatcher.fail_agent(agent_role, error_message)
-        dispatcher.save_contract()
+        # Only interact with the contract dispatcher for roles that have
+        # a contract mapping.  Single-agent roles (REFINER, REVIEWER_REFINE,
+        # etc.) don't participate in contract orchestration.
+        has_contract_role = map_agent_role_to_contract_role(agent_role) is not None
+
+        if has_contract_role:
+            dispatcher = create_dispatcher(pipeline, contract_path)
+            dispatcher.fail_agent(agent_role, error_message)
+            dispatcher.save_contract()
 
         logger.error(
             "Agent failed",
