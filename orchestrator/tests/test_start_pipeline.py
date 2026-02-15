@@ -21,7 +21,7 @@ sys.modules.setdefault("docker", MagicMock())
 sys.modules.setdefault("docker.errors", MagicMock())
 sys.modules.setdefault("docker.types", MagicMock())
 
-from models import Pipeline, PipelinePhase, PipelineStatus
+from models import AgentExecution, Pipeline, PipelinePhase, PipelineStatus
 
 
 @pytest.fixture
@@ -61,6 +61,12 @@ def _make_pipeline(status, phase=PipelinePhase.REFINE, phase_status=None):
             execution.error = "Container exited with code 1"
             execution.review_cycles = 1
             pipeline.error = "Container exited with code 1"
+        # Add stale agent/artifact state to verify reset
+        execution.agents = [
+            AgentExecution(role="coder", container_id="old-container")
+        ]
+        execution.artifacts = {"pr_url": "https://github.com/old/pr"}
+        execution.containers = [MagicMock()]
     return pipeline
 
 
@@ -158,6 +164,102 @@ class TestStartFailedPipeline:
         mock_store.save_pipeline.assert_called_once_with(pipeline)
 
 
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_clears_agents_and_artifacts(
+        self, mock_get_repo, mock_resolve, mock_run, client
+    ):
+        mock_get_repo.return_value = Path("/repo")
+        pipeline = _make_pipeline(
+            PipelineStatus.FAILED,
+            phase=PipelinePhase.REFINE,
+            phase_status=PipelineStatus.FAILED,
+        )
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        client.post("/api/v1/pipelines/issue-42/start")
+
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        assert phase_exec.agents == []
+        assert phase_exec.artifacts == {}
+        assert phase_exec.containers == []
+
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_bumps_created_at(
+        self, mock_get_repo, mock_resolve, mock_run, client
+    ):
+        mock_get_repo.return_value = Path("/repo")
+        pipeline = _make_pipeline(
+            PipelineStatus.FAILED,
+            phase=PipelinePhase.REFINE,
+            phase_status=PipelineStatus.FAILED,
+        )
+        original_created_at = pipeline.created_at
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        client.post("/api/v1/pipelines/issue-42/start")
+
+        assert pipeline.created_at > original_created_at
+
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_calls_run_pipeline(
+        self, mock_get_repo, mock_resolve, mock_run, client
+    ):
+        mock_get_repo.return_value = Path("/repo")
+        pipeline = _make_pipeline(
+            PipelineStatus.FAILED,
+            phase=PipelinePhase.REFINE,
+            phase_status=PipelineStatus.FAILED,
+        )
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        client.post("/api/v1/pipelines/issue-42/start")
+
+        mock_run.assert_called_once_with("issue-42", Path("/repo"))
+
+
+class TestStartFailedPipelineWithRunningPhase:
+    """Pipeline-level failure with phase still in RUNNING state."""
+
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_resets_running_phase_to_pending(
+        self, mock_get_repo, mock_resolve, mock_run, client
+    ):
+        mock_get_repo.return_value = Path("/repo")
+        pipeline = _make_pipeline(
+            PipelineStatus.FAILED,
+            phase=PipelinePhase.REFINE,
+            phase_status=PipelineStatus.RUNNING,
+        )
+        # Simulate pipeline-level failure (pipeline.error set, but phase not FAILED)
+        pipeline.error = "Unexpected orchestrator error"
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        assert phase_exec.status == PipelineStatus.PENDING
+        assert phase_exec.started_at is None
+        assert phase_exec.agents == []
+        assert phase_exec.artifacts == {}
+
+
 class TestStartCompletePipeline:
     """Completed pipelines cannot be restarted."""
 
@@ -175,3 +277,24 @@ class TestStartCompletePipeline:
         resp = client.post("/api/v1/pipelines/issue-42/start")
 
         assert resp.status_code == 409
+
+
+class TestStartCancelledPipeline:
+    """Cancelled pipelines cannot be restarted."""
+
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_cancelled_pipeline_returns_409(
+        self, mock_get_repo, mock_resolve, client
+    ):
+        mock_get_repo.return_value = Path("/repo")
+        pipeline = _make_pipeline(PipelineStatus.CANCELLED)
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 409
+        data = json.loads(resp.data)
+        assert "cancelled" in data["message"].lower()
