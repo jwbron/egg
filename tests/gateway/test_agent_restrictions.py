@@ -198,3 +198,92 @@ class TestValidateAgentPush:
         assert not result.allowed
         assert len(result.blocked_files) == 1
         assert ".egg-state/contracts/123.json" in result.blocked_files
+
+
+class TestRefinerPatterns:
+    """Test REFINER_PATTERNS can_write enforcement at the gateway level.
+
+    The refiner uses extension-based blocks (e.g. **/*.py) rather than
+    directory-based blocks, so these tests verify pattern matching works
+    for various source code extensions and edge cases.
+    """
+
+    def test_refiner_can_write_drafts(self):
+        """Refiner should be able to write to drafts directory."""
+        pattern = get_agent_pattern("refiner")
+        assert pattern is not None
+        assert pattern.can_write(".egg-state/drafts/analysis.md")
+        assert pattern.can_write(".egg-state/drafts/refine-output.json")
+
+    def test_refiner_can_write_agent_outputs(self):
+        """Refiner should be able to write to agent-outputs directory."""
+        pattern = get_agent_pattern("refiner")
+        assert pattern is not None
+        assert pattern.can_write(".egg-state/agent-outputs/refiner-output.json")
+
+    def test_refiner_blocked_from_source_code_extensions(self):
+        """Refiner must not write files with source code extensions."""
+        pattern = get_agent_pattern("refiner")
+        assert pattern is not None
+        assert not pattern.can_write("src/module.py")
+        assert not pattern.can_write("lib/component.ts")
+        assert not pattern.can_write("lib/component.tsx")
+        assert not pattern.can_write("src/app.js")
+        assert not pattern.can_write("src/app.jsx")
+        assert not pattern.can_write("cmd/main.go")
+        assert not pattern.can_write("src/Main.java")
+
+    def test_refiner_blocked_from_nested_source_files(self):
+        """Extension-based blocks should match at any directory depth."""
+        pattern = get_agent_pattern("refiner")
+        assert pattern is not None
+        assert not pattern.can_write("deeply/nested/dir/module.py")
+        assert not pattern.can_write("a/b/c/d/file.ts")
+
+    def test_refiner_blocked_from_contracts(self):
+        """Refiner should not be able to write to contracts directory."""
+        pattern = get_agent_pattern("refiner")
+        assert pattern is not None
+        assert not pattern.can_write(".egg-state/contracts/123.json")
+
+    def test_refiner_blocked_outside_allowed_directories(self):
+        """Refiner should not write to arbitrary directories."""
+        pattern = get_agent_pattern("refiner")
+        assert pattern is not None
+        assert not pattern.can_write("README.md")
+        assert not pattern.can_write("docs/guide.md")
+
+
+class TestReviewerRefinePatterns:
+    """Test REVIEWER_REFINE_PATTERNS can_write enforcement at the gateway level."""
+
+    def test_reviewer_refine_can_write_reviews(self):
+        """Reviewer refine should be able to write to reviews directory."""
+        pattern = get_agent_pattern("reviewer_refine")
+        assert pattern is not None
+        assert pattern.can_write(".egg-state/reviews/refine-review.md")
+
+    def test_reviewer_refine_can_write_agent_outputs(self):
+        """Reviewer refine should be able to write to agent-outputs."""
+        pattern = get_agent_pattern("reviewer_refine")
+        assert pattern is not None
+        assert pattern.can_write(".egg-state/agent-outputs/review-output.json")
+
+    def test_reviewer_refine_blocked_from_source(self):
+        """Reviewer refine should not write to source directories."""
+        pattern = get_agent_pattern("reviewer_refine")
+        assert pattern is not None
+        assert not pattern.can_write("src/module.py")
+        assert not pattern.can_write("lib/utils.ts")
+
+    def test_reviewer_refine_blocked_from_contracts(self):
+        """Reviewer refine should not write to contracts."""
+        pattern = get_agent_pattern("reviewer_refine")
+        assert pattern is not None
+        assert not pattern.can_write(".egg-state/contracts/123.json")
+
+    def test_reviewer_refine_blocked_from_drafts(self):
+        """Reviewer refine should not write to drafts (only refiner can)."""
+        pattern = get_agent_pattern("reviewer_refine")
+        assert pattern is not None
+        assert not pattern.can_write(".egg-state/drafts/analysis.md")
