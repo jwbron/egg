@@ -593,10 +593,10 @@
     },
     "pr": {
       "phase": "pr",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-02-15T20:28:32.492835",
       "work_started_at": "2026-02-15T20:28:32.510555",
-      "completed_at": null,
+      "completed_at": "2026-02-15T20:30:01.876689",
       "containers": [
         {
           "container_id": "167ebdc7802fa209cd170f6f3122cad677c0a15b387f1dbc247eb60f5a3285da",
@@ -660,9 +660,9 @@
     }
   ],
   "created_at": "2026-02-15T18:46:27.445656",
-  "updated_at": "2026-02-15T20:30:01.158099",
+  "updated_at": "2026-02-15T20:30:01.876750",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 78
+  "version": 79
 }
