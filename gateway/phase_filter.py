@@ -602,8 +602,8 @@ class PhaseFilter:
         proper separation of concerns in the SDLC pipeline.
 
         SECURITY: This is a critical control for pipeline integrity:
-        - refine/plan phases can only modify .egg-state/ files
-        - implement phase can modify code but not .egg-state/ (except checkpoints)
+        - refine/plan phases can only modify .egg-state/ files (contracts, drafts, checkpoints, agent-outputs, reviews)
+        - implement phase can modify code but not .egg-state/ (except checkpoints and agent-outputs)
         - pr phase has full access
 
         Args:
@@ -873,8 +873,8 @@ def check_phase_file_restrictions(
     separation of concerns in the SDLC pipeline.
 
     SECURITY: Enforces phase-based file access control:
-    - refine/plan: Can only push .egg-state/ files (contracts, drafts, checkpoints)
-    - implement: Can push code but not .egg-state/ (except checkpoints)
+    - refine/plan: Can only push .egg-state/ files (contracts, drafts, checkpoints, agent-outputs, reviews)
+    - implement: Can push code but not .egg-state/ (except checkpoints and agent-outputs)
     - pr: Can push everything
 
     Args:
