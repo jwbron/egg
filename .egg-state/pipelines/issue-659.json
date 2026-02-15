@@ -229,6 +229,16 @@
           "exit_code": 0,
           "agent_role": "reviewer_plan",
           "session_token": null
+        },
+        {
+          "container_id": "d8a48e93fb75ad8d1d0889608214d05258ffbc5ce728d3a2687ae12c25167e5c",
+          "container_name": "egg-sandbox-egg-issue-659-architect",
+          "status": "running",
+          "started_at": "2026-02-15T05:02:54.763988",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "architect",
+          "session_token": null
         }
       ],
       "agents": [
@@ -303,6 +313,18 @@
           "error": null,
           "retry_count": 0,
           "conflicts": []
+        },
+        {
+          "role": "architect",
+          "status": "running",
+          "container_id": "d8a48e93fb75ad8d1d0889608214d05258ffbc5ce728d3a2687ae12c25167e5c",
+          "started_at": "2026-02-15T05:02:54.763993",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
         }
       ],
       "review_cycles": 1,
@@ -328,9 +350,9 @@
     }
   ],
   "created_at": "2026-02-15T04:15:52.670515",
-  "updated_at": "2026-02-15T05:02:54.096452",
+  "updated_at": "2026-02-15T05:02:54.764053",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 38
+  "version": 39
 }
