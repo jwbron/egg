@@ -6,48 +6,12 @@
     "url": "https://github.com/jwbron/egg/issues/659"
   },
   "pipeline_id": null,
-  "current_phase": "plan",
-  "acceptance_criteria": [
-    {
-      "id": "ac-1",
-      "description": "[TASK-1-1..1-4] Shared prompt criteria files exist in shared/prompts/ with unified content from both GHA and orchestrator sources",
-      "verified": false
-    },
-    {
-      "id": "ac-2",
-      "description": "[TASK-2-1..2-4] GHA prompt scripts read criteria from shared files with fallback to inline defaults",
-      "verified": false
-    },
-    {
-      "id": "ac-3",
-      "description": "[TASK-3-1..3-4] Orchestrator criteria functions read from shared files with fallback to inline defaults",
-      "verified": false
-    },
-    {
-      "id": "ac-4",
-      "description": "[TASK-3-1,3-3,3-4] .egg/*-rules.md user-override mechanism works in both GHA and orchestrator",
-      "verified": false
-    },
-    {
-      "id": "ac-5",
-      "description": "[TASK-4-1] CLAUDE.md excludes contract.md and orchestrator.md for non-SDLC invocations",
-      "verified": false
-    },
-    {
-      "id": "ac-6",
-      "description": "[TASK-4-2] Dead code (redundant is_local branches) removed from orchestrator",
-      "verified": false
-    },
-    {
-      "id": "ac-7",
-      "description": "[TASK-5-1..5-4] All existing tests pass; new tests added for shared file loading, fallback, and conditional assembly",
-      "verified": false
-    }
-  ],
+  "current_phase": "refine",
+  "acceptance_criteria": [],
   "phases": [
     {
       "id": "phase-1",
-      "name": "Create shared prompt criteria files",
+      "name": "Implementation",
       "status": "pending",
       "review_cycles": 0,
       "max_cycles": 3,
@@ -55,319 +19,27 @@
       "escalation_reason": null,
       "tasks": [
         {
-          "id": "task-1-1",
-          "description": "Create shared/prompts/code-review-criteria.md by merging content from action/build-review-prompt.sh (lines 30-77) and orchestrator _get_code_review_criteria() (lines 737-759). Use GHA version as baseline.",
+          "id": "task-1",
+          "description": "Breakdown",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "File exists with all 4 review categories, 'How to Review' and 'Skip' sections. Valid markdown.",
-          "files_affected": [
-            "shared/prompts/code-review-criteria.md"
-          ],
+          "acceptance_criteria": "",
+          "files_affected": [],
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false
         },
         {
-          "id": "task-1-2",
-          "description": "Create shared/prompts/agent-design-criteria.md by merging content from action/build-agent-mode-design-review-prompt.sh (lines 55-127) and orchestrator _get_agent_design_criteria() (lines 720-734).",
+          "id": "task-2",
+          "description": "Risk Assessment",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "File exists with all 5 anti-patterns and 'What to Skip' section. Valid markdown.",
-          "files_affected": [
-            "shared/prompts/agent-design-criteria.md"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        },
-        {
-          "id": "task-1-3",
-          "description": "Create shared/prompts/contract-review-criteria.md by merging content from action/build-contract-verification-prompt.sh (lines 35-64) and orchestrator _get_contract_review_criteria() (lines 762-783).",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "File exists with contract verification checklist including CLI commands. Valid markdown.",
-          "files_affected": [
-            "shared/prompts/contract-review-criteria.md"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        },
-        {
-          "id": "task-1-4",
-          "description": "Create shared/prompts/autofixer-rules.md by merging content from action/build-autofixer-prompt.sh (lines 32-46) and orchestrator _build_autofix_prompt() (lines 1977-1986).",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "File exists with auto-fixable and report-only categories including lock file and build failure items. Valid markdown.",
-          "files_affected": [
-            "shared/prompts/autofixer-rules.md"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        }
-      ],
-      "review_feedback": []
-    },
-    {
-      "id": "phase-2",
-      "name": "Update GHA prompt builders to use shared files",
-      "status": "pending",
-      "review_cycles": 0,
-      "max_cycles": 3,
-      "escalated": false,
-      "escalation_reason": null,
-      "tasks": [
-        {
-          "id": "task-2-1",
-          "description": "Update action/build-review-prompt.sh to read from shared/prompts/code-review-criteria.md. Keep .egg/review-rules.md override. Add inline fallback.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Script reads shared file when available; user override takes priority; inline fallback exists; equivalent output.",
-          "files_affected": [
-            "action/build-review-prompt.sh"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        },
-        {
-          "id": "task-2-2",
-          "description": "Update action/build-autofixer-prompt.sh to read from shared/prompts/autofixer-rules.md. Keep .egg/autofixer-rules.md override. Add inline fallback.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Script reads shared file when available; user override takes priority; inline fallback exists; equivalent output.",
-          "files_affected": [
-            "action/build-autofixer-prompt.sh"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        },
-        {
-          "id": "task-2-3",
-          "description": "Update action/build-agent-mode-design-review-prompt.sh to read from shared/prompts/agent-design-criteria.md. Add inline fallback.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Script reads shared file when available; inline fallback exists; equivalent output.",
-          "files_affected": [
-            "action/build-agent-mode-design-review-prompt.sh"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        },
-        {
-          "id": "task-2-4",
-          "description": "Update action/build-contract-verification-prompt.sh to read from shared/prompts/contract-review-criteria.md. Keep .egg/contract-rules.md override. Add inline fallback.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Script reads shared file when available; user override takes priority; inline fallback exists; equivalent output.",
-          "files_affected": [
-            "action/build-contract-verification-prompt.sh"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        }
-      ],
-      "review_feedback": []
-    },
-    {
-      "id": "phase-3",
-      "name": "Update orchestrator to use shared files",
-      "status": "pending",
-      "review_cycles": 0,
-      "max_cycles": 3,
-      "escalated": false,
-      "escalation_reason": null,
-      "tasks": [
-        {
-          "id": "task-3-1",
-          "description": "Update _get_code_review_criteria() to read from shared/prompts/code-review-criteria.md. Add .egg/review-rules.md user override support. Add inline fallback with warning log.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Function reads shared file; user override takes priority; falls back to inline default with warning; tests pass.",
-          "files_affected": [
-            "orchestrator/routes/pipelines.py"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        },
-        {
-          "id": "task-3-2",
-          "description": "Update _get_agent_design_criteria() to read from shared/prompts/agent-design-criteria.md. Add inline fallback with warning log.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Function reads shared file; falls back to inline default with warning; tests pass.",
-          "files_affected": [
-            "orchestrator/routes/pipelines.py"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        },
-        {
-          "id": "task-3-3",
-          "description": "Update _get_contract_review_criteria() to read from shared/prompts/contract-review-criteria.md. Add .egg/contract-rules.md user override. Add inline fallback with warning log.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Function reads shared file; user override takes priority; falls back to inline default with warning; tests pass.",
-          "files_affected": [
-            "orchestrator/routes/pipelines.py"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        },
-        {
-          "id": "task-3-4",
-          "description": "Update _build_autofix_prompt() autofixer rules to read from shared/prompts/autofixer-rules.md. Add .egg/autofixer-rules.md user override. Add inline fallback with warning log.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Function reads shared file; user override takes priority; falls back to inline default with warning; tests pass.",
-          "files_affected": [
-            "orchestrator/routes/pipelines.py"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        }
-      ],
-      "review_feedback": []
-    },
-    {
-      "id": "phase-4",
-      "name": "Conditional CLAUDE.md assembly and cleanup",
-      "status": "pending",
-      "review_cycles": 0,
-      "max_cycles": 3,
-      "escalated": false,
-      "escalation_reason": null,
-      "tasks": [
-        {
-          "id": "task-4-1",
-          "description": "Modify setup_agent_rules() in sandbox/entrypoint.py to conditionally exclude contract.md and orchestrator.md when EGG_PIPELINE_ID is not set.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "All rules included when EGG_PIPELINE_ID is set. contract.md and orchestrator.md excluded when unset. ~5.8 KB savings for non-SDLC invocations.",
-          "files_affected": [
-            "sandbox/entrypoint.py"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        },
-        {
-          "id": "task-4-2",
-          "description": "Remove redundant is_local branches in _build_phase_prompt() for refine and plan phases where both branches produce identical output.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Dead code removed. Behavior unchanged. No test regressions.",
-          "files_affected": [
-            "orchestrator/routes/pipelines.py"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        }
-      ],
-      "review_feedback": []
-    },
-    {
-      "id": "phase-5",
-      "name": "Tests",
-      "status": "pending",
-      "review_cycles": 0,
-      "max_cycles": 3,
-      "escalated": false,
-      "escalation_reason": null,
-      "tasks": [
-        {
-          "id": "task-5-1",
-          "description": "Update tests/action/test_build_review_prompt.py for shared file loading, fallback, and user override.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Tests verify shared file content in output; test fallback; test user override priority. All pass.",
-          "files_affected": [
-            "tests/action/test_build_review_prompt.py"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        },
-        {
-          "id": "task-5-2",
-          "description": "Update tests/action/test_build_agent_mode_design_review_prompt.py for shared file loading and fallback.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Tests verify shared file content in output; test fallback. All pass.",
-          "files_affected": [
-            "tests/action/test_build_agent_mode_design_review_prompt.py"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        },
-        {
-          "id": "task-5-3",
-          "description": "Update orchestrator/tests/test_pipeline_prompts.py for shared file reads, fallback, and user override in orchestrator criteria functions.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Tests verify shared file reads for all criteria functions; test fallback; test user override. All pass.",
-          "files_affected": [
-            "orchestrator/tests/test_pipeline_prompts.py"
-          ],
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false
-        },
-        {
-          "id": "task-5-4",
-          "description": "Add test for conditional CLAUDE.md assembly based on EGG_PIPELINE_ID.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Tests verify conditional inclusion/exclusion. Both paths tested. All pass.",
-          "files_affected": [
-            "tests/sandbox/test_entrypoint.py"
-          ],
+          "acceptance_criteria": "",
+          "files_affected": [],
           "review_cycles": 0,
           "max_cycles": 3,
           "escalated": false
@@ -389,9 +61,9 @@
   "agent_executions": [
     {
       "role": "coder",
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "complete",
+      "started_at": "2026-02-15T00:21:44.012414Z",
+      "completed_at": "2026-02-15T00:36:38.197572Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
@@ -401,9 +73,9 @@
     },
     {
       "role": "tester",
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "complete",
+      "started_at": "2026-02-15T00:36:38.204561Z",
+      "completed_at": "2026-02-15T00:44:00.154834Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
@@ -413,9 +85,9 @@
     },
     {
       "role": "documenter",
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "complete",
+      "started_at": "2026-02-15T00:36:38.206812Z",
+      "completed_at": "2026-02-15T00:40:53.155052Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
@@ -425,6 +97,18 @@
     },
     {
       "role": "integrator",
+      "status": "complete",
+      "started_at": "2026-02-15T00:44:00.160268Z",
+      "completed_at": "2026-02-15T00:49:38.741964Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_unified",
       "status": "pending",
       "started_at": null,
       "completed_at": null,
@@ -436,11 +120,11 @@
       "conflicts": []
     },
     {
-      "role": "architect",
-      "status": "complete",
+      "role": "reviewer_code",
+      "status": "pending",
       "started_at": null,
-      "completed_at": "2026-02-15T00:13:01.234139Z",
-      "commit": "ce80007a",
+      "completed_at": null,
+      "commit": null,
       "checkpoint_id": null,
       "outputs": {},
       "error": null,
@@ -448,11 +132,23 @@
       "conflicts": []
     },
     {
-      "role": "task_planner",
-      "status": "complete",
+      "role": "reviewer_contract",
+      "status": "pending",
       "started_at": null,
-      "completed_at": "2026-02-15T00:19:55.963724Z",
-      "commit": "d784a473",
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_agent_design",
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
       "checkpoint_id": null,
       "outputs": {},
       "error": null,
