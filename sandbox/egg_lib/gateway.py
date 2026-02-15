@@ -458,6 +458,10 @@ def create_session(
     uid: int | None = None,
     gid: int | None = None,
     phase: str | None = None,
+    issue_number: int | None = None,
+    pr_number: int | None = None,
+    pipeline_id: str | None = None,
+    agent_role: str | None = None,
 ) -> tuple[bool, str | None, dict[str, str], list[str], list[str]]:
     """Create a session with atomic visibility query, filtering, and worktree creation.
 
@@ -475,6 +479,10 @@ def create_session(
         uid: User ID to set worktree ownership to
         gid: Group ID to set worktree ownership to
         phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
+        issue_number: GitHub issue number for checkpoint metadata
+        pr_number: GitHub PR number for checkpoint metadata
+        pipeline_id: Pipeline run ID for multi-agent correlation
+        agent_role: Agent role (e.g., "coder", "tester") for checkpoint metadata
 
     Returns:
         Tuple of (success, session_token, worktrees_dict, filtered_repos, errors_list)
@@ -495,6 +503,14 @@ def create_session(
         request_data["gid"] = gid
     if phase is not None:
         request_data["phase"] = phase
+    if issue_number is not None:
+        request_data["issue_number"] = issue_number
+    if pr_number is not None:
+        request_data["pr_number"] = pr_number
+    if pipeline_id is not None:
+        request_data["pipeline_id"] = pipeline_id
+    if agent_role is not None:
+        request_data["agent_role"] = agent_role
 
     success_flag, response = launcher_api_call(
         "/api/v1/sessions/create",

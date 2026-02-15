@@ -398,6 +398,7 @@ class SessionManager:
         issue_number: int | None = None,
         pr_number: int | None = None,
         pipeline_id: str | None = None,
+        agent_role: str | None = None,
     ) -> tuple[str, Session]:
         """
         Register a new session for a container.
@@ -410,6 +411,7 @@ class SessionManager:
             issue_number: Optional GitHub issue number for checkpoint linkage
             pr_number: Optional GitHub PR number for checkpoint linkage
             pipeline_id: Optional pipeline run ID for multi-agent correlation
+            agent_role: Optional agent role (e.g., "coder", "tester") for checkpoint metadata
 
         Returns:
             Tuple of (session_token, Session)
@@ -432,6 +434,7 @@ class SessionManager:
             issue_number=issue_number,
             pr_number=pr_number,
             pipeline_id=pipeline_id,
+            agent_role=agent_role,
         )
 
         with self._lock:

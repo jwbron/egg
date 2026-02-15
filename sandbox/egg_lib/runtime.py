@@ -375,6 +375,9 @@ def _setup_session_repos(
     mount_args: list[str],
     quiet: bool = False,
     phase: str | None = None,
+    issue_number: int | None = None,
+    pipeline_id: str | None = None,
+    agent_role: str | None = None,
 ) -> tuple[str | None, dict[str, Path], list[str]]:
     """Configure repository mounts using session-based visibility filtering.
 
@@ -391,6 +394,9 @@ def _setup_session_repos(
         mount_args: List to append mount arguments to
         quiet: Suppress output
         phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
+        issue_number: GitHub issue number for checkpoint metadata
+        pipeline_id: Pipeline run ID for multi-agent correlation
+        agent_role: Agent role (e.g., "coder", "tester") for checkpoint metadata
 
     Returns:
         Tuple of (session_token, repos_dict, filtered_repos)
@@ -434,6 +440,9 @@ def _setup_session_repos(
         uid=os.getuid(),
         gid=os.getgid(),
         phase=phase,
+        issue_number=issue_number,
+        pipeline_id=pipeline_id,
+        agent_role=agent_role,
     )
 
     if errors and not quiet:
@@ -579,8 +588,12 @@ def run_claude(
             info(f"Pre-allocated IP: {container_ip}")
 
         # Use session-based repo setup with visibility filtering
-        # Pass pipeline phase from environment for phase-based operation filtering
+        # Pass pipeline phase and checkpoint metadata from environment
         pipeline_phase = os.environ.get("EGG_PIPELINE_PHASE")
+        issue_number_str = os.environ.get("EGG_ISSUE_NUMBER")
+        issue_number = int(issue_number_str) if issue_number_str else None
+        pipeline_id = os.environ.get("EGG_PIPELINE_ID")
+        agent_role = os.environ.get("EGG_AGENT_ROLE")
         session_token, repos, _filtered_repos = _setup_session_repos(
             container_id=container_id,
             container_ip=container_ip,
@@ -588,6 +601,9 @@ def run_claude(
             mount_args=mount_args,
             quiet=quiet,
             phase=pipeline_phase,
+            issue_number=issue_number,
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
         )
 
         if not session_token:
@@ -855,8 +871,12 @@ def exec_in_new_container(
             info(f"Pre-allocated IP: {container_ip}")
 
         # Use session-based repo setup with visibility filtering
-        # Pass pipeline phase from environment for phase-based operation filtering
+        # Pass pipeline phase and checkpoint metadata from environment
         pipeline_phase = os.environ.get("EGG_PIPELINE_PHASE")
+        issue_number_str = os.environ.get("EGG_ISSUE_NUMBER")
+        issue_number = int(issue_number_str) if issue_number_str else None
+        pipeline_id = os.environ.get("EGG_PIPELINE_ID")
+        agent_role = os.environ.get("EGG_AGENT_ROLE")
         session_token, repos, _filtered_repos = _setup_session_repos(
             container_id=container_id,
             container_ip=container_ip,
@@ -864,6 +884,9 @@ def exec_in_new_container(
             mount_args=mount_args,
             quiet=quiet,
             phase=pipeline_phase,
+            issue_number=issue_number,
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
         )
 
         if not session_token:
