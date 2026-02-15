@@ -29,8 +29,9 @@ Review criteria for each workflow are defined in `shared/prompts/` as markdown f
 | `shared/prompts/agent-design-criteria.md` | Design Review, orchestrator reviewers |
 | `shared/prompts/autofixer-rules.md` | Check Autofixer |
 | `shared/prompts/contract-review-criteria.md` | Contract Verification, orchestrator reviewers |
+| `shared/prompts/onboarding-docs-prompt.md` | Documentation Onboarding (`egg-onboarding-docs`) |
 
-Repositories can override criteria by placing a custom file in `.egg/` (e.g., `.egg/review-rules.md` overrides code review criteria).
+Repositories can override criteria by placing a custom file in `.egg/` (e.g., `.egg/review-rules.md` overrides code review criteria, `.egg/onboarding-rules.md` overrides onboarding documentation rules).
 
 ## AI Code Review
 
@@ -412,26 +413,47 @@ and architecture docs.
 ## Documentation Onboarding
 
 **CLI script:** `egg-onboarding-docs` ([`sandbox/bin/egg-onboarding-docs`](../../sandbox/bin/egg-onboarding-docs))
+**Prompt file:** [`shared/prompts/onboarding-docs-prompt.md`](../../shared/prompts/onboarding-docs-prompt.md)
 
-Complementary to the incremental doc-updater, the onboarding capability generates comprehensive documentation for an entire repository from scratch. This is useful for bootstrapping documentation on existing codebases or creating complete documentation sets for new projects.
+Complementary to the incremental doc-updater, the onboarding capability generates
+index-based documentation for an entire repository from scratch. While the doc-updater
+maintains documentation incrementally as code changes, onboarding creates the initial
+structure — the `docs/index.md` navigation hub, component READMEs, and cross-references
+that the doc-updater then keeps current.
 
 ### How It Works
 
-Unlike the doc-updater (which reacts to individual commits), onboarding is a one-time or periodic "bootstrap" that documents an entire codebase. The `egg-onboarding-docs` script passes a documentation prompt into `egg-sdlc --prompt`, which handles the full SDLC pipeline lifecycle (DAG visualization, HITL checkpoints, pipeline control).
+The `egg-onboarding-docs` script reads the documentation standard from
+`shared/prompts/onboarding-docs-prompt.md` and passes it to `egg-sdlc --prompt`.
+The prompt defines the "pull, not push" documentation philosophy — `docs/index.md` as
+a navigation hub, component READMEs alongside code, task-specific guide tables, and
+writing style guidelines.
 
 ### Usage
 
 ```
-egg-onboarding-docs <repo_dir>
+egg-onboarding-docs [OPTIONS] <repo_dir>
 ```
 
-Example:
+| Flag | Purpose |
+|------|---------|
+| `--dry-run` | Survey the codebase and report what documentation would be created, without writing files or opening a PR |
+| `--scope <pattern>` | Limit documentation to files matching the pattern (e.g. `"src/api/**"`) |
+| `-h, --help` | Show help message |
+
+Examples:
 
 ```bash
-egg-onboarding-docs egg
+egg-onboarding-docs my-project              # Full onboarding
+egg-onboarding-docs --dry-run my-project    # Survey only
+egg-onboarding-docs --scope "lib/" my-project  # Scope to lib/
 ```
 
-This validates the repository exists under `~/repos/`, then delegates to `egg-sdlc -r <repo_dir> --prompt "..."` with a documentation-focused prompt.
+### Per-Repository Customization
+
+Place a `.egg/onboarding-rules.md` file in the target repository to override or
+extend the default documentation standard. These rules are appended to the prompt
+and take precedence over the defaults.
 
 ### Output Structure
 
