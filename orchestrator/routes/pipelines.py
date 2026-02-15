@@ -2479,10 +2479,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     This runs in a background thread. For each phase it:
     1. Spawns a worker (CODER) container — or multi-agent wave execution
        for implement and plan phases when multi_agent is enabled
-    2. For reviewed phases (refine, implement, plan): reads reviewer
-       verdicts and loops back with feedback if revision is needed.
-       Multi-agent phases run reviewers as part of wave execution;
-       single-agent phases (refine) spawn reviewers after the worker.
+    2. For reviewed phases (refine, implement, plan): spawns reviewers
+       as a separate step after all workers (and checkers) complete,
+       then reads reviewer verdicts and loops back with feedback if
+       revision is needed.
     3. Advances to the next phase once approved (or circuit-breaker hit)
 
     Args:
