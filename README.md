@@ -129,7 +129,7 @@ During the **implement** phase, work is divided across these specialized agents:
 
 ### Reviewer Roles
 
-Reviewers run as part of multi-agent wave execution in refine, plan, and implement phases:
+Reviewers run as a separate step after workers complete in refine, plan, and implement phases:
 
 **Refine Phase:**
 - **Refine Reviewer**: Analysis quality and completeness
@@ -146,7 +146,7 @@ Reviewers run as part of multi-agent wave execution in refine, plan, and impleme
 - **Contract Reviewer**: Verify acceptance criteria met, task completion status
 - **Agent Design Reviewer**: Check for agent-mode anti-patterns, autonomous operation capability
 
-**Execution model**: Reviewers run in parallel as the final wave of each phase's dependency graph. In implement phase, reviewers depend on the integrator. In plan phase, reviewers depend on the task planner and risk analyst. In refine phase, reviewers run after the refiner completes.
+**Execution model**: Reviewers always run as a separate step after all workers (and checkers, if applicable) complete. They spawn in parallel with a configurable concurrency limit (`max_parallel_agents`). In implement phase, reviewers run after the integrator completes. In plan phase, reviewers run after the task planner and risk analyst complete. In refine phase, reviewers run after the refiner completes.
 
 ### Refine Phase Roles
 
