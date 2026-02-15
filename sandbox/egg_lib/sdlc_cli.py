@@ -320,15 +320,18 @@ def watch_pipeline(
 # --- Local Mode ---
 
 
-def run_local_mode(client: OrchClient, prompt: str | None = None) -> int:
+def run_local_mode(client: OrchClient, prompt: str | None = None, repo: str | None = None) -> int:
     """Run egg-sdlc in local (prompt-driven) mode.
 
     Args:
         prompt: Optional pre-supplied prompt. If provided, skips interactive input.
+        repo: Optional repository in owner/repo format.
     """
     print(f"\n{BOLD}egg-sdlc: Local Mode{RESET}")
     print(f"{DIM}No issue number provided. Running prompt-driven pipeline.{RESET}\n")
 
+    if prompt:
+        prompt = prompt.strip()
     if not prompt:
         # Prompt for task description interactively
         try:
@@ -358,7 +361,7 @@ def run_local_mode(client: OrchClient, prompt: str | None = None) -> int:
     print(f"\n{DIM}Creating local pipeline...{RESET}")
 
     try:
-        pipeline = client.create_pipeline(mode="local", prompt=prompt, network_mode=_detect_network_mode())
+        pipeline = client.create_pipeline(mode="local", prompt=prompt, repo=repo, network_mode=_detect_network_mode())
     except OrchestratorError as e:
         _write(f"{RED}Failed to create pipeline: {e}{RESET}\n", file=sys.stderr)
         return 1
@@ -584,7 +587,7 @@ def main() -> None:
             )
         exit_code = run_issue_mode(client, issue_number, repo)
     else:
-        exit_code = run_local_mode(client, prompt=args.prompt)
+        exit_code = run_local_mode(client, prompt=args.prompt, repo=repo)
 
     sys.exit(exit_code)
 
