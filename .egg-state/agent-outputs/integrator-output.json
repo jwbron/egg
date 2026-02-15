@@ -1,133 +1,152 @@
 {
   "status": "pass",
   "phase": "implement",
-  "pipeline_id": "issue-659",
-  "issue": 659,
-  "branch": "egg/issue-659",
-  "summary": "All coder and tester changes integrate cleanly. Shared prompt criteria unification works correctly across both GHA shell scripts and orchestrator Python code. One lint error (unused variable) was fixed by integrator.",
+  "pipeline_id": "issue-632",
+  "issue": 632,
+  "branch": "egg/issue-632",
+  "summary": "All coder and tester changes integrate cleanly. Orchestrator tests added to CI and Bandit scan, pytest config consolidated into pyproject.toml, documentation updated. Full test suite passes with 4956 tests across tests/, gateway/tests/, and orchestrator/tests/.",
   "test_results": {
-    "unit_tests": {
+    "core_unit_tests": {
       "status": "pass",
-      "passed": 3292,
+      "passed": 3426,
       "failed": 0,
-      "skipped": 5,
-      "deselected": 149,
-      "duration_seconds": 21.23,
-      "details": "Full unit test suite (tests/) passes. 3292 passed, 5 skipped, 149 deselected (integration/e2e/security markers)."
+      "skipped": 80,
+      "warnings": 3,
+      "duration_seconds": 33.46,
+      "details": "Full core unit test suite (tests/) passes. 3426 passed, 80 skipped, 3 warnings."
+    },
+    "gateway_tests": {
+      "status": "pass",
+      "passed": 1080,
+      "failed": 0,
+      "skipped": 3,
+      "warnings": 1,
+      "duration_seconds": 20.91,
+      "details": "All gateway tests (gateway/tests/) pass. 1080 passed, 3 skipped, 1 warning."
     },
     "orchestrator_tests": {
       "status": "pass",
-      "passed": 403,
+      "passed": 450,
       "failed": 0,
-      "pre_existing_failures": 1,
       "collection_errors": 2,
-      "duration_seconds": 14.16,
-      "details": "403 passed. 1 pre-existing failure (TestAgentRole.test_all_roles expects 6 roles but 13 exist - upstream change, not related to #659). 2 collection errors (test_container_spawner.py, test_docker_client.py) due to missing docker Python library in sandbox - pre-existing."
+      "duration_seconds": 16.17,
+      "details": "450 orchestrator tests pass. 2 collection errors (test_container_spawner.py, test_docker_client.py) due to missing docker Python library in sandbox — pre-existing, not caused by this PR. These files import docker at module level. In CI with uv sync --extra dev, docker>=7.0.0 will be installed and these will collect."
     },
-    "action_and_sandbox_tests": {
+    "ci_config_validation_tests": {
       "status": "pass",
-      "passed": 821,
+      "passed": 11,
       "failed": 0,
-      "skipped": 5,
-      "duration_seconds": 15.92,
-      "details": "All action/ and sandbox/ tests pass, including new tests for shared prompt criteria loading and shell script changes."
+      "duration_seconds": 1.52,
+      "details": "All 11 new CI config validation tests pass: pytest.ini removed, pyproject.toml has correct testpaths/markers/config, test.yml includes orchestrator in unit tests and PYTHONPATH, bandit scan includes orchestrator, CONTRIBUTING.md lists orchestrator tests, Makefile bandit help includes orchestrator, mypy overrides include orchestrator.tests.*."
     },
-    "pipeline_prompt_tests": {
+    "combined_run": {
       "status": "pass",
-      "passed": 36,
+      "passed": 4956,
       "failed": 0,
-      "duration_seconds": 0.42,
-      "details": "All 36 pipeline prompt tests pass, covering _read_shared_criteria(), per-type criteria getters, edge cases, shared file content validation, and format-agnostic checks."
+      "skipped": 83,
+      "warnings": 4,
+      "duration_seconds": 64.94,
+      "details": "Combined run of tests/ + gateway/tests/ + orchestrator/tests/ (excluding docker-dependent collection errors). 4956 passed, 83 skipped, 4 warnings."
+    },
+    "marker_filtered_run": {
+      "status": "pass",
+      "passed": 4882,
+      "skipped": 8,
+      "deselected": 149,
+      "warnings": 4,
+      "duration_seconds": 60.85,
+      "details": "Run with standard CI marker exclusions (not integration, functional, e2e, security, agent_flaky). 4882 passed, 8 skipped, 149 deselected."
     }
   },
   "lint_results": {
     "ruff": {
       "status": "pass",
-      "details": "All checks passed after fixing one unused variable (MockPath -> _MockPath) in test_pipeline_prompts.py."
-    },
-    "shell_syntax": {
-      "status": "pass",
-      "details": "All 4 modified shell scripts pass bash -n syntax check."
+      "details": "All ruff checks passed. 4 pre-existing noqa warnings for custom rule EGG100 (not an issue)."
     }
   },
   "integration_checks": {
-    "shared_prompt_files": {
+    "test_yml_orchestrator_inclusion": {
       "status": "pass",
-      "details": "All 4 shared prompt files exist in shared/prompts/ with correct content: agent-design-criteria.md (1976B), autofixer-rules.md (676B), code-review-criteria.md (2013B), contract-review-criteria.md (1233B)."
+      "details": "test.yml unit job includes orchestrator/tests/ in pytest command and 'orchestrator' in PYTHONPATH."
     },
-    "shell_script_path_resolution": {
+    "bandit_scan_orchestrator_inclusion": {
       "status": "pass",
-      "details": "All GHA scripts use $SCRIPT_DIR/../shared/prompts/ pattern. Path resolution verified correct from action/ directory."
+      "details": "test.yml security job includes 'orchestrator' in bandit -r targets."
     },
-    "python_path_resolution": {
+    "pyproject_toml_consolidation": {
       "status": "pass",
-      "details": "Python _read_shared_criteria() correctly resolves to shared/prompts/ via Path(__file__).parent.parent.parent. Three-tier fallback: user override -> source tree -> docker path."
+      "details": "pytest.ini removed. pyproject.toml has correct testpaths (tests, gateway/tests, orchestrator/tests), all required markers (integration, functional, e2e, security, agent_flaky), and proper addopts."
     },
-    "dockerfile_copy": {
+    "pyproject_dev_dependencies": {
       "status": "pass",
-      "details": "Orchestrator Dockerfile includes COPY shared/prompts/ ./prompts/ for production container support."
+      "details": "docker>=7.0.0 added to dev dependencies for orchestrator tests that import docker."
     },
-    "inline_fallbacks": {
+    "mypy_overrides": {
       "status": "pass",
-      "details": "Inline fallback content in both shell scripts and Python code matches shared file content exactly."
+      "details": "orchestrator.tests.* mypy override added with disallow_untyped_defs=false and ignore_missing_imports=true, matching gateway.tests.* pattern."
     },
-    "claude_md_conditional": {
+    "documentation_consistency": {
       "status": "pass",
-      "details": "sandbox/entrypoint.py conditionally includes contract.md and orchestrator.md only when EGG_PIPELINE_ID is set, reducing token usage for non-SDLC invocations."
+      "details": "CONTRIBUTING.md lists orchestrator tests. Makefile bandit help includes orchestrator."
+    },
+    "test_isolation": {
+      "status": "pass",
+      "details": "test_cli.py patches cli.logger to prevent logging interaction. test_devserver.py uses MagicMock for docker_client when None."
+    },
+    "on_check_failure_compatibility": {
+      "status": "pass",
+      "details": "on-check-failure.yml listens for 'Test' workflow completions. The test.yml workflow name is 'Test'. No changes to workflow triggers, so autofix compatibility is maintained."
     }
   },
   "regressions": [],
-  "issues_found": [
+  "issues_found": [],
+  "observations": [
     {
-      "severity": "low",
-      "type": "lint",
-      "description": "Unused variable MockPath in test_pipeline_prompts.py line 307",
-      "resolution": "Fixed by renaming to _MockPath. Committed as 'Fix unused variable lint error in test_pipeline_prompts'."
+      "severity": "info",
+      "type": "scope",
+      "description": "The analysis draft (632-analysis.md) identified 'Issue 1: Lint and Test Workflows Never Run on PRs' as critical and recommended adding pull_request triggers to lint.yml and test.yml. The implementation addressed Issues 2 (orchestrator tests not in CI) and 3 (duplicate pytest config) but did not add pull_request triggers. This means lint and test workflows still only run via workflow_call/workflow_dispatch — not automatically on PRs. This is the most impactful gap identified in the analysis but is outside the scope of the current implementation commits."
     }
   ],
   "pre_existing_issues": [
     {
-      "severity": "medium",
-      "description": "TestAgentRole.test_all_roles expects 6 roles but 13 exist. Upstream roles were added without updating the test.",
-      "location": "orchestrator/tests/test_models.py:307"
+      "severity": "low",
+      "description": "orchestrator/tests/test_container_spawner.py and test_docker_client.py fail to collect due to missing docker Python library in sandbox environment. These will work in CI where uv sync --extra dev installs docker>=7.0.0.",
+      "location": "orchestrator/tests/"
     },
     {
-      "severity": "low",
-      "description": "orchestrator/tests/test_container_spawner.py and test_docker_client.py fail to collect due to missing docker Python library in sandbox environment.",
-      "location": "orchestrator/tests/"
+      "severity": "info",
+      "description": "4 ruff warnings for custom rule EGG100 in noqa comments (sandbox/llm/claude/runner.py, integration_tests/test_network_isolation.py, tests/functional/conftest.py, sandbox/egg_lib/docker.py). Pre-existing, not related to this PR.",
+      "location": "various"
     }
   ],
-  "notes": [
-    "The autofixer prompt builder in Python (pipelines.py line ~2019) hardcodes repo_path=None, preventing user overrides of autofixer rules via .egg/autofixer-rules.md when using the orchestrator pipeline. Shell script supports this override. This is a minor inconsistency but not a regression.",
-    "Agent-design criteria intentionally omits user override support in both shell scripts and Python code (consistent).",
-    "All inline fallbacks in both shell scripts and Python serve as rollout safety nets and match shared file content exactly."
-  ],
-  "commits": {
-    "coder": [
-      {
-        "sha": "6ac7f70c",
-        "message": "Unify prompt criteria into shared files, trim CLAUDE.md for non-SDLC",
-        "files_changed": 15
-      },
-      {
-        "sha": "2138b40e",
-        "message": "Document shared prompt criteria and update CLI references",
-        "files_changed": 5
-      }
-    ],
-    "tester": [
-      {
-        "sha": "fd87f7da",
-        "message": "Add tests for shared prompt criteria and shell script changes",
-        "files_changed": 4
-      }
-    ],
-    "integrator": [
-      {
-        "sha": "588f3a59",
-        "message": "Fix unused variable lint error in test_pipeline_prompts",
-        "files_changed": 1
-      }
-    ]
-  }
+  "commits_on_branch": [
+    {
+      "sha": "41b8aa7b",
+      "message": "Fix test isolation and add CI config validation tests"
+    },
+    {
+      "sha": "526fd6c9",
+      "message": "Update docs to include orchestrator in test and security scan listings"
+    },
+    {
+      "sha": "19fb4f67",
+      "message": "Consolidate pytest config into pyproject.toml, delete pytest.ini"
+    },
+    {
+      "sha": "0d0dc5ea",
+      "message": "Add orchestrator tests to CI and Bandit security scan"
+    },
+    {
+      "sha": "497ca802",
+      "message": "Add docker to dev extras and fix test_cli.py logging interaction"
+    },
+    {
+      "sha": "fbfc7a73",
+      "message": "Add analysis draft for issue #632: audit tests"
+    },
+    {
+      "sha": "a269aac2",
+      "message": "Initialize SDLC contract for issue #632"
+    }
+  ]
 }
