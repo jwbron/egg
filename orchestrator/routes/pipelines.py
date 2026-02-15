@@ -3605,11 +3605,45 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 status_code=409,
             )
 
-        if pipeline.status in (PipelineStatus.COMPLETE, PipelineStatus.FAILED):
+        if pipeline.status == PipelineStatus.COMPLETE:
             return make_error_response(
-                f"Pipeline {pipeline_id} is already {pipeline.status.value}",
+                f"Pipeline {pipeline_id} is already complete",
                 status_code=409,
             )
+
+        if pipeline.status == PipelineStatus.CANCELLED:
+            return make_error_response(
+                f"Pipeline {pipeline_id} is cancelled",
+                status_code=409,
+            )
+
+        if pipeline.status == PipelineStatus.FAILED:
+            # Reset the failed phase so it can be re-run.
+            # Also reset phases stuck in RUNNING — a pipeline-level exception
+            # sets the pipeline to FAILED without updating the phase status.
+            phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
+            if phase_execution.status in (PipelineStatus.FAILED, PipelineStatus.RUNNING):
+                prev_status = phase_execution.status.value
+                phase_execution.status = PipelineStatus.PENDING
+                phase_execution.started_at = None
+                phase_execution.completed_at = None
+                phase_execution.error = None
+                phase_execution.review_cycles = 0
+                phase_execution.hitl_review_cycles = 0
+                phase_execution.containers = []
+                phase_execution.agents = []
+                phase_execution.artifacts = {}
+                logger.info(
+                    "Resetting phase for restart",
+                    pipeline_id=pipeline_id,
+                    phase=pipeline.current_phase.value,
+                    previous_phase_status=prev_status,
+                )
+            pipeline.error = None
+
+            # Bump created_at so the old _run_pipeline thread's finally block
+            # detects the restart and skips worktree cleanup.
+            pipeline.created_at = datetime.utcnow()
 
         # Mark pipeline as running
         pipeline.status = PipelineStatus.RUNNING
