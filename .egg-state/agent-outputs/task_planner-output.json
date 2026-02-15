@@ -1,0 +1,623 @@
+{
+  "issue": 659,
+  "title": "Tune claude.md files and prompts",
+  "revision": 3,
+  "revision_reason": "Re-run after plan reviewer feedback. Architect revision 2 already corrected all 6 factual issues. This task planner output is the corrected task decomposition based on the audited codebase state. Also accounts for partial Phase 1 work already committed at efd54cc6.",
+
+  "prior_work": {
+    "commit": "efd54cc6",
+    "branch": "egg/tune-claude-md-prompts",
+    "summary": "Previous agent run committed Phase 1 content changes: trimmed mission.md (-44%, 135→76 lines), trimmed orchestrator.md (-71%, 76→23 lines), enriched orchestrator role prompts with handoff/file-access guidance, added _load_conventions() utility and autofixer conventions loading, added 7 new tests in test_pipeline_prompts.py.",
+    "files_changed": [
+      "sandbox/.claude/rules/mission.md",
+      "sandbox/.claude/rules/orchestrator.md",
+      "orchestrator/routes/pipelines.py",
+      "orchestrator/tests/test_pipeline_prompts.py"
+    ],
+    "tasks_completed": ["T1 (mission.md audit)", "T2 (orchestrator.md audit)", "T3 (role prompt enrichment, partial)", "T4 (conventions loading, partial)"],
+    "tasks_remaining": "T3 completion (GHA command file alignment verification), T4 completion (review/conflict conventions), T5 through T12"
+  },
+
+  "codebase_audit": {
+    "criteria_functions": {
+      "location": "orchestrator/routes/pipelines.py",
+      "functions": [
+        {"name": "_get_unified_criteria(phase)", "line": 730, "returns": "hardcoded string"},
+        {"name": "_get_agent_design_criteria()", "line": 811, "returns": "hardcoded string"},
+        {"name": "_get_code_review_criteria()", "line": 828, "returns": "hardcoded string"},
+        {"name": "_get_contract_review_criteria()", "line": 853, "returns": "hardcoded string"},
+        {"name": "_get_refine_review_criteria()", "line": 877, "returns": "hardcoded string"},
+        {"name": "_get_plan_review_criteria()", "line": 907, "returns": "hardcoded string"},
+        {"name": "_get_review_criteria_for_type(reviewer_type, phase)", "line": 937, "returns": "dispatches to above"}
+      ],
+      "key_finding": "ALL criteria are hardcoded Python string literals. No file-based loading exists. No _read_shared_criteria() function exists."
+    },
+    "shared_directory": {
+      "path": "shared/",
+      "subdirectories": ["egg_config/", "egg_container/", "egg_contracts/", "egg_git/", "egg_logging/", "egg_orchestrator/"],
+      "key_finding": "shared/prompts/ does NOT exist. shared/egg_prompts/ does NOT exist."
+    },
+    "gha_fallback_pattern": {
+      "pattern": "2-tier: .egg/<name>-rules.md → inline heredoc default",
+      "scripts_with_2_tier": [
+        "action/build-review-prompt.sh (.egg/review-rules.md → inline)",
+        "action/build-autofixer-prompt.sh (.egg/autofixer-rules.md → inline)",
+        "action/build-contract-verification-prompt.sh (.egg/contract-rules.md → inline)",
+        "action/build-conflict-prompt.sh (.egg/conflict-rules.md → inline)"
+      ],
+      "scripts_hardcoded_only": [
+        "action/build-agent-mode-design-review-prompt.sh",
+        "action/build-doc-updater-prompt.sh",
+        "action/build-feedback-prompt.sh"
+      ],
+      "key_finding": "No 3-tier fallback exists anywhere. The 2-tier pattern is .egg/ override → inline heredoc."
+    },
+    "setup_agent_rules": {
+      "location": "sandbox/entrypoint.py:678-717",
+      "behavior": "Reads all files from /opt/claude-rules/ in static order. No EGG_AGENT_ROLE check. No EGG_PIPELINE_ID check. All files included if they exist on disk.",
+      "rules_order": ["mission.md", "environment.md", "code-standards.md", "test-workflow.md", "pr-descriptions.md", "contract.md", "orchestrator.md"]
+    },
+    "agent_role_enums": {
+      "canonical": {
+        "location": "shared/egg_contracts/agent_roles.py",
+        "values": ["CODER", "TESTER", "DOCUMENTER", "INTEGRATOR", "ARCHITECT", "TASK_PLANNER", "RISK_ANALYST", "REFINER", "REVIEWER_UNIFIED", "REVIEWER_CODE", "REVIEWER_CONTRACT", "REVIEWER_AGENT_DESIGN", "REVIEWER_REFINE", "REVIEWER_PLAN"]
+      },
+      "orchestrator": {
+        "location": "orchestrator/models.py:64-85",
+        "extra_values": ["REVIEWER", "CHECKER"]
+      }
+    },
+    "existing_test_files": {
+      "tests_action": [
+        "tests/action/test_build_review_prompt.py",
+        "tests/action/test_build_agent_mode_design_review_prompt.py",
+        "tests/action/test_build_conflict_prompt.py"
+      ],
+      "orchestrator_tests": "orchestrator/tests/test_pipeline_prompts.py",
+      "sandbox_tests": "tests/sandbox/test_entrypoint.py",
+      "do_not_exist": [
+        "tests/action/test_build_autofixer_prompt.py",
+        "tests/action/test_build_contract_verification_prompt.py"
+      ]
+    },
+    "conventions_files": {
+      "exist": ["action/review-conventions.md", "action/autofixer-conventions.md", "action/conflict-conventions.md"],
+      "key_finding": "Loaded by GHA bash scripts. Orchestrator does NOT use them (hardcoded strings only)."
+    }
+  },
+
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Content Audit & Quality",
+      "goal": "Ensure all prompt content is correct, concise, and appropriate for its audience.",
+      "priority": "P0",
+      "status": "partially_complete",
+      "notes": "T1 and T2 done at efd54cc6. T3 and T4 partially done. T5 remains.",
+
+      "tasks": [
+        {
+          "id": "T1",
+          "title": "Audit and tighten mission.md content",
+          "status": "complete",
+          "completed_at": "efd54cc6",
+          "files_modified": ["sandbox/.claude/rules/mission.md"],
+          "result": "Reduced from 135 to 76 lines (-44%). Removed redundant workflow overview and CI sections."
+        },
+        {
+          "id": "T2",
+          "title": "Audit and trim orchestrator.md",
+          "status": "complete",
+          "completed_at": "efd54cc6",
+          "files_modified": ["sandbox/.claude/rules/orchestrator.md"],
+          "result": "Reduced from 76 to 23 lines (-71%). Retained only agent-relevant commands."
+        },
+        {
+          "id": "T3",
+          "title": "Enrich orchestrator role prompts and align with GHA command files",
+          "status": "partially_complete",
+          "completed_at_commit": "efd54cc6",
+          "remaining_work": "Verify no contradictions between enriched orchestrator prompts and sandbox/.claude/commands/*.md command files. The prior commit enriched tester/documenter/integrator prompts with handoff refs, file constraints, and test guidelines, but did not verify alignment with coder-mode.md, tester-mode.md, documenter-mode.md, integrator-mode.md.",
+          "files_to_verify": [
+            "orchestrator/routes/pipelines.py (enriched role prompts, ~line 1594)",
+            "sandbox/.claude/commands/coder-mode.md",
+            "sandbox/.claude/commands/tester-mode.md",
+            "sandbox/.claude/commands/documenter-mode.md",
+            "sandbox/.claude/commands/integrator-mode.md"
+          ],
+          "acceptance_criteria": [
+            "No contradictions between orchestrator role prompts and corresponding command file definitions",
+            "If discrepancies found, orchestrator prompts are the source of truth for pipeline use, command files for interactive use — document any intentional differences"
+          ],
+          "dependencies": []
+        },
+        {
+          "id": "T4",
+          "title": "Incorporate remaining conventions into orchestrator prompt builders",
+          "status": "partially_complete",
+          "completed_at_commit": "efd54cc6",
+          "remaining_work": "Prior commit added _load_conventions() and integrated autofixer conventions. Still need to ensure review conventions (action/review-conventions.md) and conflict conventions (action/conflict-conventions.md) are incorporated into _build_review_prompt() (line 1064). The existing hardcoded criteria functions (_get_code_review_criteria at line 828, etc.) remain in place — conventions are additive guidance alongside these criteria.",
+          "files_to_modify": ["orchestrator/routes/pipelines.py"],
+          "files_to_reference": ["action/review-conventions.md", "action/conflict-conventions.md"],
+          "acceptance_criteria": [
+            "Orchestrator _build_review_prompt() includes conventions equivalent to action/review-conventions.md",
+            "Conventions loading uses the _load_conventions() helper added in efd54cc6",
+            "Existing tests updated in orchestrator/tests/test_pipeline_prompts.py",
+            "All existing tests pass"
+          ],
+          "dependencies": ["T3"]
+        },
+        {
+          "id": "T5",
+          "title": "Verify GHA prompt quality and cross-system alignment",
+          "status": "pending",
+          "description": "Review each GHA bash script for quality. Ensure inline fallback rules match the 2-tier pattern (.egg/<name>-rules.md → inline heredoc). Verify the prompts produce appropriate output. Ensure command files don't contradict orchestrator prompts from T3. Fix quality issues.",
+          "files_to_review": [
+            "action/build-review-prompt.sh",
+            "action/build-autofixer-prompt.sh",
+            "action/build-agent-mode-design-review-prompt.sh",
+            "action/build-contract-verification-prompt.sh",
+            "action/build-conflict-prompt.sh",
+            "action/build-doc-updater-prompt.sh",
+            "action/build-feedback-prompt.sh",
+            "sandbox/.claude/commands/coder-mode.md",
+            "sandbox/.claude/commands/tester-mode.md",
+            "sandbox/.claude/commands/documenter-mode.md",
+            "sandbox/.claude/commands/integrator-mode.md"
+          ],
+          "acceptance_criteria": [
+            "All inline fallback rules in GHA scripts are well-structured",
+            "2-tier fallback pattern (.egg/<name>-rules.md → inline heredoc) is consistent across the 4 scripts that use it",
+            "Command file definitions don't contradict orchestrator prompt instructions",
+            "GHA script prompt output is clean and well-structured",
+            "All existing action tests pass: tests/action/test_build_review_prompt.py, test_build_agent_mode_design_review_prompt.py, test_build_conflict_prompt.py"
+          ],
+          "estimated_scope": "medium",
+          "dependencies": ["T3"]
+        }
+      ]
+    },
+
+    {
+      "id": "phase-2",
+      "name": "Role-Based CLAUDE.md Filtering",
+      "goal": "Reduce irrelevant context per agent by assembling CLAUDE.md based on agent role. Interactive (no-role) sessions get the full CLAUDE.md.",
+      "priority": "P1",
+      "status": "pending",
+
+      "tasks": [
+        {
+          "id": "T6",
+          "title": "Split mission.md into composable rule files",
+          "status": "pending",
+          "description": "Split sandbox/.claude/rules/mission.md (currently 76 lines after T1 trimming) into 3 files: (1) mission-core.md: role definition, decision framework, git safety, quality — universal to all agents. (2) mission-workflow.md: PR lifecycle, commit workflow, cross-contamination prevention, review responses — coder/refiner only. (3) mission-ci.md: non-interactive mode, notifications — GHA execution only. Delete the original mission.md after splitting. Ensure concatenation of all 3 files produces equivalent content.",
+          "files_to_modify": ["sandbox/.claude/rules/mission.md"],
+          "files_to_create": [
+            "sandbox/.claude/rules/mission-core.md",
+            "sandbox/.claude/rules/mission-workflow.md",
+            "sandbox/.claude/rules/mission-ci.md"
+          ],
+          "acceptance_criteria": [
+            "Original mission.md deleted",
+            "Three new files created with clear, non-overlapping content",
+            "Concatenation of all 3 files (core → workflow → ci) covers all content from original",
+            "Each file has a comment indicating its audience (e.g., '# Universal' / '# Coder/Refiner only')",
+            "No content lost in the split"
+          ],
+          "estimated_scope": "small",
+          "dependencies": ["T1"]
+        },
+        {
+          "id": "T7",
+          "title": "Add role-based rules_order in setup_agent_rules()",
+          "status": "pending",
+          "description": "Modify setup_agent_rules() in sandbox/entrypoint.py (line 678) to ADD new logic that reads EGG_AGENT_ROLE and selects appropriate rule files per role. Currently setup_agent_rules() has NO role-based or pipeline-conditional logic — it includes ALL files from rules_order if they exist on disk. This task ADDS conditional logic. Define a ROLE_RULES mapping dict covering ALL AgentRole enum values from BOTH enums. When no role is set (interactive use), use the full file set for backward compatibility. ADD new pipeline-conditional logic: check EGG_PIPELINE_ID — contract.md and orchestrator.md should only be included when EGG_PIPELINE_ID is set AND the role uses them.",
+          "files_to_modify": ["sandbox/entrypoint.py"],
+          "role_mapping": {
+            "CODER": ["mission-core.md", "mission-workflow.md", "environment.md", "code-standards.md", "test-workflow.md", "pr-descriptions.md", "contract.md", "orchestrator.md"],
+            "TESTER": ["mission-core.md", "environment.md", "code-standards.md", "test-workflow.md", "contract.md", "orchestrator.md"],
+            "INTEGRATOR": ["mission-core.md", "environment.md", "code-standards.md", "test-workflow.md", "contract.md", "orchestrator.md"],
+            "DOCUMENTER": ["mission-core.md", "environment.md"],
+            "ARCHITECT": ["mission-core.md", "environment.md"],
+            "TASK_PLANNER": ["mission-core.md", "environment.md"],
+            "RISK_ANALYST": ["mission-core.md", "environment.md"],
+            "REFINER": ["mission-core.md", "mission-workflow.md", "environment.md", "contract.md", "orchestrator.md"],
+            "REVIEWER_UNIFIED": ["mission-core.md", "environment.md"],
+            "REVIEWER_CODE": ["mission-core.md", "environment.md", "code-standards.md"],
+            "REVIEWER_CONTRACT": ["mission-core.md", "environment.md"],
+            "REVIEWER_AGENT_DESIGN": ["mission-core.md", "environment.md"],
+            "REVIEWER_REFINE": ["mission-core.md", "environment.md"],
+            "REVIEWER_PLAN": ["mission-core.md", "environment.md"],
+            "REVIEWER": ["mission-core.md", "environment.md"],
+            "CHECKER": ["mission-core.md", "environment.md", "code-standards.md", "test-workflow.md"],
+            "default_no_role": ["mission-core.md", "mission-workflow.md", "mission-ci.md", "environment.md", "code-standards.md", "test-workflow.md", "pr-descriptions.md", "contract.md", "orchestrator.md"]
+          },
+          "pipeline_conditional_rules": {
+            "files": ["contract.md", "orchestrator.md"],
+            "condition": "Only included when EGG_PIPELINE_ID is set AND role is CODER/TESTER/INTEGRATOR/REFINER",
+            "note": "This is NEW logic — no pipeline-conditional logic currently exists in setup_agent_rules()"
+          },
+          "acceptance_criteria": [
+            "setup_agent_rules() reads EGG_AGENT_ROLE environment variable",
+            "ROLE_RULES mapping covers ALL 16 AgentRole enum values: CODER, TESTER, DOCUMENTER, INTEGRATOR, ARCHITECT, TASK_PLANNER, RISK_ANALYST, REFINER, REVIEWER_UNIFIED, REVIEWER_CODE, REVIEWER_CONTRACT, REVIEWER_AGENT_DESIGN, REVIEWER_REFINE, REVIEWER_PLAN, REVIEWER, CHECKER",
+            "Default (no role) produces the same CLAUDE.md as before the change (backward compatibility)",
+            "Each role gets only the rule files relevant to its responsibilities",
+            "NEW pipeline-conditional logic: contract.md and orchestrator.md only included when EGG_PIPELINE_ID is set AND role is CODER/TESTER/INTEGRATOR/REFINER",
+            "Function is well-documented with rationale for the mapping",
+            "Unknown role values fall back to the default (full) file set"
+          ],
+          "estimated_scope": "medium",
+          "dependencies": ["T6"]
+        },
+        {
+          "id": "T8",
+          "title": "Add tests for role-based CLAUDE.md assembly",
+          "status": "pending",
+          "description": "Create comprehensive test coverage for the new role-based filtering in setup_agent_rules(). Follow existing test patterns in tests/sandbox/test_entrypoint.py.",
+          "files_to_modify": ["tests/sandbox/test_entrypoint.py"],
+          "acceptance_criteria": [
+            "Test coverage for every role in both AgentRole enums (all 16 values)",
+            "Test for default/no-role case (backward compatibility — produces full file set)",
+            "Test for unknown role fallback (produces full file set)",
+            "Test for pipeline-conditional rules: contract.md and orchestrator.md included only when EGG_PIPELINE_ID is set AND role is appropriate",
+            "Tests verify actual file content assembly, not just file list selection",
+            "All tests pass"
+          ],
+          "estimated_scope": "medium",
+          "dependencies": ["T7"]
+        }
+      ]
+    },
+
+    {
+      "id": "phase-3",
+      "name": "Prompt Generation Unification",
+      "goal": "Move GHA prompt generation into a shared Python module so both GHA and orchestrator use the same prompt generators. Bash scripts become thin wrappers.",
+      "priority": "P2",
+      "status": "pending",
+
+      "tasks": [
+        {
+          "id": "T9",
+          "title": "Create shared prompt builder Python module",
+          "status": "pending",
+          "description": "Create shared/egg_prompts/ Python package. (1) criteria.py — unified criteria loading with 2-tier fallback (.egg/<name>-rules.md override → inline default). The inline defaults consolidate both the GHA inline heredocs and the orchestrator hardcoded string functions (_get_code_review_criteria at line 828, _get_contract_review_criteria at line 853, _get_agent_design_criteria at line 811, _get_unified_criteria at line 730, _get_refine_review_criteria at line 877, _get_plan_review_criteria at line 907). (2) conventions.py — conventions file loading from action/ directory with inline fallback. (3) builders.py — prompt builder functions for each GHA prompt type (review, autofixer, agent-design-review, contract-verification, conflict, doc-updater, feedback). (4) cli.py — CLI entrypoint for GHA invocation. The module must work in both Docker containers and GHA runners with Python 3.12+. No Docker-specific or orchestrator-specific dependencies.",
+          "files_to_create": [
+            "shared/egg_prompts/__init__.py",
+            "shared/egg_prompts/criteria.py",
+            "shared/egg_prompts/conventions.py",
+            "shared/egg_prompts/builders.py",
+            "shared/egg_prompts/cli.py",
+            "shared/egg_prompts/tests/__init__.py",
+            "shared/egg_prompts/tests/test_criteria.py",
+            "shared/egg_prompts/tests/test_conventions.py",
+            "shared/egg_prompts/tests/test_builders.py"
+          ],
+          "acceptance_criteria": [
+            "Module is importable as `from egg_prompts import builders`",
+            "Criteria loading uses 2-tier fallback: .egg/<name>-rules.md → inline default",
+            "Inline defaults consolidate BOTH the GHA heredocs AND the orchestrator hardcoded functions (_get_code_review_criteria, _get_contract_review_criteria, _get_agent_design_criteria, _get_unified_criteria, _get_refine_review_criteria, _get_plan_review_criteria) — single source of truth",
+            "Conventions loading finds files relative to action/ directory, with inline fallback",
+            "Each builder function accepts context dict and returns prompt string",
+            "CLI entrypoint supports all 7 prompt types with appropriate arguments",
+            "CLI outputs prompt-file path and model to stdout for GITHUB_OUTPUT integration",
+            "No dependencies on orchestrator or Docker-specific packages",
+            "Unit tests exist for criteria loading, conventions loading, and each builder function",
+            "All tests pass"
+          ],
+          "estimated_scope": "large",
+          "dependencies": ["T4"]
+        },
+        {
+          "id": "T10",
+          "title": "Migrate 4 GHA scripts with 2-tier fallback to Python",
+          "status": "pending",
+          "description": "Convert the 4 GHA scripts that use the 2-tier .egg/ fallback pattern to thin bash wrappers calling the Python module: build-review-prompt.sh, build-autofixer-prompt.sh, build-contract-verification-prompt.sh, build-conflict-prompt.sh. Each becomes a thin wrapper that validates env vars, calls python3 -m egg_prompts <subcommand>, captures prompt-file and model, writes to GITHUB_OUTPUT. Python builders must produce equivalent prompts. Create snapshot tests.",
+          "files_to_modify": [
+            "action/build-review-prompt.sh",
+            "action/build-autofixer-prompt.sh",
+            "action/build-contract-verification-prompt.sh",
+            "action/build-conflict-prompt.sh"
+          ],
+          "acceptance_criteria": [
+            "Each bash script is a thin wrapper (under 30 lines) calling the Python module",
+            "Python builders produce prompts equivalent to original bash heredoc output",
+            "Prompt-file and model GITHUB_OUTPUT interface is preserved",
+            "User override mechanism (.egg/ files) works identically through Python",
+            "Conventions files loaded by Python, not bash",
+            "Existing action tests updated: tests/action/test_build_review_prompt.py, test_build_conflict_prompt.py",
+            "New test files created: tests/action/test_build_autofixer_prompt.py, tests/action/test_build_contract_verification_prompt.py",
+            "Snapshot/equivalence tests verify no behavioral regression",
+            "All tests pass"
+          ],
+          "estimated_scope": "large",
+          "dependencies": ["T9"]
+        },
+        {
+          "id": "T11",
+          "title": "Migrate remaining 3 GHA scripts to Python",
+          "status": "pending",
+          "description": "Convert the 3 GHA scripts that use hardcoded-only patterns (no .egg/ fallback): build-agent-mode-design-review-prompt.sh, build-doc-updater-prompt.sh (446 lines, most complex — context detection for file types/structure), build-feedback-prompt.sh (86 lines, simplest). Doc-updater context detection (file type analysis, structure) must be correctly translated to Python.",
+          "files_to_modify": [
+            "action/build-agent-mode-design-review-prompt.sh",
+            "action/build-doc-updater-prompt.sh",
+            "action/build-feedback-prompt.sh"
+          ],
+          "acceptance_criteria": [
+            "Each bash script is a thin wrapper calling the Python module",
+            "Doc-updater context detection (file type analysis, structure) correctly translated to Python",
+            "Prompt output is equivalent to original bash scripts",
+            "Existing test updated: tests/action/test_build_agent_mode_design_review_prompt.py",
+            "New test files created for doc-updater and feedback prompts",
+            "All tests pass"
+          ],
+          "estimated_scope": "large",
+          "dependencies": ["T10"]
+        },
+        {
+          "id": "T12",
+          "title": "Integrate shared module into orchestrator prompt builders",
+          "status": "pending",
+          "description": "Refactor orchestrator/routes/pipelines.py to use the shared egg_prompts module for criteria and conventions loading. Replace the existing hardcoded criteria functions: _get_unified_criteria() (line 730), _get_agent_design_criteria() (line 811), _get_code_review_criteria() (line 828), _get_contract_review_criteria() (line 853), _get_refine_review_criteria() (line 877), _get_plan_review_criteria() (line 907), and the dispatcher _get_review_criteria_for_type() (line 937). These currently return hardcoded Python strings — replace them with calls to egg_prompts.criteria which provides the same content through the unified 2-tier fallback. The prompt builder functions (_build_phase_prompt, _build_agent_prompt, _build_review_prompt, _build_checker_prompt, _build_autofix_prompt) remain in pipelines.py but delegate criteria/conventions loading to the shared module.",
+          "files_to_modify": [
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/tests/test_pipeline_prompts.py"
+          ],
+          "acceptance_criteria": [
+            "Orchestrator uses egg_prompts.criteria for all criteria loading",
+            "Orchestrator uses egg_prompts.conventions for conventions loading",
+            "Hardcoded criteria functions removed from pipelines.py: _get_unified_criteria, _get_agent_design_criteria, _get_code_review_criteria, _get_contract_review_criteria, _get_refine_review_criteria, _get_plan_review_criteria, _get_review_criteria_for_type",
+            "2-tier fallback (.egg/ override → inline default) works through the shared module",
+            "Repo-specific .egg/ overrides now work for orchestrator-spawned agents (new capability)",
+            "Orchestrator prompt tests updated and passing",
+            "All action tests still pass",
+            "No behavioral regression in orchestrator prompt output"
+          ],
+          "estimated_scope": "medium",
+          "dependencies": ["T10"]
+        }
+      ]
+    }
+  ],
+
+  "dependency_graph": {
+    "T1": {"status": "complete", "depends_on": []},
+    "T2": {"status": "complete", "depends_on": []},
+    "T3": {"depends_on": ["T1", "T2"]},
+    "T4": {"depends_on": ["T3"]},
+    "T5": {"depends_on": ["T3"]},
+    "T6": {"depends_on": ["T1"]},
+    "T7": {"depends_on": ["T6"]},
+    "T8": {"depends_on": ["T7"]},
+    "T9": {"depends_on": ["T4"]},
+    "T10": {"depends_on": ["T9"]},
+    "T11": {"depends_on": ["T10"]},
+    "T12": {"depends_on": ["T10"]}
+  },
+
+  "dependency_rationale": {
+    "T3_depends_on_T1_T2": "Need finalized rule file content before verifying orchestrator prompt alignment",
+    "T4_depends_on_T3": "Conventions integration builds on the enriched role prompts from T3",
+    "T5_depends_on_T3": "GHA alignment requires the orchestrator prompts to be finalized first",
+    "T6_depends_on_T1": "Splitting mission.md requires the audited/tightened content from T1",
+    "T7_depends_on_T6": "Role filtering implementation needs the split files to exist",
+    "T8_depends_on_T7": "Tests verify the implementation from T7",
+    "T9_depends_on_T4": "Shared module needs to know what conventions to load (defined in T4)",
+    "T10_depends_on_T9": "Script migration uses the shared module created in T9",
+    "T11_depends_on_T10": "Remaining scripts follow the same pattern established in T10",
+    "T12_depends_on_T10": "Orchestrator integration needs the shared module. Does NOT depend on T11 — touches different files (orchestrator/ vs action/)"
+  },
+
+  "parallelism": {
+    "parallel_pairs": [
+      {"tasks": ["T1", "T2"], "status": "both_complete"},
+      {"tasks": ["T4", "T5"], "reason": "Both depend on T3, touch different files"},
+      {"tasks": ["T6", "T5"], "reason": "T6 depends on T1 (done), T5 depends on T3 — different file sets"},
+      {"tasks": ["T11", "T12"], "reason": "Both depend on T10, touch different files (action/*.sh vs orchestrator/routes/pipelines.py)"}
+    ]
+  },
+
+  "pr_plan": [
+    {
+      "pr_id": "PR-1",
+      "title": "Audit and tighten CLAUDE.md rule files",
+      "tasks": ["T1", "T2", "T3", "T4", "T5"],
+      "base": "main",
+      "rationale": "Content audit changes grouped together. T1 and T2 are already committed at efd54cc6 on branch egg/tune-claude-md-prompts. Remaining T3/T4/T5 completion work can be added to the same branch before the PR is created.",
+      "notes": "Branch egg/tune-claude-md-prompts already has commit efd54cc6 with T1, T2, and partial T3/T4 work."
+    },
+    {
+      "pr_id": "PR-2",
+      "title": "Add role-based CLAUDE.md filtering",
+      "tasks": ["T6", "T7", "T8"],
+      "base": "main",
+      "rationale": "Complete role-filtering feature in one PR. Includes file split, implementation, and tests. Self-contained and independently valuable."
+    },
+    {
+      "pr_id": "PR-3",
+      "title": "Create shared prompt builder module and migrate initial scripts",
+      "tasks": ["T9", "T10"],
+      "base": "main",
+      "rationale": "New module + first batch of migrations. Establishes the pattern and proves the approach."
+    },
+    {
+      "pr_id": "PR-4",
+      "title": "Complete GHA migration and unify orchestrator",
+      "tasks": ["T11", "T12"],
+      "base": "main",
+      "rationale": "Remaining migrations and orchestrator integration. T11 and T12 can be developed in parallel since they touch different files."
+    }
+  ],
+
+  "test_strategy": {
+    "overall_approach": "Every task must leave all existing tests passing. New functionality requires new tests. Prompt migration requires equivalence testing.",
+
+    "per_phase_testing": {
+      "phase_1_content_audit": {
+        "approach": "Run existing test suites after each content change.",
+        "commands": [
+          "pytest orchestrator/tests/test_pipeline_prompts.py",
+          "pytest tests/action/"
+        ],
+        "existing_test_files": [
+          "orchestrator/tests/test_pipeline_prompts.py",
+          "tests/action/test_build_review_prompt.py",
+          "tests/action/test_build_agent_mode_design_review_prompt.py",
+          "tests/action/test_build_conflict_prompt.py"
+        ],
+        "risk": "Low — content changes don't affect test assertions unless tests assert on specific wording"
+      },
+      "phase_2_role_filtering": {
+        "approach": "New unit tests for role-based filtering logic in tests/sandbox/test_entrypoint.py.",
+        "test_location": "tests/sandbox/test_entrypoint.py",
+        "test_cases": [
+          "Each AgentRole gets correct file set (all 16 enum values)",
+          "No role (default) produces full file set (backward compatibility)",
+          "Unknown role falls back to default",
+          "Pipeline-conditional rules: contract.md and orchestrator.md only included when EGG_PIPELINE_ID is set AND role is CODER/TESTER/INTEGRATOR/REFINER",
+          "Generated CLAUDE.md content is valid markdown with proper separators"
+        ],
+        "commands": ["pytest tests/sandbox/test_entrypoint.py -k 'setup_agent_rules or role_filter'"]
+      },
+      "phase_3_prompt_unification": {
+        "approach": "Three layers: (1) Unit tests for shared module. (2) Equivalence/snapshot tests comparing Python output to captured bash output. (3) Integration tests for orchestrator.",
+        "test_locations": [
+          "shared/egg_prompts/tests/ (new — module unit tests)",
+          "tests/action/ (updated — migration tests)",
+          "orchestrator/tests/test_pipeline_prompts.py (updated — integration tests)"
+        ],
+        "test_files_to_create": [
+          "shared/egg_prompts/tests/test_criteria.py",
+          "shared/egg_prompts/tests/test_conventions.py",
+          "shared/egg_prompts/tests/test_builders.py",
+          "tests/action/test_build_autofixer_prompt.py",
+          "tests/action/test_build_contract_verification_prompt.py"
+        ],
+        "test_cases": [
+          "Criteria loading 2-tier fallback works (.egg/ override → inline default)",
+          "Conventions loading finds files at action/ paths with inline fallback",
+          "Each builder produces well-formed prompt text",
+          "Python builder output matches original bash script output (equivalence)",
+          "CLI entrypoint writes prompt-file and outputs correct format",
+          "User override mechanism (.egg/) works through Python",
+          "Orchestrator criteria loading delegates to shared module with identical output"
+        ],
+        "commands": [
+          "pytest shared/egg_prompts/tests/",
+          "pytest tests/action/",
+          "pytest orchestrator/tests/test_pipeline_prompts.py"
+        ]
+      }
+    },
+
+    "regression_testing": {
+      "full_suite_command": "make test",
+      "existing_critical_test_files": [
+        "orchestrator/tests/test_pipeline_prompts.py",
+        "tests/action/test_build_review_prompt.py",
+        "tests/action/test_build_agent_mode_design_review_prompt.py",
+        "tests/action/test_build_conflict_prompt.py",
+        "tests/sandbox/test_entrypoint.py"
+      ],
+      "test_files_to_create": [
+        "tests/action/test_build_autofixer_prompt.py (in T10)",
+        "tests/action/test_build_contract_verification_prompt.py (in T10)",
+        "shared/egg_prompts/tests/test_criteria.py (in T9)",
+        "shared/egg_prompts/tests/test_conventions.py (in T9)",
+        "shared/egg_prompts/tests/test_builders.py (in T9)"
+      ]
+    }
+  },
+
+  "risks_and_mitigations": [
+    {
+      "risk": "Prompt equivalence during GHA migration (Phase 3)",
+      "impact": "Agent behavioral regression if Python prompts differ from bash originals",
+      "likelihood": "medium",
+      "mitigation": "Create snapshot tests capturing current bash output. Phase the migration (4 scripts with 2-tier fallback first, then 3 hardcoded-only scripts) to catch issues early."
+    },
+    {
+      "risk": "Role-based filtering removes necessary context (Phase 2)",
+      "impact": "Agents fail tasks because they're missing instructions",
+      "likelihood": "low",
+      "mitigation": "Conservative initial filtering: only remove clearly irrelevant files. Default to full CLAUDE.md for unknown roles. Can always expand filtering later."
+    },
+    {
+      "risk": "Breaking external consumers of jwbron/egg/action@main (Phase 3)",
+      "impact": "External repos using egg action break",
+      "likelihood": "low",
+      "mitigation": "Keep bash scripts as wrappers preserving the interface (prompt-file and model outputs to GITHUB_OUTPUT). No workflow YAML changes needed."
+    },
+    {
+      "risk": "Dual AgentRole enums diverge further",
+      "impact": "New roles added to one enum but not covered in ROLE_RULES mapping",
+      "likelihood": "low",
+      "mitigation": "Document both enum locations in T7 implementation. Unknown roles fall back to full CLAUDE.md (safe default)."
+    },
+    {
+      "risk": "Large PR size for Phase 3 tasks",
+      "impact": "Difficult to review",
+      "likelihood": "medium",
+      "mitigation": "Split into 2 PRs (PR-3 and PR-4). T11 and T12 can be developed in parallel."
+    }
+  ],
+
+  "success_criteria": [
+    "All existing tests pass after each PR is merged",
+    "No behavioral regression in agent execution",
+    "CLAUDE.md token count reduced by >20% for non-coder pipeline agents (after Phase 2)",
+    "Single Python module handles all prompt generation for both GHA and orchestrator paths (after Phase 3)",
+    "User override mechanism (.egg/) works identically across both paths via 2-tier fallback",
+    "Prompt content is audited with clear role-audience annotations",
+    "External consumers of jwbron/egg/action@main continue to work without changes"
+  ],
+
+  "implementation_order": [
+    "Phase 1: Content Audit (T3 completion, T4 completion, T5) — PR-1",
+    "Phase 2: Role Filtering (T6, T7, T8) — PR-2",
+    "Phase 3: Prompt Unification (T9, T10, T11 || T12) — PR-3, PR-4"
+  ],
+
+  "corrections_from_review_v3": {
+    "issue_1": {
+      "original_problem": "_read_shared_criteria() referenced but does not exist",
+      "status": "fixed_in_architect_rev2",
+      "verification": "All task descriptions reference actual function names: _get_code_review_criteria (line 828), _get_contract_review_criteria (line 853), _get_agent_design_criteria (line 811), _get_unified_criteria (line 730), _get_refine_review_criteria (line 877), _get_plan_review_criteria (line 907), _get_review_criteria_for_type (line 937). Confirmed these return hardcoded Python strings."
+    },
+    "issue_2": {
+      "original_problem": "shared/prompts/ referenced but does not exist",
+      "status": "fixed_in_architect_rev2",
+      "verification": "No references to shared/prompts/ in this plan. The new module will be created at shared/egg_prompts/ (T9)."
+    },
+    "issue_3": {
+      "original_problem": "3-tier fallback described but doesn't exist",
+      "status": "fixed_in_architect_rev2",
+      "verification": "All references use 2-tier fallback: .egg/<name>-rules.md → inline default."
+    },
+    "issue_4": {
+      "original_problem": "T4 AC references non-existent _read_shared_criteria() pattern",
+      "status": "fixed",
+      "verification": "T4 AC now describes the actual pattern: _load_conventions() helper added in efd54cc6, alongside existing hardcoded criteria functions."
+    },
+    "issue_5": {
+      "original_problem": "Missing role values in T7 mapping",
+      "status": "fixed_in_architect_rev2",
+      "verification": "T7 role_mapping explicitly lists all 16 enum values from both enums including REVIEWER and CHECKER."
+    },
+    "issue_6": {
+      "original_problem": "T11 → T12 dependency chain overly sequential",
+      "status": "fixed_in_architect_rev2",
+      "verification": "T12 depends on T10 (not T11). T11 and T12 listed in parallelism.parallel_pairs."
+    },
+    "test_files": {
+      "original_problem": "Non-existent test files referenced as existing",
+      "status": "fixed",
+      "verification": "Test files clearly split into 'existing' and 'to_create' categories throughout."
+    },
+    "pipeline_conditional": {
+      "original_problem": "T7 implies pipeline-conditional logic already exists",
+      "status": "fixed",
+      "verification": "T7 description explicitly states setup_agent_rules() has NO existing conditional logic and that this task ADDS it."
+    }
+  }
+}
