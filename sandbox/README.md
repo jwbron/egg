@@ -40,6 +40,10 @@ sandbox/
 │   ├── checkpoint_cli.py   # Checkpoint CLI for saving/restoring state
 │   ├── contract_cli.py     # SDLC contract CLI (egg-contract)
 │   ├── orchestration.py    # Multi-agent orchestration support
+│   ├── orch_cli.py         # Orchestrator CLI (egg-orch)
+│   ├── orch_client.py      # Orchestrator API client
+│   ├── sdlc_cli.py         # SDLC pipeline CLI (egg-sdlc)
+│   ├── sdlc_hitl.py        # SDLC human-in-the-loop support
 │   └── self_improvement/   # Self-improvement data collection
 │       ├── collect.py      # Data collection orchestrator
 │       ├── config.py       # Collection configuration
@@ -56,12 +60,16 @@ sandbox/
 │       ├── runner.py       # Claude Code runner
 │       └── config.py       # Claude-specific config
 │
-├── bin/                    # Symlinks to scripts/ and egg_lib CLIs (added to PATH)
+├── bin/                    # CLI tools and symlinks (added to PATH)
 │   ├── git -> ../scripts/git
 │   ├── gh -> ../scripts/gh
 │   ├── git-credential-github-token -> ../scripts/git-credential-github-token
 │   ├── egg-checkpoint -> ../egg_lib/checkpoint_cli.py
-│   └── egg-contract -> ../egg_lib/contract_cli.py
+│   ├── egg-contract -> ../egg_lib/contract_cli.py
+│   ├── egg-orch -> ../egg_lib/orch_cli.py
+│   ├── egg-onboarding-docs      # Onboarding doc generator (bash)
+│   ├── egg-pipeline-watch       # Pipeline progress watcher
+│   └── egg-sdlc                 # Interactive SDLC pipeline CLI
 │
 ├── scripts/                # Wrapper script implementations
 │   ├── git                 # Git wrapper (routes to gateway)
@@ -84,7 +92,9 @@ sandbox/
 │       ├── code-standards.md # Code standards
 │       ├── test-workflow.md  # Testing workflow
 │       ├── pr-descriptions.md # PR guidelines
-│       └── contract.md     # SDLC contract CLI commands
+│       ├── orchestrator.md # Orchestrator CLI commands
+│       ├── contract.md     # SDLC contract CLI commands
+│       └── checkpoint.md   # Checkpoint browser CLI commands
 │
 ├── tools/                  # Interactive tools
 │   ├── discover-tests.py   # Test framework discovery
