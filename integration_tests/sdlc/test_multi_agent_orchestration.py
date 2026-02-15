@@ -540,7 +540,7 @@ class TestPlanPhaseRoles:
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("implement", include_reviewers=True)
-        assert len(roles) == 8  # 4 implement + 4 reviewers
+        assert len(roles) == 7  # 4 implement + 3 reviewers
         assert AgentRole.REVIEWER_UNIFIED in roles
         assert AgentRole.REVIEWER_CODE in roles
 
@@ -549,12 +549,11 @@ class TestPlanPhaseRoles:
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("plan", include_reviewers=True)
-        assert len(roles) == 6  # 3 plan + 3 reviewers
+        assert len(roles) == 5  # 3 plan + 2 reviewers
         assert AgentRole.ARCHITECT in roles
         assert AgentRole.TASK_PLANNER in roles
         assert AgentRole.RISK_ANALYST in roles
         assert AgentRole.REVIEWER_UNIFIED in roles
-        assert AgentRole.REVIEWER_AGENT_DESIGN in roles
         assert AgentRole.REVIEWER_PLAN in roles
 
     def test_reviewer_plan_role_definition(self):
@@ -645,7 +644,6 @@ class TestReviewerRoles:
         assert AgentRole.REVIEWER_UNIFIED in waves[3]
         assert AgentRole.REVIEWER_CODE in waves[3]
         assert AgentRole.REVIEWER_CONTRACT in waves[3]
-        assert AgentRole.REVIEWER_AGENT_DESIGN in waves[3]
 
     def test_reviewer_roles_read_only(self):
         """Reviewer roles have read-only file access."""

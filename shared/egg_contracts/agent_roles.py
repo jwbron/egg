@@ -746,11 +746,9 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
         AgentRole.REVIEWER_UNIFIED,
         AgentRole.REVIEWER_CODE,
         AgentRole.REVIEWER_CONTRACT,
-        AgentRole.REVIEWER_AGENT_DESIGN,
     ],
     "plan": [
         AgentRole.REVIEWER_UNIFIED,
-        AgentRole.REVIEWER_AGENT_DESIGN,
         AgentRole.REVIEWER_PLAN,
     ],
     "refine": [
