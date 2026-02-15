@@ -229,6 +229,8 @@ Timing starts when actual work begins (`work_started_at`), excluding setup and H
 | **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
 | **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
 
+**Short-circuit mode**: For low-complexity tasks (single-file changes, typo fixes, straightforward bug fixes), the refine agent can signal that the plan phase should be skipped. When the refine analysis includes a `short_circuit: true` metadata block, the pipeline advances directly from refine to implement, using the analysis as guidance instead of a formal plan. This optimization is enabled by default and can be disabled via the pipeline configuration's `allow_short_circuit` setting.
+
 ### Multi-Reviewer Architecture
 
 The orchestrator runs multiple specialized reviewers in parallel, with phase-specific defaults:
