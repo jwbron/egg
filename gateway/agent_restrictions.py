@@ -418,6 +418,36 @@ REVIEWER_AGENT_DESIGN_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
+# Refine-phase agent patterns
+
+REFINER_PATTERNS = AgentFilePattern(
+    role=AgentRole.REFINER,
+    description="Refiner agent: drafts and agent-outputs only",
+    allowed_patterns=[
+        ".egg-state/drafts/",
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=[
+        # Source code (refiner must not modify code)
+        "**/*.py",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.go",
+        "**/*.java",
+        # Contracts
+        ".egg-state/contracts/",
+    ],
+)
+
+REVIEWER_REFINE_PATTERNS = AgentFilePattern(
+    role=AgentRole.REVIEWER_REFINE,
+    description="Refine reviewer agent: reviews and agent-outputs only",
+    allowed_patterns=_REVIEWER_ALLOWED,
+    blocked_patterns=_REVIEWER_BLOCKED,
+)
+
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.CODER: CODER_PATTERNS,
@@ -431,6 +461,8 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REVIEWER_CODE: REVIEWER_CODE_PATTERNS,
     AgentRole.REVIEWER_CONTRACT: REVIEWER_CONTRACT_PATTERNS,
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_PATTERNS,
+    AgentRole.REFINER: REFINER_PATTERNS,
+    AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
 }
 
 
