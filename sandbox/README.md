@@ -42,7 +42,7 @@ sandbox/
 │   ├── orchestration.py    # Multi-agent orchestration support
 │   ├── orch_cli.py         # Orchestrator CLI (egg-orch)
 │   ├── orch_client.py      # Orchestrator API client
-│   ├── sdlc_cli.py         # SDLC pipeline CLI (egg-contract)
+│   ├── sdlc_cli.py         # SDLC pipeline CLI (egg-sdlc)
 │   ├── sdlc_hitl.py        # SDLC human-in-the-loop support
 │   └── self_improvement/   # Self-improvement data collection
 │       ├── collect.py      # Data collection orchestrator
