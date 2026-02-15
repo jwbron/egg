@@ -217,6 +217,35 @@ class ContainerSpawner:
             role=agent_role.value,
         )
 
+        # Clean up any existing container with the same name (e.g., from a canceled pipeline)
+        # This prevents 409 Conflict errors when restarting pipelines.
+        # The docker client adds "egg-sandbox-" prefix to the name, so we need to check
+        # for the full prefixed name that Docker will use.
+        full_container_name = f"{self.docker.CONTAINER_PREFIX}{container_name}"
+        try:
+            info = self.docker.get_container_info(full_container_name)
+            logger.info(
+                "Found existing container with same name, removing it",
+                container_name=full_container_name,
+                existing_id=info.container_id[:12],
+            )
+            self.remove_agent_container(
+                info.container_id,
+                force=True,
+                cleanup_session=True,
+            )
+        except ContainerNotFoundError:
+            # No existing container, good to proceed
+            pass
+        except DockerClientError as e:
+            # Couldn't remove existing container
+            # Log it but continue - if it really exists, Docker will give a clear error
+            logger.debug(
+                "Failed to clean up existing container",
+                container_name=full_container_name,
+                error=str(e),
+            )
+
         # Check gateway health
         if wait_for_gateway:
             health = self.gateway.check_health()

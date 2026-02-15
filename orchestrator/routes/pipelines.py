@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from docker.errors import DockerException
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 # Add shared directory to path for egg_logging
@@ -32,6 +33,7 @@ except ImportError:
 try:
     from ..container_spawner import ContainerSpawnError, get_container_spawner
     from ..decision_queue import DecisionTimeoutError, get_decision_queue
+    from ..docker_client import DockerClientError
     from ..models import AgentRole, Pipeline, PipelineStatus, ReviewVerdict
     from ..state_store import (
         InvalidPipelineIdError,
@@ -44,6 +46,7 @@ try:
 except ImportError:
     from container_spawner import ContainerSpawnError, get_container_spawner  # type: ignore
     from decision_queue import DecisionTimeoutError, get_decision_queue  # type: ignore
+    from docker_client import DockerClientError  # type: ignore
     from models import AgentRole, Pipeline, PipelineStatus, ReviewVerdict  # type: ignore
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
@@ -101,6 +104,7 @@ except ImportError:
 
     def report_pipeline_status(pipeline, event_type=None, message=None):  # type: ignore[misc]
         pass
+
 
 # Import event bus for SSE streaming.
 # report_pipeline_status dispatches to StatusReporter handlers, but the
@@ -566,6 +570,25 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
         store, _pipeline = _resolve_pipeline(pipeline_id, repo_path)
         pipeline = store.update_pipeline(pipeline_id, data)
 
+        # If pipeline is being cancelled or failed, clean up containers
+        if pipeline.status in (PipelineStatus.CANCELLED, PipelineStatus.FAILED):
+            spawner = get_container_spawner()
+            try:
+                removed = spawner.cleanup_pipeline(pipeline_id, force=True)
+                if removed > 0:
+                    logger.info(
+                        "Cleaned up pipeline containers after status change",
+                        pipeline_id=pipeline_id,
+                        status=pipeline.status.value,
+                        containers_removed=removed,
+                    )
+            except (DockerClientError, DockerException) as e:
+                logger.warning(
+                    "Failed to clean up pipeline containers",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
+                )
+
         logger.info("Pipeline updated", pipeline_id=pipeline_id)
 
         return make_success_response(
@@ -608,6 +631,24 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
     try:
         store, _pipeline = _resolve_pipeline(pipeline_id, repo_path)
+
+        # Clean up any running containers for this pipeline
+        spawner = get_container_spawner()
+        try:
+            removed = spawner.cleanup_pipeline(pipeline_id, force=True)
+            if removed > 0:
+                logger.info(
+                    "Cleaned up pipeline containers",
+                    pipeline_id=pipeline_id,
+                    containers_removed=removed,
+                )
+        except (DockerClientError, DockerException) as e:
+            logger.warning(
+                "Failed to clean up pipeline containers",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+
         store.delete_pipeline(pipeline_id)
 
         logger.info("Pipeline deleted", pipeline_id=pipeline_id)
@@ -831,7 +872,6 @@ def _get_contract_review_criteria() -> str:
         "- New changes don't break existing contract compliance\n"
         "- All required files listed in tasks are present\n"
     )
-
 
 
 def _get_refine_review_criteria() -> str:
@@ -1108,8 +1148,7 @@ def _build_review_prompt(
     lines.append("- You CAN write verdict files to `.egg-state/reviews/`")
     if reviewer_type == "contract":
         lines.append(
-            "- You CAN update the contract in `.egg-state/contracts/` "
-            "(e.g. marking items as done)"
+            "- You CAN update the contract in `.egg-state/contracts/` (e.g. marking items as done)"
         )
     lines.append("- You CANNOT push code (git push)")
     lines.append("- You CANNOT create or update PRs")
@@ -1212,20 +1251,29 @@ def _commit_statefiles_to_worktree(
 
     subprocess.run(
         [*git_base, "add", ".egg-state/"],
-        capture_output=True, text=True, check=True, timeout=30,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
     )
 
     # Only commit if there are staged changes (idempotent on re-runs)
     result = subprocess.run(
         [*git_base, "diff", "--cached", "--quiet", "--", ".egg-state/"],
-        capture_output=True, text=True, check=False, timeout=30,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
     )
     if result.returncode == 0:
         return  # Nothing to commit
 
     subprocess.run(
         [*git_base, "commit", "--no-verify", "-m", message, "--", ".egg-state/"],
-        capture_output=True, text=True, check=True, timeout=30,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
     )
 
 
@@ -1289,8 +1337,7 @@ def _build_phase_prompt(
     if phase == "refine":
         lines.extend(
             [
-                "Analyze this issue and produce a structured analysis document. "
-                "Your goal is to:\n",
+                "Analyze this issue and produce a structured analysis document. Your goal is to:\n",
                 "1. Understand the problem or feature request",
                 "2. Research the current codebase to understand existing patterns",
                 "3. Identify constraints and dependencies",
@@ -1332,8 +1379,7 @@ def _build_phase_prompt(
                 "**Cons**:",
                 "- [Disadvantage 1]\n",
                 "## Recommended Approach\n",
-                "[Which option is recommended and why. "
-                "Reference the option above.]\n",
+                "[Which option is recommended and why. Reference the option above.]\n",
                 "## Open Questions\n",
                 "[Questions that require human input before proceeding.]\n",
                 "---\n",
@@ -1347,7 +1393,7 @@ def _build_phase_prompt(
                 '  --options "Option A" "Option B" "Option C" --format markdown',
                 "```",
                 "Copy the markdown output into your analysis. The human can check "
-                "a checkbox to select an option. An \"Other (explain in reply)\" "
+                'a checkbox to select an option. An "Other (explain in reply)" '
                 "option is auto-appended.\n",
                 "**Open-ended questions** (use dedicated feedback comment):",
                 "```bash",
@@ -1357,8 +1403,8 @@ def _build_phase_prompt(
                 "  --format markdown",
                 "```",
                 "This creates a dedicated comment for the human to fill in answers. "
-                "They edit the comment to add their responses and check \"Submit "
-                "feedback\" when done. The pipeline will resume with the feedback "
+                'They edit the comment to add their responses and check "Submit '
+                'feedback" when done. The pipeline will resume with the feedback '
                 "available in the contract.",
                 "",
             ]
@@ -2084,7 +2130,6 @@ def _spawn_and_wait(
         )
 
     return final_info.exit_code, container_logs
-
 
 
 # Phases that pause for human approval before advancing (HITL gates)
@@ -2862,9 +2907,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     # Use the REFINER role for the refine phase,
                     # CODER for all other single-agent phases.
                     single_agent_role = (
-                        AgentRole.REFINER
-                        if current_phase.value == "refine"
-                        else AgentRole.CODER
+                        AgentRole.REFINER if current_phase.value == "refine" else AgentRole.CODER
                     )
 
                     try:
@@ -3067,17 +3110,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     _PHASE_REVIEWERS as _phase_reviewer_roles,
                 )
 
-                reviewer_roles = _phase_reviewer_roles.get(
-                    current_phase.value, []
-                )
+                reviewer_roles = _phase_reviewer_roles.get(current_phase.value, [])
                 if not reviewer_roles:
                     break  # No reviewers for this phase — advance
 
                 # Clean stale verdict files
                 for role in reviewer_roles:
-                    rtype = role.value.replace("reviewer_", "", 1).replace(
-                        "_", "-"
-                    )
+                    rtype = role.value.replace("reviewer_", "", 1).replace("_", "-")
                     verdict_rel = _verdict_path_for_type(
                         current_phase.value,
                         rtype,
@@ -3106,9 +3145,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     _repos=repos,
                 ):
                     role_str = role.value
-                    rtype = role_str.replace("reviewer_", "", 1).replace(
-                        "_", "-"
-                    )
+                    rtype = role_str.replace("reviewer_", "", 1).replace("_", "-")
                     reviewer_prompt = _build_review_prompt(
                         phase=_phase.value,
                         pipeline_id=pipeline_id,
@@ -3169,17 +3206,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 )
                 with ThreadPoolExecutor(max_workers=max_workers) as rev_executor:
                     futures = [
-                        rev_executor.submit(_spawn_reviewer, role)
-                        for role in reviewer_roles
+                        rev_executor.submit(_spawn_reviewer, role) for role in reviewer_roles
                     ]
                     for future in futures:
                         future.result()
 
                 all_verdicts: dict[str, ReviewVerdict | None] = {}
                 for role in reviewer_roles:
-                    rtype = role.value.replace("reviewer_", "", 1).replace(
-                        "_", "-"
-                    )
+                    rtype = role.value.replace("reviewer_", "", 1).replace("_", "-")
                     all_verdicts[rtype] = _read_review_verdict(
                         worktree_repo_path,
                         current_phase.value,
@@ -3189,9 +3223,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_id=pipeline_id,
                     )
 
-                overall_verdict, combined_feedback = (
-                    _aggregate_review_verdicts(all_verdicts)
-                )
+                overall_verdict, combined_feedback = _aggregate_review_verdicts(all_verdicts)
 
                 if overall_verdict == "approved":
                     logger.info(
@@ -3226,9 +3258,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pipeline_id=pipeline_id,
                     phase=current_phase.value,
                     review_cycle=review_cycle + 1,
-                    feedback_preview=review_feedback[:200]
-                    if review_feedback
-                    else "",
+                    feedback_preview=review_feedback[:200] if review_feedback else "",
                 )
                 continue  # Re-run while loop with feedback
 
@@ -3347,7 +3377,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         )
                         followup = dq.queue_decision(
                             question=(
-                                f"You selected \"{resolution}\" but didn't provide specific feedback. "
+                                f'You selected "{resolution}" but didn\'t provide specific feedback. '
                                 f"Please describe what changes you'd like to see in the {phase_label}, "
                                 f"or approve to continue."
                             ),
@@ -3370,7 +3400,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         resolved_followup = dq.get_decision(followup.id)
                         resolution = (resolved_followup.resolution or "").strip()
                         # If the follow-up is also bare or an approval, just approve
-                        if resolution.lower() in _APPROVE_KEYWORDS or resolution.lower() in _BARE_OPTION_LABELS:
+                        if (
+                            resolution.lower() in _APPROVE_KEYWORDS
+                            or resolution.lower() in _BARE_OPTION_LABELS
+                        ):
                             logger.info(
                                 "HITL follow-up: no actionable feedback, treating as approval",
                                 pipeline_id=pipeline_id,
@@ -3382,7 +3415,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pass  # Fall through to the revision block below
 
                     # Re-check: resolution may have been updated by the follow-up path
-                    if resolution.lower() not in _APPROVE_KEYWORDS and resolution.lower() not in _BARE_OPTION_LABELS:
+                    if (
+                        resolution.lower() not in _APPROVE_KEYWORDS
+                        and resolution.lower() not in _BARE_OPTION_LABELS
+                    ):
                         # Human provided feedback — re-run the phase with corrections
                         logger.info(
                             "HITL gate: changes requested, re-running phase",
