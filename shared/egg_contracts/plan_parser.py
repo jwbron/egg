@@ -331,6 +331,31 @@ def parse_phases_from_yaml(
     warnings: list[ParseWarning] = []
     seen_phase_ids: set[int] = set()
 
+    # Reject multi-PR format: pr_plan key indicates the LLM proposed
+    # multiple PRs, which violates the one-issue-one-PR constraint.
+    if "pr_plan" in yaml_data:
+        phase_list = yaml_data.get("phases", [])
+        if not phase_list:
+            # pr_plan without phases means the LLM put the task breakdown
+            # under the wrong key — treat as a parse error.
+            return [], [
+                ParseWarning(
+                    line_number=None,
+                    message="'pr_plan' key found without 'phases' — the plan uses the "
+                    "unsupported multi-PR format. Each issue must produce exactly one PR "
+                    "using the 'phases' key.",
+                    context="The 'pr_plan' multi-PR format is not supported",
+                )
+            ]
+        warnings.append(
+            ParseWarning(
+                line_number=None,
+                message="'pr_plan' key is not supported — use 'pr' (singular) instead. "
+                "Each issue must produce exactly one PR.",
+                context="The 'pr_plan' multi-PR format will be ignored",
+            )
+        )
+
     phase_list = yaml_data.get("phases", [])
 
     if not phase_list:
@@ -809,6 +834,7 @@ def parse_plan(content: str) -> ParseResult:
             error="No tasks or phases found in plan document. "
             "Use a yaml-tasks code fence or format tasks as: "
             "[TASK-{phase}-{number}] description — Acceptance: criteria",
+            warnings=warnings,
         )
 
     # Extract PR metadata from YAML data

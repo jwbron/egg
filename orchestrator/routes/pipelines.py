@@ -1425,32 +1425,53 @@ def _build_phase_prompt(
     elif phase == "plan":
         lines.extend(
             [
-                "Create a detailed implementation plan:",
+                "Create a detailed implementation plan.",
                 "",
+                "**CRITICAL CONSTRAINT — One Issue = One Workflow = One PR.**",
+                "All tasks belong to a single pull request. Use phases and commits to",
+                "organise the work within that PR — do NOT propose multiple PRs.",
+                "",
+                "Steps:",
                 "1. Review any prior analysis",
                 "2. Break down the work into phases with discrete tasks",
                 "3. Define clear acceptance criteria for each task",
                 "4. Identify test strategy",
                 "5. Consider rollback and risks",
                 "",
+                "## Output Format",
+                "",
+                "Write a markdown plan with a **yaml-tasks** structured appendix at the end.",
+                "The prose section explains the approach; the appendix is machine-parsed.",
+                "",
+                "End your document with a fenced YAML block like this:",
+                "",
+                "````",
+                "```yaml",
+                "# yaml-tasks",
+                "pr:",
+                '  title: "Short imperative summary (≤70 chars)"',
+                "  description: |",
+                "    One-paragraph context and impact.",
+                "phases:",
+                "  - id: 1",
+                "    name: Phase Name",
+                "    goal: What this phase achieves",
+                "    tasks:",
+                "      - id: TASK-1-1",
+                "        description: What to do",
+                "        acceptance: How to verify it is done",
+                "        files:",
+                "          - path/to/file.py",
+                "```",
+                "````",
+                "",
+                "Do NOT use a `pr_plan` key or propose multiple PRs.",
+                "",
+                f"Write your plan to `{plan_path}`.",
+                "Commit and push the draft when done.",
+                "",
             ]
         )
-        if is_local:
-            lines.extend(
-                [
-                    f"Write your plan to `{plan_path}`.",
-                    "Commit and push the draft when done.",
-                    "",
-                ]
-            )
-        else:
-            lines.extend(
-                [
-                    f"Write your plan to `{plan_path}`.",
-                    "Commit and push the draft when done.",
-                    "",
-                ]
-            )
 
     elif phase == "implement":
         lines.extend(
@@ -1738,17 +1759,53 @@ def _build_agent_prompt(
             ]
         )
     elif role_value == "task_planner":
+        draft_path = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
         lines.extend(
             [
-                "Decompose the architecture analysis into discrete tasks:",
+                "Decompose the architecture analysis into a single-PR implementation plan.",
                 "",
+                "**CRITICAL CONSTRAINT — One Issue = One Workflow = One PR.**",
+                "All tasks belong to a single pull request. Use phases and commits to",
+                "organise the work within that PR — do NOT propose multiple PRs.",
+                "",
+                "Steps:",
                 "1. Review the architecture analysis from the ARCHITECT agent",
                 "2. Break down the work into phases with discrete, actionable tasks",
                 "3. Define clear acceptance criteria for each task",
                 "4. Define dependency ordering between tasks",
                 "5. Identify the test strategy",
                 "",
-                "Write your task breakdown to `.egg-state/agent-outputs/task_planner-output.json`.",
+                "## Output Format",
+                "",
+                "Write a markdown plan document with a **yaml-tasks** structured",
+                "appendix at the end. The prose section should explain the approach;",
+                "the appendix is machine-parsed for contract population.",
+                "",
+                "End your document with a fenced YAML block like this:",
+                "",
+                "````",
+                "```yaml",
+                "# yaml-tasks",
+                "pr:",
+                '  title: "Short imperative summary (≤70 chars)"',
+                "  description: |",
+                "    One-paragraph context and impact.",
+                "phases:",
+                "  - id: 1",
+                "    name: Phase Name",
+                "    goal: What this phase achieves",
+                "    tasks:",
+                "      - id: TASK-1-1",
+                "        description: What to do",
+                "        acceptance: How to verify it is done",
+                "        files:",
+                "          - path/to/file.py",
+                "```",
+                "````",
+                "",
+                "Do NOT use a `pr_plan` key or propose multiple PRs.",
+                "",
+                f"Write your plan to `{draft_path}`.",
                 "",
             ]
         )
@@ -2362,10 +2419,12 @@ def _synthesize_plan_draft(
 ) -> None:
     """Synthesize a plan draft from multi-agent plan outputs.
 
-    In multi-agent plan mode, ARCHITECT, TASK_PLANNER, and RISK_ANALYST
-    each write to .egg-state/agent-outputs/.  This function combines
-    their outputs into a single plan draft at .egg-state/drafts/{id}-plan.md
-    so that _populate_contract_from_plan() and the HITL gate can find it.
+    In multi-agent plan mode, ARCHITECT and RISK_ANALYST write to
+    .egg-state/agent-outputs/.  TASK_PLANNER writes the plan draft
+    directly to .egg-state/drafts/{id}-plan.md.  This function combines
+    the remaining agent outputs into the plan draft (if the task_planner
+    has not already written one) so that _populate_contract_from_plan()
+    and the HITL gate can find it.
     """
     draft_rel = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
     if not draft_rel:
@@ -2392,7 +2451,6 @@ def _synthesize_plan_draft(
     sections: list[str] = []
     agent_files = [
         ("architect-output.json", "Architecture Analysis"),
-        ("task_planner-output.json", "Task Breakdown"),
         ("risk_analyst-output.json", "Risk Assessment"),
     ]
 
@@ -2511,48 +2569,37 @@ def _populate_contract_from_plan(
         return
 
     try:
-        from egg_contracts.models import Phase as ContractPhase
-        from egg_contracts.models import PhaseStatus
-        from egg_contracts.models import Task as ContractTask
+        from egg_contracts.plan_parser import parse_plan
 
         plan_text = plan_path.read_text()
+        result = parse_plan(plan_text)
 
-        # Extract tasks from markdown — look for ## or ### headers with task-like content
-        import re
-
-        tasks: list[ContractTask] = []
-        task_idx = 1
-
-        # Look for numbered items or headers that look like tasks
-        for match in re.finditer(
-            r"^#{2,3}\s+(?:Task\s+)?(\d+[\.\):]?\s*)?(.+)$",
-            plan_text,
-            re.MULTILINE,
-        ):
-            title = match.group(2).strip()
-            if title and len(title) > 5:  # Skip very short headers
-                tasks.append(
-                    ContractTask(
-                        id=f"task-{task_idx}",
-                        description=title,
-                    )
-                )
-                task_idx += 1
-
-        if tasks:
-            # Create a single phase containing all tasks
-            phase = ContractPhase(
-                id="phase-1",
-                name="Implementation",
-                status=PhaseStatus.PENDING,
-                tasks=tasks,
+        if not result.success:
+            logger.warning(
+                "Plan parsing failed, skipping contract population",
+                pipeline_id=pipeline_id,
+                error=result.error,
             )
-            contract.phases = [phase]
+            return
+
+        for warning in result.warnings:
+            logger.warning(
+                "Plan parse warning",
+                pipeline_id=pipeline_id,
+                message=warning.message,
+                context=warning.context,
+            )
+
+        contract_phases = result.to_contract_phases()
+        if contract_phases:
+            contract.phases = contract_phases
             save_contract(contract, repo_path)
+            task_count = sum(len(p.tasks) for p in contract_phases)
             logger.info(
                 "Contract populated from plan",
                 pipeline_id=pipeline_id,
-                task_count=len(tasks),
+                phase_count=len(contract_phases),
+                task_count=task_count,
             )
 
     except Exception as e:
