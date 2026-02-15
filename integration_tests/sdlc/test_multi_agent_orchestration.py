@@ -627,6 +627,104 @@ class TestRefinePhaseRoles:
         assert not role_def.file_access.can_write("src/main.py")
 
 
+class TestPrPhaseRoles:
+    """Tests for pr phase role mapping."""
+
+    def test_get_roles_for_pr_phase(self):
+        """Get roles for pr phase returns coder."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("pr")
+        assert roles == [AgentRole.CODER]
+
+
+class TestGetEffectiveRolesForPhase:
+    """Tests for get_effective_roles_for_phase()."""
+
+    def test_implement_multi_agent(self):
+        """Multi-agent implement returns all 4 roles."""
+        from egg_contracts.agent_roles import get_effective_roles_for_phase
+
+        roles = get_effective_roles_for_phase("implement", multi_agent=True)
+        assert len(roles) == 4
+        assert AgentRole.CODER in roles
+        assert AgentRole.TESTER in roles
+        assert AgentRole.DOCUMENTER in roles
+        assert AgentRole.INTEGRATOR in roles
+
+    def test_implement_single_agent(self):
+        """Single-agent implement returns only CODER."""
+        from egg_contracts.agent_roles import get_effective_roles_for_phase
+
+        roles = get_effective_roles_for_phase("implement", multi_agent=False)
+        assert roles == [AgentRole.CODER]
+
+    def test_plan_single_agent(self):
+        """Single-agent plan returns CODER (matches legacy behaviour)."""
+        from egg_contracts.agent_roles import get_effective_roles_for_phase
+
+        roles = get_effective_roles_for_phase("plan", multi_agent=False)
+        assert roles == [AgentRole.CODER]
+
+    def test_plan_multi_agent(self):
+        """Multi-agent plan returns architect, task_planner, risk_analyst."""
+        from egg_contracts.agent_roles import get_effective_roles_for_phase
+
+        roles = get_effective_roles_for_phase("plan", multi_agent=True)
+        assert len(roles) == 3
+        assert AgentRole.ARCHITECT in roles
+        assert AgentRole.TASK_PLANNER in roles
+        assert AgentRole.RISK_ANALYST in roles
+
+    def test_refine_single_agent(self):
+        """Single-agent refine returns REFINER."""
+        from egg_contracts.agent_roles import get_effective_roles_for_phase
+
+        roles = get_effective_roles_for_phase("refine", multi_agent=False)
+        assert roles == [AgentRole.REFINER]
+
+    def test_refine_multi_agent_still_single(self):
+        """Multi-agent flag has no effect on refine (not in implement/plan)."""
+        from egg_contracts.agent_roles import get_effective_roles_for_phase
+
+        roles = get_effective_roles_for_phase("refine", multi_agent=True)
+        assert roles == [AgentRole.REFINER]
+
+    def test_pr_single_agent(self):
+        """Single-agent pr returns CODER."""
+        from egg_contracts.agent_roles import get_effective_roles_for_phase
+
+        roles = get_effective_roles_for_phase("pr", multi_agent=False)
+        assert roles == [AgentRole.CODER]
+
+    def test_pr_multi_agent_still_single(self):
+        """Multi-agent flag has no effect on pr (not in implement/plan)."""
+        from egg_contracts.agent_roles import get_effective_roles_for_phase
+
+        roles = get_effective_roles_for_phase("pr", multi_agent=True)
+        assert roles == [AgentRole.CODER]
+
+    def test_unknown_phase_raises(self):
+        """Unknown phase raises ValueError."""
+        import pytest
+        from egg_contracts.agent_roles import get_effective_roles_for_phase
+
+        with pytest.raises(ValueError, match="No agent roles defined"):
+            get_effective_roles_for_phase("unknown", multi_agent=False)
+
+    def test_with_reviewers(self):
+        """include_reviewers appends reviewer roles."""
+        from egg_contracts.agent_roles import get_effective_roles_for_phase
+
+        roles = get_effective_roles_for_phase(
+            "implement", multi_agent=False, include_reviewers=True
+        )
+        # Single CODER + 4 implement reviewers
+        assert len(roles) == 5
+        assert roles[0] == AgentRole.CODER
+        assert AgentRole.REVIEWER_UNIFIED in roles
+
+
 class TestReviewerRoles:
     """Tests for reviewer agent roles."""
 
