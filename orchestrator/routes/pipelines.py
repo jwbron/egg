@@ -1865,10 +1865,12 @@ def _build_agent_prompt(
                 "git push origin egg/<new-branch>",
                 "```",
                 "Do NOT retry the same push — fix the branch first.",
+                "After pushing to the new branch, use `egg-contract add-commit` to "
+                "link your commits so the pipeline can track them on the new branch.",
                 "",
             ]
         )
-    elif phase == "plan":
+    elif phase in ("refine", "plan"):
         lines.extend(
             [
                 "- You CAN write to `.egg-state/drafts/` and `.egg-state/agent-outputs/`",
@@ -1891,6 +1893,8 @@ def _build_agent_prompt(
                 "git push origin egg/<new-branch>",
                 "```",
                 "Do NOT retry the same push — fix the branch first.",
+                "After pushing to the new branch, use `egg-contract add-commit` to "
+                "link your commits so the pipeline can track them on the new branch.",
                 "",
             ]
         )
@@ -2024,7 +2028,9 @@ def _run_multi_agent_phase(
     # separately via save_agent_output().
     from egg_contracts.loader import contract_exists, create_contract, create_local_contract
 
-    contract_key: int | str = pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
+    contract_key: int | str = (
+        pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
+    )
     if not contract_exists(contract_key, worktree_repo_path):
         logger.warning(
             "Contract missing from worktree, recreating for multi-agent phase",
