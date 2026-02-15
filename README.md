@@ -127,18 +127,25 @@ During the **implement** phase, work is divided across these specialized agents:
 
 **Execution model**: Wave-based with dependencies. The coder runs first, then tester and documenter run in parallel (both depend on coder's output). The integrator runs after the coder and tester complete (it does not wait for the documenter).
 
-### Reviewer Roles (Implement Phase)
+### Reviewer Roles
 
-After the integrator completes, reviewers validate the implementation output:
+Reviewers run as part of multi-agent wave execution in refine, plan, and implement phases:
 
-| Role | Responsibility |
-|------|----------------|
-| **Unified Reviewer** | Comprehensive review across all criteria |
-| **Code Reviewer** | Security, correctness, code quality |
-| **Contract Reviewer** | Verify acceptance criteria met, task completion status |
-| **Agent Design Reviewer** | Check for agent-mode anti-patterns, autonomous operation capability |
+**Refine Phase:**
+- **Unified Reviewer**: Analysis quality and completeness
+- **Agent Design Reviewer**: Agent-mode alignment and anti-patterns
 
-**Execution model**: All reviewers depend on the integrator and run in parallel after it completes, producing structured verdicts (approved/needs_revision). Reviewers currently only operate in the implement phase.
+**Plan Phase:**
+- **Unified Reviewer**: Plan quality, task structure, acceptance criteria
+- **Agent Design Reviewer**: Agent-mode alignment and anti-patterns
+
+**Implement Phase:**
+- **Unified Reviewer**: Comprehensive review across all criteria
+- **Code Reviewer**: Security, correctness, code quality
+- **Contract Reviewer**: Verify acceptance criteria met, task completion status
+- **Agent Design Reviewer**: Check for agent-mode anti-patterns, autonomous operation capability
+
+**Execution model**: Reviewers run in parallel as the final wave of each phase's dependency graph. In implement phase, reviewers depend on the integrator. In plan phase, reviewers depend on the task planner and risk analyst. In refine phase (single-worker), reviewers run after the coder completes.
 
 ### Plan Phase Roles
 
