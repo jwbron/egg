@@ -17,5 +17,16 @@ if [ -n "${EGG_CONTAINER:-}" ] || [ -f "/.dockerenv" ]; then
     exec "$SCRIPT_DIR/../sandbox/bin/egg-onboarding-docs" "$@"
 fi
 
-# Host: launch inside container via egg --exec
-exec "$SCRIPT_DIR/egg" --exec egg-onboarding-docs "$@"
+# Host: extract --private/--public before passing to egg --exec
+# (egg --exec uses REMAINDER parsing, so these must come before --exec)
+egg_flags=("--timeout" "360")
+onboarding_args=()
+
+for arg in "$@"; do
+    case "$arg" in
+        --private|--public) egg_flags+=("$arg") ;;
+        *) onboarding_args+=("$arg") ;;
+    esac
+done
+
+exec "$SCRIPT_DIR/egg" "${egg_flags[@]}" --exec egg-onboarding-docs "${onboarding_args[@]}"
