@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Generate comprehensive onboarding documentation for a repository
+# by running the onboarding doc prompt through the SDLC pipeline.
+#
+# Usage:
+#     egg-onboarding-docs <repo_dir>
+#     egg-onboarding-docs egg
+#
+# This is a thin wrapper around egg-sdlc --prompt.
+
+set -euo pipefail
+
+PROMPT="Generate comprehensive onboarding documentation for this repository. \
+Survey the codebase structure, identify key components, and create documentation \
+that helps new contributors understand the project."
+
+usage() {
+    echo "Usage: egg-onboarding-docs <repo_dir>"
+    echo ""
+    echo "  repo_dir   Directory name under ~/repos/ (e.g. 'egg')"
+    echo ""
+    echo "Runs egg-sdlc in local mode with a documentation prompt."
+    exit 1
+}
+
+if [ $# -ne 1 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    usage
+fi
+
+repo_dir="$1"
+repo_path="$HOME/repos/${repo_dir}"
+
+if [ ! -d "$repo_path/.git" ]; then
+    echo "Error: repository not found at $repo_path" >&2
+    exit 1
+fi
+
+exec egg-sdlc -r "$repo_dir" --prompt "$PROMPT"
