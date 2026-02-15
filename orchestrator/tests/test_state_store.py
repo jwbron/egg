@@ -19,6 +19,7 @@ from state_store import (
     StateValidationError,
     VersionConflictError,
     _validate_pipeline_id,
+    get_pipeline_state_lock,
     get_state_store,
 )
 
@@ -704,6 +705,143 @@ class TestDecisionPersistenceRegression:
         assert len(final.decisions) == 1
         assert final.decisions[0].id == "decision-1"
         assert final.status == PipelineStatus.AWAITING_HUMAN
+
+
+class TestUpdatePipelineDecisionRace:
+    """Regression test for the race between update_pipeline and resolve_decision.
+
+    Reproduces the bug where a concurrent update_pipeline (PATCH) overwrites
+    a decision resolution because both do unsynchronized load-modify-save
+    cycles on the same pipeline state file.
+
+    Fix: Both update_pipeline and DecisionQueue now share a per-pipeline
+    lock (get_pipeline_state_lock) so their load-modify-save cycles are
+    mutually exclusive.
+    """
+
+    def test_concurrent_update_does_not_overwrite_resolved_decision(self, state_store):
+        """Verify the per-pipeline lock serializes update_pipeline and resolve_decision.
+
+        We patch save_pipeline inside Thread A's update_pipeline to pause
+        just before writing, giving Thread B a window to call resolve_decision.
+        Because both acquire get_pipeline_state_lock, Thread B blocks until
+        Thread A releases the lock.  Thread B then loads fresh state (with
+        Thread A's changes) and resolves on top — both effects survive.
+
+        If the lock were removed from update_pipeline, Thread B would complete
+        its resolve during Thread A's pause, and Thread A's subsequent save
+        would overwrite the resolution with stale data (the original bug).
+        """
+        import threading
+        import time
+        from unittest.mock import patch as mock_patch
+
+        from decision_queue import DecisionQueue
+        from models import DecisionStatus
+
+        pipeline_id = "issue-647"
+
+        # Create pipeline and queue a decision
+        state_store.create_pipeline(
+            issue_number=647,
+            repo="owner/repo",
+            branch="egg/issue-647",
+        )
+        with mock_patch("decision_queue.get_state_store", return_value=state_store):
+            dq = DecisionQueue(pipeline_id, state_store.repo_path)
+            dq.queue_decision(
+                question="Approve plan?",
+                options=["approve", "request changes"],
+            )
+
+        a_about_to_save = threading.Event()
+        errors: list[Exception] = []
+        original_save = state_store.save_pipeline
+
+        def delayed_save(pipeline, **kwargs):
+            """Pause before writing to widen the concurrency window.
+
+            Thread A holds the lock while sleeping.  Thread B attempts to
+            acquire the same lock during this window and blocks.  After the
+            sleep, Thread A saves and releases the lock, allowing Thread B
+            to load the fresh state.
+            """
+            a_about_to_save.set()
+            time.sleep(0.2)
+            original_save(pipeline, **kwargs)
+
+        def thread_a_update():
+            """Simulate PATCH /pipelines — update_pipeline with delayed save."""
+            try:
+                with mock_patch.object(
+                    state_store, "save_pipeline", side_effect=delayed_save
+                ):
+                    state_store.update_pipeline(pipeline_id, {"status": "awaiting_human"})
+            except Exception as exc:
+                errors.append(exc)
+
+        def thread_b_resolve():
+            """Simulate POST /decisions/resolve — attempts during A's save window."""
+            try:
+                a_about_to_save.wait(timeout=5)
+                with mock_patch("decision_queue.get_state_store", return_value=state_store):
+                    dq_b = DecisionQueue(pipeline_id, state_store.repo_path)
+                    dq_b.resolve_decision("decision-1", "Approved")
+            except Exception as exc:
+                errors.append(exc)
+
+        t_a = threading.Thread(target=thread_a_update)
+        t_b = threading.Thread(target=thread_b_resolve)
+        t_a.start()
+        t_b.start()
+        t_a.join(timeout=10)
+        t_b.join(timeout=10)
+
+        assert not errors, f"Thread errors: {errors}"
+
+        # Both effects must be present: status update AND decision resolution
+        final = state_store.load_pipeline(pipeline_id)
+        assert final.status.value == "awaiting_human", (
+            "Thread A's status update was lost"
+        )
+        assert len(final.decisions) == 1
+        assert final.decisions[0].status == DecisionStatus.RESOLVED, (
+            "update_pipeline overwrote resolved decision — "
+            "the per-pipeline state lock is not preventing the race"
+        )
+        assert final.decisions[0].resolution == "Approved"
+
+    def test_shared_lock_between_decision_queue_and_state_store(self):
+        """DecisionQueue and update_pipeline must use the same lock instance."""
+        from decision_queue import DecisionQueue
+
+        pipeline_id = "issue-999"
+        dq = DecisionQueue(pipeline_id, "/tmp/fake-repo")
+        state_lock = get_pipeline_state_lock(pipeline_id)
+
+        assert dq._lock is state_lock, (
+            "DecisionQueue must use get_pipeline_state_lock so it shares "
+            "the same lock as StateStore.update_pipeline"
+        )
+
+    def test_release_pipeline_state_lock_on_delete(self, state_store):
+        """Deleting a pipeline should clean up its state lock."""
+        from state_store import _pipeline_state_locks, release_pipeline_state_lock
+
+        pipeline_id = "issue-888"
+        state_store.create_pipeline(
+            issue_number=888,
+            repo="owner/repo",
+            branch="egg/issue-888",
+        )
+
+        # Access the lock to create it
+        get_pipeline_state_lock(pipeline_id)
+        assert pipeline_id in _pipeline_state_locks
+
+        # Delete pipeline — lock should be cleaned up
+        state_store.delete_pipeline(pipeline_id)
+        assert pipeline_id not in _pipeline_state_locks
 
 
 class TestRunGitLocking:
