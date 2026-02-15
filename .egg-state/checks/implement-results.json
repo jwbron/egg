@@ -4,12 +4,12 @@
     {
       "name": "lint",
       "passed": true,
-      "output": "ruff check: All checks passed! (exit code 0)"
+      "output": "ruff check: All checks passed! (0 errors, 0 warnings)"
     },
     {
       "name": "pytest",
       "passed": true,
-      "output": "3310 passed, 81 skipped, 3 warnings in 23.79s (exit code 0)"
+      "output": "3366 passed, 80 skipped, 3 warnings in 24.48s"
     }
   ]
 }
