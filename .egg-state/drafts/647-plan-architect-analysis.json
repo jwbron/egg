@@ -1,0 +1,46 @@
+{
+  "role": "architect",
+  "issue": 647,
+  "phase": "plan",
+  "timestamp": "2026-02-15T19:45:00Z",
+
+  "summary": "Replace host Docker socket mount with rootless DinD sidecar in the local pipeline integration test stack. Zero orchestrator code changes — DockerClient already supports DOCKER_HOST via environment variable. Work is compose configuration, test fixture updates for image loading into DinD, and volume path adjustments.",
+
+  "findings": [
+    {
+      "category": "code_compatibility",
+      "detail": "DockerClient (orchestrator/docker_client.py:95-109) already supports DOCKER_HOST env var. Setting DOCKER_HOST=tcp://dind:2375 requires no code changes.",
+      "confidence": "high"
+    },
+    {
+      "category": "network_topology",
+      "detail": "ContainerSpawner (container_spawner.py:55) reads EGG_ISOLATED_NETWORK from environment. Test compose already overrides this to match test network names. DinD-spawned containers need to join this network for gateway connectivity.",
+      "confidence": "high"
+    },
+    {
+      "category": "image_strategy",
+      "detail": "Mock-sandbox is built as alpine+curl (~5MB). Transfer via docker save | docker load is fast and validated on target host.",
+      "confidence": "high"
+    },
+    {
+      "category": "volume_sharing",
+      "detail": "Named volumes (state, worktrees, certs) can be shared across compose services including DinD. The EGG_HOST_REPO_MAP must reference DinD-internal paths instead of host paths.",
+      "confidence": "medium"
+    },
+    {
+      "category": "network_risk",
+      "detail": "DinD's Docker daemon may not see networks created by the outer Docker daemon. DinD-spawned containers may not be able to directly join outer compose networks. This is the highest-risk area and needs early validation.",
+      "confidence": "medium"
+    }
+  ],
+
+  "recommendation": {
+    "approach": "Rootless DinD sidecar (docker:27-dind-rootless)",
+    "phases": 4,
+    "total_files_modified_estimate": 2,
+    "risk_level": "medium",
+    "key_risk": "Network bridging between DinD-spawned containers and the gateway. Must be validated in Phase 1 before proceeding."
+  },
+
+  "authored_by": "egg"
+}

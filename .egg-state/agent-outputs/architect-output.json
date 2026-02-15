@@ -1,0 +1,276 @@
+{
+  "issue": {
+    "number": 647,
+    "title": "Full-stack DinD integration testing for egg self-validation",
+    "url": "https://github.com/jwbron/egg/issues/647"
+  },
+  "phase": "plan",
+  "role": "architect",
+  "timestamp": "2026-02-15T19:45:00Z",
+
+  "problem_statement": "The egg orchestrator's local pipeline integration tests mount the host Docker socket into the orchestrator container, giving it access to the entire host Docker daemon. Issue #647 asks us to replace this with a Docker-in-Docker (DinD) sidecar so the orchestrator's Docker operations are sandboxed within an isolated daemon. This is a prerequisite for building self-validation tests where egg tests its own changes end-to-end.",
+
+  "current_architecture": {
+    "summary": "The local pipeline test stack (integration_tests/local_pipeline/) runs gateway + orchestrator via docker-compose. The orchestrator mounts /var/run/docker.sock to spawn mock-sandbox containers. The DockerClient (orchestrator/docker_client.py) already supports DOCKER_HOST env var for TCP connections. Tests use a mock-sandbox image (alpine + curl + phase-runner.sh) that validates environment and writes artifacts.",
+    "key_files": [
+      {
+        "path": "integration_tests/local_pipeline/docker-compose.yml",
+        "role": "Test stack compose definition — gateway + orchestrator with host Docker socket mount",
+        "lines_of_interest": "72 (DOCKER_HOST env), 88 (docker.sock mount)"
+      },
+      {
+        "path": "integration_tests/local_pipeline/conftest.py",
+        "role": "Session-scoped fixture that builds mock-sandbox, starts compose, waits for health, tears down",
+        "lines_of_interest": "240-252 (mock-sandbox build), 255-268 (compose up)"
+      },
+      {
+        "path": "integration_tests/local_pipeline/mock-sandbox/Dockerfile",
+        "role": "Mock sandbox image: alpine + curl, runs phase-runner.sh"
+      },
+      {
+        "path": "integration_tests/local_pipeline/mock-sandbox/phase-runner.sh",
+        "role": "Mock agent that validates environment, writes artifacts (drafts, reviews, checks), supports failure injection"
+      },
+      {
+        "path": "orchestrator/docker_client.py",
+        "role": "Docker SDK wrapper — already supports DOCKER_HOST env for TCP connections (line 101)",
+        "lines_of_interest": "95-109 (constructor with docker_host parameter)"
+      },
+      {
+        "path": "orchestrator/container_spawner.py",
+        "role": "High-level container spawning with gateway session management, network selection",
+        "lines_of_interest": "55 (EGG_ISOLATED_NETWORK from env), 148-165 (network mode selection)"
+      },
+      {
+        "path": "docker-compose.yml",
+        "role": "Production compose — reference for network topology (172.32.0.x isolated, 172.33.0.x external)"
+      },
+      {
+        "path": "shared/egg_config/constants.py",
+        "role": "Network constants, IPs, port definitions"
+      },
+      {
+        "path": "integration_tests/local_pipeline/helpers.py",
+        "role": "Shared test utilities: create/start/poll pipeline, resolve decisions, send signals"
+      },
+      {
+        "path": "tests/utils/gateway_client.py",
+        "role": "Shared test utilities: docker_available(), wait_for_healthy(), GatewayClientMixin"
+      }
+    ],
+    "network_topology": {
+      "test_isolated": "172.40.0.0/24 (gateway: 172.40.0.2, orchestrator: 172.40.0.3)",
+      "test_external": "172.41.0.0/24 (gateway: 172.41.0.2, orchestrator: 172.41.0.3)",
+      "spawned_containers": "Join egg-test-isolated via EGG_ISOLATED_NETWORK env override"
+    }
+  },
+
+  "approaches_considered": [
+    {
+      "id": "A",
+      "name": "Rootless DinD sidecar (Recommended)",
+      "description": "Add docker:27-dind-rootless as a compose sidecar. Orchestrator connects via DOCKER_HOST=tcp://dind:2375. Mock-sandbox image loaded into DinD at setup time via docker save | docker load. No orchestrator code changes needed.",
+      "pros": [
+        "Validated on target host (Linux 6.17 aarch64, overlay2)",
+        "DockerClient already supports DOCKER_HOST — zero code changes to orchestrator",
+        "Rootless reduces blast radius (inner daemon runs as non-root user)",
+        "Removes host Docker socket from test stack entirely",
+        "Full container lifecycle works over TCP (create, start, logs, stop, remove)",
+        "Foundation for deployment validation (#645)"
+      ],
+      "cons": [
+        "~5s startup overhead for rootless DinD daemon initialization",
+        "Requires --privileged on DinD container",
+        "DinD-spawned containers live in DinD's network namespace — network bridging needed for gateway connectivity",
+        "Volume sharing requires coordinated mount paths (DinD-internal paths, not host paths)",
+        "Image transfer adds complexity to test fixture (docker save | docker load)",
+        "EGG_HOST_REPO_MAP must reference DinD-internal paths instead of host paths"
+      ],
+      "risk": "medium",
+      "complexity": "medium"
+    },
+    {
+      "id": "B",
+      "name": "Standard (root) DinD sidecar",
+      "description": "Same as A but using docker:27-dind (non-rootless). Slightly faster startup but inner daemon runs as root.",
+      "pros": [
+        "Faster startup (~2-3s less than rootless)",
+        "Simpler daemon configuration",
+        "Wider community documentation"
+      ],
+      "cons": [
+        "Inner Docker daemon runs as root — larger blast radius",
+        "Still requires --privileged",
+        "Same network/volume complexity as Option A"
+      ],
+      "risk": "medium",
+      "complexity": "medium"
+    },
+    {
+      "id": "C",
+      "name": "Keep host socket mount (status quo)",
+      "description": "Continue mounting /var/run/docker.sock. No changes.",
+      "pros": [
+        "Already working",
+        "Simplest network topology",
+        "No image transfer needed"
+      ],
+      "cons": [
+        "Untrusted orchestrator has full host Docker access",
+        "Can manage any container on host, not just test containers",
+        "Not suitable for CI environments",
+        "Does not establish DinD pattern needed for #645"
+      ],
+      "risk": "low",
+      "complexity": "none"
+    }
+  ],
+
+  "recommended_approach": {
+    "id": "A",
+    "name": "Rootless DinD sidecar",
+    "justification": "This is the validated approach (confirmed working on the target host per the issue). The ~5s startup overhead is negligible for integration tests. Rootless provides better security posture than standard DinD for marginal additional complexity. The DockerClient already supports DOCKER_HOST, so no orchestrator code changes are needed — the work is purely infrastructure/compose configuration and test fixture updates."
+  },
+
+  "technical_decisions": [
+    {
+      "id": "TD-1",
+      "question": "DinD variant: rootless vs standard",
+      "decision": "Rootless (docker:27-dind-rootless)",
+      "rationale": "Both require --privileged. Rootless runs inner daemon as non-root, reducing blast radius. ~5s startup overhead is acceptable for integration tests. Validated on target host."
+    },
+    {
+      "id": "TD-2",
+      "question": "Image loading strategy: save/load vs build-inside-DinD",
+      "decision": "Save/load approach",
+      "rationale": "Build mock-sandbox on host daemon (fast, cached), then docker save | docker -H tcp://... load into DinD. This is validated and avoids needing build context inside DinD. The mock-sandbox image is tiny (alpine + curl) so transfer is fast."
+    },
+    {
+      "id": "TD-3",
+      "question": "Network topology for DinD-spawned containers",
+      "decision": "DinD sidecar joins the test networks; orchestrator passes network names to DinD-spawned containers via existing EGG_ISOLATED_NETWORK override",
+      "rationale": "The DinD daemon needs access to the test networks so that containers it spawns can join them. Since DinD is a service in the same compose stack, it can be on the same networks. The orchestrator's container_spawner already reads EGG_ISOLATED_NETWORK from env (container_spawner.py:55) and passes it when connecting spawned containers to networks. The key insight is that DinD's Docker daemon can connect containers to Docker networks that exist on the host daemon — it sees the same network namespace because the DinD container itself is on those networks."
+    },
+    {
+      "id": "TD-4",
+      "question": "Volume sharing between orchestrator and DinD-spawned containers",
+      "decision": "Shared named volumes for state and worktrees; DinD mounts the same named volumes so spawned containers can mount them by reference",
+      "rationale": "Named volumes in the compose stack (state, worktrees, certs) are available to all services. DinD needs these volumes mounted so that when it spawns containers, it can bind-mount paths that resolve to the shared volume data. The orchestrator's EGG_HOST_REPO_MAP and worktree path translation must reference DinD-internal paths."
+    },
+    {
+      "id": "TD-5",
+      "question": "Whether to add DinD tests to CI now or defer",
+      "decision": "Defer CI integration to a follow-up",
+      "rationale": "The primary goal of #647 is establishing the DinD test stack. CI integration requires verifying GitHub Actions runner support for --privileged containers and is a separate concern. The test fixture should be designed to work in CI (skip gracefully if DinD unavailable) but we don't need to add the CI workflow change in this PR."
+    }
+  ],
+
+  "implementation_outline": {
+    "phases": [
+      {
+        "id": 1,
+        "name": "DinD compose service and network wiring",
+        "description": "Add docker:27-dind-rootless service to integration_tests/local_pipeline/docker-compose.yml. Wire it into test networks (egg-test-isolated, egg-test-external). Update orchestrator service to use DOCKER_HOST=tcp://dind:2375 instead of docker.sock mount. Add DinD health check. Ensure DinD has necessary volumes (state, worktrees, certs, repo mounts) so it can mount them into spawned containers.",
+        "files_affected": [
+          "integration_tests/local_pipeline/docker-compose.yml"
+        ],
+        "key_considerations": [
+          "DinD needs privileged: true and /dev/net/tun device",
+          "DOCKER_TLS_CERTDIR= disables TLS for simplicity in test environment",
+          "DinD health check: docker info (not curl-based)",
+          "Orchestrator depends_on dind (service_healthy) instead of just gateway",
+          "Remove /var/run/docker.sock mount from orchestrator",
+          "DinD must mount the same named volumes (state, worktrees) so spawned containers can access them",
+          "DinD must also mount the test repo directory so spawned containers can mount repo paths"
+        ]
+      },
+      {
+        "id": 2,
+        "name": "Test fixture: image loading into DinD",
+        "description": "Update the local_pipeline_stack fixture in conftest.py to load the mock-sandbox image into the DinD daemon after compose starts. The fixture currently builds the image on the host daemon. With DinD, it needs to: (1) build on host daemon (already working), (2) docker save the image to a pipe/file, (3) docker -H tcp://... load into DinD. This must happen after DinD is healthy but before any pipeline tests run.",
+        "files_affected": [
+          "integration_tests/local_pipeline/conftest.py"
+        ],
+        "key_considerations": [
+          "Need to determine the DinD TCP endpoint from compose (either fixed port or docker compose port dind 2375)",
+          "docker save mock-sandbox:latest | docker -H tcp://localhost:PORT load",
+          "Must wait for DinD health before loading",
+          "Error handling: if image load fails, test session should fail clearly",
+          "Alternative: mount docker.sock from DinD into a helper container for loading — but TCP is simpler"
+        ]
+      },
+      {
+        "id": 3,
+        "name": "Volume and path mapping adjustments",
+        "description": "Update EGG_HOST_REPO_MAP and volume configuration so that the orchestrator passes DinD-correct paths when spawning containers. Since the orchestrator now talks to the DinD daemon, the 'host' paths it provides for volume mounts must be paths as seen inside the DinD container, not host paths.",
+        "files_affected": [
+          "integration_tests/local_pipeline/conftest.py",
+          "integration_tests/local_pipeline/docker-compose.yml"
+        ],
+        "key_considerations": [
+          "EGG_HOST_REPO_MAP values must be DinD-internal paths (e.g., /home/egg/repos/test-repo if mounted at that path inside DinD)",
+          "The conftest override file that adds per-repo volumes must also add them to the DinD service",
+          "Named volumes (state, worktrees, certs) are accessible by name from DinD — the orchestrator may need to reference volume names rather than paths for these",
+          "The orchestrator's translate_to_host_path() logic may need adjustment for DinD contexts"
+        ]
+      },
+      {
+        "id": 4,
+        "name": "Run existing tests against DinD-backed stack",
+        "description": "Verify that all existing integration tests in integration_tests/local_pipeline/ pass against the DinD-backed stack. Fix any failures caused by the DinD switch (network connectivity issues, volume mount issues, timing changes).",
+        "files_affected": [
+          "integration_tests/local_pipeline/test_local_pipeline.py",
+          "integration_tests/local_pipeline/test_concurrent_pipelines.py",
+          "integration_tests/local_pipeline/test_error_recovery.py",
+          "integration_tests/local_pipeline/test_hitl_edge_cases.py",
+          "integration_tests/local_pipeline/test_signals.py",
+          "integration_tests/local_pipeline/test_api_validation.py",
+          "integration_tests/local_pipeline/test_unified_pipeline_behavior.py",
+          "integration_tests/local_pipeline/test_worktree_integration.py"
+        ],
+        "key_considerations": [
+          "Tests may need longer timeouts due to DinD startup overhead",
+          "Network connectivity between gateway and DinD-spawned containers is the highest-risk area",
+          "Container logs may need different retrieval approach if DinD adds a layer",
+          "Orphaned container cleanup (_cleanup_orphaned_containers) must work through DinD",
+          "If tests create/start pipelines, the spawned mock-sandbox containers run inside DinD — verify they can communicate with gateway"
+        ]
+      }
+    ],
+    "estimated_risk": "medium — network wiring between DinD-spawned containers and the gateway is the main risk area. The DockerClient code change is zero-risk (env var only). Volume path translation is moderate risk.",
+    "dependencies": [
+      "Docker 27+ with DinD rootless support",
+      "docker-compose v2 (already used)",
+      "No external dependencies — all images are built locally"
+    ],
+    "test_strategy": "Run the full existing integration test suite (pytest integration_tests/local_pipeline/ -v -m integration --timeout=300) against the DinD-backed stack. All existing tests should pass. No new tests are strictly required for the DinD switch itself — the existing tests exercise the full pipeline lifecycle through the orchestrator's Docker operations."
+  },
+
+  "constraints": [
+    "No orchestrator code changes needed (DockerClient already supports DOCKER_HOST)",
+    "Host kernel: Linux 6.17 aarch64 (Asahi/Fedora) — validated for DinD",
+    "DinD requires --privileged on outer container",
+    "Mock-sandbox image is alpine + curl (fast to build and transfer)",
+    "All test files are under integration_tests/ (not production code paths)",
+    "Phase restrictions: architect cannot modify production code (src/, lib/, gateway/, orchestrator/)"
+  ],
+
+  "open_questions": [
+    {
+      "id": "OQ-1",
+      "question": "Can DinD-spawned containers directly join Docker networks defined by the outer compose stack?",
+      "context": "The DinD daemon runs inside a container. When the orchestrator tells DinD to create a container on the 'egg-lp-test-isolated' network, DinD needs to resolve that network. Since DinD has its own Docker daemon, it may not see networks created by the outer Docker daemon. This may require: (a) creating the test network with the external driver so DinD can see it, (b) using network_mode: host on DinD, or (c) accepting that DinD-spawned containers communicate via DinD's IP on the outer network.",
+      "impact": "high — if DinD-spawned containers can't reach the gateway, the entire approach needs rethinking",
+      "suggested_resolution": "Test during Phase 1: create a minimal DinD + gateway stack and verify a container spawned inside DinD can curl the gateway health endpoint. If direct network join fails, use DinD's host networking or proxy through DinD's IP."
+    },
+    {
+      "id": "OQ-2",
+      "question": "Should the conftest expose the DinD Docker endpoint for direct test assertions?",
+      "context": "Some tests may want to inspect container state directly. With the host socket, tests could run 'docker ps' on the host. With DinD, they'd need to target the DinD daemon.",
+      "impact": "low — most tests interact via orchestrator API, not direct Docker commands",
+      "suggested_resolution": "Add dind_docker_host to LocalPipelineStack for tests that need direct Docker access."
+    }
+  ],
+
+  "authored_by": "egg"
+}
