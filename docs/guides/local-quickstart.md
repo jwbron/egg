@@ -89,7 +89,7 @@ With no arguments, this starts a **local pipeline**. The agent will:
 3. Create a local pipeline in the orchestrator
 4. Run through refine → plan → implement → PR phases entirely locally
 
-During refine and plan phases, the gateway blocks push and gh operations. During the PR phase, the gateway allows PR creation and editing so the agent can create a draft PR for your review.
+During refine and plan phases, the gateway restricts pushes to state files and blocks PR operations. During the PR phase, the gateway allows PR creation and editing so the agent can create a draft PR for your review.
 
 **Local pipeline phases:**
 
