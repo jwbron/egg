@@ -117,7 +117,7 @@ def ensure_checkpoint_ref(
         checkpoint_repo: Optional "owner/repo" for an external checkpoint repo.
 
     Returns:
-        A git ref string (e.g. "origin/egg/checkpoints/v2" or "FETCH_HEAD"),
+        A git ref string (e.g. "origin/egg/checkpoints/v2" or a resolved SHA),
         or None if the branch doesn't exist.
     """
     target = _resolve_checkpoint_target(repo_path, checkpoint_repo)
@@ -135,7 +135,12 @@ def ensure_checkpoint_ref(
     run_git(["fetch", target, CHECKPOINT_BRANCH], cwd=repo_path, check=False)
 
     if checkpoint_repo:
-        return "FETCH_HEAD"
+        # Resolve FETCH_HEAD to a stable SHA before returning.
+        # FETCH_HEAD is overwritten by any subsequent git fetch.
+        result = run_git(["rev-parse", "FETCH_HEAD"], cwd=repo_path, check=False)
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip()
     return f"origin/{CHECKPOINT_BRANCH}"
 
 
@@ -168,8 +173,11 @@ def load_index_from_ref(ref: str, repo_path: str) -> CheckpointIndexV2 | None:
     content = read_git_file(ref, "index.json", repo_path)
     if content is None:
         return None
-    data = json.loads(content)
-    return CheckpointIndexV2.model_validate(data)
+    try:
+        data = json.loads(content)
+        return CheckpointIndexV2.model_validate(data)
+    except (json.JSONDecodeError, Exception):
+        return None
 
 
 def load_checkpoint_from_ref(
@@ -181,8 +189,11 @@ def load_checkpoint_from_ref(
     content = read_git_file(ref, str(rel_path), repo_path)
     if content is None:
         return None
-    data = json.loads(content)
-    return CheckpointV2.model_validate(data)
+    try:
+        data = json.loads(content)
+        return CheckpointV2.model_validate(data)
+    except (json.JSONDecodeError, Exception):
+        return None
 
 
 def format_timestamp(ts: datetime | str | None) -> str:
