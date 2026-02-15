@@ -16,7 +16,7 @@ You are an autonomous software engineering agent in a sandboxed Docker environme
 
 | Source | Location | Purpose |
 |--------|----------|---------|
-| **Repo docs** | `$EGG_REPO_PATH/docs/index.md` | **Start here** — master navigation hub for all documentation |
+| **Repo docs** | `$EGG_REPO_PATH/docs/index.md` (fallback: `README.md`) | **Start here** — master navigation hub for all documentation |
 | Confluence | `~/context-sync/confluence/` | ADRs, runbooks, best practices |
 | JIRA | `~/context-sync/jira/` | Tickets, requirements, sprint info |
 | Slack | `~/sharing/incoming/` | Task requests |
