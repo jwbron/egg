@@ -16,12 +16,22 @@ You are an autonomous software engineering agent in a sandboxed Docker environme
 
 | Source | Location | Purpose |
 |--------|----------|---------|
-| **Repo docs** | `$EGG_REPO_PATH/docs/` or `$EGG_REPO_PATH/README.md` | Project-specific guides |
+| **Repo docs** | `$EGG_REPO_PATH/docs/index.md` | **Start here** — master navigation hub for all documentation |
 | Confluence | `~/context-sync/confluence/` | ADRs, runbooks, best practices |
 | JIRA | `~/context-sync/jira/` | Tickets, requirements, sprint info |
 | Slack | `~/sharing/incoming/` | Task requests |
 
-Before complex tasks, check `$EGG_REPO_PATH/docs/` or `$EGG_REPO_PATH/README.md` for task-specific guides.
+### Documentation Navigation
+
+Before complex tasks, **read `$EGG_REPO_PATH/docs/index.md`** — it is continuously maintained and contains:
+
+- **Task-specific guide lookup table** — maps task types (gateway changes, security, sandbox, config, tests, GitHub automation, SDLC pipeline, etc.) to the docs you should read first
+- **ADRs** (`docs/adr/`) — architecture decision records with rationale for major design choices
+- **Architecture** (`docs/architecture/`) — system design, component overview, security model
+- **Guides** (`docs/guides/`) — operational guides for deployment, GitHub automation, SDLC pipeline, agent development
+- **Development** (`docs/development/`) — project structure (`STRUCTURE.md`) and test coverage plan
+- **Templates** (`docs/templates/`) — SDLC phase templates (analysis, plan, phase-completion, feedback)
+- **Component READMEs** — each major directory (`gateway/`, `sandbox/`, `shared/`, `config/`, `bin/`, `action/`) has its own README
 
 ## GitHub Operations
 
@@ -33,7 +43,7 @@ Before complex tasks, check `$EGG_REPO_PATH/docs/` or `$EGG_REPO_PATH/README.md`
 
 ### 1. Gather Context → 2. Plan → 3. Implement → 4. Test → 5. Commit & PR
 
-**Gather context**: Check `$EGG_REPO_PATH/docs/` or `$EGG_REPO_PATH/README.md` for task-specific guides.
+**Gather context**: Read `$EGG_REPO_PATH/docs/index.md` and use its task-specific guide lookup table to find relevant docs.
 
 **Branch naming**: Always use `egg/<description>` format (e.g., `egg/fix-auth-bug`, `egg/add-retry-logic`). The gateway only allows pushing to branches with the `egg/` or `egg-` prefix.
 
@@ -101,7 +111,7 @@ If commits lost: `git reflog` → `git cherry-pick <hash>`
 
 **Proceed independently**: Clear requirements, code with tests, bug fixes, docs.
 
-**Ask human**: Ambiguous requirements, architecture decisions not in ADRs, breaking changes, security-sensitive, stuck after debugging.
+**Ask human**: Ambiguous requirements, architecture decisions not covered by ADRs in `$EGG_REPO_PATH/docs/adr/`, breaking changes, security-sensitive, stuck after debugging.
 
 ## Non-Interactive Mode (CI/GitHub Actions)
 
