@@ -81,6 +81,11 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["orchestrator.tests.*"]
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["waitress", "waitress.*"]
 ignore_missing_imports = true
 
@@ -121,8 +126,19 @@ ignore_missing_imports = true
 skips = ["B102", "B104", "B108", "B201", "B310", "B602"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-v --cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing"
+testpaths = ["tests", "gateway/tests", "orchestrator/tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --tb=short --cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing"
+filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "integration: marks tests as integration tests (require Docker, may be slow)",
+    "functional: marks tests as functional tests (require Docker, faster than integration)",
+    "e2e: marks tests as end-to-end tests (require real API keys)",
+    "security: marks tests as security/pentesting tests",
+    "agent_flaky: marks tests with non-deterministic agent behavior (non-blocking in CI)",
+]
 
 [build-system]
 requires = ["hatchling"]
