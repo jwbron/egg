@@ -180,14 +180,14 @@ Returns a Server-Sent Events (SSE) stream for real-time updates across all activ
     "status": "running",
     "current_phase": "implement",
     "visualization": {
-      "dag": ">>> ╔══════════════════════╗\n    │ ▶ Implement          │\n    │   running            │\n    │   ✓ coder  ▶ reviewer│\n    ╚══════════════════════╝",
+      "dag": ">>> ╔══════════════════════╗\n    │ ▶ Implement          │\n    │   running (2 cycles completed)            │\n    │   ✓ coder  ▶ reviewer│\n    │   [last cycle: 5m0s | total: 15m0s]│\n    ╚══════════════════════╝",
       "compact": "✓Refine → ✓Plan → [▶Implement] → ○PR",
       "progress": "[███████████░░░░░░░░░] 60%"
     },
     "phases": {
       "refine": {"status": "complete", "review_cycles": 2, "containers": 1, "agents": [{"role": "coder", "status": "complete"}]},
       "plan": {"status": "complete", "review_cycles": 1, "containers": 1, "agents": [{"role": "coder", "status": "complete"}]},
-      "implement": {"status": "running", "review_cycles": 0, "containers": 2, "agents": [{"role": "coder", "status": "complete"}, {"role": "reviewer", "status": "running"}]},
+      "implement": {"status": "running", "review_cycles": 2, "containers": 2, "agents": [{"role": "coder", "status": "complete"}, {"role": "reviewer", "status": "running"}]},
       "pr": {"status": "pending", "review_cycles": 0, "containers": 0, "agents": []}
     },
     "pending_decisions": 0,
@@ -204,11 +204,21 @@ Returns a Server-Sent Events (SSE) stream for real-time updates across all activ
 - `✗` - Failed
 - `⊘` - Cancelled
 
+**Timing display**:
+
+The DAG visualization tracks per-cycle and total phase timing:
+- **Single-cycle phases**: Display simple duration `[5m0s]`
+- **Multi-cycle phases**: Display both last cycle and total work time `[last cycle: 5m0s | total: 15m0s]`
+- **Phase detail view**: Shows per-cycle timing breakdown with cycle status (done/running)
+
+Timing starts when actual work begins (`work_started_at`), excluding setup and HITL waiting time.
+
 **Use cases**:
 - Monitor pipeline progress from external tools
 - Display real-time status in CI dashboards
 - Poll for phase completion
 - Debug stuck pipelines
+- Track cycle performance and identify bottlenecks
 
 ### Phases
 
