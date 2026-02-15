@@ -48,7 +48,12 @@ sys.path.insert(0, str(PROJECT_ROOT / "gateway"))
 
 
 def _load_policy_module():
-    """Load policy module with proper import handling."""
+    """Load policy module with proper import handling.
+
+    Uses temporary sys.modules entries during exec so modules can resolve
+    their own imports, then restores originals to avoid polluting the
+    module cache for other tests.
+    """
     gateway_dir = PROJECT_ROOT / "gateway"
     shared_dir = PROJECT_ROOT / "shared"
 
@@ -58,6 +63,9 @@ def _load_policy_module():
 
     sys.path.insert(0, str(shared_dir))
     sys.path.insert(0, str(gateway_dir))
+
+    original_github_client = sys.modules.get("github_client")
+    original_policy = sys.modules.get("policy")
 
     # Load github_client first
     github_client_path = gateway_dir / "github_client.py"
@@ -74,19 +82,34 @@ def _load_policy_module():
     policy_module = ModuleType("policy")
     policy_module.__file__ = str(policy_path)
     exec(compile(policy_source, policy_path, "exec"), policy_module.__dict__)
-    sys.modules["policy"] = policy_module
+
+    # Restore original modules to avoid polluting sys.modules for other tests
+    if original_github_client is not None:
+        sys.modules["github_client"] = original_github_client
+    else:
+        sys.modules.pop("github_client", None)
+    if original_policy is not None:
+        sys.modules["policy"] = original_policy
+    else:
+        sys.modules.pop("policy", None)
 
     return policy_module
 
 
 def _load_session_manager_module():
-    """Load session_manager module."""
+    """Load session_manager module.
+
+    Uses a temporary sys.modules entry during exec so the module can
+    resolve its own imports, then restores the original entry to avoid
+    polluting the module cache for other tests.
+    """
     gateway_dir = PROJECT_ROOT / "gateway"
     shared_dir = PROJECT_ROOT / "shared"
 
     sys.path.insert(0, str(shared_dir))
     sys.path.insert(0, str(gateway_dir))
 
+    original = sys.modules.get("session_manager")
     session_manager_path = gateway_dir / "session_manager.py"
     session_manager_source = session_manager_path.read_text()
     session_manager_module = ModuleType("session_manager")
@@ -95,7 +118,11 @@ def _load_session_manager_module():
         compile(session_manager_source, session_manager_path, "exec"),
         session_manager_module.__dict__,
     )
-    sys.modules["session_manager"] = session_manager_module
+    # Restore original module to avoid polluting sys.modules for other tests
+    if original is not None:
+        sys.modules["session_manager"] = original
+    else:
+        sys.modules.pop("session_manager", None)
 
     return session_manager_module
 
