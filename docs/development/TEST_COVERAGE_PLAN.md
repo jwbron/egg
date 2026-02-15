@@ -30,7 +30,7 @@ gateway/tests/            # Gateway-specific tests (~13 files)
 ├── test_session_manager.py # Session management
 └── ...                   # Additional gateway modules
 
-orchestrator/tests/       # Orchestrator-specific tests
+orchestrator/tests/       # Orchestrator-specific tests (~21 files)
 ├── test_cli.py           # CLI tests
 ├── test_devserver.py     # Devserver lifecycle manager tests
 └── ...                   # Additional orchestrator modules
