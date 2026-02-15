@@ -380,9 +380,8 @@ def load_checkpoint_by_commit_v2(
     return load_checkpoint_by_id_v2(checkpoint_id, checkpoints_dir)
 
 
-def list_checkpoints_v2(
-    checkpoints_dir: Path,
-    index_path: Path,
+def filter_checkpoints_v2(
+    index: CheckpointIndexV2,
     issue_number: int | None = None,
     pr_number: int | None = None,
     branch: str | None = None,
@@ -395,13 +394,12 @@ def list_checkpoints_v2(
     limit: int | None = None,
 ) -> list[CheckpointSummaryV2]:
     """
-    List v2 checkpoint summaries using the index, with multi-dimensional filtering.
+    Filter v2 checkpoint summaries from a pre-loaded index.
 
-    Uses the v2 index for fast lookups. Filters are intersected (AND logic).
+    Uses multi-dimensional index lookups. Filters are intersected (AND logic).
 
     Args:
-        checkpoints_dir: Directory containing checkpoint files (unused, kept for API symmetry)
-        index_path: Path to the v2 index file
+        index: Pre-loaded checkpoint index
         issue_number: Filter by issue number
         pr_number: Filter by PR number
         branch: Filter by branch name
@@ -416,11 +414,6 @@ def list_checkpoints_v2(
     Returns:
         List of CheckpointSummaryV2, sorted by created_at descending
     """
-    try:
-        index = load_checkpoint_index_v2(index_path)
-    except CheckpointLoadError:
-        return []
-
     if not index.checkpoints:
         return []
 
@@ -476,3 +469,59 @@ def list_checkpoints_v2(
         results = results[:limit]
 
     return results
+
+
+def list_checkpoints_v2(
+    checkpoints_dir: Path,
+    index_path: Path,
+    issue_number: int | None = None,
+    pr_number: int | None = None,
+    branch: str | None = None,
+    session_id: str | None = None,
+    trigger_type: str | None = None,
+    session_status: str | None = None,
+    agent_type: str | None = None,
+    pipeline_phase: str | None = None,
+    pipeline_id: str | None = None,
+    limit: int | None = None,
+) -> list[CheckpointSummaryV2]:
+    """
+    List v2 checkpoint summaries using the index, with multi-dimensional filtering.
+
+    Uses the v2 index for fast lookups. Filters are intersected (AND logic).
+
+    Args:
+        checkpoints_dir: Directory containing checkpoint files (unused, kept for API symmetry)
+        index_path: Path to the v2 index file
+        issue_number: Filter by issue number
+        pr_number: Filter by PR number
+        branch: Filter by branch name
+        session_id: Filter by session ID
+        trigger_type: Filter by trigger type value
+        session_status: Filter by session status value
+        agent_type: Filter by agent type value
+        pipeline_phase: Filter by pipeline phase
+        pipeline_id: Filter by pipeline run ID
+        limit: Maximum number of results
+
+    Returns:
+        List of CheckpointSummaryV2, sorted by created_at descending
+    """
+    try:
+        index = load_checkpoint_index_v2(index_path)
+    except CheckpointLoadError:
+        return []
+
+    return filter_checkpoints_v2(
+        index,
+        issue_number=issue_number,
+        pr_number=pr_number,
+        branch=branch,
+        session_id=session_id,
+        trigger_type=trigger_type,
+        session_status=session_status,
+        agent_type=agent_type,
+        pipeline_phase=pipeline_phase,
+        pipeline_id=pipeline_id,
+        limit=limit,
+    )
