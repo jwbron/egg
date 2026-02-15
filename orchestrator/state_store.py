@@ -616,6 +616,9 @@ class StateStore:
         rel_path = str(path.relative_to(self.worktree))
         path.unlink()
 
+        # Clean up the per-pipeline state lock to prevent unbounded growth
+        release_pipeline_state_lock(pipeline_id)
+
         # For local pipelines, only commit if force_commit is True
         # For issue pipelines, always commit when commit=True
         is_local = pipeline_id.startswith("local-")
@@ -745,6 +748,20 @@ def get_pipeline_state_lock(pipeline_id: str) -> threading.RLock:
         if pipeline_id not in _pipeline_state_locks:
             _pipeline_state_locks[pipeline_id] = threading.RLock()
         return _pipeline_state_locks[pipeline_id]
+
+
+def release_pipeline_state_lock(pipeline_id: str) -> None:
+    """Remove the per-pipeline lock when a pipeline is deleted.
+
+    Call this after deleting a pipeline to prevent unbounded growth
+    of ``_pipeline_state_locks``.  Safe to call even if no lock exists
+    for the given pipeline ID.
+
+    Args:
+        pipeline_id: Pipeline ID whose lock should be discarded
+    """
+    with _state_locks_lock:
+        _pipeline_state_locks.pop(pipeline_id, None)
 
 
 def get_state_store(repo_path: Path | str) -> StateStore:

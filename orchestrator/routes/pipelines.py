@@ -41,6 +41,7 @@ try:
         StateStore,
         StateStoreError,
         StateValidationError,
+        get_pipeline_state_lock,
         get_state_store,
     )
 except ImportError:
@@ -54,6 +55,7 @@ except ImportError:
         StateStore,
         StateStoreError,
         StateValidationError,
+        get_pipeline_state_lock,
         get_state_store,
     )
 
@@ -2234,29 +2236,30 @@ def _spawn_and_wait(
         try:
             from models import AgentExecution, AgentExecutionStatus
 
-            pipeline = store.load_pipeline(pipeline_id)
-            phase_execution = pipeline.get_phase_execution(PipelinePhase(phase))
+            with get_pipeline_state_lock(pipeline_id):
+                pipeline = store.load_pipeline(pipeline_id)
+                phase_execution = pipeline.get_phase_execution(PipelinePhase(phase))
 
-            # Track container
-            container_info = ContainerInfo(
-                container_id=spawned.container_info.container_id,
-                container_name=spawned.container_info.container_name,
-                status=ContainerStatus.RUNNING,
-                started_at=datetime.utcnow(),
-                agent_role=agent_role,
-            )
-            phase_execution.containers.append(container_info)
+                # Track container
+                container_info = ContainerInfo(
+                    container_id=spawned.container_info.container_id,
+                    container_name=spawned.container_info.container_name,
+                    status=ContainerStatus.RUNNING,
+                    started_at=datetime.utcnow(),
+                    agent_role=agent_role,
+                )
+                phase_execution.containers.append(container_info)
 
-            # Track agent execution
-            agent_execution = AgentExecution(
-                role=agent_role,
-                status=AgentExecutionStatus.RUNNING,
-                container_id=spawned.container_info.container_id,
-                started_at=datetime.utcnow(),
-            )
-            phase_execution.agents.append(agent_execution)
+                # Track agent execution
+                agent_execution = AgentExecution(
+                    role=agent_role,
+                    status=AgentExecutionStatus.RUNNING,
+                    container_id=spawned.container_info.container_id,
+                    started_at=datetime.utcnow(),
+                )
+                phase_execution.agents.append(agent_execution)
 
-            store.save_pipeline(pipeline)
+                store.save_pipeline(pipeline)
         except Exception as track_err:
             logger.warning(
                 "Failed to record container/agent in pipeline state",
@@ -2285,29 +2288,30 @@ def _spawn_and_wait(
         try:
             from models import AgentExecutionStatus
 
-            pipeline = store.load_pipeline(pipeline_id)
-            phase_execution = pipeline.get_phase_execution(PipelinePhase(phase))
+            with get_pipeline_state_lock(pipeline_id):
+                pipeline = store.load_pipeline(pipeline_id)
+                phase_execution = pipeline.get_phase_execution(PipelinePhase(phase))
 
-            # Update container status
-            for ci in phase_execution.containers:
-                if ci.container_id == spawned.container_info.container_id:
-                    ci.status = ContainerStatus.EXITED
-                    ci.exited_at = datetime.utcnow()
-                    ci.exit_code = final_info.exit_code
-                    break
+                # Update container status
+                for ci in phase_execution.containers:
+                    if ci.container_id == spawned.container_info.container_id:
+                        ci.status = ContainerStatus.EXITED
+                        ci.exited_at = datetime.utcnow()
+                        ci.exit_code = final_info.exit_code
+                        break
 
-            # Update agent status
-            for agent in phase_execution.agents:
-                if agent.container_id == spawned.container_info.container_id:
-                    agent.completed_at = datetime.utcnow()
-                    if final_info.exit_code == 0:
-                        agent.status = AgentExecutionStatus.COMPLETE
-                    else:
-                        agent.status = AgentExecutionStatus.FAILED
-                        agent.error = f"Container exited with code {final_info.exit_code}"
-                    break
+                # Update agent status
+                for agent in phase_execution.agents:
+                    if agent.container_id == spawned.container_info.container_id:
+                        agent.completed_at = datetime.utcnow()
+                        if final_info.exit_code == 0:
+                            agent.status = AgentExecutionStatus.COMPLETE
+                        else:
+                            agent.status = AgentExecutionStatus.FAILED
+                            agent.error = f"Container exited with code {final_info.exit_code}"
+                        break
 
-            store.save_pipeline(pipeline)
+                store.save_pipeline(pipeline)
         except Exception as track_err:
             logger.warning(
                 "Failed to update container/agent status in pipeline state",
@@ -2932,7 +2936,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         error=str(git_err),
                     )
 
-                store.save_pipeline(pipeline, commit=False)
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    pipeline.contract_synced = True
+                    store.save_pipeline(pipeline, commit=False)
                 logger.info(
                     "Pipeline contract created in worktree",
                     pipeline_id=pipeline_id,
@@ -2944,9 +2951,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pipeline_id=pipeline_id,
                     error=str(contract_err),
                 )
-                pipeline.status = PipelineStatus.FAILED
-                pipeline.error = f"Failed to create contract: {contract_err}"
-                store.save_pipeline(pipeline)
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    pipeline.status = PipelineStatus.FAILED
+                    pipeline.error = f"Failed to create contract: {contract_err}"
+                    store.save_pipeline(pipeline)
                 return
 
         hitl_revision_feedback: str | None = None
@@ -2981,10 +2990,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # Start the current phase
             phase_execution = pipeline.get_phase_execution(current_phase)
             if phase_execution.status == PipelineStatus.PENDING:
-                phase_execution.status = PipelineStatus.RUNNING
-                phase_execution.started_at = datetime.utcnow()
-                pipeline.status = PipelineStatus.RUNNING
-                store.save_pipeline(pipeline)
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    phase_execution.status = PipelineStatus.RUNNING
+                    phase_execution.started_at = datetime.utcnow()
+                    pipeline.status = PipelineStatus.RUNNING
+                    store.save_pipeline(pipeline)
 
                 # Report phase start to collaborator
                 report_pipeline_status(
@@ -3022,14 +3034,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # --- Inner review cycle ---
             while True:
                 # Reload to get latest review_cycles count
-                pipeline = store.load_pipeline(pipeline_id)
-                phase_execution = pipeline.get_phase_execution(current_phase)
-                review_cycle = phase_execution.review_cycles
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    review_cycle = phase_execution.review_cycles
 
-                # Record when actual agent work begins (excludes sandbox setup
-                # and HITL waiting time from the phase duration).
-                phase_execution.work_started_at = datetime.utcnow()
-                store.save_pipeline(pipeline)
+                    # Record when actual agent work begins (excludes sandbox setup
+                    # and HITL waiting time from the phase duration).
+                    phase_execution.work_started_at = datetime.utcnow()
+                    store.save_pipeline(pipeline)
 
                 # 1. Spawn worker(s)
                 # Use multi-agent wave-based execution when enabled for
@@ -3065,14 +3078,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             review_cycle=review_cycle,
                         )
                     except ContainerSpawnError as e:
-                        pipeline = store.load_pipeline(pipeline_id)
-                        phase_execution = pipeline.get_phase_execution(current_phase)
-                        phase_execution.status = PipelineStatus.FAILED
-                        phase_execution.error = str(e)
-                        phase_execution.completed_at = datetime.utcnow()
-                        pipeline.status = PipelineStatus.FAILED
-                        pipeline.error = str(e)
-                        store.save_pipeline(pipeline)
+                        with get_pipeline_state_lock(pipeline_id):
+                            pipeline = store.load_pipeline(pipeline_id)
+                            phase_execution = pipeline.get_phase_execution(current_phase)
+                            phase_execution.status = PipelineStatus.FAILED
+                            phase_execution.error = str(e)
+                            phase_execution.completed_at = datetime.utcnow()
+                            pipeline.status = PipelineStatus.FAILED
+                            pipeline.error = str(e)
+                            store.save_pipeline(pipeline)
                         logger.error(
                             "Failed to spawn multi-agent containers",
                             pipeline_id=pipeline_id,
@@ -3138,14 +3152,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             certs_volume=certs_volume,
                         )
                     except ContainerSpawnError as e:
-                        pipeline = store.load_pipeline(pipeline_id)
-                        phase_execution = pipeline.get_phase_execution(current_phase)
-                        phase_execution.status = PipelineStatus.FAILED
-                        phase_execution.error = str(e)
-                        phase_execution.completed_at = datetime.utcnow()
-                        pipeline.status = PipelineStatus.FAILED
-                        pipeline.error = str(e)
-                        store.save_pipeline(pipeline)
+                        with get_pipeline_state_lock(pipeline_id):
+                            pipeline = store.load_pipeline(pipeline_id)
+                            phase_execution = pipeline.get_phase_execution(current_phase)
+                            phase_execution.status = PipelineStatus.FAILED
+                            phase_execution.error = str(e)
+                            phase_execution.completed_at = datetime.utcnow()
+                            pipeline.status = PipelineStatus.FAILED
+                            pipeline.error = str(e)
+                            store.save_pipeline(pipeline)
                         logger.error(
                             "Failed to spawn container", pipeline_id=pipeline_id, error=str(e)
                         )
@@ -3159,14 +3174,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         tail = "\n".join(log_lines[-10:])
                         error_msg += f"\n--- container logs (last 10 lines) ---\n{tail}"
 
-                    pipeline = store.load_pipeline(pipeline_id)
-                    phase_execution = pipeline.get_phase_execution(current_phase)
-                    phase_execution.status = PipelineStatus.FAILED
-                    phase_execution.error = error_msg
-                    phase_execution.completed_at = datetime.utcnow()
-                    pipeline.status = PipelineStatus.FAILED
-                    pipeline.error = error_msg
-                    store.save_pipeline(pipeline)
+                    with get_pipeline_state_lock(pipeline_id):
+                        pipeline = store.load_pipeline(pipeline_id)
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        phase_execution.status = PipelineStatus.FAILED
+                        phase_execution.error = error_msg
+                        phase_execution.completed_at = datetime.utcnow()
+                        pipeline.status = PipelineStatus.FAILED
+                        pipeline.error = error_msg
+                        store.save_pipeline(pipeline)
                     logger.error(
                         "Phase failed",
                         pipeline_id=pipeline_id,
@@ -3463,10 +3479,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                 # Store feedback and loop
                 review_feedback = combined_feedback
-                pipeline = store.load_pipeline(pipeline_id)
-                phase_execution = pipeline.get_phase_execution(current_phase)
-                phase_execution.review_cycles = review_cycle + 1
-                store.save_pipeline(pipeline)
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    phase_execution.review_cycles = review_cycle + 1
+                    store.save_pipeline(pipeline)
 
                 logger.info(
                     "Review needs revision — looping",
@@ -3482,11 +3499,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 break
 
             # Phase succeeded — mark complete and advance
-            pipeline = store.load_pipeline(pipeline_id)
-            phase_execution = pipeline.get_phase_execution(current_phase)
-            phase_execution.status = PipelineStatus.COMPLETE
-            phase_execution.completed_at = datetime.utcnow()
-            store.save_pipeline(pipeline)  # Persist phase completion before HITL gate
+            with get_pipeline_state_lock(pipeline_id):
+                pipeline = store.load_pipeline(pipeline_id)
+                phase_execution = pipeline.get_phase_execution(current_phase)
+                phase_execution.status = PipelineStatus.COMPLETE
+                phase_execution.completed_at = datetime.utcnow()
+                store.save_pipeline(pipeline)  # Persist phase completion before HITL gate
 
             # Report phase completion to collaborator
             report_pipeline_status(
@@ -3551,13 +3569,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                 # Reload pipeline to pick up the decision persisted by queue_decision(),
                 # otherwise the stale local object overwrites it with an empty decisions list.
-                pipeline = store.load_pipeline(pipeline_id)
-                pipeline.status = PipelineStatus.AWAITING_HUMAN
-                # Also mark the phase as awaiting human so the DAG visualization
-                # shows the HITL gate on the correct phase box.
-                phase_execution = pipeline.get_phase_execution(current_phase)
-                phase_execution.status = PipelineStatus.AWAITING_HUMAN
-                store.save_pipeline(pipeline)
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    pipeline.status = PipelineStatus.AWAITING_HUMAN
+                    # Also mark the phase as awaiting human so the DAG visualization
+                    # shows the HITL gate on the correct phase box.
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    phase_execution.status = PipelineStatus.AWAITING_HUMAN
+                    store.save_pipeline(pipeline)
 
                 # Report HITL gate to collaborator
                 report_pipeline_status(
@@ -3641,30 +3660,31 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             phase=current_phase.value,
                             feedback_preview=resolution[:200],
                         )
-                        pipeline = store.load_pipeline(pipeline_id)
-                        pipeline.status = PipelineStatus.RUNNING
-                        phase_execution = pipeline.get_phase_execution(current_phase)
-                        phase_execution.status = PipelineStatus.RUNNING
-                        phase_execution.completed_at = None  # Reset — phase is re-running
-                        phase_execution.hitl_review_cycles += 1
+                        with get_pipeline_state_lock(pipeline_id):
+                            pipeline = store.load_pipeline(pipeline_id)
+                            pipeline.status = PipelineStatus.RUNNING
+                            phase_execution = pipeline.get_phase_execution(current_phase)
+                            phase_execution.status = PipelineStatus.RUNNING
+                            phase_execution.completed_at = None  # Reset — phase is re-running
+                            phase_execution.hitl_review_cycles += 1
 
-                        # Circuit breaker: don't allow unbounded HITL revision loops.
-                        # Uses a dedicated counter so agentic review cycles don't
-                        # consume the human's revision budget.
-                        max_hitl_cycles = pipeline.config.max_hitl_review_cycles
-                        if phase_execution.hitl_review_cycles >= max_hitl_cycles:
-                            logger.warning(
-                                "HITL revision circuit breaker — advancing despite feedback",
-                                pipeline_id=pipeline_id,
-                                phase=current_phase.value,
-                                hitl_review_cycles=phase_execution.hitl_review_cycles,
-                                max_hitl_review_cycles=max_hitl_cycles,
-                            )
-                            store.save_pipeline(pipeline)
-                            # Fall through to the approval path below
-                        else:
-                            hitl_revision_feedback = resolution
-                            store.save_pipeline(pipeline)
+                            # Circuit breaker: don't allow unbounded HITL revision loops.
+                            # Uses a dedicated counter so agentic review cycles don't
+                            # consume the human's revision budget.
+                            max_hitl_cycles = pipeline.config.max_hitl_review_cycles
+                            if phase_execution.hitl_review_cycles >= max_hitl_cycles:
+                                logger.warning(
+                                    "HITL revision circuit breaker — advancing despite feedback",
+                                    pipeline_id=pipeline_id,
+                                    phase=current_phase.value,
+                                    hitl_review_cycles=phase_execution.hitl_review_cycles,
+                                    max_hitl_review_cycles=max_hitl_cycles,
+                                )
+                                store.save_pipeline(pipeline)
+                                # Fall through to the approval path below
+                            else:
+                                hitl_revision_feedback = resolution
+                                store.save_pipeline(pipeline)
                             report_pipeline_status(
                                 pipeline,
                                 event_type="phase.revision_requested",
@@ -3674,23 +3694,25 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             continue  # Re-enter outer loop → re-run phase with feedback
 
                 # Approved — resume and advance
-                pipeline = store.load_pipeline(pipeline_id)
-                pipeline.status = PipelineStatus.RUNNING
-                # Restore phase status to COMPLETE now that the HITL gate is cleared
-                phase_execution = pipeline.get_phase_execution(current_phase)
-                phase_execution.status = PipelineStatus.COMPLETE
-                if phase_execution.completed_at is None:
-                    phase_execution.completed_at = datetime.utcnow()
-                store.save_pipeline(pipeline)
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    pipeline.status = PipelineStatus.RUNNING
+                    # Restore phase status to COMPLETE now that the HITL gate is cleared
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    phase_execution.status = PipelineStatus.COMPLETE
+                    if phase_execution.completed_at is None:
+                        phase_execution.completed_at = datetime.utcnow()
+                    store.save_pipeline(pipeline)
 
             # Determine next phase
             next_phases = transitions.get(current_phase, [])
             if not next_phases:
                 # Terminal phase — pipeline complete
-                pipeline.status = PipelineStatus.COMPLETE
-                # Force commit for local pipelines at phase boundary
-                is_local = pipeline_mode == "local"
-                store.save_pipeline(pipeline, force_commit=is_local)
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    pipeline.status = PipelineStatus.COMPLETE
+                    is_local = pipeline_mode == "local"
+                    store.save_pipeline(pipeline, force_commit=is_local)
 
                 # Report pipeline completion to collaborator
                 report_pipeline_status(
@@ -3704,10 +3726,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
             # Advance to next phase
             next_phase = next_phases[0]
-            pipeline.current_phase = next_phase
-            # Force commit for local pipelines at phase boundary
-            is_local = pipeline_mode == "local"
-            store.save_pipeline(pipeline, force_commit=is_local)
+            with get_pipeline_state_lock(pipeline_id):
+                pipeline = store.load_pipeline(pipeline_id)
+                pipeline.current_phase = next_phase
+                is_local = pipeline_mode == "local"
+                store.save_pipeline(pipeline, force_commit=is_local)
 
             logger.info(
                 "Phase advanced",
@@ -3722,18 +3745,19 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         )
         try:
             store = get_state_store(repo_path)
-            pipeline = store.load_pipeline(pipeline_id)
+            with get_pipeline_state_lock(pipeline_id):
+                pipeline = store.load_pipeline(pipeline_id)
 
-            # Don't corrupt a recreated pipeline's state
-            if run_created_at and pipeline.created_at != run_created_at:
-                logger.info(
-                    "Pipeline was recreated, not marking new run as failed",
-                    pipeline_id=pipeline_id,
-                )
-            else:
-                pipeline.status = PipelineStatus.FAILED
-                pipeline.error = str(e)
-                store.save_pipeline(pipeline)
+                # Don't corrupt a recreated pipeline's state
+                if run_created_at and pipeline.created_at != run_created_at:
+                    logger.info(
+                        "Pipeline was recreated, not marking new run as failed",
+                        pipeline_id=pipeline_id,
+                    )
+                else:
+                    pipeline.status = PipelineStatus.FAILED
+                    pipeline.error = str(e)
+                    store.save_pipeline(pipeline)
 
                 # Report pipeline failure to collaborator
                 report_pipeline_status(
@@ -3832,38 +3856,41 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 status_code=409,
             )
 
-        if pipeline.status == PipelineStatus.FAILED:
-            # Reset the failed phase so it can be re-run.
-            # Also reset phases stuck in RUNNING — a pipeline-level exception
-            # sets the pipeline to FAILED without updating the phase status.
-            phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
-            if phase_execution.status in (PipelineStatus.FAILED, PipelineStatus.RUNNING):
-                prev_status = phase_execution.status.value
-                phase_execution.status = PipelineStatus.PENDING
-                phase_execution.started_at = None
-                phase_execution.work_started_at = None
-                phase_execution.completed_at = None
-                phase_execution.error = None
-                phase_execution.review_cycles = 0
-                phase_execution.hitl_review_cycles = 0
-                phase_execution.containers = []
-                phase_execution.agents = []
-                phase_execution.artifacts = {}
-                logger.info(
-                    "Resetting phase for restart",
-                    pipeline_id=pipeline_id,
-                    phase=pipeline.current_phase.value,
-                    previous_phase_status=prev_status,
-                )
-            pipeline.error = None
+        with get_pipeline_state_lock(pipeline_id):
+            pipeline = store.load_pipeline(pipeline_id)
 
-            # Bump created_at so the old _run_pipeline thread's finally block
-            # detects the restart and skips worktree cleanup.
-            pipeline.created_at = datetime.utcnow()
+            if pipeline.status == PipelineStatus.FAILED:
+                # Reset the failed phase so it can be re-run.
+                # Also reset phases stuck in RUNNING — a pipeline-level exception
+                # sets the pipeline to FAILED without updating the phase status.
+                phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
+                if phase_execution.status in (PipelineStatus.FAILED, PipelineStatus.RUNNING):
+                    prev_status = phase_execution.status.value
+                    phase_execution.status = PipelineStatus.PENDING
+                    phase_execution.started_at = None
+                    phase_execution.work_started_at = None
+                    phase_execution.completed_at = None
+                    phase_execution.error = None
+                    phase_execution.review_cycles = 0
+                    phase_execution.hitl_review_cycles = 0
+                    phase_execution.containers = []
+                    phase_execution.agents = []
+                    phase_execution.artifacts = {}
+                    logger.info(
+                        "Resetting phase for restart",
+                        pipeline_id=pipeline_id,
+                        phase=pipeline.current_phase.value,
+                        previous_phase_status=prev_status,
+                    )
+                pipeline.error = None
 
-        # Mark pipeline as running
-        pipeline.status = PipelineStatus.RUNNING
-        store.save_pipeline(pipeline)
+                # Bump created_at so the old _run_pipeline thread's finally block
+                # detects the restart and skips worktree cleanup.
+                pipeline.created_at = datetime.utcnow()
+
+            # Mark pipeline as running
+            pipeline.status = PipelineStatus.RUNNING
+            store.save_pipeline(pipeline)
 
         # Run the pipeline in a background thread
         thread = threading.Thread(
