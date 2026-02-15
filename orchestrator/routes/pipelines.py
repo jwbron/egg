@@ -1250,51 +1250,89 @@ def _build_phase_prompt(
     if phase == "refine":
         lines.extend(
             [
-                "Analyze the task and produce a structured analysis. Your analysis "
-                "must follow this format:\n",
-                "### 1. Problem Statement",
-                "Describe the problem or feature request. What is the current state? "
-                "What is the desired outcome?\n",
-                "### 2. Current Behavior",
-                "Describe how the system currently works in the relevant area. "
-                "Include **code references** (file paths and line numbers) where helpful.\n",
-                "### 3. Constraints",
-                "List technical constraints (performance, compatibility, security), "
-                "business constraints, and dependencies on other systems or features.\n",
-                "### 4. Options Considered",
-                "Present at least 2 meaningfully different approaches. For each option:",
-                "- **Approach**: Brief description",
-                "- **Pros**: List of advantages",
-                "- **Cons**: List of disadvantages\n",
-                "### 5. Recommended Approach",
-                "Which option is recommended and why. Reference the option above "
-                "and justify with specific reasons.\n",
-                "### 6. Open Questions",
-                "Surface questions that need human input before planning can begin.\n",
-                "**For multiple-choice questions** (when the human must pick from options), "
-                "use the contract CLI to create formal HITL decisions:",
-                "```",
-                'egg-contract add-decision --question "Which approach should we use?" \\',
-                '  --options "Option A" "Option B" "Option C"',
-                "```",
-                "This creates a formatted decision that the human can resolve interactively.\n",
-                "**For open-ended questions** (when you need free-form input), "
-                "use the contract CLI to create feedback requests:",
-                "```",
-                'egg-contract add-feedback --question "What is the expected volume?" \\',
-                '  --question "Any constraints on third-party dependencies?"',
-                "```\n",
+                "Analyze this issue and produce a structured analysis document. "
+                "Your goal is to:\n",
+                "1. Understand the problem or feature request",
+                "2. Research the current codebase to understand existing patterns",
+                "3. Identify constraints and dependencies",
+                "4. Consider multiple implementation approaches",
+                "5. Recommend an approach with justification",
+                "6. Surface any questions that need human input",
+                "",
                 "**IMPORTANT**: Do NOT create an implementation plan, task breakdown, "
                 "or phased rollout. That is the **plan** phase's job. Stay focused on "
                 "**analysis**: understanding the problem, researching the codebase, "
                 "evaluating options, and surfacing decisions for the human.",
+                "",
+                "## Output Format\n",
+                "Create an analysis document following this template:\n",
+                "```markdown",
+                "# Analysis: [Issue Title]\n",
+                "> Issue: #[number] | Phase: refine\n",
+                "## Problem Statement\n",
+                "[Describe the problem or feature request. "
+                "What is the current state? What is the desired outcome?]\n",
+                "## Current Behavior\n",
+                "[Describe how the system currently works in the relevant area. "
+                "Include code references where helpful.]\n",
+                "## Constraints\n",
+                "- [Technical constraints (compatibility, performance, security)]",
+                "- [Business constraints (timeline, scope)]",
+                "- [Dependencies on other systems or features]\n",
+                "## Options Considered\n",
+                "### Option A: [Name]\n",
+                "**Approach**: [Brief description]\n",
+                "**Pros**:",
+                "- [Advantage 1]\n",
+                "**Cons**:",
+                "- [Disadvantage 1]\n",
+                "### Option B: [Name]\n",
+                "**Approach**: [Brief description]\n",
+                "**Pros**:",
+                "- [Advantage 1]\n",
+                "**Cons**:",
+                "- [Disadvantage 1]\n",
+                "## Recommended Approach\n",
+                "[Which option is recommended and why. "
+                "Reference the option above.]\n",
+                "## Open Questions\n",
+                "[Questions that require human input before proceeding.]\n",
+                "---\n",
+                "*Authored-by: egg*",
+                "```\n",
+                "## HITL Decisions\n",
+                "For questions that require human input before proceeding:\n",
+                "**Multiple-choice questions** (use formal HITL decisions):",
+                "```bash",
+                'egg-contract add-decision --question "Which approach should we use?" \\',
+                '  --options "Option A" "Option B" "Option C" --format markdown',
+                "```",
+                "Copy the markdown output into your analysis. The human can check "
+                "a checkbox to select an option. An \"Other (explain in reply)\" "
+                "option is auto-appended.\n",
+                "**Open-ended questions** (use dedicated feedback comment):",
+                "```bash",
+                "egg-contract add-feedback \\",
+                '  --question "What is the expected request volume?" \\',
+                '  --question "Are there any constraints on third-party dependencies?" \\',
+                "  --format markdown",
+                "```",
+                "This creates a dedicated comment for the human to fill in answers. "
+                "They edit the comment to add their responses and check \"Submit "
+                "feedback\" when done. The pipeline will resume with the feedback "
+                "available in the contract.",
                 "",
             ]
         )
         lines.extend(
             [
                 f"Write your analysis to `{analysis_path}`.",
-                "Commit and push the draft when done.",
+                "Commit and push the draft when done.\n",
+                "**IMPORTANT**: Do NOT post your analysis directly to the issue. "
+                "The pipeline will have an internal reviewer check your analysis. "
+                "If revisions are needed, you'll be re-invoked with feedback. "
+                "Only after internal review passes will the analysis be posted "
+                "for human approval.",
                 "",
             ]
         )
@@ -1376,6 +1414,8 @@ def _build_phase_prompt(
             [
                 "In this phase:",
                 "- You CAN push state files to git (contracts, drafts, checkpoints)",
+                "- You CAN create HITL decisions (egg-contract add-decision)",
+                "- You CAN create feedback requests (egg-contract add-feedback)",
                 "- You CANNOT push code changes",
                 "- You CANNOT create PRs (gh pr create)",
                 "- You CANNOT post issue comments",
@@ -1415,6 +1455,10 @@ def _build_phase_prompt(
                 [
                     "- You CAN write drafts to `.egg-state/drafts/`",
                     "- You CAN push draft files (git push)",
+                    "- You CAN create HITL decisions (egg-contract add-decision)",
+                    "- You CAN create feedback requests (egg-contract add-feedback)",
+                    "- You CANNOT post analysis/plan directly to the issue "
+                    "(internal review must pass first)",
                     "- You CANNOT create PRs (gh pr create)",
                     "",
                 ]
@@ -1440,10 +1484,19 @@ def _build_phase_prompt(
 
     # --- Completion ---
     lines.append("## Phase Completion\n")
-    lines.append(
-        "When you have completed your work for this phase, "
-        "ensure everything is committed and exit successfully."
-    )
+    if phase in ("refine", "plan"):
+        lines.append(
+            "When your draft is complete, commit and push it. "
+            "The pipeline will have an internal reviewer evaluate your work. "
+            "If revisions are needed, you'll be re-invoked with feedback. "
+            "Only after internal review passes will the output be posted "
+            "for human approval."
+        )
+    else:
+        lines.append(
+            "When you have completed your work for this phase, "
+            "ensure everything is committed and exit successfully."
+        )
 
     return "\n".join(lines)
 
