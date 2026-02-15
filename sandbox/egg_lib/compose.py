@@ -589,8 +589,8 @@ def ensure_compose_services(build: bool = True) -> bool:
         or _get_mtime(override_path) != override_mtime_before
     )
 
-    # Fast path: services healthy, config unchanged, no explicit rebuild
-    if already_healthy and not config_changed and not build:
+    # Fast path: services healthy, config unchanged — skip compose_up entirely
+    if already_healthy and not config_changed:
         success("Gateway is healthy")
         # Quick orchestrator check — gateway confirmed healthy but orchestrator
         # was not directly probed, so allow a couple of attempts.
