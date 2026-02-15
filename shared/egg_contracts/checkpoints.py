@@ -159,6 +159,11 @@ class AgentType(StrEnum):
     DOCUMENTER = "documenter"
     INTEGRATOR = "integrator"
     REVIEWER = "reviewer"
+    ARCHITECT = "architect"
+    TASK_PLANNER = "task_planner"
+    RISK_ANALYST = "risk_analyst"
+    REFINER = "refiner"
+    CHECKER = "checker"
     UNKNOWN = "unknown"
 
 

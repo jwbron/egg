@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 # Import from conftest-loaded modules
 from checkpoint_handler import (
+    _resolve_agent_type,
+    _resolve_github_token,
     capture_session_end_checkpoint,
     get_commits_in_push,
 )
@@ -950,3 +952,275 @@ class TestResolvePipelineId:
         session = _make_test_session(pipeline_id="from-session")
         with patch.dict("os.environ", {"EGG_PIPELINE_ID": "from-env"}):
             assert handler._resolve_pipeline_id(session) == "from-session"
+
+
+class TestResolveAgentType:
+    """Tests for _resolve_agent_type with expanded role mappings."""
+
+    def test_known_roles(self):
+        """Known roles map to their correct AgentType."""
+        from egg_contracts.checkpoints import AgentType
+
+        assert _resolve_agent_type("coder") == AgentType.CODER
+        assert _resolve_agent_type("tester") == AgentType.TESTER
+        assert _resolve_agent_type("documenter") == AgentType.DOCUMENTER
+        assert _resolve_agent_type("integrator") == AgentType.INTEGRATOR
+        assert _resolve_agent_type("reviewer") == AgentType.REVIEWER
+
+    def test_new_orchestrator_roles(self):
+        """New orchestrator roles map correctly."""
+        from egg_contracts.checkpoints import AgentType
+
+        assert _resolve_agent_type("architect") == AgentType.ARCHITECT
+        assert _resolve_agent_type("task_planner") == AgentType.TASK_PLANNER
+        assert _resolve_agent_type("risk_analyst") == AgentType.RISK_ANALYST
+        assert _resolve_agent_type("refiner") == AgentType.REFINER
+        assert _resolve_agent_type("checker") == AgentType.CHECKER
+
+    def test_reviewer_subtypes(self):
+        """Reviewer subtypes all map to REVIEWER."""
+        from egg_contracts.checkpoints import AgentType
+
+        assert _resolve_agent_type("reviewer_unified") == AgentType.REVIEWER
+        assert _resolve_agent_type("reviewer_code") == AgentType.REVIEWER
+        assert _resolve_agent_type("reviewer_contract") == AgentType.REVIEWER
+        assert _resolve_agent_type("reviewer_agent_design") == AgentType.REVIEWER
+        assert _resolve_agent_type("reviewer_refine") == AgentType.REVIEWER
+        assert _resolve_agent_type("reviewer_plan") == AgentType.REVIEWER
+
+    def test_case_insensitive(self):
+        """Role matching is case-insensitive."""
+        from egg_contracts.checkpoints import AgentType
+
+        assert _resolve_agent_type("CODER") == AgentType.CODER
+        assert _resolve_agent_type("Architect") == AgentType.ARCHITECT
+
+    def test_unknown_role(self):
+        """Unknown roles map to UNKNOWN."""
+        from egg_contracts.checkpoints import AgentType
+
+        assert _resolve_agent_type("some_new_role") == AgentType.UNKNOWN
+
+    def test_none_role(self):
+        """None role maps to UNKNOWN."""
+        from egg_contracts.checkpoints import AgentType
+
+        assert _resolve_agent_type(None) == AgentType.UNKNOWN
+
+    def test_empty_role(self):
+        """Empty string maps to UNKNOWN."""
+        from egg_contracts.checkpoints import AgentType
+
+        assert _resolve_agent_type("") == AgentType.UNKNOWN
+
+
+class TestResolveGithubToken:
+    """Tests for _resolve_github_token helper."""
+
+    @patch("checkpoint_handler.get_token_for_repo")
+    @patch("checkpoint_handler.subprocess.run")
+    def test_resolves_token_from_remote(self, mock_run, mock_get_token):
+        """Resolves a fresh token from the git remote URL."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="https://github.com/owner/repo.git\n",
+        )
+        mock_get_token.return_value = ("fresh-token-123", "bot", "")
+
+        token = _resolve_github_token("/some/repo/path")
+
+        assert token == "fresh-token-123"
+        mock_get_token.assert_called_once_with("owner/repo")
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_returns_none_on_git_failure(self, mock_run):
+        """Returns None when git remote command fails."""
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="not a git repo",
+        )
+
+        token = _resolve_github_token("/not/a/repo")
+        assert token is None
+
+    @patch("checkpoint_handler.get_token_for_repo")
+    @patch("checkpoint_handler.subprocess.run")
+    def test_returns_none_when_token_unavailable(self, mock_run, mock_get_token):
+        """Returns None when get_token_for_repo can't get a token."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="https://github.com/owner/repo.git\n",
+        )
+        mock_get_token.return_value = (None, "bot", "Token not available")
+
+        token = _resolve_github_token("/some/repo/path")
+        assert token is None
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_returns_none_on_non_github_remote(self, mock_run):
+        """Returns None for non-GitHub remotes."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="https://gitlab.com/owner/repo.git\n",
+        )
+
+        token = _resolve_github_token("/some/repo/path")
+        assert token is None
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_handles_exception_gracefully(self, mock_run):
+        """Returns None on unexpected exceptions."""
+        mock_run.side_effect = Exception("Unexpected error")
+
+        token = _resolve_github_token("/some/repo/path")
+        assert token is None
+
+
+class TestStoreCheckpointWithToken:
+    """Tests for store_checkpoint_v2 with explicit github_token parameter."""
+
+    def test_explicit_token_used_in_run_git(self):
+        """Explicit github_token is passed through to _run_git."""
+        import checkpoint_handler
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="old-stale-token")
+
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        checkpoint = CheckpointV2(
+            id="ckpt-a1b2c3d4e5f67890",
+            trigger_type=TriggerType.COMMIT,
+            session_id="test-container",
+            commit_sha="abc123def456789012345678901234567890abcd",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+
+        try:
+            handler.store_checkpoint_v2(
+                checkpoint, "/fake/repo", github_token="fresh-token-456"
+            )
+        except Exception:
+            pass
+
+        # Verify _branch_exists was called with the fresh token
+        handler._branch_exists.assert_called_once()
+        call_kwargs = handler._branch_exists.call_args
+        assert call_kwargs[1].get("github_token") == "fresh-token-456"
+
+        # Find network-facing git calls (fetch, push) and verify they got the token
+        fetch_calls = [c for c in git_calls if "fetch" in c[1]]
+        for call in fetch_calls:
+            assert call[2].get("github_token") == "fresh-token-456"
+
+
+class TestSessionEndCheckpointTokenResolution:
+    """Tests for fresh token resolution in capture_session_end_checkpoint."""
+
+    @patch("checkpoint_handler._resolve_github_token")
+    @patch("checkpoint_handler._get_checkpoint_repo_for_path")
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_resolves_fresh_token_when_none_provided(
+        self, mock_get_handler, mock_get_ckpt_repo, mock_resolve_token
+    ):
+        """Resolves a fresh token when no github_token is provided."""
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            SessionStatus,
+            TriggerType,
+        )
+
+        mock_resolve_token.return_value = "fresh-resolved-token"
+        mock_get_ckpt_repo.return_value = None
+
+        now = datetime.now(UTC)
+        mock_handler = MagicMock()
+        mock_handler.capture_session_end_checkpoint.return_value = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.COMPLETED,
+            session_id="test-container",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+        mock_handler.store_checkpoint_v2.return_value = True
+        mock_get_handler.return_value = mock_handler
+
+        session = _make_test_session()
+        checkpoint, event = capture_session_end_checkpoint(
+            session=session,
+            session_status=SessionStatus.COMPLETED,
+            repo_path="/home/egg/repos/test-repo",
+            github_token=None,
+            async_store=False,
+        )
+
+        assert checkpoint is not None
+        mock_resolve_token.assert_called_once_with("/home/egg/repos/test-repo")
+        # Verify the resolved token was passed to store_checkpoint_v2
+        call_kwargs = mock_handler.store_checkpoint_v2.call_args
+        assert call_kwargs[1].get("github_token") == "fresh-resolved-token"
+
+    @patch("checkpoint_handler._resolve_github_token")
+    @patch("checkpoint_handler._get_checkpoint_repo_for_path")
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_skips_resolution_when_token_provided(
+        self, mock_get_handler, mock_get_ckpt_repo, mock_resolve_token
+    ):
+        """Does not resolve a fresh token when github_token is explicitly provided."""
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            SessionStatus,
+            TriggerType,
+        )
+
+        mock_get_ckpt_repo.return_value = None
+
+        now = datetime.now(UTC)
+        mock_handler = MagicMock()
+        mock_handler.capture_session_end_checkpoint.return_value = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.COMPLETED,
+            session_id="test-container",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+        mock_handler.store_checkpoint_v2.return_value = True
+        mock_get_handler.return_value = mock_handler
+
+        session = _make_test_session()
+        checkpoint, event = capture_session_end_checkpoint(
+            session=session,
+            session_status=SessionStatus.COMPLETED,
+            repo_path="/home/egg/repos/test-repo",
+            github_token="explicit-token",
+            async_store=False,
+        )
+
+        assert checkpoint is not None
+        # Should NOT resolve a fresh token since one was provided
+        mock_resolve_token.assert_not_called()
+        # The explicit token should be passed through
+        call_kwargs = mock_handler.store_checkpoint_v2.call_args
+        assert call_kwargs[1].get("github_token") == "explicit-token"

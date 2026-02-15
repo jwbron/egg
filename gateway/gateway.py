@@ -2660,6 +2660,8 @@ def session_create() -> tuple[Response, int] | Response:
     manager = get_worktree_manager()
     worktrees = {}
     worktree_errors = []
+    first_worktree_path: str | None = None  # Gateway-side path for checkpoint context
+    first_repo: str | None = None  # First filtered repo in "owner/repo" format
 
     for repo in filtered_repos:
         # Extract repo name from owner/repo format
@@ -2676,6 +2678,10 @@ def session_create() -> tuple[Response, int] | Response:
                 uid=uid,
                 gid=gid,
             )
+            # Capture the first worktree's gateway-side path for checkpoint context
+            if first_worktree_path is None:
+                first_worktree_path = str(info.worktree_path)
+                first_repo = repo
             # Translate container path to host path for egg launcher mount sources
             worktrees[repo_name] = translate_to_host_path(str(info.worktree_path))
         except ValueError as e:
@@ -2706,6 +2712,15 @@ def session_create() -> tuple[Response, int] | Response:
         agent_role=agent_role,
         claude_code_version=claude_code_version,
     )
+
+    # Pre-populate checkpoint context so non-pushing sessions (reviewers,
+    # architects, etc.) have a repo_path and checkpoint_repo for session-end
+    # checkpoint storage. These fields are also set on git push, but pipeline
+    # agents that never push would otherwise have None values.
+    if first_worktree_path is not None:
+        _session.last_repo_path = first_worktree_path
+    if first_repo is not None:
+        _session.checkpoint_repo = get_checkpoint_repo(first_repo)
 
     audit_log(
         "session_created",
