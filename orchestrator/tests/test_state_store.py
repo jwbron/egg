@@ -4,11 +4,13 @@ Tests for state store.
 Note: Git operations are mocked since git init is not available in the sandbox.
 """
 
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
 from models import Pipeline, PipelinePhase, PipelineStatus
 from state_store import (
+    GitOperationError,
     InvalidPipelineIdError,
     PipelineNotFoundError,
     StateStore,
@@ -699,3 +701,85 @@ class TestDecisionPersistenceRegression:
         assert len(final.decisions) == 1
         assert final.decisions[0].id == "decision-1"
         assert final.status == PipelineStatus.AWAITING_HUMAN
+
+
+class TestRunGitRetry:
+    """Tests for index.lock retry logic in _run_git."""
+
+    def test_retry_succeeds_after_index_lock_error(self, tmp_path):
+        """Test that _run_git retries on index.lock contention and succeeds."""
+        store = StateStore(tmp_path, worktree_dir=tmp_path)
+        store._worktree = tmp_path
+
+        lock_error = subprocess.CalledProcessError(
+            128,
+            ["git", "add", "."],
+            stderr="fatal: Unable to create 'index.lock': File exists.\n",
+        )
+        success = MagicMock(stdout="ok\n", returncode=0)
+
+        with patch("subprocess.run", side_effect=[lock_error, success]) as mock_run:
+            result = store._run_git("add", ".")
+            assert result.stdout == "ok\n"
+            assert mock_run.call_count == 2
+
+    def test_retry_exhausted_raises_git_error(self, tmp_path):
+        """Test that _run_git raises after exhausting retries."""
+        store = StateStore(tmp_path, worktree_dir=tmp_path)
+        store._worktree = tmp_path
+
+        lock_error = subprocess.CalledProcessError(
+            128,
+            ["git", "add", "."],
+            stderr="fatal: Unable to create 'index.lock': File exists.\n",
+        )
+
+        with patch("subprocess.run", side_effect=[lock_error] * 3):
+            with pytest.raises(GitOperationError, match="index.lock"):
+                store._run_git("add", ".")
+
+    def test_non_lock_error_not_retried(self, tmp_path):
+        """Test that non-index.lock errors are raised immediately."""
+        store = StateStore(tmp_path, worktree_dir=tmp_path)
+        store._worktree = tmp_path
+
+        other_error = subprocess.CalledProcessError(
+            1,
+            ["git", "commit"],
+            stderr="nothing to commit\n",
+        )
+
+        with patch("subprocess.run", side_effect=other_error) as mock_run:
+            with pytest.raises(GitOperationError, match="nothing to commit"):
+                store._run_git("commit")
+            assert mock_run.call_count == 1
+
+    def test_cleanup_stale_locks(self, tmp_path):
+        """Test that stale lock files are cleaned up."""
+        store = StateStore(tmp_path, worktree_dir=tmp_path)
+
+        # Create a fake .git/worktrees/pipeline-worktree/index.lock
+        git_dir = tmp_path / ".git" / "worktrees" / "pipeline-worktree"
+        git_dir.mkdir(parents=True)
+        lock_file = git_dir / "index.lock"
+        lock_file.touch()
+
+        # Make it look old (>60s)
+        import os
+        old_time = os.path.getmtime(str(lock_file)) - 120
+        os.utime(str(lock_file), (old_time, old_time))
+
+        store._cleanup_stale_locks()
+        assert not lock_file.exists()
+
+    def test_cleanup_preserves_fresh_locks(self, tmp_path):
+        """Test that fresh lock files are not removed."""
+        store = StateStore(tmp_path, worktree_dir=tmp_path)
+
+        git_dir = tmp_path / ".git" / "worktrees" / "pipeline-worktree"
+        git_dir.mkdir(parents=True)
+        lock_file = git_dir / "index.lock"
+        lock_file.touch()  # Fresh — just created
+
+        store._cleanup_stale_locks()
+        assert lock_file.exists()

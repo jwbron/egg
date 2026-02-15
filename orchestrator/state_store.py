@@ -14,16 +14,21 @@ access.
 """
 
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from models import Pipeline, PipelineStatus
 from pydantic import ValidationError
+
+logger = logging.getLogger("orchestrator.state_store")
 
 # Valid pipeline ID format: issue-{number} or local-{8 hex chars}
 PIPELINE_ID_PATTERN = re.compile(r"^(issue-[0-9]+|local-[0-9a-f]{8})$")
@@ -111,6 +116,7 @@ class StateStore:
         self.repo_path = repo_path
         self._worktree_dir = worktree_dir or _DEFAULT_WORKTREE_DIR
         self._worktree: Path | None = None  # lazily initialised
+        self._git_lock = threading.Lock()  # serialize git operations
 
     # -- worktree lifecycle ------------------------------------------------
 
@@ -252,6 +258,10 @@ class StateStore:
     ) -> subprocess.CompletedProcess:
         """Run a git command in the repository.
 
+        Serializes access with a threading lock and retries on index.lock
+        contention (up to 3 attempts with exponential backoff).  Stale lock
+        files older than 60 seconds are removed between retries.
+
         Args:
             args: Git command arguments
             check: Whether to check return code
@@ -268,16 +278,57 @@ class StateStore:
         # trusted environment. See issue #58 for context on hook-based attacks.
         work_dir = str(cwd) if cwd else str(self.repo_path)
         cmd = ["git", "-c", "core.hooksPath=/dev/null", "-C", work_dir] + list(args)
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=check,
-            )
-            return result
-        except subprocess.CalledProcessError as e:
-            raise GitOperationError(f"Git command failed: {e.stderr}") from e
+
+        max_attempts = 3
+        backoff = 0.1
+
+        with self._git_lock:
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        check=check,
+                    )
+                    return result
+                except subprocess.CalledProcessError as e:
+                    if "index.lock" in (e.stderr or "") and attempt < max_attempts:
+                        logger.warning(
+                            "index.lock contention on attempt %d/%d, retrying: %s",
+                            attempt,
+                            max_attempts,
+                            e.stderr.strip(),
+                        )
+                        self._cleanup_stale_locks()
+                        time.sleep(backoff)
+                        backoff *= 2
+                        continue
+                    raise GitOperationError(f"Git command failed: {e.stderr}") from e
+
+        # Unreachable, but keeps type checkers happy
+        raise GitOperationError("_run_git exited retry loop unexpectedly")
+
+    def _cleanup_stale_locks(self) -> None:
+        """Remove stale index.lock files older than 60 seconds."""
+        lock_candidates = [self.repo_path / ".git" / "index.lock"]
+        worktrees_dir = self.repo_path / ".git" / "worktrees"
+        if worktrees_dir.exists():
+            lock_candidates.extend(worktrees_dir.glob("*/index.lock"))
+
+        for lock_file in lock_candidates:
+            if lock_file.exists():
+                try:
+                    age = time.time() - lock_file.stat().st_mtime
+                    if age > 60:
+                        lock_file.unlink(missing_ok=True)
+                        logger.info(
+                            "Removed stale lock file: %s (age: %.1fs)",
+                            lock_file,
+                            age,
+                        )
+                except OSError:
+                    pass
 
     # -- CRUD operations ---------------------------------------------------
 
