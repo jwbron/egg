@@ -808,8 +808,45 @@ def _get_unified_criteria(phase: str) -> str:
         )
 
 
+def _read_shared_criteria(
+    filename: str,
+    user_override: str | None = None,
+    repo_path: str | None = None,
+) -> str | None:
+    """Read shared criteria from file, checking user override first.
+
+    Search order:
+    1. .egg/<user_override> in the repo (if user_override provided)
+    2. shared/prompts/<filename> relative to source tree
+    3. /app/prompts/<filename> (Docker container path)
+
+    Returns the file content, or None if no file found (caller uses inline fallback).
+    """
+    # Check user override first
+    if user_override and repo_path:
+        override_path = Path(repo_path) / ".egg" / user_override
+        if override_path.is_file():
+            return override_path.read_text()
+
+    # Try source tree path (development / tests)
+    source_path = Path(__file__).parent.parent.parent / "shared" / "prompts" / filename
+    if source_path.is_file():
+        return source_path.read_text()
+
+    # Try Docker container path (production)
+    docker_path = Path("/app/prompts") / filename
+    if docker_path.is_file():
+        return docker_path.read_text()
+
+    return None
+
+
 def _get_agent_design_criteria() -> str:
     """Return agent-mode design review criteria."""
+    content = _read_shared_criteria("agent-design-criteria.md")
+    if content is not None:
+        return content
+    logger.warning("Shared agent-design-criteria.md not found, using inline fallback")
     return (
         "Flag these **clear** anti-patterns:\n\n"
         "1. **Excessive pre-fetching** — Baking large diffs (10KB+) or full file contents "
@@ -825,8 +862,16 @@ def _get_agent_design_criteria() -> str:
     )
 
 
-def _get_code_review_criteria() -> str:
+def _get_code_review_criteria(repo_path: str | None = None) -> str:
     """Return code review criteria."""
+    content = _read_shared_criteria(
+        "code-review-criteria.md",
+        user_override="review-rules.md",
+        repo_path=repo_path,
+    )
+    if content is not None:
+        return content
+    logger.warning("Shared code-review-criteria.md not found, using inline fallback")
     return (
         "### Security (highest priority)\n"
         "- Injection vulnerabilities (SQL, command, XSS, LDAP, path traversal)\n"
@@ -850,8 +895,16 @@ def _get_code_review_criteria() -> str:
     )
 
 
-def _get_contract_review_criteria() -> str:
+def _get_contract_review_criteria(repo_path: str | None = None) -> str:
     """Return contract verification criteria."""
+    content = _read_shared_criteria(
+        "contract-review-criteria.md",
+        user_override="contract-rules.md",
+        repo_path=repo_path,
+    )
+    if content is not None:
+        return content
+    logger.warning("Shared contract-review-criteria.md not found, using inline fallback")
     return (
         "### Task Verification\n"
         "For each task in the contract, verify:\n"
@@ -2371,17 +2424,32 @@ def _build_autofix_prompt(
             "(lint errors, formatting, simple type errors, obvious test fixes), make the fix",
             "4. **Verify locally**: Run the same checks again to confirm fixes work",
             "5. **Commit all fixes together** with a descriptive message\n",
-            "## Auto-fixable vs Report-only\n",
-            "**Auto-fixable (commit fixes directly):**",
-            "- Lint errors (formatting, import order, code style)",
-            "- Type errors with clear fixes",
-            "- Simple test failures with obvious fixes\n",
-            "**Report only (note in commit message):**",
-            "- Complex logic errors requiring design decisions",
-            "- Security issues requiring architectural changes",
-            "- Test failures from unclear requirements",
         ]
     )
+
+    # Load autofixer rules from shared file or use inline fallback
+    autofixer_rules = _read_shared_criteria(
+        "autofixer-rules.md",
+        user_override="autofixer-rules.md",
+        repo_path=None,
+    )
+    if autofixer_rules is not None:
+        lines.append(autofixer_rules)
+    else:
+        lines.extend(
+            [
+                "## Auto-fixable vs Report-only\n",
+                "**Auto-fixable (commit fixes directly):**",
+                "- Lint errors (formatting, import order, code style)",
+                "- Type errors with clear fixes",
+                "- Simple test failures with obvious fixes\n",
+                "**Report only (note in commit message):**",
+                "- Complex logic errors requiring design decisions",
+                "- Security issues requiring architectural changes",
+                "- Test failures from unclear requirements",
+            ]
+        )
+
     return "\n".join(lines)
 
 

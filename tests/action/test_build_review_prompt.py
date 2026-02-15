@@ -1,6 +1,7 @@
 """Tests for action/build-review-prompt.sh."""
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -314,3 +315,94 @@ class TestEmptyLastReviewCommit:
 
             prompt = read_prompt_file(tmpdir, "123")
             assert "Re-review" not in prompt
+
+
+class TestSharedCriteriaLoading:
+    """Tests for loading review criteria from shared/prompts/ files."""
+
+    def test_loads_from_shared_file(self) -> None:
+        """Script loads review rules from shared/prompts/code-review-criteria.md."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            # The shared file contains these markers from the merged criteria
+            assert "Security" in prompt
+            assert "Correctness" in prompt
+            assert "Robustness" in prompt
+            assert "How to Review" in prompt
+
+    def test_user_override_takes_priority(self) -> None:
+        """User .egg/review-rules.md overrides shared criteria."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a fake repo structure with user override
+            fake_repo = Path(tmpdir) / "repo"
+            fake_repo.mkdir()
+            egg_dir = fake_repo / ".egg"
+            egg_dir.mkdir()
+            (egg_dir / "review-rules.md").write_text("## Custom User Rules\nMy custom rules here.")
+
+            # Copy the action script and shared files to the fake repo
+            action_dir = fake_repo / "action"
+            action_dir.mkdir()
+            shutil.copy(BUILD_REVIEW_PROMPT, action_dir / "build-review-prompt.sh")
+            shared_dir = fake_repo / "shared" / "prompts"
+            shared_dir.mkdir(parents=True)
+            shutil.copy(
+                PROJECT_ROOT / "shared" / "prompts" / "code-review-criteria.md",
+                shared_dir / "code-review-criteria.md",
+            )
+
+            env = os.environ.copy()
+            env["PR_NUMBER"] = "123"
+            env["GITHUB_REPOSITORY"] = "owner/repo"
+            env["GITHUB_OUTPUT"] = "/dev/null"
+            env["RUNNER_TEMP"] = tmpdir
+
+            result = subprocess.run(
+                ["bash", str(action_dir / "build-review-prompt.sh")],
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=fake_repo,
+            )
+
+            assert result.returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            assert "Custom User Rules" in prompt
+            assert "My custom rules here" in prompt
+
+    def test_inline_fallback_when_no_shared_file(self) -> None:
+        """Script falls back to inline defaults when shared file is missing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a fake repo with just the script, no shared files
+            fake_repo = Path(tmpdir) / "repo"
+            fake_repo.mkdir()
+            action_dir = fake_repo / "action"
+            action_dir.mkdir()
+            shutil.copy(BUILD_REVIEW_PROMPT, action_dir / "build-review-prompt.sh")
+
+            env = os.environ.copy()
+            env["PR_NUMBER"] = "123"
+            env["GITHUB_REPOSITORY"] = "owner/repo"
+            env["GITHUB_OUTPUT"] = "/dev/null"
+            env["RUNNER_TEMP"] = tmpdir
+
+            result = subprocess.run(
+                ["bash", str(action_dir / "build-review-prompt.sh")],
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=fake_repo,
+            )
+
+            assert result.returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            # Falls back to inline defaults
+            assert "Security" in prompt
+            assert "Correctness" in prompt

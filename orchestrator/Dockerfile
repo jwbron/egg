@@ -21,6 +21,9 @@ COPY shared/egg_config/ ./egg_config/
 COPY shared/egg_contracts/ ./egg_contracts/
 COPY shared/egg_container/ ./egg_container/
 
+# Copy shared prompt criteria files
+COPY shared/prompts/ ./prompts/
+
 # Install dependencies
 COPY orchestrator/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
