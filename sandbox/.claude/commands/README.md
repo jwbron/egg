@@ -18,19 +18,6 @@ Redirects to the `egg-sdlc` CLI tool for launching SDLC pipelines.
 
 **File**: `sdlc.md`
 
-### /onboarding-docs
-Generate comprehensive documentation for an entire repository.
-
-**Usage**: `/onboarding-docs [<owner/repo>]`
-
-**What it does**:
-- Asks for the target repository (if not provided)
-- Surveys the repo structure, languages, configs, and existing docs
-- Builds a documentation prompt and feeds it to the SDLC pipeline
-- Streams live progress as documentation is generated
-
-**File**: `onboarding-docs.md`
-
 ### /show-metrics
 Generate a monitoring report showing recent agent activity.
 

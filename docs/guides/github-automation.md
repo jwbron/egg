@@ -411,52 +411,27 @@ and architecture docs.
 
 ## Documentation Onboarding
 
-**Slash command:** `/onboarding-docs` ([`sandbox/.claude/commands/onboarding-docs.md`](../../sandbox/.claude/commands/onboarding-docs.md))
+**CLI script:** `egg-onboarding-docs` ([`sandbox/bin/egg-onboarding-docs`](../../sandbox/bin/egg-onboarding-docs))
 
 Complementary to the incremental doc-updater, the onboarding capability generates comprehensive documentation for an entire repository from scratch. This is useful for bootstrapping documentation on existing codebases or creating complete documentation sets for new projects.
 
 ### How It Works
 
-Unlike the doc-updater (which reacts to individual commits), onboarding is a one-time or periodic "bootstrap" that documents an entire codebase:
+Unlike the doc-updater (which reacts to individual commits), onboarding is a one-time or periodic "bootstrap" that documents an entire codebase. The `egg-onboarding-docs` script passes a documentation prompt into `egg-sdlc --prompt`, which handles the full SDLC pipeline lifecycle (DAG visualization, HITL checkpoints, pipeline control).
 
-1. **Repository discovery** — Scans the repository to understand structure:
-   - Directory tree (depth 3)
-   - Language distribution by file extension
-   - Configuration and build files
-   - Entry points (main files, CLIs)
-   - Existing documentation and READMEs
-
-2. **Prompt generation** — Builds a comprehensive prompt instructing Claude to:
-   - Survey the codebase systematically
-   - Plan the documentation structure
-   - Write structured docs (index.md, STRUCTURE.md, architecture/README.md, component READMEs, guides)
-   - Incorporate existing documentation rather than replacing it
-   - Cross-reference and validate all links
-
-3. **SDLC execution** — The generated prompt is fed into the SDLC pipeline via the orchestrator, running the documentation task through the standard refine-plan-implement cycle.
-
-### Usage via Slash Command
-
-Inside the sandbox:
+### Usage
 
 ```
-/onboarding-docs [owner/repo]
+egg-onboarding-docs <repo_dir>
 ```
 
-The command will:
-- Ask for the repository if not provided
-- Clone the repository if needed
-- Run the prompt builder
-- Create and start an SDLC pipeline
-- Stream live progress via `egg-pipeline-watch`
+Example:
 
-### Scope Limiting
+```bash
+egg-onboarding-docs egg
+```
 
-Use environment variables to limit scope for large repositories:
-
-- `DRY_RUN=true` — Analyze only, describe what docs would be created
-- `INCLUDE_PATTERN="gateway/**"` — Only document files matching this glob
-- `EXCLUDE_DIRS="legacy,tmp"` — Additional directories to skip
+This validates the repository exists under `~/repos/`, then delegates to `egg-sdlc -r <repo_dir> --prompt "..."` with a documentation-focused prompt.
 
 ### Output Structure
 
