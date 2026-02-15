@@ -34,7 +34,7 @@ try:
     from ..container_spawner import ContainerSpawnError, get_container_spawner
     from ..decision_queue import DecisionTimeoutError, get_decision_queue
     from ..docker_client import DockerClientError
-    from ..models import AgentRole, Pipeline, PipelineStatus, ReviewVerdict
+    from ..models import AgentRole, CycleTiming, Pipeline, PipelineStatus, ReviewVerdict
     from ..state_store import (
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -47,7 +47,13 @@ except ImportError:
     from container_spawner import ContainerSpawnError, get_container_spawner  # type: ignore
     from decision_queue import DecisionTimeoutError, get_decision_queue  # type: ignore
     from docker_client import DockerClientError  # type: ignore
-    from models import AgentRole, Pipeline, PipelineStatus, ReviewVerdict  # type: ignore
+    from models import (  # type: ignore
+        AgentRole,
+        CycleTiming,
+        Pipeline,
+        PipelineStatus,
+        ReviewVerdict,
+    )
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -3029,8 +3035,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Record when actual agent work begins (excludes sandbox setup
                 # and HITL waiting time from the phase duration).
                 phase_execution.work_started_at = datetime.utcnow()
-                from models import CycleTiming
-
                 phase_execution.cycle_timings.append(
                     CycleTiming(cycle=review_cycle, started_at=phase_execution.work_started_at)
                 )
@@ -3072,6 +3076,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     except ContainerSpawnError as e:
                         pipeline = store.load_pipeline(pipeline_id)
                         phase_execution = pipeline.get_phase_execution(current_phase)
+                        if phase_execution.cycle_timings:
+                            phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
                         phase_execution.status = PipelineStatus.FAILED
                         phase_execution.error = str(e)
                         phase_execution.completed_at = datetime.utcnow()
@@ -3145,6 +3151,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     except ContainerSpawnError as e:
                         pipeline = store.load_pipeline(pipeline_id)
                         phase_execution = pipeline.get_phase_execution(current_phase)
+                        if phase_execution.cycle_timings:
+                            phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
                         phase_execution.status = PipelineStatus.FAILED
                         phase_execution.error = str(e)
                         phase_execution.completed_at = datetime.utcnow()
@@ -3166,6 +3174,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                     pipeline = store.load_pipeline(pipeline_id)
                     phase_execution = pipeline.get_phase_execution(current_phase)
+                    if phase_execution.cycle_timings:
+                        phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
                     phase_execution.status = PipelineStatus.FAILED
                     phase_execution.error = error_msg
                     phase_execution.completed_at = datetime.utcnow()
@@ -3452,9 +3462,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase=current_phase.value,
                         review_cycle=review_cycle + 1,
                     )
+                    pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
                     if phase_execution.cycle_timings:
-                        pipeline = store.load_pipeline(pipeline_id)
-                        phase_execution = pipeline.get_phase_execution(current_phase)
                         phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
                         store.save_pipeline(pipeline)
                     break  # Advance to next phase
@@ -3469,9 +3479,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         review_cycles=review_cycle + 1,
                         max_review_cycles=max_cycles,
                     )
+                    pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
                     if phase_execution.cycle_timings:
-                        pipeline = store.load_pipeline(pipeline_id)
-                        phase_execution = pipeline.get_phase_execution(current_phase)
                         phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
                         store.save_pipeline(pipeline)
                     break

@@ -6,7 +6,7 @@ phases, their status, review cycles, and agent execution state.
 """
 
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,6 @@ from models import (
     AgentExecution,
     AgentExecutionStatus,
     ContainerStatus,
-    CycleTiming,
     PhaseExecution,
     Pipeline,
     PipelinePhase,
@@ -84,36 +83,6 @@ def _get_agent_status_symbol(status: AgentExecutionStatus, use_ascii: bool = Fal
     return _get_status_symbol(pipeline_status, use_ascii)
 
 
-def _format_duration(started_at: datetime | None, ended_at: datetime | None = None) -> str:
-    """Format duration between two timestamps."""
-    if not started_at:
-        return ""
-
-    end = ended_at or datetime.utcnow()
-    delta = end - started_at
-    total_seconds = int(delta.total_seconds())
-
-    if total_seconds < 60:
-        return f"{total_seconds}s"
-    elif total_seconds < 3600:
-        minutes = total_seconds // 60
-        seconds = total_seconds % 60
-        return f"{minutes}m{seconds}s"
-    else:
-        hours = total_seconds // 3600
-        minutes = (total_seconds % 3600) // 60
-        return f"{hours}h{minutes}m"
-
-
-def _total_work_seconds(phase_exec: PhaseExecution) -> int:
-    """Sum of all completed cycle durations in seconds."""
-    total = 0
-    for ct in phase_exec.cycle_timings:
-        end = ct.completed_at or datetime.utcnow()
-        total += int((end - ct.started_at).total_seconds())
-    return total
-
-
 def _format_seconds(total_seconds: int) -> str:
     """Format a number of seconds as a human-readable duration string."""
     if total_seconds < 60:
@@ -126,6 +95,25 @@ def _format_seconds(total_seconds: int) -> str:
         hours = total_seconds // 3600
         minutes = (total_seconds % 3600) // 60
         return f"{hours}h{minutes}m"
+
+
+def _format_duration(started_at: datetime | None, ended_at: datetime | None = None) -> str:
+    """Format duration between two timestamps."""
+    if not started_at:
+        return ""
+
+    end = ended_at or datetime.utcnow()
+    total_seconds = int((end - started_at).total_seconds())
+    return _format_seconds(total_seconds)
+
+
+def _total_work_seconds(phase_exec: PhaseExecution) -> int:
+    """Sum of all completed cycle durations in seconds."""
+    total = 0
+    for ct in phase_exec.cycle_timings:
+        end = ct.completed_at or datetime.utcnow()
+        total += int((end - ct.started_at).total_seconds())
+    return total
 
 
 def _compute_wave_order(
@@ -231,7 +219,7 @@ def _render_phase_box(
 
     # Build duration line
     if duration and total_duration and total_duration != duration:
-        dur_line = f"   [cycle: {duration} | total: {total_duration}]"
+        dur_line = f"   [last cycle: {duration} | total: {total_duration}]"
     elif duration:
         dur_line = f"   [{duration}]"
     else:

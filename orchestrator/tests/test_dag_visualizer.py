@@ -871,7 +871,7 @@ class TestCycleTimingDisplay:
         result = render_pipeline_dag(pipeline)
 
         # Should show both cycle duration and total duration
-        assert "cycle:" in result
+        assert "last cycle:" in result
         assert "total:" in result
         # Current cycle is 5m, total is 15m (10m + 5m)
         assert "5m0s" in result
@@ -902,7 +902,7 @@ class TestCycleTimingDisplay:
 
         # Should show simple duration, no cycle/total split
         assert "5m0s" in result
-        assert "cycle:" not in result
+        assert "last cycle:" not in result
         assert "total:" not in result
 
     def test_phase_detail_shows_cycle_breakdown(self):
