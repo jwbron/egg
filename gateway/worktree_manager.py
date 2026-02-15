@@ -385,8 +385,12 @@ class WorktreeManager:
                     except OSError:
                         pass
 
-            # Clean up partial worktree state so the next attempt doesn't
-            # fail with "already exists" or "already checked out".
+            # Clean up partial worktree directory so the next attempt doesn't
+            # fail with "already exists".  Note: this only removes the worktree
+            # directory, not the .git/worktrees/<name>/ admin entry.  For
+            # index.lock contention this is sufficient because git fails before
+            # creating the admin entry.  If this retry mechanism is extended to
+            # other failure modes, admin-dir cleanup may also be needed.
             if worktree_path is not None and worktree_path.exists():
                 git_file = worktree_path / ".git"
                 worktree_is_valid = (

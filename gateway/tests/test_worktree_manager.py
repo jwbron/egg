@@ -769,10 +769,13 @@ class TestRunGitWorktreeAddRetry:
                 worktree_path.mkdir(parents=True, exist_ok=True)
                 side_effect.call_count += 1
                 return fail_result
+            # On the second call, record whether the partial dir was cleaned up
+            side_effect.dir_existed_before_retry = worktree_path.exists()
             side_effect.call_count += 1
             return ok_result
 
         side_effect.call_count = 0
+        side_effect.dir_existed_before_retry = None
 
         with (
             patch("worktree_manager.subprocess.run", side_effect=side_effect),
@@ -786,9 +789,10 @@ class TestRunGitWorktreeAddRetry:
             )
 
         assert result.returncode == 0
-        # The partial directory should have been cleaned between retries
-        # (it may or may not exist after the successful second call depending
-        # on what git does, but the cleanup ran)
+        # The partial directory must have been cleaned between retries
+        assert side_effect.dir_existed_before_retry is False, (
+            "Partial worktree directory should have been removed before retry"
+        )
 
 
 if __name__ == "__main__":
