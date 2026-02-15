@@ -13,17 +13,25 @@ This differs from checkpoints which are pushed to remote for cross-container
 access.
 """
 
+import fcntl
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
+import threading
+import time
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from models import Pipeline, PipelineStatus
 from pydantic import ValidationError
+
+logger = logging.getLogger("orchestrator.state_store")
 
 # Valid pipeline ID format: issue-{number} or local-{8 hex chars}
 PIPELINE_ID_PATTERN = re.compile(r"^(issue-[0-9]+|local-[0-9a-f]{8})$")
@@ -96,6 +104,15 @@ class StateStore:
 
     PIPELINES_DIR = ".egg-state/pipelines"
 
+    # -- cross-process git serialization ------------------------------------
+    # RLock allows compound operations (_commit_state, delete_pipeline) to
+    # hold the lock while inner _run_git calls re-enter without deadlocking.
+    # fcntl.flock provides cross-process serialization via the shared
+    # filesystem — threading locks only protect within a single process.
+    _thread_lock: ClassVar[threading.RLock] = threading.RLock()
+    _flock_fds: ClassVar[dict[str, int]] = {}
+    _flock_depth: ClassVar[int] = 0  # nesting depth, protected by _thread_lock
+
     def __init__(
         self,
         repo_path: Path,
@@ -111,6 +128,49 @@ class StateStore:
         self.repo_path = repo_path
         self._worktree_dir = worktree_dir or _DEFAULT_WORKTREE_DIR
         self._worktree: Path | None = None  # lazily initialised
+
+    # -- cross-process locking ---------------------------------------------
+
+    @property
+    def _lock_path(self) -> Path:
+        """Lock file for cross-process git serialization."""
+        return self._worktree_dir.parent / ".git-ops.lock"
+
+    @classmethod
+    def _get_flock_fd(cls, lock_path: Path) -> int:
+        """Get or create a file descriptor for cross-process flock."""
+        key = str(lock_path)
+        if key not in cls._flock_fds:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            cls._flock_fds[key] = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+        return cls._flock_fds[key]
+
+    @contextmanager
+    def _git_op(self) -> Generator[None, None, None]:
+        """Acquire thread + process locks for git operations.
+
+        Combines a reentrant threading lock (for in-process thread
+        serialization) with an ``fcntl.flock`` file lock (for cross-process
+        serialization via shared filesystem).
+
+        Reentrant: safe to nest.  Compound operations (e.g. ``_commit_state``)
+        hold the lock for their entire duration while inner ``_run_git`` calls
+        re-enter without releasing.
+        """
+        self._thread_lock.acquire()
+        try:
+            fd = self._get_flock_fd(self._lock_path)
+            if StateStore._flock_depth == 0:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            StateStore._flock_depth += 1
+            try:
+                yield
+            finally:
+                StateStore._flock_depth -= 1
+                if StateStore._flock_depth == 0:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            self._thread_lock.release()
 
     # -- worktree lifecycle ------------------------------------------------
 
@@ -252,6 +312,11 @@ class StateStore:
     ) -> subprocess.CompletedProcess:
         """Run a git command in the repository.
 
+        Acquires a cross-process file lock (``fcntl.flock``) and an in-process
+        reentrant thread lock before executing.  Retries on ``index.lock``
+        contention up to 3 times with exponential backoff.  Stale lock files
+        older than 60 seconds are removed between retries.
+
         Args:
             args: Git command arguments
             check: Whether to check return code
@@ -268,16 +333,57 @@ class StateStore:
         # trusted environment. See issue #58 for context on hook-based attacks.
         work_dir = str(cwd) if cwd else str(self.repo_path)
         cmd = ["git", "-c", "core.hooksPath=/dev/null", "-C", work_dir] + list(args)
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=check,
-            )
-            return result
-        except subprocess.CalledProcessError as e:
-            raise GitOperationError(f"Git command failed: {e.stderr}") from e
+
+        max_attempts = 3
+        backoff = 0.1
+
+        with self._git_op():
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        check=check,
+                    )
+                    return result
+                except subprocess.CalledProcessError as e:
+                    if "index.lock" in (e.stderr or "") and attempt < max_attempts:
+                        logger.warning(
+                            "index.lock contention on attempt %d/%d, retrying: %s",
+                            attempt,
+                            max_attempts,
+                            e.stderr.strip(),
+                        )
+                        self._cleanup_stale_locks()
+                        time.sleep(backoff)
+                        backoff *= 2
+                        continue
+                    raise GitOperationError(f"Git command failed: {e.stderr}") from e
+
+        # Unreachable, but keeps type checkers happy
+        raise GitOperationError("_run_git exited retry loop unexpectedly")
+
+    def _cleanup_stale_locks(self) -> None:
+        """Remove stale index.lock files older than 60 seconds."""
+        lock_candidates = [self.repo_path / ".git" / "index.lock"]
+        worktrees_dir = self.repo_path / ".git" / "worktrees"
+        if worktrees_dir.exists():
+            lock_candidates.extend(worktrees_dir.glob("*/index.lock"))
+
+        for lock_file in lock_candidates:
+            if lock_file.exists():
+                try:
+                    age = time.time() - lock_file.stat().st_mtime
+                    if age > 60:
+                        lock_file.unlink(missing_ok=True)
+                        logger.info(
+                            "Removed stale lock file: %s (age: %.1fs)",
+                            lock_file,
+                            age,
+                        )
+                except OSError:
+                    pass
 
     # -- CRUD operations ---------------------------------------------------
 
@@ -400,16 +506,19 @@ class StateStore:
         rel_path = str(path.relative_to(self.worktree))
 
         wt = self.worktree
-        self._run_git("add", rel_path, cwd=wt)
+        # Hold lock for entire add→diff→commit sequence so concurrent
+        # operations cannot interleave and stage into the wrong commit.
+        with self._git_op():
+            self._run_git("add", rel_path, cwd=wt)
 
-        result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
-        if result.returncode == 0:
-            # No changes staged - return current HEAD or empty string for unborn branch
-            head_result = self._run_git("rev-parse", "HEAD", cwd=wt, check=False)
-            return head_result.stdout.strip() if head_result.returncode == 0 else ""
+            result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
+            if result.returncode == 0:
+                # No changes staged - return current HEAD or empty string for unborn branch
+                head_result = self._run_git("rev-parse", "HEAD", cwd=wt, check=False)
+                return head_result.stdout.strip() if head_result.returncode == 0 else ""
 
-        self._run_git("commit", "--no-verify", "-m", message, cwd=wt)
-        return self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()
+            self._run_git("commit", "--no-verify", "-m", message, cwd=wt)
+            return self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()
 
     def _get_current_commit(self) -> str:
         """Get the current HEAD commit SHA."""
@@ -513,17 +622,18 @@ class StateStore:
         should_commit = commit and (not is_local or force_commit)
         if should_commit:
             wt = self.worktree
-            self._run_git("add", rel_path, cwd=wt)
+            with self._git_op():
+                self._run_git("add", rel_path, cwd=wt)
 
-            result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
-            if result.returncode != 0:
-                self._run_git(
-                    "commit",
-                    "--no-verify",
-                    "-m",
-                    f"Delete pipeline: {pipeline_id}",
-                    cwd=wt,
-                )
+                result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
+                if result.returncode != 0:
+                    self._run_git(
+                        "commit",
+                        "--no-verify",
+                        "-m",
+                        f"Delete pipeline: {pipeline_id}",
+                        cwd=wt,
+                    )
 
     def list_pipelines(self) -> list[str]:
         """List all pipeline IDs.
