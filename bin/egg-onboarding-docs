@@ -14,7 +14,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Detect if we're already inside a container
 if [ -n "${EGG_CONTAINER:-}" ] || [ -f "/.dockerenv" ]; then
-    exec "$SCRIPT_DIR/../sandbox/bin/egg-onboarding-docs" "$@"
+    # Inside container: strip --private/--public (already applied at container level)
+    args=()
+    for arg in "$@"; do
+        case "$arg" in
+            --private|--public) ;;  # Already applied at container level
+            *) args+=("$arg") ;;
+        esac
+    done
+    exec "$SCRIPT_DIR/../sandbox/bin/egg-onboarding-docs" "${args[@]}"
 fi
 
 # Host: extract --private/--public before passing to egg --exec
