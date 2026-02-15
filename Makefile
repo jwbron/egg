@@ -54,7 +54,7 @@ help:
 	@echo "Individual tools are available directly via the venv:"
 	@echo "  .venv/bin/ruff check .                   - Python lint"
 	@echo "  .venv/bin/pytest tests/ -v                - Run tests"
-	@echo "  .venv/bin/bandit -r gateway shared sandbox -ll  - Security scan"
+	@echo "  .venv/bin/bandit -r gateway shared sandbox orchestrator -ll  - Security scan"
 
 # ============================================================================
 # Setup

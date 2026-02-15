@@ -77,6 +77,7 @@ The pre-commit hooks will automatically check and fix most style issues.
 
 - **Unit tests**: `tests/` - Fast, isolated tests
 - **Gateway tests**: `gateway/tests/` - Gateway-specific tests
+- **Orchestrator tests**: `orchestrator/tests/` - Orchestrator-specific tests
 - **Integration tests**: `integration_tests/` - Tests requiring Docker/containers
 
 Coverage requirements:
