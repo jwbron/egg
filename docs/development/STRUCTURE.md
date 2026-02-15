@@ -286,7 +286,7 @@ Key workflows for PR automation (see `.github/workflows/` for complete list):
 ├── on-pull-request.yml                     # AI code review on PR open/sync
 ├── on-check-failure.yml                    # Auto-fix failing checks
 ├── on-merge-conflict.yml                   # Auto-resolve merge conflicts
-├── on-review-feedback.yml                  # Address review feedback on bot PRs
+├── on-review-feedback.yml                  # Address review feedback on bot/authorized-user PRs
 ├── on-push-doc-updater.yml                 # Auto-update docs after merge
 ├── on-pull-request-agent-mode-design.yml   # Agent-mode design review
 ├── on-pull-request-contract-verify.yml    # Contract verification on PRs
