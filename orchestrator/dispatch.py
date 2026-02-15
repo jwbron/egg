@@ -266,7 +266,13 @@ class PipelineDispatcher:
         return collect_handoff_data(self.repo_path, contract_role)
 
     def save_contract(self) -> None:
-        """Save updated contract to disk."""
+        """Save updated contract to disk.
+
+        No-op if the contract was never loaded (e.g. non-contract roles
+        like REFINER or REVIEWER_REFINE that skip contract interaction).
+        """
+        if self._contract_orchestrator is None:
+            return
         updated_contract = self.contract_orchestrator.apply_to_contract()
         save_contract(updated_contract, self.repo_path)
 
