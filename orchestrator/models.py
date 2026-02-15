@@ -161,6 +161,7 @@ class PhaseExecution(BaseModel):
     phase: PipelinePhase = Field(..., description="Phase being executed")
     status: PipelineStatus = Field(default=PipelineStatus.PENDING, description="Phase status")
     started_at: datetime | None = Field(default=None, description="When started")
+    work_started_at: datetime | None = Field(default=None, description="When first agent spawned")
     completed_at: datetime | None = Field(default=None, description="When completed")
     containers: list[ContainerInfo] = Field(
         default_factory=list, description="Containers spawned for this phase"

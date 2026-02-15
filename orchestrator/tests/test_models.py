@@ -106,6 +106,7 @@ class TestPhaseExecution:
         phase = PhaseExecution(phase=PipelinePhase.REFINE)
         assert phase.phase == PipelinePhase.REFINE
         assert phase.status == PipelineStatus.PENDING
+        assert phase.work_started_at is None
         assert phase.containers == []
         assert phase.agents == []
 

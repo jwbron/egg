@@ -469,6 +469,64 @@ class TestRenderPhaseDetail:
         assert "failed" in result
         assert "Error: Container failed to start" in result
 
+    def test_duration_uses_work_started_at(self):
+        """Test that duration calculation prefers work_started_at over started_at."""
+        now = datetime.utcnow()
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.COMPLETE,
+                started_at=now - timedelta(minutes=20),
+                work_started_at=now - timedelta(minutes=10),
+                completed_at=now,
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases)
+        result = render_phase_detail(pipeline, PipelinePhase.IMPLEMENT)
+
+        # Duration should be ~10m (from work_started_at), not ~20m (from started_at)
+        assert "Duration: 10m" in result
+        assert "20m" not in result
+        # Both timestamps should appear
+        assert "Started:" in result
+        assert "Work started:" in result
+
+    def test_duration_falls_back_to_started_at(self):
+        """Test that duration falls back to started_at when work_started_at is None."""
+        now = datetime.utcnow()
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.COMPLETE,
+                started_at=now - timedelta(minutes=5),
+                completed_at=now,
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases)
+        result = render_phase_detail(pipeline, PipelinePhase.IMPLEMENT)
+
+        assert "Duration: 5m" in result
+        assert "Work started:" not in result
+
+    def test_dag_duration_uses_work_started_at(self):
+        """Test that DAG overview duration prefers work_started_at."""
+        now = datetime.utcnow()
+        phases = {
+            "refine": PhaseExecution(
+                phase=PipelinePhase.REFINE,
+                status=PipelineStatus.COMPLETE,
+                started_at=now - timedelta(minutes=15),
+                work_started_at=now - timedelta(minutes=5),
+                completed_at=now,
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases)
+        result = render_pipeline_dag(pipeline)
+
+        # Duration should reflect work_started_at (5m), not started_at (15m)
+        assert "5m" in result
+        assert "15m" not in result
+
     def test_awaiting_human_phase_shows_awaiting_approval(self):
         """Test detail view shows 'awaiting approval' for AWAITING_HUMAN status."""
         phases = {

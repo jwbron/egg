@@ -161,6 +161,9 @@ def get_current_phase(pipeline_id: str) -> tuple[Response, int]:
                     "started_at": phase_execution.started_at.isoformat()
                     if phase_execution.started_at
                     else None,
+                    "work_started_at": phase_execution.work_started_at.isoformat()
+                    if phase_execution.work_started_at
+                    else None,
                     "completed_at": phase_execution.completed_at.isoformat()
                     if phase_execution.completed_at
                     else None,

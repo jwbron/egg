@@ -118,6 +118,7 @@ class TestStartFailedPipeline:
         phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
         assert phase_exec.status == PipelineStatus.PENDING
         assert phase_exec.started_at is None
+        assert phase_exec.work_started_at is None
         assert phase_exec.completed_at is None
         assert phase_exec.error is None
         assert phase_exec.review_cycles == 0
