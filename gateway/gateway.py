@@ -2538,6 +2538,7 @@ def session_create() -> tuple[Response, int] | Response:
     phase = data.get("phase")  # Optional SDLC pipeline phase
     pipeline_id = data.get("pipeline_id")  # Optional pipeline run ID
     issue_number = data.get("issue_number")  # Optional GitHub issue number
+    pr_number = data.get("pr_number")  # Optional GitHub PR number
     agent_role = data.get("agent_role")  # Optional agent role
 
     # Validate required fields
@@ -2570,8 +2571,12 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid pipeline_id: must be 256 characters or fewer")
 
     # Validate issue_number if provided
-    if issue_number is not None and (not isinstance(issue_number, int) or issue_number < 0):
-        return make_error("Invalid issue_number: must be a non-negative integer")
+    if issue_number is not None and (not isinstance(issue_number, int) or issue_number < 1):
+        return make_error("Invalid issue_number: must be a positive integer")
+
+    # Validate pr_number if provided
+    if pr_number is not None and (not isinstance(pr_number, int) or pr_number < 1):
+        return make_error("Invalid pr_number: must be a positive integer")
 
     # Validate agent_role if provided
     if agent_role is not None:
@@ -2678,6 +2683,7 @@ def session_create() -> tuple[Response, int] | Response:
         phase=phase,
         pipeline_id=pipeline_id,
         issue_number=issue_number,
+        pr_number=pr_number,
         agent_role=agent_role,
     )
 
@@ -2692,6 +2698,7 @@ def session_create() -> tuple[Response, int] | Response:
             "phase": phase,
             "pipeline_id": pipeline_id,
             "issue_number": issue_number,
+            "pr_number": pr_number,
             "agent_role": agent_role,
             "filtered_repos": filtered_repos,
             "worktree_count": len(worktrees),

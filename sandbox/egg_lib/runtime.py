@@ -376,6 +376,7 @@ def _setup_session_repos(
     quiet: bool = False,
     phase: str | None = None,
     issue_number: int | None = None,
+    pr_number: int | None = None,
     pipeline_id: str | None = None,
     agent_role: str | None = None,
 ) -> tuple[str | None, dict[str, Path], list[str]]:
@@ -395,6 +396,7 @@ def _setup_session_repos(
         quiet: Suppress output
         phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
         issue_number: GitHub issue number for checkpoint metadata
+        pr_number: GitHub PR number for checkpoint metadata
         pipeline_id: Pipeline run ID for multi-agent correlation
         agent_role: Agent role (e.g., "coder", "tester") for checkpoint metadata
 
@@ -441,6 +443,7 @@ def _setup_session_repos(
         gid=os.getgid(),
         phase=phase,
         issue_number=issue_number,
+        pr_number=pr_number,
         pipeline_id=pipeline_id,
         agent_role=agent_role,
     )
@@ -591,7 +594,17 @@ def run_claude(
         # Pass pipeline phase and checkpoint metadata from environment
         pipeline_phase = os.environ.get("EGG_PIPELINE_PHASE")
         issue_number_str = os.environ.get("EGG_ISSUE_NUMBER")
-        issue_number = int(issue_number_str) if issue_number_str else None
+        try:
+            issue_number = int(issue_number_str) if issue_number_str else None
+        except ValueError:
+            warn(f"Invalid EGG_ISSUE_NUMBER: {issue_number_str!r}, ignoring")
+            issue_number = None
+        pr_number_str = os.environ.get("EGG_PR_NUMBER")
+        try:
+            pr_number = int(pr_number_str) if pr_number_str else None
+        except ValueError:
+            warn(f"Invalid EGG_PR_NUMBER: {pr_number_str!r}, ignoring")
+            pr_number = None
         pipeline_id = os.environ.get("EGG_PIPELINE_ID")
         agent_role = os.environ.get("EGG_AGENT_ROLE")
         session_token, repos, _filtered_repos = _setup_session_repos(
@@ -602,6 +615,7 @@ def run_claude(
             quiet=quiet,
             phase=pipeline_phase,
             issue_number=issue_number,
+            pr_number=pr_number,
             pipeline_id=pipeline_id,
             agent_role=agent_role,
         )
@@ -874,7 +888,17 @@ def exec_in_new_container(
         # Pass pipeline phase and checkpoint metadata from environment
         pipeline_phase = os.environ.get("EGG_PIPELINE_PHASE")
         issue_number_str = os.environ.get("EGG_ISSUE_NUMBER")
-        issue_number = int(issue_number_str) if issue_number_str else None
+        try:
+            issue_number = int(issue_number_str) if issue_number_str else None
+        except ValueError:
+            warn(f"Invalid EGG_ISSUE_NUMBER: {issue_number_str!r}, ignoring")
+            issue_number = None
+        pr_number_str = os.environ.get("EGG_PR_NUMBER")
+        try:
+            pr_number = int(pr_number_str) if pr_number_str else None
+        except ValueError:
+            warn(f"Invalid EGG_PR_NUMBER: {pr_number_str!r}, ignoring")
+            pr_number = None
         pipeline_id = os.environ.get("EGG_PIPELINE_ID")
         agent_role = os.environ.get("EGG_AGENT_ROLE")
         session_token, repos, _filtered_repos = _setup_session_repos(
@@ -885,6 +909,7 @@ def exec_in_new_container(
             quiet=quiet,
             phase=pipeline_phase,
             issue_number=issue_number,
+            pr_number=pr_number,
             pipeline_id=pipeline_id,
             agent_role=agent_role,
         )
