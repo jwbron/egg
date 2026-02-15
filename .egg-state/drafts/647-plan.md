@@ -1,125 +1,300 @@
-# Plan: Full-stack DinD integration testing for egg self-validation
+# Plan: Replace host Docker socket with rootless DinD sidecar
 
-> Issue: #647 | Phase: plan
+**Issue**: #647 — Full-stack DinD integration testing for egg self-validation
+**Revision**: 2 (addresses unified reviewer and plan reviewer feedback)
 
 ## Summary
 
-Replace the host Docker socket mount (`/var/run/docker.sock`) in the local pipeline integration test stack with a rootless Docker-in-Docker (DinD) sidecar (`docker:27-dind-rootless`). This sandboxes all container operations within an isolated Docker daemon, eliminating host Docker access from the test orchestrator and establishing the foundation for self-validation testing (#645).
+Replace the host Docker socket mount (`/var/run/docker.sock`) in the local
+pipeline integration test stack with a rootless Docker-in-Docker (DinD) sidecar
+(`docker:27-dind-rootless`). This sandboxes all container operations within an
+isolated Docker daemon, eliminating host Docker access from the test
+orchestrator. No production code changes needed — `DockerClient` already
+supports `DOCKER_HOST` override (`docker_client.py:95-109`), and
+`ContainerSpawner` reads `EGG_ISOLATED_NETWORK`/`EGG_EXTERNAL_NETWORK` from
+environment (`container_spawner.py:55-56`).
 
-No orchestrator code changes are needed — `DockerClient` already supports `DOCKER_HOST` via environment variable (docker_client.py:95-109), and `ContainerSpawner` already reads `EGG_ISOLATED_NETWORK` from environment (container_spawner.py:55). The work is purely compose configuration and test fixture updates.
+## Architectural Constraints (Definitive)
 
-## Approach
+These are known Docker behaviors, not open questions:
 
-**Rootless DinD sidecar** (Approach A from the architecture analysis). The DinD container joins the test compose networks so the orchestrator can reach it via `tcp://dind:2375`. Mock-sandbox images are loaded into DinD at setup time via `docker save | docker load`. Named volumes (state, worktrees, certs) are shared between compose services so DinD-spawned containers can access the same data.
+1. **DinD-spawned containers cannot join outer compose networks** (AC-1).
+   Networks are daemon-local. The DinD daemon has its own network namespace and
+   cannot see networks created by the host daemon (e.g.,
+   `egg-lp-test-<pid>-isolated`).
 
-Key design decisions:
-- **Rootless over standard DinD** — Both require `--privileged`. Rootless runs the inner daemon as non-root, reducing blast radius. ~5s startup overhead is acceptable for integration tests.
-- **Save/load for image transfer** — Build mock-sandbox on the host daemon (fast, cached), then transfer to DinD via pipe. The image is ~5MB (alpine + curl).
-- **Network bridging** — DinD joins the test networks directly. DinD-spawned containers communicate with the gateway via DinD's network position. The orchestrator's `EGG_ISOLATED_NETWORK` override ensures spawned containers join the correct network.
-- **CI deferred** — CI integration (GitHub Actions `--privileged` support) is a follow-up concern. The fixture gracefully skips when DinD is unavailable.
+2. **Named volumes are daemon-local** (AC-2). Volumes created by the host
+   Docker daemon (`certs`, `worktrees`, `state`) are invisible to DinD. Data
+   must be shared via compose volume mounts through DinD's filesystem.
 
-## Implementation Phases
+3. **EGG_HOST_REPO_MAP paths must resolve inside DinD** (AC-3). Since DinD is
+   the daemon performing bind mounts into spawned containers, paths must be
+   DinD-internal filesystem paths, not host temp directory paths.
 
-### Phase 1: Add DinD Service to Compose Stack
+## Networking Design: DinD-Internal Bridge + NAT
 
-**Goal**: Add `docker:27-dind-rootless` as a compose service, wire networking, update orchestrator to use DinD instead of host Docker socket.
+**Chosen approach** (Approach D from architect analysis):
 
-**Tasks**:
+- Create a user-defined bridge network (`egg-dind-internal`) inside DinD at
+  test setup time.
+- Override `EGG_ISOLATED_NETWORK=egg-dind-internal` and
+  `EGG_EXTERNAL_NETWORK=egg-dind-internal` on the orchestrator so
+  `_build_network_config()` (`container_spawner.py:137-170`) uses a network
+  that exists inside DinD.
+- DinD itself sits on the compose networks (172.40.0.4 on isolated, 172.41.0.4
+  on external). Its internal containers route to 172.40.0.2 (gateway) through
+  DinD's NAT — standard Docker behavior for privileged containers with IP
+  forwarding.
 
-- [TASK-1-1] Add `dind` service to `integration_tests/local_pipeline/docker-compose.yml` — Define a `docker:27-dind-rootless` service with `privileged: true`, `/dev/net/tun` device, `DOCKER_TLS_CERTDIR=` (disable TLS for test simplicity), and a health check (`docker info`). Connect it to both `egg-test-isolated` and `egg-test-external` networks with static IPs (e.g., 172.40.0.4 and 172.41.0.4). Mount shared named volumes (state, worktrees, certs) so DinD-spawned containers can access them.
-  - **File**: `integration_tests/local_pipeline/docker-compose.yml`
-  - **Acceptance**: `docker compose up dind` starts successfully. `docker -H tcp://localhost:<port> info` returns valid daemon info. DinD container is on both test networks.
+**Why not alternatives:**
+- `--network=host` on DinD: defeats isolation goals.
+- Matching network names inside DinD: overlapping subnets cause routing
+  confusion; separate daemon namespaces mean no actual connectivity.
+- `--network=container:dind`: requires `network_mode` changes to the shared
+  config builder (`egg_container/__init__.py`), violating the no-code-changes
+  constraint. Also causes port conflicts.
 
-- [TASK-1-2] Update orchestrator service to use DinD — Change `DOCKER_HOST` from `unix:///var/run/docker.sock` to `tcp://dind:2375`. Remove the `/var/run/docker.sock` volume mount. Add `depends_on: dind: condition: service_healthy`.
-  - **File**: `integration_tests/local_pipeline/docker-compose.yml`
-  - **Acceptance**: Orchestrator service has no Docker socket mount. `DOCKER_HOST` points to DinD. Orchestrator waits for DinD health before starting.
-
-### Phase 2: Update Test Fixture for Image Loading
-
-**Goal**: Load the mock-sandbox image into the DinD daemon at test setup time so the orchestrator can spawn it.
-
-**Tasks**:
-
-- [TASK-2-1] Add image loading step to `local_pipeline_stack` fixture — After compose up and health checks pass, transfer the mock-sandbox image from the host Docker daemon into DinD using `docker save mock-sandbox:latest | docker -H tcp://localhost:<dind_port> load`. Determine the DinD mapped port via `docker compose port dind 2375`.
-  - **File**: `integration_tests/local_pipeline/conftest.py`
-  - **Acceptance**: After fixture setup, `docker -H tcp://localhost:<dind_port> images` shows `mock-sandbox:latest`. If image load fails, test session fails with clear error message.
-
-- [TASK-2-2] Update override file generation to include DinD repo volume — The override file currently adds per-repo volumes to `gateway` and `orchestrator`. Add the same volume to the `dind` service so DinD-spawned containers can mount the repo path.
-  - **File**: `integration_tests/local_pipeline/conftest.py`
-  - **Acceptance**: Override file includes `dind` service with repo volume mount. DinD-internal path matches what `EGG_HOST_REPO_MAP` references.
-
-- [TASK-2-3] Update `EGG_HOST_REPO_MAP` to use DinD-internal paths — Since the orchestrator now spawns containers via DinD, volume mount paths must resolve inside DinD, not on the host. Update the repo map values to reference the path where the repo is mounted inside the DinD container (same path as inside the orchestrator: `/home/egg/repos/<repo_name>`).
-  - **File**: `integration_tests/local_pipeline/conftest.py`
-  - **Acceptance**: `EGG_HOST_REPO_MAP` values are DinD-internal paths. Spawned mock-sandbox containers can access the repo volume.
-
-### Phase 3: Update Orphan Cleanup for DinD
-
-**Goal**: Ensure orphaned container cleanup targets the DinD daemon instead of the host daemon.
-
-**Tasks**:
-
-- [TASK-3-1] Update `_cleanup_orphaned_containers` to target DinD — The cleanup function currently runs `docker ps` and `docker rm` against the host daemon. With DinD, orphaned test containers live inside DinD. Update the function to accept an optional `docker_host` parameter and target the DinD endpoint when available. During fixture teardown, compose down already removes the DinD container (and all its children), so this is mainly needed for pre-test cleanup of leftover DinD instances from crashed previous runs.
-  - **File**: `integration_tests/local_pipeline/conftest.py`
-  - **Acceptance**: Orphan cleanup works correctly. No stale test containers remain after test runs.
-
-### Phase 4: Validate Existing Tests Against DinD Stack
-
-**Goal**: Run the full existing integration test suite and fix any failures caused by the DinD switch.
-
-**Tasks**:
-
-- [TASK-4-1] Run full integration test suite against DinD-backed stack — Execute `PYTHONPATH=shared pytest integration_tests/local_pipeline/ -v -m integration --timeout=300`. Identify and categorize any failures (network connectivity, volume mounts, timing, container lifecycle).
-  - **Files**: `integration_tests/local_pipeline/test_local_pipeline.py`, `integration_tests/local_pipeline/test_concurrent_pipelines.py`, `integration_tests/local_pipeline/test_error_recovery.py`, `integration_tests/local_pipeline/test_hitl_edge_cases.py`, `integration_tests/local_pipeline/test_signals.py`, `integration_tests/local_pipeline/test_api_validation.py`, `integration_tests/local_pipeline/test_unified_pipeline_behavior.py`, `integration_tests/local_pipeline/test_worktree_integration.py`
-  - **Acceptance**: All existing integration tests pass (or any pre-existing failures are documented).
-
-- [TASK-4-2] Fix network connectivity issues if DinD-spawned containers cannot reach gateway — If containers spawned by DinD cannot join the outer compose networks directly, implement a workaround: either use `network_mode: host` on DinD, create test networks as `external` so both daemons can see them, or route through DinD's IP. This is the highest-risk task and may require iterative debugging.
-  - **Files**: `integration_tests/local_pipeline/docker-compose.yml`, `integration_tests/local_pipeline/conftest.py`
-  - **Acceptance**: Mock-sandbox containers spawned inside DinD can `curl` the gateway health endpoint. All pipeline phases that involve container-to-gateway communication pass.
-
-- [TASK-4-3] Adjust timeouts if needed — DinD adds ~5s startup overhead and may add latency to container operations. If tests fail due to timeouts, increase relevant timeout values in test fixtures or compose health checks.
-  - **Files**: `integration_tests/local_pipeline/conftest.py`, `integration_tests/local_pipeline/docker-compose.yml`
-  - **Acceptance**: No test failures caused by timeout. Health check retries and start_period accommodate DinD startup.
-
-## Network Topology After Change
-
+**Network topology:**
 ```
 Host Docker Daemon
-  └─ compose stack (egg-lp-test-*)
-       ├─ gateway       (172.40.0.2 / 172.41.0.2)
-       ├─ orchestrator   (172.40.0.3 / 172.41.0.3)  ← DOCKER_HOST=tcp://dind:2375
-       └─ dind (rootless) (172.40.0.4 / 172.41.0.4)
-            └─ mock-sandbox containers (spawned by orchestrator via DinD)
-                 └─ communicate with gateway via DinD's network position
+  └─ compose stack (egg-lp-test-<pid>)
+       ├─ gateway        (172.40.0.2 on isolated / 172.41.0.2 on external)
+       ├─ orchestrator    (172.40.0.3 on isolated / 172.41.0.3 on external)
+       │    └─ DOCKER_HOST=tcp://dind:2375
+       └─ dind (rootless) (172.40.0.4 on isolated / 172.41.0.4 on external)
+            │
+            └─ DinD-internal Docker daemon
+                 ├─ network: egg-dind-internal (Docker-assigned subnet)
+                 └─ mock-sandbox containers
+                      ├─ joined to egg-dind-internal
+                      ├─ reach gateway via DinD NAT → 172.40.0.2:9848
+                      └─ volume mounts resolve to DinD-internal paths
 ```
 
-## Test Strategy
+## Volume Design
 
-- **Primary validation**: Run the full existing integration test suite (`pytest integration_tests/local_pipeline/ -v -m integration --timeout=300`). These tests exercise the complete pipeline lifecycle (create → start → spawn containers → run phases → review → complete) and cover the critical paths: container spawning, environment injection, volume mounts, gateway connectivity, and artifact writing.
-- **No new tests required**: The existing tests are sufficient to validate the DinD switch. They test the same Docker operations (create, start, logs, stop, remove) but now through DinD instead of the host socket.
-- **Early network validation**: In Phase 1, before proceeding to full test runs, manually verify that a container spawned inside DinD can reach the gateway by running a minimal connectivity test.
-- **Graceful degradation**: The fixture should skip tests (not fail hard) if DinD is unavailable, preserving the ability to run with the host socket in environments that don't support DinD.
+Named volumes are mounted into DinD via compose volume mounts (same pattern as
+gateway/orchestrator). DinD-spawned containers then access data via
+DinD-internal filesystem paths:
 
-## Risks
+| Volume | Compose mount on DinD | DinD-internal path | Notes |
+|--------|----------------------|-------------------|-------|
+| repos | `{repos_dir}:/home/egg/repos/{name}` | `/home/egg/repos/{name}` | Via override file |
+| worktrees | `worktrees:/home/egg/.egg-worktrees` | `/home/egg/.egg-worktrees` | Named volume shared via compose |
+| state | `state:/home/egg/.egg-state` | `/home/egg/.egg-state` | Accessed by orchestrator, not sandbox |
+| certs | `certs:/shared/certs` | `/shared/certs` | Skipped — mock-sandbox doesn't need TLS |
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| DinD-spawned containers can't join outer compose networks | Medium | High | Early validation in Phase 1. Fallback: use DinD's IP as network bridge or host networking mode |
-| Volume path mismatch between DinD-internal and host paths | Medium | Medium | Use consistent named volumes and DinD-internal paths in EGG_HOST_REPO_MAP |
-| DinD startup adds too much latency for health checks | Low | Low | Increase health check start_period and retries |
-| Rootless DinD has overlay2/cgroup limitations on some kernels | Low | Medium | Validated on target host (Linux 6.17 aarch64). Fall back to standard DinD if needed |
+**Key change**: `EGG_HOST_REPO_MAP` must map `repo_name` →
+`/home/egg/repos/{repo_name}` (DinD-internal path), not the host temp
+directory path.
 
 ## Files Modified
 
-| File | Changes |
-|------|---------|
-| `integration_tests/local_pipeline/docker-compose.yml` | Add `dind` service; update orchestrator `DOCKER_HOST`; remove socket mount; add DinD to depends_on |
-| `integration_tests/local_pipeline/conftest.py` | Image loading into DinD; override file includes DinD volumes; EGG_HOST_REPO_MAP uses DinD paths; orphan cleanup targets DinD |
+Only two files under `integration_tests/local_pipeline/`:
 
-## Open Questions
+1. **`docker-compose.yml`** — Add DinD service, update orchestrator config
+2. **`conftest.py`** — Network creation, image loading, volume path updates,
+   `LocalPipelineStack` dataclass update, cleanup
 
-1. **Can DinD-spawned containers directly join outer compose networks?** The DinD daemon is isolated — it may not see networks created by the host daemon. This must be validated early in Phase 1. If it fails, the fallback is routing through DinD's IP address on the compose network.
+No production code changes. No new test files.
 
-2. **Should tests have a direct handle to the DinD Docker endpoint?** Most tests interact via the orchestrator API, but adding `dind_docker_host` to `LocalPipelineStack` would allow direct container inspection in debugging scenarios.
+## Rollback Plan
+
+Revert the two modified files to pre-DinD state:
+```bash
+git checkout origin/main -- integration_tests/local_pipeline/docker-compose.yml \
+                            integration_tests/local_pipeline/conftest.py
+```
+No production code was changed, so rollback is trivially safe.
+
+## Test Strategy
+
+- **Primary validation**: Run the full existing integration test suite
+  (`pytest integration_tests/local_pipeline/ -v -m integration --timeout=300`).
+  These tests exercise complete pipeline lifecycle including container spawning,
+  environment injection, volume mounts, and gateway connectivity.
+- **No new tests required**: Existing tests cover the same operations, now
+  routed through DinD. Mock-sandbox `phase-runner.sh` has built-in validation
+  for env vars (exit code 3), repo volumes (exit code 4), and `.git` (exit
+  code 5).
+- **Early validation**: TASK-1-3 is a concrete blocking gate — a container
+  spawned inside DinD must reach the gateway before proceeding.
+- **Graceful degradation**: The fixture should skip tests (not fail hard) if
+  DinD is unavailable, preserving compatibility with environments that don't
+  support DinD.
+
+## Risks
+
+| ID | Title | Severity | Likelihood | Mitigation |
+|----|-------|----------|-----------|-----------|
+| RISK-1 | DinD NAT routing doesn't reach gateway | Critical | Low | TASK-1-3 validates before Phase 2. Fallback: `--network=host` on DinD |
+| RISK-2 | Volume path mismatch | High | Medium | TASK-2-3 end-to-end verification via phase-runner.sh exit codes |
+| RISK-3 | DinD startup latency | Low | Low | 40s health check start_period |
+| RISK-4 | Container IP resolution on DinD-internal | Medium | Low | Both `EGG_*_NETWORK` vars overridden; `_get_container_ip()` finds correct IP |
+
+## Design Decisions
+
+| ID | Decision | Rationale |
+|----|----------|-----------|
+| DD-1 | DinD-internal bridge + NAT routing | Preserves isolation, no code changes, standard Docker behavior |
+| DD-2 | Bind-mount volume data into DinD | Named volumes are daemon-local; compose mounts share data |
+| DD-3 | Both `EGG_*_NETWORK` = `egg-dind-internal` | Tests use `local` mode (isolated network); covers `public` too |
+| DD-4 | Skip certs volume for mock-sandbox | phase-runner.sh doesn't validate TLS; volume mount may fail silently |
+| DD-5 | Add `dind_docker_host` to `LocalPipelineStack` | Needed for image loading and debugging |
+
+## Reviewer Feedback Resolution
+
+### Unified Reviewer
+
+1. **Network connectivity validation → Phase 1 (blocking gate)**: Done.
+   TASK-1-3 is a Phase 1 gate that spawns a container inside DinD and verifies
+   it can reach the gateway at 172.40.0.2:9848 before any Phase 2+ work.
+
+2. **Named volume sharing assumption corrected**: Done. Named volumes are
+   mounted into DinD via compose volume mounts (same as gateway/orchestrator).
+   `EGG_HOST_REPO_MAP` uses DinD-internal paths. TASK-2-3 verifies end-to-end
+   with phase-runner.sh exit code validation.
+
+3. **`EGG_ISOLATED_NETWORK` mismatch resolved**: Done. Both
+   `EGG_ISOLATED_NETWORK` and `EGG_EXTERNAL_NETWORK` are overridden to
+   `egg-dind-internal` (a network created inside DinD). Resolved together with
+   networking in Phase 1 (TASK-1-2 + TASK-1-3).
+
+4. **Rollback plan**: Added explicit section above.
+
+5. **`dind_docker_host` on `LocalPipelineStack`**: Added as DD-5 / TASK-1-3.
+
+6. **TASK-3-1 simplification**: Acknowledged — compose down removes DinD and
+   children. Task evaluates whether additional cleanup adds value.
+
+### Plan Reviewer
+
+1. **Network architecture in Phase 1**: Done. Approach D (DinD-internal bridge
+   + NAT) is the chosen design, implemented in TASK-1-1 through TASK-1-3.
+
+2. **`EGG_EXTERNAL_NETWORK` handling**: Done. Set to `egg-dind-internal` in
+   TASK-1-2. Only `local` mode is exercised by tests, but `public` mode is
+   covered too.
+
+3. **TASK-2-3 acceptance criteria strengthened**: Done. Acceptance now includes
+   concrete verification — mock-sandbox phase-runner.sh must not exit with
+   code 4 (missing repo) or 5 (invalid .git).
+
+4. **OQ-1 resolved as definitive constraint**: Done. Converted to AC-1 —
+   DinD-spawned containers definitively cannot join outer compose networks.
+
+## Implementation Phases
+
+### Phase 1: Add DinD Service with Networking Solution
+
+**Goal**: Add rootless DinD sidecar, wire networking, validate connectivity
+before proceeding to any other work.
+
+**TASK-1-1**: Add `dind` service to `docker-compose.yml`
+- Image: `docker:27-dind-rootless` with `privileged: true`
+- Health check: `docker info` with 10s interval, 40s `start_period`
+- Networks: `egg-test-isolated` (172.40.0.4), `egg-test-external` (172.41.0.4)
+- Volumes: `worktrees`, `state`, `certs` (same named volumes as
+  gateway/orchestrator)
+- Environment: `DOCKER_TLS_CERTDIR=` (disable TLS for test simplicity)
+- Port: expose 2375 for host-side access during fixture setup
+- **Acceptance**: `docker compose up dind` starts healthy; DinD is on both test
+  networks.
+- **File**: `integration_tests/local_pipeline/docker-compose.yml`
+
+**TASK-1-2**: Update orchestrator service to use DinD
+- Change `DOCKER_HOST` from `unix:///var/run/docker.sock` to `tcp://dind:2375`
+- Remove `/var/run/docker.sock` volume mount
+- Set `EGG_ISOLATED_NETWORK=egg-dind-internal`
+- Set `EGG_EXTERNAL_NETWORK=egg-dind-internal`
+- Add `depends_on: dind: condition: service_healthy`
+- **Acceptance**: Orchestrator connects to DinD daemon; no host socket mount;
+  both `EGG_*_NETWORK` vars point to DinD-internal network.
+- **File**: `integration_tests/local_pipeline/docker-compose.yml`
+
+**TASK-1-3**: Network connectivity validation gate in `conftest.py`
+- After compose up and health checks pass, detect DinD's mapped port via
+  `docker compose port dind 2375`
+- Create bridge network inside DinD:
+  `docker -H tcp://localhost:<port> network create --driver bridge egg-dind-internal`
+- Spawn minimal container to validate connectivity:
+  `docker -H tcp://localhost:<port> run --rm --network egg-dind-internal alpine:3.19 wget -qO- --timeout=5 http://172.40.0.2:9848/api/v1/health`
+- If check fails: `pytest.fail()` with clear message about DinD networking
+  constraint
+- Add `dind_docker_host` field to `LocalPipelineStack` dataclass
+- **Acceptance**: A container spawned inside DinD successfully reaches the
+  gateway health endpoint at 172.40.0.2:9848 through DinD's NAT.
+- **File**: `integration_tests/local_pipeline/conftest.py`
+
+### Phase 2: Update Test Fixture for Image Loading and Volume Paths
+
+**Goal**: Load mock-sandbox image into DinD, configure DinD-internal volume
+paths correctly, verify end-to-end data access.
+
+**TASK-2-1**: Load mock-sandbox image into DinD
+- After compose up and network validation, transfer image:
+  `docker save mock-sandbox:latest | docker -H tcp://localhost:<port> load`
+- Verify image available:
+  `docker -H tcp://localhost:<port> images mock-sandbox:latest`
+- **Acceptance**: `mock-sandbox:latest` is available inside DinD daemon after
+  fixture setup.
+- **File**: `integration_tests/local_pipeline/conftest.py`
+
+**TASK-2-2**: Update override file to mount repo volume into DinD
+- The override file (generated in `conftest.py`) currently adds repo bind
+  mounts to gateway and orchestrator
+- Add the same bind mount to the `dind` service:
+  `{repos_dir}:/home/egg/repos/{repo_name}`
+- **Acceptance**: DinD has repo volume mounted at
+  `/home/egg/repos/{repo_name}`.
+- **File**: `integration_tests/local_pipeline/conftest.py`
+
+**TASK-2-3**: Update `EGG_HOST_REPO_MAP` to DinD-internal paths
+- Currently: maps `repo_name` → `repos_dir` (host temp dir path)
+- Change to: map `repo_name` → `/home/egg/repos/{repo_name}` (DinD-internal
+  path)
+- Verify end-to-end: mock-sandbox `phase-runner.sh` validates repo volume
+  mount (exits 4 if missing) and `.git` directory (exits 5 if invalid)
+- **Acceptance**: Mock-sandbox phase-runner.sh does not exit with code 4 or 5.
+  A spawned container inside DinD successfully reads a file from the mounted
+  repo volume.
+- **File**: `integration_tests/local_pipeline/conftest.py`
+
+### Phase 3: Cleanup and Orphan Handling
+
+**Goal**: Ensure cleanup works correctly with DinD; simplify if compose down
+already suffices.
+
+**TASK-3-1**: Evaluate and update `_cleanup_orphaned_containers()`
+- With DinD, orphaned test containers live inside DinD, not on the host.
+  `compose down` removes the DinD container and all its children.
+- Evaluate whether `_cleanup_orphaned_containers()` (which targets the host
+  daemon) still adds value for DinD-hosted containers.
+- If cleanup of stale DinD instances from crashed previous runs is needed,
+  update to also target the DinD endpoint.
+- If compose down already handles everything, simplify or add a comment
+  documenting why host-side cleanup is sufficient.
+- **Acceptance**: No stale test containers remain after test runs.
+- **File**: `integration_tests/local_pipeline/conftest.py`
+
+### Phase 4: Validate Existing Tests
+
+**Goal**: All existing integration tests pass with the DinD-backed stack.
+
+**TASK-4-1**: Run full integration test suite
+- Execute: `PYTHONPATH=shared pytest integration_tests/local_pipeline/ -v -m integration --timeout=300`
+- Expected failure categories: timeout (DinD adds ~5s startup), volume path
+  resolution, container IP resolution
+- Fix any DinD-caused failures; document pre-existing failures
+- **Acceptance**: All tests pass or pre-existing failures documented.
+- **Files**: All test files under `integration_tests/local_pipeline/`
+
+**TASK-4-2**: Adjust timeouts for DinD startup overhead if needed
+- DinD health check `start_period` is 40s to accommodate rootless startup
+- If tests fail due to timeouts, increase relevant timeout values
+- **Acceptance**: No timeout-related test failures.
+- **Files**: `integration_tests/local_pipeline/conftest.py`,
+  `integration_tests/local_pipeline/docker-compose.yml`
 
 ```yaml
 # yaml-tasks
@@ -127,30 +302,40 @@ pr:
   title: "Replace host Docker socket with rootless DinD sidecar"
   description: |
     Replace the host Docker socket mount in the local pipeline integration
-    test stack with a rootless DinD sidecar (docker:27-dind-rootless).
-    This sandboxes all container operations within an isolated Docker daemon,
+    test stack with a rootless DinD sidecar (docker:27-dind-rootless). This
+    sandboxes all container operations within an isolated Docker daemon,
     removing host Docker access from the test orchestrator. No orchestrator
-    code changes needed — DockerClient already supports DOCKER_HOST.
+    code changes needed — DockerClient already supports DOCKER_HOST override.
+
+    Networking solved via DinD-internal bridge network + NAT routing: spawned
+    containers join a bridge network inside DinD and reach the gateway through
+    DinD's NAT. Both EGG_ISOLATED_NETWORK and EGG_EXTERNAL_NETWORK are
+    overridden to point to the DinD-internal network.
 
     Fixes #647
 phases:
   - id: 1
-    name: Add DinD Service to Compose Stack
-    goal: Add rootless DinD sidecar and wire orchestrator to use it
+    name: Add DinD Service with Networking Solution
+    goal: Add rootless DinD sidecar, wire networking, validate connectivity
     tasks:
       - id: TASK-1-1
-        description: Add dind service (docker:27-dind-rootless) with health check, networks, and shared volumes
+        description: Add dind service (docker:27-dind-rootless) with health check, networks, volumes to compose
         acceptance: DinD starts healthy and is reachable on both test networks
         files:
           - integration_tests/local_pipeline/docker-compose.yml
       - id: TASK-1-2
-        description: Update orchestrator DOCKER_HOST to tcp://dind:2375 and remove docker.sock mount
-        acceptance: Orchestrator connects to DinD; no host socket mount in compose
+        description: Update orchestrator DOCKER_HOST to tcp://dind:2375, remove socket mount, set EGG_*_NETWORK to egg-dind-internal
+        acceptance: Orchestrator connects to DinD; no host socket mount; both network overrides set
         files:
           - integration_tests/local_pipeline/docker-compose.yml
+      - id: TASK-1-3
+        description: Create DinD-internal network and validate connectivity gate (container inside DinD reaches gateway at 172.40.0.2:9848)
+        acceptance: Alpine container inside DinD on egg-dind-internal network successfully curls gateway health endpoint; dind_docker_host added to LocalPipelineStack
+        files:
+          - integration_tests/local_pipeline/conftest.py
   - id: 2
-    name: Update Test Fixture for Image Loading
-    goal: Load mock-sandbox image into DinD and configure volume paths
+    name: Update Test Fixture for Image Loading and Volume Paths
+    goal: Load mock-sandbox image into DinD, configure DinD-internal volume paths, verify end-to-end data access
     tasks:
       - id: TASK-2-1
         description: Add docker save/load step to transfer mock-sandbox image into DinD after compose up
@@ -158,30 +343,30 @@ phases:
         files:
           - integration_tests/local_pipeline/conftest.py
       - id: TASK-2-2
-        description: Update override file to mount repo volume into DinD service
-        acceptance: DinD has repo volume mounted at same path as orchestrator
+        description: Update override file to mount repo volume into DinD service (same bind mount as gateway/orchestrator)
+        acceptance: DinD has repo volume mounted at /home/egg/repos/{repo_name}
         files:
           - integration_tests/local_pipeline/conftest.py
       - id: TASK-2-3
-        description: Update EGG_HOST_REPO_MAP to use DinD-internal paths
-        acceptance: Spawned containers receive correct volume mount paths
+        description: Update EGG_HOST_REPO_MAP to DinD-internal paths; verify end-to-end volume access
+        acceptance: Mock-sandbox phase-runner.sh does not exit with code 4 (missing repo) or 5 (invalid .git); spawned container reads file from mounted repo
         files:
           - integration_tests/local_pipeline/conftest.py
   - id: 3
-    name: Update Orphan Cleanup for DinD
-    goal: Target orphaned container cleanup at DinD daemon
+    name: Cleanup and Orphan Handling
+    goal: Ensure cleanup targets DinD; simplify if compose down suffices
     tasks:
       - id: TASK-3-1
-        description: Update _cleanup_orphaned_containers to optionally target DinD endpoint
-        acceptance: Pre-test cleanup removes stale containers from DinD, not host
+        description: Evaluate and update _cleanup_orphaned_containers for DinD (compose down removes DinD children — may simplify)
+        acceptance: No stale test containers remain after test runs
         files:
           - integration_tests/local_pipeline/conftest.py
   - id: 4
-    name: Validate Existing Tests Against DinD Stack
+    name: Validate Existing Tests
     goal: All existing integration tests pass with DinD-backed stack
     tasks:
       - id: TASK-4-1
-        description: Run full integration test suite and identify failures
+        description: Run full integration test suite and fix any DinD-caused failures
         acceptance: All tests pass or pre-existing failures documented
         files:
           - integration_tests/local_pipeline/test_local_pipeline.py
@@ -193,25 +378,12 @@ phases:
           - integration_tests/local_pipeline/test_unified_pipeline_behavior.py
           - integration_tests/local_pipeline/test_worktree_integration.py
       - id: TASK-4-2
-        description: Fix network connectivity if DinD-spawned containers cannot reach gateway
-        acceptance: Mock-sandbox containers can curl gateway health endpoint
-        files:
-          - integration_tests/local_pipeline/docker-compose.yml
-          - integration_tests/local_pipeline/conftest.py
-      - id: TASK-4-3
         description: Adjust timeouts for DinD startup overhead if needed
         acceptance: No timeout-related test failures
         files:
           - integration_tests/local_pipeline/conftest.py
           - integration_tests/local_pipeline/docker-compose.yml
 ```
-
----
-
-### Ready for Review
-
-<!-- egg-phase-approval -->
-- [ ] Approve and advance to implement phase
 
 ---
 
