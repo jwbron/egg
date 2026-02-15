@@ -5,7 +5,7 @@
   "branch": "egg/issue-647",
   "mode": "issue",
   "prompt": null,
-  "status": "cancelled",
+  "status": "running",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -20,7 +20,7 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "awaiting_human",
+      "status": "complete",
       "started_at": "2026-02-15T18:31:23.411613",
       "work_started_at": "2026-02-15T18:31:23.433401",
       "completed_at": "2026-02-15T18:39:10.751612",
@@ -117,9 +117,9 @@
     }
   ],
   "created_at": "2026-02-15T18:31:23.117468",
-  "updated_at": "2026-02-15T19:39:13.976340",
+  "updated_at": "2026-02-15T19:39:14.004755",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 17
+  "version": 18
 }
