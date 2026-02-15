@@ -3155,9 +3155,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             store=store,
                             certs_volume=certs_volume,
                         )
-                    except ContainerSpawnError as e:
+                    except Exception as e:
                         logger.warning(
-                            "Reviewer failed to spawn, skipping",
+                            "Reviewer failed, skipping",
                             pipeline_id=pipeline_id,
                             reviewer=role_str,
                             error=str(e),
