@@ -152,6 +152,19 @@ mode = DeploymentMode.from_env()
 - `detection.py` - Orchestrator mode detection utilities
 - `constants.py` - Configuration constants
 
+### prompts
+
+Shared prompt criteria files consumed by both GitHub Actions prompt builder scripts (`action/build-*-prompt.sh`) and the local orchestrator (`orchestrator/routes/pipelines.py`). Keeping criteria in shared markdown files ensures consistent review behavior across both flows.
+
+| File | Purpose |
+|------|---------|
+| `agent-design-criteria.md` | Agent-mode design review criteria |
+| `autofixer-rules.md` | Auto-fix vs report-only classification rules |
+| `code-review-criteria.md` | Security, correctness, and robustness review criteria |
+| `contract-review-criteria.md` | SDLC contract verification rules |
+
+These files are output-format-agnostic (no `gh` commands or verdict JSON references). Repositories can override criteria by placing a custom file in `.egg/` (e.g., `.egg/review-rules.md`).
+
 ### egg_contracts
 
 SDLC contract models, role-based validation, plan parsing, resilience utilities, and agent checkpoint capture.
