@@ -1644,7 +1644,13 @@ def _run_multi_agent_phase(
         from ..dispatch import create_dispatcher  # type: ignore
         from ..multi_agent import MultiAgentExecutor  # type: ignore
 
-    from egg_contracts.agent_roles import get_roles_for_phase
+    from egg_contracts.agent_roles import (
+        AgentRole as ContractAgentRole,
+    )
+    from egg_contracts.agent_roles import (
+        get_roles_for_phase,
+    )
+    from egg_contracts.orchestration import initialize_orchestration
 
     # Get pipeline mode
     pipeline_mode = pipeline.mode or "issue"
@@ -1715,8 +1721,34 @@ def _run_multi_agent_phase(
 
         return exit_code, container_logs
 
-    # Create dispatcher and executor
+    # Create dispatcher and executor.
+    # The contract's orchestration state defaults to implement-phase roles
+    # (CODER, TESTER, DOCUMENTER, INTEGRATOR).  For other phases (e.g. plan)
+    # we need to reinitialize with the correct roles so the dispatcher
+    # dispatches ARCHITECT, TASK_PLANNER, RISK_ANALYST instead.
     dispatcher = create_dispatcher(pipeline, worktree_repo_path)
+
+    phase_contract_roles = [ContractAgentRole(r.value) for r in roles]
+    dispatcher.contract_orchestrator.state = initialize_orchestration(
+        dispatcher.contract_orchestrator.contract,
+        roles=phase_contract_roles,
+    )
+
+    # Validate: every dispatched role must have a prompt for this phase.
+    # This catches misconfiguration early instead of silently skipping agents.
+    dispatched_roles = {r.value for r in dispatcher.get_agents_to_run()}
+    prompted_roles = {r.value for r in agent_prompts_by_role}
+    unexpected = dispatched_roles - prompted_roles
+    if unexpected:
+        logger.warning(
+            "Dispatcher returning agents with no prompt for this phase — "
+            "check phase role configuration",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            unexpected_roles=sorted(unexpected),
+            expected_roles=sorted(prompted_roles),
+        )
+
     executor = MultiAgentExecutor(
         pipeline=pipeline,
         repo_path=worktree_repo_path,
@@ -1735,6 +1767,14 @@ def _run_multi_agent_phase(
 
     if has_failures:
         return 1, combined_logs
+
+    # After successful multi-agent plan phase, synthesize a plan draft
+    # from agent outputs so _populate_contract_from_plan() and the HITL
+    # gate can find it.
+    if phase == "plan":
+        _synthesize_plan_draft(
+            worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+        )
 
     return 0, combined_logs
 
@@ -2059,6 +2099,121 @@ def _read_check_results(repo_path: Path) -> dict | None:
     except (json.JSONDecodeError, Exception) as e:
         logger.warning("Failed to parse check results", path=str(check_file), error=str(e))
         return None
+
+
+# Minimum characters of non-heading content required for a synthesized plan
+# draft to be written.  This prevents writing near-empty drafts that contain
+# only section headings (e.g. when agents produced no meaningful output).
+# A short but valid single-section output like "No architectural risks
+# identified." is ~40 chars, so 50 provides a small buffer while still
+# catching truly empty drafts.
+_MIN_PLAN_DRAFT_CONTENT_LENGTH = 50
+
+
+def _synthesize_plan_draft(
+    repo_path: Path,
+    pipeline_id: str,
+    pipeline_mode: str = "local",
+    issue_number: int | None = None,
+) -> None:
+    """Synthesize a plan draft from multi-agent plan outputs.
+
+    In multi-agent plan mode, ARCHITECT, TASK_PLANNER, and RISK_ANALYST
+    each write to .egg-state/agent-outputs/.  This function combines
+    their outputs into a single plan draft at .egg-state/drafts/{id}-plan.md
+    so that _populate_contract_from_plan() and the HITL gate can find it.
+    """
+    draft_rel = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
+    if not draft_rel:
+        logger.debug(
+            "No draft path for plan phase, skipping synthesis",
+            pipeline_id=pipeline_id,
+            pipeline_mode=pipeline_mode,
+        )
+        return
+
+    draft_path = repo_path / draft_rel
+    if draft_path.exists():
+        # Draft already written (e.g. by a single-agent run) — don't overwrite.
+        return
+
+    outputs_dir = repo_path / ".egg-state" / "agent-outputs"
+    if not outputs_dir.is_dir():
+        logger.warning(
+            "No agent-outputs directory, cannot synthesize plan draft",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    sections: list[str] = []
+    agent_files = [
+        ("architect-output.json", "Architecture Analysis"),
+        ("task_planner-output.json", "Task Breakdown"),
+        ("risk_analyst-output.json", "Risk Assessment"),
+    ]
+
+    for filename, heading in agent_files:
+        output_file = outputs_dir / filename
+        if not output_file.exists():
+            continue
+        try:
+            raw = output_file.read_text()
+            data = json.loads(raw)
+            # Agent outputs may contain a "content" or "output" key with
+            # the main text, or may be the full JSON blob.
+            content = data.get("content") or data.get("output") or json.dumps(data, indent=2)
+        except json.JSONDecodeError:
+            # Fall back to raw text if not valid JSON
+            content = raw
+        except Exception as e:
+            logger.warning(
+                "Failed to read agent output for plan draft",
+                pipeline_id=pipeline_id,
+                file=filename,
+                error=str(e),
+            )
+            continue
+
+        # Skip empty or whitespace-only outputs
+        if not content or not content.strip():
+            logger.warning(
+                "Agent output is empty, skipping from plan draft",
+                pipeline_id=pipeline_id,
+                file=filename,
+            )
+            continue
+
+        sections.append(f"## {heading}\n\n{content}")
+
+    if not sections:
+        logger.warning(
+            "No agent outputs found to synthesize plan draft",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    draft_content = "\n\n".join(sections) + "\n"
+
+    # Guard against a draft that has section headings but no real content.
+    stripped = draft_content
+    for _, heading in agent_files:
+        stripped = stripped.replace(f"## {heading}", "")
+    if len(stripped.strip()) < _MIN_PLAN_DRAFT_CONTENT_LENGTH:
+        logger.warning(
+            "Synthesized plan draft has insufficient content, not writing",
+            pipeline_id=pipeline_id,
+            content_length=len(stripped.strip()),
+        )
+        return
+
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
+    draft_path.write_text(draft_content)
+    logger.info(
+        "Synthesized plan draft from agent outputs",
+        pipeline_id=pipeline_id,
+        path=str(draft_path),
+        sections=len(sections),
+    )
 
 
 def _populate_contract_from_plan(
