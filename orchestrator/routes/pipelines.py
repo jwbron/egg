@@ -727,6 +727,34 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
+
+def _load_conventions(conventions_name: str, repo_path: Path | str | None = None) -> str:
+    """Load a conventions file using the shared egg_prompts module.
+
+    Follows a 2-tier lookup:
+    1. Repo-specific: {repo_path}/.egg/{name}-conventions.md
+    2. Default: action/{name}-conventions.md
+
+    Args:
+        conventions_name: Base name (e.g., "review", "autofixer", "conflict")
+        repo_path: Optional path to the target repository for repo-specific overrides.
+
+    Returns:
+        Conventions text, or empty string if not found.
+    """
+    try:
+        from egg_prompts import load_conventions
+
+        return load_conventions(conventions_name, repo_path=repo_path)
+    except ImportError:
+        # Fallback: direct file lookup if egg_prompts not available
+        action_dir = Path(__file__).parent.parent.parent / "action"
+        conventions_file = action_dir / f"{conventions_name}-conventions.md"
+        if conventions_file.exists():
+            return conventions_file.read_text()
+        return ""
+
+
 def _get_unified_criteria(phase: str) -> str:
     """Return unified review criteria for the given phase."""
     if phase == "refine":
