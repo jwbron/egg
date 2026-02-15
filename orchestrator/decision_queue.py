@@ -28,7 +28,7 @@ except ImportError:
 
 
 from models import DecisionStatus, HITLDecision, Pipeline
-from state_store import get_state_store
+from state_store import get_pipeline_state_lock, get_state_store
 
 logger = get_logger("orchestrator.decision_queue")
 
@@ -79,7 +79,10 @@ class DecisionQueue:
         self.default_timeout = default_timeout
 
         self._handlers: list[DecisionHandler] = []
-        self._lock = threading.Lock()
+        # Use the shared per-pipeline lock so that decision state changes
+        # are atomic with respect to other pipeline state writers
+        # (e.g. StateStore.update_pipeline).
+        self._lock = get_pipeline_state_lock(pipeline_id)
 
     def _load_pipeline(self) -> Pipeline:
         """Load pipeline from state store."""

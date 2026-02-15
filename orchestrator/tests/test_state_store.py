@@ -19,6 +19,7 @@ from state_store import (
     StateValidationError,
     VersionConflictError,
     _validate_pipeline_id,
+    get_pipeline_state_lock,
     get_state_store,
 )
 
@@ -704,6 +705,80 @@ class TestDecisionPersistenceRegression:
         assert len(final.decisions) == 1
         assert final.decisions[0].id == "decision-1"
         assert final.status == PipelineStatus.AWAITING_HUMAN
+
+
+class TestUpdatePipelineDecisionRace:
+    """Regression test for the race between update_pipeline and resolve_decision.
+
+    Reproduces the bug where a concurrent update_pipeline (PATCH) overwrites
+    a decision resolution because both do unsynchronized load-modify-save
+    cycles on the same pipeline state file.
+
+    Fix: Both update_pipeline and DecisionQueue now share a per-pipeline
+    lock (get_pipeline_state_lock) so their load-modify-save cycles are
+    mutually exclusive.
+    """
+
+    def test_update_pipeline_does_not_overwrite_resolved_decision(self, state_store):
+        """update_pipeline must not clobber a decision resolved by DecisionQueue.
+
+        Simulates the exact sequence that caused issue-647's approval to be lost:
+        1. Decision queued (PENDING)
+        2. User resolves decision via DecisionQueue (RESOLVED)
+        3. Concurrent update_pipeline PATCH arrives and saves
+        4. Decision must still be RESOLVED after step 3
+        """
+        from unittest.mock import patch as mock_patch
+
+        from decision_queue import DecisionQueue
+        from models import DecisionStatus
+
+        # Create pipeline
+        state_store.create_pipeline(
+            issue_number=647,
+            repo="owner/repo",
+            branch="egg/issue-647",
+        )
+
+        # Step 1: Queue a decision
+        with mock_patch("decision_queue.get_state_store", return_value=state_store):
+            dq = DecisionQueue("issue-647", state_store.repo_path)
+            decision = dq.queue_decision(
+                question="Approve plan?",
+                options=["approve", "request changes"],
+            )
+            assert decision.status == DecisionStatus.PENDING
+
+            # Step 2: Resolve the decision (simulates user POST /resolve)
+            resolved = dq.resolve_decision("decision-1", "Approved")
+            assert resolved.status == DecisionStatus.RESOLVED
+
+        # Step 3: Concurrent update_pipeline (simulates PATCH /pipelines/issue-647)
+        state_store.update_pipeline("issue-647", {"status": "cancelled"})
+
+        # Step 4: Decision must still be RESOLVED
+        final = state_store.load_pipeline("issue-647")
+        assert len(final.decisions) == 1
+        assert final.decisions[0].status == DecisionStatus.RESOLVED, (
+            "update_pipeline overwrote resolved decision — "
+            "the per-pipeline state lock is not working"
+        )
+        assert final.decisions[0].resolution == "Approved"
+        # The pipeline update should also have been applied
+        assert final.status == PipelineStatus.CANCELLED
+
+    def test_shared_lock_between_decision_queue_and_state_store(self):
+        """DecisionQueue and update_pipeline must use the same lock instance."""
+        from decision_queue import DecisionQueue
+
+        pipeline_id = "issue-999"
+        dq = DecisionQueue(pipeline_id, "/tmp/fake-repo")
+        state_lock = get_pipeline_state_lock(pipeline_id)
+
+        assert dq._lock is state_lock, (
+            "DecisionQueue must use get_pipeline_state_lock so it shares "
+            "the same lock as StateStore.update_pipeline"
+        )
 
 
 class TestRunGitLocking:

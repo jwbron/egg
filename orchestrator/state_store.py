@@ -678,6 +678,10 @@ class StateStore:
     ) -> Pipeline:
         """Update pipeline state with partial updates.
 
+        Uses a per-pipeline lock to make the load-modify-save cycle atomic,
+        preventing concurrent writers (e.g. DecisionQueue.resolve_decision)
+        from having their changes silently overwritten.
+
         Args:
             pipeline_id: Pipeline ID to update
             updates: Dictionary of field updates
@@ -690,29 +694,57 @@ class StateStore:
             PipelineNotFoundError: If pipeline doesn't exist
             StateValidationError: If updates are invalid
         """
-        pipeline = self.load_pipeline(pipeline_id)
+        with get_pipeline_state_lock(pipeline_id):
+            pipeline = self.load_pipeline(pipeline_id)
 
-        # Apply updates
-        data = pipeline.model_dump()
-        for key, value in updates.items():
-            if "." in key:
-                # Nested update
-                parts = key.split(".")
-                target = data
-                for part in parts[:-1]:
-                    target = target[part]
-                target[parts[-1]] = value
-            else:
-                data[key] = value
+            # Apply updates
+            data = pipeline.model_dump()
+            for key, value in updates.items():
+                if "." in key:
+                    # Nested update
+                    parts = key.split(".")
+                    target = data
+                    for part in parts[:-1]:
+                        target = target[part]
+                    target[parts[-1]] = value
+                else:
+                    data[key] = value
 
-        # Validate and save
-        try:
-            pipeline = Pipeline.model_validate(data)
-        except ValidationError as e:
-            raise StateValidationError(f"Update validation failed: {e}") from e
+            # Validate and save
+            try:
+                pipeline = Pipeline.model_validate(data)
+            except ValidationError as e:
+                raise StateValidationError(f"Update validation failed: {e}") from e
 
-        self.save_pipeline(pipeline, commit=commit)
-        return pipeline
+            self.save_pipeline(pipeline, commit=commit)
+            return pipeline
+
+
+# Per-pipeline state locks for atomic load-modify-save cycles.
+# Prevents race conditions where concurrent writers (e.g. update_pipeline
+# and DecisionQueue.resolve_decision) can clobber each other's changes.
+_pipeline_state_locks: dict[str, threading.RLock] = {}
+_state_locks_lock = threading.Lock()
+
+
+def get_pipeline_state_lock(pipeline_id: str) -> threading.RLock:
+    """Get a per-pipeline lock for coordinating state access.
+
+    All code that does a load-modify-save cycle on pipeline state
+    should acquire this lock to prevent concurrent writes from
+    overwriting each other.  The lock is reentrant (RLock) so
+    nested acquisitions within the same thread are safe.
+
+    Args:
+        pipeline_id: Pipeline ID
+
+    Returns:
+        RLock for the given pipeline
+    """
+    with _state_locks_lock:
+        if pipeline_id not in _pipeline_state_locks:
+            _pipeline_state_locks[pipeline_id] = threading.RLock()
+        return _pipeline_state_locks[pipeline_id]
 
 
 def get_state_store(repo_path: Path | str) -> StateStore:
