@@ -233,6 +233,10 @@ class GatewayClient:
         gid: int | None = None,
         phase: str | None = None,
         pipeline_id: str | None = None,
+        agent_role: str | None = None,
+        issue_number: int | None = None,
+        pr_number: int | None = None,
+        claude_code_version: str | None = None,
     ) -> SessionInfo:
         """Register a session for a container.
 
@@ -247,6 +251,10 @@ class GatewayClient:
             gid: Host GID for worktree ownership
             phase: Optional SDLC pipeline phase
             pipeline_id: Optional pipeline run ID for multi-agent correlation
+            agent_role: Optional agent role (e.g., "coder", "tester")
+            issue_number: Optional GitHub issue number for checkpoint linkage
+            pr_number: Optional GitHub PR number for checkpoint linkage
+            claude_code_version: Optional Claude Code version string
 
         Returns:
             SessionInfo with the created session
@@ -269,6 +277,14 @@ class GatewayClient:
             request_data["phase"] = phase
         if pipeline_id is not None:
             request_data["pipeline_id"] = pipeline_id
+        if agent_role is not None:
+            request_data["agent_role"] = agent_role
+        if issue_number is not None:
+            request_data["issue_number"] = issue_number
+        if pr_number is not None:
+            request_data["pr_number"] = pr_number
+        if claude_code_version is not None:
+            request_data["claude_code_version"] = claude_code_version
 
         result = self._make_request(
             "/api/v1/sessions/create",

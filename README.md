@@ -138,13 +138,11 @@ Reviewers run as a separate step after workers complete in refine, plan, and imp
 **Plan Phase:**
 - **Unified Reviewer**: Plan quality, task structure, acceptance criteria
 - **Plan Reviewer**: Plan-specific quality (task breakdown, dependencies, test strategy)
-- **Agent Design Reviewer**: Agent-mode alignment and anti-patterns
 
 **Implement Phase:**
 - **Unified Reviewer**: Comprehensive review across all criteria
 - **Code Reviewer**: Security, correctness, code quality
 - **Contract Reviewer**: Verify acceptance criteria met, task completion status
-- **Agent Design Reviewer**: Check for agent-mode anti-patterns, autonomous operation capability
 
 **Execution model**: Reviewers always run as a separate step after all workers (and checkers, if applicable) complete. They spawn in parallel with a configurable concurrency limit (`max_parallel_agents`). In implement phase, reviewers run after the integrator completes. In plan phase, reviewers run after the task planner and risk analyst complete. In refine phase, reviewers run after the refiner completes.
 
@@ -181,7 +179,8 @@ The orchestrator handles wave-based execution, dependency tracking, container li
 egg-sdlc -r egg -i 123    # Issue mode — repo dir + issue number
 egg-sdlc -r egg 123       # Short form (positional issue)
 egg-sdlc --private -r myrepo -i 456  # Private mode (network lockdown)
-egg-sdlc                  # Local mode — prompt-driven, no GitHub interaction
+egg-sdlc                  # Local mode — interactive prompt
+egg-sdlc -r egg -p "Add user auth"  # Local mode — non-interactive with prompt
 
 # Or from inside an egg session
 egg

@@ -65,6 +65,24 @@ Example open-ended questions:
 - What is the expected request volume for this feature?
 - Are there any constraints on third-party dependencies?
 
+## Complexity Assessment
+
+After completing your analysis, assess the task complexity to determine if the plan phase can be skipped:
+
+- **low**: Single-file change, straightforward bug fix, small config update, typo fix
+- **medium**: Multi-file change with clear scope, feature addition with known patterns
+- **high**: Architectural change, new subsystem, cross-cutting concern, ambiguous requirements
+
+If complexity is **low**, add the following metadata block at the very end of your analysis:
+
+```yaml
+# metadata
+short_circuit: true
+complexity: low
+```
+
+This signals the pipeline to skip the plan phase and go directly to implementation. For **medium** or **high** complexity tasks, omit this block — the plan phase will run as normal.
+
 ---
 
 *Authored-by: egg*

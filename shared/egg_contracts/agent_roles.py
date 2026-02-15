@@ -556,7 +556,7 @@ REVIEWER_AGENT_DESIGN_ROLE = AgentRoleDefinition(
         "Verify autonomous operation capability",
         "Assess human-in-the-loop integration",
     ],
-    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST, AgentRole.REFINER],
+    dependencies=[AgentRole.REFINER],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
@@ -566,7 +566,7 @@ REVIEWER_AGENT_DESIGN_ROLE = AgentRoleDefinition(
         blocked_write=_REVIEWER_BLOCKED_WRITE,
     ),
     produces_outputs=["review_verdict"],
-    requires_inputs=["integration_report"],
+    requires_inputs=["analysis_draft"],
 )
 
 REVIEWER_REFINE_ROLE = AgentRoleDefinition(
@@ -746,11 +746,9 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
         AgentRole.REVIEWER_UNIFIED,
         AgentRole.REVIEWER_CODE,
         AgentRole.REVIEWER_CONTRACT,
-        AgentRole.REVIEWER_AGENT_DESIGN,
     ],
     "plan": [
         AgentRole.REVIEWER_UNIFIED,
-        AgentRole.REVIEWER_AGENT_DESIGN,
         AgentRole.REVIEWER_PLAN,
     ],
     "refine": [

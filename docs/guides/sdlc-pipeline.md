@@ -53,18 +53,20 @@ The pipeline pauses for human approval at phase transitions (refine and plan). T
 │  │   REFINE    │───▶│    PLAN     │───▶│  IMPLEMENT  │───▶│ CREATE   │  │
 │  │  (cycles)   │    │  (cycles)   │    │  (cycles)   │    │   PR     │  │
 │  └─────────────┘    └─────────────┘    └─────────────┘    └──────────┘  │
-│        │                  │                  │                  │       │
-│        ▼                  ▼                  ▼                  ▼       │
-│   ┌─────────┐        ┌─────────┐        ┌─────────┐        ┌─────────┐  │
-│   │ REVIEW  │        │ REVIEW  │        │ REVIEW  │        │  HUMAN  │  │
-│   │ (auto)  │        │ (auto)  │        │ (auto)  │        │  MERGE  │  │
-│   └────┬────┘        └────┬────┘        └─────────┘        └─────────┘  │
-│        │                  │                                             │
-│        ▼                  ▼                                             │
-│   ┌─────────┐        ┌─────────┐                                        │
-│   │ HITL    │        │ HITL    │                                        │
-│   │ Approve │        │ Approve │                                        │
-│   └─────────┘        └─────────┘                                        │
+│        │ ╎                │                  │                  │       │
+│        ▼ ╎                ▼                  ▼                  ▼       │
+│   ┌─────────┐ ╎      ┌─────────┐        ┌─────────┐        ┌─────────┐  │
+│   │ REVIEW  │ ╎      │ REVIEW  │        │ REVIEW  │        │  HUMAN  │  │
+│   │ (auto)  │ ╎      │ (auto)  │        │ (auto)  │        │  MERGE  │  │
+│   └────┬────┘ ╎      └────┬────┘        └─────────┘        └─────────┘  │
+│        │      ╎           │                                             │
+│        ▼      ╎           ▼                                             │
+│   ┌─────────┐ ╎      ┌─────────┐                                        │
+│   │ HITL    │ ╎      │ HITL    │                                        │
+│   │ Approve │ ╎      │ Approve │                                        │
+│   └─────────┘ ╎      └─────────┘                                        │
+│               ╎                                                         │
+│   ╎ short-circuit: REFINE ·····▶ IMPLEMENT (skips PLAN when approved)   │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -180,14 +182,14 @@ Returns a Server-Sent Events (SSE) stream for real-time updates across all activ
     "status": "running",
     "current_phase": "implement",
     "visualization": {
-      "dag": ">>> ╔══════════════════════╗\n    │ ▶ Implement          │\n    │   running            │\n    │   ✓ coder  ▶ reviewer│\n    ╚══════════════════════╝",
+      "dag": ">>> ╔══════════════════════╗\n    │ ▶ Implement          │\n    │   running (2 cycles completed)            │\n    │   ✓ coder  ▶ reviewer│\n    │   [last cycle: 5m0s | total: 15m0s]│\n    ╚══════════════════════╝",
       "compact": "✓Refine → ✓Plan → [▶Implement] → ○PR",
       "progress": "[███████████░░░░░░░░░] 60%"
     },
     "phases": {
       "refine": {"status": "complete", "review_cycles": 2, "containers": 1, "agents": [{"role": "coder", "status": "complete"}]},
       "plan": {"status": "complete", "review_cycles": 1, "containers": 1, "agents": [{"role": "coder", "status": "complete"}]},
-      "implement": {"status": "running", "review_cycles": 0, "containers": 2, "agents": [{"role": "coder", "status": "complete"}, {"role": "reviewer", "status": "running"}]},
+      "implement": {"status": "running", "review_cycles": 2, "containers": 2, "agents": [{"role": "coder", "status": "complete"}, {"role": "reviewer", "status": "running"}]},
       "pr": {"status": "pending", "review_cycles": 0, "containers": 0, "agents": []}
     },
     "pending_decisions": 0,
@@ -204,11 +206,21 @@ Returns a Server-Sent Events (SSE) stream for real-time updates across all activ
 - `✗` - Failed
 - `⊘` - Cancelled
 
+**Timing display**:
+
+The DAG visualization tracks per-cycle and total phase timing:
+- **Single-cycle phases**: Display simple duration `[5m0s]`
+- **Multi-cycle phases**: Display both last cycle and total work time `[last cycle: 5m0s | total: 15m0s]`
+- **Phase detail view**: Shows per-cycle timing breakdown with cycle status (done/running)
+
+Timing starts when actual work begins (`work_started_at`), excluding setup and HITL waiting time.
+
 **Use cases**:
 - Monitor pipeline progress from external tools
 - Display real-time status in CI dashboards
 - Poll for phase completion
 - Debug stuck pipelines
+- Track cycle performance and identify bottlenecks
 
 ### Phases
 
@@ -219,6 +231,8 @@ Returns a Server-Sent Events (SSE) stream for real-time updates across all activ
 | **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
 | **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
 
+**Short-circuit mode**: For low-complexity tasks (single-file changes, typo fixes, straightforward bug fixes), the refine agent can include a `short_circuit: true` metadata block in its analysis to indicate that the plan phase may be unnecessary. After the refine phase completes and internal review approves, the pipeline runner detects this signal and advances directly from refine to implement, using the analysis as guidance instead of a formal plan. If reviewers request revision, the signal is rechecked after the next cycle. This optimization is enabled by default and can be disabled via the pipeline configuration's `allow_short_circuit` setting.
+
 ### Multi-Reviewer Architecture
 
 The orchestrator runs multiple specialized reviewers in parallel, with phase-specific defaults:
@@ -226,8 +240,8 @@ The orchestrator runs multiple specialized reviewers in parallel, with phase-spe
 | Phase | Reviewers | Focus |
 |-------|-----------|-------|
 | **Refine** | Refine, Agent-Design | Analysis quality, agent-mode alignment |
-| **Plan** | Unified, Plan, Agent-Design | Plan quality, plan-specific criteria, agent-mode alignment |
-| **Implement** | Unified, Agent-Design, Contract, Code | Full coverage: quality, design, contract, security |
+| **Plan** | Unified, Plan | Plan quality, plan-specific criteria |
+| **Implement** | Unified, Contract, Code | Quality, contract, security |
 
 **Specialized Reviewers:**
 
@@ -253,7 +267,6 @@ The contract tracks per-reviewer verdicts for debugging:
 {
   "implement_reviewer_verdicts": {
     "unified": "approved",
-    "agent-design": "approved",
     "contract": "needs_revision",
     "code": "approved"
   }
@@ -310,9 +323,8 @@ The refine and plan phases include an automated internal review step before huma
     ├── {identifier}-refine-review.json       # Unified review verdict
     ├── {identifier}-refine-agent-design.json # Agent-design review verdict
     ├── {identifier}-plan-review.json         # Unified review verdict
-    ├── {identifier}-plan-agent-design.json   # Agent-design review verdict
+    ├── {identifier}-plan-plan.json           # Plan review verdict
     ├── {identifier}-implement-review.json    # Unified review verdict
-    ├── {identifier}-implement-agent-design.json
     ├── {identifier}-implement-contract.json
     └── {identifier}-implement-code.json
 ```

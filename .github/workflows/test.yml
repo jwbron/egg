@@ -28,7 +28,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          PYTHONPATH=shared:gateway .venv/bin/pytest tests/ gateway/tests/ -v \
+          PYTHONPATH=shared:gateway:orchestrator .venv/bin/pytest tests/ gateway/tests/ orchestrator/tests/ -v \
             --cov=gateway --cov=shared --cov=sandbox \
             --cov-report=term-missing \
             --cov-fail-under=80
@@ -51,7 +51,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run bandit
-        run: .venv/bin/bandit -r gateway shared sandbox -ll -c pyproject.toml
+        run: .venv/bin/bandit -r gateway shared sandbox orchestrator -ll -c pyproject.toml
 
   aggregate:
     name: Aggregate Test Results

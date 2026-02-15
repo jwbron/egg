@@ -349,6 +349,7 @@ class CheckpointHandler:
             if session:
                 session_metadata.container_id = session.container_id
                 session_metadata.agent_role = session.agent_role
+                session_metadata.claude_code_version = session.claude_code_version
 
             # Resolve issue/PR/phase/pipeline from session or env
             issue_number = self._resolve_issue_number(issue_number, session)
@@ -443,6 +444,7 @@ class CheckpointHandler:
                 session_id=session_id,
                 container_id=container_id,
                 agent_role=session.agent_role,
+                claude_code_version=session.claude_code_version,
                 started_at=session.created_at,
                 ended_at=now,
                 duration_seconds=(now - session.created_at).total_seconds(),
@@ -462,6 +464,7 @@ class CheckpointHandler:
                     # Merge extracted metadata with session info
                     extracted_metadata.container_id = container_id
                     extracted_metadata.agent_role = session.agent_role
+                    extracted_metadata.claude_code_version = session.claude_code_version
                     session_metadata = extracted_metadata
 
                     # Apply redaction
@@ -490,6 +493,7 @@ class CheckpointHandler:
                 id=checkpoint_id,
                 trigger_type=TriggerType.SESSION_END,
                 session_status=session_status,
+                branch=session.last_branch,
                 session_id=session_id,
                 issue_number=session.issue_number,
                 pr_number=session.pr_number,
@@ -550,6 +554,7 @@ class CheckpointHandler:
             session_id=session_id,
             container_id=session.container_id if session else None,
             agent_role=session.agent_role if session else None,
+            claude_code_version=session.claude_code_version if session else None,
             started_at=session.created_at if session else now,
         )
 

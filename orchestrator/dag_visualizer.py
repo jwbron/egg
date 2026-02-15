@@ -19,6 +19,7 @@ from models import (
     AgentExecution,
     AgentExecutionStatus,
     ContainerStatus,
+    PhaseExecution,
     Pipeline,
     PipelinePhase,
     PipelineStatus,
@@ -82,15 +83,8 @@ def _get_agent_status_symbol(status: AgentExecutionStatus, use_ascii: bool = Fal
     return _get_status_symbol(pipeline_status, use_ascii)
 
 
-def _format_duration(started_at: datetime | None, ended_at: datetime | None = None) -> str:
-    """Format duration between two timestamps."""
-    if not started_at:
-        return ""
-
-    end = ended_at or datetime.utcnow()
-    delta = end - started_at
-    total_seconds = int(delta.total_seconds())
-
+def _format_seconds(total_seconds: int) -> str:
+    """Format a number of seconds as a human-readable duration string."""
     if total_seconds < 60:
         return f"{total_seconds}s"
     elif total_seconds < 3600:
@@ -101,6 +95,25 @@ def _format_duration(started_at: datetime | None, ended_at: datetime | None = No
         hours = total_seconds // 3600
         minutes = (total_seconds % 3600) // 60
         return f"{hours}h{minutes}m"
+
+
+def _format_duration(started_at: datetime | None, ended_at: datetime | None = None) -> str:
+    """Format duration between two timestamps."""
+    if not started_at:
+        return ""
+
+    end = ended_at or datetime.utcnow()
+    total_seconds = int((end - started_at).total_seconds())
+    return _format_seconds(total_seconds)
+
+
+def _total_work_seconds(phase_exec: PhaseExecution) -> int:
+    """Sum of all completed cycle durations in seconds."""
+    total = 0
+    for ct in phase_exec.cycle_timings:
+        end = ct.completed_at or datetime.utcnow()
+        total += int((end - ct.started_at).total_seconds())
+    return total
 
 
 def _compute_wave_order(
@@ -162,6 +175,7 @@ def _render_phase_box(
     is_current: bool,
     agents: list[AgentExecution] | None = None,
     duration: str = "",
+    total_duration: str = "",
     use_ascii: bool = False,
 ) -> list[str]:
     """Render a single phase box.
@@ -177,7 +191,8 @@ def _render_phase_box(
     else:
         status_text = status.value
     if review_cycles > 0:
-        status_text += f" (cycle {review_cycles})"
+        cycle_word = "cycle" if review_cycles == 1 else "cycles"
+        status_text += f" ({review_cycles} {cycle_word} completed)"
 
     # Current phase indicator
     current_marker = ">>>" if is_current else "   "
@@ -203,7 +218,12 @@ def _render_phase_box(
                     agent_lines.append("   " + "  ".join(chunk))
 
     # Build duration line
-    dur_line = f"   [{duration}]" if duration else ""
+    if duration and total_duration and total_duration != duration:
+        dur_line = f"   [last cycle: {duration} | total: {total_duration}]"
+    elif duration:
+        dur_line = f"   [{duration}]"
+    else:
+        dur_line = ""
 
     # Width calculation - consider ALL potential content lines upfront
     # Name line has format " {symbol} {name}", so length is 3 + len(name)
@@ -300,11 +320,17 @@ def render_pipeline_dag(
             agents = phase_exec.agents
             work_start = phase_exec.work_started_at or phase_exec.started_at
             duration = _format_duration(work_start, phase_exec.completed_at)
+            # Compute total duration from cycle timings when multi-cycle
+            if phase_exec.cycle_timings and phase_exec.review_cycles > 0:
+                total_duration = _format_seconds(_total_work_seconds(phase_exec))
+            else:
+                total_duration = ""
         else:
             status = PipelineStatus.PENDING
             review_cycles = 0
             agents = []
             duration = ""
+            total_duration = ""
 
         is_current = pipeline.current_phase == phase
 
@@ -316,6 +342,7 @@ def render_pipeline_dag(
             is_current=is_current,
             agents=agents,
             duration=duration,
+            total_duration=total_duration,
             use_ascii=use_ascii,
         )
         lines.extend(box_lines)
@@ -360,6 +387,18 @@ def render_phase_detail(
         status_text = phase_exec.status.value
     lines.append(f"Status: {symbol} {status_text}")
     lines.append(f"Review Cycles: {phase_exec.review_cycles}")
+
+    # Per-cycle timing breakdown
+    if phase_exec.cycle_timings:
+        lines.append("")
+        lines.append("Cycle Timings:")
+        for ct in phase_exec.cycle_timings:
+            dur = _format_duration(ct.started_at, ct.completed_at)
+            status = "done" if ct.completed_at else "running"
+            lines.append(f"  Cycle {ct.cycle}: {dur} ({status})")
+        if len(phase_exec.cycle_timings) > 1:
+            total = _format_seconds(_total_work_seconds(phase_exec))
+            lines.append(f"  Total work time: {total}")
 
     if phase_exec.started_at:
         lines.append(f"Started: {phase_exec.started_at.isoformat()}")

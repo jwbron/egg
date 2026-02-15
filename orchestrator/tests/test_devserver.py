@@ -50,7 +50,7 @@ def _make_manager(
         pipeline_id=pipeline_id,
         repo_path=repo_path,
         worktree_path=worktree_path,
-        docker_client=docker_client,
+        docker_client=docker_client if docker_client is not None else MagicMock(),
     )
 
 

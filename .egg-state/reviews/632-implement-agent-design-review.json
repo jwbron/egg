@@ -1,0 +1,7 @@
+{
+  "reviewer": "agent-design",
+  "verdict": "approved",
+  "summary": "No agent-mode design anti-patterns found. Changes consolidate review criteria into shared markdown files (small, orienting context), reduce unnecessary prompt content for non-pipeline runs, and add robust git operation locking. All changes align with agent-mode design guidelines.",
+  "feedback": "",
+  "timestamp": "2026-02-15T12:00:00Z"
+}

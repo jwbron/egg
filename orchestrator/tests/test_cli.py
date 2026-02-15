@@ -117,8 +117,9 @@ class TestRootGuard:
         with patch("os.getuid", return_value=1000):
             with patch.dict("sys.modules", {"api": MagicMock()}):
                 with patch("waitress.serve"):
-                    result = main(["serve"])
-                    assert result == 0
+                    with patch("cli.logger"):
+                        result = main(["serve"])
+                        assert result == 0
 
 
 class MockHealthHandler(BaseHTTPRequestHandler):
