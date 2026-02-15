@@ -992,6 +992,37 @@ class TestParsePhasesFromYaml:
         assert any("pr_plan" in w.message for w in warnings)
         assert any("not supported" in w.message for w in warnings)
 
+    def test_pr_plan_key_without_phases_returns_empty(self):
+        """Test that pr_plan without phases returns empty (treated as error by caller)."""
+        yaml_data = {
+            "pr_plan": [
+                {"title": "PR-1: First change"},
+                {"title": "PR-2: Second change"},
+            ],
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        # No phases should be returned
+        assert len(phases) == 0
+        # Warning should indicate the error
+        assert any("pr_plan" in w.message for w in warnings)
+        assert any("without 'phases'" in w.message for w in warnings)
+
+    def test_pr_plan_key_without_phases_full_parse_fails(self):
+        """Test that pr_plan without phases causes parse_plan to fail."""
+        content = """
+# Plan
+
+```yaml
+# yaml-tasks
+pr_plan:
+  - title: "PR-1"
+  - title: "PR-2"
+```
+"""
+        result = parse_plan(content)
+        assert not result.success
+        assert any("pr_plan" in w.message for w in result.warnings)
+
     def test_pr_plan_key_in_full_parse(self):
         """Test that pr_plan key in yaml-tasks fence produces a warning via parse_plan."""
         content = """

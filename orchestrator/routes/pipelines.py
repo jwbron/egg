@@ -1759,7 +1759,7 @@ def _build_agent_prompt(
             ]
         )
     elif role_value == "task_planner":
-        draft_path = f".egg-state/drafts/{pipeline_id}-plan.md"
+        draft_path = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
         lines.extend(
             [
                 "Decompose the architecture analysis into a single-PR implementation plan.",
@@ -2419,10 +2419,12 @@ def _synthesize_plan_draft(
 ) -> None:
     """Synthesize a plan draft from multi-agent plan outputs.
 
-    In multi-agent plan mode, ARCHITECT, TASK_PLANNER, and RISK_ANALYST
-    each write to .egg-state/agent-outputs/.  This function combines
-    their outputs into a single plan draft at .egg-state/drafts/{id}-plan.md
-    so that _populate_contract_from_plan() and the HITL gate can find it.
+    In multi-agent plan mode, ARCHITECT and RISK_ANALYST write to
+    .egg-state/agent-outputs/.  TASK_PLANNER writes the plan draft
+    directly to .egg-state/drafts/{id}-plan.md.  This function combines
+    the remaining agent outputs into the plan draft (if the task_planner
+    has not already written one) so that _populate_contract_from_plan()
+    and the HITL gate can find it.
     """
     draft_rel = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
     if not draft_rel:
@@ -2449,7 +2451,6 @@ def _synthesize_plan_draft(
     sections: list[str] = []
     agent_files = [
         ("architect-output.json", "Architecture Analysis"),
-        ("task_planner-output.json", "Task Breakdown"),
         ("risk_analyst-output.json", "Risk Assessment"),
     ]
 
