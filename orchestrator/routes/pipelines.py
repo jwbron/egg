@@ -1880,6 +1880,13 @@ def _run_multi_agent_phase(
     # switched the working tree to a branch that doesn't have the
     # .egg-state/contracts/ file, since the contract was only committed
     # to the worktree's initial temp branch.
+    #
+    # The recreated contract is intentionally minimal — it's used only for
+    # dispatch coordination in the upcoming multi-agent phase.  Prior phase
+    # state (agent outputs, task breakdowns, metadata) is not needed here
+    # because orchestration state is re-initialized below via
+    # initialize_orchestration(), and phase handoff data is persisted
+    # separately via save_agent_output().
     from egg_contracts.loader import contract_exists, create_contract, create_local_contract
 
     contract_key: int | str = pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
@@ -1897,13 +1904,21 @@ def _run_multi_agent_phase(
                 repo_root=worktree_repo_path,
             )
         else:
-            issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
-            create_contract(
-                issue_number=pipeline.issue_number,
-                title=f"Issue #{pipeline.issue_number}",
-                url=issue_url,
-                repo_root=worktree_repo_path,
-            )
+            if pipeline.issue_number is None:
+                logger.error(
+                    "Cannot recreate contract: issue-mode pipeline has no issue_number",
+                    pipeline_id=pipeline_id,
+                )
+                # Fall through — dispatcher will raise ContractNotFoundError
+                # which is handled by the existing catch in the completion handler
+            else:
+                issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
+                create_contract(
+                    issue_number=pipeline.issue_number,
+                    title=f"Issue #{pipeline.issue_number}",
+                    url=issue_url,
+                    repo_root=worktree_repo_path,
+                )
 
     # Create dispatcher and executor.
     # The contract's orchestration state defaults to implement-phase roles

@@ -351,6 +351,23 @@ def handle_error_signal(
             f"Pipeline {pipeline_id} not found",
             status_code=404,
         )
+    except ContractNotFoundError:
+        logger.warning(
+            "Contract not found for error signal (non-fatal)",
+            pipeline_id=pipeline_id,
+            role=agent_role_str,
+            error=error_message,
+            recoverable=recoverable,
+        )
+        return make_success_response(
+            "Error acknowledged (contract not found)",
+            data={
+                "agent_role": agent_role_str,
+                "contract_missing": True,
+                "error": error_message,
+                "recoverable": recoverable,
+            },
+        )
     except Exception as e:
         logger.error(
             "Failed to record error",
