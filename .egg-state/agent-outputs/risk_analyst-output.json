@@ -1,0 +1,165 @@
+{
+  "issue": 632,
+  "title": "Risk Assessment: Audit Tests",
+  "summary": "Adding orchestrator tests to CI is feasible but carries medium risk due to test interaction failures and coverage threshold impact. The highest-risk item is the coverage threshold drop, which requires either adjusting the threshold or scoping coverage measurement carefully.",
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Coverage threshold fails when orchestrator is added to --cov",
+      "severity": "HIGH",
+      "likelihood": "CERTAIN",
+      "impact": "CI pipeline breaks on every PR until resolved",
+      "description": "Adding --cov=orchestrator to the pytest command drops combined coverage from ~80% to ~71%. The orchestrator module has large files (devserver.py 37KB, state_store.py 26KB, sse.py 26KB, container_spawner.py 21KB) with substantial untested production code. The --cov-fail-under=80 threshold will fail immediately. This is not a risk that can be ignored - it will block CI.",
+      "evidence": "Verified locally: combined coverage with --cov=orchestrator is 71.28%. Without orchestrator: ~75% (already close to 80% threshold). The orchestrator module alone has 10,321 uncovered lines across 22 source files.",
+      "mitigation": {
+        "recommended": "Add orchestrator tests to CI WITHOUT adding --cov=orchestrator initially. Track orchestrator coverage separately or set a lower per-module threshold. Incrementally add coverage for orchestrator in follow-up work.",
+        "alternative": "Lower the global --cov-fail-under threshold to 70% temporarily, with a plan to raise it back. This is riskier as it removes the coverage gate for all modules."
+      },
+      "rollback": "Revert the CI config change. Since this only modifies .github/workflows/test.yml, rollback is a single-file revert."
+    },
+    {
+      "id": "R2",
+      "title": "Test interaction failure: orchestrator test_cli.py::TestRootGuard::test_serve_runs_as_non_root",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "1 test failure in CI when all test directories are combined in a single pytest invocation",
+      "description": "When orchestrator tests run after tests/ and gateway/tests/ in a combined pytest session, the test_serve_runs_as_non_root test fails with 'TypeError: Logger._log() got an unexpected keyword argument host'. This is caused by shared/egg_logging patching the stdlib logging.Logger._log method with a custom signature that accepts extra kwargs (like 'host'). When the orchestrator cli test runs serve() which uses standard logging.info(host=...), it encounters the patched logger in an inconsistent state. The test passes in isolation (100% reliable).",
+      "evidence": "Reproduced by running: PYTHONPATH=shared:gateway:orchestrator pytest tests/ gateway/tests/ orchestrator/tests/ -- test_serve_runs_as_non_root fails. Running pytest orchestrator/tests/test_cli.py::TestRootGuard alone -- passes.",
+      "mitigation": {
+        "recommended": "Investigate the egg_logging monkey-patching of logging.Logger._log and ensure it properly restores state, or ensure test_cli.py mocks the logger to avoid depending on global logging state. This should be fixed before or as part of adding orchestrator tests to CI.",
+        "alternative": "Run orchestrator tests in a separate pytest invocation within the CI job (two pytest commands instead of one). This avoids test interaction but adds CI complexity."
+      },
+      "rollback": "Exclude orchestrator/tests/test_cli.py from the combined run until the logging interaction is fixed."
+    },
+    {
+      "id": "R3",
+      "title": "Pre-existing test failures: gateway test_session_manager checkpoint tests",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "2 pre-existing test failures that already exist in the current CI configuration",
+      "description": "Two tests in gateway/tests/test_session_manager.py::TestSessionEndCheckpointCapture fail when run as part of the full test suite (test_capture_and_cleanup_handles_import_error, test_capture_and_cleanup_handles_capture_failure). These pass in isolation. This is a PRE-EXISTING issue not caused by this change, but it means the current CI may already be failing or these tests are order-dependent. Adding orchestrator tests doesn't worsen this but the audit should document it.",
+      "evidence": "Reproduced without orchestrator tests: PYTHONPATH=shared:gateway pytest tests/ gateway/tests/ -- 2 failures in test_session_manager.py. Same 2 failures with orchestrator tests added.",
+      "mitigation": {
+        "recommended": "Document as pre-existing in the PR description. Fix separately if desired - likely the same egg_logging interaction pattern as R2.",
+        "alternative": "No action needed for this issue specifically, but it should be tracked."
+      },
+      "rollback": "N/A - pre-existing issue."
+    },
+    {
+      "id": "R4",
+      "title": "Two orchestrator test files fail to collect due to missing docker Python package",
+      "severity": "LOW",
+      "likelihood": "CERTAIN",
+      "impact": "2 test files (test_container_spawner.py, test_docker_client.py) cannot be collected/run in environments without the docker Python package",
+      "description": "orchestrator/tests/test_container_spawner.py and test_docker_client.py import from orchestrator modules that do 'import docker' at module level. Even though the tests mock docker, the import happens at collection time before mocks are applied. In environments without the docker pip package (like this sandbox), these 2 files fail with ModuleNotFoundError. CI uses 'uv sync --extra dev' which may or may not include the docker package.",
+      "evidence": "Collection error: orchestrator/docker_client.py:15 'import docker' -> ModuleNotFoundError. The pyproject.toml dev extras need to include the docker package for these tests to be collected.",
+      "mitigation": {
+        "recommended": "Verify that pyproject.toml [project.optional-dependencies] dev includes the 'docker' package. If not, add it. Alternatively, guard the docker import in docker_client.py with a try/except (but this is a production code change which may be out of scope for a test audit).",
+        "alternative": "Use --ignore flags for these 2 test files in CI if docker package cannot be easily added. Document why they are excluded."
+      },
+      "rollback": "Exclude the 2 files from the pytest command with --ignore flags."
+    },
+    {
+      "id": "R5",
+      "title": "Dual pytest config (pytest.ini + pyproject.toml) causes conftest confusion",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "Developer confusion; pyproject.toml addopts (coverage flags) are silently ignored when pytest.ini exists",
+      "description": "pytest.ini takes precedence over pyproject.toml. This means the addopts in pyproject.toml (--cov flags) are NEVER used when running pytest locally. The CI command explicitly passes all flags, so CI is unaffected. However, developers running 'pytest' locally get different behavior than expected from pyproject.toml. Consolidating to one config source (deleting pytest.ini) is low risk but the markers defined in pytest.ini must be preserved in pyproject.toml.",
+      "evidence": "pytest output shows: 'configfile: pytest.ini (WARNING: ignoring pytest config in pyproject.toml!)'. The markers (integration, functional, e2e, security, agent_flaky) are only in pytest.ini.",
+      "mitigation": {
+        "recommended": "Delete pytest.ini and move all config (markers, filterwarnings, testpaths, python_files/classes/functions) into pyproject.toml. This is a safe change since CI explicitly passes all pytest arguments.",
+        "alternative": "Keep both files but add a comment explaining the precedence and which file is authoritative for what."
+      },
+      "rollback": "Restore pytest.ini from git history."
+    },
+    {
+      "id": "R6",
+      "title": "make test depends on 'act' tool which may not be available to all developers",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "Developers without 'act' installed cannot run make test",
+      "description": "make test delegates to 'act -j unit' which requires the nektos/act tool for running GitHub Actions locally. This is a pre-existing design choice. The issue requests 'All tests should run when make test is run' - if this is interpreted as adding orchestrator tests, the change happens in test.yml (which act runs), not in the Makefile itself.",
+      "evidence": "Makefile line: 'test: _require-act' followed by 'act -j unit'. The _require-act target checks for act and prints install instructions if missing.",
+      "mitigation": {
+        "recommended": "No change needed for this issue. The make test flow will automatically pick up test.yml changes since act runs the workflow locally. Consider adding a 'test-native' target that runs pytest directly for developers without act.",
+        "alternative": "Document in PR that make test requires act and the test.yml change automatically propagates."
+      },
+      "rollback": "N/A - no change proposed to Makefile."
+    },
+    {
+      "id": "R7",
+      "title": "PYTHONPATH expansion needed for combined test run",
+      "severity": "LOW",
+      "likelihood": "CERTAIN",
+      "impact": "Orchestrator tests will fail to import modules if PYTHONPATH is not updated",
+      "description": "The current CI PYTHONPATH is 'shared:gateway'. Orchestrator tests use direct module imports (e.g., 'from models import Pipeline') which require the orchestrator/ directory to be on PYTHONPATH. Without adding 'orchestrator' to PYTHONPATH, all orchestrator test collection will fail with ImportError.",
+      "evidence": "Verified: PYTHONPATH=shared:gateway:orchestrator is required. Tests pass with this path, fail without it.",
+      "mitigation": {
+        "recommended": "Update test.yml PYTHONPATH from 'shared:gateway' to 'shared:gateway:orchestrator'. This is a necessary and safe change.",
+        "alternative": "None - this is a hard requirement."
+      },
+      "rollback": "Revert PYTHONPATH change in test.yml."
+    }
+  ],
+  "areas_requiring_human_review": [
+    {
+      "area": "Coverage threshold strategy",
+      "reason": "Adding --cov=orchestrator will break the 80% coverage gate (R1). Human must decide: (a) add orchestrator tests without coverage tracking for orchestrator, (b) lower the threshold temporarily, or (c) add enough orchestrator coverage in this PR to maintain 80%.",
+      "recommendation": "Option (a) is safest for this audit PR. Track orchestrator coverage separately in a follow-up."
+    },
+    {
+      "area": "Interpretation of 'All tests should run when make test is run'",
+      "reason": "The issue states this requirement. It could mean (a) all unit tests including orchestrator, or (b) all tests including integration/E2E. Integration tests require Docker and API tokens. The architect recommends interpreting as 'all unit tests', which is pragmatic.",
+      "recommendation": "Interpret as 'all unit tests'. Document the integration/E2E test targets in the PR."
+    },
+    {
+      "area": "Pre-existing test interaction failures",
+      "reason": "The 2 gateway test_session_manager failures and the logging monkey-patch interaction (R2, R3) indicate a broader issue with test isolation. Fixing these is valuable but may be out of scope for a test audit.",
+      "recommendation": "Fix the orchestrator-specific interaction (R2) as part of this PR since it blocks the stated goal. Document the pre-existing gateway failures (R3) for separate follow-up."
+    }
+  ],
+  "architect_plan_assessment": {
+    "overall": "SOUND - The architect's plan is well-structured and identifies the right tasks. Two adjustments recommended based on risk analysis.",
+    "task_assessments": [
+      {
+        "task_id": "task-1",
+        "assessment": "NEEDS ADJUSTMENT",
+        "notes": "Adding orchestrator/tests/ to CI is correct, but adding --cov=orchestrator simultaneously will break the 80% threshold. Split into: (1) add tests to pytest command + PYTHONPATH, (2) handle coverage separately. Also need to address the test_cli.py logging interaction (R2) and the docker module collection errors (R4)."
+      },
+      {
+        "task_id": "task-2",
+        "assessment": "APPROVED - Low risk",
+        "notes": "Consolidating pytest.ini into pyproject.toml is straightforward. Ensure markers are migrated. Verify CI still works (CI ignores both configs since it passes explicit args, so risk is minimal)."
+      },
+      {
+        "task_id": "task-3",
+        "assessment": "APPROVED - Low risk",
+        "notes": "make test will automatically pick up test.yml changes via act. No Makefile change needed unless adding a 'test-native' convenience target."
+      },
+      {
+        "task_id": "task-4",
+        "assessment": "APPROVED - No risk",
+        "notes": "Documenting skipped tests is purely informational."
+      }
+    ]
+  },
+  "risk_matrix": {
+    "high_severity": ["R1"],
+    "medium_severity": ["R2", "R3"],
+    "low_severity": ["R4", "R5", "R6", "R7"],
+    "blocking_risks": ["R1 (coverage threshold)", "R2 (test interaction)", "R7 (PYTHONPATH)"],
+    "non_blocking_risks": ["R3 (pre-existing)", "R4 (docker package)", "R5 (config duplication)", "R6 (act dependency)"]
+  },
+  "recommended_implementation_order": [
+    "1. Run orchestrator tests standalone to confirm baseline (DONE - 450 pass, 2 collection errors)",
+    "2. Fix test_cli.py logging interaction (R2) before combining test directories",
+    "3. Update test.yml: add orchestrator/tests/ to pytest command, add orchestrator to PYTHONPATH",
+    "4. Do NOT add --cov=orchestrator yet (R1) - track coverage separately",
+    "5. Handle docker package for test collection (R4) - either add to dev deps or --ignore the 2 files",
+    "6. Consolidate pytest.ini into pyproject.toml (task-2)",
+    "7. Verify make test picks up changes automatically (task-3)",
+    "8. Document skipped tests and pre-existing failures in PR (task-4)"
+  ],
+  "rollback_plan": "All changes are confined to CI config files (.github/workflows/test.yml), test config (pytest.ini, pyproject.toml), and potentially one test file fix. Rollback is a simple git revert of the PR. No production code changes, no database migrations, no infrastructure changes."
+}
