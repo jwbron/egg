@@ -4,241 +4,175 @@
 
 ## Problem Statement
 
-The egg system has accumulated prompt content across multiple locations — sandbox rule files, orchestrator prompt builders, and GitHub Actions prompt scripts — without a systematic audit for quality, correctness, or token efficiency. The issue requests:
+The egg platform's prompt and CLAUDE.md system has grown organically across two parallel execution environments (local orchestrator and GitHub Actions) without a unified prompt generation strategy. This creates three problems:
 
-1. **Audit and refine** all CLAUDE.md files and prompts for quality and correctness
-2. **Improve token efficiency** by trimming unnecessary frontloaded context
-3. **Align prompts with multi-agent architecture** — each agent should have specialized instructions, not generic catch-all prompts
-4. **Unify prompt generation** — local orchestration and GitHub Actions workflows should use the same prompt generators
-5. **Move prompt generation into the sandbox codebase** — prompt/claude.md generation should not live in GitHub Actions, but in the sandbox code
+1. **Token waste**: Every agent receives all 468 lines of CLAUDE.md rules regardless of role, wasting ~25-30% of the rules budget on irrelevant content per invocation.
+2. **Prompt drift**: Seven GitHub Actions prompt builders (bash scripts) and five orchestrator prompt builders (Python functions) have diverged, producing inconsistent agent behavior for equivalent tasks.
+3. **Architectural split**: Prompt generation logic lives in two places (bash scripts in `action/` and Python functions in `orchestrator/routes/pipelines.py`) with no shared code, making maintenance and consistency difficult.
+
+The goal is to audit, consolidate, and optimize prompts so that: (1) quality and correctness are preserved or improved, and (2) token efficiency is improved by trimming irrelevant content and eliminating duplication.
 
 ## Current Behavior
 
-### Prompt Inventory
+### CLAUDE.md Assembly
 
-The system has **three distinct prompt-delivery mechanisms**, each with different code paths:
+All agents receive the same monolithic CLAUDE.md, assembled at container startup from 7 rule files in `sandbox/.claude/rules/`:
 
-#### 1. Sandbox CLAUDE.md (always-on context for agents)
+| File | Lines | Primary Audience |
+|------|-------|-----------------|
+| `mission.md` | 135 | CODER (workflow, git, PRs, commit attribution) |
+| `environment.md` | 71 | All (sandbox constraints, network, gateway) |
+| `code-standards.md` | 10 | All (tech stack, linting) |
+| `test-workflow.md` | 16 | TESTER, CODER |
+| `pr-descriptions.md` | 20 | CODER only |
+| `contract.md` | 71 | Pipeline agents only (egg-contract CLI reference) |
+| `orchestrator.md` | 76 | Pipeline agents only (egg-orch CLI reference) |
 
-At container startup, `sandbox/entrypoint.py:678-721` assembles rule files from `/opt/claude-rules/` (the runtime path; the development source is `sandbox/.claude/rules/`) into `~/CLAUDE.md` and `~/repos/CLAUDE.md`.
+Assembly happens in `sandbox/entrypoint.py:678-717` (`setup_agent_rules()`). There is **no role-based filtering** -- the function concatenates all files in a fixed order and writes one `~/CLAUDE.md` that Claude Code automatically loads.
 
-The assembly is **partially role-scoped**. Five files are always included, and two additional files are conditionally included only when `EGG_PIPELINE_ID` is set (lines 691-693):
+### Prompt Generation: Two Parallel Systems
 
-| File | Lines | Inclusion |
-|------|-------|-----------|
-| `mission.md` | 135 | Always |
-| `environment.md` | 71 | Always |
-| `code-standards.md` | 10 | Always |
-| `test-workflow.md` | 16 | Always |
-| `pr-descriptions.md` | 20 | Always |
-| **Universal subtotal** | **~252** | |
-| `contract.md` | 71 | Only when `EGG_PIPELINE_ID` is set |
-| `orchestrator.md` | 76 | Only when `EGG_PIPELINE_ID` is set |
-| **Pipeline subtotal** | **~147** | |
-| **Total (pipeline agent)** | **~399** | |
+**Local Orchestrator** (Python, `orchestrator/routes/pipelines.py`):
+- `_build_phase_prompt()` (line 1280) -- CODER/REFINER phase instructions
+- `_build_review_prompt()` (line 1064) -- reviewer verdict instructions
+- `_build_agent_prompt()` (line 1594) -- role-specific instructions (TESTER, DOCUMENTER, INTEGRATOR, ARCHITECT, TASK_PLANNER, RISK_ANALYST)
+- `_build_checker_prompt()` (line 2190) -- test/lint runner
+- `_build_autofix_prompt()` (line 2267) -- fix failing checks
 
-Note: `README.md` (69 lines) exists in the rules directory as documentation but is **not** included in `rules_order` and is never assembled into CLAUDE.md.
+**GitHub Actions** (Bash scripts, `action/`):
+- `build-review-prompt.sh` -- PR code review
+- `build-agent-mode-design-review-prompt.sh` -- design pattern review
+- `build-autofixer-prompt.sh` -- fix failing PR checks
+- `build-conflict-prompt.sh` -- merge conflict resolution
+- `build-contract-verification-prompt.sh` -- contract compliance
+- `build-doc-updater-prompt.sh` -- documentation updates
+- `build-feedback-prompt.sh` -- address review feedback
 
-The existing conditional logic already prevents non-pipeline agents from receiving contract/orchestrator docs. However, **within** pipeline agents, there is no further role-based filtering — a reviewer agent still gets mission instructions about PR lifecycle, and a coder gets reviewer-oriented content.
+### Key Differences Between the Two Systems
 
-#### 2. Orchestrator Dynamic Prompts (per-phase, per-role)
+| Aspect | Local Orchestrator | GitHub Actions |
+|--------|-------------------|----------------|
+| Language | Python functions | Bash scripts |
+| Rules source | Hardcoded inline | Loads from `.egg/*-rules.md` files |
+| Output | Prompt string to Claude CLI | Prompt file path to `$GITHUB_OUTPUT` |
+| Review output | JSON verdict file | PR review comments |
+| Shared code | None | None |
 
-`orchestrator/routes/pipelines.py` builds prompts dynamically at runtime:
+### Overlap Analysis
 
-- `_build_review_prompt()` (line 1090) — internal reviewer prompts with typed verdicts
-- `_build_phase_prompt()` (line 1299) — phase-specific prompts for refine, plan, implement, pr
-- `_build_agent_prompt()` (line 1606) — role-specific prompts for coder, tester, documenter, integrator
-- `_build_checker_prompt()` (line 2161) — test/lint runner
-- `_build_autofix_prompt()` (line 2238) — fix check failures
-
-These are **Python string builders** that construct prompts as lists of lines joined by newlines.
-
-The orchestrator already has shared prompt infrastructure:
-
-- **`shared/prompts/`** contains 4 criteria files used by both the orchestrator and tests:
-  - `code-review-criteria.md` — code review priorities and strategy
-  - `contract-review-criteria.md` — contract verification rules
-  - `agent-design-criteria.md` — agent-mode design review focus areas
-  - `autofixer-rules.md` — auto-fixable vs report-only classification
-
-- **`_read_shared_criteria()`** (line 770) implements a 3-level fallback chain:
-  1. User override: `.egg/<user_override>` in the repo (e.g., `.egg/review-rules.md`)
-  2. Source tree: `shared/prompts/<filename>` (development/local)
-  3. Docker path: `/app/prompts/<filename>` (production)
-  4. Fallback: `None` → each caller has inline defaults
-
-This pattern is already used by `_get_code_review_criteria()` (line 835), `_get_contract_review_criteria()` (line 868), `_get_agent_design_criteria()` (line 809), and the autofixer prompt builder (line 2293).
-
-#### 3. GitHub Actions Shell Prompt Scripts (action/ directory)
-
-Seven shell scripts in `action/` build prompts for GitHub Actions workflows:
-
-| Script | Lines | Used By Workflow |
-|--------|-------|------------------|
-| `build-review-prompt.sh` | 188 | `reusable-review.yml` |
-| `build-autofixer-prompt.sh` | 132 | `reusable-autofix.yml` |
-| `build-conflict-prompt.sh` | 281 | `reusable-conflict-resolve.yml` |
-| `build-contract-verification-prompt.sh` | 219 | `on-pull-request-contract-verify.yml` |
-| `build-feedback-prompt.sh` | 86 | `on-review-feedback.yml` |
-| `build-agent-mode-design-review-prompt.sh` | ~180 | `on-pull-request-agent-mode-design.yml` |
-| `build-doc-updater-prompt.sh` | ~450 | `on-push-doc-updater.yml` |
-
-These are **bash scripts** that construct prompts using heredocs and shell variable expansion, then write to temp files.
-
-### Key Architectural Problem: Dual Prompt Generators
-
-The orchestrator Python code and the action/ bash scripts are **completely independent implementations** that serve analogous functions in different execution contexts:
-
-| Concern | Local Orchestration | GitHub Actions |
-|---------|-------------------|----------------|
-| Code review | `_build_review_prompt()` in Python | `build-review-prompt.sh` in bash |
-| Autofixing | `_build_autofix_prompt()` in Python | `build-autofixer-prompt.sh` in bash |
-| Contract verification | `_build_review_prompt()` with `reviewer_type="contract"` | `build-contract-verification-prompt.sh` in bash |
-| Feedback addressing | (not present — orchestrator handles differently) | `build-feedback-prompt.sh` in bash |
-| Conflict resolution | (not present — orchestrator doesn't handle conflicts) | `build-conflict-prompt.sh` in bash |
-
-### Conventions File Divergence (Specific Gap)
-
-A concrete and actionable divergence: the action scripts load **conventions files** that the orchestrator does not use at all:
-
-- **`action/review-conventions.md`** (58 lines) — loaded by `build-review-prompt.sh` (line 98) and `build-contract-verification-prompt.sh` (line 86). Contains posting guidelines (use `--body-file`), approval rules (when to request changes vs approve), self-authored PR handling, and comment quality standards.
-
-- **`action/autofixer-conventions.md`** (126 lines) — loaded by `build-autofixer-prompt.sh` (line 67). Contains single-pass workflow rules, lint job structure, failure investigation commands, verification loop requirements, and decision framework for auto-fix vs report.
-
-The orchestrator's `_build_review_prompt()` and `_build_autofix_prompt()` **do not reference any conventions files**. This means agents running locally via the orchestrator lack behavioral guidelines that their GitHub Actions counterparts receive. This is one of the most direct examples of prompt drift between the two systems.
-
-### Token Efficiency Analysis
-
-1. **CLAUDE.md bloat (less severe than initially estimated)**: The existing conditional inclusion of `contract.md` and `orchestrator.md` already prevents 147 lines from reaching non-pipeline agents. However, within pipeline agents, the universal 252 lines still include content irrelevant to specific roles — a reviewer doesn't need the full PR lifecycle workflow, and a checker doesn't need the SDLC contract CLI reference.
-
-2. **Duplication between CLAUDE.md and system prompt**: The CLAUDE.md content loaded at container startup is available to every agent via Claude Code's built-in CLAUDE.md reading. The orchestrator **also** generates per-phase prompts that repeat some of this context (e.g., phase restrictions, contract CLI usage patterns).
-
-3. **Action script overhead**: Each action script fetches repo-specific rules at runtime (`.egg/review-rules.md`, `.egg/conflict-rules.md`, etc.), which is good. But the default fallback rules embedded in the scripts are lengthy (the default review rules in `build-review-prompt.sh` are ~50 lines).
-
-### Agent Specialization Gaps
-
-The multi-agent architecture defines specialized roles (coder, tester, documenter, integrator, reviewer) that are supposed to "check" each other. However:
-
-1. **Within-pipeline role scoping is absent** — All pipeline agents get the same 399-line CLAUDE.md. A tester agent receives the same mission, workflow, and GitHub ops instructions as a coder. The conditional logic only distinguishes pipeline vs non-pipeline, not coder vs reviewer.
-
-2. **Role-specific prompts are minimal** — `_build_agent_prompt()` (line 1606) adds a few role-specific lines (e.g., "Write and run tests for the changes" for tester) but doesn't provide deep specialization instructions.
-
-3. **Reviewer prompts lack cross-checking context** — The issue mentions agents should "check" each other. The current review prompts don't reference what other agents have done or provide criteria for validating agent outputs.
+| Agent Type | Orchestrator | GitHub Actions | Same Logic? |
+|------------|-------------|----------------|-------------|
+| Autofixer | `_build_autofix_prompt()` | `build-autofixer-prompt.sh` | Mostly -- core categories match, GA has better rules lookup |
+| Reviewer | `_build_review_prompt()` | `build-review-prompt.sh` | Partially -- rules similar, output format differs (JSON vs comments) |
+| Contract verifier | via `_build_review_prompt(reviewer_type="contract")` | `build-contract-verification-prompt.sh` | Partially -- GA has dedicated flow |
+| Conflict resolver | **None** | `build-conflict-prompt.sh` | N/A -- gap in orchestrator |
+| Feedback addresser | **None** | `build-feedback-prompt.sh` | N/A -- gap in orchestrator |
+| Doc updater | **None** | `build-doc-updater-prompt.sh` | N/A -- gap in orchestrator |
+| Design reviewer | **None** | `build-agent-mode-design-review-prompt.sh` | N/A -- gap in orchestrator |
 
 ## Constraints
 
-- **Backwards compatibility**: The GitHub Actions workflows are used by external consumers of the egg action who rely on prompt scripts in `action/`. Changes must either maintain the bash interface or provide a migration path.
-- **Claude Code CLAUDE.md format**: The `~/CLAUDE.md` file is read automatically by Claude Code. The rules mechanism must continue to work with this format.
-- **Sandbox isolation**: Prompt generators in the sandbox can't access GitHub APIs during container startup (no credentials). GitHub Actions prompts can access APIs (tokens available at build time).
-- **Existing shared infrastructure**: The `shared/prompts/` directory and `_read_shared_criteria()` fallback chain already exist. Any unification effort should build on this infrastructure rather than creating a parallel system.
-- **Testing**: Prompt changes affect agent behavior and are hard to test deterministically. The existing test suite (`tests/action/test_build_*.py`, `orchestrator/tests/test_pipeline_prompts.py`) validates prompt structure but not effectiveness.
-- **Token budgets**: Claude's context window has limits. Frontloading too much context wastes tokens on irrelevant instructions; too little leaves agents without critical information.
+- **Claude Code auto-loads CLAUDE.md**: There is no CLI flag to select a custom system prompt file. Claude Code reads `~/CLAUDE.md` automatically on startup. Any role-based filtering must happen before this file is written.
+- **Container startup is per-agent**: Each agent gets its own container, so `setup_agent_rules()` runs independently per agent. This means role-based CLAUDE.md generation is technically feasible -- the `EGG_AGENT_ROLE` environment variable is available at container startup.
+- **Backward compatibility**: The `action/` bash scripts are used by consumer repos that `uses: jwbron/egg/action@main`. Changes must not break external consumers.
+- **Quality first, then efficiency**: The issue explicitly prioritizes correctness over token savings. Prompt consolidation must not degrade agent behavior.
+- **Multi-agent architecture**: Agents check each other (testers check coders, reviewers check workers). Prompts should reinforce role boundaries, not blur them.
 
 ## Options Considered
 
-### Option A: Incremental Improvement (Trim, Specialize, Leave Structure)
+### Option A: Role-Aware CLAUDE.md Assembly
 
-**Approach**: Keep the current dual-system architecture (bash for actions, Python for orchestrator) but:
-1. Extend the existing conditional CLAUDE.md assembly to be role-aware (e.g., omit PR lifecycle sections for reviewer-only agents)
-2. Trim CLAUDE.md to essential context, move reference docs to on-demand
-3. Port conventions files into `shared/prompts/` so both systems can reference them
-4. Add lint checks to catch content drift between the two systems
+**Approach**: Modify `setup_agent_rules()` in `sandbox/entrypoint.py` to read `EGG_AGENT_ROLE` and include only relevant rule files per role. Keep the existing modular rule file structure but add a role-to-rules mapping.
 
-**Pros**:
-- Smallest scope, lowest risk
-- No changes to GitHub Actions workflow structure
-- Can be done incrementally
-- Builds on existing conditional assembly pattern
+Example mapping:
+- **CODER**: mission.md, environment.md, code-standards.md, test-workflow.md, pr-descriptions.md
+- **TESTER**: environment.md, code-standards.md, test-workflow.md
+- **REVIEWER**: environment.md, code-standards.md, pr-descriptions.md
+- **ARCHITECT/TASK_PLANNER/RISK_ANALYST**: environment.md, code-standards.md
 
-**Cons**:
-- Doesn't address the root cause (dual independent systems)
-- Drift detection helps but doesn't prevent divergence
-- Doesn't satisfy the "move out of GitHub Actions" requirement
-
-### Option B: Templated Prompt System
-
-**Approach**: Create prompt templates as markdown files (in `shared/prompts/templates/`) with Jinja2-style variable expansion. A small Python renderer loads templates and fills variables. Both the orchestrator Python code and action scripts call the renderer.
+Contract.md and orchestrator.md would be conditionally included only when `EGG_PIPELINE_ID` is set (pipeline mode).
 
 **Pros**:
-- Prompts are readable markdown, not embedded in Python strings or bash heredocs
-- Templates can be reviewed and edited by non-developers
-- Single template set used by both execution paths
-- Easy to add role-based variants
+- Directly reduces token waste per invocation (~25-30% reduction for non-CODER roles)
+- Simple implementation -- mapping dict + env var check in existing function
+- Preserves modular rule file structure
+- Each agent gets only what's relevant to its responsibilities
 
 **Cons**:
-- Adds a template engine dependency
-- Template rendering adds complexity
-- Variable expansion in bash requires either a Python step or a simple custom renderer
+- Requires maintaining a role-to-rules mapping as new roles are added
+- Risk of accidentally excluding a rule file a role needs
+- Doesn't address the prompt generation code duplication between GHA and orchestrator
 
-### Option C: Unified Python Prompt Library (Extending shared/prompts/)
+### Option B: Unified Prompt Generator Module (Python)
 
-**Approach**: Extend the existing `shared/prompts/` directory with Python prompt generation logic, building on the `_read_shared_criteria()` fallback pattern already in place. Both the local orchestrator and GitHub Actions call into this library. The action scripts become thin wrappers that invoke the Python library.
-
-Specifically:
-1. Add prompt builder modules alongside existing criteria files in `shared/prompts/`
-2. Extract prompt logic from `orchestrator/routes/pipelines.py` into these modules
-3. Rewrite action bash scripts as thin wrappers calling the Python library
-4. Add a CLI entry point (`python -m shared.prompts ...`) for GitHub Actions invocation
+**Approach**: Create a shared Python module (e.g., `shared/prompt_builders/`) that generates all prompts for all roles. Both the orchestrator and GitHub Actions would call into this module. The GHA bash scripts would be replaced with thin Python wrappers that the action calls.
 
 **Pros**:
-- Builds on existing `shared/prompts/` and `_read_shared_criteria()` infrastructure
-- Single source of truth for all prompts
-- Easy to test (Python unit tests, extending existing test patterns)
-- Natural fit for the sandbox codebase (per issue requirement)
+- Single source of truth for all prompt logic
+- Eliminates divergence between GHA and orchestrator prompts
+- Easier to test (Python unit tests vs bash script testing)
+- Natural place to implement role-based CLAUDE.md content too
+- Fulfills the issue requirement: "ensure we're using the exact same prompt generators for each flow"
 
 **Cons**:
-- Requires Python runtime in GitHub Actions (adding a setup-python step)
-- Action scripts currently run as pure bash with no Python dependency
-- Moderate refactor scope
+- Larger refactor -- all 7 bash scripts must be rewritten
+- GitHub Actions environment is different from sandbox (no container, different env vars)
+- Must ensure the shared module works in both contexts (sandbox container vs GHA runner)
+- Risk of regression during migration
 
-### Option D: Unified Python Prompt Library + Role-Scoped CLAUDE.md
+### Option C: Trim and Deduplicate Only (Minimal Change)
 
-**Approach**: Combines Option C with deeper role-based CLAUDE.md assembly. Extend `shared/prompts/` with:
-1. Prompt builders (migrated from both Python and bash)
-2. CLAUDE.md assembler that takes agent role/phase and includes only relevant sections (extending the existing `EGG_PIPELINE_ID` conditional to also filter on `EGG_AGENT_ROLE`)
-3. CLI entry point so GitHub Actions can call it from bash
-4. Conventions files moved from `action/` into `shared/prompts/` so both systems use them
-
-The action scripts become one-line calls to the Python CLI. CLAUDE.md is assembled per-agent at container startup based on both `EGG_PIPELINE_ID` and `EGG_AGENT_ROLE` environment variables.
+**Approach**: Keep the two-system architecture but trim each file for token efficiency: remove README.md from assembly, deduplicate git/worktree/gateway content between mission.md and environment.md, move non-interactive mode instructions to an orchestrator-only injection, and align the bash scripts' default rules with the orchestrator's inline rules.
 
 **Pros**:
-- Full unification — one system for all prompt generation
-- Role-scoped context reduces token waste beyond what the current pipeline/non-pipeline split achieves
-- Testable, maintainable, single source of truth
-- Satisfies all issue requirements (audit, token efficiency, specialization, unification, move to sandbox)
-- Builds on existing infrastructure rather than greenfield
+- Lowest risk -- no architectural changes
+- Quick to implement
+- Still achieves meaningful token savings (~15-20% reduction)
 
 **Cons**:
-- Largest scope of all options
-- Requires Python in GitHub Actions (though it's already used for testing)
-- Must carefully preserve the external action interface
+- Does NOT address the fundamental problem of prompt divergence
+- Ongoing maintenance burden of two parallel systems
+- Does not fulfill the issue requirement to "ensure we're using the exact same prompt generators"
+
+### Option D: Hybrid -- Role-Aware Assembly + Shared Prompt Module
+
+**Approach**: Combine Options A and B. First, implement role-aware CLAUDE.md assembly (Option A) for token efficiency. Then, create a shared Python prompt generation module that both the orchestrator and GHA use (Option B), moving all prompt generation out of bash scripts and into the sandbox codebase.
+
+**Pros**:
+- Addresses both token waste AND prompt divergence
+- Single source of truth for prompts
+- Role-appropriate CLAUDE.md content
+- Matches the issue requirement to move prompt generation "out of github actions and into the sandbox codebase"
+
+**Cons**:
+- Largest scope of work
+- Requires careful sequencing (CLAUDE.md trimming first, then prompt consolidation)
+- Must design the shared module to work in both container and GHA contexts
 
 ## Recommended Approach
 
-**Option D: Unified Python Prompt Library + Role-Scoped CLAUDE.md**
+**Option D: Hybrid -- Role-Aware Assembly + Shared Prompt Module**, implemented in two stages:
 
-This is the only option that fully addresses all five issue requirements. The key insight is that the issue explicitly asks to "move prompt and claude.md generation workflows out of GitHub Actions and into the sandbox codebase" — Options A and B don't fully achieve this.
+**Stage 1 -- CLAUDE.md optimization**: Modify `setup_agent_rules()` for role-aware assembly, deduplicate overlapping content across rule files, remove README.md from assembly, and conditionally include contract.md/orchestrator.md only in pipeline mode. This delivers immediate token savings with low risk.
 
-The implementation should build on the existing `shared/prompts/` directory and `_read_shared_criteria()` fallback chain rather than creating new infrastructure:
+**Stage 2 -- Prompt consolidation**: Create a `shared/prompt_builders/` Python module with functions for each agent type. Migrate the 7 GHA bash scripts to thin Python wrappers calling the shared module. Update the orchestrator's `_build_*_prompt()` functions to call the same shared module. This ensures both execution paths use identical prompt logic.
 
-1. Extend `shared/prompts/` with prompt builder modules alongside existing criteria files
-2. Extract prompt logic from both `orchestrator/routes/pipelines.py` (move prompt functions out) and `action/*.sh` (rewrite in Python)
-3. Move `action/review-conventions.md` and `action/autofixer-conventions.md` into `shared/prompts/` so both execution paths use identical conventions
-4. Add a CLI entry point for GitHub Actions to call
-5. Extend CLAUDE.md assembly to filter on `EGG_AGENT_ROLE` in addition to the existing `EGG_PIPELINE_ID` conditional
-6. Add token-budget analysis tooling to measure prompt sizes
+**Justification**: The issue explicitly asks for both concerns -- quality/correctness (prompt consistency) and token efficiency (trimming waste). Option D is the only approach that addresses both. The two-stage approach manages risk by separating the quick-win optimization from the larger refactor.
 
-The action bash scripts should become thin wrappers that call the Python CLI, maintaining the existing interface (`prompt-file` and `model` outputs).
+The issue also explicitly states: "all prompt and claude.md generation workflows should be moved out of github actions and moved into the sandbox codebase." This directly maps to Stage 2 of Option D.
 
 ## Open Questions
 
-1. **Which CLAUDE.md sections should be role-scoped vs universal?** The existing pipeline/non-pipeline split is coarse. For example, should the reviewer agent still see the full mission statement, or should it get a reviewer-specific subset? Should PR lifecycle docs be omitted for checker/autofix agents?
+1. **How should GHA workflows invoke the shared Python module?** The sandbox codebase runs in containers, but GHA workflows run on GitHub-hosted runners. Options include:
+   - Install the shared module as a pip package in the GHA runner
+   - Use the egg Docker image in GHA with a prompt-generation entrypoint
+   - Bundle the Python module in the GitHub Action itself
 
-2. **How should we handle action/ backwards compatibility?** The bash scripts are currently invoked by reusable workflows that external repos may consume. Should we keep the bash wrappers as a stable interface, or can we require Python in the action?
+2. **Should roles that don't exist in GHA (ARCHITECT, TASK_PLANNER, RISK_ANALYST) still have their prompts in the shared module?** These currently only run in the orchestrator, but putting them in the shared module would future-proof for GHA expansion.
 
-3. **Should we add token budget tracking?** The issue mentions token efficiency as a secondary concern. Should we add automated measurement of prompt sizes (e.g., a CI check that fails if CLAUDE.md exceeds N tokens)?
+3. **Should the CLAUDE.md rule files themselves be refactored (split, merged, or rewritten)?** For example, `mission.md` at 135 lines covers workflow, git operations, PR lifecycle, review responses, git safety, decision framework, non-interactive mode, and notifications. Should this be split into smaller, more composable units?
 
-4. **What's the priority ordering?** The issue lists quality/correctness first and token efficiency second. Given the scope, should we tackle unification first (shared library) or trimming first (reduce bloat in current system)?
+4. **What is the acceptable token budget for CLAUDE.md per agent invocation?** Currently ~3,200 tokens. With optimization, this could drop to ~1,500-2,000 for most roles. Is there a target the team has in mind?
 
 ---
 
