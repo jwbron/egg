@@ -739,6 +739,17 @@ _PHASE_ROLES: dict[str, list[AgentRole]] = {
     "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR],
     "plan": [AgentRole.ARCHITECT, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     "refine": [AgentRole.REFINER],
+    "pr": [AgentRole.CODER],
+}
+
+# Primary (single-agent) role for each phase.  When multi_agent is disabled
+# the wave executor receives only this role, which matches the previous
+# single-agent code path behaviour.
+_PHASE_PRIMARY_ROLES: dict[str, AgentRole] = {
+    "implement": AgentRole.CODER,
+    "plan": AgentRole.CODER,
+    "refine": AgentRole.REFINER,
+    "pr": AgentRole.CODER,
 }
 
 _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
@@ -780,6 +791,44 @@ def get_roles_for_phase(
     if roles is None:
         raise ValueError(f"No agent roles defined for phase: {phase}")
     result = list(roles)
+    if include_reviewers:
+        result.extend(_PHASE_REVIEWERS.get(phase, []))
+    return result
+
+
+def get_effective_roles_for_phase(
+    phase: str,
+    multi_agent: bool,
+    include_reviewers: bool = False,
+) -> list[AgentRole]:
+    """Return the roles to run for a phase, accounting for multi-agent mode.
+
+    When ``multi_agent`` is True **and** the phase has multiple worker roles
+    (implement, plan), the full role list is returned.  Otherwise only the
+    phase's primary role is returned — this is the single-agent code path
+    that the wave executor handles as a single-role, single-wave execution.
+
+    Args:
+        phase: Pipeline phase name (e.g., "implement", "plan", "refine", "pr")
+        multi_agent: Whether multi-agent mode is enabled for the pipeline
+        include_reviewers: Whether to append reviewer roles
+
+    Returns:
+        List of AgentRole values to execute.
+
+    Raises:
+        ValueError: If phase has no defined roles.
+    """
+    if phase not in _PHASE_ROLES:
+        raise ValueError(f"No agent roles defined for phase: {phase}")
+
+    use_full_roles = multi_agent and phase in {"implement", "plan"}
+
+    if use_full_roles:
+        result = list(_PHASE_ROLES[phase])
+    else:
+        result = [_PHASE_PRIMARY_ROLES[phase]]
+
     if include_reviewers:
         result.extend(_PHASE_REVIEWERS.get(phase, []))
     return result

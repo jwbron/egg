@@ -1768,7 +1768,7 @@ def _build_agent_prompt(
     return "\n".join(lines)
 
 
-def _run_multi_agent_phase(
+def _run_phase_workers(
     pipeline_id: str,
     pipeline: Pipeline,
     phase: str,
@@ -1783,10 +1783,12 @@ def _run_multi_agent_phase(
     review_feedback: str | None = None,
     review_cycle: int = 0,
 ) -> tuple[int, str]:
-    """Run a phase using multi-agent wave-based execution.
+    """Run a phase using wave-based execution.
 
-    Creates a MultiAgentExecutor with a spawner callable that wraps
-    _spawn_and_wait() and runs agents in dependency-ordered waves.
+    Handles both multi-agent and single-agent modes.  When multi_agent is
+    enabled for a phase that supports it (implement, plan), the full set of
+    specialised roles is dispatched.  Otherwise a single primary role is
+    used — the wave executor treats this as a degenerate single-wave case.
 
     Returns:
         (exit_code, combined_logs) — 0 on success.
@@ -1802,15 +1804,18 @@ def _run_multi_agent_phase(
         AgentRole as ContractAgentRole,
     )
     from egg_contracts.agent_roles import (
-        get_roles_for_phase,
+        get_effective_roles_for_phase,
     )
     from egg_contracts.orchestration import initialize_orchestration
 
     # Get pipeline mode
     pipeline_mode = pipeline.mode or "issue"
 
+    # Determine whether to use the full multi-agent role set
+    multi_agent = pipeline.config.multi_agent and phase in {"implement", "plan"}
+
     # Build agent-specific prompts for all roles in this phase
-    roles = get_roles_for_phase(phase, include_reviewers=False)
+    roles = get_effective_roles_for_phase(phase, multi_agent=multi_agent, include_reviewers=False)
     agent_prompts_by_role: dict = {}
     for contract_role in roles:
         role_str = contract_role.value
@@ -2775,127 +2780,50 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 review_cycle = phase_execution.review_cycles
 
                 # 1. Spawn worker(s)
-                # Use multi-agent wave-based execution when enabled for
-                # implement and plan phases; single-CODER path otherwise.
-                use_multi_agent = pipeline.config.multi_agent and current_phase.value in {
-                    "implement",
-                    "plan",
-                }
+                # _run_phase_workers handles both multi-agent and
+                # single-agent modes internally via
+                # get_effective_roles_for_phase().
+                logger.info(
+                    "Spawning worker(s) for phase",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    review_cycle=review_cycle,
+                    mode=gateway_mode,
+                    multi_agent=pipeline.config.multi_agent,
+                )
 
-                if use_multi_agent:
-                    logger.info(
-                        "Spawning multi-agent wave execution for phase",
+                try:
+                    exit_code, container_logs = _run_phase_workers(
                         pipeline_id=pipeline_id,
+                        pipeline=pipeline,
                         phase=current_phase.value,
-                        review_cycle=review_cycle,
-                        mode=gateway_mode,
-                    )
-
-                    try:
-                        exit_code, container_logs = _run_multi_agent_phase(
-                            pipeline_id=pipeline_id,
-                            pipeline=pipeline,
-                            phase=current_phase.value,
-                            spawner=spawner,
-                            repo_volumes=repo_volumes,
-                            gateway_mode=gateway_mode,
-                            repos=repos,
-                            sandbox_env=sandbox_env,
-                            store=store,
-                            certs_volume=certs_volume,
-                            worktree_repo_path=worktree_repo_path,
-                            review_feedback=review_feedback,
-                            review_cycle=review_cycle,
-                        )
-                    except ContainerSpawnError as e:
-                        pipeline = store.load_pipeline(pipeline_id)
-                        phase_execution = pipeline.get_phase_execution(current_phase)
-                        phase_execution.status = PipelineStatus.FAILED
-                        phase_execution.error = str(e)
-                        phase_execution.completed_at = datetime.utcnow()
-                        pipeline.status = PipelineStatus.FAILED
-                        pipeline.error = str(e)
-                        store.save_pipeline(pipeline)
-                        logger.error(
-                            "Failed to spawn multi-agent containers",
-                            pipeline_id=pipeline_id,
-                            error=str(e),
-                        )
-                        phase_failed = True
-                        break
-
-                else:
-                    logger.info(
-                        "Spawning worker for phase",
-                        pipeline_id=pipeline_id,
-                        phase=current_phase.value,
-                        review_cycle=review_cycle,
-                        mode=gateway_mode,
-                    )
-
-                    phase_prompt = _build_phase_prompt(
-                        phase=current_phase.value,
-                        pipeline_id=pipeline_id,
-                        pipeline_mode=pipeline_mode,
-                        prompt=pipeline.prompt,
-                        issue_number=pipeline.issue_number,
-                        repo=pipeline.repo,
-                        branch=pipeline.branch,
+                        spawner=spawner,
+                        repo_volumes=repo_volumes,
+                        gateway_mode=gateway_mode,
+                        repos=repos,
+                        sandbox_env=sandbox_env,
+                        store=store,
+                        certs_volume=certs_volume,
+                        worktree_repo_path=worktree_repo_path,
                         review_feedback=review_feedback,
                         review_cycle=review_cycle,
                     )
-
-                    sandbox_command = [
-                        "claude",
-                        "--dangerously-skip-permissions",
-                        "--print",
-                        "--verbose",
-                        "--output-format",
-                        "stream-json",
-                        "--model",
-                        "opus",
-                        "--max-turns",
-                        "200",
-                        phase_prompt,
-                    ]
-
-                    # Use the REFINER role for the refine phase,
-                    # CODER for all other single-agent phases.
-                    single_agent_role = (
-                        AgentRole.REFINER
-                        if current_phase.value == "refine"
-                        else AgentRole.CODER
+                except ContainerSpawnError as e:
+                    pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    phase_execution.status = PipelineStatus.FAILED
+                    phase_execution.error = str(e)
+                    phase_execution.completed_at = datetime.utcnow()
+                    pipeline.status = PipelineStatus.FAILED
+                    pipeline.error = str(e)
+                    store.save_pipeline(pipeline)
+                    logger.error(
+                        "Failed to spawn phase workers",
+                        pipeline_id=pipeline_id,
+                        error=str(e),
                     )
-
-                    try:
-                        exit_code, container_logs = _spawn_and_wait(
-                            spawner=spawner,
-                            pipeline_id=pipeline_id,
-                            agent_role=single_agent_role,
-                            issue_number=pipeline.issue_number,
-                            repo_volumes=repo_volumes,
-                            gateway_mode=gateway_mode,
-                            repos=repos,
-                            phase=current_phase.value,
-                            sandbox_env=sandbox_env,
-                            sandbox_command=sandbox_command,
-                            store=store,
-                            certs_volume=certs_volume,
-                        )
-                    except ContainerSpawnError as e:
-                        pipeline = store.load_pipeline(pipeline_id)
-                        phase_execution = pipeline.get_phase_execution(current_phase)
-                        phase_execution.status = PipelineStatus.FAILED
-                        phase_execution.error = str(e)
-                        phase_execution.completed_at = datetime.utcnow()
-                        pipeline.status = PipelineStatus.FAILED
-                        pipeline.error = str(e)
-                        store.save_pipeline(pipeline)
-                        logger.error(
-                            "Failed to spawn container", pipeline_id=pipeline_id, error=str(e)
-                        )
-                        phase_failed = True
-                        break
+                    phase_failed = True
+                    break
 
                 if exit_code != 0:
                     error_msg = f"Container exited with code {exit_code}"
