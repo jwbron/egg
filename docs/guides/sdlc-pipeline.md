@@ -53,18 +53,20 @@ The pipeline pauses for human approval at phase transitions (refine and plan). T
 │  │   REFINE    │───▶│    PLAN     │───▶│  IMPLEMENT  │───▶│ CREATE   │  │
 │  │  (cycles)   │    │  (cycles)   │    │  (cycles)   │    │   PR     │  │
 │  └─────────────┘    └─────────────┘    └─────────────┘    └──────────┘  │
-│        │                  │                  │                  │       │
-│        ▼                  ▼                  ▼                  ▼       │
-│   ┌─────────┐        ┌─────────┐        ┌─────────┐        ┌─────────┐  │
-│   │ REVIEW  │        │ REVIEW  │        │ REVIEW  │        │  HUMAN  │  │
-│   │ (auto)  │        │ (auto)  │        │ (auto)  │        │  MERGE  │  │
-│   └────┬────┘        └────┬────┘        └─────────┘        └─────────┘  │
-│        │                  │                                             │
-│        ▼                  ▼                                             │
-│   ┌─────────┐        ┌─────────┐                                        │
-│   │ HITL    │        │ HITL    │                                        │
-│   │ Approve │        │ Approve │                                        │
-│   └─────────┘        └─────────┘                                        │
+│        │ ╎                │                  │                  │       │
+│        ▼ ╎                ▼                  ▼                  ▼       │
+│   ┌─────────┐ ╎      ┌─────────┐        ┌─────────┐        ┌─────────┐  │
+│   │ REVIEW  │ ╎      │ REVIEW  │        │ REVIEW  │        │  HUMAN  │  │
+│   │ (auto)  │ ╎      │ (auto)  │        │ (auto)  │        │  MERGE  │  │
+│   └────┬────┘ ╎      └────┬────┘        └─────────┘        └─────────┘  │
+│        │      ╎           │                                             │
+│        ▼      ╎           ▼                                             │
+│   ┌─────────┐ ╎      ┌─────────┐                                        │
+│   │ HITL    │ ╎      │ HITL    │                                        │
+│   │ Approve │ ╎      │ Approve │                                        │
+│   └─────────┘ ╎      └─────────┘                                        │
+│               ╎                                                         │
+│   ╎ short-circuit: REFINE ·····▶ IMPLEMENT (skips PLAN when approved)   │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -228,6 +230,8 @@ Timing starts when actual work begins (`work_started_at`), excluding setup and H
 | **Plan** | Create implementation plan with tasks | `gh issue comment/edit`, `egg-contract add-decision` | Auto-review pass + Human approval |
 | **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
 | **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
+
+**Short-circuit mode**: For low-complexity tasks (single-file changes, typo fixes, straightforward bug fixes), the refine agent can include a `short_circuit: true` metadata block in its analysis to indicate that the plan phase may be unnecessary. After the refine phase completes and internal review approves, the pipeline runner detects this signal and advances directly from refine to implement, using the analysis as guidance instead of a formal plan. If reviewers request revision, the signal is rechecked after the next cycle. This optimization is enabled by default and can be disabled via the pipeline configuration's `allow_short_circuit` setting.
 
 ### Multi-Reviewer Architecture
 
