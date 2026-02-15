@@ -22,6 +22,7 @@ from models import (
     AgentRole,
     ContainerInfo,
     ContainerStatus,
+    CycleTiming,
     PhaseExecution,
     Pipeline,
     PipelinePhase,
@@ -183,7 +184,7 @@ class TestRenderPipelineDag:
         pipeline = create_test_pipeline(phases=phases)
         result = render_pipeline_dag(pipeline)
 
-        assert "cycle 2" in result
+        assert "2 cycles completed" in result
 
     def test_phase_with_agents(self):
         """Test phase showing per-agent role and status."""
@@ -479,6 +480,13 @@ class TestRenderPhaseDetail:
                 started_at=now - timedelta(minutes=20),
                 work_started_at=now - timedelta(minutes=10),
                 completed_at=now,
+                cycle_timings=[
+                    CycleTiming(
+                        cycle=0,
+                        started_at=now - timedelta(minutes=10),
+                        completed_at=now,
+                    ),
+                ],
             )
         }
         pipeline = create_test_pipeline(phases=phases)
@@ -518,6 +526,13 @@ class TestRenderPhaseDetail:
                 started_at=now - timedelta(minutes=15),
                 work_started_at=now - timedelta(minutes=5),
                 completed_at=now,
+                cycle_timings=[
+                    CycleTiming(
+                        cycle=0,
+                        started_at=now - timedelta(minutes=5),
+                        completed_at=now,
+                    ),
+                ],
             )
         }
         pipeline = create_test_pipeline(phases=phases)
@@ -822,3 +837,142 @@ class TestWaveGrouping:
         # Reviewer must come AFTER architect and planner
         assert reviewer_line > architect_line
         assert reviewer_line > planner_line
+
+
+class TestCycleTimingDisplay:
+    """Tests for per-cycle and total timing display."""
+
+    def test_multi_cycle_dag_shows_cycle_and_total(self):
+        """DAG box shows [cycle: Xm | total: Ym] when multiple cycles completed."""
+        now = datetime.utcnow()
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.COMPLETE,
+                started_at=now - timedelta(minutes=25),
+                work_started_at=now - timedelta(minutes=5),
+                completed_at=now,
+                review_cycles=1,
+                cycle_timings=[
+                    CycleTiming(
+                        cycle=0,
+                        started_at=now - timedelta(minutes=20),
+                        completed_at=now - timedelta(minutes=10),
+                    ),
+                    CycleTiming(
+                        cycle=1,
+                        started_at=now - timedelta(minutes=5),
+                        completed_at=now,
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases)
+        result = render_pipeline_dag(pipeline)
+
+        # Should show both cycle duration and total duration
+        assert "cycle:" in result
+        assert "total:" in result
+        # Current cycle is 5m, total is 15m (10m + 5m)
+        assert "5m0s" in result
+        assert "15m0s" in result
+
+    def test_single_cycle_dag_shows_simple_duration(self):
+        """DAG box shows [Xm] with no cycle/total split for single cycle."""
+        now = datetime.utcnow()
+        phases = {
+            "refine": PhaseExecution(
+                phase=PipelinePhase.REFINE,
+                status=PipelineStatus.COMPLETE,
+                started_at=now - timedelta(minutes=10),
+                work_started_at=now - timedelta(minutes=5),
+                completed_at=now,
+                review_cycles=0,
+                cycle_timings=[
+                    CycleTiming(
+                        cycle=0,
+                        started_at=now - timedelta(minutes=5),
+                        completed_at=now,
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases)
+        result = render_pipeline_dag(pipeline)
+
+        # Should show simple duration, no cycle/total split
+        assert "5m0s" in result
+        assert "cycle:" not in result
+        assert "total:" not in result
+
+    def test_phase_detail_shows_cycle_breakdown(self):
+        """Phase detail view shows per-cycle timing breakdown."""
+        now = datetime.utcnow()
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.COMPLETE,
+                started_at=now - timedelta(minutes=25),
+                work_started_at=now - timedelta(minutes=5),
+                completed_at=now,
+                review_cycles=2,
+                cycle_timings=[
+                    CycleTiming(
+                        cycle=0,
+                        started_at=now - timedelta(minutes=25),
+                        completed_at=now - timedelta(minutes=15),
+                    ),
+                    CycleTiming(
+                        cycle=1,
+                        started_at=now - timedelta(minutes=12),
+                        completed_at=now - timedelta(minutes=5),
+                    ),
+                    CycleTiming(
+                        cycle=2,
+                        started_at=now - timedelta(minutes=5),
+                        completed_at=now,
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases)
+        result = render_phase_detail(pipeline, PipelinePhase.IMPLEMENT)
+
+        assert "Cycle Timings:" in result
+        assert "Cycle 0:" in result
+        assert "Cycle 1:" in result
+        assert "Cycle 2:" in result
+        assert "Total work time:" in result
+        # All cycles should show "done"
+        assert result.count("(done)") == 3
+
+    def test_phase_detail_running_cycle(self):
+        """Phase detail view shows 'running' for incomplete cycle."""
+        now = datetime.utcnow()
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+                started_at=now - timedelta(minutes=15),
+                work_started_at=now - timedelta(minutes=3),
+                review_cycles=1,
+                cycle_timings=[
+                    CycleTiming(
+                        cycle=0,
+                        started_at=now - timedelta(minutes=10),
+                        completed_at=now - timedelta(minutes=5),
+                    ),
+                    CycleTiming(
+                        cycle=1,
+                        started_at=now - timedelta(minutes=3),
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases)
+        result = render_phase_detail(pipeline, PipelinePhase.IMPLEMENT)
+
+        assert "Cycle 0:" in result
+        assert "(done)" in result
+        assert "Cycle 1:" in result
+        assert "(running)" in result

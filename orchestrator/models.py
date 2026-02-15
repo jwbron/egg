@@ -155,6 +155,14 @@ class HITLDecision(BaseModel):
     timeout_seconds: int = Field(default=3600, ge=60, description="Timeout in seconds")
 
 
+class CycleTiming(BaseModel):
+    """Timing for a single review cycle within a phase."""
+
+    cycle: int = Field(..., description="Cycle number (0-indexed)")
+    started_at: datetime = Field(..., description="When this cycle's work began")
+    completed_at: datetime | None = Field(default=None, description="When this cycle ended")
+
+
 class PhaseExecution(BaseModel):
     """State of a single phase execution."""
 
@@ -171,6 +179,9 @@ class PhaseExecution(BaseModel):
     )
     review_cycles: int = Field(default=0, ge=0, description="Agentic review cycles completed")
     hitl_review_cycles: int = Field(default=0, ge=0, description="HITL revision cycles completed")
+    cycle_timings: list[CycleTiming] = Field(
+        default_factory=list, description="Per-cycle timing records"
+    )
     artifacts: dict[str, str] = Field(
         default_factory=dict, description="Produced artifacts (file paths)"
     )
