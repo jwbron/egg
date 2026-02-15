@@ -515,8 +515,8 @@ class PhaseFilter:
                     ".egg-state/reviews/*",
                 ],
                 # No allowed_patterns = allow everything except blocked
-                # Checkpoints are not blocked since they don't match any blocked_patterns
-                description="Implement phase can push code but not .egg-state/ (except checkpoints)",
+                # Checkpoints and agent-outputs are not blocked since they don't match any blocked_patterns
+                description="Implement phase can push code but not .egg-state/ (except checkpoints and agent-outputs)",
             ),
             PipelinePhase.PR: PhaseFileRestriction(
                 allowed_patterns=["*"],
