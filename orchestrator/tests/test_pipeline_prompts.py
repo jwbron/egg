@@ -304,7 +304,7 @@ class TestReadSharedCriteriaEdgeCases:
                 return original_is_file(self)
 
             with patch.object(Path, "is_file", patched_is_file):
-                with patch("routes.pipelines.Path") as MockPath:
+                with patch("routes.pipelines.Path") as _MockPath:
                     # This gets complex; instead test that None is returned
                     # when both source tree and docker paths miss
                     pass
