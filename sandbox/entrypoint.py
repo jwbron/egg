@@ -676,9 +676,115 @@ def setup_egg_symlink(config: Config, logger: Logger) -> None:
 
 
 def setup_agent_rules(config: Config, logger: Logger) -> None:
-    """Set up CLAUDE.md agent rules."""
+    """Set up CLAUDE.md agent rules based on agent role.
+
+    Assembles CLAUDE.md from composable rule files in /opt/claude-rules/.
+    When EGG_AGENT_ROLE is set, only includes rule files relevant to that role.
+    When no role is set (interactive use), includes all files for backward
+    compatibility.
+
+    Pipeline-conditional rules (contract.md, orchestrator.md) are only included
+    when EGG_PIPELINE_ID is set AND the role uses them.
+    """
     rules_dir = Path("/opt/claude-rules")
-    rules_order = [
+
+    if not (rules_dir / "mission-core.md").exists():
+        return
+
+    # Role-based rule file mapping.
+    # Each role gets only the rule files relevant to its responsibilities.
+    # Covers all AgentRole enum values from both shared/egg_contracts/agent_roles.py
+    # and orchestrator/models.py.
+    role_rules: dict[str, list[str]] = {
+        "coder": [
+            "mission-core.md",
+            "mission-workflow.md",
+            "environment.md",
+            "code-standards.md",
+            "test-workflow.md",
+            "pr-descriptions.md",
+            "contract.md",
+            "orchestrator.md",
+        ],
+        "tester": [
+            "mission-core.md",
+            "environment.md",
+            "code-standards.md",
+            "test-workflow.md",
+            "contract.md",
+            "orchestrator.md",
+        ],
+        "integrator": [
+            "mission-core.md",
+            "environment.md",
+            "code-standards.md",
+            "test-workflow.md",
+            "contract.md",
+            "orchestrator.md",
+        ],
+        "documenter": [
+            "mission-core.md",
+            "environment.md",
+        ],
+        "architect": [
+            "mission-core.md",
+            "environment.md",
+        ],
+        "task_planner": [
+            "mission-core.md",
+            "environment.md",
+        ],
+        "risk_analyst": [
+            "mission-core.md",
+            "environment.md",
+        ],
+        "refiner": [
+            "mission-core.md",
+            "mission-workflow.md",
+            "environment.md",
+            "contract.md",
+            "orchestrator.md",
+        ],
+        "reviewer_unified": [
+            "mission-core.md",
+            "environment.md",
+        ],
+        "reviewer_code": [
+            "mission-core.md",
+            "environment.md",
+            "code-standards.md",
+        ],
+        "reviewer_contract": [
+            "mission-core.md",
+            "environment.md",
+        ],
+        "reviewer_agent_design": [
+            "mission-core.md",
+            "environment.md",
+        ],
+        "reviewer_refine": [
+            "mission-core.md",
+            "environment.md",
+        ],
+        "reviewer_plan": [
+            "mission-core.md",
+            "environment.md",
+        ],
+        # orchestrator/models.py extra roles
+        "reviewer": [
+            "mission-core.md",
+            "environment.md",
+        ],
+        "checker": [
+            "mission-core.md",
+            "environment.md",
+            "code-standards.md",
+            "test-workflow.md",
+        ],
+    }
+
+    # Full file set for interactive (no-role) sessions — backward compatible
+    default_rules = [
         "mission-core.md",
         "mission-workflow.md",
         "mission-ci.md",
@@ -690,8 +796,23 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
         "orchestrator.md",
     ]
 
-    if not (rules_dir / "mission.md").exists():
-        return
+    # Select rules based on agent role
+    agent_role = os.environ.get("EGG_AGENT_ROLE", "").lower()
+    pipeline_id = os.environ.get("EGG_PIPELINE_ID", "")
+
+    rules_order = role_rules.get(agent_role, default_rules)
+
+    # Pipeline-conditional rules: contract.md and orchestrator.md are only
+    # relevant when running inside a pipeline.
+    pipeline_only_files = {"contract.md", "orchestrator.md"}
+    pipeline_roles = {"coder", "tester", "integrator", "refiner"}
+
+    if not pipeline_id and agent_role:
+        # Agent role is set but no pipeline — remove pipeline-only files
+        rules_order = [f for f in rules_order if f not in pipeline_only_files]
+    elif pipeline_id and agent_role and agent_role not in pipeline_roles:
+        # Pipeline is set but role doesn't use pipeline files
+        rules_order = [f for f in rules_order if f not in pipeline_only_files]
 
     # Combine rules into CLAUDE.md
     claude_md = config.user_home / "CLAUDE.md"
@@ -713,8 +834,9 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
         repos_claude.symlink_to(claude_md)
         os.lchown(repos_claude, config.runtime_uid, config.runtime_gid)
 
-    logger.success("AI agent rules installed: ~/CLAUDE.md (symlinked to ~/repos/)")
-    logger.info(f"  Combined {len(rules_order)} rule files (index-based per LLM Doc ADR)")
+    role_label = agent_role if agent_role else "default (no role)"
+    logger.success(f"AI agent rules installed: ~/CLAUDE.md (role: {role_label})")
+    logger.info(f"  Combined {len(content_parts)} of {len(rules_order)} rule files")
     logger.info("  Note: Reference docs at $EGG_REPO_PATH/docs/ (fetched on-demand)")
 
 
