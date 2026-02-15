@@ -30,6 +30,11 @@ gateway/tests/            # Gateway-specific tests (~13 files)
 ├── test_session_manager.py # Session management
 └── ...                   # Additional gateway modules
 
+orchestrator/tests/       # Orchestrator-specific tests (~21 files)
+├── test_cli.py           # CLI tests
+├── test_devserver.py     # Devserver lifecycle manager tests
+└── ...                   # Additional orchestrator modules
+
 integration_tests/        # Docker-based integration tests (~16 files)
 ├── conftest.py           # EggStack fixture, Docker helpers
 ├── docker-compose.yml    # Test stack definition
@@ -41,12 +46,14 @@ integration_tests/        # Docker-based integration tests (~16 files)
 └── ...
 ```
 
-### Test Markers (pytest.ini)
+### Test Markers (pyproject.toml)
 
 - `integration` — Docker/container-dependent tests
 - `e2e` — Requires real API keys (ANTHROPIC_OAUTH_TOKEN)
 - `security` — Security/pentesting tests
 - `agent_flaky` — Non-deterministic agent behavior (non-blocking in CI)
+
+**Note**: Pytest configuration was consolidated from `pytest.ini` into `pyproject.toml` as of commit 857d312. Test paths now include `tests/`, `gateway/tests/`, and `orchestrator/tests/` in a unified configuration.
 
 ---
 
@@ -341,6 +348,7 @@ tests/
 └── ...
 
 gateway/tests/           # Gateway-specific tests (keep separate)
+orchestrator/tests/      # Orchestrator-specific tests (keep separate)
 integration_tests/       # Full E2E tests (existing)
 ├── local_pipeline/      # Local orchestrator integration tests
 │   ├── helpers.py       # Shared API helpers
