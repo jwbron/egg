@@ -825,7 +825,7 @@ def _read_shared_criteria(
     # Check user override first
     if user_override and repo_path:
         override_path = Path(repo_path) / ".egg" / user_override
-        if override_path.is_file():
+        if override_path.is_file() and override_path.stat().st_size > 0:
             return override_path.read_text()
 
     # Try source tree path (development / tests)
@@ -987,16 +987,18 @@ def _get_plan_review_criteria() -> str:
     )
 
 
-def _get_review_criteria_for_type(reviewer_type: str, phase: str) -> str:
+def _get_review_criteria_for_type(
+    reviewer_type: str, phase: str, repo_path: str | None = None
+) -> str:
     """Dispatch to the correct criteria function based on reviewer type."""
     if reviewer_type == "unified":
         return _get_unified_criteria(phase)
     elif reviewer_type == "agent-design":
         return _get_agent_design_criteria()
     elif reviewer_type == "code":
-        return _get_code_review_criteria()
+        return _get_code_review_criteria(repo_path=repo_path)
     elif reviewer_type == "contract":
-        return _get_contract_review_criteria()
+        return _get_contract_review_criteria(repo_path=repo_path)
     elif reviewer_type == "refine":
         return _get_refine_review_criteria()
     elif reviewer_type == "plan":
@@ -1122,6 +1124,7 @@ def _build_review_prompt(
     issue_number: int | None = None,
     review_cycle: int = 1,
     prior_feedback: str | None = None,
+    repo_path: str | None = None,
 ) -> str:
     """Build a review prompt for the reviewer agent.
 
@@ -1163,7 +1166,7 @@ def _build_review_prompt(
 
     # Review criteria
     lines.append("## Review Criteria\n")
-    lines.append(_get_review_criteria_for_type(reviewer_type, phase))
+    lines.append(_get_review_criteria_for_type(reviewer_type, phase, repo_path=repo_path))
     lines.append("")
 
     # Prior feedback for re-reviews
@@ -1676,6 +1679,7 @@ def _build_agent_prompt(
     branch: str | None = None,
     review_feedback: str | None = None,
     review_cycle: int = 0,
+    repo_path: str | None = None,
 ) -> str:
     """Build a role-specific prompt for multi-agent execution.
 
@@ -1698,6 +1702,7 @@ def _build_agent_prompt(
         branch: Branch name
         review_feedback: Feedback from prior review cycle
         review_cycle: Current review cycle number
+        repo_path: Filesystem path to repository (for user override lookup)
 
     Returns:
         Complete prompt string for the agent
@@ -1888,6 +1893,7 @@ def _build_agent_prompt(
             issue_number=issue_number,
             review_cycle=review_cycle + 1,
             prior_feedback=review_feedback,
+            repo_path=repo_path,
         )
     else:
         lines.extend(
@@ -1981,6 +1987,7 @@ def _run_multi_agent_phase(
             branch=pipeline.branch,
             review_feedback=review_feedback,
             review_cycle=review_cycle,
+            repo_path=str(worktree_repo_path),
         )
         # Map using the orchestrator's AgentRole enum
         try:
@@ -2379,6 +2386,7 @@ def _build_autofix_prompt(
     pipeline_mode: str,
     check_results: dict,
     repo: str | None = None,
+    repo_path: str | None = None,
 ) -> str:
     """Build a prompt for the autofixer agent.
 
@@ -2431,11 +2439,12 @@ def _build_autofix_prompt(
     autofixer_rules = _read_shared_criteria(
         "autofixer-rules.md",
         user_override="autofixer-rules.md",
-        repo_path=None,
+        repo_path=repo_path,
     )
     if autofixer_rules is not None:
         lines.append(autofixer_rules)
     else:
+        logger.warning("Shared autofixer-rules.md not found, using inline fallback")
         lines.extend(
             [
                 "## Auto-fixable vs Report-only\n",
@@ -3230,6 +3239,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_mode,
                             check_results,
                             repo=pipeline.repo,
+                            repo_path=str(worktree_repo_path),
                         )
                         autofix_command = [
                             "claude",
@@ -3308,6 +3318,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     _review_feedback=review_feedback,
                     _sandbox_env=sandbox_env,
                     _repos=repos,
+                    _repo_path=worktree_repo_path,
                 ):
                     role_str = role.value
                     rtype = role_str.replace("reviewer_", "", 1).replace("_", "-")
@@ -3319,6 +3330,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         issue_number=_pipeline.issue_number,
                         review_cycle=_review_cycle + 1,
                         prior_feedback=_review_feedback,
+                        repo_path=str(_repo_path),
                     )
                     reviewer_command = [
                         "claude",

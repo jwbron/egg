@@ -283,38 +283,32 @@ class TestReadSharedCriteriaEdgeCases:
 
     def test_docker_path_fallback(self):
         """Falls through to Docker path when source tree path doesn't exist."""
-        # Patch the source tree path to not exist, and Docker path to exist
-        with tempfile.TemporaryDirectory() as tmpdir:
-            docker_file = Path(tmpdir) / "test-criteria.md"
-            docker_file.write_text("## Docker Path Content")
+        docker_content = "## Docker Path Content"
+        original_is_file = Path.is_file
+        original_read_text = Path.read_text
 
-            with patch.object(Path, "is_file", wraps=lambda self: False):
-                # This patches all is_file calls, so we need a more targeted approach
-                pass
+        def mock_is_file(self):
+            s = str(self)
+            # Block source tree match for our test file
+            if s.endswith("shared/prompts/docker-only-test.md"):
+                return False
+            # Simulate Docker path existing
+            if s == "/app/prompts/docker-only-test.md":
+                return True
+            return original_is_file(self)
 
-            # Instead, patch the specific paths
-            original_is_file = Path.is_file
+        def mock_read_text(self, *args, **kwargs):
+            if str(self) == "/app/prompts/docker-only-test.md":
+                return docker_content
+            return original_read_text(self, *args, **kwargs)
 
-            def patched_is_file(self):
-                path_str = str(self)
-                if "shared/prompts/docker-test.md" in path_str:
-                    return False
-                if path_str == str(docker_file):
-                    return True
-                return original_is_file(self)
+        with patch.object(Path, "is_file", mock_is_file), \
+             patch.object(Path, "read_text", mock_read_text):
+            content = _read_shared_criteria("docker-only-test.md")
+            assert content == docker_content
 
-            with patch.object(Path, "is_file", patched_is_file):
-                with patch("routes.pipelines.Path") as _MockPath:
-                    # This gets complex; instead test that None is returned
-                    # when both source tree and docker paths miss
-                    pass
-
-        # Simpler: verify that a non-existent file returns None
-        content = _read_shared_criteria("definitely-does-not-exist.md")
-        assert content is None
-
-    def test_empty_override_file_returns_empty_string(self):
-        """An existing but empty override file returns empty string (not None)."""
+    def test_empty_override_file_is_ignored(self):
+        """An existing but empty override file is skipped (falls through to shared)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             egg_dir = Path(tmpdir) / ".egg"
             egg_dir.mkdir()
@@ -325,8 +319,9 @@ class TestReadSharedCriteriaEdgeCases:
                 user_override="review-rules.md",
                 repo_path=tmpdir,
             )
-            # Empty string is returned (truthy check: "" is not None)
-            assert content == ""
+            # Empty override is treated as absent; falls through to shared file
+            assert content is not None
+            assert "Security" in content
 
     def test_autofix_prompt_falls_back_when_shared_missing(self):
         """_build_autofix_prompt uses inline fallback when shared file is missing."""
