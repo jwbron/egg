@@ -79,10 +79,22 @@ class TestCIWorkflowConsistency:
         with open(REPO_ROOT / ".github" / "workflows" / "test.yml") as f:
             return yaml.safe_load(f)
 
+    def _get_unit_test_run_cmd(self):
+        """Find the 'Run unit tests' step by name rather than by index."""
+        wf = self._load_test_workflow()
+        run_cmd = next(
+            (s["run"] for s in wf["jobs"]["unit"]["steps"]
+             if s.get("name") == "Run unit tests"),
+            None,
+        )
+        assert run_cmd is not None, (
+            "No step named 'Run unit tests' found in unit job"
+        )
+        return run_cmd
+
     def test_unit_job_runs_all_test_directories(self):
         """The unit test command must include tests/, gateway/tests/, and orchestrator/tests/."""
-        wf = self._load_test_workflow()
-        run_cmd = wf["jobs"]["unit"]["steps"][-1]["run"]
+        run_cmd = self._get_unit_test_run_cmd()
 
         for test_dir in ["tests/", "gateway/tests/", "orchestrator/tests/"]:
             assert test_dir in run_cmd, (
@@ -91,8 +103,7 @@ class TestCIWorkflowConsistency:
 
     def test_unit_job_pythonpath_includes_orchestrator(self):
         """PYTHONPATH must include orchestrator for import resolution."""
-        wf = self._load_test_workflow()
-        run_cmd = wf["jobs"]["unit"]["steps"][-1]["run"]
+        run_cmd = self._get_unit_test_run_cmd()
 
         assert "orchestrator" in run_cmd.split("PYTHONPATH=")[1].split()[0], (
             "orchestrator not in PYTHONPATH for unit tests"
@@ -125,13 +136,15 @@ class TestDocumentationConsistency:
         """Makefile help text for bandit must include orchestrator."""
         content = (REPO_ROOT / "Makefile").read_text()
         # Find the bandit help line
+        import pytest
+
         for line in content.splitlines():
             if "bandit" in line and "-r" in line:
                 assert "orchestrator" in line, (
                     f"Makefile bandit help line does not include orchestrator: {line}"
                 )
                 return
-        # If no bandit line found in Makefile, that's also fine (not all Makefiles have it)
+        pytest.fail("No bandit -r line found in Makefile")
 
 
 class TestMypyOverrides:

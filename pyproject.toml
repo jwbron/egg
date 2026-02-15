@@ -130,7 +130,7 @@ testpaths = ["tests", "gateway/tests", "orchestrator/tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "-v --tb=short --cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing"
+addopts = "-v --tb=short"
 filterwarnings = ["ignore::DeprecationWarning"]
 markers = [
     "integration: marks tests as integration tests (require Docker, may be slow)",
