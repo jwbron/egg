@@ -17,6 +17,9 @@ set -euo pipefail
 
 # ---------------------------------------------------------------------------
 # Fetch agent-design criteria (or use defaults)
+#
+# Note: No .egg/ user override for agent-design criteria — these are
+# platform-level invariants, not per-repo customisable rules.
 # ---------------------------------------------------------------------------
 
 fetch_agent_design_criteria() {

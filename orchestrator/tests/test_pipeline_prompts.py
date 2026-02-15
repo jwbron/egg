@@ -283,38 +283,38 @@ class TestReadSharedCriteriaEdgeCases:
 
     def test_docker_path_fallback(self):
         """Falls through to Docker path when source tree path doesn't exist."""
-        # Patch the source tree path to not exist, and Docker path to exist
         with tempfile.TemporaryDirectory() as tmpdir:
-            docker_file = Path(tmpdir) / "test-criteria.md"
+            # Simulate a Docker container layout
+            docker_file = Path(tmpdir) / "fallback-test.md"
             docker_file.write_text("## Docker Path Content")
 
-            with patch.object(Path, "is_file", wraps=lambda self: False):
-                # This patches all is_file calls, so we need a more targeted approach
-                pass
-
-            # Instead, patch the specific paths
             original_is_file = Path.is_file
+            original_read_text = Path.read_text
 
             def patched_is_file(self):
-                path_str = str(self)
-                if "shared/prompts/docker-test.md" in path_str:
+                s = str(self)
+                # Block source tree path
+                if "shared/prompts/fallback-test.md" in s:
                     return False
-                if path_str == str(docker_file):
-                    return True
+                # Redirect Docker path check to our temp file
+                if s == "/app/prompts/fallback-test.md":
+                    return original_is_file(docker_file)
                 return original_is_file(self)
 
-            with patch.object(Path, "is_file", patched_is_file):
-                with patch("routes.pipelines.Path") as _MockPath:
-                    # This gets complex; instead test that None is returned
-                    # when both source tree and docker paths miss
-                    pass
+            def patched_read_text(self, *args, **kwargs):
+                if str(self) == "/app/prompts/fallback-test.md":
+                    return original_read_text(docker_file, *args, **kwargs)
+                return original_read_text(self, *args, **kwargs)
 
-        # Simpler: verify that a non-existent file returns None
-        content = _read_shared_criteria("definitely-does-not-exist.md")
-        assert content is None
+            with (
+                patch.object(Path, "is_file", patched_is_file),
+                patch.object(Path, "read_text", patched_read_text),
+            ):
+                content = _read_shared_criteria("fallback-test.md")
+                assert content == "## Docker Path Content"
 
-    def test_empty_override_file_returns_empty_string(self):
-        """An existing but empty override file returns empty string (not None)."""
+    def test_empty_override_file_falls_through_to_default(self):
+        """An existing but empty override file is ignored (falls through to defaults)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             egg_dir = Path(tmpdir) / ".egg"
             egg_dir.mkdir()
@@ -325,8 +325,9 @@ class TestReadSharedCriteriaEdgeCases:
                 user_override="review-rules.md",
                 repo_path=tmpdir,
             )
-            # Empty string is returned (truthy check: "" is not None)
-            assert content == ""
+            # Empty override is skipped; shared file content is returned instead
+            assert content is not None
+            assert len(content) > 0
 
     def test_autofix_prompt_falls_back_when_shared_missing(self):
         """_build_autofix_prompt uses inline fallback when shared file is missing."""
