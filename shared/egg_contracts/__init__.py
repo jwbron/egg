@@ -69,6 +69,7 @@ from .agent_roles import (
     create_execution_for_role,
     detect_write_overlaps,
     get_all_roles,
+    get_effective_roles_for_phase,
     get_role_definition,
     get_role_dependencies,
     get_roles_for_phase,
@@ -360,6 +361,7 @@ __all__ = [
     "get_all_roles",
     "get_role_definition",
     "get_role_dependencies",
+    "get_effective_roles_for_phase",
     "get_roles_for_phase",
     # Orchestration
     "AgentHandoff",

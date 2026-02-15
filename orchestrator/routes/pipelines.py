@@ -1811,11 +1811,10 @@ def _run_phase_workers(
     # Get pipeline mode
     pipeline_mode = pipeline.mode or "issue"
 
-    # Determine whether to use the full multi-agent role set
-    multi_agent = pipeline.config.multi_agent and phase in {"implement", "plan"}
-
-    # Build agent-specific prompts for all roles in this phase
-    roles = get_effective_roles_for_phase(phase, multi_agent=multi_agent, include_reviewers=False)
+    # Build agent-specific prompts for all roles in this phase.
+    # get_effective_roles_for_phase is the single authority on which phases
+    # support multi-agent — pass the raw config flag and let it decide.
+    roles = get_effective_roles_for_phase(phase, multi_agent=pipeline.config.multi_agent, include_reviewers=False)
     agent_prompts_by_role: dict = {}
     for contract_role in roles:
         role_str = contract_role.value
@@ -1927,9 +1926,10 @@ def _run_phase_workers(
     if has_failures:
         return 1, combined_logs
 
-    # After successful multi-agent plan phase, synthesize a plan draft
-    # from agent outputs so _populate_contract_from_plan() and the HITL
-    # gate can find it.
+    # After successful plan phase, synthesize a plan draft from agent
+    # outputs so _populate_contract_from_plan() and the HITL gate can
+    # find it.  In single-agent mode this early-returns if the draft
+    # already exists.
     if phase == "plan":
         _synthesize_plan_draft(
             worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number

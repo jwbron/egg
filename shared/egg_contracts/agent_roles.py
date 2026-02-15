@@ -827,7 +827,10 @@ def get_effective_roles_for_phase(
     if use_full_roles:
         result = list(_PHASE_ROLES[phase])
     else:
-        result = [_PHASE_PRIMARY_ROLES[phase]]
+        primary = _PHASE_PRIMARY_ROLES.get(phase)
+        if primary is None:
+            raise ValueError(f"No primary role defined for phase: {phase}")
+        result = [primary]
 
     if include_reviewers:
         result.extend(_PHASE_REVIEWERS.get(phase, []))
