@@ -54,7 +54,7 @@ build_user_filter() {
     # Validate usernames before interpolating into jq expressions (defense-in-depth)
     local parts=()
     for user in "${users[@]}"; do
-        if [[ ! "$user" =~ ^[a-zA-Z0-9\[\]-]+$ ]]; then
+        if [[ ! "$user" =~ ^[][a-zA-Z0-9-]+$ ]]; then
             echo "Warning: skipping invalid username '${user}'" >&2
             continue
         fi
