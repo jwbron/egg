@@ -34,6 +34,26 @@
           "exit_code": 0,
           "agent_role": "refiner",
           "session_token": null
+        },
+        {
+          "container_id": "cd50b8fa9436781f7846585f7b086bbd67626eba73f8c46c08c8a9277419a25d",
+          "container_name": "egg-sandbox-egg-issue-647-reviewer_agent_design",
+          "status": "running",
+          "started_at": "2026-02-15T18:37:16.312043",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_agent_design",
+          "session_token": null
+        },
+        {
+          "container_id": "89154bf90e3b41e7c72b85f559bdfbb30f901069aa699cac0887330291a58a9e",
+          "container_name": "egg-sandbox-egg-issue-647-reviewer_refine",
+          "status": "running",
+          "started_at": "2026-02-15T18:37:16.314209",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_refine",
+          "session_token": null
         }
       ],
       "agents": [
@@ -43,6 +63,30 @@
           "container_id": "8aba3dc0887eab3926becbabf887533abb0dda420a748b612c70663ef0dd3e43",
           "started_at": "2026-02-15T18:31:23.895255",
           "completed_at": "2026-02-15T18:37:14.615930",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_agent_design",
+          "status": "running",
+          "container_id": "cd50b8fa9436781f7846585f7b086bbd67626eba73f8c46c08c8a9277419a25d",
+          "started_at": "2026-02-15T18:37:16.312052",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_refine",
+          "status": "running",
+          "container_id": "89154bf90e3b41e7c72b85f559bdfbb30f901069aa699cac0887330291a58a9e",
+          "started_at": "2026-02-15T18:37:16.314214",
+          "completed_at": null,
           "commit": null,
           "outputs": {},
           "error": null,
@@ -58,9 +102,9 @@
   },
   "decisions": [],
   "created_at": "2026-02-15T18:31:23.117468",
-  "updated_at": "2026-02-15T18:37:14.616014",
+  "updated_at": "2026-02-15T18:37:16.314271",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 8
+  "version": 10
 }
