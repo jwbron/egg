@@ -92,6 +92,36 @@ class TestShortCircuitSignalParsing:
 
         assert _check_short_circuit_signal(tmp_path, "issue", issue_number=42) is True
 
+    def test_only_checks_last_yaml_block(self, tmp_path: Path):
+        """Only the last YAML block is checked, not earlier ones."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        # First YAML block has signal, last one does not → should return False
+        (drafts / "42-analysis.md").write_text(
+            "# Analysis\n\n"
+            "Here is an example metadata block:\n"
+            "```yaml\nshort_circuit: true\ncomplexity: low\n```\n\n"
+            "## Conclusion\n\n"
+            "```yaml\n# metadata\ncomplexity: high\n```\n",
+            encoding="utf-8",
+        )
+
+        assert _check_short_circuit_signal(tmp_path, "issue", issue_number=42) is False
+
+    def test_signal_in_last_of_multiple_yaml_blocks(self, tmp_path: Path):
+        """Signal in the last YAML block is detected even with earlier blocks."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "42-analysis.md").write_text(
+            "# Analysis\n\n"
+            "```yaml\nphases:\n  - id: 1\n```\n\n"
+            "## Metadata\n\n"
+            "```yaml\n# metadata\nshort_circuit: true\ncomplexity: low\n```\n",
+            encoding="utf-8",
+        )
+
+        assert _check_short_circuit_signal(tmp_path, "issue", issue_number=42) is True
+
 
 class TestShortCircuitModel:
     """Tests for Pipeline.short_circuit field and PipelineConfig.allow_short_circuit."""
@@ -212,3 +242,109 @@ class TestShortCircuitPrompt:
         assert "Complexity Assessment" in result
         assert "short_circuit: true" in result
         assert "complexity: low" in result
+
+
+class TestShortCircuitHITLRevision:
+    """Tests for short-circuit flag being correctly reset after HITL revision."""
+
+    def test_revised_analysis_without_signal_clears_short_circuit(self, tmp_path: Path):
+        """After HITL revision removes signal, re-check should return False."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        # First pass: analysis has short-circuit signal
+        (drafts / "42-analysis.md").write_text(
+            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity: low\n```\n",
+            encoding="utf-8",
+        )
+        assert _check_short_circuit_signal(tmp_path, "issue", issue_number=42) is True
+
+        # Simulate HITL revision: human elevates complexity, agent rewrites analysis
+        (drafts / "42-analysis.md").write_text(
+            "# Analysis (revised)\n\nThis is actually complex.\n\n"
+            "```yaml\n# metadata\ncomplexity: high\n```\n",
+            encoding="utf-8",
+        )
+        # The pipeline runner resets pipeline.short_circuit = False before re-check.
+        # Verify that re-checking the revised analysis returns False.
+        assert _check_short_circuit_signal(tmp_path, "issue", issue_number=42) is False
+
+    def test_revised_analysis_with_signal_keeps_short_circuit(self, tmp_path: Path):
+        """After HITL revision that keeps signal, re-check should still return True."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        (drafts / "42-analysis.md").write_text(
+            "# Analysis (revised)\n\nStill simple.\n\n"
+            "```yaml\n# metadata\nshort_circuit: true\ncomplexity: low\n```\n",
+            encoding="utf-8",
+        )
+        assert _check_short_circuit_signal(tmp_path, "issue", issue_number=42) is True
+
+    def test_pipeline_short_circuit_reset_before_recheck(self, tmp_path: Path):
+        """Simulates the reset-before-recheck pattern used in the pipeline runner."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        pipeline = Pipeline(id="test-1", short_circuit=True)
+
+        # HITL revision produces analysis without signal
+        (drafts / "42-analysis.md").write_text(
+            "# Revised Analysis\n\nComplex task requiring plan.\n",
+            encoding="utf-8",
+        )
+
+        # Simulate the runner's reset-before-recheck pattern
+        pipeline.short_circuit = False
+        if _check_short_circuit_signal(tmp_path, "issue", issue_number=42):
+            pipeline.short_circuit = True
+
+        assert pipeline.short_circuit is False
+
+
+class TestShortCircuitConfigSuppression:
+    """Tests for allow_short_circuit=False suppressing signal detection."""
+
+    def test_signal_ignored_when_config_disallows(self, tmp_path: Path):
+        """When allow_short_circuit=False, signal should not activate short-circuit."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "42-analysis.md").write_text(
+            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity: low\n```\n",
+            encoding="utf-8",
+        )
+
+        pipeline = Pipeline(
+            id="test-1",
+            config=PipelineConfig(allow_short_circuit=False),
+        )
+
+        # Simulate the runner's guard: only check signal if config allows
+        if pipeline.config.allow_short_circuit:
+            pipeline.short_circuit = False
+            if _check_short_circuit_signal(tmp_path, "issue", issue_number=42):
+                pipeline.short_circuit = True
+
+        assert pipeline.short_circuit is False
+
+    def test_signal_detected_when_config_allows(self, tmp_path: Path):
+        """When allow_short_circuit=True (default), signal activates short-circuit."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "42-analysis.md").write_text(
+            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity: low\n```\n",
+            encoding="utf-8",
+        )
+
+        pipeline = Pipeline(
+            id="test-1",
+            config=PipelineConfig(allow_short_circuit=True),
+        )
+
+        # Simulate the runner's guard
+        if pipeline.config.allow_short_circuit:
+            pipeline.short_circuit = False
+            if _check_short_circuit_signal(tmp_path, "issue", issue_number=42):
+                pipeline.short_circuit = True
+
+        assert pipeline.short_circuit is True

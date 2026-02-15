@@ -47,7 +47,13 @@ except ImportError:
     from container_spawner import ContainerSpawnError, get_container_spawner  # type: ignore
     from decision_queue import DecisionTimeoutError, get_decision_queue  # type: ignore
     from docker_client import DockerClientError  # type: ignore
-    from models import AgentRole, Pipeline, PipelinePhase, PipelineStatus, ReviewVerdict  # type: ignore
+    from models import (  # type: ignore
+        AgentRole,
+        Pipeline,
+        PipelinePhase,
+        PipelineStatus,
+        ReviewVerdict,
+    )
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -1124,22 +1130,29 @@ def _check_short_circuit_signal(
 ) -> bool:
     """Check the refine analysis draft for a short-circuit signal.
 
-    Looks for a fenced YAML block containing ``short_circuit: true``
-    at the end of the analysis.  Returns True if found.
+    Looks for the *last* fenced YAML block containing ``short_circuit: true``
+    in the analysis.  Returns True if found.
     """
-    content = _read_phase_draft(repo_path, "refine", pipeline_mode, issue_number, pipeline_id)
-    if content.startswith("("):
-        # Draft not found or empty
+    draft_rel = _get_draft_path("refine", pipeline_mode, issue_number, pipeline_id)
+    if not draft_rel:
+        return False
+    draft_path = repo_path / draft_rel
+    if not draft_path.exists():
+        return False
+    content = draft_path.read_text(encoding="utf-8")
+    if not content.strip():
         return False
 
-    # Look for a fenced YAML block containing short_circuit: true
-    # Pattern: ```yaml ... short_circuit: true ... ```
+    # Look for a fenced YAML block containing short_circuit: true.
+    # Only the *last* YAML block is checked to avoid false positives from
+    # example/quoted YAML earlier in the document.  The refine prompt
+    # instructs the LLM to place the metadata block at the very end.
     yaml_block_pattern = re.compile(
         r"```ya?ml\s*\n(.*?)```", re.DOTALL
     )
-    for match in yaml_block_pattern.finditer(content):
-        block = match.group(1)
-        # Check for short_circuit: true (with optional comment line)
+    matches = list(yaml_block_pattern.finditer(content))
+    if matches:
+        block = matches[-1].group(1)
         if re.search(r"^\s*short_circuit\s*:\s*true\s*$", block, re.MULTILINE):
             return True
 
@@ -3554,8 +3567,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             phase_execution.status = PipelineStatus.COMPLETE
             phase_execution.completed_at = datetime.utcnow()
 
-            # Check for short-circuit signal after refine phase
+            # Check for short-circuit signal after refine phase.
+            # Reset first so a HITL revision that removes the signal
+            # correctly clears a previously-detected short-circuit.
             if current_phase.value == "refine" and pipeline.config.allow_short_circuit:
+                pipeline.short_circuit = False
                 if _check_short_circuit_signal(
                     worktree_repo_path, pipeline_mode,
                     pipeline.issue_number, pipeline_id,
@@ -3574,6 +3590,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             _emit_pipeline_event(pipeline, "phase.completed")
 
             # After plan phase: populate contract with task structure.
+            # NOTE: In short-circuit mode the plan phase is skipped, so the
+            # contract will have no task structure.  This is intentional —
+            # low-complexity tasks go straight to implement with only the
+            # refine analysis as guidance.  The implement agent does not
+            # require a populated contract to function.
             # NOTE: worktree_repo_path is used for both draft reads and
             # contract load/save inside _populate_contract_from_plan.
             # The contract was created at worktree_repo_path above, so
@@ -3763,13 +3784,20 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # Determine next phase
             next_phases = transitions.get(current_phase, [])
 
-            # Short-circuit: skip PLAN phase, advance directly to IMPLEMENT
+            # Short-circuit: skip PLAN phase, advance directly to IMPLEMENT.
+            # The transition table in phases.py allows REFINE → IMPLEMENT for
+            # the external validation API, but the internal runner uses this
+            # manual override to select the next phase.  Both must stay in sync.
             if pipeline.short_circuit and current_phase.value == "refine":
                 next_phases = [PipelinePhase.IMPLEMENT]
-                # Mark plan phase as skipped
+                # Mark plan phase as completed-but-skipped.  We use
+                # PipelineStatus.COMPLETE (no SKIPPED status exists) and
+                # record a note in the error field so dashboards/audits can
+                # distinguish a skipped plan from one that actually ran.
                 plan_execution = pipeline.get_phase_execution(PipelinePhase.PLAN)
                 plan_execution.status = PipelineStatus.COMPLETE
                 plan_execution.completed_at = datetime.utcnow()
+                plan_execution.error = "skipped: short-circuit"
                 logger.info("Skipping plan phase (short-circuit)", pipeline_id=pipeline_id)
 
             if not next_phases:
