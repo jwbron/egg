@@ -24,7 +24,7 @@ egg/
 
 | Directory | Purpose | Runs In |
 |-----------|---------|---------|
-| `bin/` | CLI entry points (`egg`, `setup-gateway`) | Host |
+| `bin/` | CLI entry points (`egg`, `egg-sdlc`, `setup-gateway`) | Host |
 | `config/` | Repository config, secrets template | Host |
 | `gateway/` | Gateway sidecar: policy enforcement, credential injection, proxying | Gateway container |
 | `integration_tests/` | Integration tests requiring Docker and real containers | CI / local |
@@ -166,9 +166,14 @@ shared/
 │   ├── agent_recovery.py   # Failed agent recovery logic
 │   ├── checkpoints.py      # Checkpoint data models
 │   ├── checkpoint_loader.py # Checkpoint storage and retrieval
-│   ├── checkpoint_cli.py   # Checkpoint browsing CLI
+│   ├── checkpoint_cli.py   # Checkpoint browsing CLI (list, show, browse)
 │   ├── transcript_extractor.py # API transcript extraction
 │   └── redactor.py         # Sensitive data redaction for checkpoints
+├── prompts/                # Shared prompt criteria (used by GHA scripts AND orchestrator)
+│   ├── agent-design-criteria.md  # Agent-mode design review criteria
+│   ├── autofixer-rules.md        # Autofixer auto-fix vs report-only rules
+│   ├── code-review-criteria.md   # Code review security/correctness criteria
+│   └── contract-review-criteria.md # Contract verification rules
 ├── egg_git/                # Git utilities
 ├── egg_logging/            # Structured logging
 └── egg_orchestrator/       # Orchestrator integration layer
@@ -229,6 +234,9 @@ integration_tests/
 
 ```
 tests/
+├── action/                        # GitHub Action prompt builder tests
+│   ├── test_build_agent_mode_design_review_prompt.py
+│   └── test_build_review_prompt.py
 ├── sandbox/                       # Sandbox component tests
 │   ├── test_contract_cli.py       # Contract CLI tests
 │   └── ...
@@ -241,7 +249,6 @@ tests/
 │       ├── test_phase_defaults.py # Phase default configuration tests
 │       ├── test_deployment_config.py # Deployment configuration tests
 │       ├── test_agent_recovery.py # Agent recovery and circuit breaker tests
-│       ├── test_checkpoints.py    # Checkpoint model tests
 │       ├── test_redactor.py       # Redactor tests for sensitive data masking
 │       └── test_transcript_extractor.py # Transcript extraction tests
 └── workflows/                     # Workflow integration tests
