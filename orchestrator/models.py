@@ -211,6 +211,9 @@ class PipelineConfig(BaseModel):
     hitl_gates: bool = Field(
         default=True, description="Pause for human approval after refine and plan phases"
     )
+    allow_short_circuit: bool = Field(
+        default=True, description="Allow refine agent to skip plan phase for low-complexity tasks"
+    )
 
 
 class Pipeline(BaseModel):
@@ -245,6 +248,9 @@ class Pipeline(BaseModel):
     network_mode: str | None = Field(
         default=None,
         description="Network mode for spawned containers: 'public', 'private', or None (auto from pipeline mode)",
+    )
+    short_circuit: bool = Field(
+        default=False, description="Skip plan phase (refine → implement) for low-complexity tasks"
     )
     error: str | None = Field(default=None, description="Error if failed")
     version: int = Field(
