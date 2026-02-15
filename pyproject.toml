@@ -27,6 +27,7 @@ dev = [
     "pre-commit>=3.6.0",
     "pytest-timeout>=2.2.0",
     "hypothesis>=6.100.0",
+    "docker>=7.0.0",
     # Type stubs
     "types-PyYAML>=6.0",
     "types-requests>=2.31",
