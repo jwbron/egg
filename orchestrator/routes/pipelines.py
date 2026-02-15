@@ -864,6 +864,36 @@ def _get_refine_review_criteria() -> str:
     )
 
 
+def _get_plan_review_criteria() -> str:
+    """Return review criteria for the dedicated plan reviewer."""
+    return (
+        "### 1. Task Breakdown\n"
+        "- Are tasks discrete, actionable, and properly scoped?\n"
+        "- Is each task small enough to implement in a single pass?\n"
+        "- Are task boundaries clear (no overlapping responsibilities)?\n\n"
+        "### 2. Acceptance Criteria\n"
+        "- Does each task have clear, testable acceptance criteria?\n"
+        "- Are criteria specific enough to verify completion?\n"
+        "- Do criteria cover both happy path and edge cases?\n\n"
+        "### 3. Dependency Ordering\n"
+        "- Are task dependencies correctly identified?\n"
+        "- Is the ordering logical (foundations before features)?\n"
+        "- Are there opportunities for parallelism that are missed?\n\n"
+        "### 4. Risk Assessment\n"
+        "- Are technical risks identified (security, performance, compatibility)?\n"
+        "- Are mitigation strategies concrete and actionable?\n"
+        "- Is the rollback plan realistic?\n\n"
+        "### 5. Test Strategy\n"
+        "- Is the test strategy appropriate for the scope of changes?\n"
+        "- Are both unit and integration tests considered?\n"
+        "- Are test scenarios aligned with acceptance criteria?\n\n"
+        "### 6. Completeness\n"
+        "- Does the plan cover all aspects of the original request?\n"
+        "- Are documentation updates included where needed?\n"
+        "- Are there any obvious gaps or missing tasks?\n"
+    )
+
+
 def _get_review_criteria_for_type(reviewer_type: str, phase: str) -> str:
     """Dispatch to the correct criteria function based on reviewer type."""
     if reviewer_type == "unified":
@@ -876,6 +906,8 @@ def _get_review_criteria_for_type(reviewer_type: str, phase: str) -> str:
         return _get_contract_review_criteria()
     elif reviewer_type == "refine":
         return _get_refine_review_criteria()
+    elif reviewer_type == "plan":
+        return _get_plan_review_criteria()
     else:
         return _get_unified_criteria(phase)
 
@@ -909,6 +941,13 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
             "of the analysis produced during the refine phase. Evaluate problem "
             "understanding, codebase research, options analysis, and the recommended "
             "approach. Agent-mode design alignment is handled by another reviewer."
+        )
+    elif reviewer_type == "plan":
+        return (
+            "This is a **plan phase review**. Focus on the quality and completeness "
+            "of the implementation plan. Evaluate task breakdown, acceptance criteria, "
+            "dependency ordering, risk assessment, and test strategy. Agent-mode "
+            "design alignment is handled by another reviewer."
         )
     return ""
 

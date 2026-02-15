@@ -50,6 +50,7 @@ class AgentRole:
     REVIEWER_CONTRACT = "reviewer_contract"
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
+    REVIEWER_PLAN = "reviewer_plan"
 
 
 @dataclass
@@ -448,6 +449,13 @@ REVIEWER_REFINE_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
+REVIEWER_PLAN_PATTERNS = AgentFilePattern(
+    role=AgentRole.REVIEWER_PLAN,
+    description="Plan reviewer agent: reviews and agent-outputs only",
+    allowed_patterns=_REVIEWER_ALLOWED,
+    blocked_patterns=_REVIEWER_BLOCKED,
+)
+
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.CODER: CODER_PATTERNS,
@@ -463,6 +471,7 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_PATTERNS,
     AgentRole.REFINER: REFINER_PATTERNS,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
+    AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
 }
 
 

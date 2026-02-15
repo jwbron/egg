@@ -287,3 +287,38 @@ class TestReviewerRefinePatterns:
         pattern = get_agent_pattern("reviewer_refine")
         assert pattern is not None
         assert not pattern.can_write(".egg-state/drafts/analysis.md")
+
+
+class TestReviewerPlanPatterns:
+    """Test REVIEWER_PLAN_PATTERNS can_write enforcement at the gateway level."""
+
+    def test_reviewer_plan_can_write_reviews(self):
+        """Reviewer plan should be able to write to reviews directory."""
+        pattern = get_agent_pattern("reviewer_plan")
+        assert pattern is not None
+        assert pattern.can_write(".egg-state/reviews/plan-review.md")
+
+    def test_reviewer_plan_can_write_agent_outputs(self):
+        """Reviewer plan should be able to write to agent-outputs."""
+        pattern = get_agent_pattern("reviewer_plan")
+        assert pattern is not None
+        assert pattern.can_write(".egg-state/agent-outputs/review-output.json")
+
+    def test_reviewer_plan_blocked_from_source(self):
+        """Reviewer plan should not write to source directories."""
+        pattern = get_agent_pattern("reviewer_plan")
+        assert pattern is not None
+        assert not pattern.can_write("src/module.py")
+        assert not pattern.can_write("lib/utils.ts")
+
+    def test_reviewer_plan_blocked_from_contracts(self):
+        """Reviewer plan should not write to contracts."""
+        pattern = get_agent_pattern("reviewer_plan")
+        assert pattern is not None
+        assert not pattern.can_write(".egg-state/contracts/123.json")
+
+    def test_reviewer_plan_blocked_from_drafts(self):
+        """Reviewer plan should not write to drafts."""
+        pattern = get_agent_pattern("reviewer_plan")
+        assert pattern is not None
+        assert not pattern.can_write(".egg-state/drafts/plan.md")

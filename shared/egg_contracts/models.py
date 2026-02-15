@@ -329,6 +329,7 @@ class AgentRoleType(StrEnum):
     REVIEWER_CONTRACT = "reviewer_contract"
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
+    REVIEWER_PLAN = "reviewer_plan"
 
 
 class AgentExecutionModel(BaseModel):

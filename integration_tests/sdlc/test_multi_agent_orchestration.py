@@ -35,7 +35,7 @@ class TestDependencyGraph:
     def test_build_graph_all_roles(self):
         """Build graph includes all agent roles."""
         graph = build_dependency_graph()
-        assert len(graph.nodes) == 13
+        assert len(graph.nodes) == 14
         assert AgentRole.CODER in graph.nodes
         assert AgentRole.TESTER in graph.nodes
         assert AgentRole.DOCUMENTER in graph.nodes
@@ -544,6 +544,31 @@ class TestPlanPhaseRoles:
         assert AgentRole.REVIEWER_UNIFIED in roles
         assert AgentRole.REVIEWER_CODE in roles
 
+    def test_get_plan_roles_with_reviewers(self):
+        """Get plan roles with reviewers included."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("plan", include_reviewers=True)
+        assert len(roles) == 6  # 3 plan + 3 reviewers
+        assert AgentRole.ARCHITECT in roles
+        assert AgentRole.TASK_PLANNER in roles
+        assert AgentRole.RISK_ANALYST in roles
+        assert AgentRole.REVIEWER_UNIFIED in roles
+        assert AgentRole.REVIEWER_AGENT_DESIGN in roles
+        assert AgentRole.REVIEWER_PLAN in roles
+
+    def test_reviewer_plan_role_definition(self):
+        """Reviewer plan role has correct properties."""
+        from egg_contracts.agent_roles import get_role_definition
+
+        role_def = get_role_definition(AgentRole.REVIEWER_PLAN)
+        assert role_def.role == AgentRole.REVIEWER_PLAN
+        assert AgentRole.TASK_PLANNER in role_def.dependencies
+        assert AgentRole.RISK_ANALYST in role_def.dependencies
+        assert ".egg-state/reviews/" in role_def.file_access.allowed_write
+        assert role_def.file_access.can_write(".egg-state/reviews/verdict.json")
+        assert not role_def.file_access.can_write("src/main.py")
+
 
 class TestRefinePhaseRoles:
     """Tests for refine-phase agent roles."""
@@ -632,6 +657,7 @@ class TestReviewerRoles:
             AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,
             AgentRole.REVIEWER_REFINE,
+            AgentRole.REVIEWER_PLAN,
         ]:
             role_def = get_role_definition(role)
             # Reviewers can write to reviews and agent-outputs only
@@ -684,7 +710,7 @@ class TestMultiAgentConfig:
         config = MultiAgentConfig()
         assert config.enabled is True
         assert config.parallel_execution is True
-        assert len(config.roles_enabled) == 13  # All roles
+        assert len(config.roles_enabled) == 14  # All roles
         assert len(config.phase_overrides) == 0
 
     def test_phase_override(self):
