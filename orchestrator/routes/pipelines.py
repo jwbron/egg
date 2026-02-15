@@ -3560,11 +3560,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase=current_phase.value,
                         review_cycle=review_cycle + 1,
                     )
-                    pipeline = store.load_pipeline(pipeline_id)
-                    phase_execution = pipeline.get_phase_execution(current_phase)
-                    if phase_execution.cycle_timings:
-                        phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
-                        store.save_pipeline(pipeline)
+                    with get_pipeline_state_lock(pipeline_id):
+                        pipeline = store.load_pipeline(pipeline_id)
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        if phase_execution.cycle_timings:
+                            phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
+                            store.save_pipeline(pipeline)
                     break  # Advance to next phase
 
                 # needs_revision — check circuit breaker
@@ -3577,11 +3578,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         review_cycles=review_cycle + 1,
                         max_review_cycles=max_cycles,
                     )
-                    pipeline = store.load_pipeline(pipeline_id)
-                    phase_execution = pipeline.get_phase_execution(current_phase)
-                    if phase_execution.cycle_timings:
-                        phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
-                        store.save_pipeline(pipeline)
+                    with get_pipeline_state_lock(pipeline_id):
+                        pipeline = store.load_pipeline(pipeline_id)
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        if phase_execution.cycle_timings:
+                            phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
+                            store.save_pipeline(pipeline)
                     break
 
                 # Store feedback and loop — close current cycle timing
@@ -3838,16 +3840,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # The transition table in phases.py allows REFINE → IMPLEMENT for
             # the external validation API, but the internal runner uses this
             # manual override to select the next phase.  Both must stay in sync.
-            if pipeline.short_circuit and current_phase.value == "refine":
+            skip_plan = pipeline.short_circuit and current_phase.value == "refine"
+            if skip_plan:
                 next_phases = [PipelinePhase.IMPLEMENT]
-                # Mark plan phase as completed-but-skipped.  We use
-                # PipelineStatus.COMPLETE (no SKIPPED status exists) and
-                # record a note in the error field so dashboards/audits can
-                # distinguish a skipped plan from one that actually ran.
-                plan_execution = pipeline.get_phase_execution(PipelinePhase.PLAN)
-                plan_execution.status = PipelineStatus.COMPLETE
-                plan_execution.completed_at = datetime.utcnow()
-                plan_execution.error = "skipped: short-circuit"
                 logger.info("Skipping plan phase (short-circuit)", pipeline_id=pipeline_id)
 
             if not next_phases:
@@ -3873,6 +3868,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             with get_pipeline_state_lock(pipeline_id):
                 pipeline = store.load_pipeline(pipeline_id)
                 pipeline.current_phase = next_phase
+                # Mark plan phase as completed-but-skipped.  We use
+                # PipelineStatus.COMPLETE (no SKIPPED status exists) and
+                # record a note in the error field so dashboards/audits can
+                # distinguish a skipped plan from one that actually ran.
+                if skip_plan:
+                    plan_execution = pipeline.get_phase_execution(PipelinePhase.PLAN)
+                    plan_execution.status = PipelineStatus.COMPLETE
+                    plan_execution.completed_at = datetime.utcnow()
+                    plan_execution.error = "skipped: short-circuit"
                 is_local = pipeline_mode == "local"
                 store.save_pipeline(pipeline, force_commit=is_local)
 

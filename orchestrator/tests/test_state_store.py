@@ -720,16 +720,20 @@ class TestUpdatePipelineDecisionRace:
     """
 
     def test_concurrent_update_does_not_overwrite_resolved_decision(self, state_store):
-        """True concurrent test: force interleaving via threading.Barrier.
+        """Verify the per-pipeline lock serializes update_pipeline and resolve_decision.
 
-        Reproduces the exact race from issue-647:
-        - Thread A: loads pipeline (stale), pauses, then saves (clobbering)
-        - Thread B: resolves decision (load → modify → save) while A is paused
+        We patch save_pipeline inside Thread A's update_pipeline to pause
+        just before writing, giving Thread B a window to call resolve_decision.
+        Because both acquire get_pipeline_state_lock, Thread B blocks until
+        Thread A releases the lock.  Thread B then loads fresh state (with
+        Thread A's changes) and resolves on top — both effects survive.
 
-        Without the lock, Thread A's save overwrites Thread B's resolution.
-        With the lock, Thread A blocks until Thread B completes.
+        If the lock were removed from update_pipeline, Thread B would complete
+        its resolve during Thread A's pause, and Thread A's subsequent save
+        would overwrite the resolution with stale data (the original bug).
         """
         import threading
+        import time
         from unittest.mock import patch as mock_patch
 
         from decision_queue import DecisionQueue
@@ -750,38 +754,38 @@ class TestUpdatePipelineDecisionRace:
                 options=["approve", "request changes"],
             )
 
-        # Barrier ensures both threads reach the critical section together.
-        # Thread A loads stale state, hits the barrier, then saves.
-        # Thread B resolves the decision (under lock) and hits the barrier.
-        barrier = threading.Barrier(2, timeout=5)
+        a_about_to_save = threading.Event()
         errors: list[Exception] = []
+        original_save = state_store.save_pipeline
 
-        original_load = state_store.load_pipeline
+        def delayed_save(pipeline, **kwargs):
+            """Pause before writing to widen the concurrency window.
 
-        def patched_load_for_update(pid):
-            """Intercept load inside update_pipeline to inject a pause."""
-            result = original_load(pid)
-            # Signal that we've loaded (stale) state, wait for Thread B
-            barrier.wait()
-            return result
+            Thread A holds the lock while sleeping.  Thread B attempts to
+            acquire the same lock during this window and blocks.  After the
+            sleep, Thread A saves and releases the lock, allowing Thread B
+            to load the fresh state.
+            """
+            a_about_to_save.set()
+            time.sleep(0.2)
+            original_save(pipeline, **kwargs)
 
         def thread_a_update():
-            """Simulate PATCH /pipelines — loads stale state, pauses, saves."""
+            """Simulate PATCH /pipelines — update_pipeline with delayed save."""
             try:
                 with mock_patch.object(
-                    state_store, "load_pipeline", side_effect=patched_load_for_update
+                    state_store, "save_pipeline", side_effect=delayed_save
                 ):
                     state_store.update_pipeline(pipeline_id, {"status": "awaiting_human"})
             except Exception as exc:
                 errors.append(exc)
 
         def thread_b_resolve():
-            """Simulate POST /decisions/resolve — resolves while A holds stale state."""
+            """Simulate POST /decisions/resolve — attempts during A's save window."""
             try:
+                a_about_to_save.wait(timeout=5)
                 with mock_patch("decision_queue.get_state_store", return_value=state_store):
                     dq_b = DecisionQueue(pipeline_id, state_store.repo_path)
-                    # Wait until Thread A has loaded stale state
-                    barrier.wait()
                     dq_b.resolve_decision("decision-1", "Approved")
             except Exception as exc:
                 errors.append(exc)
@@ -795,8 +799,11 @@ class TestUpdatePipelineDecisionRace:
 
         assert not errors, f"Thread errors: {errors}"
 
-        # The decision must still be RESOLVED — Thread A must not clobber it
+        # Both effects must be present: status update AND decision resolution
         final = state_store.load_pipeline(pipeline_id)
+        assert final.status.value == "awaiting_human", (
+            "Thread A's status update was lost"
+        )
         assert len(final.decisions) == 1
         assert final.decisions[0].status == DecisionStatus.RESOLVED, (
             "update_pipeline overwrote resolved decision — "

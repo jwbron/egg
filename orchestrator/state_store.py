@@ -757,11 +757,24 @@ def release_pipeline_state_lock(pipeline_id: str) -> None:
     of ``_pipeline_state_locks``.  Safe to call even if no lock exists
     for the given pipeline ID.
 
+    Precondition: the lock must not be currently held by any thread.
+    If it is, the lock is left in place to avoid breaking mutual
+    exclusion for threads still referencing the old lock object.
+
     Args:
         pipeline_id: Pipeline ID whose lock should be discarded
     """
     with _state_locks_lock:
-        _pipeline_state_locks.pop(pipeline_id, None)
+        lock = _pipeline_state_locks.get(pipeline_id)
+        if lock is None:
+            return
+        # Only remove if the lock is not currently held.  A held lock
+        # means another thread is mid-operation; removing it would cause
+        # new callers to get a fresh lock, breaking mutual exclusion.
+        # RLock has no .locked() method, so we try a non-blocking acquire.
+        if lock.acquire(blocking=False):
+            lock.release()
+            _pipeline_state_locks.pop(pipeline_id, None)
 
 
 def get_state_store(repo_path: Path | str) -> StateStore:
