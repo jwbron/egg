@@ -1,0 +1,426 @@
+{
+  "pipeline_id": "local-3db9b513",
+  "phase": "plan",
+  "role": "architect",
+  "timestamp": "2026-02-15T22:36:00Z",
+
+  "task_summary": "Generate comprehensive onboarding documentation for the egg repository that helps new contributors understand the project, its architecture, and how to contribute effectively.",
+
+  "codebase_analysis": {
+    "project_description": "egg is a structurally enforced SDLC pipeline for autonomous LLM agents that turns GitHub issues into reviewed pull requests with mandatory human gates. It consists of three Docker containers (gateway, orchestrator, sandbox) plus shared libraries, CLI tools, and GitHub Actions workflows.",
+    "tech_stack": {
+      "language": "Python 3.11+",
+      "frameworks": ["Flask (gateway + orchestrator APIs)", "Pydantic (models/validation)", "waitress (production WSGI)"],
+      "tools": ["Docker/Docker Compose", "Claude Code (LLM agent)", "GitHub Actions", "uv (package manager)", "ruff (linting)", "pytest (testing)", "act (local CI)"],
+      "infrastructure": ["Squid proxy (network filtering)", "git worktrees (agent isolation)", "GitHub Apps (authentication)"]
+    },
+    "codebase_size": {
+      "gateway": "~30 Python files, ~8000+ lines (policy enforcement, credential injection, API proxy)",
+      "orchestrator": "33 Python files + 8 route modules, ~10,400 lines (pipeline management, container lifecycle, HITL)",
+      "sandbox": "~20 Python files in egg_lib + scripts/git (870 lines) + scripts/gh (1,227 lines) + entrypoint.py (1,584 lines)",
+      "shared": "51 Python files across 6 packages (egg_config, egg_container, egg_contracts, egg_logging, egg_git, egg_orchestrator)",
+      "tests_unit": "29+ test files across tests/, gateway/tests/ (18,037 lines), orchestrator/tests/ (9,454 lines), tests/sandbox/ (10,761 lines)",
+      "tests_integration": "16+ test files in integration_tests/ + local_pipeline/ + sdlc/ + deployment_validation/",
+      "action": "14 files (GitHub Action composite action, prompt builders, conventions)",
+      "docs": "15+ READMEs, 10 ADRs, 7+ guides, templates, and strategy docs"
+    },
+    "key_components": [
+      {
+        "name": "Gateway Sidecar",
+        "path": "gateway/",
+        "role": "Trusted enforcement engine - policy enforcement, credential injection, network filtering, SDLC phase validation",
+        "entry_point": "gateway/gateway.py (Flask app on port 9848)",
+        "key_files": [
+          "gateway.py - Main HTTP server with git/gh API endpoints",
+          "policy.py - Branch ownership, push policies, reviewer identity",
+          "phase_filter.py - Phase-based operation filtering and file restrictions",
+          "agent_restrictions.py - Agent role-based file access enforcement",
+          "contract_api.py - Contract API endpoints for role-based mutations",
+          "token_refresher.py - GitHub App token management",
+          "anthropic_credentials.py - API key injection for Claude",
+          "checkpoint_handler.py - Checkpoint capture (commit + session-end)",
+          "worktree_manager.py - Git worktree lifecycle",
+          "session_manager.py - Agent session management"
+        ]
+      },
+      {
+        "name": "Orchestrator",
+        "path": "orchestrator/",
+        "role": "Local SDLC pipeline execution, state management, container lifecycle, multi-agent wave coordination, HITL decisions",
+        "entry_point": "orchestrator/api.py (Flask app on port 9849)",
+        "key_files": [
+          "api.py - REST API server (8 blueprints)",
+          "models.py - Pydantic models for pipeline state (Pipeline, PhaseExecution, AgentExecution, HITLDecision)",
+          "state_store.py - Git-backed pipeline state persistence (792 lines, atomic ops, per-pipeline locks)",
+          "multi_agent.py - Wave-based parallel agent execution (AgentWave, MultiAgentExecutor)",
+          "container_spawner.py - Gateway-integrated container lifecycle",
+          "decision_queue.py - HITL queue, polling, resolution with debounce",
+          "dispatch.py - Agent dispatch logic bridging egg_contracts with orchestrator",
+          "events.py - Pub/sub event bus with 16+ event types",
+          "dag_visualizer.py - Pipeline execution graph visualization",
+          "routes/ - API route handlers (pipelines, phases, signals, decisions, containers, checks, health, metrics)"
+        ],
+        "note": "The orchestrator has NO dedicated README.md - this is an identified documentation gap."
+      },
+      {
+        "name": "Sandbox Container",
+        "path": "sandbox/",
+        "role": "Untrusted agent execution environment with no credentials and restricted network",
+        "entry_point": "sandbox/entrypoint.py (1,584 lines, orchestrates container startup)",
+        "key_files": [
+          "entrypoint.py - Container startup: user setup, git config, gateway health, Claude Code launch",
+          "egg_lib/cli.py - Host CLI entry point (egg command, 346 lines)",
+          "egg_lib/sdlc_cli.py - SDLC pipeline CLI (596 lines)",
+          "egg_lib/contract_cli.py - SDLC contract CLI (1,217 lines)",
+          "egg_lib/orch_cli.py - Orchestrator API CLI (1,256 lines)",
+          "scripts/git - Git wrapper routing all ops through gateway (870 lines)",
+          "scripts/gh - GitHub CLI wrapper with policy enforcement (1,227 lines)",
+          "llm/claude/runner.py - Claude Code runner (415 lines)",
+          ".claude/rules/ - Agent behavior rules (8 files combined into ~/CLAUDE.md)",
+          ".claude/commands/ - Custom slash commands (/sdlc, /coder-mode, etc.)"
+        ]
+      },
+      {
+        "name": "Shared Libraries",
+        "path": "shared/",
+        "role": "Cross-container utilities used by gateway, orchestrator, and sandbox",
+        "packages": [
+          "egg_config/ - Configuration utilities, centralized constants (ports, networks, container names, devserver limits), validators",
+          "egg_container/ - Shared container-launch config builder (build_sandbox_config, build_sandbox_docker_cmd, git_shadow_mounts)",
+          "egg_contracts/ - SDLC contract models (Pydantic), plan parser (3 modes: YAML fence, YAML front matter, markdown regex), role-based validation, phase checks, agent roles, dependency graph, agent recovery, checkpoints, redactor",
+          "egg_logging/ - Structured JSON logging interface",
+          "egg_git/ - Git utility functions",
+          "egg_orchestrator/ - Sandbox-to-orchestrator communication (OrchestratorClient, signal types, detection utilities)",
+          "prompts/ - Shared review criteria (code-review, agent-design, contract-review, autofixer-rules)"
+        ]
+      },
+      {
+        "name": "CLI Entry Points",
+        "path": "bin/",
+        "role": "User-facing commands for managing egg",
+        "commands": [
+          "egg -> sandbox/egg - Start/manage sandbox container",
+          "egg-sdlc - Interactive SDLC pipeline CLI",
+          "egg-deploy - Docker Compose deployment management",
+          "egg-status - Monitor all active pipelines",
+          "egg-pipeline-watch -> sandbox/bin/egg-pipeline-watch - Watch specific pipeline",
+          "setup-gateway -> gateway/setup.sh - Install gateway service"
+        ]
+      },
+      {
+        "name": "GitHub Action",
+        "path": "action/",
+        "role": "Composite action for running egg in GitHub Actions CI/CD",
+        "key_files": [
+          "action.yml - Action metadata (inputs, outputs)",
+          "entrypoint.sh - Main orchestration (gateway + sandbox setup)",
+          "generate-config.sh - Runtime config from action inputs",
+          "build-review-prompt.sh, build-autofixer-prompt.sh, etc. - Context-specific prompt builders",
+          "review-conventions.md, autofixer-conventions.md, conflict-conventions.md - Behavior guidelines"
+        ]
+      },
+      {
+        "name": "GitHub Workflows",
+        "path": ".github/workflows/",
+        "role": "16 workflows for CI/CD automation",
+        "categories": {
+          "PR automation": ["on-pull-request.yml (code review)", "on-check-failure.yml (auto-fix)", "on-merge-conflict.yml", "on-review-feedback.yml", "on-pull-request-agent-mode-design.yml", "on-pull-request-contract-verify.yml"],
+          "Documentation": ["on-push-doc-updater.yml (auto-update docs after merge)"],
+          "CI": ["lint.yml", "test.yml", "test-integration.yml", "test-e2e.yml", "test-action.yml"],
+          "Reusable": ["reusable-review.yml", "reusable-autofix.yml", "reusable-conflict-resolve.yml"],
+          "Release": ["release-images.yml"]
+        }
+      },
+      {
+        "name": "SDLC State",
+        "path": ".egg/ and .egg-state/",
+        "role": "Pipeline configuration, schemas, and runtime state",
+        "key_files": [
+          ".egg/phase-permissions.json - Phase-based operation permissions and file restrictions",
+          ".egg/contract-rules.md - Contract verification guidelines",
+          ".egg/schemas/ - JSON schemas (contract, checkpoint, phase-permissions, yaml-tasks, usage)",
+          ".egg-state/contracts/ - Per-pipeline contract JSON files",
+          ".egg-state/drafts/ - Analysis and plan documents",
+          ".egg-state/reviews/ - Code/design review outputs",
+          ".egg-state/agent-outputs/ - Agent execution outputs",
+          ".egg-state/checks/ - Check execution results"
+        ]
+      }
+    ],
+    "architecture_patterns": {
+      "security_model": "Infrastructure enforcement (not behavioral). Gateway physically blocks operations. Sandbox has no credentials, no .git/ access, no merge capability. Zero-trust boundary between containers.",
+      "sdlc_pipeline": "Refine -> Plan -> Implement -> PR, with mandatory human gates at refine and plan boundaries. Phase permissions enforced by gateway via phase-permissions.json.",
+      "multi_agent": "Wave-based parallel execution. Coder first, then Tester+Documenter in parallel, then Integrator. Reviewers run after workers complete. Max parallelism configurable.",
+      "state_management": "Git-backed pipeline state in orchestrator (orphan branch). SDLC contracts as JSON committed to feature branches for auditability.",
+      "credential_isolation": "Anthropic API via gateway proxy, GitHub tokens via gateway wrappers, sandbox never sees raw credentials.",
+      "network_modes": "Public mode (full internet + credential injection) vs Private mode (Anthropic API only + private repos only). Squid proxy with domain allowlisting."
+    }
+  },
+
+  "existing_documentation_inventory": {
+    "entry_points": [
+      "README.md (437 lines) - Comprehensive project overview, architecture diagrams, CLI reference, quick start",
+      "docs/index.md (118 lines) - Master navigation hub (agent-oriented), task-specific guide lookup table",
+      "CONTRIBUTING.md (118 lines) - Development setup, workflow, PR process"
+    ],
+    "architecture_docs": [
+      "docs/architecture/README.md - System design, security model, SDLC contracts, checkpoint system",
+      "docs/architecture/orchestrator.md - Orchestrator deployment modes",
+      "docs/adr/ - 10 ADRs (7 implemented, 3 in-progress)"
+    ],
+    "component_readmes": [
+      "gateway/README.md - Gateway sidecar (policy, credentials, API)",
+      "sandbox/README.md - Agent environment",
+      "shared/README.md - Shared libraries overview",
+      "config/README.md - Configuration",
+      "bin/README.md - CLI entry points",
+      "action/README.md - GitHub Action",
+      "sandbox/.claude/README.md - Agent configuration"
+    ],
+    "guides": [
+      "docs/guides/local-quickstart.md - Getting started with PAT auth",
+      "docs/guides/deployment.md - Deployment options",
+      "docs/guides/sdlc-pipeline.md - SDLC pipeline operations",
+      "docs/guides/github-automation.md - Workflow automation",
+      "docs/guides/agent-development.md - Adding new agent roles",
+      "docs/guides/agent-mode-design.md - Design principles",
+      "docs/guides/checkpoint-access.md - Checkpoint querying",
+      "docs/guides/reusable-workflows.md - External repo integration"
+    ],
+    "development_docs": [
+      "docs/development/STRUCTURE.md - Directory conventions and organization",
+      "docs/development/TEST_COVERAGE_PLAN.md (439 lines) - Test coverage improvement strategy"
+    ],
+    "strategy_docs": [
+      "docs/agentic-feedback-loop.md - Work-review-feedback cycle",
+      "docs/collaboration-effectiveness.md - Safety, quality, collaboration"
+    ]
+  },
+
+  "identified_gaps": [
+    {
+      "id": "GAP-1",
+      "title": "No progressive onboarding path",
+      "description": "Documentation jumps between high-level architecture and implementation details. README.md immediately presents gateway diagrams, phase permissions tables, and full CLI reference. No narrative path from 'what is this?' to 'how do I contribute?'",
+      "severity": "high",
+      "impact": "New contributors must piece together a mental model from scattered docs"
+    },
+    {
+      "id": "GAP-2",
+      "title": "Agent-oriented vs human-oriented navigation",
+      "description": "docs/index.md is explicitly designed for agents navigating the codebase. No equivalent human-oriented onboarding guide exists.",
+      "severity": "medium",
+      "impact": "Human contributors lack a clear starting point"
+    },
+    {
+      "id": "GAP-3",
+      "title": "Missing orchestrator/README.md",
+      "description": "The orchestrator is a major component (33 production Python files, ~10,400 lines, manages the entire SDLC pipeline lifecycle) but has no dedicated README. Every other major component directory (gateway/, sandbox/, shared/, config/, bin/, action/) has one.",
+      "severity": "high",
+      "impact": "Contributors working on orchestrator changes have no component-level documentation"
+    },
+    {
+      "id": "GAP-4",
+      "title": "Test infrastructure not explained for contributors",
+      "description": "The test suite has 4 test directories (tests/, gateway/tests/, orchestrator/tests/, integration_tests/), 5 markers (integration, functional, e2e, security, agent_flaky), Docker-based integration fixtures, but no guide explaining patterns for writing tests. TEST_COVERAGE_PLAN.md focuses on coverage improvement strategy, not how to write tests.",
+      "severity": "medium",
+      "impact": "New contributors may write tests incorrectly or not know which test directory to use"
+    },
+    {
+      "id": "GAP-5",
+      "title": "No conceptual overview synthesizing key concepts",
+      "description": "Rich conceptual model (trusted vs untrusted containers, structural enforcement vs behavioral controls, phase-based permissions, multi-agent orchestration, credential isolation) is documented across ADRs and architecture docs but not synthesized into a newcomer-friendly overview.",
+      "severity": "medium",
+      "impact": "Conceptual understanding requires reading multiple documents"
+    },
+    {
+      "id": "GAP-6",
+      "title": "No contributor workflow examples",
+      "description": "CONTRIBUTING.md covers setup and make targets but doesn't walk through common contribution scenarios (fixing a gateway bug, adding a CLI command, modifying phase permissions, adding a new agent role).",
+      "severity": "low",
+      "impact": "Contributors may not know the best approach for specific task types"
+    }
+  ],
+
+  "recommended_approach": {
+    "strategy": "Option B from refine analysis: Onboarding Guide + Gap-Filling Component Docs",
+    "rationale": "Addresses both the immediate need (clear onboarding path) and the underlying gaps (missing orchestrator README, undocumented test patterns). Follows established conventions — every major component already has a README, guides live in docs/guides/. The refine reviewers approved this approach.",
+
+    "deliverables": [
+      {
+        "id": "DOC-1",
+        "file": "docs/guides/onboarding.md",
+        "type": "new",
+        "description": "Primary onboarding document: progressive learning path from zero to contributor",
+        "structure": [
+          "1. What is egg? (1 paragraph concept: sandboxed SDLC pipeline for LLM agents)",
+          "2. Key Concepts (trusted vs untrusted, structural enforcement, SDLC phases, agent roles, credential isolation, network modes)",
+          "3. Architecture at a Glance (simplified diagram + component table, link to full architecture docs)",
+          "4. How the SDLC Pipeline Works (refine -> plan -> implement -> merge, with human gates)",
+          "5. Getting Started (prerequisites, development setup via CONTRIBUTING.md, local quickstart link)",
+          "6. Repository Layout (condensed from STRUCTURE.md with annotations for newcomers)",
+          "7. Common Contribution Scenarios (table: task type -> which docs to read -> which directories to modify)",
+          "8. Testing Your Changes (which test directory, how to run, markers explained, link to testing guide)",
+          "9. Where to Go Next (links to component READMEs, guides, ADRs by interest area)"
+        ],
+        "constraints": [
+          "Link to existing docs, never duplicate content",
+          "Focus on stable concepts (architecture, security model, workflows), not volatile implementation details",
+          "Keep under 300 lines to avoid 'mega document' problem",
+          "Write for human contributors (the primary audience), not agents"
+        ]
+      },
+      {
+        "id": "DOC-2",
+        "file": "orchestrator/README.md",
+        "type": "new",
+        "description": "Component README following the established pattern of gateway/README.md and sandbox/README.md",
+        "structure": [
+          "1. Overview (what the orchestrator does, how it fits in the architecture)",
+          "2. API Reference (key endpoints with brief descriptions)",
+          "3. Pipeline Lifecycle (phase management, state persistence)",
+          "4. Multi-Agent Execution (wave-based model, agent roles, dependency resolution)",
+          "5. Container Management (spawning, monitoring, cleanup)",
+          "6. HITL Decisions (queue, polling, resolution, timeout)",
+          "7. State Management (git-backed state, atomic operations, pipeline isolation)",
+          "8. Event System (event bus, SSE streaming, status reporting)",
+          "9. Configuration (environment variables, defaults)",
+          "10. Development (running locally, testing, key files)"
+        ],
+        "constraints": [
+          "Follow the pattern of gateway/README.md (~200 lines, component-level detail)",
+          "Include a directory structure overview like other READMEs",
+          "Reference docs/architecture/orchestrator.md for deployment architecture"
+        ]
+      },
+      {
+        "id": "DOC-3",
+        "file": "docs/guides/testing.md",
+        "type": "new",
+        "description": "Test architecture guide covering how to write and run tests for each component",
+        "structure": [
+          "1. Test Organization (4 directories, what goes where)",
+          "2. Running Tests (make targets, direct pytest, CI parity via act)",
+          "3. Test Markers (integration, functional, e2e, security, agent_flaky - when to use each)",
+          "4. Key Fixtures (EggStack, gateway_session, test_container for integration tests)",
+          "5. Writing Tests by Component (gateway: mock patterns, orchestrator: state store fixtures, sandbox: CLI testing, shared: contract model tests)",
+          "6. Integration Test Patterns (Docker setup, health checks, compose-based tests)",
+          "7. Coverage Goals (80% overall, 95% for security-critical, reference TEST_COVERAGE_PLAN.md for improvement strategy)"
+        ],
+        "constraints": [
+          "Complement (not duplicate) TEST_COVERAGE_PLAN.md — testing.md explains HOW to write tests, TEST_COVERAGE_PLAN.md tracks coverage improvement STRATEGY",
+          "Include practical examples showing the pattern for each component",
+          "Keep under 200 lines — this is a contributor guide, not an exhaustive reference"
+        ]
+      },
+      {
+        "id": "DOC-4",
+        "file": "docs/index.md",
+        "type": "modify",
+        "description": "Add onboarding guide to Quick Navigation section",
+        "changes": [
+          "Add to Quick Navigation > Getting Started: link to docs/guides/onboarding.md as the first item",
+          "Add entry to Guides table: Onboarding | docs/guides/onboarding.md | Progressive learning path for new contributors",
+          "Add to Task-Specific Guides: 'New to the project' row pointing to onboarding guide"
+        ]
+      },
+      {
+        "id": "DOC-5",
+        "file": "README.md",
+        "type": "modify",
+        "description": "Add New Contributors callout near the top",
+        "changes": [
+          "Add a brief 'New Contributors' section after the intro paragraph, before 'How It Works', with a 1-line pointer to docs/guides/onboarding.md",
+          "Keep minimal — do not restructure the existing README"
+        ]
+      }
+    ],
+
+    "implementation_order": [
+      "1. Research and draft orchestrator/README.md (DOC-2) — fills the biggest component gap and provides material for the onboarding guide to reference",
+      "2. Research and draft docs/guides/testing.md (DOC-3) — fills the testing documentation gap",
+      "3. Draft docs/guides/onboarding.md (DOC-1) — the main deliverable, can now reference all component docs",
+      "4. Update docs/index.md (DOC-4) — add links to new docs",
+      "5. Update README.md (DOC-5) — add new contributors callout"
+    ],
+
+    "dependencies": [
+      "DOC-1 references DOC-2 (orchestrator README) and DOC-3 (testing guide), so those should be written first",
+      "DOC-4 and DOC-5 are minimal updates that depend on DOC-1 being complete"
+    ]
+  },
+
+  "technical_decisions": [
+    {
+      "decision": "Use Option B (Onboarding Guide + Gap-Filling) over Option A (standalone guide only) or Option C (restructure index.md)",
+      "rationale": "Fills structural documentation gaps while creating the onboarding path. Option A leaves the orchestrator README and test guide gaps. Option C compromises the agent-oriented design of docs/index.md.",
+      "alternatives_considered": ["Standalone onboarding guide only", "Restructure docs/index.md to serve both humans and agents"]
+    },
+    {
+      "decision": "testing.md complements (not replaces) TEST_COVERAGE_PLAN.md",
+      "rationale": "The refine reviewer flagged that TEST_COVERAGE_PLAN.md (439 lines) already exists. testing.md focuses on HOW to write tests (patterns, fixtures, which directory to use), while TEST_COVERAGE_PLAN.md tracks the STRATEGY for improving coverage. Different audiences, different purposes.",
+      "alternatives_considered": ["Merge into TEST_COVERAGE_PLAN.md", "Replace TEST_COVERAGE_PLAN.md"]
+    },
+    {
+      "decision": "Create orchestrator/README.md following gateway/README.md pattern (~200 lines)",
+      "rationale": "The orchestrator is the only major component without a README. Following the established pattern of gateway/README.md ensures consistency and gives contributors a familiar format.",
+      "alternatives_considered": ["Minimal README (~50 lines like config/README.md)", "Comprehensive README (~400+ lines)"]
+    },
+    {
+      "decision": "Keep onboarding guide under 300 lines",
+      "rationale": "The guide is meant to be a progressive learning path that links to existing docs. If it becomes a 'mega document', it becomes hard to maintain and defeats the purpose of progressive disclosure.",
+      "alternatives_considered": ["No length constraint", "Split into multiple onboarding pages"]
+    },
+    {
+      "decision": "Write for human contributors as the primary audience",
+      "rationale": "Agents already have docs/index.md as their navigation hub. The gap is human contributor onboarding.",
+      "alternatives_considered": ["Dual audience (human + agent)", "Agent-first with human annotations"]
+    }
+  ],
+
+  "constraints": [
+    "No content duplication — link to existing docs, especially the 15+ READMEs and 7+ guides",
+    "Follow established conventions from docs/development/STRUCTURE.md",
+    "Cross-cutting docs go in docs/, component docs stay close to code",
+    "Documentation should be maintainable by the on-push-doc-updater workflow",
+    "Focus on stable concepts (architecture, security model, contribution workflow), not volatile implementation details",
+    "The repository is under heavy development — onboarding docs should be resilient to code changes"
+  ],
+
+  "risks": [
+    {
+      "risk": "Content drift — onboarding guide references may become stale as code evolves",
+      "mitigation": "Focus on linking to existing docs rather than inlining details. The doc-updater workflow flags changes that need doc updates.",
+      "severity": "low"
+    },
+    {
+      "risk": "Scope creep — temptation to document everything in the onboarding guide",
+      "mitigation": "Strict 300-line limit for onboarding guide. Focus on progressive disclosure and links.",
+      "severity": "medium"
+    },
+    {
+      "risk": "Orchestrator README accuracy — the orchestrator is complex (33 files, 10,400 lines)",
+      "mitigation": "Follow gateway/README.md pattern. Focus on API, lifecycle, and configuration. Link to docs/architecture/orchestrator.md for deployment details.",
+      "severity": "low"
+    }
+  ],
+
+  "files_affected": [
+    {"path": "docs/guides/onboarding.md", "action": "create", "description": "Primary onboarding guide (~250-300 lines)"},
+    {"path": "orchestrator/README.md", "action": "create", "description": "Orchestrator component README (~200 lines)"},
+    {"path": "docs/guides/testing.md", "action": "create", "description": "Test architecture guide (~150-200 lines)"},
+    {"path": "docs/index.md", "action": "modify", "description": "Add onboarding guide links (3 insertions)"},
+    {"path": "README.md", "action": "modify", "description": "Add New Contributors callout (1 small section)"}
+  ],
+
+  "acceptance_criteria": [
+    "docs/guides/onboarding.md exists and provides a progressive learning path from zero to contributor",
+    "orchestrator/README.md exists and covers API, lifecycle, multi-agent, state management, configuration",
+    "docs/guides/testing.md exists and covers test organization, running tests, writing tests by component",
+    "docs/index.md links to the onboarding guide in Quick Navigation and Guides table",
+    "README.md has a New Contributors section pointing to the onboarding guide",
+    "No content is duplicated from existing documentation — all new docs use links to existing docs",
+    "All new docs follow the project's documentation conventions (STRUCTURE.md)",
+    "Total new documentation is under 750 lines combined"
+  ]
+}
