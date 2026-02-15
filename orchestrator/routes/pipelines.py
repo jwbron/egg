@@ -1849,16 +1849,48 @@ def _build_agent_prompt(
     if phase == "implement":
         lines.extend(
             [
-                "- You CAN push code (git push)",
-                "- You CANNOT create PRs",
+                "- You CAN push code changes to git (git push)",
+                "- You CAN link commits to tasks (egg-contract add-commit)",
+                "- You CANNOT push .egg-state/ files (except checkpoints)",
+                "- You CANNOT create PRs (the pipeline manages the PR)",
+                "",
+                "### Push Recovery",
+                "",
+                "If your push is rejected due to restricted files on the branch, "
+                "create a clean branch from origin/main and cherry-pick only your "
+                "code commits:",
+                "```",
+                "git checkout -b egg/<new-branch> origin/main",
+                "git cherry-pick <your-commit-hash>",
+                "git push origin egg/<new-branch>",
+                "```",
+                "Do NOT retry the same push — fix the branch first.",
                 "",
             ]
         )
     elif phase == "plan":
         lines.extend(
             [
-                "- You CAN write analysis and plan files",
-                "- You CANNOT modify production code",
+                "- You CAN write to `.egg-state/drafts/` and `.egg-state/agent-outputs/`",
+                "- You CAN push these state files to git (git push)",
+                "- You CAN create HITL decisions (egg-contract add-decision)",
+                "- You CAN create feedback requests (egg-contract add-feedback)",
+                "- You CANNOT modify production code (src/, lib/, gateway/, sandbox/, "
+                "action/, docs/, tests/, test/)",
+                "- You CANNOT modify contracts (.egg-state/contracts/) or CI config (.github/)",
+                "- You CANNOT create PRs (gh pr create)",
+                "",
+                "### Push Recovery",
+                "",
+                "If your push is rejected due to restricted files on the branch, "
+                "create a clean branch from origin/main and cherry-pick only your "
+                "state file commits:",
+                "```",
+                "git checkout -b egg/<new-branch> origin/main",
+                "git cherry-pick <your-commit-hash>",
+                "git push origin egg/<new-branch>",
+                "```",
+                "Do NOT retry the same push — fix the branch first.",
                 "",
             ]
         )
