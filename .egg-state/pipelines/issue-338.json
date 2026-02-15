@@ -233,7 +233,7 @@
         {
           "cycle": 0,
           "started_at": "2026-02-15T22:30:50.386321",
-          "completed_at": null
+          "completed_at": "2026-02-15T22:49:40.401479"
         }
       ],
       "artifacts": {},
@@ -257,10 +257,10 @@
     }
   ],
   "created_at": "2026-02-15T22:16:17.182270",
-  "updated_at": "2026-02-15T22:49:39.374643",
+  "updated_at": "2026-02-15T22:49:40.401678",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "error": null,
-  "version": 31
+  "version": 32
 }
