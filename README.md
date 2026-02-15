@@ -181,7 +181,8 @@ The orchestrator handles wave-based execution, dependency tracking, container li
 egg-sdlc -r egg -i 123    # Issue mode — repo dir + issue number
 egg-sdlc -r egg 123       # Short form (positional issue)
 egg-sdlc --private -r myrepo -i 456  # Private mode (network lockdown)
-egg-sdlc                  # Local mode — prompt-driven, no GitHub interaction
+egg-sdlc                  # Local mode — interactive prompt
+egg-sdlc -r egg -p "Add user auth"  # Local mode — non-interactive with prompt
 
 # Or from inside an egg session
 egg
