@@ -481,9 +481,9 @@ class PhaseFilter:
         """Get default phase-based file restrictions.
 
         These defaults define which files can be pushed during each phase:
-        - refine: Only .egg-state/ files (contracts, drafts, checkpoints)
-        - plan: Only .egg-state/ files (contracts, drafts, checkpoints)
-        - implement: Code only, not .egg-state/ (except checkpoints)
+        - refine: Only .egg-state/ files (contracts, drafts, checkpoints, agent-outputs, reviews)
+        - plan: Only .egg-state/ files (contracts, drafts, checkpoints, agent-outputs, reviews)
+        - implement: Code only, not .egg-state/ (except checkpoints and agent-outputs)
         - pr: Everything
         """
         return {
