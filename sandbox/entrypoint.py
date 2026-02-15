@@ -679,7 +679,9 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
     """Set up CLAUDE.md agent rules."""
     rules_dir = Path("/opt/claude-rules")
     rules_order = [
-        "mission.md",
+        "mission-core.md",
+        "mission-workflow.md",
+        "mission-ci.md",
         "environment.md",
         "code-standards.md",
         "test-workflow.md",
