@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from docker.errors import DockerException
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 # Add shared directory to path for egg_logging
@@ -581,7 +582,7 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         status=pipeline.status.value,
                         containers_removed=removed,
                     )
-            except (DockerClientError, ContainerSpawnError) as e:
+            except (DockerClientError, DockerException) as e:
                 logger.warning(
                     "Failed to clean up pipeline containers",
                     pipeline_id=pipeline_id,
@@ -641,7 +642,7 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     pipeline_id=pipeline_id,
                     containers_removed=removed,
                 )
-        except (DockerClientError, ContainerSpawnError) as e:
+        except (DockerClientError, DockerException) as e:
             logger.warning(
                 "Failed to clean up pipeline containers",
                 pipeline_id=pipeline_id,
