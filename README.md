@@ -27,7 +27,7 @@ Use the `egg-sdlc` CLI to launch a multi-agent pipeline. The agent cannot skip s
 4. **Merge** — Draft PR is marked ready. Only a human can merge via GitHub UI.
 
 The `egg-sdlc` CLI supports two modes:
-- **Issue mode** (`egg-sdlc 123`): GitHub-issue-driven pipeline with full remote integration
+- **Issue mode** (`egg-sdlc -r <repo_dir> -i <issue_num>`): GitHub-issue-driven pipeline with full remote integration
 - **Local mode** (`egg-sdlc` with no args): Prompt-driven pipeline that runs entirely locally
 
 Both modes create a pipeline in the orchestrator, which spawns sandbox containers to execute each phase as a DAG. Pipeline state lives in a JSON contract (`.egg-state/contracts/{identifier}.json`) committed to the feature branch, giving full auditability of every phase transition.
@@ -99,10 +99,10 @@ Each pipeline phase has a defined set of permitted operations:
 
 | Phase | Allowed Operations | Exit Requires |
 |-------|-------------------|---------------|
-| **Refine** | `gh issue comment/edit` | Human approval |
-| **Plan** | `gh issue comment/edit`, `egg-contract add-decision` | Human approval |
-| **Implement** | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
-| **Merge** | `gh pr edit`, `git push` | Human merge |
+| **Refine** | `gh issue comment/edit`, `git push` (state files), `egg-contract add-decision` | Human approval |
+| **Plan** | `gh issue comment/edit`, `git push` (state files), `egg-contract add-decision` | Human approval |
+| **Implement** | `git push` (code), `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
+| **PR** | `gh pr create/edit/comment`, `git push` | Human merge |
 
 ### How Isolation Works
 
@@ -127,18 +127,25 @@ During the **implement** phase, work is divided across these specialized agents:
 
 **Execution model**: Wave-based with dependencies. The coder runs first, then tester and documenter run in parallel (both depend on coder's output). The integrator runs after the coder and tester complete (it does not wait for the documenter).
 
-### Reviewer Roles (Implement Phase)
+### Reviewer Roles
 
-After the integrator completes, reviewers validate the implementation output:
+Reviewers run as part of multi-agent wave execution in refine, plan, and implement phases:
 
-| Role | Responsibility |
-|------|----------------|
-| **Unified Reviewer** | Comprehensive review across all criteria |
-| **Code Reviewer** | Security, correctness, code quality |
-| **Contract Reviewer** | Verify acceptance criteria met, task completion status |
-| **Agent Design Reviewer** | Check for agent-mode anti-patterns, autonomous operation capability |
+**Refine Phase:**
+- **Unified Reviewer**: Analysis quality and completeness
+- **Agent Design Reviewer**: Agent-mode alignment and anti-patterns
 
-**Execution model**: All reviewers depend on the integrator and run in parallel after it completes, producing structured verdicts (approved/needs_revision). Reviewers currently only operate in the implement phase.
+**Plan Phase:**
+- **Unified Reviewer**: Plan quality, task structure, acceptance criteria
+- **Agent Design Reviewer**: Agent-mode alignment and anti-patterns
+
+**Implement Phase:**
+- **Unified Reviewer**: Comprehensive review across all criteria
+- **Code Reviewer**: Security, correctness, code quality
+- **Contract Reviewer**: Verify acceptance criteria met, task completion status
+- **Agent Design Reviewer**: Check for agent-mode anti-patterns, autonomous operation capability
+
+**Execution model**: Reviewers run in parallel as the final wave of each phase's dependency graph. In implement phase, reviewers depend on the integrator. In plan phase, reviewers depend on the task planner and risk analyst. In refine phase (single-worker), reviewers run after the coder completes.
 
 ### Plan Phase Roles
 
@@ -160,12 +167,14 @@ The orchestrator handles wave-based execution, dependency tracking, container li
 
 ```bash
 # Direct CLI (recommended)
-egg-sdlc 123              # Issue mode — drives from GitHub issue #123
+egg-sdlc -r egg -i 123    # Issue mode — repo dir + issue number
+egg-sdlc -r egg 123       # Short form (positional issue)
+egg-sdlc --private -r myrepo -i 456  # Private mode (network lockdown)
 egg-sdlc                  # Local mode — prompt-driven, no GitHub interaction
 
 # Or from inside an egg session
 egg
-/sdlc 123                 # Redirects to egg-sdlc
+/sdlc -r egg -i 123       # Redirects to egg-sdlc
 ```
 
 The pipeline creates a draft PR automatically when entering the implement phase. Once all checks pass, the PR is marked ready for human review and merge.
@@ -285,6 +294,21 @@ For programmatic interaction with the orchestrator API (usable by both agents an
 | `egg-orch env` | Show orchestrator environment variables |
 
 All commands support `--json` for machine-readable output. Run `egg-orch <command> --help` for detailed usage.
+
+### egg-checkpoint CLI
+
+For querying agent session checkpoints across multi-agent pipelines:
+
+| Command | Description |
+|---------|-------------|
+| `egg-checkpoint list [filters]` | List checkpoints with multi-dimensional filtering |
+| `egg-checkpoint show <id-or-commit>` | Display full checkpoint details (transcript, tool calls, files touched) |
+| `egg-checkpoint browse --issue <n>` | Filter checkpoints by issue number |
+| `egg-checkpoint context [filters]` | Cross-agent context summary grouped by phase and agent type |
+
+**Filters**: `--issue`, `--pr`, `--pipeline`, `--session`, `--branch`, `--trigger`, `--status`, `--agent-type`, `--phase`, `--limit`, `--json`
+
+See the [Checkpoint Access Guide](docs/guides/checkpoint-access.md) for detailed usage examples.
 
 ### Flags
 

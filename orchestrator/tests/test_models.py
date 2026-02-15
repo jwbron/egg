@@ -291,6 +291,58 @@ class TestPipeline:
         assert restored.id == pipeline.id
         assert restored.issue_number == pipeline.issue_number
 
+    def test_network_mode_default_none(self):
+        """Test that network_mode defaults to None."""
+        pipeline = Pipeline(
+            id="issue-496",
+            issue_number=496,
+            repo="owner/repo",
+            branch="egg/issue-496",
+        )
+        assert pipeline.network_mode is None
+
+    def test_network_mode_private(self):
+        """Test creating a pipeline with network_mode='private'."""
+        pipeline = Pipeline(
+            id="issue-496",
+            issue_number=496,
+            repo="owner/repo",
+            branch="egg/issue-496",
+            network_mode="private",
+        )
+        assert pipeline.network_mode == "private"
+
+    def test_network_mode_roundtrip(self):
+        """Test that network_mode survives serialization/deserialization."""
+        pipeline = Pipeline(
+            id="issue-496",
+            issue_number=496,
+            repo="owner/repo",
+            branch="egg/issue-496",
+            network_mode="private",
+        )
+        json_data = pipeline.model_dump_json()
+        restored = Pipeline.model_validate_json(json_data)
+        assert restored.network_mode == "private"
+
+    def test_network_mode_backward_compat(self):
+        """Test that missing network_mode in JSON defaults to None (backward compat)."""
+        import json
+
+        raw = json.dumps(
+            {
+                "id": "issue-496",
+                "issue_number": 496,
+                "repo": "owner/repo",
+                "branch": "egg/issue-496",
+                "mode": "issue",
+                "status": "pending",
+                "current_phase": "refine",
+            }
+        )
+        restored = Pipeline.model_validate_json(raw)
+        assert restored.network_mode is None
+
 
 class TestAgentRole:
     """Tests for AgentRole enum."""
@@ -304,7 +356,17 @@ class TestAgentRole:
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
         assert AgentRole.INTEGRATOR in roles
-        assert len(roles) == 6
+        assert AgentRole.ARCHITECT in roles
+        assert AgentRole.TASK_PLANNER in roles
+        assert AgentRole.RISK_ANALYST in roles
+        assert AgentRole.REFINER in roles
+        assert AgentRole.REVIEWER_UNIFIED in roles
+        assert AgentRole.REVIEWER_CODE in roles
+        assert AgentRole.REVIEWER_CONTRACT in roles
+        assert AgentRole.REVIEWER_AGENT_DESIGN in roles
+        assert AgentRole.REVIEWER_REFINE in roles
+        assert AgentRole.REVIEWER_PLAN in roles
+        assert len(roles) == 16
 
 
 class TestPipelinePhase:

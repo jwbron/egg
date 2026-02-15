@@ -1,26 +1,82 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/jwbron/egg/schemas/checkpoint.schema.json",
-  "title": "Agent Checkpoint",
-  "description": "Schema for capturing agent session context as versioned data in Git",
+  "title": "Agent Checkpoint V2",
+  "description": "Schema for capturing agent session context as versioned data in Git. V2 supports session-end checkpoints, multi-dimensional indexing, and pipeline correlation.",
   "type": "object",
-  "required": ["schemaVersion", "id", "commit_sha", "session", "created_at"],
+  "required": ["schemaVersion", "id", "trigger_type", "session_id", "session", "created_at", "session_started_at"],
   "properties": {
     "schemaVersion": {
       "type": "string",
       "description": "Schema version for migrations",
       "pattern": "^[0-9]+\\.[0-9]+$",
-      "default": "1.0"
+      "default": "2.0"
     },
     "id": {
       "type": "string",
       "description": "Unique checkpoint identifier",
       "pattern": "^ckpt-[a-f0-9]{8,16}$"
     },
-    "commit_sha": {
+    "trigger_type": {
       "type": "string",
-      "description": "Git commit SHA this checkpoint is associated with",
-      "pattern": "^[a-f0-9]{7,40}$"
+      "description": "What triggered checkpoint creation",
+      "enum": ["commit", "session_end"]
+    },
+    "session_status": {
+      "type": ["string", "null"],
+      "description": "Terminal session state (only for session_end triggers)",
+      "enum": ["completed", "expired", "failed", null],
+      "default": null
+    },
+    "commit_sha": {
+      "type": ["string", "null"],
+      "description": "Git commit SHA (optional in v2, not present for session-end checkpoints)",
+      "pattern": "^[a-f0-9]{7,40}$",
+      "default": null
+    },
+    "push_sha": {
+      "type": ["string", "null"],
+      "description": "The tip commit SHA of the push that triggered this checkpoint",
+      "pattern": "^[a-f0-9]{7,40}$",
+      "default": null
+    },
+    "branch": {
+      "type": ["string", "null"],
+      "description": "Git branch where the commit was made",
+      "default": null
+    },
+    "session_id": {
+      "type": "string",
+      "description": "Session/container ID for direct indexing"
+    },
+    "issue_number": {
+      "type": ["integer", "null"],
+      "description": "GitHub issue number if associated with an issue",
+      "minimum": 1,
+      "default": null
+    },
+    "pr_number": {
+      "type": ["integer", "null"],
+      "description": "GitHub PR number if associated with a pull request",
+      "minimum": 1,
+      "default": null
+    },
+    "agent_type": {
+      "type": "string",
+      "description": "Agent role classification",
+      "enum": ["coder", "tester", "documenter", "integrator", "reviewer", "unknown"],
+      "default": "unknown"
+    },
+    "pipeline_phase": {
+      "type": ["string", "null"],
+      "description": "SDLC pipeline phase when checkpoint was created",
+      "enum": ["refine", "plan", "implement", "pr", null],
+      "default": null
+    },
+    "pipeline_id": {
+      "type": ["string", "null"],
+      "description": "Pipeline run ID for multi-agent workflow correlation",
+      "default": null
     },
     "session": {
       "$ref": "#/$defs/sessionMetadata"
@@ -47,38 +103,20 @@
     "token_usage": {
       "$ref": "#/$defs/tokenUsage"
     },
-    "issue_number": {
-      "type": ["integer", "null"],
-      "description": "GitHub issue number if associated with an issue",
-      "minimum": 1,
-      "default": null
-    },
-    "pipeline_phase": {
-      "type": ["string", "null"],
-      "description": "SDLC pipeline phase when checkpoint was created",
-      "enum": ["refine", "plan", "implement", "pr", null],
-      "default": null
-    },
-    "branch": {
-      "type": ["string", "null"],
-      "description": "Git branch where the commit was made",
-      "default": null
-    },
     "created_at": {
       "type": "string",
       "description": "ISO 8601 timestamp when checkpoint was created",
       "format": "date-time"
     },
-    "push_sha": {
-      "type": ["string", "null"],
-      "description": "The tip commit SHA of the push that triggered this checkpoint (may differ from commit_sha for multi-commit pushes)",
-      "pattern": "^[a-f0-9]{7,40}$",
-      "default": null
+    "session_started_at": {
+      "type": "string",
+      "description": "ISO 8601 timestamp when the session started",
+      "format": "date-time"
     },
-    "pr_number": {
-      "type": ["integer", "null"],
-      "description": "GitHub PR number if associated with a pull request",
-      "minimum": 1,
+    "session_ended_at": {
+      "type": ["string", "null"],
+      "description": "ISO 8601 timestamp when the session ended",
+      "format": "date-time",
       "default": null
     }
   },
@@ -101,7 +139,7 @@
         "agent_role": {
           "type": ["string", "null"],
           "description": "Agent role (e.g., coder, tester, documenter, integrator)",
-          "enum": ["coder", "tester", "documenter", "integrator", null],
+          "enum": ["coder", "tester", "documenter", "integrator", "reviewer", null],
           "default": null
         },
         "started_at": {

@@ -18,7 +18,6 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 from models import (
     AgentExecution,
     AgentExecutionStatus,
-    AgentRole,
     ContainerStatus,
     Pipeline,
     PipelinePhase,
@@ -104,6 +103,58 @@ def _format_duration(started_at: datetime | None, ended_at: datetime | None = No
         return f"{hours}h{minutes}m"
 
 
+def _compute_wave_order(
+    phase: PipelinePhase,
+    agents: list[AgentExecution],
+) -> list[list[AgentExecution]]:
+    """Group agents by execution wave for display.
+
+    Uses the dependency graph to determine which agents run in parallel
+    (same wave) and which run sequentially (different waves).
+
+    Falls back to a single group (flat list) for phases without
+    defined agent roles (e.g. refine, pr).
+    """
+    try:
+        from egg_contracts.agent_roles import get_roles_for_phase
+        from egg_contracts.dependency_graph import build_dependency_graph
+    except ImportError:
+        return [agents]
+
+    try:
+        roles = get_roles_for_phase(phase.value, include_reviewers=True)
+    except ValueError:
+        return [agents]
+
+    graph = build_dependency_graph(roles)
+    waves = graph.compute_waves()
+
+    # Build role value -> agent lookup
+    agent_by_role_value: dict[str, AgentExecution] = {}
+    for agent in agents:
+        agent_by_role_value[agent.role.value] = agent
+
+    # Map agents to their wave groups
+    wave_groups: list[list[AgentExecution]] = []
+    assigned: set[str] = set()
+
+    for wave_roles in waves:
+        group = []
+        for role in wave_roles:
+            if role.value in agent_by_role_value:
+                group.append(agent_by_role_value[role.value])
+                assigned.add(role.value)
+        if group:
+            wave_groups.append(group)
+
+    # Append any agents not in the dependency graph (e.g. generic REVIEWER)
+    remaining = [a for a in agents if a.role.value not in assigned]
+    if remaining:
+        wave_groups.append(remaining)
+
+    return wave_groups if wave_groups else [agents]
+
+
 def _render_phase_box(
     phase: PipelinePhase,
     status: PipelineStatus,
@@ -131,27 +182,25 @@ def _render_phase_box(
     # Current phase indicator
     current_marker = ">>>" if is_current else "   "
 
-    # Build optional agent info lines
+    # Build optional agent info lines, grouped by execution wave
     agent_lines: list[str] = []
     if agents:
-        # Sort agents by AgentRole enum order for consistent display
-        role_order = list(AgentRole)
-        sorted_agents = sorted(agents, key=lambda a: role_order.index(a.role))
+        wave_groups = _compute_wave_order(phase, agents)
 
-        # Build space-separated "{symbol} {role}" entries
-        entries = []
-        for agent in sorted_agents:
-            agent_symbol = _get_agent_status_symbol(agent.status, use_ascii)
-            entries.append(f"{agent_symbol} {agent.role.value}")
+        for wave in wave_groups:
+            entries = []
+            for agent in wave:
+                agent_symbol = _get_agent_status_symbol(agent.status, use_ascii)
+                entries.append(f"{agent_symbol} {agent.role.value}")
 
-        # Wrap to multiple lines if 4+ agents (2-3 per line)
-        if len(entries) <= 3:
-            agent_lines.append("   " + "  ".join(entries))
-        else:
-            per_line = 3
-            for i in range(0, len(entries), per_line):
-                chunk = entries[i : i + per_line]
-                agent_lines.append("   " + "  ".join(chunk))
+            # Wrap within wave if 4+ agents (3 per line)
+            if len(entries) <= 3:
+                agent_lines.append("   " + "  ".join(entries))
+            else:
+                per_line = 3
+                for i in range(0, len(entries), per_line):
+                    chunk = entries[i : i + per_line]
+                    agent_lines.append("   " + "  ".join(chunk))
 
     # Build duration line
     dur_line = f"   [{duration}]" if duration else ""
@@ -337,17 +386,21 @@ def render_phase_detail(
             role = container.agent_role.value if container.agent_role else "worker"
             lines.append(f"  {c_status} {container.container_name[:20]} ({role})")
 
-    # Agent details
+    # Agent details, grouped by wave
     if phase_exec.agents:
         lines.append("")
         lines.append(f"Agents ({len(phase_exec.agents)}):")
-        for agent in phase_exec.agents:
-            a_status = _get_agent_status_symbol(agent.status, use_ascii)
-            lines.append(f"  {a_status} {agent.role.value}")
-            if agent.commit:
-                lines.append(f"      Commit: {agent.commit[:8]}")
-            if agent.error:
-                lines.append(f"      Error: {agent.error[:50]}")
+        wave_groups = _compute_wave_order(phase, phase_exec.agents)
+        for wave_idx, wave in enumerate(wave_groups):
+            if wave_idx > 0:
+                lines.append("")  # Blank line between waves
+            for agent in wave:
+                a_status = _get_agent_status_symbol(agent.status, use_ascii)
+                lines.append(f"  {a_status} {agent.role.value}")
+                if agent.commit:
+                    lines.append(f"      Commit: {agent.commit[:8]}")
+                if agent.error:
+                    lines.append(f"      Error: {agent.error[:50]}")
 
     return "\n".join(lines)
 

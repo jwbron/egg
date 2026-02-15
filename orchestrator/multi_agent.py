@@ -357,6 +357,29 @@ class MultiAgentExecutor:
 
                     prompt = agent_prompts.get(role, "")
 
+                    # Skip agents that don't have a prompt for this phase.
+                    # The contract may contain roles from other phases (e.g.
+                    # DOCUMENTER in the plan phase) — spawning them with an
+                    # empty prompt crashes Claude Code.
+                    if not prompt:
+                        logger.info(
+                            "Skipping agent with no prompt for current phase",
+                            pipeline_id=self.pipeline.id,
+                            role=role.value,
+                            phase=self.pipeline.current_phase.value,
+                        )
+                        # record_agent_result already calls
+                        # dispatcher.complete_agent(), so no separate call
+                        # is needed.
+                        execution = self.record_agent_result(
+                            role,
+                            success=True,
+                            error=None,
+                        )
+                        if on_complete:
+                            on_complete(role, execution)
+                        return
+
                     # Mark as started
                     self.dispatcher.start_agent(role)
 

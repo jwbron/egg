@@ -12,8 +12,9 @@ for how to call egg's workflows from your own repositories.
 | Workflow | Trigger | What It Does |
 |----------|---------|--------------|
 | [AI Code Review](#ai-code-review) | PR opened/updated | Reviews code changes, posts feedback via `gh pr review` |
-| [Address Review Feedback](#address-review-feedback) | Review posted on bot PR | Automatically addresses review feedback, enabling review loops |
+| [Address Review Feedback](#address-review-feedback) | Review posted on bot PR, or human @mention | Automatically addresses review feedback, enabling review loops |
 | [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
+| [Contract Verification](#contract-verification) | PR with sdlc:pr label or contract file | Verifies implementation matches SDLC contract |
 | [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
 | [Conflict Resolver](#conflict-resolver) | Push to main / schedule / manual | Resolves merge conflicts via merge commits |
 | [Doc Updater](#doc-updater) | Push to main | Checks if code changes require documentation updates |
@@ -110,14 +111,14 @@ wait on each other indefinitely.
 
 **Workflow:** [`.github/workflows/on-review-feedback.yml`](../../.github/workflows/on-review-feedback.yml)
 
-Triggers when a review bot posts feedback on a PR, enabling an automated review loop:
+Triggers when a review bot posts feedback on a PR, or when a human @mentions the bot, enabling an automated review loop:
 PR opened → review → address feedback → re-review → ... → approval or human escalation.
 
 ### Trigger Events
 
 The workflow runs on:
-- `pull_request_review` — Formal reviews posted via `gh pr review`
-- `issue_comment` — Legacy self-reviews posted as comments (deprecated — use a separate reviewer bot instead, see below)
+- `pull_request_review` — Formal reviews posted via `gh pr review` (bot or authorized human)
+- `issue_comment` — Bot self-reviews posted as comments, or authorized human @mentions the bot
 - `workflow_dispatch` — Manual trigger with PR number (bypasses filters for debugging)
 
 ### Separate Reviewer Bot (Recommended)
@@ -134,7 +135,13 @@ Without it, the system falls back to posting reviews as comments (self-review mo
 
 ### How It Works
 
-1. **Filter checks** — Only runs when:
+1. **Trigger authorization** — For event-triggered runs, verifies the triggering user is authorized:
+   - Bot reviews always trigger (the bot can review its own PRs)
+   - Human reviews and @mentions require the user to be in the `authorized_users` list
+   - Configured via `EGG_AUTHORIZED_USERS` repository variable (defaults to `jwbron`)
+   - Manual/workflow_call triggers bypass authorization
+
+2. **Filter checks** — Only runs when:
    - PR is open (not closed/merged)
    - PR is from the same repository (not a fork — bot can't push to forks)
    - PR author is the bot (unless manually triggered)
@@ -144,21 +151,22 @@ Without it, the system falls back to posting reviews as comments (self-review mo
      - Approvals trigger only if they include `<!-- has-suggestions -->` marker
    - Iteration count is below the limit (default: 3 rounds)
 
-2. **Wait for all reviewers** — Polls GitHub check runs for all `egg-reviewer-*` jobs
+3. **Wait for all reviewers** — For review-triggered runs, polls GitHub check runs for all `egg-reviewer-*` jobs
    to complete before proceeding. This prevents race conditions when multiple reviewers
    (e.g., Code Review and Design Review) trigger the feedback workflow concurrently.
    The workflow waits up to 10 minutes, proceeding with a warning on timeout. If no
    reviewer checks are found after 2 minutes, the workflow exits with a warning (this
    indicates a potential configuration issue since the workflow was triggered by
-   reviewer feedback).
+   reviewer feedback). Mention-triggered runs skip this step since there are no reviewer
+   checks to wait for.
 
-3. **Comment cleanup** — Minimizes previous feedback-addressing comments to reduce clutter.
+4. **Comment cleanup** — Minimizes previous feedback-addressing comments to reduce clutter.
 
-4. **Acknowledgment** — Posts a comment indicating feedback is being addressed, with an `<!-- egg-feedback-addressing -->` marker for iteration tracking.
+5. **Acknowledgment** — Posts a comment indicating feedback is being addressed, with an `<!-- egg-feedback-addressing -->` marker for iteration tracking.
 
-5. **Trusted prompt build** — Checks out `main` (not the PR branch) to run `build-feedback-prompt.sh`, preventing prompt injection from malicious PRs.
+6. **Trusted prompt build** — Checks out `main` (not the PR branch) to run `build-feedback-prompt.sh`, preventing prompt injection from malicious PRs.
 
-6. **Agent execution** — Checks out the PR branch and runs egg. The agent:
+7. **Agent execution** — Checks out the PR branch and runs egg. The agent:
    - Reads review feedback via `gh pr view`, `gh api` for reviews and line-level comments
    - Understands the current code via `gh pr diff`
    - Makes fixes addressing actionable feedback
@@ -166,7 +174,7 @@ Without it, the system falls back to posting reviews as comments (self-review mo
    - Commits and pushes all fixes together
    - Replies to feedback it disagrees with or cannot address
 
-7. **Result comment** — Posts success or failure status with link to run logs.
+8. **Result comment** — Posts success or failure status with link to run logs.
 
 ### Iteration Limiting
 
@@ -199,6 +207,7 @@ The workflow follows the trusted prompt build pattern:
 ## Design Review
 
 **Workflow:** [`.github/workflows/on-pull-request-agent-mode-design.yml`](../../.github/workflows/on-pull-request-agent-mode-design.yml)
+**Framework:** [`.github/workflows/reusable-review.yml`](../../.github/workflows/reusable-review.yml)
 
 A specialized reviewer that checks PRs for alignment with [agent-mode design principles](agent-mode-design.md).
 Uses the same reusable framework as AI Code Review but with a focused prompt.
@@ -237,6 +246,43 @@ The reviewer applies guidelines with judgment, not as absolute rules:
 
 If a PR has no agent-mode concerns, the reviewer approves with a brief note rather
 than providing general feedback that duplicates the base review.
+
+## Contract Verification
+
+**Workflow:** [`.github/workflows/on-pull-request-contract-verify.yml`](../../.github/workflows/on-pull-request-contract-verify.yml)
+**Framework:** [`.github/workflows/reusable-review.yml`](../../.github/workflows/reusable-review.yml)
+
+Verifies that PR implementations match their SDLC pipeline contracts. This workflow ensures agents stay aligned with approved plans and task requirements during the implementation phase.
+
+### Trigger Conditions
+
+The workflow runs on pull requests when **either** of these conditions is met:
+
+1. **Label-based trigger** — PR has the `sdlc:pr` label
+2. **Contract file detection** — PR branch contains `.egg-state/contracts/{issue_number}.json`, where the issue number is extracted from the branch name (`egg/issue-{number}...`)
+
+This dual-trigger approach ensures contract verification runs even when the label is missing but the contract file exists, preventing silently skipped verifications.
+
+### How It Works
+
+1. **Trigger check** — Determines if verification should run:
+   - Fetches PR metadata (labels and branch name) in a single API call
+   - Extracts issue number from branch name using pattern `egg/issue-{number}...`
+   - For labeled PRs, runs immediately
+   - For unlabeled PRs, checks if contract file exists on the PR's head branch
+2. **Contract verification** — Uses the reusable review framework with a contract-specific prompt:
+   - Reads the contract from `.egg-state/contracts/{issue_number}.json`
+   - Compares implementation against contract tasks
+   - Verifies commits are linked to tasks via `egg-contract` metadata
+   - Posts feedback via `gh pr review` if misalignments are detected
+
+### Manual Trigger
+
+Supports `workflow_dispatch` with a `pr_number` input for manual verification runs, bypassing filter checks.
+
+### Contract File Format
+
+Contract files follow the schema at `.egg/schemas/contract.schema.json`. The workflow specifically checks for task-commit linkages and ensures all contract tasks have corresponding implementation.
 
 ## Check Autofixer
 
@@ -473,6 +519,14 @@ Event-triggered workflows require these repository variables (Settings → Secre
 | `EGG_BRANCH_PREFIX` | Branch prefix for bot-owned branches | `egg` |
 
 Reusable workflows called via `workflow_call` receive these values as inputs from the caller instead.
+
+### Optional Repository Variables
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `EGG_AUTHORIZED_USERS` | Comma-separated list of GitHub users authorized to trigger review feedback via reviews or @mentions | `jwbron` |
+
+This variable controls who can trigger the Address Review Feedback workflow through human reviews or @mentions. The bot itself is always authorized to trigger via automated reviews.
 
 ### Per-Repository Customization
 

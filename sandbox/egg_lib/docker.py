@@ -254,7 +254,7 @@ def create_dockerfile() -> None:
     # Copy egg-runtime directories to build context
     # These provide container-resident executables and tools
     # The bin/ directory contains symlinks to executables (added to PATH in container)
-    runtime_dirs = ["bin", "llm", "tools", "scripts"]
+    runtime_dirs = ["bin", "egg_lib", "llm", "tools", "scripts"]
     for dir_name in runtime_dirs:
         src = script_dir / dir_name
         dest = sandbox_dest / dir_name
@@ -424,7 +424,7 @@ def compute_build_hash() -> str:
     - claude-commands/
     - claude-rules/
     - .claude/hooks/
-    - bin/, llm/, tools/, scripts/
+    - bin/, egg_lib/, llm/, tools/, scripts/
     - shared/ (from repo root)
     - pyproject.toml files
     - Host-services files that get copied to container
@@ -458,6 +458,7 @@ def compute_build_hash() -> str:
         "claude-commands",
         "claude-rules",
         "bin",
+        "egg_lib",
         "llm",
         "tools",
         "scripts",

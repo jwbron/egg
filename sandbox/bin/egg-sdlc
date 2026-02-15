@@ -2,14 +2,15 @@
 """Interactive SDLC pipeline CLI with DAG visualization and HITL checkpoints.
 
 Usage:
-    egg-sdlc [<issue_number>] [--repo <owner/repo>]
+    egg-sdlc -r <repo> -i <issue>   # Repo dir + issue number
+    egg-sdlc -r <repo> <issue>      # Short form (positional issue)
+    egg-sdlc                         # Prompt-driven pipeline (no GitHub)
 
-Issue mode:
-    egg-sdlc 635                    # Start/attach to pipeline for issue #635
-    egg-sdlc 635 --repo org/repo    # Specify repository
-
-Local mode:
-    egg-sdlc                        # Prompt-driven pipeline (no GitHub)
+Examples:
+    egg-sdlc -r egg -i 635          # Pipeline for issue #635 in ~/repos/egg
+    egg-sdlc -r egg 635             # Same, positional issue number
+    egg-sdlc --private -r egg -i 635 # Private repo access
+    egg-sdlc                        # Local mode (no GitHub issue)
 """
 
 import os

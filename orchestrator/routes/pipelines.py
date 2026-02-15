@@ -102,6 +102,48 @@ except ImportError:
     def report_pipeline_status(pipeline, event_type=None, message=None):  # type: ignore[misc]
         pass
 
+# Import event bus for SSE streaming.
+# report_pipeline_status dispatches to StatusReporter handlers, but the
+# SSE stream subscribes to the EventBus — a separate system.  We need to
+# emit events to both so SSE clients see live updates.
+try:
+    from events import EventType
+    from events import emit_event as _emit_event
+except ImportError:
+    _emit_event = None  # type: ignore[assignment]
+
+# Map report_pipeline_status event_type strings to EventType enum values
+_EVENT_TYPE_MAP: dict[str, "EventType"] = {}
+if _emit_event is not None:
+    _EVENT_TYPE_MAP = {
+        "phase.started": EventType.PHASE_STARTED,
+        "phase.completed": EventType.PHASE_COMPLETED,
+        "phase.revision_requested": EventType.PHASE_STARTED,  # re-entering phase
+        "pipeline.completed": EventType.PIPELINE_COMPLETED,
+        "pipeline.failed": EventType.PIPELINE_FAILED,
+        "decision.created": EventType.DECISION_CREATED,
+    }
+
+
+def _emit_pipeline_event(
+    pipeline: Pipeline,
+    event_type_str: str,
+) -> None:
+    """Emit a pipeline event to the EventBus for SSE streaming."""
+    if _emit_event is None:
+        return
+    mapped = _EVENT_TYPE_MAP.get(event_type_str)
+    if mapped is None:
+        return
+    _emit_event(
+        mapped,
+        pipeline.id,
+        data={
+            "status": pipeline.status.value,
+            "phase": pipeline.current_phase.value,
+        },
+    )
+
 
 # Import visualization modules for DAG endpoint
 try:
@@ -395,6 +437,12 @@ def create_pipeline() -> tuple[Response, int]:
 
     mode = data.get("mode", "issue")
 
+    network_mode = data.get("network_mode")
+    if network_mode is not None and network_mode not in ("public", "private"):
+        return make_error_response(
+            f"Invalid network_mode: {network_mode!r} (must be 'public' or 'private')"
+        )
+
     if mode == "local":
         # Local mode: prompt required, issue_number/repo/branch optional
         prompt = data.get("prompt")
@@ -416,6 +464,7 @@ def create_pipeline() -> tuple[Response, int]:
                 config=data.get("config"),
                 mode="local",
                 prompt=prompt,
+                network_mode=network_mode,
             )
 
             # Contract creation is deferred to _run_pipeline so it writes
@@ -460,6 +509,7 @@ def create_pipeline() -> tuple[Response, int]:
             branch=branch,
             config=data.get("config"),
             mode="issue",
+            network_mode=network_mode,
         )
 
         # Contract creation is deferred to _run_pipeline so it writes
@@ -836,12 +886,65 @@ def _get_contract_review_criteria(repo_path: str | None = None) -> str:
     )
 
 
-# Per-phase reviewer matrix
-_PHASE_REVIEWERS: dict[str, list[str]] = {
-    "refine": ["unified", "agent-design"],
-    "plan": ["unified", "agent-design"],
-    "implement": ["unified", "agent-design", "code", "contract"],
-}
+
+def _get_refine_review_criteria() -> str:
+    """Return review criteria for the dedicated refine reviewer."""
+    return (
+        "### 1. Problem Understanding\n"
+        "- Does the analysis correctly identify the core problem or feature request?\n"
+        "- Is the current behavior (if applicable) accurately described?\n"
+        "- Are the goals and desired outcomes clear?\n\n"
+        "### 2. Research Quality\n"
+        "- Has the agent explored the relevant parts of the codebase?\n"
+        "- Are existing patterns and conventions identified?\n"
+        "- Is the technical context accurate and thorough?\n\n"
+        "### 3. Options Analysis\n"
+        "- Are the proposed options meaningfully different?\n"
+        "- Are trade-offs clearly articulated for each option?\n"
+        "- Is the reasoning logical and well-founded?\n\n"
+        "### 4. Constraints and Dependencies\n"
+        "- Are technical constraints identified (performance, compatibility, etc.)?\n"
+        "- Are dependencies on other code or systems noted?\n"
+        "- Are potential risks or complications surfaced?\n\n"
+        "### 5. Open Questions\n"
+        "- Are open questions specific enough for a human to answer?\n"
+        "- Do questions address genuine ambiguities?\n"
+        "- Are questions actionable?\n\n"
+        "### 6. Recommendation Quality\n"
+        "- Is there a clear recommended approach?\n"
+        "- Is the recommendation justified with specific reasons?\n"
+        "- Does the recommendation align with the analysis findings?\n"
+    )
+
+
+def _get_plan_review_criteria() -> str:
+    """Return review criteria for the dedicated plan reviewer."""
+    return (
+        "### 1. Task Breakdown\n"
+        "- Are tasks discrete, actionable, and properly scoped?\n"
+        "- Is each task small enough to implement in a single pass?\n"
+        "- Are task boundaries clear (no overlapping responsibilities)?\n\n"
+        "### 2. Acceptance Criteria\n"
+        "- Does each task have clear, testable acceptance criteria?\n"
+        "- Are criteria specific enough to verify completion?\n"
+        "- Do criteria cover both happy path and edge cases?\n\n"
+        "### 3. Dependency Ordering\n"
+        "- Are task dependencies correctly identified?\n"
+        "- Is the ordering logical (foundations before features)?\n"
+        "- Are there opportunities for parallelism that are missed?\n\n"
+        "### 4. Risk Assessment\n"
+        "- Are technical risks identified (security, performance, compatibility)?\n"
+        "- Are mitigation strategies concrete and actionable?\n"
+        "- Is the rollback plan realistic?\n\n"
+        "### 5. Test Strategy\n"
+        "- Is the test strategy appropriate for the scope of changes?\n"
+        "- Are both unit and integration tests considered?\n"
+        "- Are test scenarios aligned with acceptance criteria?\n\n"
+        "### 6. Completeness\n"
+        "- Does the plan cover all aspects of the original request?\n"
+        "- Are documentation updates included where needed?\n"
+        "- Are there any obvious gaps or missing tasks?\n"
+    )
 
 
 def _get_review_criteria_for_type(reviewer_type: str, phase: str) -> str:
@@ -854,6 +957,10 @@ def _get_review_criteria_for_type(reviewer_type: str, phase: str) -> str:
         return _get_code_review_criteria()
     elif reviewer_type == "contract":
         return _get_contract_review_criteria()
+    elif reviewer_type == "refine":
+        return _get_refine_review_criteria()
+    elif reviewer_type == "plan":
+        return _get_plan_review_criteria()
     else:
         return _get_unified_criteria(phase)
 
@@ -880,6 +987,20 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
             "This is a **contract verification review**. Verify that the implementation "
             "matches the contract and all acceptance criteria are met. Do NOT review "
             "general code quality or security — other reviewers handle those."
+        )
+    elif reviewer_type == "refine":
+        return (
+            "This is a **refine phase review**. Focus on the quality and completeness "
+            "of the analysis produced during the refine phase. Evaluate problem "
+            "understanding, codebase research, options analysis, and the recommended "
+            "approach. Agent-mode design alignment is handled by another reviewer."
+        )
+    elif reviewer_type == "plan":
+        return (
+            "This is a **plan phase review**. Focus on the quality and completeness "
+            "of the implementation plan. Evaluate task breakdown, acceptance criteria, "
+            "dependency ordering, risk assessment, and test strategy. Agent-mode "
+            "design alignment is handled by another reviewer."
         )
     return ""
 
@@ -1032,6 +1153,21 @@ def _build_review_prompt(
         "If significant issues remain, set verdict to `needs_revision` "
         "and provide actionable feedback."
     )
+
+    # Phase restrictions for reviewers
+    lines.append("")
+    lines.append("## Phase Restrictions\n")
+    lines.append("- You CAN read all source files and review artifacts")
+    lines.append("- You CAN write verdict files to `.egg-state/reviews/`")
+    if reviewer_type == "contract":
+        lines.append(
+            "- You CAN update the contract in `.egg-state/contracts/` "
+            "(e.g. marking items as done)"
+        )
+    lines.append("- You CANNOT push code (git push)")
+    lines.append("- You CANNOT create or update PRs")
+    lines.append("- You CANNOT modify source files (src/, lib/, docs/, tests/)")
+    lines.append("")
 
     return "\n".join(lines)
 
@@ -1206,20 +1342,89 @@ def _build_phase_prompt(
     if phase == "refine":
         lines.extend(
             [
-                "Analyze the task and produce a structured analysis:",
-                "",
+                "Analyze this issue and produce a structured analysis document. "
+                "Your goal is to:\n",
                 "1. Understand the problem or feature request",
                 "2. Research the current codebase to understand existing patterns",
                 "3. Identify constraints and dependencies",
                 "4. Consider multiple implementation approaches",
                 "5. Recommend an approach with justification",
+                "6. Surface any questions that need human input",
+                "",
+                "**IMPORTANT**: Do NOT create an implementation plan, task breakdown, "
+                "or phased rollout. That is the **plan** phase's job. Stay focused on "
+                "**analysis**: understanding the problem, researching the codebase, "
+                "evaluating options, and surfacing decisions for the human.",
+                "",
+                "## Output Format\n",
+                "Create an analysis document following this template:\n",
+                "```markdown",
+                "# Analysis: [Issue Title]\n",
+                "> Issue: #[number] | Phase: refine\n",
+                "## Problem Statement\n",
+                "[Describe the problem or feature request. "
+                "What is the current state? What is the desired outcome?]\n",
+                "## Current Behavior\n",
+                "[Describe how the system currently works in the relevant area. "
+                "Include code references where helpful.]\n",
+                "## Constraints\n",
+                "- [Technical constraints (compatibility, performance, security)]",
+                "- [Business constraints (timeline, scope)]",
+                "- [Dependencies on other systems or features]\n",
+                "## Options Considered\n",
+                "### Option A: [Name]\n",
+                "**Approach**: [Brief description]\n",
+                "**Pros**:",
+                "- [Advantage 1]\n",
+                "**Cons**:",
+                "- [Disadvantage 1]\n",
+                "### Option B: [Name]\n",
+                "**Approach**: [Brief description]\n",
+                "**Pros**:",
+                "- [Advantage 1]\n",
+                "**Cons**:",
+                "- [Disadvantage 1]\n",
+                "## Recommended Approach\n",
+                "[Which option is recommended and why. "
+                "Reference the option above.]\n",
+                "## Open Questions\n",
+                "[Questions that require human input before proceeding.]\n",
+                "---\n",
+                "*Authored-by: egg*",
+                "```\n",
+                "## HITL Decisions\n",
+                "For questions that require human input before proceeding:\n",
+                "**Multiple-choice questions** (use formal HITL decisions):",
+                "```bash",
+                'egg-contract add-decision --question "Which approach should we use?" \\',
+                '  --options "Option A" "Option B" "Option C" --format markdown',
+                "```",
+                "Copy the markdown output into your analysis. The human can check "
+                "a checkbox to select an option. An \"Other (explain in reply)\" "
+                "option is auto-appended.\n",
+                "**Open-ended questions** (use dedicated feedback comment):",
+                "```bash",
+                "egg-contract add-feedback \\",
+                '  --question "What is the expected request volume?" \\',
+                '  --question "Are there any constraints on third-party dependencies?" \\',
+                "  --format markdown",
+                "```",
+                "This creates a dedicated comment for the human to fill in answers. "
+                "They edit the comment to add their responses and check \"Submit "
+                "feedback\" when done. The pipeline will resume with the feedback "
+                "available in the contract.",
                 "",
             ]
         )
         lines.extend(
             [
                 f"Write your analysis to `{analysis_path}`.",
-                "Commit and push the draft when done.",
+                "Commit and push the draft when done.\n",
+                "**IMPORTANT**: Do NOT post your analysis directly to the issue. "
+                "The pipeline will have an internal reviewer check your analysis. "
+                "If revisions are needed, you'll be re-invoked with feedback. "
+                "Only after internal review passes will the analysis be posted "
+                "for human approval.",
                 "",
             ]
         )
@@ -1292,6 +1497,8 @@ def _build_phase_prompt(
             [
                 "In this phase:",
                 "- You CAN push state files to git (contracts, drafts, checkpoints)",
+                "- You CAN create HITL decisions (egg-contract add-decision)",
+                "- You CAN create feedback requests (egg-contract add-feedback)",
                 "- You CANNOT push code changes",
                 "- You CANNOT create PRs (gh pr create)",
                 "- You CANNOT post issue comments",
@@ -1318,7 +1525,7 @@ def _build_phase_prompt(
         lines.extend(
             [
                 "This is a **local** pipeline entering the PR phase.",
-                "Push access is enabled for this phase only.",
+                "PR operations are enabled for this phase.",
                 "- You CAN push code (git push)",
                 "- You CAN create and edit PRs (gh pr create, gh pr edit)",
                 "- You CANNOT merge PRs (human must merge)",
@@ -1331,6 +1538,10 @@ def _build_phase_prompt(
                 [
                     "- You CAN write drafts to `.egg-state/drafts/`",
                     "- You CAN push draft files (git push)",
+                    "- You CAN create HITL decisions (egg-contract add-decision)",
+                    "- You CAN create feedback requests (egg-contract add-feedback)",
+                    "- You CANNOT post analysis/plan directly to the issue "
+                    "(internal review must pass first)",
                     "- You CANNOT create PRs (gh pr create)",
                     "",
                 ]
@@ -1356,10 +1567,19 @@ def _build_phase_prompt(
 
     # --- Completion ---
     lines.append("## Phase Completion\n")
-    lines.append(
-        "When you have completed your work for this phase, "
-        "ensure everything is committed and exit successfully."
-    )
+    if phase in ("refine", "plan"):
+        lines.append(
+            "When your draft is complete, commit and push it. "
+            "The pipeline will have an internal reviewer evaluate your work. "
+            "If revisions are needed, you'll be re-invoked with feedback. "
+            "Only after internal review passes will the output be posted "
+            "for human approval."
+        )
+    else:
+        lines.append(
+            "When you have completed your work for this phase, "
+            "ensure everything is committed and exit successfully."
+        )
 
     return "\n".join(lines)
 
@@ -1406,8 +1626,9 @@ def _build_agent_prompt(
     Returns:
         Complete prompt string for the agent
     """
-    # CODER uses the existing phase prompt
-    if role_value == "coder":
+    # CODER and REFINER use the existing phase prompt (phase-specific
+    # instructions are already tailored for refine vs implement etc.)
+    if role_value in ("coder", "refiner"):
         return _build_phase_prompt(
             phase=phase,
             pipeline_id=pipeline_id,
@@ -1545,16 +1766,16 @@ def _build_agent_prompt(
             ]
         )
     elif role_value.startswith("reviewer_"):
-        reviewer_type = role_value.replace("reviewer_", "")
-        lines.extend(
-            [
-                f"Perform a **{reviewer_type}** review of the phase output:",
-                "",
-                "1. Review all changes made in this phase",
-                "2. Apply review criteria specific to your type",
-                "3. Write a structured verdict (approved/needs_revision)",
-                "",
-            ]
+        # Delegate to the detailed review prompt with criteria and verdict format
+        reviewer_type = role_value.replace("reviewer_", "", 1).replace("_", "-")
+        return _build_review_prompt(
+            phase=phase,
+            pipeline_id=pipeline_id,
+            pipeline_mode=pipeline_mode,
+            reviewer_type=reviewer_type,
+            issue_number=issue_number,
+            review_cycle=review_cycle + 1,
+            prior_feedback=review_feedback,
         )
     else:
         lines.extend(
@@ -1621,13 +1842,19 @@ def _run_multi_agent_phase(
         from ..dispatch import create_dispatcher  # type: ignore
         from ..multi_agent import MultiAgentExecutor  # type: ignore
 
-    from egg_contracts.agent_roles import get_roles_for_phase
+    from egg_contracts.agent_roles import (
+        AgentRole as ContractAgentRole,
+    )
+    from egg_contracts.agent_roles import (
+        get_roles_for_phase,
+    )
+    from egg_contracts.orchestration import initialize_orchestration
 
     # Get pipeline mode
     pipeline_mode = pipeline.mode or "issue"
 
     # Build agent-specific prompts for all roles in this phase
-    roles = get_roles_for_phase(phase)
+    roles = get_roles_for_phase(phase, include_reviewers=True)
     agent_prompts_by_role: dict = {}
     for contract_role in roles:
         role_str = contract_role.value
@@ -1692,8 +1919,34 @@ def _run_multi_agent_phase(
 
         return exit_code, container_logs
 
-    # Create dispatcher and executor
+    # Create dispatcher and executor.
+    # The contract's orchestration state defaults to implement-phase roles
+    # (CODER, TESTER, DOCUMENTER, INTEGRATOR).  For other phases (e.g. plan)
+    # we need to reinitialize with the correct roles so the dispatcher
+    # dispatches ARCHITECT, TASK_PLANNER, RISK_ANALYST instead.
     dispatcher = create_dispatcher(pipeline, worktree_repo_path)
+
+    phase_contract_roles = [ContractAgentRole(r.value) for r in roles]
+    dispatcher.contract_orchestrator.state = initialize_orchestration(
+        dispatcher.contract_orchestrator.contract,
+        roles=phase_contract_roles,
+    )
+
+    # Validate: every dispatched role must have a prompt for this phase.
+    # This catches misconfiguration early instead of silently skipping agents.
+    dispatched_roles = {r.value for r in dispatcher.get_agents_to_run()}
+    prompted_roles = {r.value for r in agent_prompts_by_role}
+    unexpected = dispatched_roles - prompted_roles
+    if unexpected:
+        logger.warning(
+            "Dispatcher returning agents with no prompt for this phase — "
+            "check phase role configuration",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            unexpected_roles=sorted(unexpected),
+            expected_roles=sorted(prompted_roles),
+        )
+
     executor = MultiAgentExecutor(
         pipeline=pipeline,
         repo_path=worktree_repo_path,
@@ -1712,6 +1965,14 @@ def _run_multi_agent_phase(
 
     if has_failures:
         return 1, combined_logs
+
+    # After successful multi-agent plan phase, synthesize a plan draft
+    # from agent outputs so _populate_contract_from_plan() and the HITL
+    # gate can find it.
+    if phase == "plan":
+        _synthesize_plan_draft(
+            worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+        )
 
     return 0, combined_logs
 
@@ -1869,8 +2130,6 @@ def _spawn_and_wait(
     return final_info.exit_code, container_logs
 
 
-# Phases that get an agentic review cycle before advancing
-_REVIEWED_PHASES = {"refine", "plan", "implement"}
 
 # Phases that pause for human approval before advancing (HITL gates)
 _HITL_GATE_PHASES = {"refine", "plan"}
@@ -2055,6 +2314,121 @@ def _read_check_results(repo_path: Path) -> dict | None:
         return None
 
 
+# Minimum characters of non-heading content required for a synthesized plan
+# draft to be written.  This prevents writing near-empty drafts that contain
+# only section headings (e.g. when agents produced no meaningful output).
+# A short but valid single-section output like "No architectural risks
+# identified." is ~40 chars, so 50 provides a small buffer while still
+# catching truly empty drafts.
+_MIN_PLAN_DRAFT_CONTENT_LENGTH = 50
+
+
+def _synthesize_plan_draft(
+    repo_path: Path,
+    pipeline_id: str,
+    pipeline_mode: str = "local",
+    issue_number: int | None = None,
+) -> None:
+    """Synthesize a plan draft from multi-agent plan outputs.
+
+    In multi-agent plan mode, ARCHITECT, TASK_PLANNER, and RISK_ANALYST
+    each write to .egg-state/agent-outputs/.  This function combines
+    their outputs into a single plan draft at .egg-state/drafts/{id}-plan.md
+    so that _populate_contract_from_plan() and the HITL gate can find it.
+    """
+    draft_rel = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
+    if not draft_rel:
+        logger.debug(
+            "No draft path for plan phase, skipping synthesis",
+            pipeline_id=pipeline_id,
+            pipeline_mode=pipeline_mode,
+        )
+        return
+
+    draft_path = repo_path / draft_rel
+    if draft_path.exists():
+        # Draft already written (e.g. by a single-agent run) — don't overwrite.
+        return
+
+    outputs_dir = repo_path / ".egg-state" / "agent-outputs"
+    if not outputs_dir.is_dir():
+        logger.warning(
+            "No agent-outputs directory, cannot synthesize plan draft",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    sections: list[str] = []
+    agent_files = [
+        ("architect-output.json", "Architecture Analysis"),
+        ("task_planner-output.json", "Task Breakdown"),
+        ("risk_analyst-output.json", "Risk Assessment"),
+    ]
+
+    for filename, heading in agent_files:
+        output_file = outputs_dir / filename
+        if not output_file.exists():
+            continue
+        try:
+            raw = output_file.read_text()
+            data = json.loads(raw)
+            # Agent outputs may contain a "content" or "output" key with
+            # the main text, or may be the full JSON blob.
+            content = data.get("content") or data.get("output") or json.dumps(data, indent=2)
+        except json.JSONDecodeError:
+            # Fall back to raw text if not valid JSON
+            content = raw
+        except Exception as e:
+            logger.warning(
+                "Failed to read agent output for plan draft",
+                pipeline_id=pipeline_id,
+                file=filename,
+                error=str(e),
+            )
+            continue
+
+        # Skip empty or whitespace-only outputs
+        if not content or not content.strip():
+            logger.warning(
+                "Agent output is empty, skipping from plan draft",
+                pipeline_id=pipeline_id,
+                file=filename,
+            )
+            continue
+
+        sections.append(f"## {heading}\n\n{content}")
+
+    if not sections:
+        logger.warning(
+            "No agent outputs found to synthesize plan draft",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    draft_content = "\n\n".join(sections) + "\n"
+
+    # Guard against a draft that has section headings but no real content.
+    stripped = draft_content
+    for _, heading in agent_files:
+        stripped = stripped.replace(f"## {heading}", "")
+    if len(stripped.strip()) < _MIN_PLAN_DRAFT_CONTENT_LENGTH:
+        logger.warning(
+            "Synthesized plan draft has insufficient content, not writing",
+            pipeline_id=pipeline_id,
+            content_length=len(stripped.strip()),
+        )
+        return
+
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
+    draft_path.write_text(draft_content)
+    logger.info(
+        "Synthesized plan draft from agent outputs",
+        pipeline_id=pipeline_id,
+        path=str(draft_path),
+        sections=len(sections),
+    )
+
+
 def _populate_contract_from_plan(
     repo_path: Path,
     pipeline_id: str,
@@ -2162,9 +2536,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     """Run a pipeline by spawning containers for each phase.
 
     This runs in a background thread. For each phase it:
-    1. Spawns a worker (CODER) container
-    2. For reviewed phases (refine, plan): spawns a reviewer, reads the
-       verdict, and loops back to the worker if revision is needed
+    1. Spawns a worker (CODER) container — or multi-agent wave execution
+       for implement and plan phases when multi_agent is enabled
+    2. For reviewed phases (refine, implement, plan): reads reviewer
+       verdicts and loops back with feedback if revision is needed.
+       Multi-agent phases run reviewers as part of wave execution;
+       single-agent phases (refine) spawn reviewers after the worker.
     3. Advances to the next phase once approved (or circuit-breaker hit)
 
     Args:
@@ -2173,10 +2550,17 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     """
     from routes.phases import get_phase_transitions
 
+    # Track which run of the pipeline this thread owns.  If the pipeline
+    # is deleted and recreated with the same ID while we're still running,
+    # the new run creates its own worktrees under the same path.  Without
+    # this guard, our finally block would delete the *new* run's worktrees.
+    run_created_at: datetime | None = None
+
     try:
         store = get_state_store(repo_path)
         spawner = get_container_spawner()
         pipeline = store.load_pipeline(pipeline_id)
+        run_created_at = pipeline.created_at
         pipeline_mode = getattr(pipeline, "mode", "issue")
         transitions = get_phase_transitions(pipeline_mode)
 
@@ -2196,8 +2580,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     env_max_parallel,
                 )
 
-        # Map pipeline mode to gateway session mode
-        gateway_mode = "local" if pipeline_mode == "local" else "public"
+        # Map pipeline mode to gateway session mode.
+        # If the pipeline has an explicit network_mode (e.g. "private"), use it;
+        # otherwise fall back to the default mapping.
+        if pipeline.network_mode:
+            gateway_mode = pipeline.network_mode
+        else:
+            gateway_mode = "local" if pipeline_mode == "local" else "public"
 
         # Parse host repo map for volume mounts.  When the orchestrator
         # runs inside Docker, EGG_REPO_PATH is the *container* path but
@@ -2370,7 +2759,23 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         hitl_revision_feedback: str | None = None
 
         while True:
-            pipeline = store.load_pipeline(pipeline_id)
+            try:
+                pipeline = store.load_pipeline(pipeline_id)
+            except Exception:
+                # Pipeline was deleted — exit quietly
+                logger.info(
+                    "Pipeline no longer exists, exiting thread",
+                    pipeline_id=pipeline_id,
+                )
+                return
+
+            # Detect recreation: another run now owns this pipeline ID
+            if pipeline.created_at != run_created_at:
+                logger.info(
+                    "Pipeline was recreated, exiting old thread",
+                    pipeline_id=pipeline_id,
+                )
+                return
 
             if pipeline.status in (PipelineStatus.FAILED, PipelineStatus.CANCELLED):
                 logger.info(
@@ -2394,6 +2799,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     event_type="phase.started",
                     message=f"Phase {current_phase.value} started",
                 )
+                _emit_pipeline_event(pipeline, "phase.started")
 
             # Common sandbox environment for all containers in this phase.
             # GATEWAY_URL, RUNTIME_UID/GID, proxy vars, DNS lockdown, and
@@ -2416,13 +2822,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
             repos = [pipeline.repo] if pipeline.repo else []
 
-            # PR phase gets push access even for local pipelines.
-            # Override the gateway session mode to "public" so the
-            # gateway allows git push and PR creation.
-            phase_gateway_mode = gateway_mode
-            if current_phase.value == "pr" and pipeline_mode == "local":
-                phase_gateway_mode = "public"
-
             phase_failed = False
             review_feedback: str | None = hitl_revision_feedback
             hitl_revision_feedback = None
@@ -2443,6 +2842,33 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 }
 
                 if use_multi_agent:
+                    # Delete stale verdict files before spawning reviewers
+                    # to prevent reading outdated verdicts if a reviewer
+                    # crashes or the pipeline restarts from a checkpoint.
+                    from egg_contracts.agent_roles import (
+                        _PHASE_REVIEWERS as _phase_reviewer_roles_cleanup,
+                    )
+
+                    for role in _phase_reviewer_roles_cleanup.get(
+                        current_phase.value, []
+                    ):
+                        rtype = role.value.replace("reviewer_", "", 1).replace(
+                            "_", "-"
+                        )
+                        verdict_rel = _verdict_path_for_type(
+                            current_phase.value,
+                            rtype,
+                            pipeline_mode,
+                            pipeline.issue_number,
+                            pipeline_id,
+                        )
+                        verdict_path = worktree_repo_path / verdict_rel
+                        if verdict_path.exists():
+                            try:
+                                verdict_path.unlink()
+                            except OSError:
+                                pass
+
                     logger.info(
                         "Spawning multi-agent wave execution for phase",
                         pipeline_id=pipeline_id,
@@ -2458,7 +2884,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             phase=current_phase.value,
                             spawner=spawner,
                             repo_volumes=repo_volumes,
-                            gateway_mode=phase_gateway_mode,
+                            gateway_mode=gateway_mode,
                             repos=repos,
                             sandbox_env=sandbox_env,
                             store=store,
@@ -2519,14 +2945,22 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase_prompt,
                     ]
 
+                    # Use the REFINER role for the refine phase,
+                    # CODER for all other single-agent phases.
+                    single_agent_role = (
+                        AgentRole.REFINER
+                        if current_phase.value == "refine"
+                        else AgentRole.CODER
+                    )
+
                     try:
                         exit_code, container_logs = _spawn_and_wait(
                             spawner=spawner,
                             pipeline_id=pipeline_id,
-                            agent_role=AgentRole.CODER,
+                            agent_role=single_agent_role,
                             issue_number=pipeline.issue_number,
                             repo_volumes=repo_volumes,
-                            gateway_mode=phase_gateway_mode,
+                            gateway_mode=gateway_mode,
                             repos=repos,
                             phase=current_phase.value,
                             sandbox_env=sandbox_env,
@@ -2627,7 +3061,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 agent_role=AgentRole.CHECKER,
                                 issue_number=pipeline.issue_number,
                                 repo_volumes=repo_volumes,
-                                gateway_mode=phase_gateway_mode,
+                                gateway_mode=gateway_mode,
                                 repos=repos,
                                 phase=current_phase.value,
                                 sandbox_env=checker_env,
@@ -2696,7 +3130,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 agent_role=AgentRole.CODER,
                                 issue_number=pipeline.issue_number,
                                 repo_volumes=repo_volumes,
-                                gateway_mode=phase_gateway_mode,
+                                gateway_mode=gateway_mode,
                                 repos=repos,
                                 phase=current_phase.value,
                                 sandbox_env=sandbox_env,
@@ -2712,116 +3146,118 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
                             break
 
-                # 3. Multi-reviewer loop (all reviewed phases)
-                if current_phase.value not in _REVIEWED_PHASES:
-                    break  # No review needed — advance
+                # 3. Read reviewer verdicts (reviewed phases)
+                # For multi-agent phases, reviewers ran as part of wave-based
+                # execution above.  For single-agent reviewed phases (e.g.
+                # refine), spawn reviewer containers after the worker finishes.
+                from egg_contracts.agent_roles import (
+                    _PHASE_REVIEWERS as _phase_reviewer_roles,
+                )
 
-                reviewer_types = _PHASE_REVIEWERS.get(current_phase.value, ["unified"])
+                reviewer_roles = _phase_reviewer_roles.get(
+                    current_phase.value, []
+                )
+                if not reviewer_roles:
+                    break  # No reviewers for this phase — advance
 
-                # Delete stale verdict files before spawning reviewers
-                for rtype in reviewer_types:
-                    verdict_rel = _verdict_path_for_type(
-                        current_phase.value,
-                        rtype,
-                        pipeline_mode,
-                        pipeline.issue_number,
-                        pipeline_id,
-                    )
-                    verdict_path = worktree_repo_path / verdict_rel
-                    if verdict_path.exists():
-                        try:
-                            verdict_path.unlink()
-                        except OSError:
-                            pass
+                # For single-agent phases, spawn reviewers now
+                if not use_multi_agent:
+                    # Clean stale verdict files
+                    for role in reviewer_roles:
+                        rtype = role.value.replace("reviewer_", "", 1).replace(
+                            "_", "-"
+                        )
+                        verdict_rel = _verdict_path_for_type(
+                            current_phase.value,
+                            rtype,
+                            pipeline_mode,
+                            pipeline.issue_number,
+                            pipeline_id,
+                        )
+                        verdict_path = worktree_repo_path / verdict_rel
+                        if verdict_path.exists():
+                            try:
+                                verdict_path.unlink()
+                            except OSError:
+                                pass
 
-                # Run reviewers sequentially
-                all_verdicts: dict[str, ReviewVerdict | None] = {}
-                for reviewer_type in reviewer_types:
-                    logger.info(
-                        "Spawning reviewer",
-                        pipeline_id=pipeline_id,
-                        phase=current_phase.value,
-                        reviewer_type=reviewer_type,
-                        review_cycle=review_cycle + 1,
-                    )
-
-                    review_prompt = _build_review_prompt(
-                        phase=current_phase.value,
-                        pipeline_id=pipeline_id,
-                        pipeline_mode=pipeline_mode,
-                        reviewer_type=reviewer_type,
-                        issue_number=pipeline.issue_number,
-                        review_cycle=review_cycle + 1,
-                        prior_feedback=review_feedback,
-                    )
-
-                    reviewer_command = [
-                        "claude",
-                        "--dangerously-skip-permissions",
-                        "--print",
-                        "--verbose",
-                        "--output-format",
-                        "stream-json",
-                        "--model",
-                        "opus",
-                        "--max-turns",
-                        "50",
-                        review_prompt,
-                    ]
-
-                    reviewer_env = {
-                        **sandbox_env,
-                        "EGG_REVIEWER_TYPE": reviewer_type,
-                    }
-
-                    try:
-                        rev_exit, rev_logs = _spawn_and_wait(
-                            spawner=spawner,
-                            pipeline_id=pipeline_id,
-                            agent_role=AgentRole.REVIEWER,
-                            issue_number=pipeline.issue_number,
-                            repo_volumes=repo_volumes,
-                            gateway_mode=phase_gateway_mode,
-                            repos=repos,
+                    # Spawn each reviewer as an individual container
+                    for role in reviewer_roles:
+                        role_str = role.value
+                        rtype = role_str.replace("reviewer_", "", 1).replace(
+                            "_", "-"
+                        )
+                        reviewer_prompt = _build_review_prompt(
                             phase=current_phase.value,
-                            sandbox_env=reviewer_env,
-                            sandbox_command=reviewer_command,
-                            timeout=1800,
-                            store=store,
-                            certs_volume=certs_volume,
-                        )
-                    except ContainerSpawnError as e:
-                        logger.warning(
-                            "Reviewer failed to spawn, treating as approved",
                             pipeline_id=pipeline_id,
-                            reviewer_type=reviewer_type,
-                            error=str(e),
+                            pipeline_mode=pipeline_mode,
+                            reviewer_type=rtype,
+                            issue_number=pipeline.issue_number,
+                            review_cycle=review_cycle + 1,
+                            prior_feedback=review_feedback,
                         )
-                        all_verdicts[reviewer_type] = None
-                        continue
+                        reviewer_command = [
+                            "claude",
+                            "--dangerously-skip-permissions",
+                            "--print",
+                            "--verbose",
+                            "--output-format",
+                            "stream-json",
+                            "--model",
+                            "opus",
+                            "--max-turns",
+                            "50",
+                            reviewer_prompt,
+                        ]
+                        reviewer_env = {
+                            **sandbox_env,
+                            "EGG_AGENT_ROLE": role_str,
+                        }
+                        try:
+                            orch_role = AgentRole(role_str)
+                        except ValueError:
+                            continue
+                        try:
+                            _spawn_and_wait(
+                                spawner=spawner,
+                                pipeline_id=pipeline_id,
+                                agent_role=orch_role,
+                                issue_number=pipeline.issue_number,
+                                repo_volumes=repo_volumes,
+                                gateway_mode=gateway_mode,
+                                repos=repos,
+                                phase=current_phase.value,
+                                sandbox_env=reviewer_env,
+                                sandbox_command=reviewer_command,
+                                timeout=1800,
+                                store=store,
+                                certs_volume=certs_volume,
+                            )
+                        except ContainerSpawnError as e:
+                            logger.warning(
+                                "Reviewer failed to spawn, skipping",
+                                pipeline_id=pipeline_id,
+                                reviewer=role_str,
+                                error=str(e),
+                            )
 
-                    if rev_exit != 0:
-                        logger.warning(
-                            "Reviewer exited non-zero, treating as approved",
-                            pipeline_id=pipeline_id,
-                            reviewer_type=reviewer_type,
-                            exit_code=rev_exit,
-                        )
-                        all_verdicts[reviewer_type] = None
-                        continue
-
-                    # Read this reviewer's verdict
-                    all_verdicts[reviewer_type] = _read_review_verdict(
+                all_verdicts: dict[str, ReviewVerdict | None] = {}
+                for role in reviewer_roles:
+                    rtype = role.value.replace("reviewer_", "", 1).replace(
+                        "_", "-"
+                    )
+                    all_verdicts[rtype] = _read_review_verdict(
                         worktree_repo_path,
                         current_phase.value,
-                        reviewer_type=reviewer_type,
+                        reviewer_type=rtype,
                         pipeline_mode=pipeline_mode,
                         issue_number=pipeline.issue_number,
                         pipeline_id=pipeline_id,
                     )
 
-                # Aggregate all verdicts
-                overall_verdict, combined_feedback = _aggregate_review_verdicts(all_verdicts)
+                overall_verdict, combined_feedback = (
+                    _aggregate_review_verdicts(all_verdicts)
+                )
 
                 if overall_verdict == "approved":
                     logger.info(
@@ -2856,9 +3292,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pipeline_id=pipeline_id,
                     phase=current_phase.value,
                     review_cycle=review_cycle + 1,
-                    feedback_preview=review_feedback[:200] if review_feedback else "",
+                    feedback_preview=review_feedback[:200]
+                    if review_feedback
+                    else "",
                 )
-                # Continue inner while loop → re-spawn worker with feedback
+                continue  # Re-run while loop with feedback
 
             # If the phase failed, the outer loop should also break
             if phase_failed:
@@ -2877,6 +3315,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 event_type="phase.completed",
                 message=f"Phase {current_phase.value} completed",
             )
+            _emit_pipeline_event(pipeline, "phase.completed")
 
             # After plan phase: populate contract with task structure.
             # NOTE: worktree_repo_path is used for both draft reads and
@@ -2947,6 +3386,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     event_type="decision.created",
                     message=f"Awaiting human approval for {current_phase.value} phase",
                 )
+                _emit_pipeline_event(pipeline, "decision.created")
 
                 try:
                     dq.wait_for_decision(decision.id)
@@ -3045,6 +3485,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 event_type="phase.revision_requested",
                                 message=f"Human requested changes to {current_phase.value}",
                             )
+                            _emit_pipeline_event(pipeline, "phase.revision_requested")
                             continue  # Re-enter outer loop → re-run phase with feedback
 
                 # Approved — resume and advance
@@ -3072,6 +3513,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     event_type="pipeline.completed",
                     message="Pipeline completed successfully",
                 )
+                _emit_pipeline_event(pipeline, "pipeline.completed")
                 logger.info("Pipeline complete", pipeline_id=pipeline_id)
                 break
 
@@ -3096,27 +3538,55 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         try:
             store = get_state_store(repo_path)
             pipeline = store.load_pipeline(pipeline_id)
-            pipeline.status = PipelineStatus.FAILED
-            pipeline.error = str(e)
-            store.save_pipeline(pipeline)
 
-            # Report pipeline failure to collaborator
-            report_pipeline_status(
-                pipeline,
-                event_type="pipeline.failed",
-                message=f"Pipeline failed: {str(e)[:100]}",
-            )
+            # Don't corrupt a recreated pipeline's state
+            if run_created_at and pipeline.created_at != run_created_at:
+                logger.info(
+                    "Pipeline was recreated, not marking new run as failed",
+                    pipeline_id=pipeline_id,
+                )
+            else:
+                pipeline.status = PipelineStatus.FAILED
+                pipeline.error = str(e)
+                store.save_pipeline(pipeline)
+
+                # Report pipeline failure to collaborator
+                report_pipeline_status(
+                    pipeline,
+                    event_type="pipeline.failed",
+                    message=f"Pipeline failed: {str(e)[:100]}",
+                )
+                _emit_pipeline_event(pipeline, "pipeline.failed")
         except Exception:
             pass
     finally:
-        # Clean up pipeline-level worktrees regardless of success/failure
+        # Clean up pipeline-level worktrees unless the pipeline has been
+        # recreated (delete + create with the same ID).  In that case the
+        # new run owns the worktrees and we must not remove them.
         try:
             _spawner = get_container_spawner()
-            _spawner.gateway.delete_worktrees(
-                container_id=pipeline_id,
-                force=True,
-            )
-            logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
+            _store = get_state_store(repo_path)
+            skip_cleanup = False
+            try:
+                current = _store.load_pipeline(pipeline_id)
+                if run_created_at and current.created_at != run_created_at:
+                    skip_cleanup = True
+                    logger.info(
+                        "Pipeline was recreated, skipping worktree cleanup",
+                        pipeline_id=pipeline_id,
+                        old_created_at=run_created_at.isoformat(),
+                        new_created_at=current.created_at.isoformat(),
+                    )
+            except Exception:
+                # Pipeline was deleted and not recreated — safe to clean up
+                pass
+
+            if not skip_cleanup:
+                _spawner.gateway.delete_worktrees(
+                    container_id=pipeline_id,
+                    force=True,
+                )
+                logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
         except Exception as wt_err:
             logger.warning(
                 "Failed to clean up pipeline worktrees",

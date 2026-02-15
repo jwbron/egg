@@ -110,6 +110,29 @@ class TestPipelineCreation:
                 branch="egg/issue-496",
             )
 
+    def test_create_pipeline_with_network_mode(self, state_store):
+        """Test creating pipeline with network_mode persists correctly."""
+        pipeline = state_store.create_pipeline(
+            issue_number=496,
+            repo="owner/repo",
+            branch="egg/issue-496",
+            network_mode="private",
+        )
+        assert pipeline.network_mode == "private"
+
+        # Reload and verify persistence
+        loaded = state_store.load_pipeline("issue-496")
+        assert loaded.network_mode == "private"
+
+    def test_create_pipeline_network_mode_default_none(self, state_store):
+        """Test creating pipeline without network_mode defaults to None."""
+        pipeline = state_store.create_pipeline(
+            issue_number=497,
+            repo="owner/repo",
+            branch="egg/issue-497",
+        )
+        assert pipeline.network_mode is None
+
 
 class TestPipelinePersistence:
     """Tests for pipeline persistence."""

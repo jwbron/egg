@@ -32,8 +32,9 @@ import time
 from http.client import HTTPConnection
 
 # ANSI escape codes
-CLEAR_SCREEN = "\033[2J"
 MOVE_HOME = "\033[H"
+HIDE_CURSOR = "\033[?25l"
+SHOW_CURSOR = "\033[?25h"
 RESET = "\033[0m"
 DIM = "\033[2m"
 BOLD = "\033[1m"
@@ -43,6 +44,12 @@ YELLOW = "\033[33m"
 CYAN = "\033[36m"
 
 IS_TTY = sys.stdout.isatty()
+
+# Track previous pipeline state to skip redundant redraws.
+# We compare a subset of the input data — excluding ``visualization``
+# (contains elapsed-time counters via _format_duration that change every
+# second for running pipelines) and the rendered wall-clock timestamp.
+_prev_state: str | None = None
 
 _ANSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
 
@@ -162,12 +169,33 @@ def render_dashboard(pipelines: dict, verbose: bool = False) -> str:
 
 
 def display_dashboard(pipelines: dict, verbose: bool = False) -> None:
-    """Display the dashboard, handling TTY vs non-TTY modes."""
+    """Display the dashboard, handling TTY vs non-TTY modes.
+
+    Uses a single atomic write with hidden cursor to eliminate flicker.
+    Skips the redraw if the pipeline state hasn't changed.
+    """
+    global _prev_state
     output = render_dashboard(pipelines, verbose=verbose)
 
     if IS_TTY:
-        sys.stdout.write(MOVE_HOME + CLEAR_SCREEN)
-        sys.stdout.write(output + "\n")
+        # Compare pipeline state excluding fields that change every
+        # refresh cycle: ``visualization`` contains elapsed-time counters
+        # (via _format_duration) that update every second for running
+        # pipelines.  The rendered string also embeds a wall-clock
+        # timestamp, so we must compare input data, not output.
+        dedup_pipelines = {
+            pid: {k: v for k, v in state.items() if k != "visualization"}
+            for pid, state in pipelines.items()
+        }
+        state_snapshot = json.dumps(dedup_pipelines, sort_keys=True, default=str)
+        if state_snapshot == _prev_state:
+            return
+        _prev_state = state_snapshot
+        lines = output.split("\n")
+        cleared = "\033[K\n".join(lines)
+        sys.stdout.write(
+            HIDE_CURSOR + MOVE_HOME + cleared + "\n\033[J" + SHOW_CURSOR
+        )
         sys.stdout.flush()
     else:
         plain = strip_ansi(output)
@@ -286,6 +314,9 @@ def watch_all_pipelines(
         _write(f"{RED}Connection error: {e}{RESET}\n", file=sys.stderr)
         return 1
     finally:
+        if IS_TTY:
+            sys.stdout.write(SHOW_CURSOR)
+            sys.stdout.flush()
         if conn:
             try:
                 conn.close()

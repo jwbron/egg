@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from dag_visualizer import (
     PHASE_ORDER,
+    _compute_wave_order,
     _format_duration,
     _get_agent_status_symbol,
     _get_status_symbol,
@@ -568,3 +569,150 @@ class TestGenerateStatusReport:
 
         report = generate_status_report(pipeline)
         assert report["pending_decisions"] == 1
+
+
+class TestWaveGrouping:
+    """Tests for wave-based agent grouping in the DAG visualization."""
+
+    def test_implement_phase_wave_order(self):
+        """Agents are grouped by execution wave in implement phase."""
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+                agents=[
+                    AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(
+                        role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
+                    ),
+                    AgentExecution(
+                        role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.PENDING
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.IMPLEMENT)
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        lines = result.split("\n")
+        agent_lines = [line.strip() for line in lines if "coder" in line or "tester" in line or "integrator" in line or "reviewer" in line]
+
+        # Coder should be on its own line (wave 1)
+        assert any("coder" in line and "tester" not in line and "integrator" not in line for line in agent_lines)
+        # Tester and documenter should be on the same line (wave 2)
+        assert any("tester" in line and "documenter" in line for line in agent_lines)
+        # Integrator should be on its own line (wave 3)
+        assert any("integrator" in line and "coder" not in line and "reviewer" not in line for line in agent_lines)
+        # Reviewers should be after integrator (wave 4)
+        assert any("reviewer_unified" in line for line in agent_lines)
+
+    def test_plan_phase_wave_order(self):
+        """Agents are grouped by execution wave in plan phase."""
+        phases = {
+            "plan": PhaseExecution(
+                phase=PipelinePhase.PLAN,
+                status=PipelineStatus.RUNNING,
+                agents=[
+                    AgentExecution(role=AgentRole.ARCHITECT, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(
+                        role=AgentRole.TASK_PLANNER, status=AgentExecutionStatus.RUNNING
+                    ),
+                    AgentExecution(
+                        role=AgentRole.RISK_ANALYST, status=AgentExecutionStatus.RUNNING
+                    ),
+                    AgentExecution(
+                        role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.PENDING
+                    ),
+                    AgentExecution(
+                        role=AgentRole.REVIEWER_AGENT_DESIGN, status=AgentExecutionStatus.PENDING
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.PLAN)
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        lines = result.split("\n")
+        agent_lines = [line.strip() for line in lines if "architect" in line or "planner" in line or "analyst" in line or "reviewer" in line]
+
+        # Architect alone (wave 1)
+        assert any("architect" in line and "planner" not in line for line in agent_lines)
+        # Task planner and risk analyst together (wave 2)
+        assert any("task_planner" in line and "risk_analyst" in line for line in agent_lines)
+        # Reviewers together (wave 3) — after planner agents
+        assert any("reviewer_unified" in line and "reviewer_agent_design" in line for line in agent_lines)
+
+    def test_compute_wave_order_implement(self):
+        """_compute_wave_order returns correct wave groups for implement phase."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.RUNNING),
+        ]
+        waves = _compute_wave_order(PipelinePhase.IMPLEMENT, agents)
+
+        assert len(waves) == 3  # coder, tester+doc, integrator
+        assert len(waves[0]) == 1  # coder
+        assert waves[0][0].role == AgentRole.CODER
+        assert len(waves[1]) == 2  # tester + documenter
+        assert len(waves[2]) == 1  # integrator
+
+    def test_compute_wave_order_unknown_phase_falls_back(self):
+        """Phases without defined roles fall back to a single group."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.RUNNING),
+        ]
+        waves = _compute_wave_order(PipelinePhase.PR, agents)
+
+        # Should return single group (fallback)
+        assert len(waves) == 1
+        assert len(waves[0]) == 1
+
+    def test_unrecognized_agents_appended(self):
+        """Agents not in the dependency graph are appended at the end."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.REVIEWER, status=AgentExecutionStatus.RUNNING),
+        ]
+        waves = _compute_wave_order(PipelinePhase.IMPLEMENT, agents)
+
+        # CODER in wave 1, generic REVIEWER not in graph → appended
+        assert waves[0][0].role == AgentRole.CODER
+        assert waves[-1][0].role == AgentRole.REVIEWER
+
+    def test_reviewers_after_planners_in_dag(self):
+        """Verify reviewers render after planning agents, not before."""
+        phases = {
+            "plan": PhaseExecution(
+                phase=PipelinePhase.PLAN,
+                status=PipelineStatus.RUNNING,
+                agents=[
+                    AgentExecution(role=AgentRole.ARCHITECT, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(
+                        role=AgentRole.TASK_PLANNER, status=AgentExecutionStatus.COMPLETE
+                    ),
+                    AgentExecution(
+                        role=AgentRole.RISK_ANALYST, status=AgentExecutionStatus.COMPLETE
+                    ),
+                    AgentExecution(
+                        role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.PLAN)
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        lines = result.split("\n")
+        # Find the line indices containing each agent type
+        architect_line = next(i for i, line in enumerate(lines) if "architect" in line)
+        planner_line = next(i for i, line in enumerate(lines) if "task_planner" in line)
+        reviewer_line = next(i for i, line in enumerate(lines) if "reviewer_unified" in line)
+
+        # Reviewer must come AFTER architect and planner
+        assert reviewer_line > architect_line
+        assert reviewer_line > planner_line

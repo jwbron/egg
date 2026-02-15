@@ -7,7 +7,7 @@ This directory contains slash command documentation for Claude Code CLI in the s
 ### /sdlc
 Redirects to the `egg-sdlc` CLI tool for launching SDLC pipelines.
 
-**Usage**: `/sdlc <issue_number> [--repo owner/repo]`
+**Usage**: `/sdlc -r <repo_dir> -i <issue_number>`
 
 **What it does**:
 - Provides instructions to use the `egg-sdlc` CLI directly

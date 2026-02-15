@@ -456,6 +456,37 @@ class TestCheckpointV2:
                 session_started_at=now,
             )
 
+    def test_pipeline_id_optional(self):
+        """Test that pipeline_id is optional and defaults to None."""
+        now = datetime.now(UTC)
+        session = self._make_session_metadata(now)
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha="abc1234567890",
+            session_id="container-123",
+            session=session,
+            created_at=now,
+            session_started_at=now,
+        )
+        assert checkpoint.pipeline_id is None
+
+    def test_pipeline_id_set(self):
+        """Test that pipeline_id can be set."""
+        now = datetime.now(UTC)
+        session = self._make_session_metadata(now)
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha="abc1234567890",
+            session_id="container-123",
+            session=session,
+            created_at=now,
+            session_started_at=now,
+            pipeline_id="issue-42",
+        )
+        assert checkpoint.pipeline_id == "issue-42"
+
     def test_empty_commit_sha_becomes_none(self):
         """Test that empty string commit_sha is converted to None."""
         now = datetime.now(UTC)
@@ -523,6 +554,61 @@ class TestCheckpointSummaryV2:
         assert summary.message_count == 5
         assert summary.tool_call_count == 2
         assert summary.total_tokens == 1500
+
+    def test_from_checkpoint_with_pipeline_id(self):
+        """Test that pipeline_id is carried into summary."""
+        now = datetime.now(UTC)
+        session = SessionMetadata(session_id="test-session", started_at=now)
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha="abc1234567890",
+            session_id="container-123",
+            session=session,
+            created_at=now,
+            session_started_at=now,
+            pipeline_id="issue-42",
+        )
+        summary = CheckpointSummaryV2.from_checkpoint(checkpoint)
+        assert summary.pipeline_id == "issue-42"
+
+    def test_from_checkpoint_files_touched_count(self):
+        """Test that files_touched_count is computed from checkpoint."""
+        now = datetime.now(UTC)
+        session = SessionMetadata(session_id="test-session", started_at=now)
+        files = [
+            FileOperation(path="src/a.py", operation=FileOperationType.READ),
+            FileOperation(path="src/b.py", operation=FileOperationType.WRITE),
+            FileOperation(path="src/c.py", operation=FileOperationType.EDIT),
+        ]
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha="abc1234567890",
+            session_id="container-123",
+            session=session,
+            files_touched=files,
+            created_at=now,
+            session_started_at=now,
+        )
+        summary = CheckpointSummaryV2.from_checkpoint(checkpoint)
+        assert summary.files_touched_count == 3
+
+    def test_from_checkpoint_files_touched_count_empty(self):
+        """Test files_touched_count defaults to 0 when no files."""
+        now = datetime.now(UTC)
+        session = SessionMetadata(session_id="test-session", started_at=now)
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha="abc1234567890",
+            session_id="container-123",
+            session=session,
+            created_at=now,
+            session_started_at=now,
+        )
+        summary = CheckpointSummaryV2.from_checkpoint(checkpoint)
+        assert summary.files_touched_count == 0
 
     def test_from_session_end_checkpoint(self):
         """Test creating summary from session-end checkpoint."""
@@ -659,3 +745,17 @@ class TestCheckpointIndexV2:
         assert index.get_by_status(SessionStatus.COMPLETED) == ["ckpt-aa00000001"]
         assert index.get_by_status(SessionStatus.FAILED) == ["ckpt-bb00000002"]
         assert index.get_by_status(SessionStatus.EXPIRED) == []
+
+    def test_get_by_pipeline(self):
+        """Test get_by_pipeline lookup."""
+        now = datetime.now(UTC)
+        index = CheckpointIndexV2(
+            last_updated=now,
+            by_pipeline={
+                "issue-42": ["ckpt-aa00000001", "ckpt-bb00000002"],
+                "issue-99": ["ckpt-cc00000003"],
+            },
+        )
+        assert index.get_by_pipeline("issue-42") == ["ckpt-aa00000001", "ckpt-bb00000002"]
+        assert index.get_by_pipeline("issue-99") == ["ckpt-cc00000003"]
+        assert index.get_by_pipeline("nonexistent") == []

@@ -413,6 +413,7 @@ def cmd_list(args: argparse.Namespace) -> int:
             session_status=getattr(args, "status", None),
             agent_type=getattr(args, "agent_type", None),
             pipeline_phase=getattr(args, "phase", None),
+            pipeline_id=getattr(args, "pipeline", None),
             limit=args.limit,
         )
 
@@ -535,6 +536,120 @@ def cmd_browse(args: argparse.Namespace) -> int:
         cleanup_worktree(repo_path, worktree_path)
 
 
+def cmd_context(args: argparse.Namespace) -> int:
+    """Show cross-agent context summary for a pipeline or issue."""
+    repo_path = args.repo_path or get_repo_path()
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+
+    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
+    if not worktree_path:
+        print("No checkpoints found (checkpoint branch does not exist)")
+        return 0
+
+    try:
+        checkpoints_dir = worktree_path / "checkpoints"
+        index_path = worktree_path / "index.json"
+
+        summaries = list_checkpoints_v2(
+            checkpoints_dir,
+            index_path,
+            pipeline_id=getattr(args, "pipeline", None),
+            issue_number=getattr(args, "issue", None),
+            agent_type=getattr(args, "agent_type", None),
+            pipeline_phase=getattr(args, "phase", None),
+            limit=args.limit,
+        )
+
+        if not summaries:
+            print("No checkpoints found matching filters")
+            return 0
+
+        if args.json:
+            output = _build_context_json(summaries, checkpoints_dir, args)
+            print(json.dumps(output, indent=2))
+        else:
+            _print_context_summary(summaries, checkpoints_dir, args)
+
+        return 0
+
+    finally:
+        cleanup_worktree(repo_path, worktree_path)
+
+
+def _build_context_json(
+    summaries: list[CheckpointSummaryV2],
+    checkpoints_dir: Path,
+    args: argparse.Namespace,
+) -> list[dict[str, Any]]:
+    """Build JSON output for context command."""
+    results = []
+    for s in summaries:
+        entry: dict[str, Any] = s.model_dump(mode="json")
+        if getattr(args, "files", False):
+            checkpoint = load_checkpoint_by_id_v2(s.id, checkpoints_dir)
+            if checkpoint:
+                entry["files"] = [
+                    {"path": f.path, "operation": f.operation.value}
+                    for f in checkpoint.files_touched
+                ]
+        results.append(entry)
+    return results
+
+
+def _print_context_summary(
+    summaries: list[CheckpointSummaryV2],
+    checkpoints_dir: Path,
+    args: argparse.Namespace,
+) -> None:
+    """Print hierarchical context summary grouped by phase and agent."""
+    # Group by phase -> agent_type
+    groups: dict[str, dict[str, list[CheckpointSummaryV2]]] = {}
+    for s in summaries:
+        phase_key = s.pipeline_phase or "(no phase)"
+        agent_key = s.agent_type.value if s.agent_type != AgentType.UNKNOWN else "unknown"
+        if phase_key not in groups:
+            groups[phase_key] = {}
+        if agent_key not in groups[phase_key]:
+            groups[phase_key][agent_key] = []
+        groups[phase_key][agent_key].append(s)
+
+    print(f"Cross-Agent Context ({len(summaries)} checkpoints)")
+    print()
+
+    for phase, agents in sorted(groups.items()):
+        print(f"Phase: {phase}")
+        for agent, cps in sorted(agents.items()):
+            total_msgs = sum(c.message_count for c in cps)
+            total_tools = sum(c.tool_call_count for c in cps)
+            total_tokens = sum(c.total_tokens for c in cps)
+            total_files = sum(c.files_touched_count for c in cps)
+            print(
+                f"  {agent} ({len(cps)} checkpoints) | "
+                f"msgs:{total_msgs} tools:{total_tools} "
+                f"tokens:{format_tokens(total_tokens)} files:{total_files}"
+            )
+            for cp in cps:
+                trigger = _format_trigger(cp.trigger_type)
+                parts = [f"    {cp.id} | trigger:{trigger}"]
+                if cp.commit_sha:
+                    parts.append(f"commit:{cp.commit_sha[:7]}")
+                parts.append(f"msgs:{cp.message_count}")
+                parts.append(f"tools:{cp.tool_call_count}")
+                parts.append(f"tokens:{format_tokens(cp.total_tokens)}")
+                parts.append(f"files:{cp.files_touched_count}")
+                parts.append(f"@{format_timestamp(cp.created_at)}")
+                print(" | ".join(parts))
+
+                # Optionally show file paths
+                if getattr(args, "files", False):
+                    checkpoint = load_checkpoint_by_id_v2(cp.id, checkpoints_dir)
+                    if checkpoint and checkpoint.files_touched:
+                        for f in checkpoint.files_touched:
+                            print(f"      {f.operation.value:6s} {f.path}")
+
+        print()
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
@@ -578,6 +693,7 @@ def create_parser() -> argparse.ArgumentParser:
         choices=["refine", "plan", "implement", "pr"],
         help="Filter by pipeline phase",
     )
+    list_parser.add_argument("--pipeline", help="Filter by pipeline run ID")
     list_parser.add_argument("--limit", type=int, default=50, help="Maximum checkpoints to show")
     list_parser.add_argument("--json", action="store_true", help="Output as JSON")
     list_parser.set_defaults(func=cmd_list)
@@ -594,6 +710,29 @@ def create_parser() -> argparse.ArgumentParser:
     browse_parser.add_argument("--limit", type=int, default=100, help="Maximum checkpoints to show")
     browse_parser.add_argument("--json", action="store_true", help="Output as JSON")
     browse_parser.set_defaults(func=cmd_browse)
+
+    # context command
+    context_parser = subparsers.add_parser(
+        "context", help="Show cross-agent context summary for a pipeline or issue"
+    )
+    context_parser.add_argument("--pipeline", help="Filter by pipeline run ID")
+    context_parser.add_argument("--issue", type=int, help="Filter by issue number")
+    context_parser.add_argument(
+        "--agent-type",
+        choices=[a.value for a in AgentType],
+        help="Filter by agent type",
+    )
+    context_parser.add_argument(
+        "--phase",
+        choices=["refine", "plan", "implement", "pr"],
+        help="Filter by pipeline phase",
+    )
+    context_parser.add_argument(
+        "--files", action="store_true", help="Show file paths touched by each checkpoint"
+    )
+    context_parser.add_argument("--limit", type=int, default=100, help="Maximum checkpoints to show")
+    context_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    context_parser.set_defaults(func=cmd_context)
 
     return parser
 

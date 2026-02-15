@@ -11,6 +11,7 @@ from egg_lib.sdlc_hitl import (
     _detect_phase,
     _find_repo_path,
     _get_draft_path,
+    _launch_claude,
     _read_draft,
     handle_hitl_checkpoint,
 )
@@ -103,8 +104,44 @@ class TestGetDraftPath:
 
 
 class TestFindRepoPath:
-    def test_git_rev_parse_success(self, tmp_path):
+    def test_egg_repos_env_single_repo(self, tmp_path, monkeypatch):
+        """When EGG_REPOS has a single repo, use its directory under ~/repos/."""
+        repos_dir = tmp_path / "repos"
+        repo_dir = repos_dir / "myrepo"
+        repo_dir.mkdir(parents=True)
+        monkeypatch.setenv("EGG_REPOS", "owner/myrepo")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        result = _find_repo_path()
+        assert result == repo_dir
+
+    def test_egg_repos_env_multiple_repos_falls_through(self, tmp_path, monkeypatch):
+        """When EGG_REPOS has multiple repos, fall through to other strategies."""
+        repos_dir = tmp_path / "repos"
+        (repos_dir / "a").mkdir(parents=True)
+        (repos_dir / "b").mkdir(parents=True)
+        monkeypatch.setenv("EGG_REPOS", "owner/a,owner/b")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=128, stdout="")
+            result = _find_repo_path()
+            # Falls through to cwd since git also fails
+            assert result == tmp_path
+
+    def test_single_repo_under_repos_dir(self, tmp_path, monkeypatch):
+        """When ~/repos/ has exactly one subdirectory, use it."""
+        repos_dir = tmp_path / "repos"
+        repo_dir = repos_dir / "only-repo"
+        repo_dir.mkdir(parents=True)
+        monkeypatch.delenv("EGG_REPOS", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        result = _find_repo_path()
+        assert result == repo_dir
+
+    def test_git_rev_parse_success(self, tmp_path, monkeypatch):
         """When git rev-parse succeeds, its output is used."""
+        monkeypatch.delenv("EGG_REPOS", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
@@ -112,15 +149,14 @@ class TestFindRepoPath:
             )
             result = _find_repo_path()
             assert result == tmp_path
-            mock_run.assert_called_once()
-            args = mock_run.call_args[0][0]
-            assert args == ["git", "rev-parse", "--show-toplevel"]
 
     def test_git_rev_parse_failure_falls_back(self, tmp_path, monkeypatch):
         """When git rev-parse fails, falls back to cwd traversal."""
         # Create a .git dir in tmp_path
         (tmp_path / ".git").mkdir()
         monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("EGG_REPOS", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=128, stdout="")
@@ -130,6 +166,8 @@ class TestFindRepoPath:
     def test_no_git_anywhere(self, tmp_path, monkeypatch):
         """When no .git found, returns cwd."""
         monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("EGG_REPOS", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=128, stdout="")
             result = _find_repo_path()
@@ -138,6 +176,8 @@ class TestFindRepoPath:
     def test_git_command_not_found(self, tmp_path, monkeypatch):
         """When git is not installed, falls back gracefully."""
         monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("EGG_REPOS", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
         with patch("subprocess.run", side_effect=FileNotFoundError):
             result = _find_repo_path()
             assert result == tmp_path
@@ -348,6 +388,62 @@ class TestHandleHitlCheckpoint:
         mock_editor.assert_called_once_with(draft_file)
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._launch_editor")
+    @patch("builtins.input")
+    def test_edit_creates_missing_draft(self, mock_input, mock_editor, mock_repo, tmp_path, capsys):
+        """Option 1 (edit) creates the draft file from decision context when file doesn't exist."""
+        mock_repo.return_value = tmp_path
+        mock_editor.return_value = True
+        # choice 1 → draft created & editor opens → back to menu → choice 3 (approve)
+        mock_input.side_effect = ["1", "3"]
+
+        client = self._make_client()
+        decision = self._make_decision()  # "refine" phase, has context
+
+        result = handle_hitl_checkpoint(
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+
+        assert result == "resolved"
+        draft_file = tmp_path / ".egg-state" / "drafts" / "42-analysis.md"
+        assert draft_file.exists()
+        # File should contain the decision context (fallback from worktree)
+        assert draft_file.read_text() == "Draft content for refine phase"
+        mock_editor.assert_called_once_with(draft_file)
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._launch_editor")
+    @patch("builtins.input")
+    def test_edit_creates_stub_when_no_context(
+        self, mock_input, mock_editor, mock_repo, tmp_path, capsys
+    ):
+        """Option 1 (edit) creates a stub file when no draft or context exists."""
+        mock_repo.return_value = tmp_path
+        mock_editor.return_value = True
+        mock_input.side_effect = ["1", "3"]
+
+        client = self._make_client()
+        decision = self._make_decision(context="")
+
+        result = handle_hitl_checkpoint(
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+
+        assert result == "resolved"
+        draft_file = tmp_path / ".egg-state" / "drafts" / "42-analysis.md"
+        assert draft_file.exists()
+        assert draft_file.read_text() == "# Draft: refine\n\n"
+        mock_editor.assert_called_once_with(draft_file)
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("builtins.input")
     def test_invalid_choice_retries(self, mock_input, mock_repo, tmp_path, capsys):
         """Invalid menu choices prompt again."""
@@ -440,4 +536,55 @@ class TestHandleHitlCheckpoint:
         )
 
         assert result == "resolved"
-        mock_claude.assert_called_once_with(tmp_path)
+        mock_claude.assert_called_once_with(
+            tmp_path,
+            ".egg-state/drafts/42-analysis.md",
+            "refine",
+            42,
+        )
+
+
+# ---------------------------------------------------------------------------
+# _launch_claude unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestLaunchClaude:
+    """Unit tests for _launch_claude command construction."""
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_with_draft_context(self, mock_run, tmp_path):
+        """When draft_rel is provided, --append-system-prompt is added."""
+        _launch_claude(tmp_path, draft_rel="drafts/42-analysis.md", phase="refine", issue_number=42)
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "claude"
+        assert "--append-system-prompt" in cmd
+        prompt_idx = cmd.index("--append-system-prompt")
+        prompt_text = cmd[prompt_idx + 1]
+        assert "refine" in prompt_text
+        assert "#42" in prompt_text
+        assert "drafts/42-analysis.md" in prompt_text
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_without_draft_context(self, mock_run, tmp_path):
+        """When draft_rel is None, bare 'claude' command is used."""
+        _launch_claude(tmp_path, draft_rel=None, phase="implement", issue_number=10)
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["claude"]
+        assert mock_run.call_args[1]["cwd"] == str(tmp_path)
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_with_draft_but_no_phase_or_issue(self, mock_run, tmp_path):
+        """When draft_rel is set but phase/issue are None, prompt still includes draft."""
+        _launch_claude(tmp_path, draft_rel="drafts/1-plan.md", phase=None, issue_number=None)
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert "--append-system-prompt" in cmd
+        prompt_idx = cmd.index("--append-system-prompt")
+        prompt_text = cmd[prompt_idx + 1]
+        assert "drafts/1-plan.md" in prompt_text
+        # Phase and issue should not appear in the prompt
+        assert "Current phase:" not in prompt_text
+        assert "Issue: #" not in prompt_text

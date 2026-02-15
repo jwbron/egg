@@ -90,8 +90,13 @@ from egg_contracts.usage_loader import (
 from egg_logging import get_logger
 
 try:
+    from .git_client import cleanup_credential_helper, create_credential_helper
     from .session_manager import Session
 except ImportError:
+    from git_client import (  # type: ignore[no-redef, import-not-found]
+        cleanup_credential_helper,
+        create_credential_helper,
+    )
     from session_manager import Session  # type: ignore[no-redef, import-not-found]
 
 logger = get_logger("gateway.checkpoint-handler")
@@ -345,10 +350,11 @@ class CheckpointHandler:
                 session_metadata.container_id = session.container_id
                 session_metadata.agent_role = session.agent_role
 
-            # Resolve issue/PR/phase from session or env
+            # Resolve issue/PR/phase/pipeline from session or env
             issue_number = self._resolve_issue_number(issue_number, session)
             pipeline_phase = self._resolve_pipeline_phase(pipeline_phase, session)
             pr_number = self._resolve_pr_number(session)
+            pipeline_id = self._resolve_pipeline_id(session)
             agent_type = _resolve_agent_type(session.agent_role if session else None)
 
             checkpoint_id = generate_checkpoint_id_from_commit(
@@ -367,6 +373,7 @@ class CheckpointHandler:
                 pr_number=pr_number,
                 agent_type=agent_type,
                 pipeline_phase=pipeline_phase,
+                pipeline_id=pipeline_id,
                 session=session_metadata,
                 transcript=transcript,
                 files_touched=file_operations,
@@ -477,6 +484,8 @@ class CheckpointHandler:
 
             checkpoint_id = generate_checkpoint_id_v2(session_id, now)
 
+            pipeline_id = self._resolve_pipeline_id(session)
+
             checkpoint = CheckpointV2(
                 id=checkpoint_id,
                 trigger_type=TriggerType.SESSION_END,
@@ -486,6 +495,7 @@ class CheckpointHandler:
                 pr_number=session.pr_number,
                 agent_type=agent_type,
                 pipeline_phase=session.phase,
+                pipeline_id=pipeline_id,
                 session=session_metadata,
                 transcript=transcript,
                 files_touched=file_operations,
@@ -544,6 +554,7 @@ class CheckpointHandler:
         )
 
         agent_type = _resolve_agent_type(session.agent_role if session else None)
+        pipeline_id = self._resolve_pipeline_id(session)
 
         return CheckpointV2(
             id=checkpoint_id,
@@ -557,6 +568,7 @@ class CheckpointHandler:
             pr_number=session.pr_number if session else None,
             agent_type=agent_type,
             pipeline_phase=pipeline_phase,
+            pipeline_id=pipeline_id,
             session=session_metadata,
             created_at=now,
             session_started_at=session.created_at if session else now,
@@ -587,6 +599,12 @@ class CheckpointHandler:
         if session and session.phase is not None:
             return session.phase
         return os.environ.get("EGG_PIPELINE_PHASE")
+
+    def _resolve_pipeline_id(self, session: Session | None) -> str | None:
+        """Resolve pipeline ID from session or environment."""
+        if session and session.pipeline_id is not None:
+            return session.pipeline_id
+        return os.environ.get("EGG_PIPELINE_ID") or None
 
     def _resolve_pr_number(self, session: Session | None) -> int | None:
         """Resolve PR number from session or environment."""
@@ -830,31 +848,35 @@ class CheckpointHandler:
     ) -> subprocess.CompletedProcess[str]:
         """Run a git command."""
         env = os.environ.copy()
+        credential_helper_path = None
 
-        if self._github_token:
-            env["GIT_ASKPASS"] = "echo"
-            env["GIT_USERNAME"] = "x-access-token"
-            env["GIT_PASSWORD"] = self._github_token
+        try:
+            if self._github_token:
+                credential_helper_path, env = create_credential_helper(
+                    self._github_token, env
+                )
 
-        # SECURITY: Disable all git hooks. The checkpoint handler runs git commands
-        # internally for bookkeeping (storing checkpoints to the checkpoint branch).
-        # Hooks from user repos must not execute in the gateway's trusted environment.
-        cmd = ["git", "-c", "core.hooksPath=/dev/null"] + args
+            # SECURITY: Disable all git hooks. The checkpoint handler runs git commands
+            # internally for bookkeeping (storing checkpoints to the checkpoint branch).
+            # Hooks from user repos must not execute in the gateway's trusted environment.
+            cmd = ["git", "-c", "core.hooksPath=/dev/null"] + args
 
-        result = subprocess.run(
-            cmd,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=env,
-            check=False,
-        )
+            result = subprocess.run(
+                cmd,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+                check=False,
+            )
 
-        if check and result.returncode != 0:
-            raise CheckpointError(f"Git command failed: {result.stderr}")
+            if check and result.returncode != 0:
+                raise CheckpointError(f"Git command failed: {result.stderr}")
 
-        return result
+            return result
+        finally:
+            cleanup_credential_helper(credential_helper_path)
 
 
 # Global checkpoint handler instance

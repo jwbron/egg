@@ -144,6 +144,7 @@ class OrchClient:
         mode: str = "issue",
         prompt: str | None = None,
         config: dict[str, Any] | None = None,
+        network_mode: str | None = None,
     ) -> dict[str, Any]:
         """Create a new pipeline."""
         body: dict[str, Any] = {"mode": mode}
@@ -157,6 +158,8 @@ class OrchClient:
             body["prompt"] = prompt
         if config:
             body["config"] = config
+        if network_mode:
+            body["network_mode"] = network_mode
         data = self._request("POST", "/api/v1/pipelines", body=body)
         return data.get("data", {}).get("pipeline", data)
 
@@ -199,6 +202,10 @@ class OrchClient:
             f"/api/v1/pipelines/{pipeline_id}",
             body={"status": "cancelled"},
         )
+
+    def delete_pipeline(self, pipeline_id: str) -> dict[str, Any]:
+        """Delete a pipeline."""
+        return self._request("DELETE", f"/api/v1/pipelines/{pipeline_id}")
 
     def stream_pipeline(self, pipeline_id: str) -> tuple[HTTPConnection, HTTPResponse]:
         """Open an SSE stream for pipeline events.

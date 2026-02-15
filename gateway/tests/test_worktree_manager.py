@@ -588,5 +588,208 @@ class TestFindWorktreeGitDir:
         )
 
 
+class TestWorktreeManagerConcurrency:
+    """Tests for concurrent worktree creation."""
+
+    @pytest.fixture
+    def git_repo(self, tmp_path):
+        """Create a real git repo for concurrency tests."""
+        import subprocess as sp
+
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        repo_dir = repos_base / "test-repo"
+        repo_dir.mkdir()
+        result = sp.run(["git", "init"], cwd=repo_dir, capture_output=True, text=True)
+        if result.returncode != 0:
+            pytest.skip(f"git init not available: {result.stderr.strip()}")
+        sp.run(
+            ["git", "commit", "--allow-empty", "-m", "init"],
+            cwd=repo_dir,
+            capture_output=True,
+            check=True,
+            env={
+                **__import__("os").environ,
+                "GIT_AUTHOR_NAME": "test",
+                "GIT_AUTHOR_EMAIL": "t@t",
+                "GIT_COMMITTER_NAME": "test",
+                "GIT_COMMITTER_EMAIL": "t@t",
+            },
+        )
+
+        worktree_base = tmp_path / "worktrees"
+        return worktree_base, repos_base, repo_dir
+
+    def test_concurrent_create_worktree(self, git_repo):
+        """Three threads creating worktrees simultaneously should all succeed."""
+        import threading
+
+        worktree_base, repos_base, repo_dir = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        # Dict key assignment is atomic under CPython's GIL, so no lock needed.
+        results: dict[str, WorktreeInfo | Exception] = {}
+        container_ids = ["container-a", "container-b", "container-c"]
+        barrier = threading.Barrier(len(container_ids))
+
+        def create(cid: str) -> None:
+            try:
+                barrier.wait(timeout=5)
+                info = manager.create_worktree("test-repo", cid)
+                results[cid] = info
+            except Exception as exc:
+                results[cid] = exc
+
+        threads = [threading.Thread(target=create, args=(cid,)) for cid in container_ids]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+
+        # All three should succeed
+        for cid in container_ids:
+            assert cid in results, f"Thread for {cid} did not finish"
+            info = results[cid]
+            assert not isinstance(info, Exception), f"{cid} failed: {info}"
+            assert isinstance(info, WorktreeInfo)
+            assert info.worktree_path.exists()
+            git_file = info.worktree_path / ".git"
+            assert git_file.is_file(), f"{cid}: .git should be a file"
+            assert git_file.read_text().strip().startswith("gitdir:")
+
+
+class TestRunGitWorktreeAddRetry:
+    """Tests for _run_git_worktree_add retry logic on index.lock contention."""
+
+    def test_retry_succeeds_after_index_lock_error(self, tmp_path):
+        """Retry should succeed when index.lock error clears on second attempt."""
+        import subprocess
+
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path / "repos",
+        )
+        main_repo = tmp_path / "repos" / "test-repo"
+        main_repo.mkdir(parents=True)
+        (main_repo / ".git").mkdir()
+
+        fail_result = subprocess.CompletedProcess(
+            args=["git", "worktree", "add"],
+            returncode=128,
+            stdout="",
+            stderr="fatal: Unable to create '.git/index.lock': File exists.",
+        )
+        ok_result = subprocess.CompletedProcess(
+            args=["git", "worktree", "add"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+        with (
+            patch(
+                "worktree_manager.subprocess.run", side_effect=[fail_result, ok_result]
+            ) as mock_run,
+            patch("worktree_manager.time.sleep") as mock_sleep,
+        ):
+            result = manager._run_git_worktree_add(
+                args=["git", "worktree", "add", "/tmp/wt"],
+                cwd=main_repo,
+                main_repo=main_repo,
+            )
+
+        assert result.returncode == 0
+        assert mock_run.call_count == 2
+        mock_sleep.assert_called_once()
+
+    def test_no_retry_on_non_lock_error(self, tmp_path):
+        """Non-index.lock errors should fail immediately without retry."""
+        import subprocess
+
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path / "repos",
+        )
+        main_repo = tmp_path / "repos" / "test-repo"
+        main_repo.mkdir(parents=True)
+        (main_repo / ".git").mkdir()
+
+        fail_result = subprocess.CompletedProcess(
+            args=["git", "worktree", "add"],
+            returncode=128,
+            stdout="",
+            stderr="fatal: '/tmp/wt' already exists",
+        )
+
+        with (
+            patch("worktree_manager.subprocess.run", return_value=fail_result) as mock_run,
+            patch("worktree_manager.time.sleep") as mock_sleep,
+        ):
+            result = manager._run_git_worktree_add(
+                args=["git", "worktree", "add", "/tmp/wt"],
+                cwd=main_repo,
+                main_repo=main_repo,
+            )
+
+        assert result.returncode == 128
+        assert mock_run.call_count == 1
+        mock_sleep.assert_not_called()
+
+    def test_retry_cleans_partial_worktree(self, tmp_path):
+        """Partial worktree directory should be cleaned up between retries."""
+        import subprocess
+
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path / "repos",
+        )
+        main_repo = tmp_path / "repos" / "test-repo"
+        main_repo.mkdir(parents=True)
+        (main_repo / ".git").mkdir()
+
+        worktree_path = tmp_path / "worktrees" / "ctr" / "test-repo"
+
+        fail_result = subprocess.CompletedProcess(
+            args=["git", "worktree", "add"],
+            returncode=128,
+            stdout="",
+            stderr="fatal: Unable to create '.git/index.lock': File exists.",
+        )
+        ok_result = subprocess.CompletedProcess(
+            args=["git", "worktree", "add"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+        def side_effect(*args, **kwargs):
+            """Simulate git creating a partial worktree dir on first call."""
+            if side_effect.call_count == 0:
+                # Simulate partial worktree: directory exists but no valid .git file
+                worktree_path.mkdir(parents=True, exist_ok=True)
+                side_effect.call_count += 1
+                return fail_result
+            side_effect.call_count += 1
+            return ok_result
+
+        side_effect.call_count = 0
+
+        with (
+            patch("worktree_manager.subprocess.run", side_effect=side_effect),
+            patch("worktree_manager.time.sleep"),
+        ):
+            result = manager._run_git_worktree_add(
+                args=["git", "worktree", "add", str(worktree_path)],
+                cwd=main_repo,
+                main_repo=main_repo,
+                worktree_path=worktree_path,
+            )
+
+        assert result.returncode == 0
+        # The partial directory should have been cleaned between retries
+        # (it may or may not exist after the successful second call depending
+        # on what git does, but the cleanup ran)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

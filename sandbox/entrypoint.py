@@ -717,7 +717,7 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
 
     logger.success("AI agent rules installed: ~/CLAUDE.md (symlinked to ~/repos/)")
     logger.info(f"  Combined {len(rules_order)} rule files (index-based per LLM Doc ADR)")
-    logger.info("  Note: Reference docs in ~/repos/egg/docs/ (fetched on-demand)")
+    logger.info("  Note: Reference docs at $EGG_REPO_PATH/docs/ (fetched on-demand)")
 
 
 def setup_claude(config: Config, logger: Logger) -> None:
@@ -757,7 +757,6 @@ def setup_claude(config: Config, logger: Logger) -> None:
 
     # Create settings.json
     settings = {
-        "alwaysThinkingEnabled": True,
         "defaultPermissionMode": "bypassPermissions",
         "autoApproveEdits": True,
         "editorMode": "normal",
@@ -1457,6 +1456,13 @@ def run_exec(config: Config, logger: Logger, args: list[str]) -> int:
     Returns:
         Exit code from the subprocess
     """
+    # Change to repos directory (same as interactive mode) so that tools
+    # like `gh repo view` can auto-detect the repository context.
+    if config.repos_dir.exists():
+        os.chdir(config.repos_dir)
+    else:
+        os.chdir(config.user_home)
+
     env = os.environ.copy()
     # Remove launcher secret — privileged credential not for Claude's use
     env.pop("EGG_LAUNCHER_SECRET", None)

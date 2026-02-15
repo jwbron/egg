@@ -38,6 +38,30 @@ This differs from agent worktrees (managed by the gateway for agent isolation). 
 
 See `orchestrator/state_store.py` for implementation details.
 
+## Network Mode
+
+Pipelines can specify an explicit network mode that controls internet access for spawned containers:
+
+- **`public`**: Full internet access (default for issue-mode pipelines)
+- **`private`**: Network lockdown - Anthropic API + private GitHub repos only (enforced by gateway proxy)
+- **`None`** (auto): Falls back based on pipeline mode — `issue` → `public`, `local` → `local`
+
+**Setting network mode:**
+
+- Via `egg-sdlc --private`: Sets `EGG_PRIVATE_MODE=true` environment variable, which `egg-sdlc` detects and passes as `network_mode="private"` when creating the pipeline
+- Via `egg-orch pipeline create --network-mode <public|private>`: Explicitly sets the pipeline's network mode
+- Via orchestrator API: Include `"network_mode": "public"|"private"` in the pipeline creation request body
+
+**How it works:**
+
+1. Network mode is stored in the pipeline model (`orchestrator/models.py:Pipeline.network_mode`)
+2. When spawning containers, the orchestrator uses the pipeline's `network_mode` (if set) to configure the gateway session mode
+3. The gateway enforces network policy based on the session mode (see `gateway/README.md`)
+
+**Special case: PR phase in local mode**
+
+Local-mode pipelines use `local` gateway mode throughout all phases, including the PR phase. During the PR phase, the gateway allows PR-specific operations (`gh pr create`, `gh pr edit`) based on phase permissions (`.egg/phase-permissions.json`), while continuing to block other GitHub operations. If `network_mode="private"`, the pipeline stays in private mode even during the PR phase (no push allowed).
+
 ## Per-Pipeline Worktrees
 
 The orchestrator reads pipeline artifacts (verdict files, draft documents, check results) from per-pipeline worktrees created by the gateway. These worktrees isolate work for each pipeline and are separate from both the orchestrator's state worktree and the main repository working directory.
@@ -378,6 +402,7 @@ if is_orchestrator_mode():
 | `EGG_ORCHESTRATOR_URL` | Orchestrator API URL | None |
 | `EGG_PIPELINE_ID` | Current pipeline identifier | None |
 | `EGG_AGENT_ROLE` | Agent role for multi-agent mode | None |
+| `EGG_PRIVATE_MODE` | Private network mode (set by host wrapper, detected by `egg-sdlc`) | None |
 
 ### Constants
 

@@ -48,8 +48,43 @@ def _get_draft_path(
         return f".egg-state/drafts/{prefix}-{phase}.md"
 
 
+def _parse_egg_repos() -> list[str]:
+    """Parse the EGG_REPOS env var into a list of owner/repo strings."""
+    egg_repos = os.environ.get("EGG_REPOS", "").strip()
+    if not egg_repos:
+        return []
+    return [r.strip() for r in egg_repos.split(",") if r.strip()]
+
+
 def _find_repo_path() -> Path:
-    """Find the repository root path using git rev-parse."""
+    """Find the repository root path.
+
+    Tries multiple strategies since .git is shadowed by tmpfs in
+    gateway-managed containers:
+    1. EGG_REPOS env var → derive path from ~/repos/<repo-name>
+    2. Single subdirectory under ~/repos/
+    3. git rev-parse (works outside containers)
+    4. Walk up from cwd looking for .git
+    """
+    repos_dir = Path.home() / "repos"
+
+    # Strategy 1: EGG_REPOS env var (set by exec_in_new_container)
+    repos = _parse_egg_repos()
+    if repos:
+        if len(repos) == 1:
+            # "owner/name" → use "name" as directory
+            repo_name = repos[0].split("/")[-1]
+            candidate = repos_dir / repo_name
+            if candidate.is_dir():
+                return candidate
+
+    # Strategy 2: single repo under ~/repos/
+    if repos_dir.is_dir():
+        subdirs = [d for d in repos_dir.iterdir() if d.is_dir()]
+        if len(subdirs) == 1:
+            return subdirs[0]
+
+    # Strategy 3: git rev-parse (works when .git is real)
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -61,7 +96,8 @@ def _find_repo_path() -> Path:
             return Path(result.stdout.strip())
     except (subprocess.SubprocessError, FileNotFoundError, OSError):
         pass
-    # Fallback: walk up from cwd looking for .git
+
+    # Strategy 4: walk up from cwd looking for .git
     cwd = Path.cwd()
     while cwd != cwd.parent:
         if (cwd / ".git").exists():
@@ -116,11 +152,31 @@ def _launch_editor(file_path: Path) -> bool:
         return False
 
 
-def _launch_claude(repo_path: Path) -> None:
-    """Launch an interactive Claude Code session."""
+def _launch_claude(
+    repo_path: Path,
+    draft_rel: str | None = None,
+    phase: str | None = None,
+    issue_number: int | None = None,
+) -> None:
+    """Launch an interactive Claude Code session with draft context."""
+    cmd = ["claude"]
+
+    # Inject context so Claude knows which draft to edit
+    if draft_rel:
+        parts = ["You are helping review/edit a draft in an SDLC pipeline."]
+        if phase:
+            parts.append(f"Current phase: {phase}.")
+        if issue_number:
+            parts.append(f"Issue: #{issue_number}.")
+        parts.append(
+            f"Draft file: {draft_rel}. "
+            f"Start by reading `{draft_rel}` and showing its content to the user."
+        )
+        cmd.extend(["--append-system-prompt", " ".join(parts)])
+
     try:
         subprocess.run(
-            ["claude"],
+            cmd,
             cwd=str(repo_path),
             stdin=sys.stdin,
             stdout=sys.stdout,
@@ -186,6 +242,12 @@ def handle_hitl_checkpoint(
     draft_content = _read_draft(repo_path, draft_rel)
     draft_path = repo_path / draft_rel if draft_rel else None
 
+    # Fall back to decision context if local draft file not found.
+    # The draft lives in the agent's worktree which may not be mounted
+    # here, but the orchestrator reads it and attaches it as context.
+    if not draft_content and context:
+        draft_content = context
+
     # Display decision info
     print(f"\n{BOLD}{YELLOW}{'=' * 60}{RESET}")
     print(f"{BOLD}{YELLOW}  HUMAN DECISION REQUIRED{RESET}")
@@ -193,8 +255,6 @@ def handle_hitl_checkpoint(
     print(f"\n  {BOLD}Pipeline:{RESET} {pipeline_id}")
     print(f"  {BOLD}Phase:{RESET}    {phase}")
     print(f"  {BOLD}Question:{RESET} {question}")
-    if context:
-        print(f"  {BOLD}Context:{RESET}  {context}")
 
     # Show draft preview if available
     if draft_content:
@@ -215,7 +275,14 @@ def handle_hitl_checkpoint(
 
         if choice == "1":
             # Edit with $EDITOR
-            if draft_path and draft_path.exists():
+            if draft_path:
+                if not draft_path.exists():
+                    # Write draft content (from context) so the editor
+                    # opens with the actual draft, not a stub.
+                    draft_path.parent.mkdir(parents=True, exist_ok=True)
+                    draft_path.write_text(
+                        draft_content if draft_content else f"# Draft: {phase}\n\n"
+                    )
                 print(f"\n  Opening {draft_path.name} in editor...")
                 if _launch_editor(draft_path):
                     print(f"  {GREEN}File saved. You can now approve or continue editing.{RESET}")
@@ -230,7 +297,7 @@ def handle_hitl_checkpoint(
         elif choice == "2":
             # Launch Claude
             print("\n  Launching Claude Code... (type /exit to return)")
-            _launch_claude(repo_path)
+            _launch_claude(repo_path, draft_rel, phase, issue_number)
             print(
                 f"\n  {GREEN}Returned from Claude. You can now approve or continue editing.{RESET}"
             )

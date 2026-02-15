@@ -20,6 +20,7 @@ import os
 import re
 import signal
 import sys
+from datetime import datetime
 from http.client import HTTPConnection
 from urllib.parse import urlparse
 
@@ -35,8 +36,19 @@ CYAN = "\033[36m"
 # Whether stdout is a real terminal (vs piped/captured by Claude Code)
 IS_TTY = sys.stdout.isatty()
 
+# ANSI cursor visibility
+HIDE_CURSOR = "\033[?25l"
+SHOW_CURSOR = "\033[?25h"
+
 # Regex to strip ANSI escape sequences
 _ANSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
+
+# Track previous compact-mode data to skip redundant redraws.
+# We compare a subset of the input data — excluding ``timestamp`` (changes
+# every refresh cycle) and ``visualization`` (contains elapsed-time counters
+# via _format_duration that change every second for running pipelines).
+# Full DAG mode is not deduped for the same reason.
+_prev_compact_state: str | None = None
 
 # Status → ANSI color mapping (used by format_status_line and render_event_info)
 STATUS_COLORS = {
@@ -82,6 +94,15 @@ def strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
+def _utc_to_local_time(iso_timestamp: str) -> str:
+    """Convert a UTC ISO timestamp to a local-time HH:MM:SS string."""
+    try:
+        dt = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+        return dt.astimezone().strftime("%H:%M:%S")
+    except (ValueError, AttributeError):
+        return iso_timestamp.split("T")[-1].rstrip("Z")[:8]
+
+
 def _write(text: str, file=None) -> None:
     """Write text, stripping ANSI codes if not a TTY."""
     file = file or sys.stdout
@@ -89,13 +110,6 @@ def _write(text: str, file=None) -> None:
         text = strip_ansi(text)
     file.write(text)
     file.flush()
-
-
-def _clear_screen() -> None:
-    """Clear the terminal screen and move cursor to top."""
-    if IS_TTY:
-        sys.stdout.write("\033[2J\033[H")
-        sys.stdout.flush()
 
 
 def format_status_line(pipeline_id: str, data: dict) -> str:
@@ -109,7 +123,7 @@ def format_status_line(pipeline_id: str, data: dict) -> str:
 
     time_part = ""
     if updated:
-        time_part = updated.split("T")[-1].rstrip("Z")[:8]
+        time_part = _utc_to_local_time(updated)
 
     display_status = "awaiting approval" if status == "awaiting_human" else status
     line = f"{BOLD}{pipeline_id}{RESET}  {color}{display_status}{RESET}  phase={phase}"
@@ -146,22 +160,42 @@ def render_event_info(data: dict) -> str:
     lines.append("")
     lines.append(f"  Status: {color}{display_status}{RESET}  |  Phase: {phase}")
     if timestamp:
-        time_part = timestamp.split("T")[-1].rstrip("Z")[:8]
+        time_part = _utc_to_local_time(timestamp)
         lines.append(f"  {DIM}Updated: {time_part}  Event: {event_type}{RESET}")
 
     return "\n".join(lines)
 
 
 def display_visualization(data: dict, compact: bool = False) -> None:
-    """Display the DAG visualization with in-place update."""
-    _clear_screen()
+    """Display the DAG visualization with in-place update.
+
+    Uses a single atomic write with hidden cursor to eliminate flicker.
+    In compact mode, skips the redraw if the pipeline state hasn't changed.
+    """
+    global _prev_compact_state
 
     pipeline_id = data.get("pipeline_id", "unknown")
     event_type = data.get("event_type", "")
 
     if compact:
+        if IS_TTY:
+            # Compare the data dict (excluding timestamp and visualization)
+            # instead of the rendered string.  Both change every refresh
+            # cycle — timestamp from the server clock, visualization.dag
+            # from elapsed-time counters in running phases.
+            dedup_data = {k: v for k, v in data.items() if k not in ("timestamp", "visualization")}
+            state_snapshot = json.dumps(dedup_data, sort_keys=True, default=str)
+            if state_snapshot == _prev_compact_state:
+                return
+            _prev_compact_state = state_snapshot
         output = format_status_line(pipeline_id, data)
-        _write(output + "\n")
+        if IS_TTY:
+            sys.stdout.write(
+                HIDE_CURSOR + "\033[H" + output + "\033[K\n\033[J" + SHOW_CURSOR
+            )
+            sys.stdout.flush()
+        else:
+            _write(output + "\n")
         return
 
     output = render_header(pipeline_id, event_type)
@@ -176,7 +210,18 @@ def display_visualization(data: dict, compact: bool = False) -> None:
     output += render_event_info(data)
     output += f"\n\n{DIM}Press Ctrl+C to stop watching{RESET}\n"
 
-    _write(output)
+    if IS_TTY:
+        # No dedup for full DAG mode — the DAG includes elapsed-time
+        # counters that change every second for running pipelines.
+        # The atomic write (single buffer + flush) handles flicker.
+        lines = output.split("\n")
+        cleared = "\033[K\n".join(lines)
+        sys.stdout.write(
+            HIDE_CURSOR + "\033[H" + cleared + "\033[J" + SHOW_CURSOR
+        )
+        sys.stdout.flush()
+    else:
+        _write(output)
 
 
 def display_done(data: dict, last_status: str | None = None) -> None:
@@ -332,6 +377,9 @@ def watch_pipeline(
         _write(f"{RED}Connection error: {e}{RESET}\n", file=sys.stderr)
         return 1
     finally:
+        if IS_TTY:
+            sys.stdout.write(SHOW_CURSOR)
+            sys.stdout.flush()
         if conn:
             try:
                 conn.close()
