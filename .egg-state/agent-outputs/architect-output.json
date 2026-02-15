@@ -1,0 +1,197 @@
+{
+  "issue": 632,
+  "title": "Audit tests",
+  "summary": "Audit the test suite to ensure all tests are run in CI checks, run consistently, no tests are improperly skipped, and `make test` runs all unit tests.",
+  "analysis": {
+    "current_state": {
+      "test_infrastructure": {
+        "framework": "pytest",
+        "config_files": [
+          "pytest.ini (testpaths=tests, markers defined)",
+          "pyproject.toml [tool.pytest.ini_options] (testpaths=[tests], addopts with coverage)"
+        ],
+        "config_note": "pytest.ini takes precedence over pyproject.toml when both exist. CI command explicitly passes test directories, overriding both.",
+        "ci_workflows": {
+          "test.yml": "Unit tests + security scan (workflow_call + manual dispatch)",
+          "test-action.yml": "Action config/shell tests (PR to action/ + manual dispatch)",
+          "test-integration.yml": "Integration + security tests (workflow_call + manual dispatch)",
+          "test-e2e.yml": "E2E tests (weekly Monday + manual dispatch)",
+          "lint.yml": "All linting (workflow_call + manual dispatch)"
+        },
+        "make_test": "Delegates to `act -j unit` which runs the test.yml unit job locally"
+      },
+      "test_directories": {
+        "tests/": "83 test files - unit tests for sandbox, shared libs, action, config, gateway, security, scripts, tools, workflows, LLM",
+        "gateway/tests/": "25 test files - gateway-specific unit tests with custom conftest import mangling",
+        "orchestrator/tests/": "20 test files (8811 lines) - orchestrator service tests",
+        "integration_tests/": "13 test files - top-level integration tests (network, gateway, security, performance, e2e)",
+        "integration_tests/local_pipeline/": "8 test files - pipeline orchestrator integration tests",
+        "integration_tests/sdlc/": "6 test files - SDLC workflow integration tests",
+        "integration_tests/deployment_validation/": "1 test file - deployment check E2E"
+      },
+      "total_test_files": 157
+    },
+    "findings": [
+      {
+        "id": "F1",
+        "severity": "HIGH",
+        "title": "Orchestrator tests (20 files, 8811 lines) completely excluded from CI",
+        "description": "The orchestrator/tests/ directory contains 20 test files with ~8800 lines of tests. These tests are not included in any CI workflow. The test.yml unit job only runs `pytest tests/ gateway/tests/`. The orchestrator module is also excluded from coverage reporting (--cov only covers gateway, shared, sandbox). This means orchestrator regressions are never caught in CI.",
+        "files_affected": [
+          "orchestrator/tests/test_cli.py",
+          "orchestrator/tests/test_container_spawner.py",
+          "orchestrator/tests/test_dag_visualizer.py",
+          "orchestrator/tests/test_devserver.py",
+          "orchestrator/tests/test_dispatch.py",
+          "orchestrator/tests/test_docker_client.py",
+          "orchestrator/tests/test_events.py",
+          "orchestrator/tests/test_gateway_client.py",
+          "orchestrator/tests/test_hitl_revision.py",
+          "orchestrator/tests/test_metrics.py",
+          "orchestrator/tests/test_models.py",
+          "orchestrator/tests/test_pipeline_prompts.py",
+          "orchestrator/tests/test_read_phase_draft.py",
+          "orchestrator/tests/test_routes_checks.py",
+          "orchestrator/tests/test_signals.py",
+          "orchestrator/tests/test_sse.py",
+          "orchestrator/tests/test_start_pipeline.py",
+          "orchestrator/tests/test_state_store.py",
+          "orchestrator/tests/test_status_reporter.py",
+          "orchestrator/tests/test_unified_sse.py"
+        ]
+      },
+      {
+        "id": "F2",
+        "severity": "MEDIUM",
+        "title": "pytest.ini and pyproject.toml both define testpaths (redundant config)",
+        "description": "Both pytest.ini (testpaths = tests) and pyproject.toml ([tool.pytest.ini_options] testpaths = ['tests']) define test paths. pytest.ini takes precedence when both exist. The CI command explicitly passes directories, bypassing both configs. This creates confusion about which config is authoritative. The pyproject.toml also adds --cov options via addopts, but CI overrides those too. Should consolidate to one config source.",
+        "files_affected": [
+          "pytest.ini",
+          "pyproject.toml"
+        ]
+      },
+      {
+        "id": "F3",
+        "severity": "MEDIUM",
+        "title": "Coverage measurement excludes orchestrator module",
+        "description": "The --cov flags in test.yml only cover gateway, shared, and sandbox. The orchestrator module is completely excluded from coverage measurement. Even if orchestrator tests are added to CI, coverage won't be tracked without adding --cov=orchestrator.",
+        "files_affected": [
+          ".github/workflows/test.yml",
+          "pyproject.toml"
+        ]
+      },
+      {
+        "id": "F4",
+        "severity": "LOW",
+        "title": "Signals API tests skip at runtime (5 tests)",
+        "description": "Five tests in integration_tests/local_pipeline/test_signals.py call pytest.skip() with 'Signals API not implemented'. These tests have proper infrastructure but the API endpoint they test doesn't exist yet. This is acceptable (tests are ready for when the feature lands) but should be tracked.",
+        "files_affected": [
+          "integration_tests/local_pipeline/test_signals.py"
+        ]
+      },
+      {
+        "id": "F5",
+        "severity": "LOW",
+        "title": "HITL edge case test skips at runtime (1 test)",
+        "description": "One test in integration_tests/local_pipeline/test_hitl_edge_cases.py skips with 'Decision timeout feature not supported by orchestrator'. Similar to F4 - test is ready for when the feature lands.",
+        "files_affected": [
+          "integration_tests/local_pipeline/test_hitl_edge_cases.py"
+        ]
+      },
+      {
+        "id": "F6",
+        "severity": "INFO",
+        "title": "All other skips are legitimate environment-conditional guards",
+        "description": "The remaining ~20 pytest.skip() calls are conditional environment checks (Docker availability, API tokens, network infrastructure). These are correct patterns for tests that need specific infrastructure. The 2 xfail calls in test_agent_security_fuzz.py are also appropriate for non-deterministic agent behavior tests.",
+        "files_affected": []
+      },
+      {
+        "id": "F7",
+        "severity": "INFO",
+        "title": "make test only runs unit tests, not all tests",
+        "description": "The `make test` target runs `act -j unit` which only executes the unit test job from test.yml. Integration, E2E, security, and action tests require separate make targets (test-integration, test-e2e, test-security). This is by design since integration/E2E tests require Docker and API tokens, but the issue says 'All tests should run when make test is run'. Clarification needed on whether this means only unit tests or truly all tests.",
+        "files_affected": [
+          "Makefile"
+        ]
+      }
+    ]
+  },
+  "recommended_approach": {
+    "title": "Fix test coverage gaps in CI and consolidate config",
+    "description": "Address the findings in priority order, focusing on the highest-impact changes first.",
+    "tasks": [
+      {
+        "id": "task-1",
+        "title": "Add orchestrator/tests/ to CI unit test command",
+        "description": "Update test.yml to include orchestrator/tests/ in the pytest command. Change from `pytest tests/ gateway/tests/` to `pytest tests/ gateway/tests/ orchestrator/tests/`. Also add PYTHONPATH adjustment if orchestrator modules need it. Add --cov=orchestrator to coverage flags.",
+        "files_to_modify": [
+          ".github/workflows/test.yml"
+        ],
+        "risk": "Medium - orchestrator tests may have dependencies or failures that haven't been caught since they were never run in CI. Need to verify they pass first.",
+        "approach": "1. Run orchestrator tests locally to verify they pass. 2. Fix any failures. 3. Update CI config."
+      },
+      {
+        "id": "task-2",
+        "title": "Consolidate pytest configuration to single source",
+        "description": "Remove duplicate pytest config. Keep pyproject.toml as the single source of truth (modern standard) and delete pytest.ini. Update pyproject.toml testpaths to include all unit test directories. Update addopts to include orchestrator coverage.",
+        "files_to_modify": [
+          "pytest.ini (delete)",
+          "pyproject.toml"
+        ],
+        "risk": "Low - straightforward config consolidation. Verify CI still works after change."
+      },
+      {
+        "id": "task-3",
+        "title": "Update make test to run all unit tests consistently",
+        "description": "Since `make test` delegates to `act -j unit`, and the unit job in test.yml will be updated in task-1, make test will automatically pick up the changes. Verify this works. If the issue truly wants ALL tests (including integration), consider adding a `make test-all` target or updating make test to be more comprehensive. However, running integration tests requires Docker, so `make test` should probably remain unit-only with clear documentation.",
+        "files_to_modify": [
+          "Makefile (possibly, for documentation or new targets)"
+        ],
+        "risk": "Low"
+      },
+      {
+        "id": "task-4",
+        "title": "Verify and document skipped tests",
+        "description": "Add a comment to the PR documenting the 6 intentionally-skipped tests (5 Signals API + 1 HITL timeout). These are not bugs but feature-gap placeholders. No code changes needed unless we want to add pytest markers for easier tracking.",
+        "files_to_modify": [],
+        "risk": "None"
+      }
+    ],
+    "implementation_order": ["task-1", "task-2", "task-3", "task-4"],
+    "estimated_complexity": "Medium - main risk is orchestrator tests potentially failing when first run in CI"
+  },
+  "technical_decisions": [
+    {
+      "decision": "Keep pytest.ini markers in pyproject.toml when consolidating",
+      "rationale": "pyproject.toml is the modern standard for Python project config. All marker definitions, test paths, and options should live there. pytest.ini can be deleted."
+    },
+    {
+      "decision": "Add orchestrator to both test paths and coverage",
+      "rationale": "The orchestrator is a core component with 20 test files. Excluding it from CI means regressions go undetected. Both test execution and coverage measurement should include it."
+    },
+    {
+      "decision": "Keep make test as unit-only, document integration test targets",
+      "rationale": "Integration/E2E tests require Docker and potentially API tokens. make test should be fast and dependency-free for developer workflow. Integration tests remain accessible via make test-integration."
+    },
+    {
+      "decision": "Do not remove conditional skips in integration tests",
+      "rationale": "The ~20 conditional pytest.skip() calls for Docker/token/network availability are correct patterns. They allow the same test suite to run in different environments gracefully."
+    }
+  ],
+  "constraints": [
+    "Cannot modify production code (src/, lib/, gateway/, sandbox/) in plan phase",
+    "Changes are limited to CI config (.github/workflows/), test config (pytest.ini, pyproject.toml), and Makefile",
+    "Orchestrator tests must be verified passing before adding to CI to avoid breaking the build",
+    "Coverage threshold (80%) must still be met after adding orchestrator to coverage"
+  ],
+  "open_questions": [
+    {
+      "question": "Does 'All tests should run when make test is run' mean only unit tests, or truly ALL tests including integration/E2E?",
+      "recommendation": "Interpret as 'all unit tests' since integration/E2E require infrastructure (Docker, API tokens). Add a make test-all target if the intent is broader."
+    },
+    {
+      "question": "Do orchestrator tests currently pass when run standalone?",
+      "recommendation": "Must verify before adding to CI. If they fail, fix them as part of this work."
+    }
+  ]
+}
