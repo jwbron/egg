@@ -430,29 +430,28 @@ class StateStore:
         self._ensure_dir()
         path = self._get_pipeline_path(pipeline.id)
 
-        # Optimistic locking check
-        if expected_version is not None and path.exists():
-            try:
-                current = self.load_pipeline(pipeline.id)
-                if current.version != expected_version:
-                    raise VersionConflictError(
-                        f"Version conflict for pipeline {pipeline.id}: "
-                        f"expected version {expected_version}, but current is {current.version}"
-                    )
-            except PipelineNotFoundError:
-                pass  # New pipeline, no conflict possible
-
         # For local pipelines, only commit if force_commit is True (phase boundaries)
         # For issue pipelines, always commit when commit=True
         is_local = getattr(pipeline, "mode", "issue") == "local"
         should_commit = commit and (not is_local or force_commit)
 
-        # Acquire the worktree lock to serialize the version increment, file
-        # write, and git commit as one atomic sequence.  Without this, two
-        # threads saving the same pipeline can interleave writes and produce
-        # corrupt JSON or duplicate version numbers.
+        # Acquire the worktree lock to serialize the version check, version
+        # increment, file write, and git commit as one atomic sequence.
         lock = _get_worktree_lock(str(self.worktree))
         with lock:
+            # Optimistic locking check (inside lock to prevent TOCTOU races
+            # where two threads both pass the check before either writes)
+            if expected_version is not None and path.exists():
+                try:
+                    current = self.load_pipeline(pipeline.id)
+                    if current.version != expected_version:
+                        raise VersionConflictError(
+                            f"Version conflict for pipeline {pipeline.id}: "
+                            f"expected version {expected_version}, but current is {current.version}"
+                        )
+                except PipelineNotFoundError:
+                    pass  # New pipeline, no conflict possible
+
             # Update timestamp and increment version
             pipeline.updated_at = datetime.utcnow()
             pipeline.version = (pipeline.version or 0) + 1
@@ -599,7 +598,6 @@ class StateStore:
             raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found")
 
         rel_path = str(path.relative_to(self.worktree))
-        path.unlink()
 
         # For local pipelines, only commit if force_commit is True
         # For issue pipelines, always commit when commit=True
@@ -609,6 +607,7 @@ class StateStore:
             wt = self.worktree
             lock = _get_worktree_lock(str(wt))
             with lock:
+                path.unlink()
                 self._run_git("add", rel_path, cwd=wt)
 
                 result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
@@ -620,6 +619,8 @@ class StateStore:
                         f"Delete pipeline: {pipeline_id}",
                         cwd=wt,
                     )
+        else:
+            path.unlink()
 
     def list_pipelines(self) -> list[str]:
         """List all pipeline IDs.
