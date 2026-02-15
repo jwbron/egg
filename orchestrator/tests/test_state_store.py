@@ -578,11 +578,11 @@ class TestUnbornBranchEdgeCases:
         mock_git.side_effect = mock_git_responses
 
         # This should not raise - should return empty string for unborn branch
-        sha = state_store._commit_state(pipeline)
+        sha = state_store._commit_state_unlocked(pipeline)
         assert sha == ""
 
     def test_commit_state_returns_sha_after_commit(self, state_store, mock_git):
-        """Test that _commit_state returns SHA after successful commit."""
+        """Test that _commit_state_unlocked returns SHA after successful commit."""
         from unittest.mock import MagicMock
 
         from models import Pipeline
@@ -615,7 +615,7 @@ class TestUnbornBranchEdgeCases:
 
         mock_git.side_effect = mock_git_responses
 
-        sha = state_store._commit_state(pipeline)
+        sha = state_store._commit_state_unlocked(pipeline)
         assert sha == expected_sha
 
 
@@ -795,8 +795,8 @@ class TestGitRetryOnIndexLock:
 class TestCommitStateLocking:
     """Tests for worktree lock serialization."""
 
-    def test_commit_state_acquires_lock(self, state_store, mock_git):
-        """Test that _commit_state acquires the worktree lock."""
+    def test_save_pipeline_acquires_lock(self, state_store, mock_git):
+        """Test that save_pipeline acquires the worktree lock around file write and git ops."""
         pipeline = Pipeline(
             id="issue-100",
             issue_number=100,
@@ -811,8 +811,6 @@ class TestCommitStateLocking:
 
         # Track whether lock was held during git operations
         lock_was_held = []
-
-        original_side_effect = mock_git.side_effect
 
         def check_lock(*args, **kwargs):
             lock_was_held.append(lock.locked())
@@ -830,7 +828,7 @@ class TestCommitStateLocking:
 
         mock_git.side_effect = check_lock
 
-        state_store._commit_state(pipeline)
+        state_store.save_pipeline(pipeline)
 
         # Lock should have been held during git operations
         assert any(lock_was_held), "Lock was not held during git operations"
@@ -839,12 +837,14 @@ class TestCommitStateLocking:
 
     def test_get_worktree_lock_returns_same_lock(self):
         """Test that _get_worktree_lock returns the same lock for the same path."""
-        lock1 = _get_worktree_lock("/some/path")
-        lock2 = _get_worktree_lock("/some/path")
-        assert lock1 is lock2
+        with patch.dict("state_store._worktree_locks", clear=False):
+            lock1 = _get_worktree_lock("/some/path")
+            lock2 = _get_worktree_lock("/some/path")
+            assert lock1 is lock2
 
     def test_get_worktree_lock_returns_different_lock(self):
         """Test that _get_worktree_lock returns different locks for different paths."""
-        lock1 = _get_worktree_lock("/path/a")
-        lock2 = _get_worktree_lock("/path/b")
-        assert lock1 is not lock2
+        with patch.dict("state_store._worktree_locks", clear=False):
+            lock1 = _get_worktree_lock("/path/a")
+            lock2 = _get_worktree_lock("/path/b")
+            assert lock1 is not lock2

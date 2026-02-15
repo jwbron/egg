@@ -333,6 +333,11 @@ class StateStore:
         Checks the main repo and worktree lock locations.  Only removes
         files that are clearly stale (from a crashed process); recent
         locks from an active process are left alone.
+
+        Note: ``self.repo_path`` always refers to the *main* repository
+        (set in __init__), not a worktree.  Worktree index locks live at
+        ``<repo>/.git/worktrees/<name>/index.lock``, which the glob
+        below covers.
         """
         lock_candidates = [self.repo_path / ".git" / "index.lock"]
 
@@ -437,31 +442,39 @@ class StateStore:
             except PipelineNotFoundError:
                 pass  # New pipeline, no conflict possible
 
-        # Update timestamp and increment version
-        pipeline.updated_at = datetime.utcnow()
-        pipeline.version = (pipeline.version or 0) + 1
-
-        # Write state to the worktree
-        with path.open("w") as f:
-            f.write(pipeline.model_dump_json(indent=2))
-
         # For local pipelines, only commit if force_commit is True (phase boundaries)
         # For issue pipelines, always commit when commit=True
         is_local = getattr(pipeline, "mode", "issue") == "local"
         should_commit = commit and (not is_local or force_commit)
-        if should_commit:
-            self._commit_state(pipeline, message)
+
+        # Acquire the worktree lock to serialize the version increment, file
+        # write, and git commit as one atomic sequence.  Without this, two
+        # threads saving the same pipeline can interleave writes and produce
+        # corrupt JSON or duplicate version numbers.
+        lock = _get_worktree_lock(str(self.worktree))
+        with lock:
+            # Update timestamp and increment version
+            pipeline.updated_at = datetime.utcnow()
+            pipeline.version = (pipeline.version or 0) + 1
+
+            # Write state to the worktree
+            with path.open("w") as f:
+                f.write(pipeline.model_dump_json(indent=2))
+
+            if should_commit:
+                self._commit_state_unlocked(pipeline, message)
 
         return path
 
     # -- git commit helpers ------------------------------------------------
 
-    def _commit_state(self, pipeline: Pipeline, message: str | None = None) -> str:
-        """Commit pipeline state to the state branch.
+    def _commit_state_unlocked(self, pipeline: Pipeline, message: str | None = None) -> str:
+        """Commit pipeline state to the state branch (caller must hold the worktree lock).
 
-        Commits directly in the persistent worktree.  The entire
-        add-diff-commit sequence is serialized via a per-worktree lock
-        to prevent index.lock races from concurrent pipeline saves.
+        Commits directly in the persistent worktree.  The caller is
+        responsible for acquiring the per-worktree lock before calling
+        this method — ``save_pipeline`` does this so that the file write
+        and git commit are serialized as one atomic sequence.
 
         Args:
             pipeline: Pipeline being saved
@@ -480,18 +493,17 @@ class StateStore:
         rel_path = str(path.relative_to(self.worktree))
 
         wt = self.worktree
-        lock = _get_worktree_lock(str(wt))
-        with lock:
-            self._run_git("add", rel_path, cwd=wt)
 
-            result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
-            if result.returncode == 0:
-                # No changes staged - return current HEAD or empty string for unborn branch
-                head_result = self._run_git("rev-parse", "HEAD", cwd=wt, check=False)
-                return head_result.stdout.strip() if head_result.returncode == 0 else ""
+        self._run_git("add", rel_path, cwd=wt)
 
-            self._run_git("commit", "--no-verify", "-m", message, cwd=wt)
-            return self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()
+        result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
+        if result.returncode == 0:
+            # No changes staged - return current HEAD or empty string for unborn branch
+            head_result = self._run_git("rev-parse", "HEAD", cwd=wt, check=False)
+            return head_result.stdout.strip() if head_result.returncode == 0 else ""
+
+        self._run_git("commit", "--no-verify", "-m", message, cwd=wt)
+        return self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()
 
     def _get_current_commit(self) -> str:
         """Get the current HEAD commit SHA."""
