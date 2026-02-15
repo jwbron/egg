@@ -159,7 +159,7 @@ shared/
 │   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig, AgentExecutionModel
 │   ├── phase_defaults.py   # Default check configurations per SDLC phase
 │   ├── deployment.py       # Deployment validation configuration models (.egg/deployment.yml)
-│   ├── agent_roles.py      # Multi-agent role definitions (Coder, Tester, Documenter, Integrator)
+│   ├── agent_roles.py      # Multi-agent role definitions (all agent and reviewer roles)
 │   ├── orchestrator.py     # Multi-agent orchestration dispatch logic
 │   ├── orchestration.py    # Agent execution state management
 │   ├── dependency_graph.py # Agent dependency resolution for parallel execution
