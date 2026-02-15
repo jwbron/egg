@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# egg-onboarding-docs — Generate onboarding documentation for a repository
+#
+# Host-side wrapper that launches egg-onboarding-docs inside a container via egg --exec.
+#
+# Usage:
+#   egg-onboarding-docs <repo_dir>
+#
+# If already running inside a container, delegates directly to the sandbox script.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Detect if we're already inside a container
+if [ -n "${EGG_CONTAINER:-}" ] || [ -f "/.dockerenv" ]; then
+    exec "$SCRIPT_DIR/../sandbox/bin/egg-onboarding-docs" "$@"
+fi
+
+# Host: launch inside container via egg --exec
+exec "$SCRIPT_DIR/egg" --exec egg-onboarding-docs "$@"

@@ -10,6 +10,8 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 PROMPT="Generate comprehensive onboarding documentation for this repository. \
 Survey the codebase structure, identify key components, and create documentation \
 that helps new contributors understand the project."
@@ -35,4 +37,4 @@ if [ ! -d "$repo_path/.git" ]; then
     exit 1
 fi
 
-exec egg-sdlc -r "$repo_dir" --prompt "$PROMPT"
+exec "$SCRIPT_DIR/egg-sdlc" -r "$repo_dir" --prompt "$PROMPT"
