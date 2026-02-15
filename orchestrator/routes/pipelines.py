@@ -834,6 +834,66 @@ def _get_contract_review_criteria() -> str:
 
 
 
+def _get_refine_review_criteria() -> str:
+    """Return review criteria for the dedicated refine reviewer."""
+    return (
+        "### 1. Problem Understanding\n"
+        "- Does the analysis correctly identify the core problem or feature request?\n"
+        "- Is the current behavior (if applicable) accurately described?\n"
+        "- Are the goals and desired outcomes clear?\n\n"
+        "### 2. Research Quality\n"
+        "- Has the agent explored the relevant parts of the codebase?\n"
+        "- Are existing patterns and conventions identified?\n"
+        "- Is the technical context accurate and thorough?\n\n"
+        "### 3. Options Analysis\n"
+        "- Are the proposed options meaningfully different?\n"
+        "- Are trade-offs clearly articulated for each option?\n"
+        "- Is the reasoning logical and well-founded?\n\n"
+        "### 4. Constraints and Dependencies\n"
+        "- Are technical constraints identified (performance, compatibility, etc.)?\n"
+        "- Are dependencies on other code or systems noted?\n"
+        "- Are potential risks or complications surfaced?\n\n"
+        "### 5. Open Questions\n"
+        "- Are open questions specific enough for a human to answer?\n"
+        "- Do questions address genuine ambiguities?\n"
+        "- Are questions actionable?\n\n"
+        "### 6. Recommendation Quality\n"
+        "- Is there a clear recommended approach?\n"
+        "- Is the recommendation justified with specific reasons?\n"
+        "- Does the recommendation align with the analysis findings?\n"
+    )
+
+
+def _get_plan_review_criteria() -> str:
+    """Return review criteria for the dedicated plan reviewer."""
+    return (
+        "### 1. Task Breakdown\n"
+        "- Are tasks discrete, actionable, and properly scoped?\n"
+        "- Is each task small enough to implement in a single pass?\n"
+        "- Are task boundaries clear (no overlapping responsibilities)?\n\n"
+        "### 2. Acceptance Criteria\n"
+        "- Does each task have clear, testable acceptance criteria?\n"
+        "- Are criteria specific enough to verify completion?\n"
+        "- Do criteria cover both happy path and edge cases?\n\n"
+        "### 3. Dependency Ordering\n"
+        "- Are task dependencies correctly identified?\n"
+        "- Is the ordering logical (foundations before features)?\n"
+        "- Are there opportunities for parallelism that are missed?\n\n"
+        "### 4. Risk Assessment\n"
+        "- Are technical risks identified (security, performance, compatibility)?\n"
+        "- Are mitigation strategies concrete and actionable?\n"
+        "- Is the rollback plan realistic?\n\n"
+        "### 5. Test Strategy\n"
+        "- Is the test strategy appropriate for the scope of changes?\n"
+        "- Are both unit and integration tests considered?\n"
+        "- Are test scenarios aligned with acceptance criteria?\n\n"
+        "### 6. Completeness\n"
+        "- Does the plan cover all aspects of the original request?\n"
+        "- Are documentation updates included where needed?\n"
+        "- Are there any obvious gaps or missing tasks?\n"
+    )
+
+
 def _get_review_criteria_for_type(reviewer_type: str, phase: str) -> str:
     """Dispatch to the correct criteria function based on reviewer type."""
     if reviewer_type == "unified":
@@ -844,6 +904,10 @@ def _get_review_criteria_for_type(reviewer_type: str, phase: str) -> str:
         return _get_code_review_criteria()
     elif reviewer_type == "contract":
         return _get_contract_review_criteria()
+    elif reviewer_type == "refine":
+        return _get_refine_review_criteria()
+    elif reviewer_type == "plan":
+        return _get_plan_review_criteria()
     else:
         return _get_unified_criteria(phase)
 
@@ -870,6 +934,20 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
             "This is a **contract verification review**. Verify that the implementation "
             "matches the contract and all acceptance criteria are met. Do NOT review "
             "general code quality or security — other reviewers handle those."
+        )
+    elif reviewer_type == "refine":
+        return (
+            "This is a **refine phase review**. Focus on the quality and completeness "
+            "of the analysis produced during the refine phase. Evaluate problem "
+            "understanding, codebase research, options analysis, and the recommended "
+            "approach. Agent-mode design alignment is handled by another reviewer."
+        )
+    elif reviewer_type == "plan":
+        return (
+            "This is a **plan phase review**. Focus on the quality and completeness "
+            "of the implementation plan. Evaluate task breakdown, acceptance criteria, "
+            "dependency ordering, risk assessment, and test strategy. Agent-mode "
+            "design alignment is handled by another reviewer."
         )
     return ""
 
@@ -1211,32 +1289,92 @@ def _build_phase_prompt(
     if phase == "refine":
         lines.extend(
             [
-                "Analyze the task and produce a structured analysis:",
-                "",
+                "Analyze this issue and produce a structured analysis document. "
+                "Your goal is to:\n",
                 "1. Understand the problem or feature request",
                 "2. Research the current codebase to understand existing patterns",
                 "3. Identify constraints and dependencies",
                 "4. Consider multiple implementation approaches",
                 "5. Recommend an approach with justification",
+                "6. Surface any questions that need human input",
+                "",
+                "**IMPORTANT**: Do NOT create an implementation plan, task breakdown, "
+                "or phased rollout. That is the **plan** phase's job. Stay focused on "
+                "**analysis**: understanding the problem, researching the codebase, "
+                "evaluating options, and surfacing decisions for the human.",
+                "",
+                "## Output Format\n",
+                "Create an analysis document following this template:\n",
+                "```markdown",
+                "# Analysis: [Issue Title]\n",
+                "> Issue: #[number] | Phase: refine\n",
+                "## Problem Statement\n",
+                "[Describe the problem or feature request. "
+                "What is the current state? What is the desired outcome?]\n",
+                "## Current Behavior\n",
+                "[Describe how the system currently works in the relevant area. "
+                "Include code references where helpful.]\n",
+                "## Constraints\n",
+                "- [Technical constraints (compatibility, performance, security)]",
+                "- [Business constraints (timeline, scope)]",
+                "- [Dependencies on other systems or features]\n",
+                "## Options Considered\n",
+                "### Option A: [Name]\n",
+                "**Approach**: [Brief description]\n",
+                "**Pros**:",
+                "- [Advantage 1]\n",
+                "**Cons**:",
+                "- [Disadvantage 1]\n",
+                "### Option B: [Name]\n",
+                "**Approach**: [Brief description]\n",
+                "**Pros**:",
+                "- [Advantage 1]\n",
+                "**Cons**:",
+                "- [Disadvantage 1]\n",
+                "## Recommended Approach\n",
+                "[Which option is recommended and why. "
+                "Reference the option above.]\n",
+                "## Open Questions\n",
+                "[Questions that require human input before proceeding.]\n",
+                "---\n",
+                "*Authored-by: egg*",
+                "```\n",
+                "## HITL Decisions\n",
+                "For questions that require human input before proceeding:\n",
+                "**Multiple-choice questions** (use formal HITL decisions):",
+                "```bash",
+                'egg-contract add-decision --question "Which approach should we use?" \\',
+                '  --options "Option A" "Option B" "Option C" --format markdown',
+                "```",
+                "Copy the markdown output into your analysis. The human can check "
+                "a checkbox to select an option. An \"Other (explain in reply)\" "
+                "option is auto-appended.\n",
+                "**Open-ended questions** (use dedicated feedback comment):",
+                "```bash",
+                "egg-contract add-feedback \\",
+                '  --question "What is the expected request volume?" \\',
+                '  --question "Are there any constraints on third-party dependencies?" \\',
+                "  --format markdown",
+                "```",
+                "This creates a dedicated comment for the human to fill in answers. "
+                "They edit the comment to add their responses and check \"Submit "
+                "feedback\" when done. The pipeline will resume with the feedback "
+                "available in the contract.",
                 "",
             ]
         )
-        if is_local:
-            lines.extend(
-                [
-                    f"Write your analysis to `{analysis_path}`.",
-                    "Commit and push the draft when done.",
-                    "",
-                ]
-            )
-        else:
-            lines.extend(
-                [
-                    f"Write your analysis to `{analysis_path}`.",
-                    "Commit and push the draft when done.",
-                    "",
-                ]
-            )
+        lines.extend(
+            [
+                f"Write your analysis to `{analysis_path}`.",
+                "Commit and push the draft when done.\n",
+                "**IMPORTANT**: Do NOT post your analysis directly to the issue. "
+                "The pipeline will have an internal reviewer check your analysis. "
+                "If revisions are needed, you'll be re-invoked with feedback. "
+                "Only after internal review passes will the analysis be posted "
+                "for human approval.",
+                "",
+            ]
+        )
 
     elif phase == "plan":
         lines.extend(
@@ -1315,6 +1453,8 @@ def _build_phase_prompt(
             [
                 "In this phase:",
                 "- You CAN push state files to git (contracts, drafts, checkpoints)",
+                "- You CAN create HITL decisions (egg-contract add-decision)",
+                "- You CAN create feedback requests (egg-contract add-feedback)",
                 "- You CANNOT push code changes",
                 "- You CANNOT create PRs (gh pr create)",
                 "- You CANNOT post issue comments",
@@ -1354,6 +1494,10 @@ def _build_phase_prompt(
                 [
                     "- You CAN write drafts to `.egg-state/drafts/`",
                     "- You CAN push draft files (git push)",
+                    "- You CAN create HITL decisions (egg-contract add-decision)",
+                    "- You CAN create feedback requests (egg-contract add-feedback)",
+                    "- You CANNOT post analysis/plan directly to the issue "
+                    "(internal review must pass first)",
                     "- You CANNOT create PRs (gh pr create)",
                     "",
                 ]
@@ -1379,10 +1523,19 @@ def _build_phase_prompt(
 
     # --- Completion ---
     lines.append("## Phase Completion\n")
-    lines.append(
-        "When you have completed your work for this phase, "
-        "ensure everything is committed and exit successfully."
-    )
+    if phase in ("refine", "plan"):
+        lines.append(
+            "When your draft is complete, commit and push it. "
+            "The pipeline will have an internal reviewer evaluate your work. "
+            "If revisions are needed, you'll be re-invoked with feedback. "
+            "Only after internal review passes will the output be posted "
+            "for human approval."
+        )
+    else:
+        lines.append(
+            "When you have completed your work for this phase, "
+            "ensure everything is committed and exit successfully."
+        )
 
     return "\n".join(lines)
 
@@ -1429,8 +1582,9 @@ def _build_agent_prompt(
     Returns:
         Complete prompt string for the agent
     """
-    # CODER uses the existing phase prompt
-    if role_value == "coder":
+    # CODER and REFINER use the existing phase prompt (phase-specific
+    # instructions are already tailored for refine vs implement etc.)
+    if role_value in ("coder", "refiner"):
         return _build_phase_prompt(
             phase=phase,
             pipeline_id=pipeline_id,
@@ -2732,11 +2886,19 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase_prompt,
                     ]
 
+                    # Use the REFINER role for the refine phase,
+                    # CODER for all other single-agent phases.
+                    single_agent_role = (
+                        AgentRole.REFINER
+                        if current_phase.value == "refine"
+                        else AgentRole.CODER
+                    )
+
                     try:
                         exit_code, container_logs = _spawn_and_wait(
                             spawner=spawner,
                             pipeline_id=pipeline_id,
-                            agent_role=AgentRole.CODER,
+                            agent_role=single_agent_role,
                             issue_number=pipeline.issue_number,
                             repo_volumes=repo_volumes,
                             gateway_mode=gateway_mode,

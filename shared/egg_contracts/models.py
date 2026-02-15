@@ -321,11 +321,15 @@ class AgentRoleType(StrEnum):
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
     RISK_ANALYST = "risk_analyst"
+    # Refine-phase roles
+    REFINER = "refiner"
     # Reviewer roles
     REVIEWER_UNIFIED = "reviewer_unified"
     REVIEWER_CODE = "reviewer_code"
     REVIEWER_CONTRACT = "reviewer_contract"
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
+    REVIEWER_REFINE = "reviewer_refine"
+    REVIEWER_PLAN = "reviewer_plan"
 
 
 class AgentExecutionModel(BaseModel):

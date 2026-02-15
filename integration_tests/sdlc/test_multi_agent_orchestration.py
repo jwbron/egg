@@ -35,7 +35,7 @@ class TestDependencyGraph:
     def test_build_graph_all_roles(self):
         """Build graph includes all agent roles."""
         graph = build_dependency_graph()
-        assert len(graph.nodes) == 11
+        assert len(graph.nodes) == 14
         assert AgentRole.CODER in graph.nodes
         assert AgentRole.TESTER in graph.nodes
         assert AgentRole.DOCUMENTER in graph.nodes
@@ -43,6 +43,7 @@ class TestDependencyGraph:
         assert AgentRole.ARCHITECT in graph.nodes
         assert AgentRole.TASK_PLANNER in graph.nodes
         assert AgentRole.RISK_ANALYST in graph.nodes
+        assert AgentRole.REFINER in graph.nodes
 
     def test_build_graph_implement_roles(self):
         """Build graph with implement-phase roles only."""
@@ -543,6 +544,88 @@ class TestPlanPhaseRoles:
         assert AgentRole.REVIEWER_UNIFIED in roles
         assert AgentRole.REVIEWER_CODE in roles
 
+    def test_get_plan_roles_with_reviewers(self):
+        """Get plan roles with reviewers included."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("plan", include_reviewers=True)
+        assert len(roles) == 6  # 3 plan + 3 reviewers
+        assert AgentRole.ARCHITECT in roles
+        assert AgentRole.TASK_PLANNER in roles
+        assert AgentRole.RISK_ANALYST in roles
+        assert AgentRole.REVIEWER_UNIFIED in roles
+        assert AgentRole.REVIEWER_AGENT_DESIGN in roles
+        assert AgentRole.REVIEWER_PLAN in roles
+
+    def test_reviewer_plan_role_definition(self):
+        """Reviewer plan role has correct properties."""
+        from egg_contracts.agent_roles import get_role_definition
+
+        role_def = get_role_definition(AgentRole.REVIEWER_PLAN)
+        assert role_def.role == AgentRole.REVIEWER_PLAN
+        assert AgentRole.TASK_PLANNER in role_def.dependencies
+        assert AgentRole.RISK_ANALYST in role_def.dependencies
+        assert ".egg-state/reviews/" in role_def.file_access.allowed_write
+        assert role_def.file_access.can_write(".egg-state/reviews/verdict.json")
+        assert not role_def.file_access.can_write("src/main.py")
+
+
+class TestRefinePhaseRoles:
+    """Tests for refine-phase agent roles."""
+
+    def test_get_roles_for_refine_phase(self):
+        """Get roles for refine phase returns refiner."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("refine")
+        assert len(roles) == 1
+        assert AgentRole.REFINER in roles
+
+    def test_get_refine_roles_with_reviewers(self):
+        """Get refine roles with reviewers included."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("refine", include_reviewers=True)
+        assert len(roles) == 3  # 1 refiner + 2 reviewers
+        assert AgentRole.REFINER in roles
+        assert AgentRole.REVIEWER_REFINE in roles
+        assert AgentRole.REVIEWER_AGENT_DESIGN in roles
+
+    def test_refine_phase_dependency_graph(self):
+        """Refine-phase has simple single-agent dependency structure."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("refine")
+        graph = build_dependency_graph(roles)
+
+        assert len(graph.nodes) == 1
+        waves = graph.compute_waves()
+
+        # Wave 1: refiner (no dependencies)
+        assert AgentRole.REFINER in waves[0]
+
+    def test_refiner_role_definition(self):
+        """Refiner role has correct properties."""
+        from egg_contracts.agent_roles import get_role_definition
+
+        role_def = get_role_definition(AgentRole.REFINER)
+        assert role_def.role == AgentRole.REFINER
+        assert role_def.dependencies == []
+        assert ".egg-state/drafts/" in role_def.file_access.allowed_write
+        assert role_def.file_access.can_write(".egg-state/drafts/123-analysis.md")
+        assert not role_def.file_access.can_write("src/main.py")
+
+    def test_reviewer_refine_role_definition(self):
+        """Reviewer refine role has correct properties."""
+        from egg_contracts.agent_roles import get_role_definition
+
+        role_def = get_role_definition(AgentRole.REVIEWER_REFINE)
+        assert role_def.role == AgentRole.REVIEWER_REFINE
+        assert AgentRole.REFINER in role_def.dependencies
+        assert ".egg-state/reviews/" in role_def.file_access.allowed_write
+        assert role_def.file_access.can_write(".egg-state/reviews/verdict.json")
+        assert not role_def.file_access.can_write("src/main.py")
+
 
 class TestReviewerRoles:
     """Tests for reviewer agent roles."""
@@ -573,6 +656,8 @@ class TestReviewerRoles:
             AgentRole.REVIEWER_CODE,
             AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,
+            AgentRole.REVIEWER_REFINE,
+            AgentRole.REVIEWER_PLAN,
         ]:
             role_def = get_role_definition(role)
             # Reviewers can write to reviews and agent-outputs only
@@ -625,7 +710,7 @@ class TestMultiAgentConfig:
         config = MultiAgentConfig()
         assert config.enabled is True
         assert config.parallel_execution is True
-        assert len(config.roles_enabled) == 11  # All roles
+        assert len(config.roles_enabled) == 14  # All roles
         assert len(config.phase_overrides) == 0
 
     def test_phase_override(self):

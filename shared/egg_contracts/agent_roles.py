@@ -10,6 +10,7 @@ Agent roles:
 - TESTER: Writes tests for the implemented changes
 - DOCUMENTER: Updates documentation for the changes
 - INTEGRATOR: Runs full test suite and validates integration
+- REFINER: Analyzes tasks and produces structured analysis in the refine phase
 
 The orchestrator uses these definitions to:
 1. Determine execution order based on dependencies
@@ -30,7 +31,9 @@ class AgentRole(StrEnum):
 
     Implement-phase roles: CODER, TESTER, DOCUMENTER, INTEGRATOR
     Plan-phase roles: ARCHITECT, TASK_PLANNER, RISK_ANALYST
-    Reviewer roles: REVIEWER_UNIFIED, REVIEWER_CODE, REVIEWER_CONTRACT, REVIEWER_AGENT_DESIGN
+    Refine-phase roles: REFINER
+    Reviewer roles: REVIEWER_UNIFIED, REVIEWER_CODE, REVIEWER_CONTRACT,
+                    REVIEWER_AGENT_DESIGN, REVIEWER_REFINE, REVIEWER_PLAN
     """
 
     CODER = "coder"
@@ -41,11 +44,15 @@ class AgentRole(StrEnum):
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
     RISK_ANALYST = "risk_analyst"
+    # Refine-phase roles
+    REFINER = "refiner"
     # Reviewer roles
     REVIEWER_UNIFIED = "reviewer_unified"
     REVIEWER_CODE = "reviewer_code"
     REVIEWER_CONTRACT = "reviewer_contract"
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
+    REVIEWER_REFINE = "reviewer_refine"
+    REVIEWER_PLAN = "reviewer_plan"
 
 
 class AgentStatus(StrEnum):
@@ -411,6 +418,43 @@ RISK_ANALYST_ROLE = AgentRoleDefinition(
     requires_inputs=["architecture_analysis"],
 )
 
+
+# Refine-phase agent role definitions
+
+REFINER_ROLE = AgentRoleDefinition(
+    role=AgentRole.REFINER,
+    description="Analyzes the task and produces a structured analysis in the refine phase",
+    responsibilities=[
+        "Understand the problem or feature request",
+        "Research the current codebase to understand existing patterns",
+        "Identify constraints and dependencies",
+        "Consider multiple implementation approaches with pros/cons",
+        "Recommend an approach with justification",
+        "Surface open questions as HITL decisions or feedback requests",
+        "Write analysis to the draft file (NOT an implementation plan)",
+    ],
+    dependencies=[],  # Refiner runs first, no dependencies
+    file_access=FileAccessPattern(
+        allowed_read=[],  # Can read all files
+        allowed_write=[
+            ".egg-state/drafts/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=[
+            "**/*.py",
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.js",
+            "**/*.jsx",
+            "**/*.go",
+            "**/*.java",
+            ".egg-state/contracts/",
+        ],
+    ),
+    produces_outputs=["analysis_draft"],
+    requires_inputs=[],
+)
+
 # Reviewer agent role definitions
 # Reviewers can only write to reviews/ and agent-outputs/ directories.
 # Use directory-based blocks instead of "**/*" which breaks can_write()
@@ -525,6 +569,52 @@ REVIEWER_AGENT_DESIGN_ROLE = AgentRoleDefinition(
     requires_inputs=["integration_report"],
 )
 
+REVIEWER_REFINE_ROLE = AgentRoleDefinition(
+    role=AgentRole.REVIEWER_REFINE,
+    description="Reviews refine phase analysis quality and completeness",
+    responsibilities=[
+        "Verify the analysis correctly identifies the core problem",
+        "Assess research quality and codebase exploration",
+        "Evaluate options analysis and trade-off reasoning",
+        "Check that constraints and dependencies are identified",
+        "Validate the recommendation is justified and actionable",
+    ],
+    dependencies=[AgentRole.REFINER],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/reviews/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=_REVIEWER_BLOCKED_WRITE,
+    ),
+    produces_outputs=["review_verdict"],
+    requires_inputs=["analysis_draft"],
+)
+
+REVIEWER_PLAN_ROLE = AgentRoleDefinition(
+    role=AgentRole.REVIEWER_PLAN,
+    description="Reviews plan phase output quality and completeness",
+    responsibilities=[
+        "Verify task breakdown is discrete, actionable, and properly scoped",
+        "Assess acceptance criteria clarity and testability",
+        "Evaluate dependency ordering between tasks",
+        "Check that risks and mitigations are identified",
+        "Validate test strategy coverage",
+    ],
+    dependencies=[AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/reviews/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=_REVIEWER_BLOCKED_WRITE,
+    ),
+    produces_outputs=["review_verdict"],
+    requires_inputs=["task_breakdown", "risk_assessment"],
+)
+
 
 # Registry of all agent roles
 AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
@@ -537,11 +627,15 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.ARCHITECT: ARCHITECT_ROLE,
     AgentRole.TASK_PLANNER: TASK_PLANNER_ROLE,
     AgentRole.RISK_ANALYST: RISK_ANALYST_ROLE,
+    # Refine-phase roles
+    AgentRole.REFINER: REFINER_ROLE,
     # Reviewer roles
     AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_ROLE,
     AgentRole.REVIEWER_CODE: REVIEWER_CODE_ROLE,
     AgentRole.REVIEWER_CONTRACT: REVIEWER_CONTRACT_ROLE,
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_ROLE,
+    AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_ROLE,
+    AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_ROLE,
 }
 
 
@@ -644,6 +738,7 @@ class AgentExecution:
 _PHASE_ROLES: dict[str, list[AgentRole]] = {
     "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR],
     "plan": [AgentRole.ARCHITECT, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
+    "refine": [AgentRole.REFINER],
 }
 
 _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
@@ -656,9 +751,10 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
     "plan": [
         AgentRole.REVIEWER_UNIFIED,
         AgentRole.REVIEWER_AGENT_DESIGN,
+        AgentRole.REVIEWER_PLAN,
     ],
     "refine": [
-        AgentRole.REVIEWER_UNIFIED,
+        AgentRole.REVIEWER_REFINE,
         AgentRole.REVIEWER_AGENT_DESIGN,
     ],
 }
