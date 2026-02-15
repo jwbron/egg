@@ -4,11 +4,14 @@ Tests for state store.
 Note: Git operations are mocked since git init is not available in the sandbox.
 """
 
+import os
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
 from models import Pipeline, PipelinePhase, PipelineStatus
 from state_store import (
+    GitOperationError,
     InvalidPipelineIdError,
     PipelineNotFoundError,
     StateStore,
@@ -327,7 +330,9 @@ class TestStateValidation:
         # Use a valid pipeline ID format but with an invalid enum value for status
         pipelines_dir = tmp_path / ".egg-state" / "pipelines"
         pipelines_dir.mkdir(parents=True)
-        (pipelines_dir / "issue-9998.json").write_text('{"id": "issue-9998", "status": "not-a-valid-status"}')
+        (pipelines_dir / "issue-9998.json").write_text(
+            '{"id": "issue-9998", "status": "not-a-valid-status"}'
+        )
 
         with pytest.raises(StateValidationError):
             state_store.load_pipeline("issue-9998")
@@ -699,3 +704,157 @@ class TestDecisionPersistenceRegression:
         assert len(final.decisions) == 1
         assert final.decisions[0].id == "decision-1"
         assert final.status == PipelineStatus.AWAITING_HUMAN
+
+
+class TestRunGitLocking:
+    """Tests for cross-process file locking and retry logic in _run_git."""
+
+    @pytest.fixture(autouse=True)
+    def reset_flock_state(self):
+        yield
+        StateStore._flock_depth = 0
+        for fd in StateStore._flock_fds.values():
+            os.close(fd)
+        StateStore._flock_fds.clear()
+
+    def test_retry_succeeds_after_index_lock_error(self, tmp_path):
+        """Test that _run_git retries on index.lock contention and succeeds."""
+        store = StateStore(tmp_path, worktree_dir=tmp_path)
+        store._worktree = tmp_path
+
+        lock_error = subprocess.CalledProcessError(
+            128,
+            ["git", "add", "."],
+            stderr="fatal: Unable to create 'index.lock': File exists.\n",
+        )
+        success = MagicMock(stdout="ok\n", returncode=0)
+
+        with (
+            patch("subprocess.run", side_effect=[lock_error, success]) as mock_run,
+            patch("state_store.time.sleep"),
+        ):
+            result = store._run_git("add", ".")
+            assert result.stdout == "ok\n"
+            assert mock_run.call_count == 2
+
+    def test_retry_exhausted_raises_git_error(self, tmp_path):
+        """Test that _run_git raises after exhausting retries."""
+        store = StateStore(tmp_path, worktree_dir=tmp_path)
+        store._worktree = tmp_path
+
+        lock_error = subprocess.CalledProcessError(
+            128,
+            ["git", "add", "."],
+            stderr="fatal: Unable to create 'index.lock': File exists.\n",
+        )
+
+        with patch("subprocess.run", side_effect=[lock_error] * 3), patch("state_store.time.sleep"):
+            with pytest.raises(GitOperationError, match="index.lock"):
+                store._run_git("add", ".")
+
+    def test_non_lock_error_not_retried(self, tmp_path):
+        """Test that non-index.lock errors are raised immediately."""
+        store = StateStore(tmp_path, worktree_dir=tmp_path)
+        store._worktree = tmp_path
+
+        other_error = subprocess.CalledProcessError(
+            1,
+            ["git", "commit"],
+            stderr="nothing to commit\n",
+        )
+
+        with patch("subprocess.run", side_effect=other_error) as mock_run:
+            with pytest.raises(GitOperationError, match="nothing to commit"):
+                store._run_git("commit")
+            assert mock_run.call_count == 1
+
+    def test_cleanup_stale_locks(self, tmp_path):
+        """Test that stale lock files are cleaned up."""
+        store = StateStore(tmp_path, worktree_dir=tmp_path)
+
+        # Create a fake .git/worktrees/pipeline-worktree/index.lock
+        git_dir = tmp_path / ".git" / "worktrees" / "pipeline-worktree"
+        git_dir.mkdir(parents=True)
+        lock_file = git_dir / "index.lock"
+        lock_file.touch()
+
+        # Make it look old (>60s)
+        import os
+
+        old_time = os.path.getmtime(str(lock_file)) - 120
+        os.utime(str(lock_file), (old_time, old_time))
+
+        store._cleanup_stale_locks()
+        assert not lock_file.exists()
+
+    def test_cleanup_preserves_fresh_locks(self, tmp_path):
+        """Test that fresh lock files are not removed."""
+        store = StateStore(tmp_path, worktree_dir=tmp_path)
+
+        git_dir = tmp_path / ".git" / "worktrees" / "pipeline-worktree"
+        git_dir.mkdir(parents=True)
+        lock_file = git_dir / "index.lock"
+        lock_file.touch()  # Fresh — just created
+
+        store._cleanup_stale_locks()
+        assert lock_file.exists()
+
+    def test_git_op_creates_lock_file(self, tmp_path):
+        """Test that _git_op creates the flock lock file on disk."""
+        worktree_dir = tmp_path / "wt"
+        worktree_dir.mkdir()
+        store = StateStore(tmp_path, worktree_dir=worktree_dir)
+        store._worktree = worktree_dir
+
+        lock_file = tmp_path / ".git-ops.lock"
+        assert not lock_file.exists()
+
+        with store._git_op():
+            assert lock_file.exists()
+
+    def test_git_op_reentrant(self, tmp_path):
+        """Test that _git_op can be nested without deadlocking."""
+        worktree_dir = tmp_path / "wt"
+        worktree_dir.mkdir()
+        store = StateStore(tmp_path, worktree_dir=worktree_dir)
+        store._worktree = worktree_dir
+
+        # Nested calls should succeed (reentrant RLock + flock depth tracking)
+        with store._git_op():
+            with store._git_op():
+                with store._git_op():
+                    pass
+            # Depth should still be >0 here, flock not yet released
+        # After all nesting exits, flock is released
+
+    def test_commit_state_holds_lock_across_git_calls(self, tmp_path):
+        """Test that _commit_state holds the lock for entire add→diff→commit."""
+        worktree_dir = tmp_path / "wt"
+        worktree_dir.mkdir()
+        store = StateStore(tmp_path, worktree_dir=worktree_dir)
+        store._worktree = worktree_dir
+
+        # Set up a pipeline file so _get_pipeline_path works
+        pipelines_dir = worktree_dir / ".egg-state" / "pipelines"
+        pipelines_dir.mkdir(parents=True)
+        (pipelines_dir / "issue-100.json").write_text("{}")
+
+        from models import Pipeline
+
+        pipeline = Pipeline(id="issue-100", issue_number=100, repo="test/repo", branch="egg/test")
+
+        depth_during_calls = []
+
+        def tracking_run(*args, **kwargs):
+            # Record the flock nesting depth during each subprocess call.
+            # If compound locking works, depth should be >= 2 (outer _commit_state
+            # + inner _run_git).
+            depth_during_calls.append(StateStore._flock_depth)
+            return MagicMock(stdout="abc1234\n", returncode=0)
+
+        with patch("subprocess.run", side_effect=tracking_run):
+            store._commit_state(pipeline)
+
+        # All git calls should have happened at depth >= 2 (compound + inner)
+        assert len(depth_during_calls) >= 2  # at least add + diff (or add + diff + commit)
+        assert all(d >= 2 for d in depth_during_calls)

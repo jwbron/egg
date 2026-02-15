@@ -19,6 +19,19 @@ for how to call egg's workflows from your own repositories.
 | [Conflict Resolver](#conflict-resolver) | Push to main / schedule / manual | Resolves merge conflicts via merge commits |
 | [Doc Updater](#doc-updater) | Push to main | Checks if code changes require documentation updates |
 
+### Shared Prompt Criteria
+
+Review criteria for each workflow are defined in `shared/prompts/` as markdown files. Both the GitHub Actions prompt builder scripts (`action/build-*-prompt.sh`) and the local orchestrator (`orchestrator/routes/pipelines.py`) read from the same shared files, ensuring consistent review behavior across both flows.
+
+| File | Used By |
+|------|---------|
+| `shared/prompts/code-review-criteria.md` | AI Code Review, orchestrator reviewers |
+| `shared/prompts/agent-design-criteria.md` | Design Review, orchestrator reviewers |
+| `shared/prompts/autofixer-rules.md` | Check Autofixer |
+| `shared/prompts/contract-review-criteria.md` | Contract Verification, orchestrator reviewers |
+
+Repositories can override criteria by placing a custom file in `.egg/` (e.g., `.egg/review-rules.md` overrides code review criteria).
+
 ## AI Code Review
 
 **Workflow:** [`.github/workflows/on-pull-request.yml`](../../.github/workflows/on-pull-request.yml)

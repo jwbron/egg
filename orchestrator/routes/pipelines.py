@@ -808,8 +808,45 @@ def _get_unified_criteria(phase: str) -> str:
         )
 
 
+def _read_shared_criteria(
+    filename: str,
+    user_override: str | None = None,
+    repo_path: str | None = None,
+) -> str | None:
+    """Read shared criteria from file, checking user override first.
+
+    Search order:
+    1. .egg/<user_override> in the repo (if user_override provided)
+    2. shared/prompts/<filename> relative to source tree
+    3. /app/prompts/<filename> (Docker container path)
+
+    Returns the file content, or None if no file found (caller uses inline fallback).
+    """
+    # Check user override first
+    if user_override and repo_path:
+        override_path = Path(repo_path) / ".egg" / user_override
+        if override_path.is_file() and override_path.stat().st_size > 0:
+            return override_path.read_text()
+
+    # Try source tree path (development / tests)
+    source_path = Path(__file__).parent.parent.parent / "shared" / "prompts" / filename
+    if source_path.is_file():
+        return source_path.read_text()
+
+    # Try Docker container path (production)
+    docker_path = Path("/app/prompts") / filename
+    if docker_path.is_file():
+        return docker_path.read_text()
+
+    return None
+
+
 def _get_agent_design_criteria() -> str:
     """Return agent-mode design review criteria."""
+    content = _read_shared_criteria("agent-design-criteria.md")
+    if content is not None:
+        return content
+    logger.warning("Shared agent-design-criteria.md not found, using inline fallback")
     return (
         "Flag these **clear** anti-patterns:\n\n"
         "1. **Excessive pre-fetching** — Baking large diffs (10KB+) or full file contents "
@@ -825,8 +862,16 @@ def _get_agent_design_criteria() -> str:
     )
 
 
-def _get_code_review_criteria() -> str:
+def _get_code_review_criteria(repo_path: str | None = None) -> str:
     """Return code review criteria."""
+    content = _read_shared_criteria(
+        "code-review-criteria.md",
+        user_override="review-rules.md",
+        repo_path=repo_path,
+    )
+    if content is not None:
+        return content
+    logger.warning("Shared code-review-criteria.md not found, using inline fallback")
     return (
         "### Security (highest priority)\n"
         "- Injection vulnerabilities (SQL, command, XSS, LDAP, path traversal)\n"
@@ -850,8 +895,16 @@ def _get_code_review_criteria() -> str:
     )
 
 
-def _get_contract_review_criteria() -> str:
+def _get_contract_review_criteria(repo_path: str | None = None) -> str:
     """Return contract verification criteria."""
+    content = _read_shared_criteria(
+        "contract-review-criteria.md",
+        user_override="contract-rules.md",
+        repo_path=repo_path,
+    )
+    if content is not None:
+        return content
+    logger.warning("Shared contract-review-criteria.md not found, using inline fallback")
     return (
         "### Task Verification\n"
         "For each task in the contract, verify:\n"
@@ -934,16 +987,18 @@ def _get_plan_review_criteria() -> str:
     )
 
 
-def _get_review_criteria_for_type(reviewer_type: str, phase: str) -> str:
+def _get_review_criteria_for_type(
+    reviewer_type: str, phase: str, repo_path: str | None = None
+) -> str:
     """Dispatch to the correct criteria function based on reviewer type."""
     if reviewer_type == "unified":
         return _get_unified_criteria(phase)
     elif reviewer_type == "agent-design":
         return _get_agent_design_criteria()
     elif reviewer_type == "code":
-        return _get_code_review_criteria()
+        return _get_code_review_criteria(repo_path=repo_path)
     elif reviewer_type == "contract":
-        return _get_contract_review_criteria()
+        return _get_contract_review_criteria(repo_path=repo_path)
     elif reviewer_type == "refine":
         return _get_refine_review_criteria()
     elif reviewer_type == "plan":
@@ -1069,6 +1124,7 @@ def _build_review_prompt(
     issue_number: int | None = None,
     review_cycle: int = 1,
     prior_feedback: str | None = None,
+    repo_path: str | None = None,
 ) -> str:
     """Build a review prompt for the reviewer agent.
 
@@ -1110,7 +1166,7 @@ def _build_review_prompt(
 
     # Review criteria
     lines.append("## Review Criteria\n")
-    lines.append(_get_review_criteria_for_type(reviewer_type, phase))
+    lines.append(_get_review_criteria_for_type(reviewer_type, phase, repo_path=repo_path))
     lines.append("")
 
     # Prior feedback for re-reviews
@@ -1685,6 +1741,7 @@ def _build_agent_prompt(
     branch: str | None = None,
     review_feedback: str | None = None,
     review_cycle: int = 0,
+    repo_path: str | None = None,
 ) -> str:
     """Build a role-specific prompt for multi-agent execution.
 
@@ -1707,6 +1764,7 @@ def _build_agent_prompt(
         branch: Branch name
         review_feedback: Feedback from prior review cycle
         review_cycle: Current review cycle number
+        repo_path: Filesystem path to repository (for user override lookup)
 
     Returns:
         Complete prompt string for the agent
@@ -1897,6 +1955,7 @@ def _build_agent_prompt(
             issue_number=issue_number,
             review_cycle=review_cycle + 1,
             prior_feedback=review_feedback,
+            repo_path=repo_path,
         )
     else:
         lines.extend(
@@ -1911,16 +1970,52 @@ def _build_agent_prompt(
     if phase == "implement":
         lines.extend(
             [
-                "- You CAN push code (git push)",
-                "- You CANNOT create PRs",
+                "- You CAN push code changes to git (git push)",
+                "- You CAN link commits to tasks (egg-contract add-commit)",
+                "- You CANNOT push .egg-state/ files (except checkpoints)",
+                "- You CANNOT create PRs (the pipeline manages the PR)",
+                "",
+                "### Push Recovery",
+                "",
+                "If your push is rejected due to restricted files on the branch, "
+                "create a clean branch from origin/main and cherry-pick only your "
+                "code commits:",
+                "```",
+                "git checkout -b egg/<new-branch> origin/main",
+                "git cherry-pick <your-commit-hash>",
+                "git push origin egg/<new-branch>",
+                "```",
+                "Do NOT retry the same push — fix the branch first.",
+                "After pushing to the new branch, use `egg-contract add-commit` to "
+                "link your commits so the pipeline can track them on the new branch.",
                 "",
             ]
         )
-    elif phase == "plan":
+    elif phase in ("refine", "plan"):
         lines.extend(
             [
-                "- You CAN write analysis and plan files",
-                "- You CANNOT modify production code",
+                "- You CAN write to `.egg-state/drafts/` and `.egg-state/agent-outputs/`",
+                "- You CAN push these state files to git (git push)",
+                "- You CAN create HITL decisions (egg-contract add-decision)",
+                "- You CAN create feedback requests (egg-contract add-feedback)",
+                "- You CANNOT modify production code (src/, lib/, gateway/, sandbox/, "
+                "action/, docs/, tests/, test/)",
+                "- You CANNOT modify contracts (.egg-state/contracts/) or CI config (.github/)",
+                "- You CANNOT create PRs (gh pr create)",
+                "",
+                "### Push Recovery",
+                "",
+                "If your push is rejected due to restricted files on the branch, "
+                "create a clean branch from origin/main and cherry-pick only your "
+                "state file commits:",
+                "```",
+                "git checkout -b egg/<new-branch> origin/main",
+                "git cherry-pick <your-commit-hash>",
+                "git push origin egg/<new-branch>",
+                "```",
+                "Do NOT retry the same push — fix the branch first.",
+                "After pushing to the new branch, use `egg-contract add-commit` to "
+                "link your commits so the pipeline can track them on the new branch.",
                 "",
             ]
         )
@@ -1990,6 +2085,7 @@ def _run_multi_agent_phase(
             branch=pipeline.branch,
             review_feedback=review_feedback,
             review_cycle=review_cycle,
+            repo_path=str(worktree_repo_path),
         )
         # Map using the orchestrator's AgentRole enum
         try:
@@ -2347,6 +2443,7 @@ def _build_autofix_prompt(
     pipeline_mode: str,
     check_results: dict,
     repo: str | None = None,
+    repo_path: str | None = None,
 ) -> str:
     """Build a prompt for the autofixer agent.
 
@@ -2392,17 +2489,33 @@ def _build_autofix_prompt(
             "(lint errors, formatting, simple type errors, obvious test fixes), make the fix",
             "4. **Verify locally**: Run the same checks again to confirm fixes work",
             "5. **Commit all fixes together** with a descriptive message\n",
-            "## Auto-fixable vs Report-only\n",
-            "**Auto-fixable (commit fixes directly):**",
-            "- Lint errors (formatting, import order, code style)",
-            "- Type errors with clear fixes",
-            "- Simple test failures with obvious fixes\n",
-            "**Report only (note in commit message):**",
-            "- Complex logic errors requiring design decisions",
-            "- Security issues requiring architectural changes",
-            "- Test failures from unclear requirements",
         ]
     )
+
+    # Load autofixer rules from shared file or use inline fallback
+    autofixer_rules = _read_shared_criteria(
+        "autofixer-rules.md",
+        user_override="autofixer-rules.md",
+        repo_path=repo_path,
+    )
+    if autofixer_rules is not None:
+        lines.append(autofixer_rules)
+    else:
+        logger.warning("Shared autofixer-rules.md not found, using inline fallback")
+        lines.extend(
+            [
+                "## Auto-fixable vs Report-only\n",
+                "**Auto-fixable (commit fixes directly):**",
+                "- Lint errors (formatting, import order, code style)",
+                "- Type errors with clear fixes",
+                "- Simple test failures with obvious fixes\n",
+                "**Report only (note in commit message):**",
+                "- Complex logic errors requiring design decisions",
+                "- Security issues requiring architectural changes",
+                "- Test failures from unclear requirements",
+            ]
+        )
+
     return "\n".join(lines)
 
 
@@ -3203,6 +3316,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_mode,
                             check_results,
                             repo=pipeline.repo,
+                            repo_path=str(worktree_repo_path),
                         )
                         autofix_command = [
                             "claude",
@@ -3281,6 +3395,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     _review_feedback=review_feedback,
                     _sandbox_env=sandbox_env,
                     _repos=repos,
+                    _repo_path=worktree_repo_path,
                 ):
                     role_str = role.value
                     rtype = role_str.replace("reviewer_", "", 1).replace("_", "-")
@@ -3292,6 +3407,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         issue_number=_pipeline.issue_number,
                         review_cycle=_review_cycle + 1,
                         prior_feedback=_review_feedback,
+                        repo_path=str(_repo_path),
                     )
                     reviewer_command = [
                         "claude",
