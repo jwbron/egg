@@ -834,6 +834,36 @@ def _get_contract_review_criteria() -> str:
 
 
 
+def _get_refine_review_criteria() -> str:
+    """Return review criteria for the dedicated refine reviewer."""
+    return (
+        "### 1. Problem Understanding\n"
+        "- Does the analysis correctly identify the core problem or feature request?\n"
+        "- Is the current behavior (if applicable) accurately described?\n"
+        "- Are the goals and desired outcomes clear?\n\n"
+        "### 2. Research Quality\n"
+        "- Has the agent explored the relevant parts of the codebase?\n"
+        "- Are existing patterns and conventions identified?\n"
+        "- Is the technical context accurate and thorough?\n\n"
+        "### 3. Options Analysis\n"
+        "- Are the proposed options meaningfully different?\n"
+        "- Are trade-offs clearly articulated for each option?\n"
+        "- Is the reasoning logical and well-founded?\n\n"
+        "### 4. Constraints and Dependencies\n"
+        "- Are technical constraints identified (performance, compatibility, etc.)?\n"
+        "- Are dependencies on other code or systems noted?\n"
+        "- Are potential risks or complications surfaced?\n\n"
+        "### 5. Open Questions\n"
+        "- Are open questions specific enough for a human to answer?\n"
+        "- Do questions address genuine ambiguities?\n"
+        "- Are questions actionable?\n\n"
+        "### 6. Recommendation Quality\n"
+        "- Is there a clear recommended approach?\n"
+        "- Is the recommendation justified with specific reasons?\n"
+        "- Does the recommendation align with the analysis findings?\n"
+    )
+
+
 def _get_review_criteria_for_type(reviewer_type: str, phase: str) -> str:
     """Dispatch to the correct criteria function based on reviewer type."""
     if reviewer_type == "unified":
@@ -844,6 +874,8 @@ def _get_review_criteria_for_type(reviewer_type: str, phase: str) -> str:
         return _get_code_review_criteria()
     elif reviewer_type == "contract":
         return _get_contract_review_criteria()
+    elif reviewer_type == "refine":
+        return _get_refine_review_criteria()
     else:
         return _get_unified_criteria(phase)
 
@@ -870,6 +902,13 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
             "This is a **contract verification review**. Verify that the implementation "
             "matches the contract and all acceptance criteria are met. Do NOT review "
             "general code quality or security — other reviewers handle those."
+        )
+    elif reviewer_type == "refine":
+        return (
+            "This is a **refine phase review**. Focus on the quality and completeness "
+            "of the analysis produced during the refine phase. Evaluate problem "
+            "understanding, codebase research, options analysis, and the recommended "
+            "approach. Agent-mode design alignment is handled by another reviewer."
         )
     return ""
 
@@ -1429,8 +1468,9 @@ def _build_agent_prompt(
     Returns:
         Complete prompt string for the agent
     """
-    # CODER uses the existing phase prompt
-    if role_value == "coder":
+    # CODER and REFINER use the existing phase prompt (phase-specific
+    # instructions are already tailored for refine vs implement etc.)
+    if role_value in ("coder", "refiner"):
         return _build_phase_prompt(
             phase=phase,
             pipeline_id=pipeline_id,
@@ -2583,11 +2623,19 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase_prompt,
                     ]
 
+                    # Use the REFINER role for the refine phase,
+                    # CODER for all other single-agent phases.
+                    single_agent_role = (
+                        AgentRole.REFINER
+                        if current_phase.value == "refine"
+                        else AgentRole.CODER
+                    )
+
                     try:
                         exit_code, container_logs = _spawn_and_wait(
                             spawner=spawner,
                             pipeline_id=pipeline_id,
-                            agent_role=AgentRole.CODER,
+                            agent_role=single_agent_role,
                             issue_number=pipeline.issue_number,
                             repo_volumes=repo_volumes,
                             gateway_mode=phase_gateway_mode,
