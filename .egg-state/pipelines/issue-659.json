@@ -5,7 +5,7 @@
   "branch": "egg/issue-659",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -128,9 +128,9 @@
     }
   ],
   "created_at": "2026-02-15T02:31:34.282050",
-  "updated_at": "2026-02-15T02:50:06.191036",
+  "updated_at": "2026-02-15T02:50:06.219432",
   "contract_synced": true,
   "network_mode": null,
-  "error": null,
-  "version": 18
+  "error": "Contract for 659 not found at /home/egg/.egg-worktrees/issue-659/egg/.egg-state/contracts/659.json",
+  "version": 19
 }
