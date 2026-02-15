@@ -478,17 +478,17 @@
         "approve",
         "request changes"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-15T05:37:15.152848",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-02-15T05:37:37.320115",
+      "resolution": "Approved",
       "timeout_seconds": 3600
     }
   ],
   "created_at": "2026-02-15T04:15:52.670515",
-  "updated_at": "2026-02-15T05:37:15.176302",
+  "updated_at": "2026-02-15T05:37:37.322186",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 55
+  "version": 56
 }
