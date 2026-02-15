@@ -14,16 +14,21 @@ access.
 """
 
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from models import Pipeline, PipelineStatus
 from pydantic import ValidationError
+
+logger = logging.getLogger("orchestrator.state_store")
 
 # Valid pipeline ID format: issue-{number} or local-{8 hex chars}
 PIPELINE_ID_PATTERN = re.compile(r"^(issue-[0-9]+|local-[0-9a-f]{8})$")
@@ -35,6 +40,25 @@ STATE_BRANCH = "egg/pipeline-state"
 _DEFAULT_WORKTREE_DIR = (
     Path(os.environ.get("EGG_STATE_DIR", "/home/egg/.egg-state")) / "pipeline-worktree"
 )
+
+# -- concurrency: per-worktree locks for serializing git index operations ------
+# All StateStore instances sharing the same worktree directory must serialize
+# compound git operations (add → diff → commit) to avoid index.lock races.
+_worktree_locks: dict[str, threading.Lock] = {}
+_worktree_locks_guard = threading.Lock()
+
+# Retry config for transient index.lock contention
+_GIT_RETRY_MAX_ATTEMPTS = 3
+_GIT_RETRY_INITIAL_BACKOFF = 0.1  # seconds
+_GIT_STALE_LOCK_AGE = 60  # seconds
+
+
+def _get_worktree_lock(worktree_path: str) -> threading.Lock:
+    """Get or create a lock for serializing git operations on a worktree."""
+    with _worktree_locks_guard:
+        if worktree_path not in _worktree_locks:
+            _worktree_locks[worktree_path] = threading.Lock()
+        return _worktree_locks[worktree_path]
 
 
 class StateStoreError(Exception):
@@ -250,7 +274,12 @@ class StateStore:
         check: bool = True,
         cwd: Path | None = None,
     ) -> subprocess.CompletedProcess:
-        """Run a git command in the repository.
+        """Run a git command with retry on index.lock contention.
+
+        Retries up to ``_GIT_RETRY_MAX_ATTEMPTS`` times with exponential
+        backoff when the command fails due to a stale or contended
+        ``index.lock`` file.  Between retries, stale lock files (older
+        than ``_GIT_STALE_LOCK_AGE`` seconds) are cleaned up.
 
         Args:
             args: Git command arguments
@@ -268,16 +297,65 @@ class StateStore:
         # trusted environment. See issue #58 for context on hook-based attacks.
         work_dir = str(cwd) if cwd else str(self.repo_path)
         cmd = ["git", "-c", "core.hooksPath=/dev/null", "-C", work_dir] + list(args)
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=check,
-            )
-            return result
-        except subprocess.CalledProcessError as e:
-            raise GitOperationError(f"Git command failed: {e.stderr}") from e
+
+        backoff = _GIT_RETRY_INITIAL_BACKOFF
+        for attempt in range(1, _GIT_RETRY_MAX_ATTEMPTS + 1):
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    check=check,
+                )
+                return result
+            except subprocess.CalledProcessError as e:
+                if "index.lock" not in (e.stderr or "") or attempt == _GIT_RETRY_MAX_ATTEMPTS:
+                    raise GitOperationError(f"Git command failed: {e.stderr}") from e
+
+                logger.warning(
+                    "index.lock contention in state store, retrying",
+                    extra={
+                        "attempt": attempt,
+                        "max_attempts": _GIT_RETRY_MAX_ATTEMPTS,
+                        "stderr": (e.stderr or "").strip(),
+                    },
+                )
+                self._cleanup_stale_locks()
+                time.sleep(backoff)
+                backoff *= 2
+
+        # Unreachable, but keeps type checkers happy
+        raise GitOperationError("Git retry exhausted")  # pragma: no cover
+
+    def _cleanup_stale_locks(self) -> None:
+        """Remove index.lock files older than ``_GIT_STALE_LOCK_AGE`` seconds.
+
+        Checks the main repo and worktree lock locations.  Only removes
+        files that are clearly stale (from a crashed process); recent
+        locks from an active process are left alone.
+        """
+        lock_candidates = [self.repo_path / ".git" / "index.lock"]
+
+        worktrees_dir = self.repo_path / ".git" / "worktrees"
+        if worktrees_dir.exists():
+            lock_candidates.extend(worktrees_dir.glob("*/index.lock"))
+
+        for lock_path in lock_candidates:
+            if not lock_path.exists():
+                continue
+            try:
+                age = time.time() - lock_path.stat().st_mtime
+                if age > _GIT_STALE_LOCK_AGE:
+                    lock_path.unlink(missing_ok=True)
+                    logger.info(
+                        "Removed stale index.lock",
+                        extra={
+                            "path": str(lock_path),
+                            "age_seconds": round(age, 1),
+                        },
+                    )
+            except OSError:
+                pass
 
     # -- CRUD operations ---------------------------------------------------
 
@@ -381,7 +459,9 @@ class StateStore:
     def _commit_state(self, pipeline: Pipeline, message: str | None = None) -> str:
         """Commit pipeline state to the state branch.
 
-        Commits directly in the persistent worktree.
+        Commits directly in the persistent worktree.  The entire
+        add-diff-commit sequence is serialized via a per-worktree lock
+        to prevent index.lock races from concurrent pipeline saves.
 
         Args:
             pipeline: Pipeline being saved
@@ -400,16 +480,18 @@ class StateStore:
         rel_path = str(path.relative_to(self.worktree))
 
         wt = self.worktree
-        self._run_git("add", rel_path, cwd=wt)
+        lock = _get_worktree_lock(str(wt))
+        with lock:
+            self._run_git("add", rel_path, cwd=wt)
 
-        result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
-        if result.returncode == 0:
-            # No changes staged - return current HEAD or empty string for unborn branch
-            head_result = self._run_git("rev-parse", "HEAD", cwd=wt, check=False)
-            return head_result.stdout.strip() if head_result.returncode == 0 else ""
+            result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
+            if result.returncode == 0:
+                # No changes staged - return current HEAD or empty string for unborn branch
+                head_result = self._run_git("rev-parse", "HEAD", cwd=wt, check=False)
+                return head_result.stdout.strip() if head_result.returncode == 0 else ""
 
-        self._run_git("commit", "--no-verify", "-m", message, cwd=wt)
-        return self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()
+            self._run_git("commit", "--no-verify", "-m", message, cwd=wt)
+            return self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()
 
     def _get_current_commit(self) -> str:
         """Get the current HEAD commit SHA."""
@@ -513,17 +595,19 @@ class StateStore:
         should_commit = commit and (not is_local or force_commit)
         if should_commit:
             wt = self.worktree
-            self._run_git("add", rel_path, cwd=wt)
+            lock = _get_worktree_lock(str(wt))
+            with lock:
+                self._run_git("add", rel_path, cwd=wt)
 
-            result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
-            if result.returncode != 0:
-                self._run_git(
-                    "commit",
-                    "--no-verify",
-                    "-m",
-                    f"Delete pipeline: {pipeline_id}",
-                    cwd=wt,
-                )
+                result = self._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
+                if result.returncode != 0:
+                    self._run_git(
+                        "commit",
+                        "--no-verify",
+                        "-m",
+                        f"Delete pipeline: {pipeline_id}",
+                        cwd=wt,
+                    )
 
     def list_pipelines(self) -> list[str]:
         """List all pipeline IDs.

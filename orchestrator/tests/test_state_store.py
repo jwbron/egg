@@ -4,17 +4,20 @@ Tests for state store.
 Note: Git operations are mocked since git init is not available in the sandbox.
 """
 
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
 from models import Pipeline, PipelinePhase, PipelineStatus
 from state_store import (
+    GitOperationError,
     InvalidPipelineIdError,
     PipelineNotFoundError,
     StateStore,
     StateStoreError,
     StateValidationError,
     VersionConflictError,
+    _get_worktree_lock,
     _validate_pipeline_id,
     get_state_store,
 )
@@ -699,3 +702,149 @@ class TestDecisionPersistenceRegression:
         assert len(final.decisions) == 1
         assert final.decisions[0].id == "decision-1"
         assert final.status == PipelineStatus.AWAITING_HUMAN
+
+
+class TestGitRetryOnIndexLock:
+    """Tests for index.lock retry and stale lock cleanup."""
+
+    @pytest.fixture
+    def raw_store(self, tmp_path):
+        """State store without _run_git mocked (for testing retry logic)."""
+        store = StateStore(tmp_path, worktree_dir=tmp_path)
+        store._worktree = tmp_path
+        return store
+
+    def test_retry_succeeds_on_second_attempt(self, raw_store):
+        """Test that _run_git retries on index.lock and succeeds."""
+        lock_error = subprocess.CalledProcessError(
+            128, ["git", "add"],
+            stderr="fatal: Unable to create 'index.lock': File exists.\n",
+        )
+        success = MagicMock(stdout="", returncode=0)
+
+        with patch.object(StateStore, "_cleanup_stale_locks"), \
+             patch("state_store.subprocess.run") as mock_run, \
+             patch("state_store.time.sleep"):
+            mock_run.side_effect = [lock_error, success]
+            result = raw_store._run_git("add", "file.json")
+            assert result == success
+            assert mock_run.call_count == 2
+
+    def test_retry_raises_after_max_attempts(self, raw_store):
+        """Test that _run_git raises after exhausting retries."""
+        lock_error = subprocess.CalledProcessError(
+            128, ["git", "add"],
+            stderr="fatal: Unable to create 'index.lock': File exists.\n",
+        )
+
+        with patch.object(StateStore, "_cleanup_stale_locks"), \
+             patch("state_store.subprocess.run") as mock_run, \
+             patch("state_store.time.sleep"):
+            mock_run.side_effect = lock_error
+            with pytest.raises(GitOperationError, match="index.lock"):
+                raw_store._run_git("add", "file.json")
+            assert mock_run.call_count == 3  # _GIT_RETRY_MAX_ATTEMPTS
+
+    def test_non_lock_error_raises_immediately(self, raw_store):
+        """Test that non-index.lock errors are not retried."""
+        other_error = subprocess.CalledProcessError(
+            1, ["git", "commit"],
+            stderr="error: something else went wrong\n",
+        )
+
+        with patch("state_store.subprocess.run") as mock_run:
+            mock_run.side_effect = other_error
+            with pytest.raises(GitOperationError, match="something else"):
+                raw_store._run_git("commit", "-m", "test")
+            assert mock_run.call_count == 1  # No retry
+
+    def test_cleanup_stale_locks_removes_old_lock(self, raw_store, tmp_path):
+        """Test that stale lock files are cleaned up."""
+        import os
+        import time
+
+        # Create a fake .git/worktrees structure with a stale lock
+        git_dir = tmp_path / ".git"
+        worktrees_dir = git_dir / "worktrees"
+        wt_admin = worktrees_dir / "pipeline-worktree"
+        wt_admin.mkdir(parents=True)
+        lock_file = wt_admin / "index.lock"
+        lock_file.touch()
+
+        # Make the lock appear old
+        old_time = time.time() - 120  # 2 minutes old
+        os.utime(lock_file, (old_time, old_time))
+
+        raw_store._cleanup_stale_locks()
+        assert not lock_file.exists()
+
+    def test_cleanup_stale_locks_keeps_fresh_lock(self, raw_store, tmp_path):
+        """Test that recent lock files are not removed."""
+        # Create a fresh lock file
+        git_dir = tmp_path / ".git"
+        worktrees_dir = git_dir / "worktrees"
+        wt_admin = worktrees_dir / "pipeline-worktree"
+        wt_admin.mkdir(parents=True)
+        lock_file = wt_admin / "index.lock"
+        lock_file.touch()  # Fresh — just created
+
+        raw_store._cleanup_stale_locks()
+        assert lock_file.exists()
+
+
+class TestCommitStateLocking:
+    """Tests for worktree lock serialization."""
+
+    def test_commit_state_acquires_lock(self, state_store, mock_git):
+        """Test that _commit_state acquires the worktree lock."""
+        pipeline = Pipeline(
+            id="issue-100",
+            issue_number=100,
+            repo="owner/repo",
+            branch="egg/issue-100",
+        )
+
+        lock = _get_worktree_lock(str(state_store.worktree))
+
+        # Verify the lock is not held before the call
+        assert not lock.locked()
+
+        # Track whether lock was held during git operations
+        lock_was_held = []
+
+        original_side_effect = mock_git.side_effect
+
+        def check_lock(*args, **kwargs):
+            lock_was_held.append(lock.locked())
+            result = MagicMock()
+            if args[0] == "diff" and "--cached" in args:
+                result.returncode = 0
+                result.stdout = ""
+            elif args[0] == "rev-parse" and "HEAD" in args:
+                result.returncode = 0
+                result.stdout = "abc1234\n"
+            else:
+                result.returncode = 0
+                result.stdout = "abc1234\n"
+            return result
+
+        mock_git.side_effect = check_lock
+
+        state_store._commit_state(pipeline)
+
+        # Lock should have been held during git operations
+        assert any(lock_was_held), "Lock was not held during git operations"
+        # Lock should be released after
+        assert not lock.locked()
+
+    def test_get_worktree_lock_returns_same_lock(self):
+        """Test that _get_worktree_lock returns the same lock for the same path."""
+        lock1 = _get_worktree_lock("/some/path")
+        lock2 = _get_worktree_lock("/some/path")
+        assert lock1 is lock2
+
+    def test_get_worktree_lock_returns_different_lock(self):
+        """Test that _get_worktree_lock returns different locks for different paths."""
+        lock1 = _get_worktree_lock("/path/a")
+        lock2 = _get_worktree_lock("/path/b")
+        assert lock1 is not lock2
