@@ -2597,6 +2597,13 @@ def session_create() -> tuple[Response, int] | Response:
         if len(agent_role) > 64:
             return make_error("Invalid agent_role: must be 64 characters or fewer")
 
+    # Validate claude_code_version if provided
+    if claude_code_version is not None:
+        if not isinstance(claude_code_version, str):
+            return make_error("Invalid claude_code_version: must be a string")
+        if len(claude_code_version) > 64:
+            return make_error("Invalid claude_code_version: must be 64 characters or fewer")
+
     # Step 1: Query visibility for all repos
     repo_visibilities = {}
     for repo in repos:

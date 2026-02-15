@@ -554,6 +554,7 @@ class CheckpointHandler:
             session_id=session_id,
             container_id=session.container_id if session else None,
             agent_role=session.agent_role if session else None,
+            claude_code_version=session.claude_code_version if session else None,
             started_at=session.created_at if session else now,
         )
 
