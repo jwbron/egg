@@ -763,6 +763,7 @@ def setup_claude(config: Config, logger: Logger) -> None:
         "autoUpdate": False,
         "outputStyle": "default",
         "defaultModel": "opus",
+        "effort": "medium",
         "showResumeCommand": False,
     }
 
