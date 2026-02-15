@@ -1975,8 +1975,8 @@ def gh_execute() -> tuple[Response, int] | Response:
     session_mode = getattr(g, "session_mode", None)
 
     # Block gh commands in local SDLC mode.
-    # During PR phase, only allow PR-related commands (matching what
-    # phase-permissions grants). All other gh commands remain blocked.
+    # During PR phase, only allow PR-scoped operations through.
+    # All other gh commands remain blocked.
     session_phase = getattr(g, "session_phase", None)
     if session_mode == "local":
         allowed = False
