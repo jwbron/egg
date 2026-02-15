@@ -12,7 +12,7 @@ for how to call egg's workflows from your own repositories.
 | Workflow | Trigger | What It Does |
 |----------|---------|--------------|
 | [AI Code Review](#ai-code-review) | PR opened/updated | Reviews code changes, posts feedback via `gh pr review` |
-| [Address Review Feedback](#address-review-feedback) | Review posted on bot PR, or human @mention | Automatically addresses review feedback, enabling review loops |
+| [Address Review Feedback](#address-review-feedback) | Review posted on bot/authorized-user PR, or human @mention | Automatically addresses review feedback, enabling review loops |
 | [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
 | [Contract Verification](#contract-verification) | PR with sdlc:pr label or contract file | Verifies implementation matches SDLC contract |
 | [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
@@ -144,7 +144,7 @@ Without it, the system falls back to posting reviews as comments (self-review mo
 2. **Filter checks** — Only runs when:
    - PR is open (not closed/merged)
    - PR is from the same repository (not a fork — bot can't push to forks)
-   - PR author is the bot (unless manually triggered)
+   - PR author is the bot or an authorized user (unless manually triggered)
    - PR doesn't have `[skip-review]` marker
    - Review requires action (filtered at job level to prevent runner allocation):
      - Non-approval reviews (request-changes, comment) always trigger

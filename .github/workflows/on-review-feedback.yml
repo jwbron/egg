@@ -7,7 +7,7 @@ name: "egg: Address Review Feedback"
 # - pull_request_review: formal review posted via gh pr review
 # - issue_comment (bot): self-review posted as comment (GitHub blocks bots from
 #   reviewing their own PRs via the Reviews API)
-# - issue_comment (human): human @mentions the bot on a bot-authored PR
+# - issue_comment (human): human @mentions the bot on a bot-authored or authorized-user-authored PR
 on:
   pull_request_review:
     types: [submitted]
@@ -199,13 +199,14 @@ jobs:
                [[ "$REVIEW_STATE" != "approved" || "$REVIEW_BODY" == *"verdict=approve-with-suggestions"* ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
               echo "trigger_type=review" >> "$GITHUB_OUTPUT"
-            # Case 2: Human review on bot-authored PR
+            # Case 2: Human review on bot-authored or authorized-user-authored PR
             # Trigger for non-approvals (changes_requested, commented) from authorized users only.
             # Note: Human approvals with suggestions won't trigger because humans
             # don't add the verdict=approve-with-suggestions marker. This is an
             # accepted limitation - non-blocking suggestions in human approvals
             # are considered optional and don't require automated follow-up.
-            elif ! is_review_bot "$REVIEW_USER" && is_authorized_user "$REVIEW_USER" && is_bot_authored_pr && \
+            elif ! is_review_bot "$REVIEW_USER" && is_authorized_user "$REVIEW_USER" && \
+               (is_bot_authored_pr || is_authorized_user "$PR_AUTHOR") && \
                [[ "$REVIEW_STATE" != "approved" ]]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
               echo "trigger_type=review" >> "$GITHUB_OUTPUT"
@@ -302,8 +303,20 @@ jobs:
           PR_TITLE: ${{ steps.pr-meta.outputs.title }}
           HEAD_REPO: ${{ steps.pr-meta.outputs.head-repo }}
           EVENT_NAME: ${{ github.event_name }}
+          AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
         run: |
           set -euo pipefail
+
+          # Helper: check if a user is in the authorized_users list (comma-separated)
+          is_authorized_user() {
+            local user="$1"
+            local IFS=','
+            for authorized in $AUTHORIZED_USERS; do
+              authorized=$(echo "$authorized" | xargs)
+              [[ "$user" == "$authorized" ]] && return 0
+            done
+            return 1
+          }
 
           # Only address feedback on open PRs
           if [[ "$PR_STATE" != "open" ]]; then
@@ -328,9 +341,9 @@ jobs:
             exit 0
           fi
 
-          # Only address feedback on bot-authored PRs
-          if [[ "$PR_AUTHOR" != "$EGG_BOT_USERNAME" && "$PR_AUTHOR" != "${EGG_BOT_USERNAME}[bot]" ]]; then
-            echo "PR author '$PR_AUTHOR' is not the bot, skipping"
+          # Only address feedback on bot-authored or authorized-user-authored PRs
+          if [[ "$PR_AUTHOR" != "$EGG_BOT_USERNAME" && "$PR_AUTHOR" != "${EGG_BOT_USERNAME}[bot]" ]] && ! is_authorized_user "$PR_AUTHOR"; then
+            echo "PR author '$PR_AUTHOR' is not the bot or an authorized user, skipping"
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -509,6 +522,9 @@ jobs:
         run: bash ${{ inputs.prompt_script || 'action/build-feedback-prompt.sh' }}
         env:
           PR_NUMBER: ${{ env.PR_NUMBER }}
+          EGG_BOT_USERNAME: ${{ env.EGG_BOT_USERNAME }}
+          REVIEWER_USERNAME: ${{ needs.resolve-inputs.outputs.reviewer_username }}
+          AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
 
       - name: Checkout PR branch
         if: steps.should-proceed.outputs.ok == 'true'
