@@ -185,6 +185,16 @@
           "exit_code": null,
           "agent_role": "risk_analyst",
           "session_token": null
+        },
+        {
+          "container_id": "38d8b50ab34a9876d6b9b6bb5745cf887fabdd3fc24c409aefb7c3033e753a91",
+          "container_name": "egg-sandbox-egg-issue-647-task_planner",
+          "status": "running",
+          "started_at": "2026-02-15T20:02:54.189899",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "task_planner",
+          "session_token": null
         }
       ],
       "agents": [
@@ -283,6 +293,18 @@
           "error": null,
           "retry_count": 0,
           "conflicts": []
+        },
+        {
+          "role": "task_planner",
+          "status": "running",
+          "container_id": "38d8b50ab34a9876d6b9b6bb5745cf887fabdd3fc24c409aefb7c3033e753a91",
+          "started_at": "2026-02-15T20:02:54.189909",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
         }
       ],
       "review_cycles": 1,
@@ -308,9 +330,9 @@
     }
   ],
   "created_at": "2026-02-15T18:31:23.117468",
-  "updated_at": "2026-02-15T20:02:54.187147",
+  "updated_at": "2026-02-15T20:02:54.190707",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 38
+  "version": 39
 }
