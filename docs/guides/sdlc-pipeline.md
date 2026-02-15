@@ -226,8 +226,8 @@ The orchestrator runs multiple specialized reviewers in parallel, with phase-spe
 | Phase | Reviewers | Focus |
 |-------|-----------|-------|
 | **Refine** | Refine, Agent-Design | Analysis quality, agent-mode alignment |
-| **Plan** | Unified, Plan, Agent-Design | Plan quality, plan-specific criteria, agent-mode alignment |
-| **Implement** | Unified, Agent-Design, Contract, Code | Full coverage: quality, design, contract, security |
+| **Plan** | Unified, Plan | Plan quality, plan-specific criteria |
+| **Implement** | Unified, Contract, Code | Quality, contract, security |
 
 **Specialized Reviewers:**
 
@@ -253,7 +253,6 @@ The contract tracks per-reviewer verdicts for debugging:
 {
   "implement_reviewer_verdicts": {
     "unified": "approved",
-    "agent-design": "approved",
     "contract": "needs_revision",
     "code": "approved"
   }
@@ -310,9 +309,8 @@ The refine and plan phases include an automated internal review step before huma
     ├── {identifier}-refine-review.json       # Unified review verdict
     ├── {identifier}-refine-agent-design.json # Agent-design review verdict
     ├── {identifier}-plan-review.json         # Unified review verdict
-    ├── {identifier}-plan-agent-design.json   # Agent-design review verdict
+    ├── {identifier}-plan-plan.json           # Plan review verdict
     ├── {identifier}-implement-review.json    # Unified review verdict
-    ├── {identifier}-implement-agent-design.json
     ├── {identifier}-implement-contract.json
     └── {identifier}-implement-code.json
 ```
