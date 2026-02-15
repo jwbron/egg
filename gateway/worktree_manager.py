@@ -121,7 +121,9 @@ class WorktreeManager:
         self.repos_base = repos_base or REPOS_BASE_DIR
         self.worktree_base.mkdir(parents=True, exist_ok=True)
 
-        # Track active worktrees in memory
+        # Track active worktrees in memory.
+        # NOTE: Currently write-only; list_worktrees() scans the filesystem.
+        # Kept for future use as an in-memory cache to avoid filesystem scans.
         self._active_worktrees: dict[str, list[WorktreeInfo]] = {}
 
         # Concurrency control
@@ -253,6 +255,7 @@ class WorktreeManager:
                     git_cmd("worktree", "add", str(worktree_path), branch_name),
                     cwd=main_repo,
                     main_repo=main_repo,
+                    worktree_path=worktree_path,
                 )
             else:
                 # Create new branch from base
@@ -267,6 +270,7 @@ class WorktreeManager:
                     ),
                     cwd=main_repo,
                     main_repo=main_repo,
+                    worktree_path=worktree_path,
                 )
 
             if result.returncode != 0:
@@ -316,16 +320,24 @@ class WorktreeManager:
         args: list[str],
         cwd: Path,
         main_repo: Path,
+        worktree_path: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """
         Run ``git worktree add`` with retry on index.lock contention.
 
-        Attempts up to 3 times.  On an ``index.lock`` error the helper
-        removes stale lock files (older than 60 s) and retries with
-        exponential backoff (0.1 s, 0.2 s, 0.4 s).
+        The primary benefit of retrying is **waiting for a short-lived
+        external lock to be released** (e.g., a concurrent ``git fetch``
+        started outside the WorktreeManager).  The stale-lock cleanup
+        (files older than 60 s) is a secondary safeguard for the rare
+        case where a previous process crashed and left a lock behind.
 
-        This is a defensive layer on top of the per-repo lock, handling
-        edge cases where contention comes from outside the WorktreeManager.
+        Between retries the helper also removes any partial worktree
+        directory that ``git worktree add`` may have created before
+        hitting the lock error, preventing the next attempt from
+        failing with "already exists".
+
+        Attempts up to 3 times with exponential backoff (0.1 s, 0.2 s,
+        0.4 s).
         """
         max_attempts = 3
         backoff = 0.1
@@ -372,6 +384,23 @@ class WorktreeManager:
                             )
                     except OSError:
                         pass
+
+            # Clean up partial worktree state so the next attempt doesn't
+            # fail with "already exists" or "already checked out".
+            if worktree_path is not None and worktree_path.exists():
+                git_file = worktree_path / ".git"
+                worktree_is_valid = (
+                    git_file.exists()
+                    and git_file.is_file()
+                    and git_file.read_text().strip().startswith("gitdir:")
+                )
+                if not worktree_is_valid:
+                    logger.info(
+                        "Removing partial worktree directory before retry",
+                        path=str(worktree_path),
+                        attempt=attempt,
+                    )
+                    shutil.rmtree(worktree_path, ignore_errors=True)
 
             time.sleep(backoff)
             backoff *= 2
