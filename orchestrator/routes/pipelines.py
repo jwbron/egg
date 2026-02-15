@@ -32,6 +32,7 @@ except ImportError:
 try:
     from ..container_spawner import ContainerSpawnError, get_container_spawner
     from ..decision_queue import DecisionTimeoutError, get_decision_queue
+    from ..docker_client import DockerClientError
     from ..models import AgentRole, Pipeline, PipelineStatus, ReviewVerdict
     from ..state_store import (
         InvalidPipelineIdError,
@@ -44,6 +45,7 @@ try:
 except ImportError:
     from container_spawner import ContainerSpawnError, get_container_spawner  # type: ignore
     from decision_queue import DecisionTimeoutError, get_decision_queue  # type: ignore
+    from docker_client import DockerClientError  # type: ignore
     from models import AgentRole, Pipeline, PipelineStatus, ReviewVerdict  # type: ignore
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
@@ -579,7 +581,7 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         status=pipeline.status.value,
                         containers_removed=removed,
                     )
-            except Exception as e:
+            except (DockerClientError, ContainerSpawnError) as e:
                 logger.warning(
                     "Failed to clean up pipeline containers",
                     pipeline_id=pipeline_id,
@@ -639,7 +641,7 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     pipeline_id=pipeline_id,
                     containers_removed=removed,
                 )
-        except Exception as e:
+        except (DockerClientError, ContainerSpawnError) as e:
             logger.warning(
                 "Failed to clean up pipeline containers",
                 pipeline_id=pipeline_id,

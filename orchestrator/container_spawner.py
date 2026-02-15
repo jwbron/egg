@@ -223,26 +223,25 @@ class ContainerSpawner:
         # for the full prefixed name that Docker will use.
         full_container_name = f"{self.docker.CONTAINER_PREFIX}{container_name}"
         try:
-            # Try to get the container by its full name
-            existing = self.docker.client.containers.get(full_container_name)
+            info = self.docker.get_container_info(full_container_name)
             logger.info(
                 "Found existing container with same name, removing it",
                 container_name=full_container_name,
-                existing_id=existing.id[:12],
+                existing_id=info.container_id[:12],
             )
             self.remove_agent_container(
-                existing.id,
+                info.container_id,
                 force=True,
                 cleanup_session=True,
             )
         except ContainerNotFoundError:
             # No existing container, good to proceed
             pass
-        except Exception as e:
-            # Container doesn't exist or we couldn't remove it
+        except DockerClientError as e:
+            # Couldn't remove existing container
             # Log it but continue - if it really exists, Docker will give a clear error
             logger.debug(
-                "No existing container to clean up (or cleanup failed)",
+                "Failed to clean up existing container",
                 container_name=full_container_name,
                 error=str(e),
             )
