@@ -212,16 +212,16 @@ def _resolve_github_token(repo_path: str) -> str | None:
         repo = f"{match.group(1)}/{match.group(2)}"
         token_str, _auth_mode, error_msg = get_token_for_repo(repo)
         if not token_str:
-            logger.debug(
-                "Could not get token for repo",
+            logger.warning(
+                "Could not get token for repo — checkpoint may not be stored",
                 repo=repo,
                 error=error_msg,
             )
             return None
         return token_str
     except Exception as e:
-        logger.debug(
-            "GitHub token resolution failed",
+        logger.warning(
+            "GitHub token resolution failed — checkpoint may not be stored",
             error=str(e),
             repo_path=repo_path,
         )
