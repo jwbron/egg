@@ -51,10 +51,21 @@ build_user_filter() {
     fi
 
     # Build jq select expression: select(.user.login == "a" or .user.login == "b" ...)
+    # Validate usernames before interpolating into jq expressions (defense-in-depth)
     local parts=()
     for user in "${users[@]}"; do
+        if [[ ! "$user" =~ ^[a-zA-Z0-9\[\]-]+$ ]]; then
+            echo "Warning: skipping invalid username '${user}'" >&2
+            continue
+        fi
         parts+=(".user.login == \"${user}\"")
     done
+
+    # If all usernames were invalid, return empty (no filtering)
+    if [[ ${#parts[@]} -eq 0 ]]; then
+        echo ""
+        return
+    fi
 
     # Join with " or " — IFS only uses first char, so use manual join
     local filter="${parts[0]}"
@@ -86,9 +97,9 @@ comments from other users — they are not part of the review process for this w
         comments_cmd="gh api repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments --jq '[.[] | ${user_filter} | {path: .path, line: .line, body: .body, user: .user.login}]'"
         issue_comments_cmd="gh api repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments --jq '[.[] | ${user_filter} | {user: .user.login, body: .body}]'"
     else
-        reviews_cmd="gh api repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews --jq '.[] | {user: .user.login, state: .state, body: .body}'"
-        comments_cmd="gh api repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments --jq '.[] | {path: .path, line: .line, body: .body}'"
-        issue_comments_cmd="gh pr view ${PR_NUMBER} --comments"
+        reviews_cmd="gh api repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews --jq '[.[] | {user: .user.login, state: .state, body: .body}]'"
+        comments_cmd="gh api repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments --jq '[.[] | {path: .path, line: .line, body: .body, user: .user.login}]'"
+        issue_comments_cmd="gh api repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments --jq '[.[] | {user: .user.login, body: .body}]'"
     fi
 
     local prompt
