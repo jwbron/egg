@@ -1,6 +1,7 @@
 """Tests for action/build-agent-mode-design-review-prompt.sh."""
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -248,3 +249,55 @@ class TestEmptyLastReviewCommit:
 
             prompt = read_prompt_file(tmpdir, "123")
             assert "Re-review" not in prompt
+
+
+class TestSharedCriteriaLoading:
+    """Tests for loading agent-design criteria from shared/prompts/ files."""
+
+    def test_loads_from_shared_file(self) -> None:
+        """Script loads agent-design criteria from shared/prompts/agent-design-criteria.md."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            # The shared file contains these markers
+            assert "guidelines, not absolute rules" in prompt
+            assert "Orienting vs constraining" in prompt
+            assert "Practical balance" in prompt
+            assert "Benefit of the doubt" in prompt
+            assert "pre-fetching" in prompt.lower()
+
+    def test_inline_fallback_when_no_shared_file(self) -> None:
+        """Script falls back to inline defaults when shared file is missing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a fake repo with just the script, no shared files
+            fake_repo = Path(tmpdir) / "repo"
+            fake_repo.mkdir()
+            action_dir = fake_repo / "action"
+            action_dir.mkdir()
+            shutil.copy(BUILD_PROMPT, action_dir / "build-agent-mode-design-review-prompt.sh")
+
+            env = os.environ.copy()
+            env["PR_NUMBER"] = "123"
+            env["GITHUB_REPOSITORY"] = "owner/repo"
+            env["GITHUB_OUTPUT"] = "/dev/null"
+            env["RUNNER_TEMP"] = tmpdir
+
+            result = subprocess.run(
+                ["bash", str(action_dir / "build-agent-mode-design-review-prompt.sh")],
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=fake_repo,
+            )
+
+            assert result.returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            # Falls back to inline defaults
+            assert "pre-fetching" in prompt.lower()
+            assert "Rigid procedures" in prompt

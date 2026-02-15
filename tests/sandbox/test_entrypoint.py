@@ -522,22 +522,178 @@ class TestSetupWorktrees:
 class TestSetupAgentRules:
     """Tests for the setup_agent_rules function."""
 
-    @pytest.mark.skip(
-        reason="Requires complex mocking of /opt/claude-rules path; "
-        "function relies on hardcoded paths that are difficult to test without container"
-    )
-    def test_creates_claude_md(self, temp_dir):
-        """Creates CLAUDE.md from rule files."""
-        # This test would require extensive mocking of the filesystem paths
-        # used in setup_agent_rules. The function reads from /opt/claude-rules/
-        # and writes to ~/CLAUDE.md, both of which require either:
-        # 1. Running in the actual container environment, or
-        # 2. Complex patching of Path operations
-        #
-        # For now, we skip this test and rely on:
-        # - test_no_rules_does_nothing for the early-exit path
-        # - Integration tests for the full functionality
-        pass
+    @patch("os.lchown")
+    @patch("os.chown")
+    def test_includes_all_rules_with_pipeline_id(self, mock_chown, mock_lchown, temp_dir, monkeypatch):
+        """Includes contract.md and orchestrator.md when EGG_PIPELINE_ID is set."""
+        monkeypatch.setenv("EGG_PIPELINE_ID", "issue-123")
+
+        # Create mock rules directory
+        rules_dir = temp_dir / "opt-claude-rules"
+        rules_dir.mkdir()
+        for f in ["mission.md", "environment.md", "code-standards.md", "test-workflow.md",
+                   "pr-descriptions.md", "contract.md", "orchestrator.md"]:
+            (rules_dir / f).write_text(f"# {f} content")
+
+        # Create repos dir for symlink
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+
+        logger = entrypoint.Logger(quiet=True)
+
+        # Patch Path("/opt/claude-rules") to point to our temp rules dir
+        original_path_init = Path.__new__
+
+        def patched_path_new(cls, *args, **kwargs):
+            result = original_path_init(cls, *args, **kwargs)
+            if str(result) == "/opt/claude-rules":
+                return rules_dir
+            return result
+
+        with patch.object(Path, "__new__", patched_path_new):
+            entrypoint.setup_agent_rules(config, logger)
+
+        claude_md = temp_dir / "CLAUDE.md"
+        content = claude_md.read_text()
+        assert "contract.md content" in content
+        assert "orchestrator.md content" in content
+        assert "mission.md content" in content
+
+    @patch("os.lchown")
+    @patch("os.chown")
+    def test_excludes_sdlc_rules_without_pipeline_id(self, mock_chown, mock_lchown, temp_dir, monkeypatch):
+        """Excludes contract.md and orchestrator.md when EGG_PIPELINE_ID is not set."""
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+
+        # Create mock rules directory
+        rules_dir = temp_dir / "opt-claude-rules"
+        rules_dir.mkdir()
+        for f in ["mission.md", "environment.md", "code-standards.md", "test-workflow.md",
+                   "pr-descriptions.md", "contract.md", "orchestrator.md"]:
+            (rules_dir / f).write_text(f"# {f} content")
+
+        # Create repos dir for symlink
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+
+        logger = entrypoint.Logger(quiet=True)
+
+        # Patch Path("/opt/claude-rules") to point to our temp rules dir
+        original_path_init = Path.__new__
+
+        def patched_path_new(cls, *args, **kwargs):
+            result = original_path_init(cls, *args, **kwargs)
+            if str(result) == "/opt/claude-rules":
+                return rules_dir
+            return result
+
+        with patch.object(Path, "__new__", patched_path_new):
+            entrypoint.setup_agent_rules(config, logger)
+
+        claude_md = temp_dir / "CLAUDE.md"
+        content = claude_md.read_text()
+        assert "contract.md content" not in content
+        assert "orchestrator.md content" not in content
+        assert "mission.md content" in content
+        assert "environment.md content" in content
+
+    @patch("os.lchown")
+    @patch("os.chown")
+    def test_core_rules_order_preserved(self, mock_chown, mock_lchown, temp_dir, monkeypatch):
+        """Core rules are included in the expected order."""
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+
+        rules_dir = temp_dir / "opt-claude-rules"
+        rules_dir.mkdir()
+        core_rules = ["mission.md", "environment.md", "code-standards.md",
+                       "test-workflow.md", "pr-descriptions.md"]
+        for f in core_rules:
+            (rules_dir / f).write_text(f"## {f} marker")
+
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+
+        logger = entrypoint.Logger(quiet=True)
+
+        original_path_init = Path.__new__
+
+        def patched_path_new(cls, *args, **kwargs):
+            result = original_path_init(cls, *args, **kwargs)
+            if str(result) == "/opt/claude-rules":
+                return rules_dir
+            return result
+
+        with patch.object(Path, "__new__", patched_path_new):
+            entrypoint.setup_agent_rules(config, logger)
+
+        claude_md = temp_dir / "CLAUDE.md"
+        content = claude_md.read_text()
+
+        # Verify all core rules present and in order
+        positions = []
+        for f in core_rules:
+            marker = f"## {f} marker"
+            pos = content.find(marker)
+            assert pos >= 0, f"Missing rule: {f}"
+            positions.append(pos)
+        assert positions == sorted(positions), "Core rules are not in expected order"
+
+    @patch("os.lchown")
+    @patch("os.chown")
+    def test_missing_optional_rule_file_skipped(self, mock_chown, mock_lchown, temp_dir, monkeypatch):
+        """Missing individual rule files are gracefully skipped."""
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+
+        rules_dir = temp_dir / "opt-claude-rules"
+        rules_dir.mkdir()
+        # Only create mission.md and code-standards.md, skip the rest
+        (rules_dir / "mission.md").write_text("# Mission")
+        (rules_dir / "code-standards.md").write_text("# Code Standards")
+
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+
+        logger = entrypoint.Logger(quiet=True)
+
+        original_path_init = Path.__new__
+
+        def patched_path_new(cls, *args, **kwargs):
+            result = original_path_init(cls, *args, **kwargs)
+            if str(result) == "/opt/claude-rules":
+                return rules_dir
+            return result
+
+        with patch.object(Path, "__new__", patched_path_new):
+            entrypoint.setup_agent_rules(config, logger)
+
+        claude_md = temp_dir / "CLAUDE.md"
+        content = claude_md.read_text()
+        assert "# Mission" in content
+        assert "# Code Standards" in content
 
     @patch("os.chown")
     @patch("os.lchown")

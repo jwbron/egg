@@ -22,11 +22,18 @@ set -euo pipefail
 
 fetch_review_rules() {
     local rules_file=".egg/review-rules.md"
+    local script_dir
+    script_dir="$(dirname "$0")"
+    local shared_file="${script_dir}/../shared/prompts/code-review-criteria.md"
 
     if [[ -f "$rules_file" ]]; then
+        # User override takes priority
         cat "$rules_file"
+    elif [[ -f "$shared_file" ]]; then
+        # Shared criteria (anchored to trusted checkout via script dir)
+        cat "$shared_file"
     else
-        # Default review rules when no repo-specific rules exist
+        # Inline fallback for rollout safety
         cat <<'EOF'
 ## Default Review Rules
 

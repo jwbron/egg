@@ -26,6 +26,8 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
 | `autofixer-conventions.md` | Autofixer workflow conventions |
 | `conflict-conventions.md` | Merge conflict resolution conventions |
 
+Prompt builders load review criteria from `shared/prompts/` (shared with the local orchestrator) with inline fallbacks for rollout safety. Repositories can override criteria via `.egg/` files (e.g., `.egg/review-rules.md`).
+
 ## Quick Start
 
 ```yaml
