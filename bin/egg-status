@@ -45,8 +45,10 @@ CYAN = "\033[36m"
 
 IS_TTY = sys.stdout.isatty()
 
-# Track previous frame to skip redundant redraws
-_prev_frame: str | None = None
+# Track previous pipeline state to skip redundant redraws.
+# We compare the input data (not the rendered string) because the rendered
+# output includes a wall-clock timestamp that changes every second.
+_prev_state: str | None = None
 
 _ANSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
 
@@ -169,15 +171,20 @@ def display_dashboard(pipelines: dict, verbose: bool = False) -> None:
     """Display the dashboard, handling TTY vs non-TTY modes.
 
     Uses a single atomic write with hidden cursor to eliminate flicker.
-    Skips the redraw entirely if the content hasn't changed.
+    Skips the redraw if the pipeline state hasn't changed.
     """
-    global _prev_frame
+    global _prev_state
     output = render_dashboard(pipelines, verbose=verbose)
 
     if IS_TTY:
-        if output == _prev_frame:
+        # Compare the pipeline state dict (not the rendered string) to
+        # detect changes.  The rendered string embeds a wall-clock
+        # timestamp that changes every second, making string comparison
+        # ineffective.
+        state_snapshot = json.dumps(pipelines, sort_keys=True, default=str)
+        if state_snapshot == _prev_state:
             return
-        _prev_frame = output
+        _prev_state = state_snapshot
         lines = output.split("\n")
         cleared = "\033[K\n".join(lines)
         sys.stdout.write(
@@ -288,9 +295,6 @@ def watch_all_pipelines(
                 display_dashboard(pipelines, verbose=verbose)
 
     except KeyboardInterrupt:
-        if IS_TTY:
-            sys.stdout.write(SHOW_CURSOR)
-            sys.stdout.flush()
         _write(f"\n{DIM}Stopped.{RESET}\n")
         return 0
     except ConnectionRefusedError:
@@ -304,6 +308,9 @@ def watch_all_pipelines(
         _write(f"{RED}Connection error: {e}{RESET}\n", file=sys.stderr)
         return 1
     finally:
+        if IS_TTY:
+            sys.stdout.write(SHOW_CURSOR)
+            sys.stdout.flush()
         if conn:
             try:
                 conn.close()

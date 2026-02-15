@@ -410,8 +410,9 @@ def create_sse_stream(
                     last_heartbeat = now
 
                 # Send a visualization refresh so the client stays
-                # current between real events — but only if the DAG
-                # content actually changed (avoids pointless redraws).
+                # current between real events.  Skip if the DAG string
+                # is unchanged (helps for idle/awaiting pipelines; running
+                # pipelines change every second due to elapsed-time counters).
                 try:
                     if repo_path is None:
                         continue
@@ -427,7 +428,8 @@ def create_sse_stream(
                     )
 
                     # Skip if the DAG visualization is identical to the
-                    # last refresh we sent — nothing visible changed.
+                    # last refresh we sent.  This mainly helps when the
+                    # pipeline is idle (e.g., awaiting human input).
                     current_dag = refresh.get("visualization", {}).get("dag")
                     if current_dag is not None and current_dag == last_refresh_dag:
                         continue
