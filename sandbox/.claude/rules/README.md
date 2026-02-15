@@ -47,11 +47,14 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
 - **test-workflow.md** - Test workflow and execution
   - Testing workflow integration
 
-- **contract.md** - SDLC contract CLI commands
+- **orchestrator.md** - Orchestrator CLI commands (always included)
+  - `egg-orch` command reference (health, pipeline, signal, phase, decision, container, gateway)
+
+- **contract.md** - SDLC contract CLI commands (pipeline only)
   - `egg-contract` command reference (show, add-commit, update-notes, add-decision, add-feedback)
 
-- **orchestrator.md** - Orchestrator CLI commands
-  - `egg-orch` command reference (health, pipeline, signal, phase, decision, container, gateway)
+- **checkpoint.md** - Checkpoint browser CLI commands (pipeline only)
+  - `egg-checkpoint` command reference (list, show, browse, context)
 
 ## Design Principles
 

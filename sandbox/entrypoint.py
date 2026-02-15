@@ -686,11 +686,12 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
         "code-standards.md",
         "test-workflow.md",
         "pr-descriptions.md",
+        "orchestrator.md",
     ]
 
     # SDLC-specific rules only included when running in a pipeline
     if os.environ.get("EGG_PIPELINE_ID"):
-        rules_order.extend(["contract.md", "orchestrator.md"])
+        rules_order.extend(["contract.md", "checkpoint.md"])
 
     if not (rules_dir / "mission.md").exists():
         return

@@ -525,14 +525,14 @@ class TestSetupAgentRules:
     @patch("os.lchown")
     @patch("os.chown")
     def test_includes_all_rules_with_pipeline_id(self, mock_chown, mock_lchown, temp_dir, monkeypatch):
-        """Includes contract.md and orchestrator.md when EGG_PIPELINE_ID is set."""
+        """Includes contract.md, checkpoint.md, and orchestrator.md when EGG_PIPELINE_ID is set."""
         monkeypatch.setenv("EGG_PIPELINE_ID", "issue-123")
 
         # Create mock rules directory
         rules_dir = temp_dir / "opt-claude-rules"
         rules_dir.mkdir()
         for f in ["mission.md", "environment.md", "code-standards.md", "test-workflow.md",
-                   "pr-descriptions.md", "contract.md", "orchestrator.md"]:
+                   "pr-descriptions.md", "orchestrator.md", "contract.md", "checkpoint.md"]:
             (rules_dir / f).write_text(f"# {f} content")
 
         # Create repos dir for symlink
@@ -562,20 +562,21 @@ class TestSetupAgentRules:
         claude_md = temp_dir / "CLAUDE.md"
         content = claude_md.read_text()
         assert "contract.md content" in content
+        assert "checkpoint.md content" in content
         assert "orchestrator.md content" in content
         assert "mission.md content" in content
 
     @patch("os.lchown")
     @patch("os.chown")
     def test_excludes_sdlc_rules_without_pipeline_id(self, mock_chown, mock_lchown, temp_dir, monkeypatch):
-        """Excludes contract.md and orchestrator.md when EGG_PIPELINE_ID is not set."""
+        """Excludes contract.md and checkpoint.md when EGG_PIPELINE_ID is not set. Orchestrator is always included."""
         monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
 
         # Create mock rules directory
         rules_dir = temp_dir / "opt-claude-rules"
         rules_dir.mkdir()
         for f in ["mission.md", "environment.md", "code-standards.md", "test-workflow.md",
-                   "pr-descriptions.md", "contract.md", "orchestrator.md"]:
+                   "pr-descriptions.md", "orchestrator.md", "contract.md", "checkpoint.md"]:
             (rules_dir / f).write_text(f"# {f} content")
 
         # Create repos dir for symlink
@@ -605,7 +606,8 @@ class TestSetupAgentRules:
         claude_md = temp_dir / "CLAUDE.md"
         content = claude_md.read_text()
         assert "contract.md content" not in content
-        assert "orchestrator.md content" not in content
+        assert "checkpoint.md content" not in content
+        assert "orchestrator.md content" in content
         assert "mission.md content" in content
         assert "environment.md content" in content
 
@@ -618,7 +620,7 @@ class TestSetupAgentRules:
         rules_dir = temp_dir / "opt-claude-rules"
         rules_dir.mkdir()
         core_rules = ["mission.md", "environment.md", "code-standards.md",
-                       "test-workflow.md", "pr-descriptions.md"]
+                       "test-workflow.md", "pr-descriptions.md", "orchestrator.md"]
         for f in core_rules:
             (rules_dir / f).write_text(f"## {f} marker")
 
