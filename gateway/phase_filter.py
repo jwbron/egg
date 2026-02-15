@@ -481,9 +481,9 @@ class PhaseFilter:
         """Get default phase-based file restrictions.
 
         These defaults define which files can be pushed during each phase:
-        - refine: Only .egg-state/ files (contracts, drafts, checkpoints)
-        - plan: Only .egg-state/ files (contracts, drafts, checkpoints)
-        - implement: Code only, not .egg-state/ (except checkpoints)
+        - refine: Only .egg-state/ files (contracts, drafts, checkpoints, agent-outputs, reviews)
+        - plan: Only .egg-state/ files (contracts, drafts, checkpoints, agent-outputs, reviews)
+        - implement: Code only, not .egg-state/ (except checkpoints and agent-outputs)
         - pr: Everything
         """
         return {
@@ -515,8 +515,8 @@ class PhaseFilter:
                     ".egg-state/reviews/*",
                 ],
                 # No allowed_patterns = allow everything except blocked
-                # Checkpoints are not blocked since they don't match any blocked_patterns
-                description="Implement phase can push code but not .egg-state/ (except checkpoints)",
+                # Checkpoints and agent-outputs are not blocked since they don't match any blocked_patterns
+                description="Implement phase can push code but not .egg-state/ (except checkpoints and agent-outputs)",
             ),
             PipelinePhase.PR: PhaseFileRestriction(
                 allowed_patterns=["*"],
@@ -602,8 +602,8 @@ class PhaseFilter:
         proper separation of concerns in the SDLC pipeline.
 
         SECURITY: This is a critical control for pipeline integrity:
-        - refine/plan phases can only modify .egg-state/ files
-        - implement phase can modify code but not .egg-state/ (except checkpoints)
+        - refine/plan phases can only modify .egg-state/ files (contracts, drafts, checkpoints, agent-outputs, reviews)
+        - implement phase can modify code but not .egg-state/ (except checkpoints and agent-outputs)
         - pr phase has full access
 
         Args:
@@ -873,8 +873,8 @@ def check_phase_file_restrictions(
     separation of concerns in the SDLC pipeline.
 
     SECURITY: Enforces phase-based file access control:
-    - refine/plan: Can only push .egg-state/ files (contracts, drafts, checkpoints)
-    - implement: Can push code but not .egg-state/ (except checkpoints)
+    - refine/plan: Can only push .egg-state/ files (contracts, drafts, checkpoints, agent-outputs, reviews)
+    - implement: Can push code but not .egg-state/ (except checkpoints and agent-outputs)
     - pr: Can push everything
 
     Args:
