@@ -43,11 +43,12 @@ SHOW_CURSOR = "\033[?25h"
 # Regex to strip ANSI escape sequences
 _ANSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
 
-# Track previous compact-mode frame to skip redundant redraws.
-# Only used for compact mode where the status line is stable between
-# real state changes.  Full DAG mode includes elapsed-time counters
-# that change every second, making string comparison ineffective.
-_prev_compact_frame: str | None = None
+# Track previous compact-mode data to skip redundant redraws.
+# We compare the input data (not the rendered string) because the rendered
+# output includes the server timestamp that changes every second.
+# Full DAG mode is not deduped — it includes elapsed-time counters
+# that also change every second.
+_prev_compact_state: str | None = None
 
 # Status → ANSI color mapping (used by format_status_line and render_event_info)
 STATUS_COLORS = {
@@ -169,19 +170,25 @@ def display_visualization(data: dict, compact: bool = False) -> None:
     """Display the DAG visualization with in-place update.
 
     Uses a single atomic write with hidden cursor to eliminate flicker.
-    In compact mode, skips the redraw if the status line hasn't changed.
+    In compact mode, skips the redraw if the pipeline state hasn't changed.
     """
-    global _prev_compact_frame
+    global _prev_compact_state
 
     pipeline_id = data.get("pipeline_id", "unknown")
     event_type = data.get("event_type", "")
 
     if compact:
+        if IS_TTY:
+            # Compare the data dict (excluding timestamp) instead of the
+            # rendered string.  The server sets a new timestamp on every
+            # refresh cycle, so string comparison is ineffective.
+            dedup_data = {k: v for k, v in data.items() if k != "timestamp"}
+            state_snapshot = json.dumps(dedup_data, sort_keys=True, default=str)
+            if state_snapshot == _prev_compact_state:
+                return
+            _prev_compact_state = state_snapshot
         output = format_status_line(pipeline_id, data)
         if IS_TTY:
-            if output == _prev_compact_frame:
-                return
-            _prev_compact_frame = output
             sys.stdout.write(
                 HIDE_CURSOR + "\033[H" + output + "\033[K\n\033[J" + SHOW_CURSOR
             )
