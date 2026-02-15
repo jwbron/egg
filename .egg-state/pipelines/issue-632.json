@@ -179,10 +179,10 @@
         {
           "container_id": "33722e04d2d9ab641383e21b2dd4957a414a7c19e56aa4107828e42e23778f6e",
           "container_name": "egg-sandbox-egg-issue-632-task_planner",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-02-15T19:26:09.472765",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-02-15T19:29:40.968623",
+          "exit_code": 0,
           "agent_role": "task_planner",
           "session_token": null
         },
@@ -284,10 +284,10 @@
         },
         {
           "role": "task_planner",
-          "status": "running",
+          "status": "complete",
           "container_id": "33722e04d2d9ab641383e21b2dd4957a414a7c19e56aa4107828e42e23778f6e",
           "started_at": "2026-02-15T19:26:09.472770",
-          "completed_at": null,
+          "completed_at": "2026-02-15T19:29:40.968631",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -330,9 +330,9 @@
     }
   ],
   "created_at": "2026-02-15T18:46:27.445656",
-  "updated_at": "2026-02-15T19:26:09.480909",
+  "updated_at": "2026-02-15T19:29:40.968899",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 38
+  "version": 39
 }
