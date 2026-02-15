@@ -1875,6 +1875,36 @@ def _run_multi_agent_phase(
 
         return exit_code, container_logs
 
+    # Ensure contract exists in the worktree.  Agent git checkout in a
+    # prior phase (e.g. `git checkout -b egg/... origin/main`) may have
+    # switched the working tree to a branch that doesn't have the
+    # .egg-state/contracts/ file, since the contract was only committed
+    # to the worktree's initial temp branch.
+    from egg_contracts.loader import contract_exists, create_contract, create_local_contract
+
+    contract_key: int | str = pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
+    if not contract_exists(contract_key, worktree_repo_path):
+        logger.warning(
+            "Contract missing from worktree, recreating for multi-agent phase",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            contract_key=contract_key,
+        )
+        if pipeline_mode == "local":
+            create_local_contract(
+                pipeline_id=str(contract_key),
+                title=(pipeline.prompt or "")[:100],
+                repo_root=worktree_repo_path,
+            )
+        else:
+            issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
+            create_contract(
+                issue_number=pipeline.issue_number,
+                title=f"Issue #{pipeline.issue_number}",
+                url=issue_url,
+                repo_root=worktree_repo_path,
+            )
+
     # Create dispatcher and executor.
     # The contract's orchestration state defaults to implement-phase roles
     # (CODER, TESTER, DOCUMENTER, INTEGRATOR).  For other phases (e.g. plan)
