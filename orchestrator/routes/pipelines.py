@@ -2866,8 +2866,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                 # Record when actual agent work begins (excludes sandbox setup
                 # and HITL waiting time from the phase duration).
-                pipeline = store.load_pipeline(pipeline_id)
-                phase_execution = pipeline.get_phase_execution(current_phase)
                 phase_execution.work_started_at = datetime.utcnow()
                 store.save_pipeline(pipeline)
 
