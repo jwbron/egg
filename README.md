@@ -99,7 +99,7 @@ Each pipeline phase has a defined set of permitted operations:
 
 | Phase | Allowed Operations | Exit Requires |
 |-------|-------------------|---------------|
-| **Refine** | `gh issue comment/edit`, `git push` (state files) | Human approval |
+| **Refine** | `gh issue comment/edit`, `git push` (state files), `egg-contract add-decision` | Human approval |
 | **Plan** | `gh issue comment/edit`, `git push` (state files), `egg-contract add-decision` | Human approval |
 | **Implement** | `git push` (code), `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
 | **PR** | `gh pr create/edit/comment`, `git push` | Human merge |
