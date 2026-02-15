@@ -675,7 +675,11 @@ def setup_egg_symlink(config: Config, logger: Logger) -> None:
     logger.info("  Use ~/egg/ for runtime scripts instead of ~/repos/egg/sandbox/")
 
 
-def setup_agent_rules(config: Config, logger: Logger) -> None:
+def setup_agent_rules(
+    config: Config,
+    logger: Logger,
+    rules_dir: Path | None = None,
+) -> None:
     """Set up CLAUDE.md agent rules based on agent role.
 
     Assembles CLAUDE.md from composable rule files in /opt/claude-rules/.
@@ -685,8 +689,14 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
 
     Pipeline-conditional rules (contract.md, orchestrator.md) are only included
     when EGG_PIPELINE_ID is set AND the role uses them.
+
+    Args:
+        config: Container configuration.
+        logger: Logger instance.
+        rules_dir: Override path for rule files (defaults to /opt/claude-rules).
     """
-    rules_dir = Path("/opt/claude-rules")
+    if rules_dir is None:
+        rules_dir = Path("/opt/claude-rules")
 
     if not (rules_dir / "mission-core.md").exists():
         return

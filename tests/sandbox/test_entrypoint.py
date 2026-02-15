@@ -520,24 +520,40 @@ class TestSetupWorktrees:
 
 
 class TestSetupAgentRules:
-    """Tests for the setup_agent_rules function."""
+    """Tests for the setup_agent_rules function with role-based filtering."""
 
-    @pytest.mark.skip(
-        reason="Requires complex mocking of /opt/claude-rules path; "
-        "function relies on hardcoded paths that are difficult to test without container"
-    )
-    def test_creates_claude_md(self, temp_dir):
-        """Creates CLAUDE.md from rule files."""
-        # This test would require extensive mocking of the filesystem paths
-        # used in setup_agent_rules. The function reads from /opt/claude-rules/
-        # and writes to ~/CLAUDE.md, both of which require either:
-        # 1. Running in the actual container environment, or
-        # 2. Complex patching of Path operations
-        #
-        # For now, we skip this test and rely on:
-        # - test_no_rules_does_nothing for the early-exit path
-        # - Integration tests for the full functionality
-        pass
+    @pytest.fixture
+    def rules_dir(self, temp_dir):
+        """Create a mock rules directory with all rule files."""
+        rules = temp_dir / "claude-rules"
+        rules.mkdir()
+
+        rule_files = {
+            "mission-core.md": "# Mission Core\nUniversal rules.",
+            "mission-workflow.md": "# Workflow\nPR lifecycle rules.",
+            "mission-ci.md": "# CI Mode\nNotifications.",
+            "environment.md": "# Environment\nSandbox info.",
+            "code-standards.md": "# Code Standards\nPEP 8, TypeScript.",
+            "test-workflow.md": "# Test Workflow\nRun tests.",
+            "pr-descriptions.md": "# PR Descriptions\nFormat guide.",
+            "contract.md": "# Contract\nSDLC contract.",
+            "orchestrator.md": "# Orchestrator\nCLI commands.",
+        }
+        for filename, content in rule_files.items():
+            (rules / filename).write_text(content)
+
+        return rules
+
+    @pytest.fixture
+    def setup_config(self, temp_dir):
+        """Create a config mock for setup_agent_rules."""
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.repos_dir = temp_dir / "repos"
+        config.repos_dir.mkdir()
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+        return config
 
     @patch("os.chown")
     @patch("os.lchown")
@@ -551,9 +567,233 @@ class TestSetupAgentRules:
 
         logger = entrypoint.Logger(quiet=True)
 
-        # Should not raise - function returns early when no rules exist
-        # Note: This test relies on /opt/claude-rules/mission.md not existing
-        entrypoint.setup_agent_rules(config, logger)
+        # Pass empty temp dir — no mission-core.md exists, should return early
+        entrypoint.setup_agent_rules(config, logger, rules_dir=temp_dir)
+        assert not (temp_dir / "CLAUDE.md").exists()
+
+    @patch("os.chown")
+    @patch("os.lchown")
+    def test_default_no_role_includes_all_files(
+        self, mock_lchown, mock_chown, rules_dir, setup_config, monkeypatch
+    ):
+        """No role produces the full CLAUDE.md (backward compatibility)."""
+        monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+
+        entrypoint.setup_agent_rules(setup_config, entrypoint.Logger(quiet=True), rules_dir)
+
+        content = (setup_config.user_home / "CLAUDE.md").read_text()
+
+        assert "Mission Core" in content
+        assert "Workflow" in content
+        assert "CI Mode" in content
+        assert "Environment" in content
+        assert "Code Standards" in content
+        assert "Test Workflow" in content
+        assert "PR Descriptions" in content
+        assert "Contract" in content
+        assert "Orchestrator" in content
+
+    @patch("os.chown")
+    @patch("os.lchown")
+    def test_coder_role_includes_workflow_but_not_ci(
+        self, mock_lchown, mock_chown, rules_dir, setup_config, monkeypatch
+    ):
+        """Coder role includes workflow rules but not CI rules."""
+        monkeypatch.setenv("EGG_AGENT_ROLE", "coder")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "pipe-1")
+
+        entrypoint.setup_agent_rules(setup_config, entrypoint.Logger(quiet=True), rules_dir)
+
+        content = (setup_config.user_home / "CLAUDE.md").read_text()
+
+        assert "Mission Core" in content
+        assert "Workflow" in content
+        assert "Code Standards" in content
+        assert "Contract" in content
+        assert "Orchestrator" in content
+        assert "CI Mode" not in content
+
+    @patch("os.chown")
+    @patch("os.lchown")
+    def test_documenter_role_minimal_rules(
+        self, mock_lchown, mock_chown, rules_dir, setup_config, monkeypatch
+    ):
+        """Documenter role gets only mission-core and environment."""
+        monkeypatch.setenv("EGG_AGENT_ROLE", "documenter")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "pipe-1")
+
+        entrypoint.setup_agent_rules(setup_config, entrypoint.Logger(quiet=True), rules_dir)
+
+        content = (setup_config.user_home / "CLAUDE.md").read_text()
+
+        assert "Mission Core" in content
+        assert "Environment" in content
+        assert "Workflow" not in content
+        assert "Code Standards" not in content
+        assert "Test Workflow" not in content
+        assert "PR Descriptions" not in content
+        assert "Contract" not in content
+        assert "Orchestrator" not in content
+
+    @patch("os.chown")
+    @patch("os.lchown")
+    def test_reviewer_code_includes_code_standards(
+        self, mock_lchown, mock_chown, rules_dir, setup_config, monkeypatch
+    ):
+        """Code reviewer gets code-standards but not workflow or PR descriptions."""
+        monkeypatch.setenv("EGG_AGENT_ROLE", "reviewer_code")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "pipe-1")
+
+        entrypoint.setup_agent_rules(setup_config, entrypoint.Logger(quiet=True), rules_dir)
+
+        content = (setup_config.user_home / "CLAUDE.md").read_text()
+
+        assert "Mission Core" in content
+        assert "Environment" in content
+        assert "Code Standards" in content
+        assert "Workflow" not in content
+        assert "Contract" not in content
+
+    @patch("os.chown")
+    @patch("os.lchown")
+    def test_tester_role_with_pipeline(
+        self, mock_lchown, mock_chown, rules_dir, setup_config, monkeypatch
+    ):
+        """Tester role in pipeline gets contract and orchestrator."""
+        monkeypatch.setenv("EGG_AGENT_ROLE", "tester")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "pipe-1")
+
+        entrypoint.setup_agent_rules(setup_config, entrypoint.Logger(quiet=True), rules_dir)
+
+        content = (setup_config.user_home / "CLAUDE.md").read_text()
+
+        assert "Mission Core" in content
+        assert "Code Standards" in content
+        assert "Test Workflow" in content
+        assert "Contract" in content
+        assert "Orchestrator" in content
+
+    @patch("os.chown")
+    @patch("os.lchown")
+    def test_tester_role_without_pipeline_no_contract(
+        self, mock_lchown, mock_chown, rules_dir, setup_config, monkeypatch
+    ):
+        """Tester role without pipeline excludes contract and orchestrator."""
+        monkeypatch.setenv("EGG_AGENT_ROLE", "tester")
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+
+        entrypoint.setup_agent_rules(setup_config, entrypoint.Logger(quiet=True), rules_dir)
+
+        content = (setup_config.user_home / "CLAUDE.md").read_text()
+
+        assert "Mission Core" in content
+        assert "Code Standards" in content
+        assert "Test Workflow" in content
+        assert "Contract" not in content
+        assert "Orchestrator" not in content
+
+    @patch("os.chown")
+    @patch("os.lchown")
+    def test_unknown_role_falls_back_to_default(
+        self, mock_lchown, mock_chown, rules_dir, setup_config, monkeypatch
+    ):
+        """Unknown role falls back to full file set."""
+        monkeypatch.setenv("EGG_AGENT_ROLE", "unknown_role_xyz")
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+
+        entrypoint.setup_agent_rules(setup_config, entrypoint.Logger(quiet=True), rules_dir)
+
+        content = (setup_config.user_home / "CLAUDE.md").read_text()
+
+        assert "Mission Core" in content
+        assert "Workflow" in content
+        assert "Environment" in content
+
+    @patch("os.chown")
+    @patch("os.lchown")
+    def test_refiner_includes_workflow_and_pipeline(
+        self, mock_lchown, mock_chown, rules_dir, setup_config, monkeypatch
+    ):
+        """Refiner role includes workflow and pipeline files."""
+        monkeypatch.setenv("EGG_AGENT_ROLE", "refiner")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "pipe-1")
+
+        entrypoint.setup_agent_rules(setup_config, entrypoint.Logger(quiet=True), rules_dir)
+
+        content = (setup_config.user_home / "CLAUDE.md").read_text()
+
+        assert "Mission Core" in content
+        assert "Workflow" in content
+        assert "Environment" in content
+        assert "Contract" in content
+        assert "Orchestrator" in content
+        assert "Code Standards" not in content
+        assert "Test Workflow" not in content
+
+    @patch("os.chown")
+    @patch("os.lchown")
+    def test_checker_includes_code_and_test(
+        self, mock_lchown, mock_chown, rules_dir, setup_config, monkeypatch
+    ):
+        """Checker role includes code-standards and test-workflow."""
+        monkeypatch.setenv("EGG_AGENT_ROLE", "checker")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "pipe-1")
+
+        entrypoint.setup_agent_rules(setup_config, entrypoint.Logger(quiet=True), rules_dir)
+
+        content = (setup_config.user_home / "CLAUDE.md").read_text()
+
+        assert "Mission Core" in content
+        assert "Code Standards" in content
+        assert "Test Workflow" in content
+        assert "Contract" not in content
+
+    @patch("os.chown")
+    @patch("os.lchown")
+    def test_content_separated_by_dividers(
+        self, mock_lchown, mock_chown, rules_dir, setup_config, monkeypatch
+    ):
+        """Content parts are separated by markdown dividers."""
+        monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+
+        entrypoint.setup_agent_rules(setup_config, entrypoint.Logger(quiet=True), rules_dir)
+
+        content = (setup_config.user_home / "CLAUDE.md").read_text()
+        assert "\n\n---\n\n" in content
+
+    @patch("os.chown")
+    @patch("os.lchown")
+    def test_symlink_created_in_repos(
+        self, mock_lchown, mock_chown, rules_dir, setup_config, monkeypatch
+    ):
+        """CLAUDE.md is symlinked into ~/repos/."""
+        monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+
+        entrypoint.setup_agent_rules(setup_config, entrypoint.Logger(quiet=True), rules_dir)
+
+        repos_claude = setup_config.repos_dir / "CLAUDE.md"
+        assert repos_claude.is_symlink()
+        assert repos_claude.resolve() == (setup_config.user_home / "CLAUDE.md").resolve()
+
+    @patch("os.chown")
+    @patch("os.lchown")
+    def test_role_case_insensitive(
+        self, mock_lchown, mock_chown, rules_dir, setup_config, monkeypatch
+    ):
+        """Role matching is case-insensitive."""
+        monkeypatch.setenv("EGG_AGENT_ROLE", "CODER")
+        monkeypatch.setenv("EGG_PIPELINE_ID", "pipe-1")
+
+        entrypoint.setup_agent_rules(setup_config, entrypoint.Logger(quiet=True), rules_dir)
+
+        content = (setup_config.user_home / "CLAUDE.md").read_text()
+
+        assert "Mission Core" in content
+        assert "Workflow" in content
+        assert "CI Mode" not in content
 
 
 class TestSetupEggSymlink:
