@@ -331,6 +331,18 @@ def parse_phases_from_yaml(
     warnings: list[ParseWarning] = []
     seen_phase_ids: set[int] = set()
 
+    # Reject multi-PR format: pr_plan key indicates the LLM proposed
+    # multiple PRs, which violates the one-issue-one-PR constraint.
+    if "pr_plan" in yaml_data:
+        warnings.append(
+            ParseWarning(
+                line_number=None,
+                message="'pr_plan' key is not supported — use 'pr' (singular) instead. "
+                "Each issue must produce exactly one PR.",
+                context="The 'pr_plan' multi-PR format will be ignored",
+            )
+        )
+
     phase_list = yaml_data.get("phases", [])
 
     if not phase_list:
