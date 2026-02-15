@@ -94,7 +94,7 @@ jobs:
 
 ### Review Feedback Workflow
 
-**`on-review-feedback.yml`** - Address review feedback on bot-authored PRs.
+**`on-review-feedback.yml`** - Address review feedback on bot-authored or authorized-user-authored PRs.
 
 ```yaml
 jobs:
