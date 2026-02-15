@@ -2,6 +2,7 @@
 
 import json
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -225,6 +226,12 @@ class TestStartFailedPipeline:
         mock_resolve.return_value = (mock_store, pipeline)
 
         client.post("/api/v1/pipelines/issue-42/start")
+
+        # Join the background thread to avoid racing the mock assertion
+        for t in threading.enumerate():
+            if t.name == "pipeline-issue-42":
+                t.join(timeout=1)
+                break
 
         mock_run.assert_called_once_with("issue-42", Path("/repo"))
 
