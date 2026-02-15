@@ -19,6 +19,8 @@ import subprocess
 
 # Add shared directory to path for egg_logging
 import sys
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -122,6 +124,11 @@ class WorktreeManager:
         # Track active worktrees in memory
         self._active_worktrees: dict[str, list[WorktreeInfo]] = {}
 
+        # Concurrency control
+        self._lock = threading.Lock()  # protects _active_worktrees
+        self._repo_locks: dict[str, threading.Lock] = {}  # per-repo locks for git ops
+        self._repo_locks_guard = threading.Lock()  # protects _repo_locks dict
+
     def create_worktree(
         self,
         repo_name: str,
@@ -222,50 +229,48 @@ class WorktreeManager:
             if git_path.exists() and git_path.is_dir():
                 shutil.rmtree(git_path, ignore_errors=True)
 
-        # Check if branch already exists (from crashed session)
-        branch_exists = (
-            subprocess.run(
-                git_cmd("rev-parse", "--verify", branch_name),
-                cwd=main_repo,
-                capture_output=True,
-                check=False,
-            ).returncode
-            == 0
-        )
-
-        if branch_exists:
-            # Use existing branch instead of creating new one
-            logger.info(
-                "Reusing existing branch for worktree",
-                branch=branch_name,
-                container_id=container_id,
-            )
-            result = subprocess.run(
-                git_cmd("worktree", "add", str(worktree_path), branch_name),
-                cwd=main_repo,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        else:
-            # Create new branch from base
-            result = subprocess.run(
-                git_cmd(
-                    "worktree",
-                    "add",
-                    "-b",
-                    branch_name,
-                    str(worktree_path),
-                    base_branch,
-                ),
-                cwd=main_repo,
-                capture_output=True,
-                text=True,
-                check=False,
+        # Serialize git operations against this repo to prevent index.lock contention
+        with self._get_repo_lock(repo_name):
+            # Check if branch already exists (from crashed session)
+            branch_exists = (
+                subprocess.run(
+                    git_cmd("rev-parse", "--verify", branch_name),
+                    cwd=main_repo,
+                    capture_output=True,
+                    check=False,
+                ).returncode
+                == 0
             )
 
-        if result.returncode != 0:
-            raise RuntimeError(f"Failed to create worktree: {result.stderr}")
+            if branch_exists:
+                # Use existing branch instead of creating new one
+                logger.info(
+                    "Reusing existing branch for worktree",
+                    branch=branch_name,
+                    container_id=container_id,
+                )
+                result = self._run_git_worktree_add(
+                    git_cmd("worktree", "add", str(worktree_path), branch_name),
+                    cwd=main_repo,
+                    main_repo=main_repo,
+                )
+            else:
+                # Create new branch from base
+                result = self._run_git_worktree_add(
+                    git_cmd(
+                        "worktree",
+                        "add",
+                        "-b",
+                        branch_name,
+                        str(worktree_path),
+                        base_branch,
+                    ),
+                    cwd=main_repo,
+                    main_repo=main_repo,
+                )
+
+            if result.returncode != 0:
+                raise RuntimeError(f"Failed to create worktree: {result.stderr}")
 
         # Set ownership so the container user can write to the worktree
         self._chown_recursive(worktree_path, uid, gid)
@@ -284,9 +289,10 @@ class WorktreeManager:
         )
 
         # Track in memory
-        if container_id not in self._active_worktrees:
-            self._active_worktrees[container_id] = []
-        self._active_worktrees[container_id].append(info)
+        with self._lock:
+            if container_id not in self._active_worktrees:
+                self._active_worktrees[container_id] = []
+            self._active_worktrees[container_id].append(info)
 
         logger.info(
             "Worktree created",
@@ -297,6 +303,80 @@ class WorktreeManager:
         )
 
         return info
+
+    def _get_repo_lock(self, repo_name: str) -> threading.Lock:
+        """Get or create a per-repo lock for serializing git operations."""
+        with self._repo_locks_guard:
+            if repo_name not in self._repo_locks:
+                self._repo_locks[repo_name] = threading.Lock()
+            return self._repo_locks[repo_name]
+
+    def _run_git_worktree_add(
+        self,
+        args: list[str],
+        cwd: Path,
+        main_repo: Path,
+    ) -> subprocess.CompletedProcess[str]:
+        """
+        Run ``git worktree add`` with retry on index.lock contention.
+
+        Attempts up to 3 times.  On an ``index.lock`` error the helper
+        removes stale lock files (older than 60 s) and retries with
+        exponential backoff (0.1 s, 0.2 s, 0.4 s).
+
+        This is a defensive layer on top of the per-repo lock, handling
+        edge cases where contention comes from outside the WorktreeManager.
+        """
+        max_attempts = 3
+        backoff = 0.1
+
+        for attempt in range(1, max_attempts + 1):
+            result = subprocess.run(
+                args,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if result.returncode == 0:
+                return result
+
+            if "index.lock" not in result.stderr or attempt == max_attempts:
+                return result
+
+            # index.lock contention — try to clean stale lock and retry
+            logger.warning(
+                "index.lock contention, retrying",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                stderr=result.stderr.strip(),
+            )
+
+            # Look for stale lock files in the main repo and worktrees dir
+            lock_candidates = [main_repo / ".git" / "index.lock"]
+            worktrees_dir = main_repo / ".git" / "worktrees"
+            if worktrees_dir.exists():
+                lock_candidates.extend(worktrees_dir.glob("*/index.lock"))
+
+            for lock_candidate in lock_candidates:
+                if lock_candidate.exists():
+                    try:
+                        age = time.time() - lock_candidate.stat().st_mtime
+                        if age > 60:
+                            lock_candidate.unlink(missing_ok=True)
+                            logger.info(
+                                "Removed stale lock file",
+                                path=str(lock_candidate),
+                                age_seconds=round(age, 1),
+                            )
+                    except OSError:
+                        pass
+
+            time.sleep(backoff)
+            backoff *= 2
+
+        return result  # unreachable, but keeps type checkers happy
 
     def _chown_single(self, path: Path, uid: int, gid: int) -> None:
         """
@@ -461,81 +541,82 @@ class WorktreeManager:
             result.success = True
             return result
 
-        # Check for uncommitted changes
+        # Check for uncommitted changes and remove worktree under per-repo lock
         if main_repo.exists():
-            status = subprocess.run(
-                git_cmd("status", "--porcelain"),
-                cwd=worktree_path,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            has_changes = bool(status.stdout.strip())
-
-            if has_changes and not force:
-                result.uncommitted_changes = True
-                result.warning = (
-                    "Worktree has uncommitted changes. "
-                    "Use force=True to remove anyway, or commit/stash changes first."
+            with self._get_repo_lock(repo_name):
+                status = subprocess.run(
+                    git_cmd("status", "--porcelain"),
+                    cwd=worktree_path,
+                    capture_output=True,
+                    text=True,
+                    check=False,
                 )
-                return result
+                has_changes = bool(status.stdout.strip())
 
-            if has_changes:
-                logger.warning(
-                    "Removing worktree with uncommitted changes",
-                    container_id=container_id,
-                    repo=repo_name,
-                )
-                result.warning = "Worktree removed with uncommitted changes"
+                if has_changes and not force:
+                    result.uncommitted_changes = True
+                    result.warning = (
+                        "Worktree has uncommitted changes. "
+                        "Use force=True to remove anyway, or commit/stash changes first."
+                    )
+                    return result
 
-        # Remove the worktree
-        if main_repo.exists():
-            # Find the admin dir BEFORE removal so we can clean it up
-            # manually if `git worktree remove` fails.
-            admin_dir = self._find_worktree_git_dir(main_repo, worktree_path)
-
-            remove_result = subprocess.run(
-                git_cmd("worktree", "remove", str(worktree_path), "--force"),
-                cwd=main_repo,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-            if remove_result.returncode != 0:
-                # `git worktree remove` failed — clean up manually.
-                # Remove the worktree directory first, then surgically
-                # remove only this worktree's admin dir.  Avoids calling
-                # `git worktree prune` which can accidentally remove
-                # admin dirs for OTHER containers' worktrees if their
-                # paths are temporarily inaccessible (e.g., Docker mount
-                # race conditions during container lifecycle changes).
-                logger.info(
-                    "Git worktree remove failed, cleaning up manually",
-                    container_id=container_id,
-                    repo=repo_name,
-                    stderr=remove_result.stderr,
-                )
-                shutil.rmtree(worktree_path, ignore_errors=True)
-
-                # Remove the specific admin dir for this worktree
-                if admin_dir.exists():
-                    shutil.rmtree(admin_dir, ignore_errors=True)
-                    logger.info(
-                        "Removed worktree admin dir",
-                        admin_dir=str(admin_dir),
+                if has_changes:
+                    logger.warning(
+                        "Removing worktree with uncommitted changes",
                         container_id=container_id,
                         repo=repo_name,
                     )
+                    result.warning = "Worktree removed with uncommitted changes"
 
-            # Delete the branch if requested
-            if delete_branch:
-                result.branch_deleted = self._delete_worktree_branch(main_repo, branch_name, force)
-                if not result.branch_deleted and not force:
-                    result.warning = (
-                        (result.warning or "")
-                        + f" Branch {branch_name} has unmerged commits and was not deleted."
-                    ).strip()
+                # Find the admin dir BEFORE removal so we can clean it up
+                # manually if `git worktree remove` fails.
+                admin_dir = self._find_worktree_git_dir(main_repo, worktree_path)
+
+                remove_result = subprocess.run(
+                    git_cmd("worktree", "remove", str(worktree_path), "--force"),
+                    cwd=main_repo,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                if remove_result.returncode != 0:
+                    # `git worktree remove` failed — clean up manually.
+                    # Remove the worktree directory first, then surgically
+                    # remove only this worktree's admin dir.  Avoids calling
+                    # `git worktree prune` which can accidentally remove
+                    # admin dirs for OTHER containers' worktrees if their
+                    # paths are temporarily inaccessible (e.g., Docker mount
+                    # race conditions during container lifecycle changes).
+                    logger.info(
+                        "Git worktree remove failed, cleaning up manually",
+                        container_id=container_id,
+                        repo=repo_name,
+                        stderr=remove_result.stderr,
+                    )
+                    shutil.rmtree(worktree_path, ignore_errors=True)
+
+                    # Remove the specific admin dir for this worktree
+                    if admin_dir.exists():
+                        shutil.rmtree(admin_dir, ignore_errors=True)
+                        logger.info(
+                            "Removed worktree admin dir",
+                            admin_dir=str(admin_dir),
+                            container_id=container_id,
+                            repo=repo_name,
+                        )
+
+                # Delete the branch if requested
+                if delete_branch:
+                    result.branch_deleted = self._delete_worktree_branch(
+                        main_repo, branch_name, force
+                    )
+                    if not result.branch_deleted and not force:
+                        result.warning = (
+                            (result.warning or "")
+                            + f" Branch {branch_name} has unmerged commits and was not deleted."
+                        ).strip()
         else:
             # Main repo not found, just remove the directory
             shutil.rmtree(worktree_path, ignore_errors=True)
@@ -547,12 +628,13 @@ class WorktreeManager:
                 container_dir.rmdir()
 
         # Remove from memory tracking
-        if container_id in self._active_worktrees:
-            self._active_worktrees[container_id] = [
-                wt for wt in self._active_worktrees[container_id] if wt.repo_name != repo_name
-            ]
-            if not self._active_worktrees[container_id]:
-                del self._active_worktrees[container_id]
+        with self._lock:
+            if container_id in self._active_worktrees:
+                self._active_worktrees[container_id] = [
+                    wt for wt in self._active_worktrees[container_id] if wt.repo_name != repo_name
+                ]
+                if not self._active_worktrees[container_id]:
+                    del self._active_worktrees[container_id]
 
         logger.info(
             "Worktree removed",

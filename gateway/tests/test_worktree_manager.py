@@ -588,5 +588,74 @@ class TestFindWorktreeGitDir:
         )
 
 
+class TestWorktreeManagerConcurrency:
+    """Tests for concurrent worktree creation."""
+
+    @pytest.fixture
+    def git_repo(self, tmp_path):
+        """Create a real git repo for concurrency tests."""
+        import subprocess as sp
+
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        repo_dir = repos_base / "test-repo"
+        repo_dir.mkdir()
+        result = sp.run(["git", "init"], cwd=repo_dir, capture_output=True, text=True)
+        if result.returncode != 0:
+            pytest.skip(f"git init not available: {result.stderr.strip()}")
+        sp.run(
+            ["git", "commit", "--allow-empty", "-m", "init"],
+            cwd=repo_dir,
+            capture_output=True,
+            check=True,
+            env={
+                **__import__("os").environ,
+                "GIT_AUTHOR_NAME": "test",
+                "GIT_AUTHOR_EMAIL": "t@t",
+                "GIT_COMMITTER_NAME": "test",
+                "GIT_COMMITTER_EMAIL": "t@t",
+            },
+        )
+
+        worktree_base = tmp_path / "worktrees"
+        return worktree_base, repos_base, repo_dir
+
+    def test_concurrent_create_worktree(self, git_repo):
+        """Three threads creating worktrees simultaneously should all succeed."""
+        import threading
+
+        worktree_base, repos_base, repo_dir = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        results: dict[str, WorktreeInfo | Exception] = {}
+        container_ids = ["container-a", "container-b", "container-c"]
+        barrier = threading.Barrier(len(container_ids))
+
+        def create(cid: str) -> None:
+            try:
+                barrier.wait(timeout=5)
+                info = manager.create_worktree("test-repo", cid)
+                results[cid] = info
+            except Exception as exc:
+                results[cid] = exc
+
+        threads = [threading.Thread(target=create, args=(cid,)) for cid in container_ids]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+
+        # All three should succeed
+        for cid in container_ids:
+            assert cid in results, f"Thread for {cid} did not finish"
+            info = results[cid]
+            assert not isinstance(info, Exception), f"{cid} failed: {info}"
+            assert isinstance(info, WorktreeInfo)
+            assert info.worktree_path.exists()
+            git_file = info.worktree_path / ".git"
+            assert git_file.is_file(), f"{cid}: .git should be a file"
+            assert git_file.read_text().strip().startswith("gitdir:")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
