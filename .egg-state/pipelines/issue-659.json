@@ -233,10 +233,10 @@
         {
           "container_id": "d8a48e93fb75ad8d1d0889608214d05258ffbc5ce728d3a2687ae12c25167e5c",
           "container_name": "egg-sandbox-egg-issue-659-architect",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-02-15T05:02:54.763988",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-02-15T05:10:14.469941",
+          "exit_code": 0,
           "agent_role": "architect",
           "session_token": null
         }
@@ -316,10 +316,10 @@
         },
         {
           "role": "architect",
-          "status": "running",
+          "status": "complete",
           "container_id": "d8a48e93fb75ad8d1d0889608214d05258ffbc5ce728d3a2687ae12c25167e5c",
           "started_at": "2026-02-15T05:02:54.763993",
-          "completed_at": null,
+          "completed_at": "2026-02-15T05:10:14.469947",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -350,9 +350,9 @@
     }
   ],
   "created_at": "2026-02-15T04:15:52.670515",
-  "updated_at": "2026-02-15T05:02:54.764053",
+  "updated_at": "2026-02-15T05:10:14.470125",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 39
+  "version": 40
 }
