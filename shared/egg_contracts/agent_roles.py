@@ -427,9 +427,10 @@ REFINER_ROLE = AgentRoleDefinition(
         "Understand the problem or feature request",
         "Research the current codebase to understand existing patterns",
         "Identify constraints and dependencies",
-        "Consider multiple implementation approaches",
+        "Consider multiple implementation approaches with pros/cons",
         "Recommend an approach with justification",
-        "Write analysis to the draft file",
+        "Surface open questions as HITL decisions or feedback requests",
+        "Write analysis to the draft file (NOT an implementation plan)",
     ],
     dependencies=[],  # Refiner runs first, no dependencies
     file_access=FileAccessPattern(

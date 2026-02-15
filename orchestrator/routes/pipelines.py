@@ -1250,32 +1250,54 @@ def _build_phase_prompt(
     if phase == "refine":
         lines.extend(
             [
-                "Analyze the task and produce a structured analysis:",
-                "",
-                "1. Understand the problem or feature request",
-                "2. Research the current codebase to understand existing patterns",
-                "3. Identify constraints and dependencies",
-                "4. Consider multiple implementation approaches",
-                "5. Recommend an approach with justification",
+                "Analyze the task and produce a structured analysis. Your analysis "
+                "must follow this format:\n",
+                "### 1. Problem Statement",
+                "Describe the problem or feature request. What is the current state? "
+                "What is the desired outcome?\n",
+                "### 2. Current Behavior",
+                "Describe how the system currently works in the relevant area. "
+                "Include **code references** (file paths and line numbers) where helpful.\n",
+                "### 3. Constraints",
+                "List technical constraints (performance, compatibility, security), "
+                "business constraints, and dependencies on other systems or features.\n",
+                "### 4. Options Considered",
+                "Present at least 2 meaningfully different approaches. For each option:",
+                "- **Approach**: Brief description",
+                "- **Pros**: List of advantages",
+                "- **Cons**: List of disadvantages\n",
+                "### 5. Recommended Approach",
+                "Which option is recommended and why. Reference the option above "
+                "and justify with specific reasons.\n",
+                "### 6. Open Questions",
+                "Surface questions that need human input before planning can begin.\n",
+                "**For multiple-choice questions** (when the human must pick from options), "
+                "use the contract CLI to create formal HITL decisions:",
+                "```",
+                'egg-contract add-decision --question "Which approach should we use?" \\',
+                '  --options "Option A" "Option B" "Option C"',
+                "```",
+                "This creates a formatted decision that the human can resolve interactively.\n",
+                "**For open-ended questions** (when you need free-form input), "
+                "use the contract CLI to create feedback requests:",
+                "```",
+                'egg-contract add-feedback --question "What is the expected volume?" \\',
+                '  --question "Any constraints on third-party dependencies?"',
+                "```\n",
+                "**IMPORTANT**: Do NOT create an implementation plan, task breakdown, "
+                "or phased rollout. That is the **plan** phase's job. Stay focused on "
+                "**analysis**: understanding the problem, researching the codebase, "
+                "evaluating options, and surfacing decisions for the human.",
                 "",
             ]
         )
-        if is_local:
-            lines.extend(
-                [
-                    f"Write your analysis to `{analysis_path}`.",
-                    "Commit and push the draft when done.",
-                    "",
-                ]
-            )
-        else:
-            lines.extend(
-                [
-                    f"Write your analysis to `{analysis_path}`.",
-                    "Commit and push the draft when done.",
-                    "",
-                ]
-            )
+        lines.extend(
+            [
+                f"Write your analysis to `{analysis_path}`.",
+                "Commit and push the draft when done.",
+                "",
+            ]
+        )
 
     elif phase == "plan":
         lines.extend(
