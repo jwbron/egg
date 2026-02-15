@@ -1810,7 +1810,7 @@ def _run_multi_agent_phase(
     pipeline_mode = pipeline.mode or "issue"
 
     # Build agent-specific prompts for all roles in this phase
-    roles = get_roles_for_phase(phase, include_reviewers=True)
+    roles = get_roles_for_phase(phase, include_reviewers=False)
     agent_prompts_by_role: dict = {}
     for contract_role in roles:
         role_str = contract_role.value
@@ -2783,33 +2783,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 }
 
                 if use_multi_agent:
-                    # Delete stale verdict files before spawning reviewers
-                    # to prevent reading outdated verdicts if a reviewer
-                    # crashes or the pipeline restarts from a checkpoint.
-                    from egg_contracts.agent_roles import (
-                        _PHASE_REVIEWERS as _phase_reviewer_roles_cleanup,
-                    )
-
-                    for role in _phase_reviewer_roles_cleanup.get(
-                        current_phase.value, []
-                    ):
-                        rtype = role.value.replace("reviewer_", "", 1).replace(
-                            "_", "-"
-                        )
-                        verdict_rel = _verdict_path_for_type(
-                            current_phase.value,
-                            rtype,
-                            pipeline_mode,
-                            pipeline.issue_number,
-                            pipeline_id,
-                        )
-                        verdict_path = worktree_repo_path / verdict_rel
-                        if verdict_path.exists():
-                            try:
-                                verdict_path.unlink()
-                            except OSError:
-                                pass
-
                     logger.info(
                         "Spawning multi-agent wave execution for phase",
                         pipeline_id=pipeline_id,
@@ -3087,10 +3060,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
                             break
 
-                # 3. Read reviewer verdicts (reviewed phases)
-                # For multi-agent phases, reviewers ran as part of wave-based
-                # execution above.  For single-agent reviewed phases (e.g.
-                # refine), spawn reviewer containers after the worker finishes.
+                # 3. Spawn reviewers and read verdicts (reviewed phases)
+                # Reviewers always run as a separate step after workers +
+                # checker, for both multi-agent and single-agent paths.
                 from egg_contracts.agent_roles import (
                     _PHASE_REVIEWERS as _phase_reviewer_roles,
                 )
@@ -3101,86 +3073,84 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 if not reviewer_roles:
                     break  # No reviewers for this phase — advance
 
-                # For single-agent phases, spawn reviewers now
-                if not use_multi_agent:
-                    # Clean stale verdict files
-                    for role in reviewer_roles:
-                        rtype = role.value.replace("reviewer_", "", 1).replace(
-                            "_", "-"
-                        )
-                        verdict_rel = _verdict_path_for_type(
-                            current_phase.value,
-                            rtype,
-                            pipeline_mode,
-                            pipeline.issue_number,
-                            pipeline_id,
-                        )
-                        verdict_path = worktree_repo_path / verdict_rel
-                        if verdict_path.exists():
-                            try:
-                                verdict_path.unlink()
-                            except OSError:
-                                pass
+                # Clean stale verdict files
+                for role in reviewer_roles:
+                    rtype = role.value.replace("reviewer_", "", 1).replace(
+                        "_", "-"
+                    )
+                    verdict_rel = _verdict_path_for_type(
+                        current_phase.value,
+                        rtype,
+                        pipeline_mode,
+                        pipeline.issue_number,
+                        pipeline_id,
+                    )
+                    verdict_path = worktree_repo_path / verdict_rel
+                    if verdict_path.exists():
+                        try:
+                            verdict_path.unlink()
+                        except OSError:
+                            pass
 
-                    # Spawn each reviewer as an individual container
-                    for role in reviewer_roles:
-                        role_str = role.value
-                        rtype = role_str.replace("reviewer_", "", 1).replace(
-                            "_", "-"
-                        )
-                        reviewer_prompt = _build_review_prompt(
-                            phase=current_phase.value,
+                # Spawn each reviewer as an individual container
+                for role in reviewer_roles:
+                    role_str = role.value
+                    rtype = role_str.replace("reviewer_", "", 1).replace(
+                        "_", "-"
+                    )
+                    reviewer_prompt = _build_review_prompt(
+                        phase=current_phase.value,
+                        pipeline_id=pipeline_id,
+                        pipeline_mode=pipeline_mode,
+                        reviewer_type=rtype,
+                        issue_number=pipeline.issue_number,
+                        review_cycle=review_cycle + 1,
+                        prior_feedback=review_feedback,
+                    )
+                    reviewer_command = [
+                        "claude",
+                        "--dangerously-skip-permissions",
+                        "--print",
+                        "--verbose",
+                        "--output-format",
+                        "stream-json",
+                        "--model",
+                        "opus",
+                        "--max-turns",
+                        "50",
+                        reviewer_prompt,
+                    ]
+                    reviewer_env = {
+                        **sandbox_env,
+                        "EGG_AGENT_ROLE": role_str,
+                    }
+                    try:
+                        orch_role = AgentRole(role_str)
+                    except ValueError:
+                        continue
+                    try:
+                        _spawn_and_wait(
+                            spawner=spawner,
                             pipeline_id=pipeline_id,
-                            pipeline_mode=pipeline_mode,
-                            reviewer_type=rtype,
+                            agent_role=orch_role,
                             issue_number=pipeline.issue_number,
-                            review_cycle=review_cycle + 1,
-                            prior_feedback=review_feedback,
+                            repo_volumes=repo_volumes,
+                            gateway_mode=gateway_mode,
+                            repos=repos,
+                            phase=current_phase.value,
+                            sandbox_env=reviewer_env,
+                            sandbox_command=reviewer_command,
+                            timeout=1800,
+                            store=store,
+                            certs_volume=certs_volume,
                         )
-                        reviewer_command = [
-                            "claude",
-                            "--dangerously-skip-permissions",
-                            "--print",
-                            "--verbose",
-                            "--output-format",
-                            "stream-json",
-                            "--model",
-                            "opus",
-                            "--max-turns",
-                            "50",
-                            reviewer_prompt,
-                        ]
-                        reviewer_env = {
-                            **sandbox_env,
-                            "EGG_AGENT_ROLE": role_str,
-                        }
-                        try:
-                            orch_role = AgentRole(role_str)
-                        except ValueError:
-                            continue
-                        try:
-                            _spawn_and_wait(
-                                spawner=spawner,
-                                pipeline_id=pipeline_id,
-                                agent_role=orch_role,
-                                issue_number=pipeline.issue_number,
-                                repo_volumes=repo_volumes,
-                                gateway_mode=gateway_mode,
-                                repos=repos,
-                                phase=current_phase.value,
-                                sandbox_env=reviewer_env,
-                                sandbox_command=reviewer_command,
-                                timeout=1800,
-                                store=store,
-                                certs_volume=certs_volume,
-                            )
-                        except ContainerSpawnError as e:
-                            logger.warning(
-                                "Reviewer failed to spawn, skipping",
-                                pipeline_id=pipeline_id,
-                                reviewer=role_str,
-                                error=str(e),
-                            )
+                    except ContainerSpawnError as e:
+                        logger.warning(
+                            "Reviewer failed to spawn, skipping",
+                            pipeline_id=pipeline_id,
+                            reviewer=role_str,
+                            error=str(e),
+                        )
 
                 all_verdicts: dict[str, ReviewVerdict | None] = {}
                 for role in reviewer_roles:
