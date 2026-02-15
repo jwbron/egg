@@ -9,7 +9,7 @@
     {
       "name": "pytest",
       "passed": true,
-      "output": "3366 passed, 80 skipped, 3 warnings in 24.48s"
+      "output": "3426 passed, 80 skipped, 3 warnings in 31.42s"
     }
   ]
 }
