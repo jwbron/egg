@@ -190,6 +190,16 @@ egg
 
 The pipeline creates a draft PR automatically when entering the implement phase. Once all checks pass, the PR is marked ready for human review and merge.
 
+### Restarting Failed Pipelines
+
+If a pipeline fails, you can restart it from the failed phase using the orchestrator API:
+
+```bash
+curl -X POST http://localhost:9849/api/v1/pipelines/{pipeline-id}/start
+```
+
+This resets the failed phase to pending, clears error state, and resumes execution from that phase. Completed and cancelled pipelines cannot be restarted.
+
 ### Human-in-the-Loop Checkpoints
 
 At each phase boundary (refine and plan), the pipeline pauses for human approval before proceeding. Interaction happens through checkbox-based UI in GitHub comments (issue mode) or terminal prompts (local mode). In local mode, the orchestrator also supports requesting changes to re-run a phase with feedback (limited by `max_review_cycles`, default 3).
