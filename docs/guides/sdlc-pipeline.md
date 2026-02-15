@@ -225,15 +225,17 @@ The orchestrator runs multiple specialized reviewers in parallel, with phase-spe
 
 | Phase | Reviewers | Focus |
 |-------|-----------|-------|
-| **Refine** | Unified, Agent-Design | Analysis quality, agent-mode alignment |
-| **Plan** | Unified, Agent-Design | Plan quality, agent-mode alignment |
+| **Refine** | Refine, Agent-Design | Analysis quality, agent-mode alignment |
+| **Plan** | Unified, Plan, Agent-Design | Plan quality, plan-specific criteria, agent-mode alignment |
 | **Implement** | Unified, Agent-Design, Contract, Code | Full coverage: quality, design, contract, security |
 
 **Specialized Reviewers:**
 
 | Reviewer | Focus |
 |----------|-------|
-| **Unified** | Phase-specific quality criteria |
+| **Unified** | Phase-specific quality criteria (general) |
+| **Refine** | Analysis quality, research depth, options evaluation |
+| **Plan** | Task breakdown, dependencies, test strategy |
 | **Agent-Design** | Agent-mode design alignment (anti-patterns) |
 | **Contract** | Task completion, acceptance criteria |
 | **Code** | Security, correctness, robustness |
