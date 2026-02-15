@@ -1341,7 +1341,7 @@ def _build_phase_prompt(
         lines.extend(
             [
                 "This is a **local** pipeline entering the PR phase.",
-                "Push access is enabled for this phase only.",
+                "PR operations are enabled for this phase.",
                 "- You CAN push code (git push)",
                 "- You CAN create and edit PRs (gh pr create, gh pr edit)",
                 "- You CANNOT merge PRs (human must merge)",
@@ -2609,12 +2609,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
             repos = [pipeline.repo] if pipeline.repo else []
 
-            # PR phase gets push access even for local pipelines, unless
-            # the pipeline is in private mode (which must stay isolated).
-            phase_gateway_mode = gateway_mode
-            if current_phase.value == "pr" and pipeline_mode == "local" and gateway_mode != "private":
-                phase_gateway_mode = "public"
-
             phase_failed = False
             review_feedback: str | None = hitl_revision_feedback
             hitl_revision_feedback = None
@@ -2677,7 +2671,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             phase=current_phase.value,
                             spawner=spawner,
                             repo_volumes=repo_volumes,
-                            gateway_mode=phase_gateway_mode,
+                            gateway_mode=gateway_mode,
                             repos=repos,
                             sandbox_env=sandbox_env,
                             store=store,
@@ -2745,7 +2739,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             agent_role=AgentRole.CODER,
                             issue_number=pipeline.issue_number,
                             repo_volumes=repo_volumes,
-                            gateway_mode=phase_gateway_mode,
+                            gateway_mode=gateway_mode,
                             repos=repos,
                             phase=current_phase.value,
                             sandbox_env=sandbox_env,
@@ -2846,7 +2840,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 agent_role=AgentRole.CHECKER,
                                 issue_number=pipeline.issue_number,
                                 repo_volumes=repo_volumes,
-                                gateway_mode=phase_gateway_mode,
+                                gateway_mode=gateway_mode,
                                 repos=repos,
                                 phase=current_phase.value,
                                 sandbox_env=checker_env,
@@ -2915,7 +2909,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 agent_role=AgentRole.CODER,
                                 issue_number=pipeline.issue_number,
                                 repo_volumes=repo_volumes,
-                                gateway_mode=phase_gateway_mode,
+                                gateway_mode=gateway_mode,
                                 repos=repos,
                                 phase=current_phase.value,
                                 sandbox_env=sandbox_env,
@@ -3009,7 +3003,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 agent_role=orch_role,
                                 issue_number=pipeline.issue_number,
                                 repo_volumes=repo_volumes,
-                                gateway_mode=phase_gateway_mode,
+                                gateway_mode=gateway_mode,
                                 repos=repos,
                                 phase=current_phase.value,
                                 sandbox_env=reviewer_env,

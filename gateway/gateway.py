@@ -1398,8 +1398,12 @@ def gh_pr_create() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
-    # Block PR creation in local SDLC mode
-    if session_mode == "local":
+    # Get session phase from request context (set by @require_session_auth decorator)
+    session_phase = getattr(g, "session_phase", None)
+
+    # Block PR creation in local SDLC mode (except during PR phase, where
+    # phase-permissions grant it and the gateway provides push access).
+    if session_mode == "local" and session_phase != "pr":
         audit_log(
             "pr_create_blocked_local_mode",
             "gh_pr_create",
@@ -1411,9 +1415,6 @@ def gh_pr_create() -> tuple[Response, int] | Response:
             status_code=403,
             details={"session_mode": "local"},
         )
-
-    # Get session phase from request context (set by @require_session_auth decorator)
-    session_phase = getattr(g, "session_phase", None)
 
     # Check phase restrictions (if session has a phase set)
     if session_phase:
@@ -1599,8 +1600,9 @@ def gh_pr_comment() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
-    # Block PR comment in local SDLC mode
-    if session_mode == "local":
+    # Block PR comment in local SDLC mode (except during PR phase)
+    session_phase = getattr(g, "session_phase", None)
+    if session_mode == "local" and session_phase != "pr":
         audit_log(
             "pr_comment_blocked_local_mode",
             "gh_pr_comment",
@@ -1731,8 +1733,9 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
-    # Block PR edit in local SDLC mode
-    if session_mode == "local":
+    # Block PR edit in local SDLC mode (except during PR phase)
+    session_phase = getattr(g, "session_phase", None)
+    if session_mode == "local" and session_phase != "pr":
         audit_log(
             "pr_edit_blocked_local_mode",
             "gh_pr_edit",
@@ -1853,8 +1856,9 @@ def gh_pr_close() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
-    # Block PR close in local SDLC mode
-    if session_mode == "local":
+    # Block PR close in local SDLC mode (except during PR phase)
+    session_phase = getattr(g, "session_phase", None)
+    if session_mode == "local" and session_phase != "pr":
         audit_log(
             "pr_close_blocked_local_mode",
             "gh_pr_close",
@@ -1970,19 +1974,39 @@ def gh_execute() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
-    # Block all gh commands in local SDLC mode
+    # Block gh commands in local SDLC mode.
+    # During PR phase, only allow PR-scoped operations through.
+    # All other gh commands remain blocked.
+    session_phase = getattr(g, "session_phase", None)
     if session_mode == "local":
-        audit_log(
-            "gh_command_blocked_local_mode",
-            "gh_execute",
-            success=False,
-            details={"args": args, "reason": "gh commands blocked in local SDLC mode"},
-        )
-        return make_error(
-            "Operation blocked in local SDLC mode. Run gh commands manually when the pipeline completes.",
-            status_code=403,
-            details={"session_mode": "local"},
-        )
+        allowed = False
+        if session_phase == "pr":
+            cmd_prefix = " ".join(args[:2]) if len(args) >= 2 else args[0] if args else ""
+            allowed_pr_phase_prefixes = (
+                "pr create",
+                "pr edit",
+                "pr view",
+                "pr list",
+                "pr comment",
+                "pr close",
+                "pr diff",
+                "pr checks",
+                "pr status",
+            )
+            allowed = any(cmd_prefix.startswith(p) for p in allowed_pr_phase_prefixes)
+
+        if not allowed:
+            audit_log(
+                "gh_command_blocked_local_mode",
+                "gh_execute",
+                success=False,
+                details={"command_args": args, "reason": "gh commands blocked in local SDLC mode"},
+            )
+            return make_error(
+                "Operation blocked in local SDLC mode. Run gh commands manually when the pipeline completes.",
+                status_code=403,
+                details={"session_mode": "local"},
+            )
 
     # Check for commands blocked entirely in private mode (too broad to filter by repo)
     if session_mode == "private" and args and args[0] in GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE:
