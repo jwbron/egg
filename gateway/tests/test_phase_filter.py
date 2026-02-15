@@ -1068,3 +1068,38 @@ class TestPhaseFileRestrictions:
         )
 
         assert result.allowed is True
+
+    def test_plan_phase_mixed_allowed_and_disallowed_files(self):
+        """Plan phase blocks push when allowed files are mixed with disallowed files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "plan",
+            [
+                ".egg-state/agent-outputs/task-planner-output.json",
+                ".egg-state/contracts/plan.json",
+                "src/main.py",
+            ],
+        )
+
+        assert result.allowed is False
+        assert "src/main.py" in result.blocked_files
+        # Allowed files should NOT appear in blocked_files
+        assert ".egg-state/agent-outputs/task-planner-output.json" not in result.blocked_files
+        assert ".egg-state/contracts/plan.json" not in result.blocked_files
+
+    def test_plan_phase_allows_multiple_state_files(self):
+        """Plan phase allows push with multiple allowed .egg-state/ files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "plan",
+            [
+                ".egg-state/agent-outputs/task-planner-output.json",
+                ".egg-state/contracts/plan.json",
+                ".egg-state/reviews/architect-review.md",
+                ".egg-state/checkpoints/checkpoint-1.json",
+            ],
+        )
+
+        assert result.allowed is True
