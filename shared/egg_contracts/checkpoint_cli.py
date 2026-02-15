@@ -11,6 +11,10 @@ per-commit during git push operations and at session end. Transcript data is
 extracted from the API proxy buffer, providing stable and format-independent
 capture.
 
+Reads checkpoint data via `git show` so it works both inside the egg container
+(through the gateway sidecar) and outside with direct git access — no worktrees
+required.
+
 Commands:
     egg-checkpoint list [--branch <branch>] [--issue <number>] [--limit <n>]
                         [--trigger <type>] [--status <status>] [--agent-type <type>]
@@ -26,18 +30,17 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .checkpoint_loader import (
-    list_checkpoints_v2,
-    load_checkpoint_by_commit_v2,
-    load_checkpoint_by_id_v2,
+    filter_checkpoints_v2,
+    get_checkpoint_path,
 )
 from .checkpoints import (
     AgentType,
+    CheckpointIndexV2,
     CheckpointSummaryV2,
     CheckpointV2,
     SessionStatus,
@@ -103,18 +106,19 @@ def _resolve_checkpoint_target(repo_path: str, checkpoint_repo: str | None = Non
     return "origin"
 
 
-def checkout_checkpoint_branch(
+def ensure_checkpoint_ref(
     repo_path: str, checkpoint_repo: str | None = None
-) -> Path | None:
+) -> str | None:
     """
-    Checkout the checkpoint branch to a temporary directory.
+    Ensure the checkpoint branch is fetched and return the git ref to read from.
 
     Args:
         repo_path: Path to the repository.
         checkpoint_repo: Optional "owner/repo" for an external checkpoint repo.
-            When set, fetches checkpoints from this repo instead of origin.
 
-    Returns the path to the checkout, or None if branch doesn't exist.
+    Returns:
+        A git ref string (e.g. "origin/egg/checkpoints/v2" or a resolved SHA),
+        or None if the branch doesn't exist.
     """
     target = _resolve_checkpoint_target(repo_path, checkpoint_repo)
 
@@ -130,44 +134,66 @@ def checkout_checkpoint_branch(
     # Fetch the branch
     run_git(["fetch", target, CHECKPOINT_BRANCH], cwd=repo_path, check=False)
 
-    # Create temp directory and checkout
-    temp_dir = tempfile.mkdtemp(prefix="checkpoint_browse_")
-    temp_path = Path(temp_dir)
-
-    # Determine the local ref to checkout from. When fetching from a URL
-    # (external checkpoint repo) the branch may only be in FETCH_HEAD.
     if checkpoint_repo:
-        checkout_ref = "FETCH_HEAD"
-    else:
-        checkout_ref = f"origin/{CHECKPOINT_BRANCH}"
-
-    try:
-        run_git(
-            ["worktree", "add", "--detach", str(temp_path), checkout_ref],
-            cwd=repo_path,
-        )
-        return temp_path
-    except Exception:
-        # Cleanup on failure
-        if temp_path.exists():
-            import shutil
-
-            shutil.rmtree(temp_path, ignore_errors=True)
-        return None
+        # Resolve FETCH_HEAD to a stable SHA before returning.
+        # FETCH_HEAD is overwritten by any subsequent git fetch.
+        result = run_git(["rev-parse", "FETCH_HEAD"], cwd=repo_path, check=False)
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip()
+    return f"origin/{CHECKPOINT_BRANCH}"
 
 
-def cleanup_worktree(repo_path: str, worktree_path: Path) -> None:
-    """Clean up a worktree."""
-    run_git(
-        ["worktree", "remove", "--force", str(worktree_path)],
+def read_git_file(ref: str, path: str, repo_path: str) -> str | None:
+    """
+    Read a file from a git ref via `git show`.
+
+    Works through the gateway sidecar without requiring worktrees.
+
+    Args:
+        ref: Git ref to read from (e.g. "origin/egg/checkpoints/v2")
+        path: Path relative to the ref root (e.g. "index.json")
+        repo_path: Path to the repository.
+
+    Returns:
+        File contents as string, or None if the file doesn't exist.
+    """
+    result = run_git(
+        ["show", f"{ref}:{path}"],
         cwd=repo_path,
         check=False,
     )
-    # Also try to remove the directory if worktree remove failed
-    if worktree_path.exists():
-        import shutil
+    if result.returncode != 0:
+        return None
+    return result.stdout
 
-        shutil.rmtree(worktree_path, ignore_errors=True)
+
+def load_index_from_ref(ref: str, repo_path: str) -> CheckpointIndexV2 | None:
+    """Load the checkpoint index from a git ref."""
+    content = read_git_file(ref, "index.json", repo_path)
+    if content is None:
+        return None
+    try:
+        data = json.loads(content)
+        return CheckpointIndexV2.model_validate(data)
+    except (json.JSONDecodeError, Exception):
+        return None
+
+
+def load_checkpoint_from_ref(
+    checkpoint_id: str, ref: str, repo_path: str
+) -> CheckpointV2 | None:
+    """Load a full checkpoint from a git ref by ID."""
+    # Reuse get_checkpoint_path logic for the subdirectory structure
+    rel_path = get_checkpoint_path(Path("checkpoints"), checkpoint_id)
+    content = read_git_file(ref, str(rel_path), repo_path)
+    if content is None:
+        return None
+    try:
+        data = json.loads(content)
+        return CheckpointV2.model_validate(data)
+    except (json.JSONDecodeError, Exception):
+        return None
 
 
 def format_timestamp(ts: datetime | str | None) -> str:
@@ -390,90 +416,81 @@ def _get_checkpoint_repo_from_args(args: argparse.Namespace) -> str | None:
 def cmd_list(args: argparse.Namespace) -> int:
     """List checkpoints with metadata."""
     repo_path = args.repo_path or get_repo_path()
-
-    # Checkout checkpoint branch
     checkpoint_repo = _get_checkpoint_repo_from_args(args)
-    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
-    if not worktree_path:
+
+    ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
+    if not ref:
         print("No checkpoints found (checkpoint branch does not exist)")
         return 0
 
-    try:
-        checkpoints_dir = worktree_path / "checkpoints"
-        index_path = worktree_path / "index.json"
-
-        summaries = list_checkpoints_v2(
-            checkpoints_dir,
-            index_path,
-            issue_number=args.issue,
-            pr_number=getattr(args, "pr", None),
-            branch=args.branch,
-            session_id=getattr(args, "session", None),
-            trigger_type=getattr(args, "trigger", None),
-            session_status=getattr(args, "status", None),
-            agent_type=getattr(args, "agent_type", None),
-            pipeline_phase=getattr(args, "phase", None),
-            pipeline_id=getattr(args, "pipeline", None),
-            limit=args.limit,
-        )
-
-        if not summaries:
-            print("No checkpoints found matching filters")
-            return 0
-
-        if args.json:
-            output = [s.model_dump(mode="json") for s in summaries]
-            print(json.dumps(output, indent=2))
-        else:
-            print(f"Checkpoints ({len(summaries)} found):")
-            print()
-            for s in summaries:
-                print_checkpoint_summary(s)
-
+    index = load_index_from_ref(ref, repo_path)
+    if not index:
+        print("No checkpoints found")
         return 0
 
-    finally:
-        cleanup_worktree(repo_path, worktree_path)
+    summaries = filter_checkpoints_v2(
+        index,
+        issue_number=args.issue,
+        pr_number=getattr(args, "pr", None),
+        branch=args.branch,
+        session_id=getattr(args, "session", None),
+        trigger_type=getattr(args, "trigger", None),
+        session_status=getattr(args, "status", None),
+        agent_type=getattr(args, "agent_type", None),
+        pipeline_phase=getattr(args, "phase", None),
+        pipeline_id=getattr(args, "pipeline", None),
+        limit=args.limit,
+    )
+
+    if not summaries:
+        print("No checkpoints found matching filters")
+        return 0
+
+    if args.json:
+        output = [s.model_dump(mode="json") for s in summaries]
+        print(json.dumps(output, indent=2))
+    else:
+        print(f"Checkpoints ({len(summaries)} found):")
+        print()
+        for s in summaries:
+            print_checkpoint_summary(s)
+
+    return 0
 
 
 def cmd_show(args: argparse.Namespace) -> int:
     """Display full checkpoint details by checkpoint ID or commit SHA."""
     repo_path = args.repo_path or get_repo_path()
     identifier = args.identifier
-
-    # Checkout checkpoint branch
     checkpoint_repo = _get_checkpoint_repo_from_args(args)
-    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
-    if not worktree_path:
+
+    ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
+    if not ref:
         print("No checkpoints found (checkpoint branch does not exist)")
         return 1
 
-    try:
-        checkpoints_dir = worktree_path / "checkpoints"
-        index_path = worktree_path / "index.json"
+    checkpoint: CheckpointV2 | None = None
 
-        checkpoint: CheckpointV2 | None = None
+    if identifier.startswith("ckpt-"):
+        checkpoint = load_checkpoint_from_ref(identifier, ref, repo_path)
+    else:
+        # Look up commit SHA in the index
+        index = load_index_from_ref(ref, repo_path)
+        if index:
+            checkpoint_id = index.get_by_commit(identifier)
+            if checkpoint_id:
+                checkpoint = load_checkpoint_from_ref(checkpoint_id, ref, repo_path)
 
-        # Try as checkpoint ID first (ckpt-... prefix)
-        if identifier.startswith("ckpt-"):
-            checkpoint = load_checkpoint_by_id_v2(identifier, checkpoints_dir)
-        else:
-            # Try as commit SHA
-            checkpoint = load_checkpoint_by_commit_v2(identifier, checkpoints_dir, index_path)
+    if not checkpoint:
+        print(f"No checkpoint found for '{identifier}'")
+        return 1
 
-        if not checkpoint:
-            print(f"No checkpoint found for '{identifier}'")
-            return 1
+    if args.json:
+        print(json.dumps(checkpoint.model_dump(mode="json"), indent=2))
+    else:
+        print_checkpoint_details(checkpoint)
 
-        if args.json:
-            print(json.dumps(checkpoint.model_dump(mode="json"), indent=2))
-        else:
-            print_checkpoint_details(checkpoint)
-
-        return 0
-
-    finally:
-        cleanup_worktree(repo_path, worktree_path)
+    return 0
 
 
 def cmd_browse(args: argparse.Namespace) -> int:
@@ -481,59 +498,55 @@ def cmd_browse(args: argparse.Namespace) -> int:
     repo_path = args.repo_path or get_repo_path()
     checkpoint_repo = _get_checkpoint_repo_from_args(args)
 
-    # Checkout checkpoint branch
-    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
-    if not worktree_path:
+    ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
+    if not ref:
         print("No checkpoints found (checkpoint branch does not exist)")
         return 0
 
-    try:
-        checkpoints_dir = worktree_path / "checkpoints"
-        index_path = worktree_path / "index.json"
-
-        summaries = list_checkpoints_v2(
-            checkpoints_dir,
-            index_path,
-            issue_number=args.issue,
-            limit=args.limit,
-        )
-
-        if not summaries:
-            print(f"No checkpoints found for issue #{args.issue}")
-            return 0
-
-        if args.json:
-            output = [s.model_dump(mode="json") for s in summaries]
-            print(json.dumps(output, indent=2))
-        else:
-            print(f"Checkpoints for Issue #{args.issue} ({len(summaries)} found):")
-            print()
-
-            # Group by session
-            sessions: dict[str, list[CheckpointSummaryV2]] = {}
-            for s in summaries:
-                sid = s.session_id
-                if sid not in sessions:
-                    sessions[sid] = []
-                sessions[sid].append(s)
-
-            for sid, session_summaries in sessions.items():
-                first = session_summaries[0]
-                agent = (
-                    first.agent_type.value if first.agent_type != AgentType.UNKNOWN else "unknown"
-                )
-                triggers = {_format_trigger(s.trigger_type) for s in session_summaries}
-                print(
-                    f"Session: {sid[:12]}... (agent: {agent}, triggers: {', '.join(sorted(triggers))})"
-                )
-                for s in session_summaries:
-                    print_checkpoint_summary(s)
-                print()
-
+    index = load_index_from_ref(ref, repo_path)
+    if not index:
+        print("No checkpoints found")
         return 0
 
-    finally:
-        cleanup_worktree(repo_path, worktree_path)
+    summaries = filter_checkpoints_v2(
+        index,
+        issue_number=args.issue,
+        limit=args.limit,
+    )
+
+    if not summaries:
+        print(f"No checkpoints found for issue #{args.issue}")
+        return 0
+
+    if args.json:
+        output = [s.model_dump(mode="json") for s in summaries]
+        print(json.dumps(output, indent=2))
+    else:
+        print(f"Checkpoints for Issue #{args.issue} ({len(summaries)} found):")
+        print()
+
+        # Group by session
+        sessions: dict[str, list[CheckpointSummaryV2]] = {}
+        for s in summaries:
+            sid = s.session_id
+            if sid not in sessions:
+                sessions[sid] = []
+            sessions[sid].append(s)
+
+        for sid, session_summaries in sessions.items():
+            first = session_summaries[0]
+            agent = (
+                first.agent_type.value if first.agent_type != AgentType.UNKNOWN else "unknown"
+            )
+            triggers = {_format_trigger(s.trigger_type) for s in session_summaries}
+            print(
+                f"Session: {sid[:12]}... (agent: {agent}, triggers: {', '.join(sorted(triggers))})"
+            )
+            for s in session_summaries:
+                print_checkpoint_summary(s)
+            print()
+
+    return 0
 
 
 def cmd_context(args: argparse.Namespace) -> int:
@@ -541,44 +554,42 @@ def cmd_context(args: argparse.Namespace) -> int:
     repo_path = args.repo_path or get_repo_path()
     checkpoint_repo = _get_checkpoint_repo_from_args(args)
 
-    worktree_path = checkout_checkpoint_branch(repo_path, checkpoint_repo=checkpoint_repo)
-    if not worktree_path:
+    ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
+    if not ref:
         print("No checkpoints found (checkpoint branch does not exist)")
         return 0
 
-    try:
-        checkpoints_dir = worktree_path / "checkpoints"
-        index_path = worktree_path / "index.json"
-
-        summaries = list_checkpoints_v2(
-            checkpoints_dir,
-            index_path,
-            pipeline_id=getattr(args, "pipeline", None),
-            issue_number=getattr(args, "issue", None),
-            agent_type=getattr(args, "agent_type", None),
-            pipeline_phase=getattr(args, "phase", None),
-            limit=args.limit,
-        )
-
-        if not summaries:
-            print("No checkpoints found matching filters")
-            return 0
-
-        if args.json:
-            output = _build_context_json(summaries, checkpoints_dir, args)
-            print(json.dumps(output, indent=2))
-        else:
-            _print_context_summary(summaries, checkpoints_dir, args)
-
+    index = load_index_from_ref(ref, repo_path)
+    if not index:
+        print("No checkpoints found")
         return 0
 
-    finally:
-        cleanup_worktree(repo_path, worktree_path)
+    summaries = filter_checkpoints_v2(
+        index,
+        pipeline_id=getattr(args, "pipeline", None),
+        issue_number=getattr(args, "issue", None),
+        agent_type=getattr(args, "agent_type", None),
+        pipeline_phase=getattr(args, "phase", None),
+        limit=args.limit,
+    )
+
+    if not summaries:
+        print("No checkpoints found matching filters")
+        return 0
+
+    if args.json:
+        output = _build_context_json(summaries, ref, repo_path, args)
+        print(json.dumps(output, indent=2))
+    else:
+        _print_context_summary(summaries, ref, repo_path, args)
+
+    return 0
 
 
 def _build_context_json(
     summaries: list[CheckpointSummaryV2],
-    checkpoints_dir: Path,
+    ref: str,
+    repo_path: str,
     args: argparse.Namespace,
 ) -> list[dict[str, Any]]:
     """Build JSON output for context command."""
@@ -586,7 +597,7 @@ def _build_context_json(
     for s in summaries:
         entry: dict[str, Any] = s.model_dump(mode="json")
         if getattr(args, "files", False):
-            checkpoint = load_checkpoint_by_id_v2(s.id, checkpoints_dir)
+            checkpoint = load_checkpoint_from_ref(s.id, ref, repo_path)
             if checkpoint:
                 entry["files"] = [
                     {"path": f.path, "operation": f.operation.value}
@@ -598,7 +609,8 @@ def _build_context_json(
 
 def _print_context_summary(
     summaries: list[CheckpointSummaryV2],
-    checkpoints_dir: Path,
+    ref: str,
+    repo_path: str,
     args: argparse.Namespace,
 ) -> None:
     """Print hierarchical context summary grouped by phase and agent."""
@@ -642,7 +654,7 @@ def _print_context_summary(
 
                 # Optionally show file paths
                 if getattr(args, "files", False):
-                    checkpoint = load_checkpoint_by_id_v2(cp.id, checkpoints_dir)
+                    checkpoint = load_checkpoint_from_ref(cp.id, ref, repo_path)
                     if checkpoint and checkpoint.files_touched:
                         for f in checkpoint.files_touched:
                             print(f"      {f.operation.value:6s} {f.path}")
