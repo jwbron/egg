@@ -110,7 +110,7 @@ class StateStore:
     # filesystem — threading locks only protect within a single process.
     _thread_lock = threading.RLock()
     _flock_fds: ClassVar[dict[str, int]] = {}
-    _flock_depth: int = 0  # nesting depth, protected by _thread_lock
+    _flock_depth: ClassVar[int] = 0  # nesting depth, protected by _thread_lock
 
     def __init__(
         self,

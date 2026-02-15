@@ -708,6 +708,12 @@ class TestDecisionPersistenceRegression:
 class TestRunGitLocking:
     """Tests for cross-process file locking and retry logic in _run_git."""
 
+    @pytest.fixture(autouse=True)
+    def reset_flock_state(self):
+        yield
+        StateStore._flock_depth = 0
+        StateStore._flock_fds.clear()
+
     def test_retry_succeeds_after_index_lock_error(self, tmp_path):
         """Test that _run_git retries on index.lock contention and succeeds."""
         store = StateStore(tmp_path, worktree_dir=tmp_path)
