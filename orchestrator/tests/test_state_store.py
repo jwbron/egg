@@ -329,7 +329,9 @@ class TestStateValidation:
         # Use a valid pipeline ID format but with an invalid enum value for status
         pipelines_dir = tmp_path / ".egg-state" / "pipelines"
         pipelines_dir.mkdir(parents=True)
-        (pipelines_dir / "issue-9998.json").write_text('{"id": "issue-9998", "status": "not-a-valid-status"}')
+        (pipelines_dir / "issue-9998.json").write_text(
+            '{"id": "issue-9998", "status": "not-a-valid-status"}'
+        )
 
         with pytest.raises(StateValidationError):
             state_store.load_pipeline("issue-9998")
@@ -718,7 +720,10 @@ class TestRunGitRetry:
         )
         success = MagicMock(stdout="ok\n", returncode=0)
 
-        with patch("subprocess.run", side_effect=[lock_error, success]) as mock_run:
+        with (
+            patch("subprocess.run", side_effect=[lock_error, success]) as mock_run,
+            patch("state_store.time.sleep"),
+        ):
             result = store._run_git("add", ".")
             assert result.stdout == "ok\n"
             assert mock_run.call_count == 2
@@ -734,7 +739,7 @@ class TestRunGitRetry:
             stderr="fatal: Unable to create 'index.lock': File exists.\n",
         )
 
-        with patch("subprocess.run", side_effect=[lock_error] * 3):
+        with patch("subprocess.run", side_effect=[lock_error] * 3), patch("state_store.time.sleep"):
             with pytest.raises(GitOperationError, match="index.lock"):
                 store._run_git("add", ".")
 
@@ -766,6 +771,7 @@ class TestRunGitRetry:
 
         # Make it look old (>60s)
         import os
+
         old_time = os.path.getmtime(str(lock_file)) - 120
         os.utime(str(lock_file), (old_time, old_time))
 

@@ -100,6 +100,7 @@ class StateStore:
     """
 
     PIPELINES_DIR = ".egg-state/pipelines"
+    _git_lock = threading.Lock()  # serialize git operations across all instances
 
     def __init__(
         self,
@@ -116,7 +117,6 @@ class StateStore:
         self.repo_path = repo_path
         self._worktree_dir = worktree_dir or _DEFAULT_WORKTREE_DIR
         self._worktree: Path | None = None  # lazily initialised
-        self._git_lock = threading.Lock()  # serialize git operations
 
     # -- worktree lifecycle ------------------------------------------------
 
