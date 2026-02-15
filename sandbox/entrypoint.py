@@ -679,18 +679,17 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
     """Set up CLAUDE.md agent rules."""
     rules_dir = Path("/opt/claude-rules")
 
-    # Core rules always included
+    # All rules always included so CLI tools are discoverable in any session
     rules_order = [
         "mission.md",
         "environment.md",
         "code-standards.md",
         "test-workflow.md",
         "pr-descriptions.md",
+        "orchestrator.md",
+        "contract.md",
+        "checkpoint.md",
     ]
-
-    # SDLC-specific rules only included when running in a pipeline
-    if os.environ.get("EGG_PIPELINE_ID"):
-        rules_order.extend(["contract.md", "orchestrator.md"])
 
     if not (rules_dir / "mission.md").exists():
         return
