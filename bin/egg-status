@@ -46,8 +46,9 @@ CYAN = "\033[36m"
 IS_TTY = sys.stdout.isatty()
 
 # Track previous pipeline state to skip redundant redraws.
-# We compare the input data (not the rendered string) because the rendered
-# output includes a wall-clock timestamp that changes every second.
+# We compare a subset of the input data — excluding ``visualization``
+# (contains elapsed-time counters via _format_duration that change every
+# second for running pipelines) and the rendered wall-clock timestamp.
 _prev_state: str | None = None
 
 _ANSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
@@ -177,11 +178,16 @@ def display_dashboard(pipelines: dict, verbose: bool = False) -> None:
     output = render_dashboard(pipelines, verbose=verbose)
 
     if IS_TTY:
-        # Compare the pipeline state dict (not the rendered string) to
-        # detect changes.  The rendered string embeds a wall-clock
-        # timestamp that changes every second, making string comparison
-        # ineffective.
-        state_snapshot = json.dumps(pipelines, sort_keys=True, default=str)
+        # Compare pipeline state excluding fields that change every
+        # refresh cycle: ``visualization`` contains elapsed-time counters
+        # (via _format_duration) that update every second for running
+        # pipelines.  The rendered string also embeds a wall-clock
+        # timestamp, so we must compare input data, not output.
+        dedup_pipelines = {
+            pid: {k: v for k, v in state.items() if k != "visualization"}
+            for pid, state in pipelines.items()
+        }
+        state_snapshot = json.dumps(dedup_pipelines, sort_keys=True, default=str)
         if state_snapshot == _prev_state:
             return
         _prev_state = state_snapshot

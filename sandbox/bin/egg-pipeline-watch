@@ -44,10 +44,10 @@ SHOW_CURSOR = "\033[?25h"
 _ANSI_RE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
 
 # Track previous compact-mode data to skip redundant redraws.
-# We compare the input data (not the rendered string) because the rendered
-# output includes the server timestamp that changes every second.
-# Full DAG mode is not deduped — it includes elapsed-time counters
-# that also change every second.
+# We compare a subset of the input data — excluding ``timestamp`` (changes
+# every refresh cycle) and ``visualization`` (contains elapsed-time counters
+# via _format_duration that change every second for running pipelines).
+# Full DAG mode is not deduped for the same reason.
 _prev_compact_state: str | None = None
 
 # Status → ANSI color mapping (used by format_status_line and render_event_info)
@@ -179,10 +179,11 @@ def display_visualization(data: dict, compact: bool = False) -> None:
 
     if compact:
         if IS_TTY:
-            # Compare the data dict (excluding timestamp) instead of the
-            # rendered string.  The server sets a new timestamp on every
-            # refresh cycle, so string comparison is ineffective.
-            dedup_data = {k: v for k, v in data.items() if k != "timestamp"}
+            # Compare the data dict (excluding timestamp and visualization)
+            # instead of the rendered string.  Both change every refresh
+            # cycle — timestamp from the server clock, visualization.dag
+            # from elapsed-time counters in running phases.
+            dedup_data = {k: v for k, v in data.items() if k not in ("timestamp", "visualization")}
             state_snapshot = json.dumps(dedup_data, sort_keys=True, default=str)
             if state_snapshot == _prev_compact_state:
                 return
