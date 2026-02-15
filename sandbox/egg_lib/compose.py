@@ -499,7 +499,7 @@ def _wait_for_health(url: str, label: str, timeout: int = 60) -> bool:
     return False
 
 
-def ensure_compose_services(build: bool = False) -> bool:
+def ensure_compose_services(build: bool = True) -> bool:
     """Start gateway + orchestrator via Docker Compose.
 
     This is the primary entry point used by the default ``egg`` CLI path.
@@ -507,15 +507,21 @@ def ensure_compose_services(build: bool = False) -> bool:
     1. Locates docker-compose.yml
     2. Generates .env dynamically from the same config sources as
        ``start_gateway_container()`` (secrets.env, repositories.yaml, etc.)
-    3. Runs ``docker compose up -d``
+    3. Runs ``docker compose up -d --build``
     4. Waits for gateway health check
     5. Waits for orchestrator health check (non-blocking on failure)
+
+    Passing ``--build`` ensures compose service images (gateway,
+    orchestrator) are rebuilt when their build context changes, keeping
+    them up to date the same way ``build_image()`` keeps the sandbox
+    image up to date.  Docker's layer cache makes this fast when
+    nothing has changed.
 
     Falls back to ``start_gateway_container()`` if docker compose is
     unavailable.
 
     Args:
-        build: Force rebuild of compose images
+        build: Rebuild compose images if build context changed (default True)
 
     Returns:
         True if gateway is healthy (orchestrator failure is a warning only)
