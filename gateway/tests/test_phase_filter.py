@@ -1024,3 +1024,47 @@ class TestPhaseFileRestrictions:
 
         assert result.allowed is False
         assert len(result.blocked_files) == 1
+
+    def test_plan_phase_allows_agent_outputs(self):
+        """Plan phase should allow .egg-state/agent-outputs/ files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "plan",
+            [".egg-state/agent-outputs/task-planner-output.json"],
+        )
+
+        assert result.allowed is True
+
+    def test_plan_phase_allows_reviews(self):
+        """Plan phase should allow .egg-state/reviews/ files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "plan",
+            [".egg-state/reviews/architect-review.md"],
+        )
+
+        assert result.allowed is True
+
+    def test_refine_phase_allows_agent_outputs(self):
+        """Refine phase should allow .egg-state/agent-outputs/ files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "refine",
+            [".egg-state/agent-outputs/risk-analyst-output.json"],
+        )
+
+        assert result.allowed is True
+
+    def test_refine_phase_allows_reviews(self):
+        """Refine phase should allow .egg-state/reviews/ files."""
+        from phase_filter import check_phase_file_restrictions
+
+        result = check_phase_file_restrictions(
+            "refine",
+            [".egg-state/reviews/risk-review.md"],
+        )
+
+        assert result.allowed is True

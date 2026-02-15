@@ -732,6 +732,16 @@ def git_push() -> tuple[Response, int] | Response:
                     "blocked_reason": phase_result.blocked_reason,
                 },
             )
+            has_non_state_files = any(
+                not f.startswith(".egg-state/") for f in phase_result.blocked_files
+            )
+            if has_non_state_files:
+                hint = (
+                    "Branch contains files outside .egg-state/ from a previous phase. "
+                    "Create a clean branch from origin/main with only your state files."
+                )
+            else:
+                hint = f"Phase '{session_phase}' has file restrictions. Check allowed patterns."
             return make_error(
                 f"Push denied: {phase_result.message}",
                 status_code=403,
@@ -739,7 +749,7 @@ def git_push() -> tuple[Response, int] | Response:
                     "phase": session_phase,
                     "blocked_files": phase_result.blocked_files,
                     "blocked_reason": phase_result.blocked_reason,
-                    "hint": f"Phase '{session_phase}' has file restrictions. Check allowed patterns.",
+                    "hint": hint,
                 },
             )
 
