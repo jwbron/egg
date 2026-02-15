@@ -2166,16 +2166,13 @@ def _synthesize_plan_draft(
             # Fall back to raw text if not valid JSON
             content = raw
         except Exception as e:
-            try:
-                content = output_file.read_text()
-            except Exception:
-                logger.warning(
-                    "Failed to read agent output for plan draft",
-                    pipeline_id=pipeline_id,
-                    file=filename,
-                    error=str(e),
-                )
-                continue
+            logger.warning(
+                "Failed to read agent output for plan draft",
+                pipeline_id=pipeline_id,
+                file=filename,
+                error=str(e),
+            )
+            continue
 
         # Skip empty or whitespace-only outputs
         if not content or not content.strip():
