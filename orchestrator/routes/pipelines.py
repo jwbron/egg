@@ -2275,12 +2275,16 @@ def _synthesize_plan_draft(
     pipeline_mode: str = "local",
     issue_number: int | None = None,
 ) -> None:
-    """Synthesize a plan draft from multi-agent plan outputs.
+    """Synthesize a plan draft from agent outputs.
 
-    In multi-agent plan mode, ARCHITECT, TASK_PLANNER, and RISK_ANALYST
-    each write to .egg-state/agent-outputs/.  This function combines
-    their outputs into a single plan draft at .egg-state/drafts/{id}-plan.md
-    so that _populate_contract_from_plan() and the HITL gate can find it.
+    Called after every successful plan phase.  In multi-agent mode,
+    ARCHITECT, TASK_PLANNER, and RISK_ANALYST each write to
+    .egg-state/agent-outputs/; this function combines their outputs into
+    a single plan draft at .egg-state/drafts/{id}-plan.md so that
+    _populate_contract_from_plan() and the HITL gate can find it.
+
+    In single-agent mode the draft is written directly by the coder, so
+    this function early-returns without overwriting it.
     """
     draft_rel = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
     if not draft_rel:
