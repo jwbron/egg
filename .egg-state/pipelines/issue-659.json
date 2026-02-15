@@ -113,6 +113,26 @@
           "exit_code": 0,
           "agent_role": "architect",
           "session_token": null
+        },
+        {
+          "container_id": "7357da893515dd4941a1fdb8429782322d3a6d4f120d61ea1b55efc958e0b5db",
+          "container_name": "egg-sandbox-egg-issue-659-task_planner",
+          "status": "running",
+          "started_at": "2026-02-15T00:13:05.948088",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "task_planner",
+          "session_token": null
+        },
+        {
+          "container_id": "8fbd4d1fe6065d6fbd441d520ab4d2b61a2b73848738cd8db11ad48f1b795580",
+          "container_name": "egg-sandbox-egg-issue-659-risk_analyst",
+          "status": "running",
+          "started_at": "2026-02-15T00:13:05.949391",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "risk_analyst",
+          "session_token": null
         }
       ],
       "agents": [
@@ -122,6 +142,30 @@
           "container_id": "e8b35a12f61267faf915d1d8c4f33fb901a245d05af5ccbb2724e955b4717feb",
           "started_at": "2026-02-15T00:04:01.472517",
           "completed_at": "2026-02-15T00:13:01.387837",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "task_planner",
+          "status": "running",
+          "container_id": "7357da893515dd4941a1fdb8429782322d3a6d4f120d61ea1b55efc958e0b5db",
+          "started_at": "2026-02-15T00:13:05.948100",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "risk_analyst",
+          "status": "running",
+          "container_id": "8fbd4d1fe6065d6fbd441d520ab4d2b61a2b73848738cd8db11ad48f1b795580",
+          "started_at": "2026-02-15T00:13:05.949395",
+          "completed_at": null,
           "commit": null,
           "outputs": {},
           "error": null,
@@ -152,9 +196,9 @@
     }
   ],
   "created_at": "2026-02-14T23:47:30.877078",
-  "updated_at": "2026-02-15T00:13:01.387997",
+  "updated_at": "2026-02-15T00:13:05.949566",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 20
+  "version": 22
 }
