@@ -101,6 +101,10 @@ class TestMapAgentRoleToContractRole:
             AgentRole.ARCHITECT,
             AgentRole.TASK_PLANNER,
             AgentRole.RISK_ANALYST,
+            AgentRole.REVIEWER_UNIFIED,
+            AgentRole.REVIEWER_CODE,
+            AgentRole.REVIEWER_CONTRACT,
+            AgentRole.REVIEWER_AGENT_DESIGN,
         ]
         for role in contract_roles:
             result = map_agent_role_to_contract_role(role)
