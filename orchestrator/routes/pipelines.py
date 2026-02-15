@@ -3092,20 +3092,31 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         except OSError:
                             pass
 
-                # Spawn each reviewer as an individual container
-                for role in reviewer_roles:
+                # Spawn reviewers in parallel (up to max_parallel_agents)
+                from concurrent.futures import ThreadPoolExecutor
+
+                def _spawn_reviewer(  # type: ignore[no-untyped-def]
+                    role,
+                    *,
+                    _phase=current_phase,
+                    _pipeline=pipeline,
+                    _review_cycle=review_cycle,
+                    _review_feedback=review_feedback,
+                    _sandbox_env=sandbox_env,
+                    _repos=repos,
+                ):
                     role_str = role.value
                     rtype = role_str.replace("reviewer_", "", 1).replace(
                         "_", "-"
                     )
                     reviewer_prompt = _build_review_prompt(
-                        phase=current_phase.value,
+                        phase=_phase.value,
                         pipeline_id=pipeline_id,
                         pipeline_mode=pipeline_mode,
                         reviewer_type=rtype,
-                        issue_number=pipeline.issue_number,
-                        review_cycle=review_cycle + 1,
-                        prior_feedback=review_feedback,
+                        issue_number=_pipeline.issue_number,
+                        review_cycle=_review_cycle + 1,
+                        prior_feedback=_review_feedback,
                     )
                     reviewer_command = [
                         "claude",
@@ -3121,23 +3132,23 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         reviewer_prompt,
                     ]
                     reviewer_env = {
-                        **sandbox_env,
+                        **_sandbox_env,
                         "EGG_AGENT_ROLE": role_str,
                     }
                     try:
                         orch_role = AgentRole(role_str)
                     except ValueError:
-                        continue
+                        return
                     try:
                         _spawn_and_wait(
                             spawner=spawner,
                             pipeline_id=pipeline_id,
                             agent_role=orch_role,
-                            issue_number=pipeline.issue_number,
+                            issue_number=_pipeline.issue_number,
                             repo_volumes=repo_volumes,
                             gateway_mode=gateway_mode,
-                            repos=repos,
-                            phase=current_phase.value,
+                            repos=_repos,
+                            phase=_phase.value,
                             sandbox_env=reviewer_env,
                             sandbox_command=reviewer_command,
                             timeout=1800,
@@ -3151,6 +3162,18 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             reviewer=role_str,
                             error=str(e),
                         )
+
+                max_workers = min(
+                    len(reviewer_roles),
+                    pipeline.config.max_parallel_agents,
+                )
+                with ThreadPoolExecutor(max_workers=max_workers) as rev_executor:
+                    futures = [
+                        rev_executor.submit(_spawn_reviewer, role)
+                        for role in reviewer_roles
+                    ]
+                    for future in futures:
+                        future.result()
 
                 all_verdicts: dict[str, ReviewVerdict | None] = {}
                 for role in reviewer_roles:
