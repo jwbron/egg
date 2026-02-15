@@ -644,14 +644,14 @@ def get_compose_gateway_ip(compose_file: Path) -> str:
     return "172.32.0.2"
 
 
-def run_compose_mode(down: bool = False, build: bool = False) -> int:
+def run_compose_mode(down: bool = False, build: bool = True) -> int:
     """Run egg in explicit compose control mode.
 
     Used by ``egg --compose --down`` and ``egg --compose --build``.
 
     Args:
         down: If True, stop the stack and exit
-        build: If True, rebuild images before starting
+        build: Rebuild images before starting (default True)
 
     Returns:
         Exit code (0 for success)

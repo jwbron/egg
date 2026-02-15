@@ -108,7 +108,8 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
     parser.add_argument(
         "--build",
         action="store_true",
-        help="Rebuild compose images before starting (use with --compose)",
+        help="Rebuild compose images before starting (use with --compose). "
+        "Note: the default egg startup path already rebuilds automatically.",
     )
 
     # Multi-agent execution options
