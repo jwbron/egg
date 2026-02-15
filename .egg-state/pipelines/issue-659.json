@@ -93,7 +93,7 @@
           "conflicts": []
         }
       ],
-      "review_cycles": 0,
+      "review_cycles": 1,
       "hitl_review_cycles": 0,
       "artifacts": {},
       "error": null
@@ -101,9 +101,9 @@
   },
   "decisions": [],
   "created_at": "2026-02-15T04:15:52.670515",
-  "updated_at": "2026-02-15T04:26:57.866533",
+  "updated_at": "2026-02-15T04:27:00.637669",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 11
+  "version": 12
 }
