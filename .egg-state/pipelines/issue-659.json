@@ -1,0 +1,28 @@
+{
+  "id": "issue-659",
+  "issue_number": 659,
+  "repo": "jwbron/egg",
+  "branch": "egg/issue-659",
+  "mode": "issue",
+  "prompt": null,
+  "status": "pending",
+  "current_phase": "refine",
+  "config": {
+    "auto_create_pr": true,
+    "multi_agent": true,
+    "parallel_agents": true,
+    "max_parallel_agents": 10,
+    "max_review_cycles": 3,
+    "max_hitl_review_cycles": 3,
+    "decision_timeout": 3600,
+    "hitl_gates": true
+  },
+  "phases": {},
+  "decisions": [],
+  "created_at": "2026-02-15T03:46:46.627479",
+  "updated_at": "2026-02-15T03:46:46.627655",
+  "contract_synced": false,
+  "network_mode": null,
+  "error": null,
+  "version": 2
+}
