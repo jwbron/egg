@@ -99,3 +99,162 @@ class TestBuildAutofixPrompt:
         result = _build_autofix_prompt("pid-99", "issue", results)
         assert "pid-99" in result
         assert "issue" in result
+
+
+
+class TestBuildAgentPrompt:
+    """Tests for enriched role prompts in _build_agent_prompt."""
+
+    def test_tester_includes_handoff_reference(self):
+        """Tester prompt references coder handoff file."""
+        from routes.pipelines import _build_agent_prompt
+
+        result = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="local",
+        )
+        assert "coder-output.json" in result
+        assert "tester-output.json" in result
+        assert "File constraints" in result
+
+    def test_documenter_includes_handoff_reference(self):
+        """Documenter prompt references coder handoff file."""
+        from routes.pipelines import _build_agent_prompt
+
+        result = _build_agent_prompt(
+            role_value="documenter",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="local",
+        )
+        assert "coder-output.json" in result
+        assert "documenter-output.json" in result
+        assert "File constraints" in result
+
+    def test_integrator_includes_handoff_reference(self):
+        """Integrator prompt references multiple handoff files."""
+        from routes.pipelines import _build_agent_prompt
+
+        result = _build_agent_prompt(
+            role_value="integrator",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="local",
+        )
+        assert "agent-outputs" in result
+        assert "integrator-output.json" in result
+        assert "read-only" in result.lower()
+
+    def test_tester_includes_test_guidelines(self):
+        """Tester prompt includes behavioral test guidelines."""
+        from routes.pipelines import _build_agent_prompt
+
+        result = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="local",
+        )
+        assert "edge cases" in result.lower()
+        assert "existing test patterns" in result.lower() or "Follow existing" in result
+
+    def test_documenter_includes_skip_guidance(self):
+        """Documenter prompt includes what to skip."""
+        from routes.pipelines import _build_agent_prompt
+
+        result = _build_agent_prompt(
+            role_value="documenter",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="local",
+        )
+        assert "Skip" in result
+        assert "internal refactoring" in result.lower()
+
+    def test_coder_uses_phase_prompt(self):
+        """Coder role delegates to _build_phase_prompt."""
+        from routes.pipelines import _build_agent_prompt
+
+        result = _build_agent_prompt(
+            role_value="coder",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="local",
+            prompt="Build a widget",
+        )
+        # _build_phase_prompt includes phase header
+        assert "implement" in result.lower()
+        assert "Build a widget" in result
+
+    def test_reviewer_delegates_to_review_prompt(self):
+        """Reviewer roles delegate to _build_review_prompt."""
+        from routes.pipelines import _build_agent_prompt
+
+        result = _build_agent_prompt(
+            role_value="reviewer_code",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="local",
+        )
+        assert "Verdict Format" in result
+        assert "code" in result.lower()
+
+
+class TestBuildReviewPrompt:
+    """Tests for _build_review_prompt conventions integration."""
+
+    def test_review_prompt_includes_conventions(self):
+        """Review prompt includes review conventions when file exists."""
+        from routes.pipelines import _build_review_prompt
+
+        result = _build_review_prompt(
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="local",
+            reviewer_type="code",
+        )
+        # The review-conventions.md file exists in action/, so it should be loaded
+        assert "Review Conventions" in result
+        assert "--body-file" in result
+
+    def test_review_prompt_includes_criteria(self):
+        """Review prompt includes criteria for the reviewer type."""
+        from routes.pipelines import _build_review_prompt
+
+        result = _build_review_prompt(
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="local",
+            reviewer_type="code",
+        )
+        assert "## Review Criteria" in result
+        assert "Security" in result
+
+    def test_review_prompt_prior_feedback(self):
+        """Review prompt includes prior feedback for re-reviews."""
+        from routes.pipelines import _build_review_prompt
+
+        result = _build_review_prompt(
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="local",
+            reviewer_type="unified",
+            review_cycle=2,
+            prior_feedback="Fix the null check in handler.py",
+        )
+        assert "Prior Review Feedback" in result
+        assert "Fix the null check in handler.py" in result
+
+    def test_contract_reviewer_can_update_contracts(self):
+        """Contract reviewer gets permission to update contracts."""
+        from routes.pipelines import _build_review_prompt
+
+        result = _build_review_prompt(
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="local",
+            reviewer_type="contract",
+        )
+        assert ".egg-state/contracts/" in result

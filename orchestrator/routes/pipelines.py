@@ -1141,6 +1141,13 @@ def _build_review_prompt(
         "and provide actionable feedback."
     )
 
+    # Review conventions
+    conventions = _load_conventions("review")
+    if conventions:
+        lines.append("## Review Conventions\n")
+        lines.append(conventions)
+        lines.append("")
+
     # Phase restrictions for reviewers
     lines.append("")
     lines.append("## Phase Restrictions\n")
