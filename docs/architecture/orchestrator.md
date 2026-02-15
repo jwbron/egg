@@ -44,7 +44,7 @@ Pipelines can specify an explicit network mode that controls internet access for
 
 - **`public`**: Full internet access (default for issue-mode pipelines)
 - **`private`**: Network lockdown - Anthropic API + private GitHub repos only (enforced by gateway proxy)
-- **`None`** (auto): Falls back based on pipeline mode — `issue` → `public`, `local` → `local` for non-PR phases (switches to `public` for the PR phase to enable push access)
+- **`None`** (auto): Falls back based on pipeline mode — `issue` → `public`, `local` → `local`
 
 **Setting network mode:**
 
@@ -60,7 +60,7 @@ Pipelines can specify an explicit network mode that controls internet access for
 
 **Special case: PR phase in local mode**
 
-Local-mode pipelines normally use `local` gateway mode (isolated network without proxy/DNS lockdown), but the PR phase requires push access. If `network_mode="private"`, the pipeline stays in private mode even during the PR phase (no push allowed). Otherwise, the PR phase temporarily switches to `public` mode to enable `git push` and `gh pr create`.
+Local-mode pipelines use `local` gateway mode throughout all phases, including the PR phase. During the PR phase, the gateway allows PR-specific operations (`gh pr create`, `gh pr edit`) based on phase permissions (`.egg/phase-permissions.json`), while continuing to block other GitHub operations. If `network_mode="private"`, the pipeline stays in private mode even during the PR phase (no push allowed).
 
 ## Per-Pipeline Worktrees
 

@@ -99,10 +99,10 @@ Each pipeline phase has a defined set of permitted operations:
 
 | Phase | Allowed Operations | Exit Requires |
 |-------|-------------------|---------------|
-| **Refine** | `gh issue comment/edit` | Human approval |
-| **Plan** | `gh issue comment/edit`, `egg-contract add-decision` | Human approval |
-| **Implement** | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
-| **Merge** | `gh pr edit`, `git push` | Human merge |
+| **Refine** | `gh issue comment/edit`, `git push` (state files), `egg-contract add-decision` | Human approval |
+| **Plan** | `gh issue comment/edit`, `git push` (state files), `egg-contract add-decision` | Human approval |
+| **Implement** | `git push` (code), `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
+| **PR** | `gh pr create/edit/comment`, `git push` | Human merge |
 
 ### How Isolation Works
 
