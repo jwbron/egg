@@ -34,7 +34,7 @@ try:
     from ..container_spawner import ContainerSpawnError, get_container_spawner
     from ..decision_queue import DecisionTimeoutError, get_decision_queue
     from ..docker_client import DockerClientError
-    from ..models import AgentRole, Pipeline, PipelineStatus, ReviewVerdict
+    from ..models import AgentRole, Pipeline, PipelinePhase, PipelineStatus, ReviewVerdict
     from ..state_store import (
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -47,7 +47,7 @@ except ImportError:
     from container_spawner import ContainerSpawnError, get_container_spawner  # type: ignore
     from decision_queue import DecisionTimeoutError, get_decision_queue  # type: ignore
     from docker_client import DockerClientError  # type: ignore
-    from models import AgentRole, Pipeline, PipelineStatus, ReviewVerdict  # type: ignore
+    from models import AgentRole, Pipeline, PipelinePhase, PipelineStatus, ReviewVerdict  # type: ignore
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -1116,6 +1116,36 @@ def _read_phase_draft(
     return content
 
 
+def _check_short_circuit_signal(
+    repo_path: Path,
+    pipeline_mode: str,
+    issue_number: int | None = None,
+    pipeline_id: str | None = None,
+) -> bool:
+    """Check the refine analysis draft for a short-circuit signal.
+
+    Looks for a fenced YAML block containing ``short_circuit: true``
+    at the end of the analysis.  Returns True if found.
+    """
+    content = _read_phase_draft(repo_path, "refine", pipeline_mode, issue_number, pipeline_id)
+    if content.startswith("("):
+        # Draft not found or empty
+        return False
+
+    # Look for a fenced YAML block containing short_circuit: true
+    # Pattern: ```yaml ... short_circuit: true ... ```
+    yaml_block_pattern = re.compile(
+        r"```ya?ml\s*\n(.*?)```", re.DOTALL
+    )
+    for match in yaml_block_pattern.finditer(content):
+        block = match.group(1)
+        # Check for short_circuit: true (with optional comment line)
+        if re.search(r"^\s*short_circuit\s*:\s*true\s*$", block, re.MULTILINE):
+            return True
+
+    return False
+
+
 def _build_review_prompt(
     phase: str,
     pipeline_id: str,
@@ -1343,6 +1373,7 @@ def _build_phase_prompt(
     branch: str | None = None,
     review_feedback: str | None = None,
     review_cycle: int = 0,
+    short_circuit: bool = False,
 ) -> str:
     """Build a phase-specific prompt for the sandbox Claude invocation.
 
@@ -1467,6 +1498,25 @@ def _build_phase_prompt(
         )
         lines.extend(
             [
+                "## Complexity Assessment\n",
+                "After completing your analysis, assess the task complexity:",
+                "- **low**: Single-file change, straightforward bug fix, small config update, typo fix",
+                "- **medium**: Multi-file change with clear scope, feature addition with known patterns",
+                "- **high**: Architectural change, new subsystem, cross-cutting concern, ambiguous requirements",
+                "",
+                "If complexity is **low**, add the following metadata block at the very end of your analysis:\n",
+                "```yaml",
+                "# metadata",
+                "short_circuit: true",
+                "complexity: low",
+                "```\n",
+                "This tells the pipeline to skip the plan phase and go directly to implementation.",
+                "For **medium** or **high** complexity, omit this block — the plan phase will run.",
+                "",
+            ]
+        )
+        lines.extend(
+            [
                 f"Write your analysis to `{analysis_path}`.",
                 "Commit and push the draft when done.\n",
                 "**IMPORTANT**: Do NOT post your analysis directly to the issue. "
@@ -1530,17 +1580,30 @@ def _build_phase_prompt(
         )
 
     elif phase == "implement":
-        lines.extend(
-            [
-                "Implement the changes described in the task and plan:",
-                "",
-                "1. Review the plan (check `.egg-state/drafts/`)",
-                "2. Implement the required changes",
-                "3. Run tests to verify correctness",
-                "4. Commit with descriptive messages",
-                "",
-            ]
-        )
+        if short_circuit:
+            lines.extend(
+                [
+                    "Implement the changes described in the analysis (plan phase was skipped):",
+                    "",
+                    "1. Review the analysis (check `.egg-state/drafts/` for the analysis document)",
+                    "2. Implement the required changes",
+                    "3. Run tests to verify correctness",
+                    "4. Commit with descriptive messages",
+                    "",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "Implement the changes described in the task and plan:",
+                    "",
+                    "1. Review the plan (check `.egg-state/drafts/`)",
+                    "2. Implement the required changes",
+                    "3. Run tests to verify correctness",
+                    "4. Commit with descriptive messages",
+                    "",
+                ]
+            )
         # Contract CLI instructions for both local and issue mode
         lines.extend(
             [
@@ -1680,6 +1743,7 @@ def _build_agent_prompt(
     review_feedback: str | None = None,
     review_cycle: int = 0,
     repo_path: str | None = None,
+    short_circuit: bool = False,
 ) -> str:
     """Build a role-specific prompt for multi-agent execution.
 
@@ -1720,6 +1784,7 @@ def _build_agent_prompt(
             branch=branch,
             review_feedback=review_feedback,
             review_cycle=review_cycle,
+            short_circuit=short_circuit,
         )
 
     # Build context header (shared across all roles)
@@ -2024,6 +2089,7 @@ def _run_multi_agent_phase(
             review_feedback=review_feedback,
             review_cycle=review_cycle,
             repo_path=str(worktree_repo_path),
+            short_circuit=pipeline.short_circuit,
         )
         # Map using the orchestrator's AgentRole enum
         try:
@@ -3100,6 +3166,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         branch=pipeline.branch,
                         review_feedback=review_feedback,
                         review_cycle=review_cycle,
+                        short_circuit=pipeline.short_circuit,
                     )
 
                     sandbox_command = [
@@ -3486,6 +3553,16 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             phase_execution = pipeline.get_phase_execution(current_phase)
             phase_execution.status = PipelineStatus.COMPLETE
             phase_execution.completed_at = datetime.utcnow()
+
+            # Check for short-circuit signal after refine phase
+            if current_phase.value == "refine" and pipeline.config.allow_short_circuit:
+                if _check_short_circuit_signal(
+                    worktree_repo_path, pipeline_mode,
+                    pipeline.issue_number, pipeline_id,
+                ):
+                    pipeline.short_circuit = True
+                    logger.info("Short-circuit detected", pipeline_id=pipeline_id)
+
             store.save_pipeline(pipeline)  # Persist phase completion before HITL gate
 
             # Report phase completion to collaborator
@@ -3685,6 +3762,16 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
             # Determine next phase
             next_phases = transitions.get(current_phase, [])
+
+            # Short-circuit: skip PLAN phase, advance directly to IMPLEMENT
+            if pipeline.short_circuit and current_phase.value == "refine":
+                next_phases = [PipelinePhase.IMPLEMENT]
+                # Mark plan phase as skipped
+                plan_execution = pipeline.get_phase_execution(PipelinePhase.PLAN)
+                plan_execution.status = PipelineStatus.COMPLETE
+                plan_execution.completed_at = datetime.utcnow()
+                logger.info("Skipping plan phase (short-circuit)", pipeline_id=pipeline_id)
+
             if not next_phases:
                 # Terminal phase — pipeline complete
                 pipeline.status = PipelineStatus.COMPLETE
