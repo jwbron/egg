@@ -586,10 +586,11 @@ def ensure_compose_services(build: bool = False) -> bool:
     # Fast path: services healthy, config unchanged, no explicit rebuild
     if already_healthy and not config_changed and not build:
         success("Gateway is healthy")
-        # Quick orchestrator check (already running, so don't wait long)
+        # Quick orchestrator check — gateway confirmed healthy but orchestrator
+        # was not directly probed, so allow a couple of attempts.
         ctx = get_context()
         orchestrator_url = f"http://localhost:{ctx.orchestrator_port}/api/v1/health"
-        if _wait_for_health(orchestrator_url, "Orchestrator", timeout=3):
+        if _wait_for_health(orchestrator_url, "Orchestrator", timeout=5):
             success("Orchestrator is healthy")
         else:
             warn("Orchestrator not healthy — continuing without it")
@@ -604,6 +605,12 @@ def ensure_compose_services(build: bool = False) -> bool:
         # Race recovery: another process may have started services concurrently
         if _services_healthy():
             success("Gateway is healthy (started by another process)")
+            ctx = get_context()
+            orchestrator_url = f"http://localhost:{ctx.orchestrator_port}/api/v1/health"
+            if _wait_for_health(orchestrator_url, "Orchestrator", timeout=30):
+                success("Orchestrator is healthy")
+            else:
+                warn("Orchestrator not healthy — continuing without it")
             return True
         return False
 
