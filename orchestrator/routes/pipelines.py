@@ -1277,6 +1277,68 @@ def _commit_statefiles_to_worktree(
     )
 
 
+def _ensure_contract_in_worktree(
+    pipeline_id: str,
+    pipeline: "Pipeline",
+    worktree_repo_path: Path,
+    phase: str,
+) -> None:
+    """Ensure the SDLC contract exists in the worktree.
+
+    Agent ``git checkout -b egg/... origin/main`` in a prior phase may
+    have switched the working tree to a branch that doesn't have the
+    ``.egg-state/contracts/`` file, since the contract was only committed
+    to the worktree's initial temp branch.
+
+    If the contract is missing, a minimal contract is recreated.  This is
+    sufficient for dispatch coordination and completion signal handling.
+    Prior phase state (agent outputs, task breakdowns) is not needed
+    because orchestration state is re-initialized separately and phase
+    handoff data is persisted via ``save_agent_output()``.
+
+    No-op when the contract already exists on disk.
+    """
+    from egg_contracts.loader import contract_exists, create_contract, create_local_contract
+
+    pipeline_mode = getattr(pipeline, "mode", "issue")
+    contract_key: int | str = (
+        pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
+    )
+
+    if contract_exists(contract_key, worktree_repo_path):
+        return
+
+    logger.info(
+        "Recreating contract in worktree for phase",
+        pipeline_id=pipeline_id,
+        phase=phase,
+        contract_key=contract_key,
+    )
+
+    if pipeline_mode == "local":
+        create_local_contract(
+            pipeline_id=str(contract_key),
+            title=(pipeline.prompt or "")[:100],
+            repo_root=worktree_repo_path,
+        )
+    else:
+        if pipeline.issue_number is None:
+            logger.error(
+                "Cannot recreate contract: issue-mode pipeline has no issue_number",
+                pipeline_id=pipeline_id,
+            )
+            # Fall through — dispatcher will raise ContractNotFoundError
+            # which is handled by the existing catch in the completion handler
+        else:
+            issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
+            create_contract(
+                issue_number=pipeline.issue_number,
+                title=f"Issue #{pipeline.issue_number}",
+                url=issue_url,
+                repo_root=worktree_repo_path,
+            )
+
+
 def _build_phase_prompt(
     phase: str,
     pipeline_id: str,
@@ -1978,50 +2040,9 @@ def _run_multi_agent_phase(
 
         return exit_code, container_logs
 
-    # Ensure contract exists in the worktree.  Agent git checkout in a
-    # prior phase (e.g. `git checkout -b egg/... origin/main`) may have
-    # switched the working tree to a branch that doesn't have the
-    # .egg-state/contracts/ file, since the contract was only committed
-    # to the worktree's initial temp branch.
-    #
-    # The recreated contract is intentionally minimal — it's used only for
-    # dispatch coordination in the upcoming multi-agent phase.  Prior phase
-    # state (agent outputs, task breakdowns, metadata) is not needed here
-    # because orchestration state is re-initialized below via
-    # initialize_orchestration(), and phase handoff data is persisted
-    # separately via save_agent_output().
-    from egg_contracts.loader import contract_exists, create_contract, create_local_contract
-
-    contract_key: int | str = pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
-    if not contract_exists(contract_key, worktree_repo_path):
-        logger.warning(
-            "Contract missing from worktree, recreating for multi-agent phase",
-            pipeline_id=pipeline_id,
-            phase=phase,
-            contract_key=contract_key,
-        )
-        if pipeline_mode == "local":
-            create_local_contract(
-                pipeline_id=str(contract_key),
-                title=(pipeline.prompt or "")[:100],
-                repo_root=worktree_repo_path,
-            )
-        else:
-            if pipeline.issue_number is None:
-                logger.error(
-                    "Cannot recreate contract: issue-mode pipeline has no issue_number",
-                    pipeline_id=pipeline_id,
-                )
-                # Fall through — dispatcher will raise ContractNotFoundError
-                # which is handled by the existing catch in the completion handler
-            else:
-                issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
-                create_contract(
-                    issue_number=pipeline.issue_number,
-                    title=f"Issue #{pipeline.issue_number}",
-                    url=issue_url,
-                    repo_root=worktree_repo_path,
-                )
+    # Ensure contract exists (may have been lost to a prior-phase git
+    # checkout).  This is a no-op if the contract is already on disk.
+    _ensure_contract_in_worktree(pipeline_id, pipeline, worktree_repo_path, phase)
 
     # Create dispatcher and executor.
     # The contract's orchestration state defaults to implement-phase roles
@@ -2915,6 +2936,26 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # and HITL waiting time from the phase duration).
                 phase_execution.work_started_at = datetime.utcnow()
                 store.save_pipeline(pipeline)
+
+                # Ensure the contract exists before spawning agents.
+                # The agent in a prior phase may have done
+                # ``git checkout -b egg/... origin/main``, switching to a
+                # branch that doesn't have the contract (it was only on the
+                # temp branch).  Without this, single-agent CODER completion
+                # signals trigger "Contract not found" warnings.
+                # Refine uses REFINER (no contract mapping), so skip it.
+                if current_phase.value != "refine":
+                    try:
+                        _ensure_contract_in_worktree(
+                            pipeline_id, pipeline, worktree_repo_path, current_phase.value,
+                        )
+                    except Exception as contract_err:
+                        logger.warning(
+                            "Failed to ensure contract in worktree (non-fatal)",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase.value,
+                            error=str(contract_err),
+                        )
 
                 # 1. Spawn worker(s)
                 # Use multi-agent wave-based execution when enabled for
