@@ -5,7 +5,7 @@
   "branch": "egg/issue-659",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "awaiting_human",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -166,7 +166,7 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "complete",
+      "status": "awaiting_human",
       "started_at": "2026-02-15T04:42:41.946239",
       "completed_at": "2026-02-15T05:37:15.065119",
       "containers": [
@@ -486,9 +486,9 @@
     }
   ],
   "created_at": "2026-02-15T04:15:52.670515",
-  "updated_at": "2026-02-15T05:37:15.157006",
+  "updated_at": "2026-02-15T05:37:15.176302",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 54
+  "version": 55
 }
