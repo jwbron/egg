@@ -305,7 +305,7 @@
           "conflicts": []
         }
       ],
-      "review_cycles": 0,
+      "review_cycles": 1,
       "hitl_review_cycles": 0,
       "artifacts": {},
       "error": null
@@ -328,9 +328,9 @@
     }
   ],
   "created_at": "2026-02-15T04:15:52.670515",
-  "updated_at": "2026-02-15T05:02:52.160931",
+  "updated_at": "2026-02-15T05:02:54.096452",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 37
+  "version": 38
 }
