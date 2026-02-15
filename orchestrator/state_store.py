@@ -22,10 +22,11 @@ import shutil
 import subprocess
 import threading
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar, Generator
+from typing import Any, ClassVar
 
 from models import Pipeline, PipelineStatus
 from pydantic import ValidationError
@@ -108,7 +109,7 @@ class StateStore:
     # hold the lock while inner _run_git calls re-enter without deadlocking.
     # fcntl.flock provides cross-process serialization via the shared
     # filesystem — threading locks only protect within a single process.
-    _thread_lock = threading.RLock()
+    _thread_lock: ClassVar[threading.RLock] = threading.RLock()
     _flock_fds: ClassVar[dict[str, int]] = {}
     _flock_depth: ClassVar[int] = 0  # nesting depth, protected by _thread_lock
 

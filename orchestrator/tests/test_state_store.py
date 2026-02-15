@@ -4,6 +4,7 @@ Tests for state store.
 Note: Git operations are mocked since git init is not available in the sandbox.
 """
 
+import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -712,6 +713,8 @@ class TestRunGitLocking:
     def reset_flock_state(self):
         yield
         StateStore._flock_depth = 0
+        for fd in StateStore._flock_fds.values():
+            os.close(fd)
         StateStore._flock_fds.clear()
 
     def test_retry_succeeds_after_index_lock_error(self, tmp_path):
@@ -841,8 +844,6 @@ class TestRunGitLocking:
         pipeline = Pipeline(id="issue-100", issue_number=100, repo="test/repo", branch="egg/test")
 
         depth_during_calls = []
-
-        original_run = subprocess.run
 
         def tracking_run(*args, **kwargs):
             # Record the flock nesting depth during each subprocess call.
