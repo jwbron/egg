@@ -161,6 +161,9 @@ def get_current_phase(pipeline_id: str) -> tuple[Response, int]:
                     "started_at": phase_execution.started_at.isoformat()
                     if phase_execution.started_at
                     else None,
+                    "work_started_at": phase_execution.work_started_at.isoformat()
+                    if phase_execution.work_started_at
+                    else None,
                     "completed_at": phase_execution.completed_at.isoformat()
                     if phase_execution.completed_at
                     else None,
@@ -258,6 +261,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         target_execution = pipeline.get_phase_execution(target_phase)
         target_execution.status = PipelineStatus.RUNNING
         target_execution.started_at = datetime.utcnow()
+        target_execution.work_started_at = datetime.utcnow()
 
         # Save updated pipeline with optimistic locking
         store.save_pipeline(pipeline, expected_version=original_version)
@@ -329,6 +333,7 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
 
         phase_execution.status = PipelineStatus.RUNNING
         phase_execution.started_at = datetime.utcnow()
+        phase_execution.work_started_at = datetime.utcnow()
         pipeline.status = PipelineStatus.RUNNING
 
         store.save_pipeline(pipeline, expected_version=original_version)

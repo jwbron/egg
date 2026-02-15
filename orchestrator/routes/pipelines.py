@@ -2911,6 +2911,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 phase_execution = pipeline.get_phase_execution(current_phase)
                 review_cycle = phase_execution.review_cycles
 
+                # Record when actual agent work begins (excludes sandbox setup
+                # and HITL waiting time from the phase duration).
+                phase_execution.work_started_at = datetime.utcnow()
+                store.save_pipeline(pipeline)
+
                 # 1. Spawn worker(s)
                 # Use multi-agent wave-based execution when enabled for
                 # implement and plan phases; single-CODER path otherwise.
@@ -3718,6 +3723,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 prev_status = phase_execution.status.value
                 phase_execution.status = PipelineStatus.PENDING
                 phase_execution.started_at = None
+                phase_execution.work_started_at = None
                 phase_execution.completed_at = None
                 phase_execution.error = None
                 phase_execution.review_cycles = 0

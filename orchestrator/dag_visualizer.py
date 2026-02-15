@@ -298,7 +298,8 @@ def render_pipeline_dag(
             status = phase_exec.status
             review_cycles = phase_exec.review_cycles
             agents = phase_exec.agents
-            duration = _format_duration(phase_exec.started_at, phase_exec.completed_at)
+            work_start = phase_exec.work_started_at or phase_exec.started_at
+            duration = _format_duration(work_start, phase_exec.completed_at)
         else:
             status = PipelineStatus.PENDING
             review_cycles = 0
@@ -362,9 +363,12 @@ def render_phase_detail(
 
     if phase_exec.started_at:
         lines.append(f"Started: {phase_exec.started_at.isoformat()}")
+    if phase_exec.work_started_at:
+        lines.append(f"Work started: {phase_exec.work_started_at.isoformat()}")
     if phase_exec.completed_at:
         lines.append(f"Completed: {phase_exec.completed_at.isoformat()}")
-        duration = _format_duration(phase_exec.started_at, phase_exec.completed_at)
+        work_start = phase_exec.work_started_at or phase_exec.started_at
+        duration = _format_duration(work_start, phase_exec.completed_at)
         lines.append(f"Duration: {duration}")
 
     if phase_exec.error:
