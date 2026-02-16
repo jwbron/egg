@@ -712,7 +712,7 @@ class TestImplementPhaseReviewed:
     the implement phase now runs:
     1. Worker (CODER)
     2. Checker (CHECKER) — runs tests/lint
-    3. Multi-reviewer loop (unified, agent-design, code, contract)
+    3. Multi-reviewer loop (code, contract for implement; refine, agent-design for refine)
     """
 
     def test_implement_phase_gets_reviewed(self, orchestrator_url: str) -> None:
@@ -955,7 +955,7 @@ class TestReviewCycleEdgeCases:
     def test_reviewer_mixed_verdict_handled(self, orchestrator_url: str) -> None:
         """Pipeline handles mixed verdicts (some approve, some reject).
 
-        Uses REVIEWER_MIXED_VERDICT prompt keyword where first reviewer (unified)
+        Uses REVIEWER_MIXED_VERDICT prompt keyword where first reviewer (code)
         approves but other reviewers request revision. The pipeline should
         follow its configured policy (majority or consensus) for handling
         mixed verdicts.

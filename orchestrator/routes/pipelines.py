@@ -983,7 +983,8 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
             "dependency ordering, risk assessment, and test strategy. Agent-mode "
             "design alignment is handled by another reviewer."
         )
-    return ""
+    else:
+        raise ValueError(f"Unknown reviewer type: {reviewer_type}")
 
 
 def _verdict_path_for_type(
@@ -995,8 +996,8 @@ def _verdict_path_for_type(
 ) -> str:
     """Return the relative verdict file path for a given reviewer type.
 
-    For issue mode, uses issue number as prefix (e.g., 123-refine-unified-review.json).
-    For local mode, uses pipeline_id as prefix (e.g., local-abc12345-refine-unified-review.json).
+    For issue mode, uses issue number as prefix (e.g., 123-implement-code-review.json).
+    For local mode, uses pipeline_id as prefix (e.g., local-abc12345-refine-refine-review.json).
     """
     if pipeline_mode == "local":
         prefix = pipeline_id if pipeline_id else "local"
@@ -3437,6 +3438,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Determine last_reviewed_commit for delta reviews.
                 # If this is a re-review (cycle > 0), use the commit_sha
                 # from the current cycle's start as the baseline.
+                # Note: review_cycle is 0-indexed here; _build_review_prompt
+                # receives _review_cycle + 1 (1-indexed), so cycle > 0 here
+                # corresponds to review_cycle > 1 in the prompt builder.
                 _last_reviewed_commit: str | None = None
                 if review_cycle > 0 and phase_execution.cycle_timings:
                     current_timing = phase_execution.cycle_timings[-1]
