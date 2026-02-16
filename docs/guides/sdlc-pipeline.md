@@ -265,7 +265,6 @@ The contract tracks per-reviewer verdicts for debugging:
 ```json
 {
   "implement_reviewer_verdicts": {
-    "unified": "approved",
     "contract": "needs_revision",
     "code": "approved"
   }
@@ -319,13 +318,11 @@ The refine and plan phases include an automated internal review step before huma
 │   ├── {identifier}-analysis.md     # Refine phase draft
 │   └── {identifier}-plan.md         # Plan phase draft
 └── reviews/
-    ├── {identifier}-refine-review.json       # Unified review verdict
-    ├── {identifier}-refine-agent-design.json # Agent-design review verdict
-    ├── {identifier}-plan-review.json         # Unified review verdict
-    ├── {identifier}-plan-plan.json           # Plan review verdict
-    ├── {identifier}-implement-review.json    # Unified review verdict
-    ├── {identifier}-implement-contract.json
-    └── {identifier}-implement-code.json
+    ├── {identifier}-refine-refine-review.json        # Refine review verdict
+    ├── {identifier}-refine-agent-design-review.json   # Agent-design review verdict
+    ├── {identifier}-plan-plan-review.json             # Plan review verdict
+    ├── {identifier}-implement-code-review.json        # Code review verdict
+    └── {identifier}-implement-contract-review.json    # Contract review verdict
 ```
 
 **Review Verdict JSON Schema:**
