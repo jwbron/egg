@@ -1,32 +1,97 @@
 #!/usr/bin/env bash
-# Generate comprehensive onboarding documentation for a repository
-# by running the onboarding doc prompt through the SDLC pipeline.
+# Generate index-based onboarding documentation for a repository
+# by reading the documentation standard from shared/prompts/ and
+# delegating to egg-sdlc --prompt.
 #
 # Usage:
 #     egg-onboarding-docs <repo_dir>
-#     egg-onboarding-docs egg
-#
-# This is a thin wrapper around egg-sdlc --prompt.
+#     egg-onboarding-docs --dry-run <repo_dir>
+#     egg-onboarding-docs --scope "src/api/**" <repo_dir>
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-PROMPT="Generate comprehensive onboarding documentation for this repository. \
-Survey the codebase structure, identify key components, and create documentation \
-that helps new contributors understand the project."
+# Locate the prompt file (shared/prompts/ relative to the egg repo)
+PROMPT_FILE=""
+for candidate in \
+    "${EGG_REPO_PATH:-}/shared/prompts/onboarding-docs-prompt.md" \
+    "$HOME/repos/egg/shared/prompts/onboarding-docs-prompt.md" \
+    "$SCRIPT_DIR/../../shared/prompts/onboarding-docs-prompt.md"; do
+    if [ -f "$candidate" ]; then
+        PROMPT_FILE="$candidate"
+        break
+    fi
+done
+
+if [ -z "$PROMPT_FILE" ]; then
+    echo "Error: cannot find shared/prompts/onboarding-docs-prompt.md" >&2
+    echo "Set EGG_REPO_PATH or ensure ~/repos/egg/ exists." >&2
+    exit 1
+fi
+
+# --- Parse arguments ---
+dry_run=false
+scope=""
 
 usage() {
-    echo "Usage: egg-onboarding-docs <repo_dir>"
-    echo ""
-    echo "  repo_dir   Directory name under ~/repos/ (e.g. 'egg')"
-    echo ""
-    echo "Runs egg-sdlc in local mode with a documentation prompt."
-    exit 1
+    cat <<EOF
+Usage: egg-onboarding-docs [OPTIONS] <repo_dir>
+
+Generate index-based onboarding documentation for a repository.
+
+Arguments:
+  repo_dir              Directory name under ~/repos/ (e.g. 'egg')
+
+Options:
+  --dry-run             Survey and report without creating files or a PR
+  --scope <pattern>     Limit documentation to files matching the pattern
+                        (e.g. "src/api/**", "lib/")
+  -h, --help            Show this help message
+
+Prompt file: shared/prompts/onboarding-docs-prompt.md
+Override:    Place .egg/onboarding-rules.md in the target repo
+
+Examples:
+  egg-onboarding-docs my-project
+  egg-onboarding-docs --dry-run my-project
+  egg-onboarding-docs --scope "src/**" my-project
+EOF
+    exit 0
 }
 
-if [ $# -ne 1 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-    usage
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help)
+            usage
+            ;;
+        --dry-run)
+            dry_run=true
+            shift
+            ;;
+        --scope)
+            if [ -z "${2:-}" ]; then
+                echo "Error: --scope requires a pattern argument" >&2
+                exit 1
+            fi
+            scope="$2"
+            shift 2
+            ;;
+        -*)
+            echo "Error: unknown option: $1" >&2
+            echo "Run 'egg-onboarding-docs --help' for usage." >&2
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [ $# -ne 1 ]; then
+    echo "Error: expected exactly one positional argument (repo_dir)" >&2
+    echo "Run 'egg-onboarding-docs --help' for usage." >&2
+    exit 1
 fi
 
 repo_dir="$1"
@@ -35,6 +100,52 @@ repo_path="$HOME/repos/${repo_dir}"
 if [ ! -d "$repo_path/.git" ]; then
     echo "Error: repository not found at $repo_path" >&2
     exit 1
+fi
+
+# --- Build prompt ---
+PROMPT="$(cat "$PROMPT_FILE")"
+
+# Check for repo-level override
+override_file="$repo_path/.egg/onboarding-rules.md"
+if [ -f "$override_file" ]; then
+    PROMPT="$PROMPT
+
+---
+
+## Repository-Specific Rules
+
+The following rules are defined by this repository and take precedence:
+
+$(cat "$override_file")"
+fi
+
+# Append scope constraint
+if [ -n "$scope" ]; then
+    PROMPT="$PROMPT
+
+---
+
+## Scope Constraint
+
+Only document files matching: \`$scope\`
+Skip components outside this scope."
+fi
+
+# Append dry-run instruction
+if [ "$dry_run" = true ]; then
+    PROMPT="$PROMPT
+
+---
+
+## Dry Run Mode
+
+Do NOT create any files, branches, or PRs. Instead:
+1. Survey the codebase structure
+2. List what documentation files you would create
+3. For each file, describe what it would contain (2-3 sentences)
+4. Identify any existing documentation that would be incorporated
+
+Output the survey as a markdown report."
 fi
 
 exec "$SCRIPT_DIR/egg-sdlc" -r "$repo_dir" --prompt "$PROMPT"
