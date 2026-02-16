@@ -3914,6 +3914,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 to_phase=next_phase.value,
             )
 
+    except PipelineNotFoundError:
+        # Pipeline was deleted while execution was in progress — exit gracefully
+        logger.info(
+            "Pipeline was deleted during execution, exiting",
+            pipeline_id=pipeline_id,
+        )
     except Exception as e:
         logger.error(
             "Pipeline execution failed", pipeline_id=pipeline_id, error=str(e), exc_info=True
