@@ -240,19 +240,18 @@ The orchestrator runs multiple specialized reviewers in parallel, with phase-spe
 | Phase | Reviewers | Focus |
 |-------|-----------|-------|
 | **Refine** | Refine, Agent-Design | Analysis quality, agent-mode alignment |
-| **Plan** | Unified, Plan | Plan quality, plan-specific criteria |
-| **Implement** | Unified, Contract, Code | Quality, contract, security |
+| **Plan** | Plan | Plan quality, task breakdown, alignment with analysis |
+| **Implement** | Contract, Code | Contract fulfillment, security, correctness |
 
 **Specialized Reviewers:**
 
 | Reviewer | Focus |
 |----------|-------|
-| **Unified** | Phase-specific quality criteria (general) |
 | **Refine** | Analysis quality, research depth, options evaluation |
-| **Plan** | Task breakdown, dependencies, test strategy |
+| **Plan** | Task breakdown, dependencies, test strategy, alignment with analysis |
 | **Agent-Design** | Agent-mode design alignment (anti-patterns) |
 | **Contract** | Task completion, acceptance criteria |
-| **Code** | Security, correctness, robustness |
+| **Code** | Security, correctness, robustness, testing, documentation |
 
 **Verdict Aggregation:**
 - All reviewers run in parallel
@@ -266,7 +265,6 @@ The contract tracks per-reviewer verdicts for debugging:
 ```json
 {
   "implement_reviewer_verdicts": {
-    "unified": "approved",
     "contract": "needs_revision",
     "code": "approved"
   }
@@ -320,19 +318,17 @@ The refine and plan phases include an automated internal review step before huma
 │   ├── {identifier}-analysis.md     # Refine phase draft
 │   └── {identifier}-plan.md         # Plan phase draft
 └── reviews/
-    ├── {identifier}-refine-review.json       # Unified review verdict
-    ├── {identifier}-refine-agent-design.json # Agent-design review verdict
-    ├── {identifier}-plan-review.json         # Unified review verdict
-    ├── {identifier}-plan-plan.json           # Plan review verdict
-    ├── {identifier}-implement-review.json    # Unified review verdict
-    ├── {identifier}-implement-contract.json
-    └── {identifier}-implement-code.json
+    ├── {identifier}-refine-refine-review.json        # Refine review verdict
+    ├── {identifier}-refine-agent-design-review.json   # Agent-design review verdict
+    ├── {identifier}-plan-plan-review.json             # Plan review verdict
+    ├── {identifier}-implement-code-review.json        # Code review verdict
+    └── {identifier}-implement-contract-review.json    # Contract review verdict
 ```
 
 **Review Verdict JSON Schema:**
 ```json
 {
-  "reviewer": "unified" | "agent-design" | "contract" | "code",
+  "reviewer": "refine" | "plan" | "agent-design" | "contract" | "code",
   "verdict": "approved" | "needs_revision",
   "summary": "Brief summary of findings",
   "feedback": "Detailed feedback (empty if approved)",

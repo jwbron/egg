@@ -148,12 +148,10 @@ Reviewers run as a separate step after workers complete in refine, plan, and imp
 - **Agent Design Reviewer**: Agent-mode alignment and anti-patterns
 
 **Plan Phase:**
-- **Unified Reviewer**: Plan quality, task structure, acceptance criteria
-- **Plan Reviewer**: Plan-specific quality (task breakdown, dependencies, test strategy)
+- **Plan Reviewer**: Plan quality, task breakdown, dependencies, test strategy, alignment with analysis
 
 **Implement Phase:**
-- **Unified Reviewer**: Comprehensive review across all criteria
-- **Code Reviewer**: Security, correctness, code quality
+- **Code Reviewer**: Security, correctness, code quality, testing, documentation
 - **Contract Reviewer**: Verify acceptance criteria met, task completion status
 
 **Execution model**: Reviewers always run as a separate step after all workers (and checkers, if applicable) complete. They spawn in parallel with a configurable concurrency limit (`max_parallel_agents`). In implement phase, reviewers run after the integrator completes. In plan phase, reviewers run after the task planner and risk analyst complete. In refine phase, reviewers run after the refiner completes.
