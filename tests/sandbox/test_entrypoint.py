@@ -286,8 +286,9 @@ class TestSetupClaude:
     @patch.object(entrypoint, "chown_recursive")
     @patch("os.chown")
     @patch("os.chmod")
+    @patch("shutil.which", return_value="/usr/local/bin/claude")
     def test_handles_ebusy_with_fallback(
-        self, mock_chmod, mock_chown, mock_chown_recursive, temp_dir, capsys
+        self, mock_which, mock_chmod, mock_chown, mock_chown_recursive, temp_dir, capsys
     ):
         """Test that EBUSY error falls back to direct file write."""
         import errno
@@ -330,7 +331,10 @@ class TestSetupClaude:
     @patch.object(entrypoint, "chown_recursive")
     @patch("os.chown")
     @patch("os.chmod")
-    def test_normal_atomic_write(self, mock_chmod, mock_chown, mock_chown_recursive, temp_dir):
+    @patch("shutil.which", return_value="/usr/local/bin/claude")
+    def test_normal_atomic_write(
+        self, mock_which, mock_chmod, mock_chown, mock_chown_recursive, temp_dir
+    ):
         """Test normal atomic write path works."""
         # Set up directories
         claude_dir = temp_dir / ".claude"
@@ -524,15 +528,25 @@ class TestSetupAgentRules:
 
     @patch("os.lchown")
     @patch("os.chown")
-    def test_includes_all_rules_in_any_session(self, mock_chown, mock_lchown, temp_dir, monkeypatch):
+    def test_includes_all_rules_in_any_session(
+        self, mock_chown, mock_lchown, temp_dir, monkeypatch
+    ):
         """All rules including CLI tools are included regardless of pipeline mode."""
         monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
 
         # Create mock rules directory
         rules_dir = temp_dir / "opt-claude-rules"
         rules_dir.mkdir()
-        all_rules = ["mission.md", "environment.md", "code-standards.md", "test-workflow.md",
-                      "pr-descriptions.md", "orchestrator.md", "contract.md", "checkpoint.md"]
+        all_rules = [
+            "mission.md",
+            "environment.md",
+            "code-standards.md",
+            "test-workflow.md",
+            "pr-descriptions.md",
+            "orchestrator.md",
+            "contract.md",
+            "checkpoint.md",
+        ]
         for f in all_rules:
             (rules_dir / f).write_text(f"# {f} content")
 
@@ -573,9 +587,16 @@ class TestSetupAgentRules:
 
         rules_dir = temp_dir / "opt-claude-rules"
         rules_dir.mkdir()
-        core_rules = ["mission.md", "environment.md", "code-standards.md",
-                       "test-workflow.md", "pr-descriptions.md", "orchestrator.md",
-                       "contract.md", "checkpoint.md"]
+        core_rules = [
+            "mission.md",
+            "environment.md",
+            "code-standards.md",
+            "test-workflow.md",
+            "pr-descriptions.md",
+            "orchestrator.md",
+            "contract.md",
+            "checkpoint.md",
+        ]
         for f in core_rules:
             (rules_dir / f).write_text(f"## {f} marker")
 
@@ -615,7 +636,9 @@ class TestSetupAgentRules:
 
     @patch("os.lchown")
     @patch("os.chown")
-    def test_missing_optional_rule_file_skipped(self, mock_chown, mock_lchown, temp_dir, monkeypatch):
+    def test_missing_optional_rule_file_skipped(
+        self, mock_chown, mock_lchown, temp_dir, monkeypatch
+    ):
         """Missing individual rule files are gracefully skipped."""
         monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
 

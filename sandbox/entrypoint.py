@@ -721,6 +721,15 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
 
 def setup_claude(config: Config, logger: Logger) -> None:
     """Set up Claude CLI configuration."""
+    # Verify Claude Code CLI is installed
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        expected = config.user_home / ".local" / "bin" / "claude"
+        logger.error(f"Claude Code CLI not found in PATH (expected at {expected})")
+        logger.error("  Rebuild the sandbox image: egg --reset")
+        sys.exit(1)
+    logger.success(f"Claude Code CLI found: {claude_bin}")
+
     # Create directories
     config.claude_dir.mkdir(parents=True, exist_ok=True)
     (config.claude_dir / "commands").mkdir(exist_ok=True)

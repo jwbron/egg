@@ -6,6 +6,8 @@ For programmatic mode, use llm.claude.runner directly.
 """
 
 import os
+import shutil
+import sys
 
 
 def run_interactive() -> None:
@@ -20,7 +22,15 @@ def run_interactive() -> None:
         # Use environment defaults (API key or OAuth)
         run_interactive()
     """
-    cmd = ["claude", "--dangerously-skip-permissions", "--model", "opus"]
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        print(
+            "[llm] ERROR: 'claude' not found in PATH. Rebuild the sandbox image with: egg --reset",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    cmd = [claude_bin, "--dangerously-skip-permissions", "--model", "opus"]
 
     # Set up environment for Claude
     env = os.environ.copy()
