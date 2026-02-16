@@ -34,6 +34,15 @@
 - Missing or incorrect abstractions
 - Tight coupling that will hinder future changes
 
+**Testing**:
+- Are there tests for new functionality?
+- Do existing tests still pass?
+- Are edge cases covered?
+
+**Documentation**:
+- Are significant changes documented?
+- Are public API changes reflected in docs?
+
 ### How to Review
 
 1. **Examine every changed file systematically**. Do not skim.

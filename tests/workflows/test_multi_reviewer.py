@@ -21,10 +21,8 @@ class TestReviewVerdictAggregation:
     def test_all_approved_results_in_approved(self):
         """When all reviewers approve, the aggregate verdict is approved."""
         verdicts = {
-            "unified": "approved",
-            "agent-design": "approved",
-            "contract": "approved",
             "code": "approved",
+            "contract": "approved",
         }
 
         overall = aggregate_verdicts(verdicts)
@@ -33,10 +31,8 @@ class TestReviewVerdictAggregation:
     def test_any_needs_revision_results_in_needs_revision(self):
         """When any reviewer needs revision, the aggregate verdict is needs_revision."""
         verdicts = {
-            "unified": "approved",
-            "agent-design": "needs_revision",  # One needs revision
-            "contract": "approved",
             "code": "approved",
+            "contract": "needs_revision",  # One needs revision
         }
 
         overall = aggregate_verdicts(verdicts)
@@ -45,10 +41,8 @@ class TestReviewVerdictAggregation:
     def test_multiple_needs_revision_results_in_needs_revision(self):
         """When multiple reviewers need revision, the aggregate is needs_revision."""
         verdicts = {
-            "unified": "needs_revision",
-            "agent-design": "needs_revision",
-            "contract": "approved",
             "code": "needs_revision",
+            "contract": "needs_revision",
         }
 
         overall = aggregate_verdicts(verdicts)
@@ -57,7 +51,7 @@ class TestReviewVerdictAggregation:
     def test_unknown_verdict_treated_as_approved(self):
         """Unknown verdicts should not block (treated as approved)."""
         verdicts = {
-            "unified": "approved",
+            "code": "approved",
             "agent-design": "unknown",  # Unknown verdict
             "contract": "approved",
         }
@@ -68,7 +62,7 @@ class TestReviewVerdictAggregation:
     def test_missing_verdict_tracked_separately(self):
         """Missing verdicts should be tracked but not block."""
         verdicts = {
-            "unified": "approved",
+            "code": "approved",
             "agent-design": "missing",  # Reviewer didn't produce output
             "contract": "approved",
         }
@@ -124,34 +118,32 @@ class TestPhaseBasedReviewerDefaults:
     """Tests for phase-specific reviewer configurations."""
 
     def test_refine_phase_reviewers(self):
-        """Refine phase should use unified + agent-design reviewers."""
+        """Refine phase should use refine + agent-design reviewers."""
         reviewers = get_default_reviewers("refine")
 
         names = [r["name"] for r in reviewers]
-        assert "unified" in names
+        assert "refine" in names
         assert "agent-design" in names
         assert "contract" not in names
         assert "code" not in names
 
     def test_plan_phase_reviewers(self):
-        """Plan phase should use unified + agent-design reviewers."""
+        """Plan phase should use plan reviewer only."""
         reviewers = get_default_reviewers("plan")
 
         names = [r["name"] for r in reviewers]
-        assert "unified" in names
-        assert "agent-design" in names
+        assert "plan" in names
         assert "contract" not in names
         assert "code" not in names
 
     def test_implement_phase_reviewers(self):
-        """Implement phase should use all four reviewers."""
+        """Implement phase should use code + contract reviewers."""
         reviewers = get_default_reviewers("implement")
 
         names = [r["name"] for r in reviewers]
-        assert "unified" in names
-        assert "agent-design" in names
-        assert "contract" in names
         assert "code" in names
+        assert "contract" in names
+        assert "unified" not in names
 
     def test_reviewers_have_valid_names(self):
         """Each reviewer should have a valid name."""
@@ -170,7 +162,7 @@ class TestReviewerFailureHandling:
         """Failed reviewers should be tracked in output."""
         # Simulate a scenario where one reviewer job failed
         verdicts = {
-            "unified": "approved",
+            "code": "approved",
             "agent-design": "missing",  # Job failed
             "contract": "approved",
         }
@@ -181,7 +173,7 @@ class TestReviewerFailureHandling:
     def test_successful_with_missing_not_failed(self):
         """Missing verdict with successful job result is not a failure."""
         verdicts = {
-            "unified": "approved",
+            "code": "approved",
             "agent-design": "missing",  # Didn't produce file but job succeeded
         }
 
@@ -192,7 +184,7 @@ class TestReviewerFailureHandling:
     def test_failure_does_not_block_aggregation(self):
         """Reviewer failures should not block verdict aggregation."""
         verdicts = {
-            "unified": "approved",
+            "code": "approved",
             "agent-design": "missing",  # Failed/missing
             "contract": "needs_revision",
         }
@@ -211,10 +203,8 @@ class TestPerReviewerStateTracking:
             "current_phase": "implement",
             "implement_review_cycles": 1,
             "implement_reviewer_verdicts": {
-                "unified": "approved",
-                "agent-design": "approved",
-                "contract": "needs_revision",
                 "code": "approved",
+                "contract": "needs_revision",
             },
         }
 
@@ -227,23 +217,20 @@ class TestPerReviewerStateTracking:
         contract = {
             "current_phase": "implement",
             "refine_reviewer_verdicts": {
-                "unified": "approved",
+                "refine": "approved",
                 "agent-design": "approved",
             },
             "plan_reviewer_verdicts": {
-                "unified": "approved",
-                "agent-design": "needs_revision",
+                "plan": "approved",
             },
             "implement_reviewer_verdicts": {
-                "unified": "approved",
-                "agent-design": "approved",
-                "contract": "approved",
                 "code": "approved",
+                "contract": "approved",
             },
         }
 
-        assert contract["plan_reviewer_verdicts"]["agent-design"] == "needs_revision"
-        assert contract["implement_reviewer_verdicts"]["agent-design"] == "approved"
+        assert contract["plan_reviewer_verdicts"]["plan"] == "approved"
+        assert contract["implement_reviewer_verdicts"]["code"] == "approved"
 
 
 # Helper functions that mirror the workflow logic
@@ -289,17 +276,19 @@ def get_default_reviewers(phase: str) -> list:
     Note: Review prompts are now built by the local orchestrator
     (orchestrator/routes/pipelines.py), not by shell scripts.
     """
-    if phase in ["refine", "plan"]:
+    if phase == "refine":
         return [
-            {"name": "unified"},
+            {"name": "refine"},
             {"name": "agent-design"},
+        ]
+    elif phase == "plan":
+        return [
+            {"name": "plan"},
         ]
     elif phase == "implement":
         return [
-            {"name": "unified"},
-            {"name": "agent-design"},
-            {"name": "contract"},
             {"name": "code"},
+            {"name": "contract"},
         ]
     else:
-        return [{"name": "unified"}]
+        return [{"name": "code"}]

@@ -32,7 +32,7 @@ class AgentRole(StrEnum):
     Implement-phase roles: CODER, TESTER, DOCUMENTER, INTEGRATOR
     Plan-phase roles: ARCHITECT, TASK_PLANNER, RISK_ANALYST
     Refine-phase roles: REFINER
-    Reviewer roles: REVIEWER_UNIFIED, REVIEWER_CODE, REVIEWER_CONTRACT,
+    Reviewer roles: REVIEWER_CODE, REVIEWER_CONTRACT,
                     REVIEWER_AGENT_DESIGN, REVIEWER_REFINE, REVIEWER_PLAN
     """
 
@@ -47,7 +47,6 @@ class AgentRole(StrEnum):
     # Refine-phase roles
     REFINER = "refiner"
     # Reviewer roles
-    REVIEWER_UNIFIED = "reviewer_unified"
     REVIEWER_CODE = "reviewer_code"
     REVIEWER_CONTRACT = "reviewer_contract"
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
@@ -470,30 +469,6 @@ _REVIEWER_BLOCKED_WRITE = [
     ".egg-state/drafts/",
 ]
 
-REVIEWER_UNIFIED_ROLE = AgentRoleDefinition(
-    role=AgentRole.REVIEWER_UNIFIED,
-    description="Performs a unified review of the phase output",
-    responsibilities=[
-        "Review all changes made in this phase",
-        "Apply comprehensive review criteria",
-        "Write a structured verdict (approved/needs_revision)",
-    ],
-    # Depend on terminal roles from both implement and plan phases.
-    # build_from_roles() only adds edges for deps present in the role set,
-    # so INTEGRATOR is used for implement phase, TASK_PLANNER/RISK_ANALYST for plan.
-    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
-    file_access=FileAccessPattern(
-        allowed_read=[],
-        allowed_write=[
-            ".egg-state/reviews/",
-            ".egg-state/agent-outputs/",
-        ],
-        blocked_write=_REVIEWER_BLOCKED_WRITE,
-    ),
-    produces_outputs=["review_verdict"],
-    requires_inputs=["integration_report"],
-)
-
 REVIEWER_CODE_ROLE = AgentRoleDefinition(
     role=AgentRole.REVIEWER_CODE,
     description="Performs a comprehensive code review",
@@ -630,7 +605,6 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     # Refine-phase roles
     AgentRole.REFINER: REFINER_ROLE,
     # Reviewer roles
-    AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_ROLE,
     AgentRole.REVIEWER_CODE: REVIEWER_CODE_ROLE,
     AgentRole.REVIEWER_CONTRACT: REVIEWER_CONTRACT_ROLE,
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_ROLE,
@@ -743,12 +717,10 @@ _PHASE_ROLES: dict[str, list[AgentRole]] = {
 
 _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
     "implement": [
-        AgentRole.REVIEWER_UNIFIED,
         AgentRole.REVIEWER_CODE,
         AgentRole.REVIEWER_CONTRACT,
     ],
     "plan": [
-        AgentRole.REVIEWER_UNIFIED,
         AgentRole.REVIEWER_PLAN,
     ],
     "refine": [

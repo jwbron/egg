@@ -659,10 +659,10 @@ class TestWaveGrouping:
                     AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(
-                        role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
+                        role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING
                     ),
                     AgentExecution(
-                        role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.PENDING
+                        role=AgentRole.REVIEWER_CONTRACT, status=AgentExecutionStatus.PENDING
                     ),
                 ],
             )
@@ -680,7 +680,7 @@ class TestWaveGrouping:
         # Integrator should be on its own line (wave 3)
         assert any("integrator" in line and "coder" not in line and "reviewer" not in line for line in agent_lines)
         # Reviewers should be after integrator (wave 4)
-        assert any("reviewer_unified" in line for line in agent_lines)
+        assert any("reviewer_code" in line for line in agent_lines)
 
     def test_plan_phase_wave_order(self):
         """Agents are grouped by execution wave in plan phase."""
@@ -695,9 +695,6 @@ class TestWaveGrouping:
                     ),
                     AgentExecution(
                         role=AgentRole.RISK_ANALYST, status=AgentExecutionStatus.RUNNING
-                    ),
-                    AgentExecution(
-                        role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.PENDING
                     ),
                     AgentExecution(
                         role=AgentRole.REVIEWER_PLAN, status=AgentExecutionStatus.PENDING
@@ -715,8 +712,8 @@ class TestWaveGrouping:
         assert any("architect" in line and "planner" not in line for line in agent_lines)
         # Task planner and risk analyst together (wave 2)
         assert any("task_planner" in line and "risk_analyst" in line for line in agent_lines)
-        # Reviewers together (wave 3) — after planner agents
-        assert any("reviewer_unified" in line and "reviewer_plan" in line for line in agent_lines)
+        # Reviewer plan after planner agents (wave 3)
+        assert any("reviewer_plan" in line for line in agent_lines)
 
     def test_compute_wave_order_implement(self):
         """_compute_wave_order returns correct wave groups for implement phase."""
@@ -820,7 +817,7 @@ class TestWaveGrouping:
                         role=AgentRole.RISK_ANALYST, status=AgentExecutionStatus.COMPLETE
                     ),
                     AgentExecution(
-                        role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
+                        role=AgentRole.REVIEWER_PLAN, status=AgentExecutionStatus.RUNNING
                     ),
                 ],
             )
@@ -832,7 +829,7 @@ class TestWaveGrouping:
         # Find the line indices containing each agent type
         architect_line = next(i for i, line in enumerate(lines) if "architect" in line)
         planner_line = next(i for i, line in enumerate(lines) if "task_planner" in line)
-        reviewer_line = next(i for i, line in enumerate(lines) if "reviewer_unified" in line)
+        reviewer_line = next(i for i, line in enumerate(lines) if "reviewer_plan" in line)
 
         # Reviewer must come AFTER architect and planner
         assert reviewer_line > architect_line

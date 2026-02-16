@@ -743,87 +743,6 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
-def _get_unified_criteria(phase: str) -> str:
-    """Return unified review criteria for the given phase."""
-    if phase == "refine":
-        return (
-            "### 1. Problem Understanding\n"
-            "- Does the analysis correctly identify the core problem or feature request?\n"
-            "- Is the current behavior (if applicable) accurately described?\n"
-            "- Are the goals and desired outcomes clear?\n\n"
-            "### 2. Research Quality\n"
-            "- Has the agent explored the relevant parts of the codebase?\n"
-            "- Are existing patterns and conventions identified?\n"
-            "- Is the technical context accurate?\n\n"
-            "### 3. Options Analysis\n"
-            "- Are the options meaningfully different?\n"
-            "- Are trade-offs clearly articulated for each option?\n"
-            "- Is the reasoning logical and well-founded?\n\n"
-            "### 4. Constraints and Dependencies\n"
-            "- Are technical constraints identified (performance, compatibility, etc.)?\n"
-            "- Are dependencies on other code or systems noted?\n"
-            "- Are potential risks or complications surfaced?\n\n"
-            "### 5. Open Questions\n"
-            "- Are open questions specific enough for a human to answer?\n"
-            "- Do questions address genuine ambiguities?\n"
-            "- Are questions actionable?\n\n"
-            "### 6. Recommendation Quality\n"
-            "- Is there a clear recommended approach?\n"
-            "- Is the recommendation justified with specific reasons?\n"
-            "- Does the recommendation align with the analysis findings?\n"
-        )
-    elif phase == "plan":
-        return (
-            "### 1. Alignment with Analysis\n"
-            "- Does the plan implement the recommended approach from the analysis?\n"
-            "- Are all requirements addressed?\n"
-            "- If the plan deviates from the analysis, is the reason explained?\n\n"
-            "### 2. Task Breakdown\n"
-            "- Are tasks specific and actionable?\n"
-            "- Are tasks appropriately sized (not too large, not too granular)?\n"
-            "- Is the order of tasks logical?\n\n"
-            "### 3. Acceptance Criteria\n"
-            "- Does each task have clear, verifiable acceptance criteria?\n"
-            "- Are acceptance criteria specific (not vague)?\n"
-            "- Can the criteria be objectively verified?\n\n"
-            "### 4. Dependencies\n"
-            "- Are dependencies between tasks identified?\n"
-            "- Is the phase structure logical?\n"
-            "- Are external dependencies (libraries, APIs, etc.) noted?\n\n"
-            "### 5. Test Strategy\n"
-            "- Is there a test strategy section?\n"
-            "- Does it cover unit tests, integration tests as appropriate?\n"
-            "- Are edge cases and error scenarios considered?\n\n"
-            "### 6. Risk Assessment\n"
-            "- Are potential risks identified?\n"
-            "- Is there a rollback plan or mitigation strategy?\n"
-            "- Are technical challenges acknowledged?\n"
-        )
-    else:
-        return (
-            "### 1. Task Completion\n"
-            "- Are all tasks from the plan implemented?\n"
-            "- Does each implementation match its acceptance criteria?\n"
-            "- Are all files listed in the plan modified or created?\n\n"
-            "### 2. Code Quality\n"
-            "- Does the code follow existing patterns in the codebase?\n"
-            "- Is the code readable and maintainable?\n\n"
-            "### 3. Security\n"
-            "- Are there any injection vulnerabilities (SQL, command, XSS)?\n"
-            "- Is input validation present at trust boundaries?\n"
-            "- Are credentials properly handled (not hardcoded)?\n\n"
-            "### 4. Error Handling\n"
-            "- Are errors handled gracefully?\n"
-            "- Are failure paths considered?\n\n"
-            "### 5. Testing\n"
-            "- Are there tests for new functionality?\n"
-            "- Do existing tests still pass?\n"
-            "- Are edge cases covered?\n\n"
-            "### 6. Documentation\n"
-            "- Are significant changes documented?\n"
-        )
-
-
 def _read_shared_criteria(
     filename: str,
     user_override: str | None = None,
@@ -976,27 +895,31 @@ def _get_refine_review_criteria() -> str:
 def _get_plan_review_criteria() -> str:
     """Return review criteria for the dedicated plan reviewer."""
     return (
-        "### 1. Task Breakdown\n"
+        "### 1. Alignment with Analysis\n"
+        "- Does the plan implement the recommended approach from the analysis?\n"
+        "- If the plan deviates from the analysis, is the reason explained?\n"
+        "- Are all requirements from the analysis addressed?\n\n"
+        "### 2. Task Breakdown\n"
         "- Are tasks discrete, actionable, and properly scoped?\n"
         "- Is each task small enough to implement in a single pass?\n"
         "- Are task boundaries clear (no overlapping responsibilities)?\n\n"
-        "### 2. Acceptance Criteria\n"
+        "### 3. Acceptance Criteria\n"
         "- Does each task have clear, testable acceptance criteria?\n"
         "- Are criteria specific enough to verify completion?\n"
         "- Do criteria cover both happy path and edge cases?\n\n"
-        "### 3. Dependency Ordering\n"
+        "### 4. Dependency Ordering\n"
         "- Are task dependencies correctly identified?\n"
         "- Is the ordering logical (foundations before features)?\n"
         "- Are there opportunities for parallelism that are missed?\n\n"
-        "### 4. Risk Assessment\n"
+        "### 5. Risk Assessment\n"
         "- Are technical risks identified (security, performance, compatibility)?\n"
         "- Are mitigation strategies concrete and actionable?\n"
         "- Is the rollback plan realistic?\n\n"
-        "### 5. Test Strategy\n"
+        "### 6. Test Strategy\n"
         "- Is the test strategy appropriate for the scope of changes?\n"
         "- Are both unit and integration tests considered?\n"
         "- Are test scenarios aligned with acceptance criteria?\n\n"
-        "### 6. Completeness\n"
+        "### 7. Completeness\n"
         "- Does the plan cover all aspects of the original request?\n"
         "- Are documentation updates included where needed?\n"
         "- Are there any obvious gaps or missing tasks?\n"
@@ -1007,9 +930,7 @@ def _get_review_criteria_for_type(
     reviewer_type: str, phase: str, repo_path: str | None = None
 ) -> str:
     """Dispatch to the correct criteria function based on reviewer type."""
-    if reviewer_type == "unified":
-        return _get_unified_criteria(phase)
-    elif reviewer_type == "agent-design":
+    if reviewer_type == "agent-design":
         return _get_agent_design_criteria()
     elif reviewer_type == "code":
         return _get_code_review_criteria(repo_path=repo_path)
@@ -1020,14 +941,12 @@ def _get_review_criteria_for_type(
     elif reviewer_type == "plan":
         return _get_plan_review_criteria()
     else:
-        return _get_unified_criteria(phase)
+        raise ValueError(f"Unknown reviewer type: {reviewer_type}")
 
 
 def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
     """Return a scope preamble that tells the reviewer what to focus on."""
-    if reviewer_type == "unified":
-        return f"This is a **unified review** of the {phase} phase output."
-    elif reviewer_type == "agent-design":
+    if reviewer_type == "agent-design":
         return (
             "This is a specialized **agent-mode design review**. Focus ONLY on "
             "agent-mode design principles. Do NOT review general code quality, "
@@ -1038,7 +957,11 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
     elif reviewer_type == "code":
         return (
             "This is a **comprehensive code review**. Focus on security, correctness, "
-            "and robustness. Agent-mode design alignment is handled by another reviewer."
+            "and robustness. Agent-mode design alignment is handled by another reviewer.\n\n"
+            "**Be direct.** Do not soften feedback. State issues clearly and explain "
+            "why they matter.\n\n"
+            "**Be thorough.** Find ALL issues on the first pass. Do not stop after "
+            "identifying a few problems."
         )
     elif reviewer_type == "contract":
         return (
@@ -1060,7 +983,8 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
             "dependency ordering, risk assessment, and test strategy. Agent-mode "
             "design alignment is handled by another reviewer."
         )
-    return ""
+    else:
+        raise ValueError(f"Unknown reviewer type: {reviewer_type}")
 
 
 def _verdict_path_for_type(
@@ -1072,8 +996,8 @@ def _verdict_path_for_type(
 ) -> str:
     """Return the relative verdict file path for a given reviewer type.
 
-    For issue mode, uses issue number as prefix (e.g., 123-refine-unified-review.json).
-    For local mode, uses pipeline_id as prefix (e.g., local-abc12345-refine-unified-review.json).
+    For issue mode, uses issue number as prefix (e.g., 123-implement-code-review.json).
+    For local mode, uses pipeline_id as prefix (e.g., local-abc12345-refine-refine-review.json).
     """
     if pipeline_mode == "local":
         prefix = pipeline_id if pipeline_id else "local"
@@ -1173,11 +1097,12 @@ def _build_review_prompt(
     phase: str,
     pipeline_id: str,
     pipeline_mode: str,
-    reviewer_type: str = "unified",
+    reviewer_type: str = "code",
     issue_number: int | None = None,
     review_cycle: int = 1,
     prior_feedback: str | None = None,
     repo_path: str | None = None,
+    last_reviewed_commit: str | None = None,
 ) -> str:
     """Build a review prompt for the reviewer agent.
 
@@ -1205,22 +1130,53 @@ def _build_review_prompt(
         "## Your Task\n",
     ]
 
+    # Delta review: for re-reviews with a known last-reviewed commit,
+    # instruct the reviewer to focus on the delta.
+    is_delta_review = review_cycle > 1 and last_reviewed_commit and not draft_path
+    diff_command = (
+        f"git diff {last_reviewed_commit}..HEAD"
+        if is_delta_review
+        else "git diff HEAD~10..HEAD"
+    )
+
     if draft_path:
         lines.append(f"1. Read the draft at `{draft_path}`")
     else:
         lines.append(
-            "1. Review the implementation using `git log --oneline -10` "
-            "and `git diff HEAD~10..HEAD`"
+            f"1. Review the implementation using `git log --oneline -10` "
+            f"and `{diff_command}`"
         )
-    lines.append("2. Evaluate it against the criteria below")
-    lines.append(f"3. Write your verdict to `{verdict_path}` as JSON")
-    lines.append("4. Commit the verdict file")
+
+    # Add procedural steps for code reviewer (matching GHA reviewer thoroughness)
+    if reviewer_type == "code" and not draft_path:
+        lines.append("2. Get the full diff and **review every changed file systematically**")
+        lines.append("3. Read surrounding context — check how changed code integrates with the rest of the codebase")
+        lines.append("4. Trace data flow from input to output, especially for security-sensitive paths")
+        lines.append("5. Research when uncertain — look up library behavior, check documentation")
+        lines.append("6. Consider edge cases the author may not have tested")
+        lines.append("7. Evaluate against the criteria below")
+        lines.append(f"8. Write your verdict to `{verdict_path}` as JSON")
+        lines.append("9. Commit the verdict file")
+    else:
+        lines.append("2. Evaluate it against the criteria below")
+        lines.append(f"3. Write your verdict to `{verdict_path}` as JSON")
+        lines.append("4. Commit the verdict file")
     lines.append("")
 
     # Review criteria
     lines.append("## Review Criteria\n")
     lines.append(_get_review_criteria_for_type(reviewer_type, phase, repo_path=repo_path))
     lines.append("")
+
+    # Delta review directive for re-reviews
+    if is_delta_review:
+        lines.append("## Delta Review\n")
+        lines.append(
+            f"This is review cycle {review_cycle}. Focus on new changes since your "
+            f"last review. Use `git diff {last_reviewed_commit}..HEAD` to see the "
+            "delta. Verify prior feedback was addressed AND review new code thoroughly."
+        )
+        lines.append("")
 
     # Prior feedback for re-reviews
     if review_cycle > 1 and prior_feedback:
@@ -1270,7 +1226,7 @@ def _build_review_prompt(
 def _read_review_verdict(
     repo_path: Path,
     phase: str,
-    reviewer_type: str = "unified",
+    reviewer_type: str = "code",
     pipeline_mode: str = "local",
     issue_number: int | None = None,
     pipeline_id: str | None = None,
@@ -3129,8 +3085,30 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     # Record when actual agent work begins (excludes sandbox setup
                     # and HITL waiting time from the phase duration).
                     phase_execution.work_started_at = datetime.utcnow()
+
+                    # Capture HEAD commit for delta reviews: reviewers in
+                    # subsequent cycles can diff against this to see only
+                    # the changes made since the last review.
+                    cycle_commit_sha: str | None = None
+                    try:
+                        _git_result = subprocess.run(
+                            ["git", "rev-parse", "HEAD"],
+                            capture_output=True,
+                            text=True,
+                            cwd=str(worktree_repo_path),
+                            timeout=10,
+                        )
+                        if _git_result.returncode == 0:
+                            cycle_commit_sha = _git_result.stdout.strip()
+                    except Exception:
+                        pass  # Non-fatal — delta review is best-effort
+
                     phase_execution.cycle_timings.append(
-                        CycleTiming(cycle=review_cycle, started_at=phase_execution.work_started_at)
+                        CycleTiming(
+                            cycle=review_cycle,
+                            started_at=phase_execution.work_started_at,
+                            commit_sha=cycle_commit_sha,
+                        )
                     )
                     store.save_pipeline(pipeline)
 
@@ -3457,6 +3435,17 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         except OSError:
                             pass
 
+                # Determine last_reviewed_commit for delta reviews.
+                # If this is a re-review (cycle > 0), use the commit_sha
+                # from the current cycle's start as the baseline.
+                # Note: review_cycle is 0-indexed here; _build_review_prompt
+                # receives _review_cycle + 1 (1-indexed), so cycle > 0 here
+                # corresponds to review_cycle > 1 in the prompt builder.
+                _last_reviewed_commit: str | None = None
+                if review_cycle > 0 and phase_execution.cycle_timings:
+                    current_timing = phase_execution.cycle_timings[-1]
+                    _last_reviewed_commit = current_timing.commit_sha
+
                 # Spawn reviewers in parallel (up to max_parallel_agents)
                 from concurrent.futures import ThreadPoolExecutor
 
@@ -3470,6 +3459,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     _sandbox_env=sandbox_env,
                     _repos=repos,
                     _repo_path=worktree_repo_path,
+                    _last_commit=_last_reviewed_commit,
                 ):
                     role_str = role.value
                     rtype = role_str.replace("reviewer_", "", 1).replace("_", "-")
@@ -3482,6 +3472,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         review_cycle=_review_cycle + 1,
                         prior_feedback=_review_feedback,
                         repo_path=str(_repo_path),
+                        last_reviewed_commit=_last_commit,
                     )
                     reviewer_command = [
                         "claude",
