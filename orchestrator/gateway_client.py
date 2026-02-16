@@ -241,6 +241,7 @@ class GatewayClient:
         issue_number: int | None = None,
         pr_number: int | None = None,
         claude_code_version: str | None = None,
+        branch: str | None = None,
     ) -> SessionInfo:
         """Register a session for a container.
 
@@ -259,6 +260,7 @@ class GatewayClient:
             issue_number: Optional GitHub issue number for checkpoint linkage
             pr_number: Optional GitHub PR number for checkpoint linkage
             claude_code_version: Optional Claude Code version string
+            branch: Optional git branch for non-pushing session metadata
 
         Returns:
             SessionInfo with the created session
@@ -289,6 +291,8 @@ class GatewayClient:
             request_data["pr_number"] = pr_number
         if claude_code_version is not None:
             request_data["claude_code_version"] = claude_code_version
+        if branch is not None:
+            request_data["branch"] = branch
 
         result = self._make_request(
             "/api/v1/sessions/create",

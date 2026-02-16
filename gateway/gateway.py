@@ -2552,6 +2552,7 @@ def session_create() -> tuple[Response, int] | Response:
     pr_number = data.get("pr_number")  # Optional GitHub PR number
     agent_role = data.get("agent_role")  # Optional agent role
     claude_code_version = data.get("claude_code_version")  # Optional Claude Code version
+    branch = data.get("branch")  # Optional git branch for non-pushing sessions
 
     # Validate required fields
     if not container_id:
@@ -2711,6 +2712,7 @@ def session_create() -> tuple[Response, int] | Response:
         pr_number=pr_number,
         agent_role=agent_role,
         claude_code_version=claude_code_version,
+        branch=branch,
     )
 
     # Pre-populate checkpoint context so non-pushing sessions (reviewers,

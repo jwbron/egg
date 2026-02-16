@@ -239,6 +239,25 @@ class PRUsage(UsageAggregate):
     pipeline_phases: list[str] = Field(default_factory=list, description="Pipeline phases seen")
 
 
+class PipelineUsage(UsageAggregate):
+    """
+    Usage aggregate for an SDLC pipeline run.
+
+    Aggregates usage across all agents and phases in a pipeline,
+    with breakdowns by phase and agent type.
+    """
+
+    pipeline_id: str = Field(..., description="Pipeline run identifier")
+    issue_number: int | None = Field(default=None, ge=1, description="Associated issue number")
+    phase_breakdown: dict[str, float] = Field(
+        default_factory=dict, description="Cost breakdown by pipeline phase"
+    )
+    agent_breakdown: dict[str, float] = Field(
+        default_factory=dict, description="Cost breakdown by agent type"
+    )
+    session_ids: list[str] = Field(default_factory=list, description="Session IDs that contributed")
+
+
 class UsageIndex(BaseModel):
     """
     Index of all usage aggregates.

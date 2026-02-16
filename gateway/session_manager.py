@@ -408,6 +408,7 @@ class SessionManager:
         pipeline_id: str | None = None,
         agent_role: str | None = None,
         claude_code_version: str | None = None,
+        branch: str | None = None,
     ) -> tuple[str, Session]:
         """
         Register a new session for a container.
@@ -422,6 +423,7 @@ class SessionManager:
             pipeline_id: Optional pipeline run ID for multi-agent correlation
             agent_role: Optional agent role (e.g., "coder", "tester") for checkpoint metadata
             claude_code_version: Optional Claude Code version string
+            branch: Optional git branch for non-pushing pipeline sessions
 
         Returns:
             Tuple of (session_token, Session)
@@ -447,6 +449,9 @@ class SessionManager:
             agent_role=agent_role,
             claude_code_version=claude_code_version,
         )
+
+        if branch:
+            session.last_branch = branch
 
         with self._lock:
             self._sessions[token_hash] = session

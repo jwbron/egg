@@ -183,6 +183,7 @@ class ContainerSpawner:
         phase: str | None = None,
         command: list[str] | None = None,
         certs_volume: str | None = None,
+        branch: str | None = None,
     ) -> SpawnedContainer:
         """Spawn a container for an agent.
 
@@ -313,6 +314,7 @@ class ContainerSpawner:
                     agent_role=agent_role.value,
                     issue_number=issue_number,
                     claude_code_version=os.environ.get("CLAUDE_CODE_VERSION"),
+                    branch=branch,
                 )
                 session_token = session_info.session_token
 
