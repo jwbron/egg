@@ -656,7 +656,25 @@ The local orchestrator's decision queue (`orchestrator/decision_queue.py`):
 4. Updates contract with resolution
 5. Resumes pipeline from paused state
 
-## External Failure Handling
+## Failure Handling
+
+### Pipeline Failure Recovery
+
+When a pipeline phase fails (container exit code non-zero), the orchestrator:
+
+1. **Sets pipeline status to FAILED**: Marks the phase and pipeline as failed during phase execution
+2. **Emits failure event**: Sends `pipeline.failed` event to terminate SSE streams
+3. **Best-effort push**: Attempts to push the worktree branch to remote as a backup (using a temporary session token)
+4. **Preserves worktree**: Skips cleanup in the `finally` block so in-progress work is not lost
+
+**Restart behavior**:
+- `egg-sdlc` CLI detects failed pipelines and automatically restarts from the failed phase (preserving worktrees)
+- Orchestrator API `POST /api/v1/pipelines/{id}/start` resets the failed phase to pending and resumes execution
+- Worktrees remain intact across restarts, so agents can continue from their last commit
+
+**Implementation**: See `orchestrator/routes/pipelines.py:_run_pipeline()` and `orchestrator/gateway_client.py:push_worktree_branch()` for the failure path logic.
+
+### External Failure Handling
 
 The pipeline handles external failures gracefully:
 
