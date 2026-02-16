@@ -110,8 +110,8 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "pending",
-      "started_at": null,
+      "status": "running",
+      "started_at": "2026-02-16T23:22:08.790059",
       "work_started_at": null,
       "completed_at": null,
       "containers": [],
@@ -147,10 +147,10 @@
     }
   ],
   "created_at": "2026-02-16T23:22:08.700478",
-  "updated_at": "2026-02-16T23:22:08.700545",
+  "updated_at": "2026-02-16T23:22:08.790136",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "error": null,
-  "version": 25
+  "version": 26
 }
