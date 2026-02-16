@@ -116,6 +116,37 @@ def _total_work_seconds(phase_exec: PhaseExecution) -> int:
     return total
 
 
+def _deduplicate_agents(
+    agents: list[AgentExecution],
+) -> tuple[list[AgentExecution], dict[str, int]]:
+    """Collapse multiple runs of the same role into a single entry.
+
+    When an agent role runs multiple times (e.g., checker retries,
+    coder re-runs across review cycles), keep only the latest
+    execution per role and track the run count.
+
+    Returns:
+        Tuple of (deduplicated agent list in first-seen order,
+                  dict mapping role value to run count).
+    """
+    seen: dict[str, AgentExecution] = {}
+    counts: dict[str, int] = {}
+    order: list[str] = []
+
+    for agent in agents:
+        role_val = agent.role.value
+        if role_val not in seen:
+            order.append(role_val)
+            seen[role_val] = agent
+            counts[role_val] = 1
+        else:
+            seen[role_val] = agent
+            counts[role_val] += 1
+
+    deduped = [seen[rv] for rv in order]
+    return deduped, counts
+
+
 def _compute_wave_order(
     phase: PipelinePhase,
     agents: list[AgentExecution],
@@ -160,10 +191,30 @@ def _compute_wave_order(
         if group:
             wave_groups.append(group)
 
-    # Append any agents not in the dependency graph (e.g. generic REVIEWER)
+    # Place agents not in the dependency graph (e.g. CHECKER) in the
+    # correct visual position.  Non-reviewer agents are inserted before
+    # the first reviewer wave so that the display matches execution order
+    # (workers → checker → reviewers).  Reviewer-type agents that aren't
+    # in the graph are appended at the end.
     remaining = [a for a in agents if a.role.value not in assigned]
     if remaining:
-        wave_groups.append(remaining)
+        non_reviewer = [a for a in remaining if not a.role.value.startswith("reviewer")]
+        reviewer_rem = [a for a in remaining if a.role.value.startswith("reviewer")]
+
+        if non_reviewer:
+            # Find the first wave that is entirely reviewer agents
+            reviewer_start = None
+            for idx, group in enumerate(wave_groups):
+                if all(a.role.value.startswith("reviewer") for a in group):
+                    reviewer_start = idx
+                    break
+            if reviewer_start is not None:
+                wave_groups.insert(reviewer_start, non_reviewer)
+            else:
+                wave_groups.append(non_reviewer)
+
+        if reviewer_rem:
+            wave_groups.append(reviewer_rem)
 
     return wave_groups if wave_groups else [agents]
 
@@ -197,16 +248,24 @@ def _render_phase_box(
     # Current phase indicator
     current_marker = ">>>" if is_current else "   "
 
-    # Build optional agent info lines, grouped by execution wave
+    # Build optional agent info lines, grouped by execution wave.
+    # Agents that ran multiple times are collapsed into a single entry
+    # with a run count (e.g. "✓ checker ×2").
     agent_lines: list[str] = []
     if agents:
-        wave_groups = _compute_wave_order(phase, agents)
+        deduped_agents, run_counts = _deduplicate_agents(agents)
+        wave_groups = _compute_wave_order(phase, deduped_agents)
+        mult = "x" if use_ascii else "\u00d7"
 
         for wave in wave_groups:
             entries = []
             for agent in wave:
                 agent_symbol = _get_agent_status_symbol(agent.status, use_ascii)
-                entries.append(f"{agent_symbol} {agent.role.value}")
+                count = run_counts.get(agent.role.value, 1)
+                if count > 1:
+                    entries.append(f"{agent_symbol} {agent.role.value} {mult}{count}")
+                else:
+                    entries.append(f"{agent_symbol} {agent.role.value}")
 
             # Wrap within wave if 4+ agents (3 per line)
             if len(entries) <= 3:
@@ -429,17 +488,24 @@ def render_phase_detail(
             role = container.agent_role.value if container.agent_role else "worker"
             lines.append(f"  {c_status} {container.container_name[:20]} ({role})")
 
-    # Agent details, grouped by wave
+    # Agent details, grouped by wave.
+    # Duplicate runs of the same role are collapsed with a count.
     if phase_exec.agents:
+        deduped_agents, run_counts = _deduplicate_agents(phase_exec.agents)
         lines.append("")
-        lines.append(f"Agents ({len(phase_exec.agents)}):")
-        wave_groups = _compute_wave_order(phase, phase_exec.agents)
+        lines.append(f"Agents ({len(deduped_agents)}):")
+        wave_groups = _compute_wave_order(phase, deduped_agents)
+        mult = "x" if use_ascii else "\u00d7"
         for wave_idx, wave in enumerate(wave_groups):
             if wave_idx > 0:
                 lines.append("")  # Blank line between waves
             for agent in wave:
                 a_status = _get_agent_status_symbol(agent.status, use_ascii)
-                lines.append(f"  {a_status} {agent.role.value}")
+                count = run_counts.get(agent.role.value, 1)
+                if count > 1:
+                    lines.append(f"  {a_status} {agent.role.value} {mult}{count}")
+                else:
+                    lines.append(f"  {a_status} {agent.role.value}")
                 if agent.commit:
                     lines.append(f"      Commit: {agent.commit[:8]}")
                 if agent.error:
