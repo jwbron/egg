@@ -203,13 +203,23 @@ The pipeline creates a draft PR automatically when entering the implement phase.
 
 ### Restarting Failed Pipelines
 
-If a pipeline fails, you can restart it from the failed phase using the orchestrator API:
+When a pipeline fails, the orchestrator automatically preserves work-in-progress by:
+
+1. **Preserving worktrees**: Skips cleanup of the pipeline's isolated git worktree so work is not lost
+2. **Best-effort push**: Attempts to push the worktree branch to remote for backup (continues if push fails)
+3. **Emitting failure event**: Sends `pipeline.failed` event to terminate SSE streams
+
+You can restart a failed pipeline from the failed phase using:
 
 ```bash
+# Via egg-sdlc CLI (detects failed state and restarts automatically)
+egg-sdlc -r <repo> -i <issue_number>
+
+# Via orchestrator API
 curl -X POST http://localhost:9849/api/v1/pipelines/{pipeline-id}/start
 ```
 
-This resets the failed phase to pending, clears error state, and resumes execution from that phase. Completed and cancelled pipelines cannot be restarted.
+The restart resets the failed phase to pending, clears error state, and resumes execution from that phase with preserved worktrees intact. Completed and cancelled pipelines cannot be restarted.
 
 ### Human-in-the-Loop Checkpoints
 
