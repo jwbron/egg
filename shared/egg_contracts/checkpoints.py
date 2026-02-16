@@ -221,6 +221,7 @@ class CheckpointV2(BaseModel):
     )
     repo: str | None = Field(
         default=None,
+        pattern=r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$",
         description="Source repository in owner/repo format (e.g. 'jwbron/egg')",
     )
 
@@ -281,7 +282,11 @@ class CheckpointSummaryV2(BaseModel):
     )
     pipeline_phase: str | None = Field(default=None, description="Pipeline phase")
     pipeline_id: str | None = Field(default=None, description="Pipeline run ID")
-    repo: str | None = Field(default=None, description="Source repository (owner/repo)")
+    repo: str | None = Field(
+        default=None,
+        pattern=r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$",
+        description="Source repository (owner/repo)",
+    )
 
     # Metrics
     created_at: datetime = Field(..., description="When checkpoint was created")
