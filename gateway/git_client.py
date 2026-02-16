@@ -456,37 +456,6 @@ GIT_ALLOWED_COMMANDS = {
             "-s",
         ],
     },
-    "checkout": {
-        "allowed_flags": [
-            "--force",
-            "--ours",
-            "--theirs",
-            "--merge",
-            "--quiet",
-            "--track",
-            "--no-track",
-            "-b",
-            "-B",
-            "-f",
-            "-q",
-            "-t",
-        ],
-    },
-    "switch": {
-        "allowed_flags": [
-            "--create",
-            "--force-create",
-            "--detach",
-            "--quiet",
-            "--track",
-            "--no-track",
-            "-c",
-            "-C",
-            "-d",
-            "-q",
-            "-t",
-        ],
-    },
     "reset": {
         "allowed_flags": [
             "--soft",

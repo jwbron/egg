@@ -868,3 +868,51 @@ class TestSharedHelperFunctions:
             assert "EXISTING" in updated_env
         finally:
             git_client.cleanup_credential_helper(path)
+
+
+class TestBranchIsolation:
+    """Tests for git checkout and switch being blocked, and restore remaining available."""
+
+    def test_checkout_rejected(self):
+        """git checkout is rejected as an unknown operation."""
+        valid, error, _ = git_client.validate_git_args("checkout", ["-b", "new-branch"])
+        assert valid is False
+        assert "Unknown operation" in error
+
+    def test_checkout_no_args_rejected(self):
+        """git checkout with no args is rejected."""
+        valid, error, _ = git_client.validate_git_args("checkout", [])
+        assert valid is False
+        assert "Unknown operation" in error
+
+    def test_switch_rejected(self):
+        """git switch is rejected as an unknown operation."""
+        valid, error, _ = git_client.validate_git_args("switch", ["main"])
+        assert valid is False
+        assert "Unknown operation" in error
+
+    def test_switch_create_rejected(self):
+        """git switch --create is rejected."""
+        valid, error, _ = git_client.validate_git_args("switch", ["--create", "new-branch"])
+        assert valid is False
+        assert "Unknown operation" in error
+
+    def test_restore_staged_allowed(self):
+        """git restore --staged is still allowed."""
+        valid, error, args = git_client.validate_git_args("restore", ["--staged", "file.py"])
+        assert valid is True
+        assert error == ""
+
+    def test_restore_worktree_allowed(self):
+        """git restore --worktree is still allowed."""
+        valid, error, args = git_client.validate_git_args("restore", ["--worktree", "file.py"])
+        assert valid is True
+        assert error == ""
+
+    def test_restore_source_allowed(self):
+        """git restore --source is still allowed."""
+        valid, error, args = git_client.validate_git_args(
+            "restore", ["--source", "HEAD~1", "file.py"]
+        )
+        assert valid is True
+        assert error == ""

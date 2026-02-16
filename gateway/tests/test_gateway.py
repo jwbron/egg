@@ -2884,7 +2884,7 @@ class TestGitHookDisabling:
         # Test multiple operations to ensure the config is always present
         operations_to_test = [
             ("status", ["--porcelain"]),
-            ("checkout", ["-b", "test-branch"]),
+            ("diff", ["--name-only"]),
             ("rebase", ["--abort"]),
             ("log", ["--oneline"]),
         ]
@@ -3571,3 +3571,107 @@ class TestLocalModeBlocking:
             )
 
             assert response.status_code == 403
+
+
+class TestSessionDeleteByContainerWorktreeCleanup:
+    """Tests for DELETE /api/v1/sessions/by-container/<container_id> worktree cleanup."""
+
+    def test_session_delete_by_container_cleans_up_worktrees(
+        self, client, launcher_auth_headers
+    ):
+        """session_delete_by_container cleans up worktrees for the container."""
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.delete_session_by_container.return_value = True
+
+        mock_worktree_mgr = MagicMock()
+        mock_worktree_dir = MagicMock()
+        mock_worktree_dir.exists.return_value = True
+
+        repo1 = MagicMock()
+        repo1.is_dir.return_value = True
+        repo1.name = "repo-a"
+        repo2 = MagicMock()
+        repo2.is_dir.return_value = True
+        repo2.name = "repo-b"
+        mock_worktree_dir.iterdir.return_value = [repo1, repo2]
+
+        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(
+            return_value=mock_worktree_dir
+        )
+
+        remove_result = MagicMock()
+        remove_result.success = True
+        mock_worktree_mgr.remove_worktree.return_value = remove_result
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=mock_session_mgr),
+            patch.object(
+                gateway, "get_worktree_manager", return_value=mock_worktree_mgr
+            ),
+            patch.object(gateway, "audit_log"),
+        ):
+            response = client.delete(
+                "/api/v1/sessions/by-container/test-container-123",
+                headers=launcher_auth_headers,
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+            # Verify worktree cleanup was called for both repos
+            assert mock_worktree_mgr.remove_worktree.call_count == 2
+            mock_worktree_mgr.remove_worktree.assert_any_call(
+                container_id="test-container-123",
+                repo_name="repo-a",
+                force=True,
+            )
+            mock_worktree_mgr.remove_worktree.assert_any_call(
+                container_id="test-container-123",
+                repo_name="repo-b",
+                force=True,
+            )
+
+    def test_session_delete_by_container_no_worktrees(
+        self, client, launcher_auth_headers
+    ):
+        """session_delete_by_container succeeds when no worktree dir exists."""
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.delete_session_by_container.return_value = True
+
+        mock_worktree_mgr = MagicMock()
+        mock_worktree_dir = MagicMock()
+        mock_worktree_dir.exists.return_value = False
+        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(
+            return_value=mock_worktree_dir
+        )
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=mock_session_mgr),
+            patch.object(
+                gateway, "get_worktree_manager", return_value=mock_worktree_mgr
+            ),
+            patch.object(gateway, "audit_log"),
+        ):
+            response = client.delete(
+                "/api/v1/sessions/by-container/test-container-456",
+                headers=launcher_auth_headers,
+            )
+
+            assert response.status_code == 200
+            mock_worktree_mgr.remove_worktree.assert_not_called()
+
+    def test_session_delete_by_container_not_found(
+        self, client, launcher_auth_headers
+    ):
+        """session_delete_by_container returns 404 when session not found."""
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.delete_session_by_container.return_value = False
+
+        with patch.object(gateway, "get_session_manager", return_value=mock_session_mgr):
+            response = client.delete(
+                "/api/v1/sessions/by-container/nonexistent",
+                headers=launcher_auth_headers,
+            )
+
+            assert response.status_code == 404
