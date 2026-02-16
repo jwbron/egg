@@ -302,6 +302,10 @@ class GatewayClient:
 
         response_data = result.get("data", {})
 
+        session_token = response_data.get("session_token")
+        if not session_token:
+            raise GatewayError("Gateway response missing session_token")
+
         logger.info(
             "Session registered with gateway",
             container_id=container_id[:12] if len(container_id) >= 12 else container_id,
@@ -310,7 +314,7 @@ class GatewayClient:
         )
 
         return SessionInfo(
-            session_token=response_data["session_token"],
+            session_token=session_token,
             container_id=container_id,
             container_ip=container_ip,
             mode=mode,
@@ -588,7 +592,7 @@ class GatewayClient:
                 branch=branch,
             )
             return True
-        except (GatewayError, Exception) as e:
+        except Exception as e:
             logger.warning(
                 "Best-effort push failed (work preserved locally in worktree)",
                 pipeline_id=pipeline_id,

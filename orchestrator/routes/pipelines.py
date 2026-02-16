@@ -3608,6 +3608,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # If the phase failed, emit the failure event so the SSE stream
             # terminates, then break out of the outer loop.
             if phase_failed:
+                # report_pipeline_status is a stub (no-op) unless status_reporter
+                # is installed.  The actual SSE emission is _emit_pipeline_event
+                # below.  Kept for consistency with the except block at the
+                # bottom of this function.
                 report_pipeline_status(
                     pipeline,
                     event_type="pipeline.failed",
