@@ -376,7 +376,7 @@ For querying agent session checkpoints across multi-agent pipelines:
 | `egg-checkpoint browse --issue <n>` | Filter checkpoints by issue number |
 | `egg-checkpoint context [filters]` | Cross-agent context summary grouped by phase and agent type |
 
-**Filters**: `--issue`, `--pr`, `--pipeline`, `--session`, `--branch`, `--trigger`, `--status`, `--agent-type`, `--phase`, `--limit`, `--json`
+**Filters**: `--issue`, `--pr`, `--pipeline`, `--repo`, `--session`, `--branch`, `--trigger`, `--status`, `--agent-type`, `--phase`, `--limit`, `--json`
 
 See the [Checkpoint Access Guide](docs/guides/checkpoint-access.md) for detailed usage examples.
 
