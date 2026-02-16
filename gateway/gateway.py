@@ -2752,6 +2752,40 @@ def session_create() -> tuple[Response, int] | Response:
     )
 
 
+def _cleanup_container_worktrees(
+    container_id: str,
+) -> tuple[list[str], list[str]]:
+    """Clean up all worktrees for a container.
+
+    Returns:
+        Tuple of (deleted_repo_names, errors).
+    """
+    manager = get_worktree_manager()
+    worktree_dir = manager.worktree_base / container_id
+    deleted_worktrees: list[str] = []
+    errors: list[str] = []
+    if worktree_dir.exists():
+        for repo_dir in list(worktree_dir.iterdir()):
+            if not repo_dir.is_dir():
+                continue
+            repo_name = repo_dir.name
+            try:
+                result = manager.remove_worktree(
+                    container_id=container_id,
+                    repo_name=repo_name,
+                    force=True,
+                )
+                if result.success:
+                    deleted_worktrees.append(repo_name)
+                elif result.error:
+                    errors.append(f"{repo_name}: {result.error}")
+                else:
+                    errors.append(f"{repo_name}: removal failed")
+            except Exception as e:
+                errors.append(f"{repo_name}: unexpected error - {e}")
+    return deleted_worktrees, errors
+
+
 @app.route("/api/v1/sessions/<session_token>", methods=["DELETE"])
 @require_launcher_auth
 def session_delete(session_token: str) -> tuple[Response, int] | Response:
@@ -2781,37 +2815,20 @@ def session_delete(session_token: str) -> tuple[Response, int] | Response:
         return make_error("Session not found", status_code=404)
 
     # Clean up worktrees for this container
-    if container_id:
-        manager = get_worktree_manager()
-        worktree_dir = manager.worktree_base / container_id
-        if worktree_dir.exists():
-            deleted_worktrees = []
-            for repo_dir in list(worktree_dir.iterdir()):
-                if repo_dir.is_dir():
-                    result = manager.remove_worktree(
-                        container_id=container_id,
-                        repo_name=repo_dir.name,
-                        force=True,
-                    )
-                    if result.success:
-                        deleted_worktrees.append(repo_dir.name)
+    deleted_worktrees, worktree_errors = (
+        _cleanup_container_worktrees(container_id) if container_id else ([], [])
+    )
 
-            audit_log(
-                "session_deleted",
-                "session_delete",
-                success=True,
-                details={
-                    "container_id": container_id,
-                    "worktrees_deleted": deleted_worktrees,
-                },
-            )
-        else:
-            audit_log(
-                "session_deleted",
-                "session_delete",
-                success=True,
-                details={"container_id": container_id},
-            )
+    audit_log(
+        "session_deleted",
+        "session_delete",
+        success=True,
+        details={
+            "container_id": container_id,
+            "worktrees_deleted": deleted_worktrees,
+            "errors": worktree_errors if worktree_errors else None,
+        },
+    )
 
     return make_success("Session deleted")
 
@@ -2835,11 +2852,18 @@ def session_delete_by_container(container_id: str) -> tuple[Response, int] | Res
     if not deleted:
         return make_error("Session not found for container", status_code=404)
 
+    # Clean up worktrees for this container
+    deleted_worktrees, worktree_errors = _cleanup_container_worktrees(container_id)
+
     audit_log(
         "session_deleted",
         "session_delete_by_container",
         success=True,
-        details={"container_id": container_id},
+        details={
+            "container_id": container_id,
+            "worktrees_deleted": deleted_worktrees,
+            "errors": worktree_errors if worktree_errors else None,
+        },
     )
 
     return make_success("Session deleted")
