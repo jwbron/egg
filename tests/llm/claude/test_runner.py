@@ -3,16 +3,21 @@ Tests for llm.claude.runner module.
 
 Tests the _read_lines_unbuffered function which handles reading large outputs
 from Claude Code without hitting asyncio's 64KB buffer limit.
+Also tests binary-not-found handling for _check_claude_version and run_agent_async.
 """
 
 import asyncio
 import logging
+from unittest.mock import patch
 
 import pytest  # noqa: F401 (used by caplog fixture)
 from llm.claude.runner import (
     _BUFFER_WARNING_THRESHOLD,
     _READ_CHUNK_SIZE,
+    _check_claude_version,
     _read_lines_unbuffered,
+    _resolve_claude_bin,
+    run_agent_async,
 )
 
 
@@ -216,3 +221,47 @@ class TestConstants:
     def test_buffer_warning_threshold(self):
         """Test that buffer warning threshold is 50MB."""
         assert _BUFFER_WARNING_THRESHOLD == 50 * 1024 * 1024
+
+
+class TestResolveClaudeBin:
+    """Tests for _resolve_claude_bin function."""
+
+    @patch("shutil.which", return_value="/usr/local/bin/claude")
+    def test_returns_path_when_found(self, mock_which):
+        """Test that _resolve_claude_bin returns path when claude is found."""
+        result = _resolve_claude_bin()
+        assert result == "/usr/local/bin/claude"
+        mock_which.assert_called_once_with("claude")
+
+    @patch("shutil.which", return_value=None)
+    def test_returns_none_when_not_found(self, mock_which):
+        """Test that _resolve_claude_bin returns None when claude is not found."""
+        result = _resolve_claude_bin()
+        assert result is None
+
+
+class TestCheckClaudeVersionBinaryNotFound:
+    """Tests for _check_claude_version when binary is not found."""
+
+    @patch("llm.claude.runner._resolve_claude_bin", return_value=None)
+    def test_returns_none_when_binary_not_found(self, mock_resolve, caplog):
+        """Test that _check_claude_version returns None and logs warning when binary missing."""
+        with caplog.at_level(logging.WARNING):
+            result = _check_claude_version()
+
+        assert result is None
+        assert "Claude Code CLI not found in PATH" in caplog.text
+
+
+class TestRunAgentAsyncBinaryNotFound:
+    """Tests for run_agent_async when binary is not found."""
+
+    @patch("llm.claude.runner._resolve_claude_bin", return_value=None)
+    def test_returns_failure_when_binary_not_found(self, mock_resolve):
+        """Test that run_agent_async returns AgentResult with success=False when binary missing."""
+        result = _run_async(run_agent_async(prompt="test prompt"))
+
+        assert result.success is False
+        assert result.returncode == -1
+        assert "not found in PATH" in result.error
+        assert "not found in PATH" in result.stderr
