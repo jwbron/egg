@@ -4,163 +4,138 @@
 
 ## Problem Statement
 
-The phase file restriction system (`gateway/phase_filter.py`) currently enforces file restrictions **only at `git push` time** via the gateway. An agent can modify protected files locally in its worktree, and if any orchestrator component reads from the worktree (rather than committed/pushed state), those unauthorized modifications take effect. This is a trust boundary violation.
+The gateway's file restriction enforcement has three gaps that allow agents to bypass phase and role constraints:
 
-The immediate motivating scenario is #641 (Docker-in-Docker deployment validation), where the orchestrator would run `docker-compose up` against the worktree. An agent in the `refine` phase could modify `docker-compose.yml` to add `privileged: true`, mount the Docker socket, or change entrypoints -- without ever pushing. The orchestrator would trust the worktree state.
+1. **Local modification bypass**: Phase file restrictions only fire on `git push`. An agent can modify protected files locally without ever pushing, and if the orchestrator reads from the worktree (e.g., running `docker-compose up` against it per #641), it trusts the modified state.
 
-More broadly, any orchestrator operation that reads from an agent's worktree is vulnerable to local-only modifications that bypass phase restrictions.
+2. **Unrestricted branch switching**: `git checkout` and `git switch` are allowed with no branch validation. Agents can leave their assigned branch (`egg/{container_id}/work`), making it impossible to deterministically auto-commit and auto-push their work after completion.
+
+3. **Late enforcement wastes tokens**: Agents discover restrictions only at push time, after spending tokens on reading, modifying, staging, committing, and pushing protected files. Earlier enforcement (filesystem or commit-time) would cut this waste.
+
+Additionally, a related bug surfaced in the issue comment: **agent-role restrictions** (`agent_restrictions.py`) are defined but never wired into the push handler in `gateway.py`. The function `check_agent_restrictions()` exists but is never called, making coder/tester/documenter file boundaries unenforced.
 
 ## Current Behavior
 
-### Push-time enforcement (existing, working)
+### Phase file restrictions (push-time only)
 
-When an agent runs `git push`, the gateway:
-1. Calls `get_changed_files_in_push()` to enumerate files being pushed (`gateway/git_client.py:957-1059`)
-2. Checks role-based restrictions via `check_file_restrictions()` (`gateway/gateway.py:660-684`)
-3. Checks phase-based restrictions via `check_phase_file_restrictions()` (`gateway/gateway.py:720-754`)
-4. Blocks the push if any file violates restrictions
+The `git_push()` handler in `gateway/gateway.py:627-754` enforces two types of file restrictions:
 
-### Phase file restriction definitions (`phase_filter.py:480-525`)
+1. **Role-based** (`check_file_restrictions()`, line 661): Checks `session.agent_role` against `file_restrictions` config (e.g., "implementer" blocked from `.egg-state/contracts/`).
+2. **Phase-based** (`check_phase_file_restrictions()`, line 721): Checks `session.phase` against per-phase allowed/blocked patterns defined in `phase_filter.py:480-525` and `.egg/phase-permissions.json`.
 
-| Phase | Policy |
-|-------|--------|
-| refine | `allowed_patterns`: `.egg-state/contracts/*`, `.egg-state/drafts/*analysis*`, `.egg-state/checkpoints/*`, `.egg-state/agent-outputs/*`, `.egg-state/reviews/*` |
-| plan | `allowed_patterns`: `.egg-state/contracts/*`, `.egg-state/drafts/*plan*`, `.egg-state/checkpoints/*`, `.egg-state/agent-outputs/*`, `.egg-state/reviews/*` |
-| implement | `blocked_patterns`: `.egg-state/contracts/*`, `.egg-state/drafts/*`, `.egg-state/pipelines/*`, `.egg-state/reviews/*` |
-| pr | `allowed_patterns`: `*` (everything) |
+Both only run during push. The `git_execute()` endpoint (`gateway.py:942-1165`) handles `checkout`, `switch`, `commit`, and other operations with no phase or file restriction checks.
 
-### Gap: no enforcement for local worktree modifications
+### Branch management (no enforcement)
 
-The enforcement chain is: `agent modifies locally -> agent pushes -> gateway blocks`. If the agent never pushes but the orchestrator reads from the same worktree, the chain breaks.
+`checkout` and `switch` are in `GIT_ALLOWED_COMMANDS` (`git_client.py:207-610`) with flag allowlists but no branch validation. An agent assigned to `egg/{container_id}/work` can freely switch to any branch via `git checkout -b other-branch` or `git switch --create other-branch`.
 
-### Container spawning and mounts (`orchestrator/container_spawner.py:265-287`)
+### Agent-role restrictions (dead code for push)
 
-The mount assembly in `spawn_agent_container()` currently creates:
-- Bind mounts for repo volumes at `/home/egg/repos/<name>`
-- `.git` shadow mounts (via `git_shadow_mounts()` in `shared/egg_container/__init__.py:71-125`)
-- Optional certs volume mount
+`agent_restrictions.py` defines `CODER_PATTERNS`, `TESTER_PATTERNS`, `DOCUMENTER_PATTERNS`, etc. with detailed allowed/blocked file lists. The `validate_agent_push()` function (line 545) and `check_agent_restrictions()` wrapper in `phase_filter.py` exist but are never called from `gateway.py`'s push handler.
 
-The `phase` parameter is already passed to the spawner but only forwarded to the gateway session registration. It is **not** used for mount configuration.
+### Mount infrastructure
 
-### Commit-time behavior (`gateway/gateway.py:944-1119`)
+Mounts use the `MountSpec` dataclass (`shared/egg_container/__init__.py:40-46`) with a `readonly` flag. The existing `git_shadow_mounts()` function already creates readonly bind mounts (`.git` directories shadowed with `/dev/null`). The Docker mount pipeline already supports readonly mounts end-to-end:
 
-The `git_execute()` endpoint handles `commit` operations. It validates the operation against `GIT_ALLOWED_COMMANDS`, validates args, maps the container path to the worktree path, and executes. There are **no file restriction checks** at commit time -- only push time gets file checks.
+- `MountSpec(readonly=True)` -> `mount_spec_to_cli_args()` appends `,readonly` -> Docker enforces at OS level
+- `to_dockerpy_kwargs()` sets `"ReadOnly": True` in docker-py format
 
 ## Constraints
 
-- **Docker mount ordering**: Docker supports nested mounts where inner (more specific) mounts override outer mounts. This is required for the "readonly repo + writable overlays" strategy in refine/plan phases.
-- **Directory existence**: Docker bind mounts require the source path to exist on the host. `.egg-state/` subdirectories must be created before container spawn.
-- **Phase immutability**: Each phase runs in a new container (`container_spawner.py`), so mounts set at container creation time are sufficient -- no dynamic remounting needed.
-- **Performance**: Readonly mounts are a kernel-level enforcement with zero runtime cost. Commit-time validation adds a `git diff --cached --name-only` call per commit.
-- **Backwards compatibility**: The `PhaseFileRestriction` data is already defined in `phase_filter.py` and would be reused for mount generation. No new restriction definitions needed.
-- **Security posture**: The system follows a fail-closed pattern (see `phase_filter.py:622-628` for unknown phases, `git_client.py:1043-1054` for diff failures). New enforcement layers must maintain this.
+- **Each phase runs in a new container** (`container_spawner.py:spawn_agent_container()`), so readonly mounts can be set at container creation time without dynamic updates.
+- **Docker nested mounts**: Inner writable mounts override outer readonly mounts, enabling "readonly everything except X" patterns.
+- **Bind mount paths must exist**: Directories must be `mkdir -p`'d before bind mounting.
+- **Worktree branches use pattern `egg/{container_id}/work`**: Set during worktree creation (`worktree_manager.py:182`), before the container starts.
+- **Session already tracks phase and branch**: `Session` dataclass has `phase`, `agent_role`, and `last_branch` fields (`session_manager.py:168-264`).
+- **Agent-role restriction bug (#644 comment)**: Must be fixed as part of this work since it's closely related enforcement gap.
+- **Post-agent cleanup flow**: `_cleanup_session()` in `runtime.py:350-369` runs after the container exits but before worktree removal -- this is the insertion point for auto-commit.
 
 ## Options Considered
 
-### Option A: Readonly mounts + commit-time validation (issue proposal)
+### Option A: Issue-proposed layered approach (all four layers)
 
-**Approach**: Three-layer defense:
-1. **Readonly filesystem mounts** (primary) -- mount protected paths as readonly in the container at spawn time
-2. **Commit-time gateway validation** (secondary) -- validate staged files against phase restrictions before allowing `git commit`
-3. **Push-time validation** (existing) -- keep existing push-time enforcement as final layer
-
-Mount strategy:
-- **refine/plan**: Mount entire repo readonly, overlay writable mounts for allowed `.egg-state/` subdirs
-- **implement**: Mount specific `.egg-state/` subdirs (contracts, drafts, pipelines, reviews) readonly; source code stays writable
-- **pr**: No readonly mounts
-
-For commit-time validation, add a pre-commit check in `git_execute()` that runs `git diff --cached --name-only` in the worktree and applies `PhaseFileRestriction` checks before executing `git commit`.
+**Approach**: Implement all four layers as described in the issue: Layer 0 (branch lock), Layer 1 (readonly mounts), Layer 2 (commit-time validation), Layer 3 (existing push-time), Layer 4 (post-agent auto-commit). Also wire agent-role restrictions into the push handler (from the comment).
 
 **Pros**:
-- Defense in depth: OS-level enforcement (mounts) + application-level (gateway commit check) + existing push check
-- Readonly mounts are the strongest possible enforcement -- agents cannot bypass them from userspace
-- Reuses existing `PhaseFileRestriction` definitions for both mount generation and commit validation
-- Phase is already available in the container spawner (`phase` parameter)
-- `MountSpec` already supports `readonly=True` and `to_dockerpy_kwargs` already handles `ReadOnly` in mount dicts
+- Defense in depth: filesystem, commit, and push enforcement create overlapping safety nets
+- Readonly mounts give the earliest possible enforcement (OS-level) with zero token waste
+- Branch lock ensures deterministic post-agent commit/push
+- Auto-commit prevents silent work loss
+- Actionable error messages reduce agent token waste on recovery
 
 **Cons**:
-- Readonly mounts can't express fine-grained glob patterns (e.g., `.egg-state/drafts/*analysis*` requires the entire `drafts/` dir to be writable or readonly, not pattern-matched subsets)
-- Adds complexity to mount assembly -- nested mounts require careful ordering
-- `.egg-state/` subdirectories must exist before container creation (requires a pre-spawn `mkdir -p`)
-- Need `.egg-readonly` marker files for agent UX when they hit "Read-only file system" errors
+- Large scope: touches gateway, orchestrator, sandbox, and shared libraries across ~10 files
+- Readonly mount logic needs careful per-phase configuration that mirrors phase-permissions.json patterns
+- Nested Docker mount ordering must be validated empirically
+- Risk of breaking existing workflows if mount configuration is wrong (agent can't write anywhere)
+- `.egg-readonly` marker files add maintenance burden
 
-### Option B: Commit-time validation only (no readonly mounts)
+### Option B: Gateway-only enforcement (branch lock + commit-time validation, no readonly mounts)
 
-**Approach**: Add staged-file validation in `git_execute()` for commit operations. Skip readonly mounts entirely. Rely on gateway interception at commit and push time.
+**Approach**: Implement Layer 0 (branch lock in `git_execute()`), Layer 2 (commit-time validation in `git_execute()`), and wire agent-role restrictions into push. Skip readonly mounts (Layer 1) and post-agent auto-commit (Layer 4).
 
 **Pros**:
-- Simpler implementation -- one new code path in `git_execute()` instead of mount generation + commit validation
-- No mount ordering complexity
-- No pre-spawn directory creation needed
-- Fine-grained pattern matching works naturally (reuses `PhaseFileRestriction.is_file_allowed()`)
+- Smaller scope: only `gateway.py` and `git_client.py` need significant changes
+- No container/mount infrastructure changes, lower risk of breaking agent environments
+- Commit-time validation catches most cases with clear error messages
+- Simpler to test (gateway unit tests only, no Docker mount integration tests needed)
+- Agent still gets fast feedback at commit time (before push), significantly reducing token waste
 
 **Cons**:
-- Does not prevent local file modification, only prevents committing. Agent can still modify files and the orchestrator may read them.
-- Does not close the trust boundary gap described in the issue -- the core problem is orchestrator reading from the worktree, not committing
-- A second gateway vulnerability (e.g., bypass of git_execute) would leave no enforcement
+- Does not close the local-only modification bypass (Gap 1): agents can still modify protected files and the orchestrator could read them
+- No OS-level enforcement: agent can still write protected files locally and discover restriction only at commit time
+- No auto-commit: uncommitted work is lost when agent exits
 
-### Option C: Orchestrator reads only from committed state (no worktree reads)
+### Option C: Readonly mounts only (no branch lock or commit-time validation)
 
-**Approach**: Instead of hardening the worktree, change orchestrator operations to only read from committed/pushed state (e.g., `git show HEAD:path` or `git archive`). The orchestrator would never read directly from the filesystem.
+**Approach**: Implement Layer 1 (readonly mounts) and Layer 4 (post-agent auto-commit). Skip branch lock and commit-time validation since readonly mounts prevent the modifications at the OS level.
 
 **Pros**:
-- Eliminates the trust boundary violation at its root -- if the orchestrator never reads the worktree, local modifications don't matter
-- No mount changes needed
-- No commit-time validation needed
+- Closes the local-only modification bypass completely
+- Earliest possible enforcement point (OS level)
+- Simpler gateway code (no new validation logic needed in `git_execute()`)
 
 **Cons**:
-- Not always feasible -- some orchestrator operations (e.g., #641 Docker-in-Docker `docker-compose up`) inherently need filesystem paths
-- Requires auditing and changing every orchestrator component that reads from worktrees
-- Future orchestrator features would need to maintain this discipline, creating an ongoing maintenance burden
-- Does not protect against non-orchestrator worktree readers (e.g., shared volume mounts)
-
-### Option D: Readonly mounts only (no commit-time validation)
-
-**Approach**: Implement readonly mounts (same as Option A Layer 1) but skip commit-time validation. Rely on readonly mounts + existing push-time validation.
-
-**Pros**:
-- Simpler than Option A (two layers instead of three)
-- OS-level enforcement is the strongest protection
-- Less gateway code to maintain
-
-**Cons**:
-- Readonly mounts can't enforce fine-grained patterns like `.egg-state/drafts/*analysis*` -- the entire `drafts/` dir must be writable or readonly for a given phase
-- Without commit-time validation, agents can commit files to allowed directories that should be pattern-restricted (e.g., committing a plan file during refine phase when only analysis files are allowed in drafts)
-- The fine-grained pattern enforcement only kicks in at push time, and the gap between commit and push is a window where invalid state exists
+- Does not address branch switching (Gap 2)
+- Readonly mounts cannot enforce fine-grained patterns (e.g., `.egg-state/drafts/*analysis*` vs `.egg-state/drafts/*plan*`): mounts operate at directory granularity, not filename patterns
+- If mount configuration has bugs, agent gets cryptic OS errors with no actionable guidance
+- Requires Docker mount integration testing
 
 ## Recommended Approach
 
-**Option A (Readonly mounts + commit-time validation)** is recommended. The issue author's three-layer proposal is well-designed and matches the codebase's existing defense-in-depth patterns:
+**Option A (full layered approach)** is recommended, as it aligns with the issue's detailed proposal and addresses all three gaps comprehensively.
 
-1. **Readonly mounts** close the primary trust boundary gap -- the orchestrator can safely read from the worktree because the OS prevents unauthorized modifications. This is the only option that fully addresses the motivating scenario (#641).
+However, the implementation should be structured so that each layer is independently testable and can be shipped incrementally. The layers have clear ordering by value:
 
-2. **Commit-time validation** fills the granularity gap that readonly mounts can't cover. Since mounts operate at the directory level but restrictions use glob patterns (e.g., `*analysis*`), commit-time checks catch violations that mounts can't express.
+1. **Branch lock (Layer 0)** -- highest value, lowest risk. Prevents the determinism problem (Gap 2) with minimal code changes in `git_execute()`.
+2. **Commit-time validation (Layer 2) + agent-role restriction wiring** -- high value, moderate risk. Catches most restriction violations early with actionable errors. The agent-role fix is a one-line addition to the push handler.
+3. **Readonly mounts (Layer 1)** -- high value, higher risk. Closes the local modification bypass (Gap 1) but requires careful mount configuration and integration testing.
+4. **Post-agent auto-commit (Layer 4)** -- moderate value, moderate risk. Prevents work loss but needs careful handling of edge cases (partial commits, conflicting state).
 
-3. **Existing push-time validation** remains as the final safety net.
+This ordering lets the plan phase structure work as incremental, independently shippable units.
 
-The implementation touches five files as identified in the issue, with the mount generation in `shared/egg_container/__init__.py` being the most architecturally significant change (new `phase_readonly_mounts()` alongside existing `git_shadow_mounts()`).
+Key considerations for the plan phase:
 
-Key implementation considerations:
-- The `MountSpec` dataclass and `to_dockerpy_kwargs` already support readonly mounts, reducing new code
-- Pre-spawn `mkdir -p` for `.egg-state/` subdirectories should be added to worktree setup (gateway worktree creation) rather than container_spawner to keep the spawner stateless
-- `.egg-readonly` marker files should be brief and include the `EGG_PHASE` env var reference so agents can self-diagnose
+- **Fine-grained pattern enforcement**: Readonly mounts work at directory granularity, but phase restrictions include filename patterns like `.egg-state/drafts/*analysis*`. Commit-time validation is needed as a complement for patterns that mounts can't express.
+- **`.egg-readonly` marker files**: Useful for agent guidance but should be generated, not manually maintained. The plan should address how and when these are created.
+- **Checkout heuristics**: Distinguishing `git checkout <branch>` from `git checkout -- <file>` requires parsing git arguments. The `--` separator is the clearest signal, but there are edge cases (e.g., `git checkout HEAD file.txt` without `--`). The plan should specify the heuristic precisely.
+- **Post-agent auto-commit runs on the host side**: It accesses the worktree directly (not through the gateway) and must use the same phase restriction logic. This means phase restriction patterns should be importable by both gateway and the auto-commit script.
+- **Testing strategy**: Branch lock and commit-time validation can be tested with gateway unit tests. Readonly mounts require integration tests with actual Docker containers.
 
 ## Open Questions
 
-1. **Granularity trade-off for readonly mounts in refine/plan**: The refine phase allows `drafts/*analysis*` but blocks other drafts. Readonly mounts can only make the entire `drafts/` directory writable or readonly. Should we:
-   - Make `drafts/` writable in refine/plan (rely on commit-time + push-time for pattern enforcement)?
-   - Make `drafts/` readonly and have the agent use the contract API to write drafts (requires new API)?
+1. **Should readonly mounts block the entire `.egg-state/` tree during implement phase, or only specific subdirectories?**
 
-2. **Orchestrator worktree reads before #641**: Are there any current orchestrator operations that read from agent worktrees? If not, this is a preventive measure for #641 and the urgency is lower. If there are existing worktree reads, those are currently vulnerable.
+   The issue proposes blocking `contracts/`, `drafts/`, `pipelines/`, and `reviews/` individually, leaving `checkpoints/` and `agent-outputs/` writable. This matches the existing phase restrictions in `phase-permissions.json`. However, mounting 4+ individual subdirectories as readonly inside a writable parent adds mount complexity. The alternative is mounting all of `.egg-state/` readonly and overlaying writable mounts for `checkpoints/` and `agent-outputs/` only.
 
-3. **`add` operation validation**: Should we also validate at `git add` time (not just commit)? This would give earlier feedback but the gateway `git_execute` handler would need `git diff --cached --name-only` after the add operation completes to see what was staged. Commit-time is more natural since that's when the change is recorded, but add-time gives earlier UX feedback.
+2. **Should Layer 4 (post-agent auto-commit) run in the gateway/orchestrator process or as a separate script?**
+
+   The issue suggests `gateway/post_agent_commit.py` or integrating into `session_manager.py`. Running it in the orchestrator (which has direct access to worktrees and git) avoids routing through the gateway's own validation. But running through the gateway ensures the same restriction logic applies. The plan phase should decide which approach to use.
+
+3. **How should the agent-role restriction bug (from the comment) be scoped relative to this issue?**
+
+   The comment identifies that `check_agent_restrictions()` is never called from the push handler. This is a one-line fix but could be addressed either as part of this issue or as a separate PR. Fixing it here is logical since this issue is about comprehensive enforcement, but it increases scope.
 
 ---
 
 *Authored-by: egg*
-
-<!-- metadata -->
-```yaml
-# metadata
-complexity: high
-```
