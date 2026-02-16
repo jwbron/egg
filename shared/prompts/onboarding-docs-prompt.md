@@ -158,5 +158,5 @@ If one doesn't exist, create it at the repository root. Include:
    structure, languages, frameworks, configuration, and existing documentation.
 2. Create all documentation files as a single cohesive set. Every link in `docs/index.md`
    must point to a file you've created or verified exists.
-3. Create a branch named `egg/onboarding-docs`, commit all doc files, and open a PR.
+3. Commit all doc files and open a PR. (Branch creation is handled by the pipeline.)
 4. The PR should contain **only documentation files** — no code changes.
