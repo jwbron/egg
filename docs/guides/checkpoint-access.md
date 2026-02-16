@@ -32,7 +32,7 @@ egg-checkpoint list --status failed
 egg-checkpoint list --issue 530 --agent-type coder --phase implement
 ```
 
-**Flags**: `--issue`, `--pr`, `--session`, `--branch`, `--trigger`, `--status`, `--agent-type`, `--phase`, `--pipeline`, `--limit`, `--json`
+**Flags**: `--issue`, `--pr`, `--session`, `--branch`, `--trigger`, `--status`, `--agent-type`, `--phase`, `--pipeline`, `--repo`, `--limit`, `--json`
 
 ### `egg-checkpoint show`
 
@@ -67,7 +67,7 @@ egg-checkpoint context --issue 530 --files
 egg-checkpoint context --pipeline $EGG_PIPELINE_ID --json
 ```
 
-**Flags**: `--pipeline`, `--issue`, `--agent-type`, `--phase`, `--files`, `--limit`, `--json`
+**Flags**: `--pipeline`, `--issue`, `--agent-type`, `--phase`, `--repo`, `--files`, `--limit`, `--json`
 
 ## Filtering Guide
 
@@ -78,6 +78,7 @@ All list/context filters use AND logic (all must match). Filters available:
 | Issue | `--issue N` | `--issue 530` |
 | PR | `--pr N` | `--pr 42` |
 | Pipeline | `--pipeline ID` | `--pipeline issue-530` |
+| Repo | `--repo OWNER/REPO` | `--repo jwbron/egg` |
 | Session | `--session ID` | `--session container-abc` |
 | Branch | `--branch NAME` | `--branch egg/feature` |
 | Trigger | `--trigger TYPE` | `--trigger commit` or `--trigger session_end` |
