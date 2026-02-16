@@ -359,6 +359,21 @@ class TestSetupClaude:
         assert result["hasCompletedOnboarding"] is True
         assert result["autoUpdates"] is False
 
+    @patch("shutil.which", return_value=None)
+    def test_exits_when_claude_binary_not_found(self, mock_which, temp_dir, capsys):
+        """Test that setup_claude calls sys.exit(1) when claude binary is missing."""
+        config = MagicMock()
+        config.user_home = temp_dir
+
+        logger = entrypoint.Logger(quiet=False)
+
+        with pytest.raises(SystemExit) as exc_info:
+            entrypoint.setup_claude(config, logger)
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "Claude Code CLI not found in PATH" in captured.err
+
 
 class TestStartupTimer:
     """Tests for the StartupTimer class.
