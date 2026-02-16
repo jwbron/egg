@@ -1243,6 +1243,47 @@ class TestRunCountDisplay:
         # No dedup multiplier in the detail view
         assert "×" not in result
 
+    def test_phase_detail_shows_all_runs_for_in_graph_agents(self):
+        """Phase detail shows every run for roles in the dependency graph.
+
+        Regression test: _compute_wave_order uses a dict keyed by role value,
+        which overwrites earlier entries for the same role.  The detail view
+        must not route through _compute_wave_order so that duplicate in-graph
+        roles (coder, tester, etc.) are preserved.
+        """
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+                agents=[
+                    AgentExecution(
+                        role=AgentRole.CODER,
+                        status=AgentExecutionStatus.FAILED,
+                        error="build error",
+                    ),
+                    AgentExecution(
+                        role=AgentRole.CODER,
+                        status=AgentExecutionStatus.COMPLETE,
+                        commit="abc12345",
+                    ),
+                    AgentExecution(
+                        role=AgentRole.TESTER,
+                        status=AgentExecutionStatus.COMPLETE,
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases)
+        result = render_phase_detail(pipeline, PipelinePhase.IMPLEMENT)
+
+        # Header should report all 3 agent entries
+        assert "Agents (3):" in result
+        # Both coder runs must appear
+        assert result.count("coder") == 2
+        # Commit from second run and error from first run are preserved
+        assert "abc12345" in result
+        assert "build error" in result
+
     def test_full_scenario_from_issue(self):
         """Reproduce the exact scenario from issue #769."""
         phases = {

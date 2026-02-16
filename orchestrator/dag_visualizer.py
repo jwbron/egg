@@ -488,25 +488,26 @@ def render_phase_detail(
             role = container.agent_role.value if container.agent_role else "worker"
             lines.append(f"  {c_status} {container.container_name[:20]} ({role})")
 
-    # Agent details — show ALL runs (no deduplication).
+    # Agent details — show ALL runs (no deduplication, no wave grouping).
     # The detail view intentionally preserves every execution so that
     # commit SHAs and error messages from earlier runs are not lost.
     # Deduplication is only applied in the DAG overview (_render_phase_box)
     # where space is limited.
+    #
+    # We iterate phase_exec.agents directly rather than routing through
+    # _compute_wave_order, because that function deduplicates in-graph
+    # roles via a dict keyed by role value (only the last execution per
+    # role survives).  The detail view must show every run.
     if phase_exec.agents:
         lines.append("")
         lines.append(f"Agents ({len(phase_exec.agents)}):")
-        wave_groups = _compute_wave_order(phase, phase_exec.agents)
-        for wave_idx, wave in enumerate(wave_groups):
-            if wave_idx > 0:
-                lines.append("")  # Blank line between waves
-            for agent in wave:
-                a_status = _get_agent_status_symbol(agent.status, use_ascii)
-                lines.append(f"  {a_status} {agent.role.value}")
-                if agent.commit:
-                    lines.append(f"      Commit: {agent.commit[:8]}")
-                if agent.error:
-                    lines.append(f"      Error: {agent.error[:50]}")
+        for agent in phase_exec.agents:
+            a_status = _get_agent_status_symbol(agent.status, use_ascii)
+            lines.append(f"  {a_status} {agent.role.value}")
+            if agent.commit:
+                lines.append(f"      Commit: {agent.commit[:8]}")
+            if agent.error:
+                lines.append(f"      Error: {agent.error[:50]}")
 
     return "\n".join(lines)
 
