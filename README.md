@@ -338,11 +338,11 @@ For tracking SDLC pipeline progress (used by agents and humans):
 | `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes to a task |
 | `egg-contract add-decision --question <text> --options <a> <b>` | Create a HITL decision (multiple choice) |
 | `egg-contract add-feedback --question <text>` | Create a HITL feedback request (open-ended) |
-| `egg-contract verify-criterion --task <id> --criterion <id>` | Mark acceptance criterion as verified (reviewer role) |
+| `egg-contract verify-criterion --criterion <id>` | Mark acceptance criterion as verified (reviewer role) |
 | `egg-contract agent-status` | Show agent execution status for multi-agent orchestration |
-| `egg-contract agent-start` | Mark an agent as started (running) |
-| `egg-contract agent-complete` | Mark an agent as complete |
-| `egg-contract agent-fail` | Mark an agent as failed |
+| `egg-contract agent-start --role <role>` | Mark an agent as started (running) |
+| `egg-contract agent-complete --role <role>` | Mark an agent as complete |
+| `egg-contract agent-fail --role <role> --error <msg>` | Mark an agent as failed |
 | `egg-contract agent-next` | Get the next wave of agents to dispatch |
 
 ### egg-onboarding-docs CLI
