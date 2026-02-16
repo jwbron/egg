@@ -681,10 +681,10 @@ def cmd_cost(args: argparse.Namespace) -> int:
 
     summaries = filter_checkpoints_v2(
         index,
-        pipeline_id=getattr(args, "pipeline", None),
-        issue_number=getattr(args, "issue", None),
-        pr_number=getattr(args, "pr", None),
-        limit=getattr(args, "limit", 500),
+        pipeline_id=args.pipeline,
+        issue_number=args.issue,
+        pr_number=args.pr,
+        limit=args.limit,
     )
 
     if not summaries:
@@ -739,9 +739,9 @@ def cmd_cost(args: argparse.Namespace) -> int:
     total_output = sum(v["output"] for v in agg.values())
     total_cost = sum(v["cost"] for v in agg.values())
 
-    pipeline_id = getattr(args, "pipeline", None)
-    issue = getattr(args, "issue", None)
-    pr = getattr(args, "pr", None)
+    pipeline_id = args.pipeline
+    issue = args.issue
+    pr = args.pr
 
     if args.json:
         output = {

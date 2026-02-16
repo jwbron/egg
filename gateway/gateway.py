@@ -2605,6 +2605,13 @@ def session_create() -> tuple[Response, int] | Response:
         if len(claude_code_version) > 64:
             return make_error("Invalid claude_code_version: must be 64 characters or fewer")
 
+    # Validate branch if provided
+    if branch is not None:
+        if not isinstance(branch, str):
+            return make_error("Invalid branch: must be a string")
+        if len(branch) > 256:
+            return make_error("Invalid branch: must be 256 characters or fewer")
+
     # Step 1: Query visibility for all repos
     repo_visibilities = {}
     for repo in repos:
