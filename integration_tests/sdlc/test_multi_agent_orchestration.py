@@ -35,7 +35,7 @@ class TestDependencyGraph:
     def test_build_graph_all_roles(self):
         """Build graph includes all agent roles."""
         graph = build_dependency_graph()
-        assert len(graph.nodes) == 14
+        assert len(graph.nodes) == 13
         assert AgentRole.CODER in graph.nodes
         assert AgentRole.TESTER in graph.nodes
         assert AgentRole.DOCUMENTER in graph.nodes
@@ -540,20 +540,19 @@ class TestPlanPhaseRoles:
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("implement", include_reviewers=True)
-        assert len(roles) == 7  # 4 implement + 3 reviewers
-        assert AgentRole.REVIEWER_UNIFIED in roles
+        assert len(roles) == 6  # 4 implement + 2 reviewers
         assert AgentRole.REVIEWER_CODE in roles
+        assert AgentRole.REVIEWER_CONTRACT in roles
 
     def test_get_plan_roles_with_reviewers(self):
         """Get plan roles with reviewers included."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("plan", include_reviewers=True)
-        assert len(roles) == 5  # 3 plan + 2 reviewers
+        assert len(roles) == 4  # 3 plan + 1 reviewer
         assert AgentRole.ARCHITECT in roles
         assert AgentRole.TASK_PLANNER in roles
         assert AgentRole.RISK_ANALYST in roles
-        assert AgentRole.REVIEWER_UNIFIED in roles
         assert AgentRole.REVIEWER_PLAN in roles
 
     def test_reviewer_plan_role_definition(self):
@@ -641,7 +640,6 @@ class TestReviewerRoles:
         assert len(waves) == 4  # coder -> tester+doc -> integrator -> reviewers
 
         # Wave 4 should be all reviewers
-        assert AgentRole.REVIEWER_UNIFIED in waves[3]
         assert AgentRole.REVIEWER_CODE in waves[3]
         assert AgentRole.REVIEWER_CONTRACT in waves[3]
 
@@ -650,7 +648,6 @@ class TestReviewerRoles:
         from egg_contracts.agent_roles import get_role_definition
 
         for role in [
-            AgentRole.REVIEWER_UNIFIED,
             AgentRole.REVIEWER_CODE,
             AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,
@@ -708,7 +705,7 @@ class TestMultiAgentConfig:
         config = MultiAgentConfig()
         assert config.enabled is True
         assert config.parallel_execution is True
-        assert len(config.roles_enabled) == 14  # All roles
+        assert len(config.roles_enabled) == 13  # All roles
         assert len(config.phase_overrides) == 0
 
     def test_phase_override(self):

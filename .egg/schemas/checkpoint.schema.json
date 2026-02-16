@@ -139,7 +139,7 @@
         "agent_role": {
           "type": ["string", "null"],
           "description": "Agent role (e.g., coder, tester, documenter, integrator)",
-          "enum": ["coder", "tester", "documenter", "integrator", "reviewer", "architect", "task_planner", "risk_analyst", "refiner", "checker", "reviewer_unified", "reviewer_code", "reviewer_contract", "reviewer_agent_design", "reviewer_refine", "reviewer_plan", null],
+          "enum": ["coder", "tester", "documenter", "integrator", "reviewer", "architect", "task_planner", "risk_analyst", "refiner", "checker", "reviewer_code", "reviewer_contract", "reviewer_agent_design", "reviewer_refine", "reviewer_plan", null],
           "default": null
         },
         "started_at": {

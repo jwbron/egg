@@ -101,7 +101,6 @@ class TestMapAgentRoleToContractRole:
             AgentRole.ARCHITECT,
             AgentRole.TASK_PLANNER,
             AgentRole.RISK_ANALYST,
-            AgentRole.REVIEWER_UNIFIED,
             AgentRole.REVIEWER_CODE,
             AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,

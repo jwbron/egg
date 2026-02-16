@@ -148,7 +148,6 @@ _ROLE_TO_AGENT_TYPE = {
     "documenter": AgentType.DOCUMENTER,
     "integrator": AgentType.INTEGRATOR,
     "reviewer": AgentType.REVIEWER,
-    "reviewer_unified": AgentType.REVIEWER,
     "reviewer_code": AgentType.REVIEWER,
     "reviewer_contract": AgentType.REVIEWER,
     "reviewer_agent_design": AgentType.REVIEWER,

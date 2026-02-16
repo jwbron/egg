@@ -981,7 +981,6 @@ class TestResolveAgentType:
         """Reviewer subtypes all map to REVIEWER."""
         from egg_contracts.checkpoints import AgentType
 
-        assert _resolve_agent_type("reviewer_unified") == AgentType.REVIEWER
         assert _resolve_agent_type("reviewer_code") == AgentType.REVIEWER
         assert _resolve_agent_type("reviewer_contract") == AgentType.REVIEWER
         assert _resolve_agent_type("reviewer_agent_design") == AgentType.REVIEWER
