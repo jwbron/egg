@@ -339,6 +339,7 @@ class ContainerSpawner:
                 "CONTAINER_ID": pipeline_id,
                 "EGG_REPO_PATH": "/home/egg/repos",
                 "EGG_AGENT_ROLE": agent_role.value,
+                "EGG_PIPELINE_ID": pipeline_id,
             }
             if issue_number is not None:
                 spawner_env["EGG_ISSUE_NUMBER"] = str(issue_number)

@@ -519,6 +519,7 @@ jobs:
           EGG_COMMIT_SHA: ${{ steps.pr-meta.outputs.head-sha }}
           EGG_AGENT_ROLE: ${{ inputs.agent_role }}
           EGG_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          EGG_PR_NUMBER: ${{ inputs.pr_number }}
 
       # Minimize previous status comments to reduce clutter
       # Uses semantic marker instead of content patterns per #363
