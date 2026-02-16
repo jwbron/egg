@@ -22,6 +22,7 @@ All list/context filters use AND logic. Common filters:
 | Issue | `--issue N` | `--issue 530` |
 | PR | `--pr N` | `--pr 42` |
 | Pipeline | `--pipeline ID` | `--pipeline issue-530` |
+| Repo | `--repo OWNER/REPO` | `--repo jwbron/egg` |
 | Agent | `--agent-type TYPE` | `--agent-type coder` |
 | Phase | `--phase PHASE` | `--phase implement` |
 | Status | `--status STATUS` | `--status failed` |
