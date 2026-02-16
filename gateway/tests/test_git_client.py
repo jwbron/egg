@@ -511,17 +511,22 @@ class TestIsBranchSwitchingCheckout:
     def test_checkout_track_is_switching(self):
         """git checkout --track <remote-branch> is branch switching."""
         assert is_branch_switching_checkout(["--track", "origin/feature"])
-        assert is_branch_switching_checkout(["-t", "origin/feature"])
+        # Note: -t is NOT tested here because FLAG_NORMALIZATION maps -t to
+        # --tags, so validate_git_args() rejects `git checkout -t` before it
+        # ever reaches is_branch_switching_checkout().
 
 
 class TestIsBranchSwitchingOperation:
     """Tests for is_branch_switching_operation()."""
 
-    def test_switch_always_switching(self):
-        """git switch is always branch switching."""
-        assert is_branch_switching_operation("switch", [])
+    def test_switch_is_switching(self):
+        """git switch with args is branch switching."""
         assert is_branch_switching_operation("switch", ["main"])
         assert is_branch_switching_operation("switch", ["--create", "new-branch"])
+
+    def test_bare_switch_is_noop(self):
+        """git switch with no args just prints the current branch — not switching."""
+        assert not is_branch_switching_operation("switch", [])
 
     def test_checkout_delegates_to_checkout_check(self):
         """checkout delegates to is_branch_switching_checkout."""

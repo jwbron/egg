@@ -905,7 +905,7 @@ def is_branch_switching_checkout(args: list[str]) -> bool:
     branch-switching form.
 
     Rules:
-    - ``-b`` / ``-B`` present → branch creation → **switch** (True)
+    - ``-b`` / ``-B`` / ``--track`` present → branch-related → **switch** (True)
     - ``--`` separator present → everything after is pathspecs → **file** (False)
     - ``--ours`` / ``--theirs`` / ``--merge`` present → merge conflict resolution
       → **file** (False)
@@ -913,13 +913,20 @@ def is_branch_switching_checkout(args: list[str]) -> bool:
       → **switch** (True)
     - No positional args and no branch flags → harmless no-op → **file** (False)
 
+    Note: ``-t`` is intentionally excluded — FLAG_NORMALIZATION maps it to
+    ``--tags``, so ``-t`` never reaches this function for checkout operations.
+
+    Note: ``--detach`` is not currently in checkout's allowed_flags. If it is
+    ever added, this function would need to handle it (it detaches HEAD at a
+    ref without creating a branch, so it should be treated as branch-switching).
+
     Args:
         args: The validated/normalized argument list for ``git checkout``.
 
     Returns:
         True if the command would switch branches; False if it is a file operation.
     """
-    has_branch_create_flag = False
+    has_branch_flag = False
     has_double_dash = False
     has_file_flag = False
     positional_args: list[str] = []
@@ -933,9 +940,9 @@ def is_branch_switching_checkout(args: list[str]) -> bool:
             break  # Everything after -- is pathspecs
 
         if arg.startswith("-"):
-            # Detect branch-creation flags
-            if arg in ("-b", "-B", "--track", "-t"):
-                has_branch_create_flag = True
+            # Detect branch-creation/switching flags
+            if arg in ("-b", "-B", "--track"):
+                has_branch_flag = True
             # Detect file-operation flags
             if arg.split("=")[0] in _CHECKOUT_FILE_FLAGS:
                 has_file_flag = True
@@ -944,8 +951,8 @@ def is_branch_switching_checkout(args: list[str]) -> bool:
 
         i += 1
 
-    # Explicit branch creation
-    if has_branch_create_flag:
+    # Explicit branch creation/switching
+    if has_branch_flag:
         return True
 
     # Explicit file operation (-- separator or merge conflict flags)
@@ -976,7 +983,11 @@ def is_branch_switching_operation(operation: str, args: list[str]) -> bool:
         True if the operation would switch or create a branch.
     """
     if operation == "switch":
-        # git switch is always branch-related — no file-restore form
+        # git switch is always branch-related — no file-restore form.
+        # Bare `git switch` with no args just prints the current branch
+        # (similar to `git branch --show-current`), so treat it as a no-op.
+        if not args:
+            return False
         return True
 
     if operation == "checkout":

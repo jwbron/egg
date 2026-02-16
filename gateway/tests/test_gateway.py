@@ -3813,6 +3813,11 @@ class TestBranchIsolation:
             )
 
             assert response.status_code == 200
+            assert mock_run.called, "Expected subprocess.run to be called for allowed checkout"
+            cmd = mock_run.call_args[0][0]
+            assert "checkout" in cmd
+            assert "--" in cmd
+            assert "file.txt" in cmd
 
     def test_checkout_ours_allowed_in_worktree(self, client, auth_headers):
         """git checkout --ours <file> should be allowed when in a worktree."""
@@ -3830,6 +3835,10 @@ class TestBranchIsolation:
             )
 
             assert response.status_code == 200
+            assert mock_run.called, "Expected subprocess.run to be called for allowed checkout"
+            cmd = mock_run.call_args[0][0]
+            assert "checkout" in cmd
+            assert "--ours" in cmd
 
     def test_switch_blocked_in_worktree(self, client, auth_headers):
         """git switch should be blocked when in a worktree."""
@@ -3869,6 +3878,10 @@ class TestBranchIsolation:
             response = self._git_execute(client, auth_headers, "checkout", ["-b", "new-branch"])
 
             assert response.status_code == 200
+            assert mock_run.called, "Expected subprocess.run to be called for non-worktree checkout"
+            cmd = mock_run.call_args[0][0]
+            assert "checkout" in cmd
+            assert "-b" in cmd
 
     def test_restore_allowed_in_worktree(self, client, auth_headers):
         """git restore should be allowed when in a worktree (it's the file-restore alternative)."""
@@ -3886,6 +3899,10 @@ class TestBranchIsolation:
             )
 
             assert response.status_code == 200
+            assert mock_run.called, "Expected subprocess.run to be called for allowed restore"
+            cmd = mock_run.call_args[0][0]
+            assert "restore" in cmd
+            assert "--staged" in cmd
 
     def test_status_allowed_in_worktree(self, client, auth_headers):
         """Non-branch-switching operations should be allowed in worktree."""
@@ -3903,3 +3920,7 @@ class TestBranchIsolation:
             )
 
             assert response.status_code == 200
+            assert mock_run.called, "Expected subprocess.run to be called for allowed status"
+            cmd = mock_run.call_args[0][0]
+            assert "status" in cmd
+            assert "--porcelain" in cmd
