@@ -105,6 +105,7 @@ Browse and query checkpoints via the `egg-checkpoint` CLI:
 | `egg-checkpoint show <id-or-commit>` | Display full checkpoint details |
 | `egg-checkpoint browse --issue <number>` | Filter checkpoints by issue number |
 | `egg-checkpoint context [filters]` | Cross-agent context summary grouped by phase and agent type |
+| `egg-checkpoint cost [filters]` | Show cost breakdown (token usage and USD) by phase and agent type |
 
 **Supported filters**:
 - `--branch <name>` — Filter by git branch
