@@ -65,6 +65,8 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
             self._handle_worktree_create(data)
         elif self.path == "/api/v1/worktree/delete":
             self._handle_worktree_delete(data)
+        elif self.path == "/api/v1/git/push":
+            self._handle_git_push(data)
         else:
             self._send_error(404, "Not found")
 
@@ -200,6 +202,29 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
                 "data": {
                     "deleted": ["repo1"],
                     "errors": [],
+                },
+            }
+        )
+
+    def _handle_git_push(self, data):
+        """Handle git push (POST /api/v1/git/push)."""
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            self._send_error(401, "Unauthorized")
+            return
+
+        # Accept any session token (registered via /sessions/create)
+        token = auth_header[7:]
+        if not token:
+            self._send_error(401, "Unauthorized")
+            return
+
+        self._send_json(
+            {
+                "success": True,
+                "message": "Push successful",
+                "data": {
+                    "refspec": data.get("refspec", ""),
                 },
             }
         )
@@ -618,6 +643,46 @@ class TestWorktreeManagement:
                 pass
             for _key in result.worktrees:
                 pass
+
+
+class TestPushWorktreeBranch:
+    """Tests for push_worktree_branch method."""
+
+    def test_push_worktree_branch_success(self, gateway_client, mock_gateway_server):
+        """Test successful push of worktree branch."""
+        result = gateway_client.push_worktree_branch(
+            pipeline_id="issue-42",
+            repo_path="/home/egg/.egg-worktrees/issue-42/repo",
+            branch="egg/issue-42",
+        )
+        assert result is True
+
+    def test_push_worktree_branch_gateway_unreachable(self):
+        """Test push fails gracefully when gateway is unreachable."""
+        client = GatewayClient(
+            gateway_host="localhost",
+            gateway_port=19999,
+            launcher_secret="test-secret",
+            timeout=1,
+        )
+
+        result = client.push_worktree_branch(
+            pipeline_id="issue-42",
+            repo_path="/some/path",
+            branch="egg/issue-42",
+        )
+        assert result is False
+
+    def test_push_worktree_branch_cleans_up_session(self, gateway_client, mock_gateway_server):
+        """Test that temp session is cleaned up after push."""
+        with patch.object(gateway_client, "delete_session") as mock_delete:
+            gateway_client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path="/some/path",
+                branch="egg/issue-42",
+            )
+            # Session should be cleaned up
+            mock_delete.assert_called_once_with("test-token-12345")
 
 
 class TestSingletonClient:

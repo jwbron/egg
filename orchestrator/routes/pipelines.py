@@ -3605,8 +3605,31 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 )
                 continue  # Re-run while loop with feedback
 
-            # If the phase failed, the outer loop should also break
+            # If the phase failed, emit the failure event so the SSE stream
+            # terminates, then break out of the outer loop.
             if phase_failed:
+                report_pipeline_status(
+                    pipeline,
+                    event_type="pipeline.failed",
+                    message=f"Pipeline failed: {(pipeline.error or 'unknown')[:100]}",
+                )
+                _emit_pipeline_event(pipeline, "pipeline.failed")
+
+                # Best-effort: push worktree branch to remote so work is backed up
+                if pipeline.branch and worktree_repo_path != repo_path:
+                    try:
+                        spawner.gateway.push_worktree_branch(
+                            pipeline_id=pipeline_id,
+                            repo_path=str(worktree_repo_path),
+                            branch=pipeline.branch,
+                        )
+                    except Exception as push_err:
+                        logger.warning(
+                            "Best-effort push on failure failed",
+                            pipeline_id=pipeline_id,
+                            error=str(push_err),
+                        )
+
                 break
 
             # Phase succeeded — mark complete and advance
@@ -3933,6 +3956,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_id=pipeline_id,
                         old_created_at=run_created_at.isoformat(),
                         new_created_at=current.created_at.isoformat(),
+                    )
+                elif current.status == PipelineStatus.FAILED:
+                    skip_cleanup = True
+                    logger.info(
+                        "Pipeline failed, preserving worktrees for retry",
+                        pipeline_id=pipeline_id,
                     )
             except Exception:
                 # Pipeline was deleted and not recreated — safe to clean up
