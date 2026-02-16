@@ -335,6 +335,16 @@ def gha_exec() -> int:
     if agent_role:
         extra_env["EGG_AGENT_ROLE"] = agent_role
 
+    # Pass PR number for checkpoint linkage (set by GHA review workflows)
+    pr_number = os.environ.get("EGG_PR_NUMBER")
+    if pr_number:
+        extra_env["EGG_PR_NUMBER"] = pr_number
+
+    # Pass pipeline ID for checkpoint correlation (set by orchestrator)
+    pipeline_id = os.environ.get("EGG_PIPELINE_ID")
+    if pipeline_id:
+        extra_env["EGG_PIPELINE_ID"] = pipeline_id
+
     success_flag = exec_in_new_container(
         command=command,
         timeout_minutes=timeout,
