@@ -172,6 +172,8 @@ egg --exec "make test"     # run a command in an ephemeral container
 
 ## Troubleshooting
 
+**Claude binary not found**: If the sandbox exits with `Claude Code CLI not found in PATH`, rebuild the sandbox image with `egg --reset`.
+
 **Stale containers/networks**: egg automatically cleans up stale Docker resources from previous runs. If you see network conflicts, run `egg --compose --down` then `egg`.
 
 **Permission denied on repos**: The gateway and orchestrator need to run as your host UID. This is handled automatically via `HOST_UID`/`HOST_GID` in the entrypoint scripts. If issues persist, rebuild with `egg --compose --build`.
