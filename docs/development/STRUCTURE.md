@@ -174,7 +174,8 @@ shared/
 │   ├── agent-design-criteria.md  # Agent-mode design review criteria
 │   ├── autofixer-rules.md        # Autofixer auto-fix vs report-only rules
 │   ├── code-review-criteria.md   # Code review security/correctness criteria
-│   └── contract-review-criteria.md # Contract verification rules
+│   ├── contract-review-criteria.md # Contract verification rules
+│   └── onboarding-docs-prompt.md # Documentation onboarding standard (egg-onboarding-docs)
 ├── egg_git/                # Git utilities
 ├── egg_logging/            # Structured logging
 └── egg_orchestrator/       # Orchestrator integration layer
