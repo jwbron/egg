@@ -199,8 +199,18 @@ class TestFailurePathPushesWorktreeBranch:
             errors=[],
         )
 
+        # Use a targeted side_effect so only the worktree candidate path
+        # returns True for .exists(), avoiding fragility if _run_pipeline
+        # gains other .exists() checks in future.
+        _orig_exists = Path.exists
+
+        def _selective_exists(self):
+            if str(self).startswith(str(WORKTREE_BASE_DIR)):
+                return True
+            return _orig_exists(self)
+
         with patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False), \
-             patch("pathlib.Path.exists", return_value=True):
+             patch("pathlib.Path.exists", _selective_exists):
             _run_pipeline("issue-42", Path("/repo"))
 
         mock_gateway.push_worktree_branch.assert_called_once_with(
