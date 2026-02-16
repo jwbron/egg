@@ -338,6 +338,12 @@ For tracking SDLC pipeline progress (used by agents and humans):
 | `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes to a task |
 | `egg-contract add-decision --question <text> --options <a> <b>` | Create a HITL decision (multiple choice) |
 | `egg-contract add-feedback --question <text>` | Create a HITL feedback request (open-ended) |
+| `egg-contract verify-criterion --task <id> --criterion <id>` | Mark acceptance criterion as verified (reviewer role) |
+| `egg-contract agent-status` | Show agent execution status for multi-agent orchestration |
+| `egg-contract agent-start` | Mark an agent as started (running) |
+| `egg-contract agent-complete` | Mark an agent as complete |
+| `egg-contract agent-fail` | Mark an agent as failed |
+| `egg-contract agent-next` | Get the next wave of agents to dispatch |
 
 ### egg-onboarding-docs CLI
 
@@ -345,7 +351,9 @@ For generating repository documentation to onboard agents:
 
 | Command | Description |
 |---------|-------------|
-| `egg-onboarding-docs <repo_dir>` | Generate onboarding docs for a repository |
+| `egg-onboarding-docs <name>` | Generate onboarding docs (`<name>` is a directory under `~/repos/`) |
+| `egg-onboarding-docs --dry-run <name>` | Survey and report without creating files or a PR |
+| `egg-onboarding-docs --scope <pattern> <name>` | Limit documentation to files matching the pattern |
 
 ### egg-checkpoint CLI
 
@@ -390,7 +398,6 @@ egg ships as a [composite GitHub Action](action/) for CI/CD integration. It powe
   with:
     prompt: "Review this pull request"
     anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
-    github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 The action supports bot identity via GitHub App credentials, dual-identity review (separate bot and reviewer apps), and both public/private network modes. See [action/README.md](action/README.md) for full input/output documentation.
